@@ -2438,5 +2438,6 @@
   "Vyberte existující logo ve formátu SVG nebo PNG.": "Sélectionnez un logo SVG ou PNG existant.",
   "Logo nelze zkopírovat do adresáře metadat.": "Impossible de copier le logo dans le dossier des métadonnées.",
   "Chránit obsah adresáře před smazáním a přesunutím": "Protéger le contenu du dossier contre la suppression et le déplacement",
-  "Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.": "Le dossier « %1 » est protégé. Désactivez la protection dans les propriétés du dossier avant de supprimer ou déplacer son contenu."
+  "Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.": "Le dossier « %1 » est protégé. Désactivez la protection dans les propriétés du dossier avant de supprimer ou déplacer son contenu.",
+  "Žádné podadresáře": "Aucun sous-dossier"
 }

@@ -9,9 +9,13 @@ Every visible directory has File Manager metadata version 3. Physical directory
 names are short English identifiers that keep Windows release paths within the
 distribution limit. Human-readable localized names are stored in
 `0000-index/metadata.ini` and shown by ZIMA-CAD. The root and main groups have
-Czech, English, German, French and Russian names. Existing nested labels and
-legacy parameter sections are preserved so other systems can continue reading
-the table data and can be completed through Directory Properties.
+Czech, English, German, French and Russian names throughout all 312 directories.
+The reviewed naming catalog is `tools/data/engineering-table-directories.json`.
+It uses engineering terminology such as parallel/Woodruff keys, thread
+undercuts, clevis pins and retaining rings. Short storage identifiers use whole
+words rather than truncated label prefixes. Standard numbers, size ranges,
+directory identities, removal protection and existing parameter sections are
+preserved. Labels remain editable through Directory Properties.
 
 HTML navigation is preserved. Shared web assets are copied beside each page and
 links are rewritten to the imported English directory names, so a table does not

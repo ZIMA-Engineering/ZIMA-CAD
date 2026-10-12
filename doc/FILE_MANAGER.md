@@ -44,16 +44,21 @@ File Manager source and invalidated after Directory Properties changes them.
 
 ## Views
 
-The right side has three views:
+The right side has two views:
 
-- **Project** is shown only for a directory identified as a project. It displays
-  the project number, localized title and description, customer, main image and
-  optional project or company logo. A click-based editor writes version 3
-  metadata without requiring the user to edit INI or HTML.
 - **Overview** renders `0000-index/index_<language>.html` for the active
   application language, falls back to `index.html` or `index.htm`, and otherwise
-  builds image-backed tiles from directory contents, project images and
-  `0000-index/thumbnails`. The automatic overview can be disabled per directory.
+  displays the localized directory title, optional logo and large subdirectory
+  cards, following the ZIMA-Parts automatic index. Card names appear above the
+  images; one click opens the directory. Files remain in the Files view.
+  Previews come from a named image beside the child, parent thumbnails, then
+  the child's project preview or `0000-index/01`, then its branding. All use
+  the active language where a localized preview is available.
+  For a project, the same Overview includes the project number, localized
+  title and description, customer and main image. Project editing stays in the
+  directory/source context menu. There is no separate Project tab.
+  The automatic cards can be disabled per directory. Cards and their text
+  follow the live Qt palette in Light and Dark themes.
 - **Files** lists folders and files with checkboxes and metadata parameter
   columns. Every textual column has its own contains filter in a second header
   row, matching the ZIMA-Parts workflow. Version 3 metadata cells and native
@@ -166,7 +171,18 @@ writes production project data.
 import and metadata conversion on synthetic content. The committed factory
 snapshot contains 1,448 verified files (155,953,349 bytes) and 312 verified
 metadata files. Its imported content-tree SHA-256 is
-`8aa6f36fdb20a7cd53b175d58f97423b2ae15e582efd7fda1fcabbb2ba6492e5`.
+`e3e1d5539769d5fa8c367c68e24ecacffc497d4c70d4cf1f6454dfedbf30853f`.
+All 312 directories have nonempty Czech, English, German, French and Russian
+labels from `tools/data/engineering-table-directories.json`. The catalog
+separates full visible names from concise English physical identifiers.
+Terminology follows the original Czech engineering subjects and official ISO
+titles where applicable: [keys and keyways](https://www.iso.org/ics/21.120.30/x/),
+[clevis pins](https://www.iso.org/standard/7178.html) and
+[thread undercuts](https://www.iso.org/standard/10740.html).
+Reimporting retains all 312 directory IDs, existing metadata settings,
+removal protection, images, PDFs and reference data; only labels, storage names
+and their web-navigation paths change. The importer now reads empty INI label
+values without consuming the next line.
 All Overview index pages have valid local links. One unused legacy
 `index-parts_cs.html` page retains two already-missing source references; the
 import report records them and no active Overview page uses that file.

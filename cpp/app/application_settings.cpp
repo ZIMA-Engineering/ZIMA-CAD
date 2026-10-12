@@ -272,7 +272,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         result.file_manager.company_logo = QDir(config_directory).absoluteFilePath(result.file_manager.company_logo);
     result.file_manager.company_website = value("FileManager/CompanyWebsite", "https://zima-engineering.cz");
     result.file_manager.default_view = value("FileManager/DefaultView", "overview").toLower();
-    if (!QStringList{"project", "overview", "files"}.contains(result.file_manager.default_view))
+    if (!QStringList{"overview", "files"}.contains(result.file_manager.default_view))
         result.file_manager.default_view = "overview";
     bool thumbnail_ok = false;
     result.file_manager.thumbnail_size = value("FileManager/ThumbnailSize", "144").toInt(&thumbnail_ok);

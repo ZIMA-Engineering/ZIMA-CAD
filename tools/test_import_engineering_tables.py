@@ -8,6 +8,31 @@ IMPORTER = runpy.run_path(str(Path(__file__).with_name("import-engineering-table
 
 
 class EngineeringTableImportTest(unittest.TestCase):
+    def test_empty_label_does_not_consume_the_next_ini_line(self):
+        text = '[Directory]\nLabel\\en=\nLabel\\de=\nPreventRemoval=true\n'
+        self.assertEqual(IMPORTER['ini_label'](text, 'en'), '')
+        converted = IMPORTER['directory_metadata'](text, 'Vrtání', 'Drilling', 'fixture', False,
+            ('Vrtání', 'Drilling', 'Bohren', 'Perçage', 'Сверление'))
+        self.assertIn('Label\\en=Drilling\n', converted)
+        self.assertIn('Label\\de=Bohren\n', converted)
+        self.assertIn('PreventRemoval=true\n', converted)
+        self.assertNotIn('=Label\\', converted)
+
+    def test_factory_catalog_has_complete_labels_and_reviewed_storage_names(self):
+        catalog = IMPORTER['DIRECTORY_CATALOG']
+        self.assertEqual(len(catalog), 312)
+        for source, row in catalog.items():
+            self.assertEqual(set(row['labels']), set(IMPORTER['LANGUAGES']))
+            self.assertTrue(all(value.strip() and 'Label\\' not in value and 'translated' not in value.lower()
+                                for value in row['labels'].values()), source)
+            if source != '.':
+                self.assertRegex(row['storage'], r'^[A-Z0-9.-]+$')
+        shaft = catalog['04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni']
+        self.assertEqual(shaft['labels']['en'], 'Gears')
+        self.assertEqual(shaft['storage'], '06-GEARS')
+        keys = catalog['08-PERA A DRAZKY/04-Pera usecova']
+        self.assertEqual(keys['labels']['en'], 'Woodruff keys')
+
     def test_imports_reference_content_and_migrates_metadata(self):
         temporary_root = Path(__file__).resolve().parents[1] / "build"
         temporary_root.mkdir(parents=True, exist_ok=True)

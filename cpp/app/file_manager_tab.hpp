@@ -70,12 +70,12 @@ private:
     QToolButton* forward_{};
     QToolButton* up_{};
     QTabWidget* views_{};
-    QWidget* project_page_{};
+    QWidget* automatic_overview_{};
     QLabel* project_logo_{};
     QLabel* project_title_{};
     QLabel* project_details_{};
     QLabel* project_image_{};
-    QPushButton* edit_project_{};
+    QLabel* overview_empty_{};
     QStackedWidget* overview_stack_{};
     QListWidget* overview_{};
     QWebEngineView* overview_web_{};
@@ -88,7 +88,7 @@ private:
     void build_ui();
     void rebuild_sources();
     void refresh_directory();
-    void refresh_project();
+    void refresh_overview_header();
     void refresh_overview();
     void refresh_files();
     void apply_file_filters();

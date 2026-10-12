@@ -2438,5 +2438,6 @@
   "Vyberte existující logo ve formátu SVG nebo PNG.": "Select an existing SVG or PNG logo.",
   "Logo nelze zkopírovat do adresáře metadat.": "The logo cannot be copied to the metadata directory.",
   "Chránit obsah adresáře před smazáním a přesunutím": "Protect directory contents from deletion and moving",
-  "Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.": "Directory “%1” is protected. Disable protection in Directory Properties before deleting or moving its contents."
+  "Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.": "Directory “%1” is protected. Disable protection in Directory Properties before deleting or moving its contents.",
+  "Žádné podadresáře": "No subdirectories"
 }

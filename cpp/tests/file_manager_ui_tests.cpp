@@ -10,6 +10,8 @@
 #include <QFile>
 #include <QListWidget>
 #include <QLineEdit>
+#include <QLabel>
+#include <QImage>
 #include <QMenu>
 #include <QPushButton>
 #include <QSettings>
@@ -53,6 +55,8 @@ int main(int argc,char** argv){
             metadata.setValue("Parts/BRACKET\\material","S355");metadata.sync();check(metadata.status()==QSettings::NoError,"Cannot write synthetic metadata");
         }
         {QSettings metadata(html_index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Version",3);metadata.setValue("Directory/Kind","directory");metadata.setValue("Directory/Id","synthetic-html");metadata.setValue("Directory/Label\\cs","HTML tabulka");metadata.setValue("Directory/LogoMode","logo");metadata.setValue("Directory/Logo","logo.svg");metadata.sync();}
+        check(QDir().mkpath(project+"/SUBDIR/0000-index"),"Cannot create child preview fixture");
+        {QImage preview(100,60,QImage::Format_RGB32);preview.fill(Qt::red);check(preview.save(project+"/SUBDIR/0000-index/01_cs.png"),"Cannot write localized preview");preview.fill(Qt::blue);check(preview.save(project+"/SUBDIR/0000-index/logo.png"),"Cannot write child branding");}
 
         zima::app::ApplicationSettings settings;settings.language="cs";settings.file_manager.default_view="overview";settings.file_manager.thumbnail_size=96;
         settings.file_manager.sources.push_back({"synthetic","Testovací knihovna",source,source,true,false,false});
@@ -77,9 +81,17 @@ int main(int argc,char** argv){
         sources->customContextMenuRequested(sources->visualItemRect(sources->item(1)).center());application.processEvents();check(source_project_action,"Configured source does not offer project overview creation");
         auto* project_editor=first.findChild<QDialog*>("fileManagerProjectEditor");check(project_editor,"Project overview editor did not open for the configured source");project_editor->accept();application.processEvents();
         QSettings source_metadata(source+"/0000-index/metadata.ini",QSettings::IniFormat);check(source_metadata.value("Directory/Version").toInt()==3&&source_metadata.value("Directory/Kind").toString()=="project","Project overview was not created at the configured source root");
-        check(views&&views->isTabVisible(0),"Project view is not available after source-root project creation");first.navigate(project);
-        check(views&&views->isTabVisible(0),"Project view is not available for metadata v3 project");
-        check(overview&&overview->count()==4,"Automatic overview did not load synthetic directory entries or exposed 0000-index");
+        check(views&&views->count()==2,"File Manager must expose only Overview and Files");first.navigate(project);
+        auto* overview_title=first.findChild<QLabel*>("fileManagerOverviewTitle");auto* overview_details=first.findChild<QLabel*>("fileManagerOverviewDetails");
+        check(overview_title&&overview_title->text()=="Ukázkový projekt"&&overview_details&&overview_details->text().contains("DEMO-001"),"Project information is not integrated into Overview");
+        check(overview&&overview->count()==1&&overview->item(0)->text()=="SUBDIR","Automatic directory overview exposed files or 0000-index");
+        check(overview->item(0)->icon().pixmap(100,60).toImage().pixelColor(50,30)==QColor(Qt::red),"Child localized preview did not take precedence over its logo");
+        const QPalette original_palette=application.palette();
+        const QString capture_directory=qEnvironmentVariable("ZIMA_FILE_MANAGER_CAPTURE_DIRECTORY");
+        const auto capture=[&](const QString& name){application.processEvents();if(!capture_directory.isEmpty()){QDir().mkpath(capture_directory);check(first.grab().save(QDir(capture_directory).filePath(name)),"Cannot save overview verification image");}};
+        QPalette light=original_palette;light.setColor(QPalette::Window,QColor("#efefef"));light.setColor(QPalette::Button,QColor("#efefef"));light.setColor(QPalette::ButtonText,Qt::black);light.setColor(QPalette::Base,Qt::white);light.setColor(QPalette::AlternateBase,QColor("#f6f6f6"));light.setColor(QPalette::Text,Qt::black);light.setColor(QPalette::WindowText,Qt::black);light.setColor(QPalette::Mid,QColor("#b0b0b0"));application.setPalette(light);
+        capture("overview-light.png");QPalette dark=light;dark.setColor(QPalette::Window,QColor("#202020"));dark.setColor(QPalette::Button,QColor("#303030"));dark.setColor(QPalette::ButtonText,Qt::white);dark.setColor(QPalette::Base,QColor("#252525"));dark.setColor(QPalette::AlternateBase,QColor("#303030"));dark.setColor(QPalette::Text,Qt::white);dark.setColor(QPalette::WindowText,Qt::white);dark.setColor(QPalette::Mid,QColor("#606060"));application.setPalette(dark);capture("overview-dark.png");check(overview->palette().color(QPalette::Text)==QColor(Qt::white),"Overview did not follow a live dark palette");application.setPalette(light);capture("overview-light-restored.png");check(overview->palette().color(QPalette::Text)==QColor(Qt::black),"Overview did not restore the live light palette");application.setPalette(original_palette);
+        overview->itemClicked(overview->item(0));check(first.current_directory()==QDir::cleanPath(project+"/SUBDIR"),"Single-clicking an overview tile did not navigate");first.navigate(project);
         check(files&&files->topLevelItemCount()==3&&files->columnCount()==9,"File table did not load metadata and native parameter columns");
         bool bracket_found=false;for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);if(item->text(2)!="BRACKET.prtz")continue;bracket_found=true;check(item->text(6)=="S355"&&item->text(8)=="125","Metadata or native parameter was not loaded");files->itemDoubleClicked(item,8);check(opened_file.isEmpty(),"Double-clicking a parameter cell opened the file");files->itemDoubleClicked(item,2);check(opened_file==QDir::cleanPath(project+"/BRACKET.prtz"),"Double-clicking the file-name cell did not open the file");const auto cell=files->indexFromItem(item,8);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Parameter delegate did not create an editor");line->setText("150");files->itemDelegate()->setModelData(editor,files->model(),cell);delete editor;}
         check(bracket_found,"Native Part is missing from the file table");
@@ -92,11 +104,12 @@ int main(int argc,char** argv){
             throw std::runtime_error("Native parameter mirror or provider was not saved");
         }
 
-        first.navigate(html_directory);application.processEvents();auto* overview_stack=first.findChild<QStackedWidget*>("fileManagerOverviewStack");auto* overview_web=first.findChild<QWebEngineView*>("fileManagerOverviewWeb");check(overview_stack&&overview_web&&overview_stack->currentWidget()==overview_web,"Localized HTML did not replace the automatic overview");check(wait_until([&]{return QDir::cleanPath(overview_web->url().toLocalFile())==QDir::cleanPath(html_index+"/index_cs.html");}),"The active-language HTML overview did not take precedence over index.html");first.navigate(project);check(overview_stack->currentWidget()==overview,"Automatic overview was not restored for a directory without HTML");
+        first.navigate(html_directory);application.processEvents();auto* overview_stack=first.findChild<QStackedWidget*>("fileManagerOverviewStack");auto* overview_web=first.findChild<QWebEngineView*>("fileManagerOverviewWeb");check(overview_stack&&overview_web&&overview_stack->currentWidget()==overview_web,"Localized HTML did not replace the automatic overview");check(wait_until([&]{return QDir::cleanPath(overview_web->url().toLocalFile())==QDir::cleanPath(html_index+"/index_cs.html");}),"The active-language HTML overview did not take precedence over index.html");first.navigate(project);check(overview_stack->currentWidget()==first.findChild<QWidget*>("fileManagerAutomaticOverview"),"Automatic overview was not restored for a directory without HTML");
 
-        zima::app::FileManagerTab second(settings,working,working);second.navigate(source);
+        auto files_settings=settings;files_settings.file_manager.default_view="files";
+        zima::app::FileManagerTab second(files_settings,working,working);check(second.findChild<QTabWidget*>("fileManagerViews")->currentIndex()==1,"Initial Files preference was ignored");second.navigate(source);
         check(first.current_directory()==QDir::cleanPath(project)&&second.current_directory()==QDir::cleanPath(source),"File Manager tabs do not keep independent navigation state");
-        first.navigate(working);check(!views->isTabVisible(0),"Project view remained visible outside a project directory");
+        first.navigate(working);check(views->count()==2&&views->isTabVisible(0)&&overview_title->text()=="working"&&overview_details->isHidden(),"Directory overview retained stale project information");
         check(files->columnCount()==7&&files->topLevelItemCount()==1,"Native parameters were not exposed without metadata");
         const auto native_cell=files->indexFromItem(files->topLevelItem(0),6);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,native_cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Native parameter was not editable without metadata");line->setText("175");files->itemDelegate()->setModelData(editor,files->model(),native_cell);delete editor;
         QSettings created(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(created.value("Directory/Version").toInt()==3&&created.value("Directory/Kind").toString()=="directory","Editing a native parameter did not initialize metadata v3");

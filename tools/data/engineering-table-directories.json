@@ -1,0 +1,3122 @@
+{
+  ".": {
+    "storage": "",
+    "labels": {
+      "cs": "Strojnické tabulky",
+      "en": "Engineering tables",
+      "de": "Maschinenbautabellen",
+      "fr": "Tables de construction mécanique",
+      "ru": "Машиностроительные таблицы"
+    }
+  },
+  "01-OBECNE NORMY": {
+    "storage": "01-GENERAL-STANDARDS",
+    "labels": {
+      "cs": "OBECNÉ NORMY",
+      "en": "GENERAL STANDARDS",
+      "de": "ALLGEMEINE NORMEN",
+      "fr": "NORMES GÉNÉRALES",
+      "ru": "ОБЩИЕ СТАНДАРТЫ"
+    }
+  },
+  "02-TOLEROVANI": {
+    "storage": "02-TOLERANCES",
+    "labels": {
+      "cs": "TOLEROVÁNÍ",
+      "en": "TOLERANCES",
+      "de": "TOLERANZEN",
+      "fr": "TOLÉRANCES",
+      "ru": "ДОПУСКИ"
+    }
+  },
+  "03-ZAVITY": {
+    "storage": "03-THREADS",
+    "labels": {
+      "cs": "ZÁVITY",
+      "en": "THREADS",
+      "de": "GEWINDE",
+      "fr": "FILETAGES",
+      "ru": "РЕЗЬБЫ"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI": {
+    "storage": "04-SHAFTS-SPLINES-GEARS",
+    "labels": {
+      "cs": "HŘÍDELE, DRÁŽKY A OZUBENÍ",
+      "en": "SHAFTS, SPLINES AND GEARS",
+      "de": "WELLEN, VERZAHNUNGEN UND ZAHNRÄDER",
+      "fr": "ARBRES, CANNELURES ET ENGRENAGES",
+      "ru": "ВАЛЫ, ШЛИЦЫ И ЗУБЧАТЫЕ ПЕРЕДАЧИ"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY": {
+    "storage": "05-FASTENERS",
+    "labels": {
+      "cs": "ŠROUBY, MATICE A PODLOŽKY",
+      "en": "FASTENERS",
+      "de": "VERBINDUNGSELEMENTE",
+      "fr": "ÉLÉMENTS DE FIXATION",
+      "ru": "КРЕПЁЖНЫЕ ИЗДЕЛИЯ"
+    }
+  },
+  "06-VSEOBECNE POZADAVKY NA SROUBY A MATICE": {
+    "storage": "06-FASTENER-REQUIREMENTS",
+    "labels": {
+      "cs": "VŠEOBECNÉ POŽADAVKY NA ŠROUBY A MATICE",
+      "en": "FASTENER REQUIREMENTS",
+      "de": "ANFORDERUNGEN AN SCHRAUBEN UND MUTTERN",
+      "fr": "EXIGENCES RELATIVES AUX FIXATIONS",
+      "ru": "ТРЕБОВАНИЯ К КРЕПЕЖУ"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY": {
+    "storage": "07-PINS-RETAINERS-DOWELS",
+    "labels": {
+      "cs": "ČEPY, POJISTKY A KOLÍKY",
+      "en": "PINS, RETAINERS AND DOWELS",
+      "de": "BOLZEN, SICHERUNGEN UND STIFTE",
+      "fr": "AXES, ARRÊTS ET GOUPILLES",
+      "ru": "ПАЛЬЦЫ, ФИКСАТОРЫ И ШТИФТЫ"
+    }
+  },
+  "08-PERA A DRAZKY": {
+    "storage": "08-KEYS-KEYWAYS",
+    "labels": {
+      "cs": "PERA A DRÁŽKY",
+      "en": "KEYS AND KEYWAYS",
+      "de": "PASSFEDERN UND NUTEN",
+      "fr": "CLAVETTES ET RAINURES",
+      "ru": "ШПОНКИ И ШПОНОЧНЫЕ ПАЗЫ"
+    }
+  },
+  "09-LOZISKA": {
+    "storage": "09-BEARINGS",
+    "labels": {
+      "cs": "LOŽISKA",
+      "en": "BEARINGS",
+      "de": "LAGER",
+      "fr": "PALIERS ET ROULEMENTS",
+      "ru": "ПОДШИПНИКИ"
+    }
+  },
+  "10-TESNENI": {
+    "storage": "10-SEALS",
+    "labels": {
+      "cs": "TĚSNĚNÍ",
+      "en": "SEALS",
+      "de": "DICHTUNGEN",
+      "fr": "JOINTS",
+      "ru": "УПЛОТНЕНИЯ"
+    }
+  },
+  "11-HRDLA A PRIPOJKY": {
+    "storage": "11-PORTS-CONNECTIONS",
+    "labels": {
+      "cs": "HRDLA A PŘÍPOJKY",
+      "en": "PORTS AND CONNECTIONS",
+      "de": "ANSCHLÜSSE UND VERBINDUNGEN",
+      "fr": "ORIFICES ET RACCORDS",
+      "ru": "ПАТРУБКИ И СОЕДИНЕНИЯ"
+    }
+  },
+  "12-POTRUBI A ARMATURY": {
+    "storage": "12-PIPES-VALVES",
+    "labels": {
+      "cs": "POTRUBÍ A ARMATURY",
+      "en": "PIPES AND VALVES",
+      "de": "ROHRE UND ARMATUREN",
+      "fr": "TUYAUX ET ROBINETTERIE",
+      "ru": "ТРУБЫ И АРМАТУРА"
+    }
+  },
+  "13-SVAROVANI A PAJENI": {
+    "storage": "13-WELDING-BRAZING",
+    "labels": {
+      "cs": "SVAŘOVÁNÍ A PÁJENÍ",
+      "en": "WELDING AND BRAZING",
+      "de": "SCHWEISSEN UND LÖTEN",
+      "fr": "SOUDAGE ET BRASAGE",
+      "ru": "СВАРКА И ПАЙКА"
+    }
+  },
+  "14-TECHNOLOGIE": {
+    "storage": "14-MANUFACTURING",
+    "labels": {
+      "cs": "TECHNOLOGIE",
+      "en": "MANUFACTURING",
+      "de": "FERTIGUNG",
+      "fr": "FABRICATION",
+      "ru": "ПРОИЗВОДСТВО"
+    }
+  },
+  "15-POLOTOVARY": {
+    "storage": "15-SEMI-FINISHED",
+    "labels": {
+      "cs": "POLOTOVARY",
+      "en": "SEMI-FINISHED PRODUCTS",
+      "de": "HALBZEUGE",
+      "fr": "PRODUITS SEMI-FINIS",
+      "ru": "ПОЛУФАБРИКАТЫ"
+    }
+  },
+  "16-TECHNICKE MATERIALY": {
+    "storage": "16-MATERIALS",
+    "labels": {
+      "cs": "TECHNICKÉ MATERIÁLY",
+      "en": "ENGINEERING MATERIALS",
+      "de": "TECHNISCHE WERKSTOFFE",
+      "fr": "MATÉRIAUX TECHNIQUES",
+      "ru": "КОНСТРУКЦИОННЫЕ МАТЕРИАЛЫ"
+    }
+  },
+  "17-TECHNICKE KRESLENI": {
+    "storage": "17-TECHNICAL-DRAWING",
+    "labels": {
+      "cs": "TECHNICKÉ KRESLENÍ",
+      "en": "TECHNICAL DRAWING",
+      "de": "TECHNISCHES ZEICHNEN",
+      "fr": "DESSIN TECHNIQUE",
+      "ru": "ТЕХНИЧЕСКОЕ ЧЕРЧЕНИЕ"
+    }
+  },
+  "51-ENGINEERING_CALCULATIONS": {
+    "storage": "51-CALCULATIONS",
+    "labels": {
+      "cs": "STROJÍRENSKÉ VÝPOČTY",
+      "en": "ENGINEERING CALCULATIONS",
+      "de": "TECHNISCHE BERECHNUNGEN",
+      "fr": "CALCULS TECHNIQUES",
+      "ru": "ИНЖЕНЕРНЫЕ РАСЧЁТЫ"
+    }
+  },
+  "01-OBECNE NORMY/01-Veliciny a jednotky": {
+    "storage": "01-UNITS",
+    "labels": {
+      "cs": "Veličiny a jednotky",
+      "en": "Quantities and units",
+      "de": "Größen und Einheiten",
+      "fr": "Grandeurs et unités",
+      "ru": "Величины и единицы"
+    }
+  },
+  "01-OBECNE NORMY/02-Rady vyvolenych cisel": {
+    "storage": "02-NUMBERS",
+    "labels": {
+      "cs": "Řady vyvolených čísel",
+      "en": "Preferred number series",
+      "de": "Vorzugszahlenreihen",
+      "fr": "Séries de nombres normaux",
+      "ru": "Ряды предпочтительных чисел"
+    }
+  },
+  "01-OBECNE NORMY/03-Normalni rozmery": {
+    "storage": "03-SIZES",
+    "labels": {
+      "cs": "Normální rozměry",
+      "en": "Standard sizes",
+      "de": "Normmaße",
+      "fr": "Dimensions normalisées",
+      "ru": "Нормальные размеры"
+    }
+  },
+  "01-OBECNE NORMY/04-Normalni sklony a jehlanovitosti": {
+    "storage": "04-SLOPES",
+    "labels": {
+      "cs": "Normální sklony a jehlanovitosti",
+      "en": "Standard slopes and pyramidal tapers",
+      "de": "Normneigungen und Pyramidenverjüngungen",
+      "fr": "Pentes et conicités pyramidales normalisées",
+      "ru": "Нормальные уклоны и пирамидальные конусности"
+    }
+  },
+  "01-OBECNE NORMY/05-Rady kuzelovitosti": {
+    "storage": "05-TAPERS",
+    "labels": {
+      "cs": "Řady kuželovitostí",
+      "en": "Taper series",
+      "de": "Kegelverhältnisse",
+      "fr": "Séries de conicités",
+      "ru": "Ряды конусностей"
+    }
+  },
+  "01-OBECNE NORMY/06-Prevod palcu na milimetry": {
+    "storage": "06-INCH-MM",
+    "labels": {
+      "cs": "Převod palců na milimetry",
+      "en": "Inch to millimetre conversion",
+      "de": "Umrechnung Zoll in Millimeter",
+      "fr": "Conversion pouces en millimètres",
+      "ru": "Перевод дюймов в миллиметры"
+    }
+  },
+  "01-OBECNE NORMY/07-Formaty a meritka": {
+    "storage": "07-SHEETS",
+    "labels": {
+      "cs": "Formáty a měřítka",
+      "en": "Sheet sizes and scales",
+      "de": "Blattformate und Maßstäbe",
+      "fr": "Formats de feuilles et échelles",
+      "ru": "Форматы листов и масштабы"
+    }
+  },
+  "02-TOLEROVANI/01-Vseobecne tolerance": {
+    "storage": "01-GENERAL",
+    "labels": {
+      "cs": "Všeobecné tolerance",
+      "en": "General tolerances",
+      "de": "Allgemeintoleranzen",
+      "fr": "Tolérances générales",
+      "ru": "Общие допуски"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO": {
+    "storage": "02-ISO-FITS",
+    "labels": {
+      "cs": "Soustava toleranci a uložení ISO",
+      "en": "ISO system of limits and fits",
+      "de": "ISO-System für Grenzmaße und Passungen",
+      "fr": "Système ISO de limites et d'ajustements",
+      "ru": "Система допусков и посадок ISO"
+    }
+  },
+  "02-TOLEROVANI/03-Tolerance uhlu AT a ATd": {
+    "storage": "03-ANGLES",
+    "labels": {
+      "cs": "Tolerance úhlu AT a ATd",
+      "en": "Angular tolerances AT and ATd",
+      "de": "Winkeltoleranzen AT und ATd",
+      "fr": "Tolérances angulaires AT et ATd",
+      "ru": "Допуски углов AT и ATd"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance": {
+    "storage": "04-GEOMETRY",
+    "labels": {
+      "cs": "Geometrické tolerance",
+      "en": "Geometrical tolerances",
+      "de": "Geometrische Toleranzen",
+      "fr": "Tolérances géométriques",
+      "ru": "Геометрические допуски"
+    }
+  },
+  "03-ZAVITY/01-Zavity ISO": {
+    "storage": "01-ISO",
+    "labels": {
+      "cs": "Závity ISO",
+      "en": "ISO threads",
+      "de": "ISO-Gewinde",
+      "fr": "Filetages ISO",
+      "ru": "Резьбы ISO"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO": {
+    "storage": "02-METRIC",
+    "labels": {
+      "cs": "Metrické závity ISO",
+      "en": "ISO metric threads",
+      "de": "Metrische ISO-Gewinde",
+      "fr": "Filetages métriques ISO",
+      "ru": "Метрические резьбы ISO"
+    }
+  },
+  "03-ZAVITY/03-Palcove zavity ISO": {
+    "storage": "03-INCH",
+    "labels": {
+      "cs": "Palcové závity ISO",
+      "en": "ISO inch threads",
+      "de": "ISO-Zollgewinde",
+      "fr": "Filetages ISO en pouces",
+      "ru": "Дюймовые резьбы ISO"
+    }
+  },
+  "03-ZAVITY/04-Whitworthovy zavity": {
+    "storage": "04-WHITWORTH",
+    "labels": {
+      "cs": "Whitworthovy závity",
+      "en": "Whitworth threads",
+      "de": "Whitworth-Gewinde",
+      "fr": "Filetages Whitworth",
+      "ru": "Резьбы Витворта"
+    }
+  },
+  "03-ZAVITY/05-Trubkove zavity ISO": {
+    "storage": "05-PIPE",
+    "labels": {
+      "cs": "Trubkové závity ISO",
+      "en": "ISO pipe threads",
+      "de": "ISO-Rohrgewinde",
+      "fr": "Filetages de tuyauterie ISO",
+      "ru": "Трубные резьбы ISO"
+    }
+  },
+  "03-ZAVITY/06-Lichobeznikove zavity": {
+    "storage": "06-TRAPEZOID",
+    "labels": {
+      "cs": "Lichoběžníkové závity",
+      "en": "Trapezoidal threads",
+      "de": "Trapezgewinde",
+      "fr": "Filetages trapézoïdaux",
+      "ru": "Трапецеидальные резьбы"
+    }
+  },
+  "03-ZAVITY/07-Zvlastni zavity uzivane na jizdnich kolech": {
+    "storage": "07-BICYCLES",
+    "labels": {
+      "cs": "Zvláštní závity užívané na jízdních kolech",
+      "en": "Bicycle threads",
+      "de": "Fahrradgewinde",
+      "fr": "Filetages pour bicyclettes",
+      "ru": "Резьбы для велосипедов"
+    }
+  },
+  "03-ZAVITY/08-Vybehy a zkoseni zavitu": {
+    "storage": "08-RUNOUTS",
+    "labels": {
+      "cs": "Výběhy a zkosení závitů",
+      "en": "Thread runouts and chamfers",
+      "de": "Gewindeausläufe und Fasen",
+      "fr": "Sorties de filetage et chanfreins",
+      "ru": "Сбеги и фаски резьбы"
+    }
+  },
+  "03-ZAVITY/09-Drazky za zavity": {
+    "storage": "09-RELIEFS",
+    "labels": {
+      "cs": "Drážky za závity",
+      "en": "Thread undercuts",
+      "de": "Gewindefreistiche",
+      "fr": "Gorges de dégagement de filetage",
+      "ru": "Проточки за резьбой"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/01-Valcove a kuzelove konce hridelu podle CSN 01 4990 a ISO 775": {
+    "storage": "01-SHAFT-END",
+    "labels": {
+      "cs": "Válcové a kuželové konce hřídelů podle ČSN 01 4990 a ISO 775",
+      "en": "Cylindrical and tapered shaft ends — ČSN 01 4990 and ISO 775",
+      "de": "Zylindrische und kegelige Wellenenden — ČSN 01 4990 und ISO 775",
+      "fr": "Bouts d'arbres cylindriques et coniques — ČSN 01 4990 et ISO 775",
+      "ru": "Цилиндрические и конические концы валов — ČSN 01 4990 и ISO 775"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/02-Ryhovani a vroubkovani": {
+    "storage": "02-KNURLING",
+    "labels": {
+      "cs": "Rýhování a vroubkování",
+      "en": "Knurling and serrations",
+      "de": "Rändel und Kerbverzahnungen",
+      "fr": "Moletage et stries",
+      "ru": "Накатка и рифление"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/03-Jemne drazkovani": {
+    "storage": "03-FINE",
+    "labels": {
+      "cs": "Jemné drážkování",
+      "en": "Fine splines",
+      "de": "Feinverzahnungen",
+      "fr": "Cannelures fines",
+      "ru": "Мелкие шлицы"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani": {
+    "storage": "04-STRAIGHT",
+    "labels": {
+      "cs": "Rovnoboké drážkování",
+      "en": "Straight-sided splines",
+      "de": "Keilwellenverzahnungen",
+      "fr": "Cannelures à flancs parallèles",
+      "ru": "Прямобочные шлицы"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/05-Evolventni drazkovani": {
+    "storage": "05-INVOLUTE",
+    "labels": {
+      "cs": "Evolventní drážkování",
+      "en": "Involute splines",
+      "de": "Evolventenverzahnungen",
+      "fr": "Cannelures en développante",
+      "ru": "Эвольвентные шлицы"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni": {
+    "storage": "06-GEARS",
+    "labels": {
+      "cs": "Ozubení",
+      "en": "Gears",
+      "de": "Zahnräder",
+      "fr": "Engrenages",
+      "ru": "Зубчатые передачи"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/01-Unosnost sroubu": {
+    "storage": "01-CAPACITY",
+    "labels": {
+      "cs": "Únosnost šroubů",
+      "en": "Bolt load capacity",
+      "de": "Tragfähigkeit von Schrauben",
+      "fr": "Capacité de charge des boulons",
+      "ru": "Несущая способность болтов"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/02-Zahloubeni - operne plochy - diry pro srouby": {
+    "storage": "02-HOLES",
+    "labels": {
+      "cs": "Zahloubení, opěrné plochy, díry pro šrouby",
+      "en": "Counterbores, bearing surfaces and bolt holes",
+      "de": "Senkungen, Auflageflächen und Schraubenlöcher",
+      "fr": "Lamages, surfaces d'appui et trous de boulons",
+      "ru": "Зенковки, опорные поверхности и отверстия под болты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/03-Mechanicke vlastnosti spojovacich soucasti": {
+    "storage": "03-MECHANIC",
+    "labels": {
+      "cs": "Mechanické vlastnosti spojovacích součástí",
+      "en": "Mechanical properties of fasteners",
+      "de": "Mechanische Eigenschaften von Verbindungselementen",
+      "fr": "Propriétés mécaniques des éléments de fixation",
+      "ru": "Механические свойства крепежа"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby": {
+    "storage": "04-SCREWS",
+    "labels": {
+      "cs": "Šrouby",
+      "en": "Screws and bolts",
+      "de": "Schrauben",
+      "fr": "Vis et boulons",
+      "ru": "Винты и болты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice": {
+    "storage": "05-NUTS",
+    "labels": {
+      "cs": "Matice",
+      "en": "Nuts",
+      "de": "Muttern",
+      "fr": "Écrous",
+      "ru": "Гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky": {
+    "storage": "06-WASHERS",
+    "labels": {
+      "cs": "Podložky",
+      "en": "Washers",
+      "de": "Unterlegscheiben",
+      "fr": "Rondelles",
+      "ru": "Шайбы"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/01-Cepy": {
+    "storage": "01-CLEVIS",
+    "labels": {
+      "cs": "Čepy",
+      "en": "Clevis pins",
+      "de": "Bolzen",
+      "fr": "Axes d'articulation",
+      "ru": "Пальцы"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky": {
+    "storage": "02-RETAINERS",
+    "labels": {
+      "cs": "Pojistky",
+      "en": "Retainers",
+      "de": "Sicherungselemente",
+      "fr": "Éléments de retenue",
+      "ru": "Стопорные элементы"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky": {
+    "storage": "03-DOWELS",
+    "labels": {
+      "cs": "Kolíky",
+      "en": "Dowel pins",
+      "de": "Stifte",
+      "fr": "Goupilles",
+      "ru": "Штифты"
+    }
+  },
+  "08-PERA A DRAZKY/01-Prirazeni per k hridelum": {
+    "storage": "01-KEY-SIZES",
+    "labels": {
+      "cs": "Přiřazení per k hřídelům",
+      "en": "Key selection for shafts",
+      "de": "Zuordnung von Passfedern zu Wellen",
+      "fr": "Choix des clavettes pour les arbres",
+      "ru": "Подбор шпонок для валов"
+    }
+  },
+  "08-PERA A DRAZKY/02-Pera tesna a pera s pridrznymi srouby": {
+    "storage": "02-PARALLEL",
+    "labels": {
+      "cs": "Pera těsná a pera s přídržnými šrouby",
+      "en": "Parallel keys and keys with retaining screws",
+      "de": "Passfedern und Passfedern mit Halteschrauben",
+      "fr": "Clavettes parallèles et clavettes avec vis de retenue",
+      "ru": "Призматические шпонки и шпонки с крепёжными винтами"
+    }
+  },
+  "08-PERA A DRAZKY/03-Prevlecne prumery": {
+    "storage": "03-PASSAGE",
+    "labels": {
+      "cs": "Převlečné průměry",
+      "en": "Passage diameters",
+      "de": "Durchschubdurchmesser",
+      "fr": "Diamètres de passage",
+      "ru": "Проходные диаметры"
+    }
+  },
+  "08-PERA A DRAZKY/04-Pera usecova": {
+    "storage": "04-WOODRUFF",
+    "labels": {
+      "cs": "Pera úsečová",
+      "en": "Woodruff keys",
+      "de": "Scheibenfedern",
+      "fr": "Clavettes-disques",
+      "ru": "Сегментные шпонки"
+    }
+  },
+  "09-LOZISKA/01-Kluzna loziska": {
+    "storage": "01-PLAIN",
+    "labels": {
+      "cs": "Kluzná ložiska",
+      "en": "Plain bearings",
+      "de": "Gleitlager",
+      "fr": "Paliers lisses",
+      "ru": "Подшипники скольжения"
+    }
+  },
+  "09-LOZISKA/02-Valiva loziska": {
+    "storage": "02-ROLLING",
+    "labels": {
+      "cs": "Valivá ložiska",
+      "en": "Rolling bearings",
+      "de": "Wälzlager",
+      "fr": "Roulements",
+      "ru": "Подшипники качения"
+    }
+  },
+  "14-TECHNOLOGIE/01-Stredici dulky s vrcholovym uhlem 60": {
+    "storage": "01-CENTRE-60",
+    "labels": {
+      "cs": "Středící důlky s vrcholovým úhlem 60",
+      "en": "Centre holes with 60° included angle",
+      "de": "Zentrierbohrungen mit 60° Spitzenwinkel",
+      "fr": "Trous de centre à angle de 60°",
+      "ru": "Центровые отверстия с углом 60°"
+    }
+  },
+  "14-TECHNOLOGIE/02-Stredici dulky s vrcholovym uhlem 90": {
+    "storage": "02-CENTRE-90",
+    "labels": {
+      "cs": "Středící důlky s vrcholovým úhlem 90",
+      "en": "Centre holes with 90° included angle",
+      "de": "Zentrierbohrungen mit 90° Spitzenwinkel",
+      "fr": "Trous de centre à angle de 90°",
+      "ru": "Центровые отверстия с углом 90°"
+    }
+  },
+  "14-TECHNOLOGIE/03-Stredici dulky se zavitem": {
+    "storage": "03-THREADED",
+    "labels": {
+      "cs": "Středící důlky se závitem",
+      "en": "Threaded centre holes",
+      "de": "Zentrierbohrungen mit Gewinde",
+      "fr": "Trous de centre filetés",
+      "ru": "Резьбовые центровые отверстия"
+    }
+  },
+  "14-TECHNOLOGIE/04-DRSNOSI POVRCHU": {
+    "storage": "04-ROUGHNESS",
+    "labels": {
+      "cs": "DRSNOSTI POVRCHU",
+      "en": "Surface roughness",
+      "de": "Oberflächenrauheit",
+      "fr": "Rugosité de surface",
+      "ru": "Шероховатость поверхности"
+    }
+  },
+  "14-TECHNOLOGIE/11-Prostor pro uziti klicu na 6HR": {
+    "storage": "11-WRENCHES",
+    "labels": {
+      "cs": "Prostor pro užití klíčů na 6HR",
+      "en": "Wrench clearance for hexagons",
+      "de": "Schlüsselraum für Sechskante",
+      "fr": "Dégagement pour clés sur six pans",
+      "ru": "Место для ключей на шестигранниках"
+    }
+  },
+  "14-TECHNOLOGIE/12-Zahloubeni - operne plochy - diry pro srouby": {
+    "storage": "12-HOLES",
+    "labels": {
+      "cs": "Zahloubení, opěrné plochy, díry pro šrouby",
+      "en": "Counterbores, bearing surfaces and bolt holes",
+      "de": "Senkungen, Auflageflächen und Schraubenlöcher",
+      "fr": "Lamages, surfaces d'appui et trous de boulons",
+      "ru": "Зенковки, опорные поверхности и отверстия под болты"
+    }
+  },
+  "14-TECHNOLOGIE/21-Vrtani": {
+    "storage": "21-DRILLING",
+    "labels": {
+      "cs": "Vrtání",
+      "en": "Drilling",
+      "de": "Bohren",
+      "fr": "Perçage",
+      "ru": "Сверление"
+    }
+  },
+  "14-TECHNOLOGIE/22-Ukosy": {
+    "storage": "22-CHAMFERS",
+    "labels": {
+      "cs": "Úkosy",
+      "en": "Chamfers",
+      "de": "Fasen",
+      "fr": "Chanfreins",
+      "ru": "Фаски"
+    }
+  },
+  "15-POLOTOVARY/01-Plechy": {
+    "storage": "01-SHEETS",
+    "labels": {
+      "cs": "Plechy",
+      "en": "Sheet metal",
+      "de": "Bleche",
+      "fr": "Tôles",
+      "ru": "Листовой металл"
+    }
+  },
+  "15-POLOTOVARY/02-Pasy a pruhy": {
+    "storage": "02-STRIPS",
+    "labels": {
+      "cs": "Pásy a pruhy",
+      "en": "Strips and bands",
+      "de": "Bänder und Streifen",
+      "fr": "Bandes et feuillards",
+      "ru": "Полосы и ленты"
+    }
+  },
+  "15-POLOTOVARY/03-Tyce kruhove": {
+    "storage": "03-ROUND",
+    "labels": {
+      "cs": "Kruhové tyče",
+      "en": "Round bars",
+      "de": "Rundstäbe",
+      "fr": "Barres rondes",
+      "ru": "Круглые прутки"
+    }
+  },
+  "15-POLOTOVARY/04-Draty na pruziny": {
+    "storage": "04-WIRE",
+    "labels": {
+      "cs": "Pružinové dráty",
+      "en": "Spring wire",
+      "de": "Federdraht",
+      "fr": "Fil pour ressorts",
+      "ru": "Пружинная проволока"
+    }
+  },
+  "15-POLOTOVARY/05-Tyce 4HR": {
+    "storage": "05-SQUARE",
+    "labels": {
+      "cs": "Čtyřhranné tyče",
+      "en": "Square bars",
+      "de": "Vierkantstäbe",
+      "fr": "Barres carrées",
+      "ru": "Квадратные прутки"
+    }
+  },
+  "15-POLOTOVARY/06-Tyce ploche": {
+    "storage": "06-FLAT",
+    "labels": {
+      "cs": "Ploché tyče",
+      "en": "Flat bars",
+      "de": "Flachstäbe",
+      "fr": "Barres plates",
+      "ru": "Плоские прутки"
+    }
+  },
+  "15-POLOTOVARY/07-Tyce 6HR": {
+    "storage": "07-HEXAGON",
+    "labels": {
+      "cs": "Šestihranné tyče",
+      "en": "Hexagonal bars",
+      "de": "Sechskantstäbe",
+      "fr": "Barres hexagonales",
+      "ru": "Шестигранные прутки"
+    }
+  },
+  "15-POLOTOVARY/08-Trubky": {
+    "storage": "08-TUBES",
+    "labels": {
+      "cs": "Trubky",
+      "en": "Tubes",
+      "de": "Rohre",
+      "fr": "Tubes",
+      "ru": "Трубы"
+    }
+  },
+  "15-POLOTOVARY/09-Tyce prurezu rovnoramenneho L": {
+    "storage": "09-EQUAL-L",
+    "labels": {
+      "cs": "Rovnoramenné úhelníky",
+      "en": "Equal-leg angles",
+      "de": "Gleichschenklige Winkelprofile",
+      "fr": "Cornières à ailes égales",
+      "ru": "Равнополочные уголки"
+    }
+  },
+  "15-POLOTOVARY/10-Tyce prurezu nerovnoramenneho L": {
+    "storage": "10-UNEQUAL-L",
+    "labels": {
+      "cs": "Nerovnoramenné úhelníky",
+      "en": "Unequal-leg angles",
+      "de": "Ungleichschenklige Winkelprofile",
+      "fr": "Cornières à ailes inégales",
+      "ru": "Неравнополочные уголки"
+    }
+  },
+  "15-POLOTOVARY/11-Tyce prurezu I": {
+    "storage": "11-I-SECTIONS",
+    "labels": {
+      "cs": "Profily I",
+      "en": "I sections",
+      "de": "I-Profile",
+      "fr": "Profilés en I",
+      "ru": "Двутавровые профили"
+    }
+  },
+  "15-POLOTOVARY/12-Tyce prurezu U": {
+    "storage": "12-U-SECTIONS",
+    "labels": {
+      "cs": "Profily U",
+      "en": "U sections",
+      "de": "U-Profile",
+      "fr": "Profilés en U",
+      "ru": "Швеллеры"
+    }
+  },
+  "15-POLOTOVARY/13-Tyce prurezu UE": {
+    "storage": "13-UE",
+    "labels": {
+      "cs": "Profily UE",
+      "en": "UE sections",
+      "de": "UE-Profile",
+      "fr": "Profilés UE",
+      "ru": "Профили UE"
+    }
+  },
+  "15-POLOTOVARY/14-Hmotnosti polotovaru": {
+    "storage": "14-WEIGHTS",
+    "labels": {
+      "cs": "Hmotnosti polotovarů",
+      "en": "Semi-finished product weights",
+      "de": "Halbzeuggewichte",
+      "fr": "Masses des produits semi-finis",
+      "ru": "Масса полуфабрикатов"
+    }
+  },
+  "16-TECHNICKE MATERIALY/01-Materialy": {
+    "storage": "01-MATERIALS",
+    "labels": {
+      "cs": "Materiály",
+      "en": "Materials",
+      "de": "Werkstoffe",
+      "fr": "Matériaux",
+      "ru": "Материалы"
+    }
+  },
+  "16-TECHNICKE MATERIALY/10-Porovnani znaceni oceli": {
+    "storage": "10-STEEL",
+    "labels": {
+      "cs": "Porovnání značení ocelí CSN vs EN/ISO",
+      "en": "Steel designation comparison — ČSN and EN/ISO",
+      "de": "Vergleich der Stahlbezeichnungen — ČSN und EN/ISO",
+      "fr": "Comparaison des désignations d'acier — ČSN et EN/ISO",
+      "ru": "Сопоставление обозначений сталей — ČSN и EN/ISO"
+    }
+  },
+  "16-TECHNICKE MATERIALY/11-DREVO": {
+    "storage": "11-WOOD",
+    "labels": {
+      "cs": "Dřevo",
+      "en": "Wood",
+      "de": "Holz",
+      "fr": "Bois",
+      "ru": "Древесина"
+    }
+  },
+  "51-ENGINEERING_CALCULATIONS/01-RETEZOVE KOLA": {
+    "storage": "01-SPROCKETS",
+    "labels": {
+      "cs": "Řetězová kola",
+      "en": "Chain sprockets",
+      "de": "Kettenräder",
+      "fr": "Pignons de chaîne",
+      "ru": "Цепные звёздочки"
+    }
+  },
+  "51-ENGINEERING_CALCULATIONS/02-E-konstukter": {
+    "storage": "02-E-DESIGN",
+    "labels": {
+      "cs": "E-konstruktér",
+      "en": "E-constructor",
+      "de": "E-Konstrukteur",
+      "fr": "E-concepteur",
+      "ru": "Электронный конструктор"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/01-Zakladni tolerance": {
+    "storage": "01-GRADES",
+    "labels": {
+      "cs": "Základní tolerance",
+      "en": "Standard tolerance grades",
+      "de": "Grundtoleranzgrade",
+      "fr": "Grades de tolérance normalisés",
+      "ru": "Основные квалитеты"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/02-Doporucene ulozeni v soustave jednotne diry": {
+    "storage": "02-HOLE-FITS",
+    "labels": {
+      "cs": "Doporučená uložení v soustavě jednotné díry",
+      "en": "Recommended hole-basis fits",
+      "de": "Empfohlene Passungen im System Einheitsbohrung",
+      "fr": "Ajustements recommandés à alésage normal",
+      "ru": "Рекомендуемые посадки в системе отверстия"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/03-Prehled tolerancnich poli der do 500 mm": {
+    "storage": "03-HOLE-500",
+    "labels": {
+      "cs": "Přehled tolerančních polí děr do 500 mm",
+      "en": "Hole tolerance zones up to 500 mm",
+      "de": "Bohrungstoleranzfelder bis 500 mm",
+      "fr": "Zones de tolérance des alésages jusqu'à 500 mm",
+      "ru": "Поля допусков отверстий до 500 мм"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/04-Prehled tolerancnich poli hridelu do 500 mm": {
+    "storage": "04-SHAFT-500",
+    "labels": {
+      "cs": "Přehled tolerančních polí hřídelů do 500 mm",
+      "en": "Shaft tolerance zones up to 500 mm",
+      "de": "Wellentoleranzfelder bis 500 mm",
+      "fr": "Zones de tolérance des arbres jusqu'à 500 mm",
+      "ru": "Поля допусков валов до 500 мм"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/05-Prehled tolerancnich poli der pres 500 do 3150 mm": {
+    "storage": "05-HOLE-3150",
+    "labels": {
+      "cs": "Přehled tolerančních polí děr přes 500 do 3150 mm",
+      "en": "Hole tolerance zones over 500 to 3150 mm",
+      "de": "Bohrungstoleranzfelder über 500 bis 3150 mm",
+      "fr": "Zones de tolérance des alésages au-delà de 500 jusqu'à 3150 mm",
+      "ru": "Поля допусков отверстий свыше 500 до 3150 мм"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/06-Prehled tolerancnich poli hridelu pres 500 do 3150 mm": {
+    "storage": "06-SHAFT-3150",
+    "labels": {
+      "cs": "Přehled tolerančních polí hřídelů přes 500 do 3150 mm",
+      "en": "Shaft tolerance zones over 500 to 3150 mm",
+      "de": "Wellentoleranzfelder über 500 bis 3150 mm",
+      "fr": "Zones de tolérance des arbres au-delà de 500 jusqu'à 3150 mm",
+      "ru": "Поля допусков валов свыше 500 до 3150 мм"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/07-Nektera obvykla ulozeni v soustave ISO a jejich uziti": {
+    "storage": "07-FIT-USES",
+    "labels": {
+      "cs": "Některá obvyklá uložení v soustavě ISO a jejich použití",
+      "en": "Common ISO fits and their applications",
+      "de": "Übliche ISO-Passungen und ihre Anwendungen",
+      "fr": "Ajustements ISO courants et leurs applications",
+      "ru": "Типовые посадки ISO и их применение"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/08-Soustava toleranci a ulozeni ISO - nazvoslovi": {
+    "storage": "08-TERMS",
+    "labels": {
+      "cs": "Soustava tolerancí a uložení ISO - názvosloví",
+      "en": "ISO limits and fits terminology",
+      "de": "Begriffe für ISO-Grenzmaße und Passungen",
+      "fr": "Terminologie des limites et ajustements ISO",
+      "ru": "Терминология допусков и посадок ISO"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC": {
+    "storage": "09-HOLES",
+    "labels": {
+      "cs": "Úchylky rozměrů děr A až ZC",
+      "en": "Hole size deviations A to ZC",
+      "de": "Maßabweichungen von Bohrungen A bis ZC",
+      "fr": "Écarts dimensionnels des alésages A à ZC",
+      "ru": "Отклонения размеров отверстий A–ZC"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc": {
+    "storage": "10-SHAFTS",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů a až zc",
+      "en": "Shaft size deviations a to zc",
+      "de": "Maßabweichungen von Wellen a bis zc",
+      "fr": "Écarts dimensionnels des arbres a à zc",
+      "ru": "Отклонения размеров валов a–zc"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance/01-Tolerance rovinnosti a primosti": {
+    "storage": "01-FORM",
+    "labels": {
+      "cs": "Tolerance rovinnosti a přímosti",
+      "en": "Flatness and straightness tolerances",
+      "de": "Ebenheits- und Geradheitstoleranzen",
+      "fr": "Tolérances de planéité et de rectitude",
+      "ru": "Допуски плоскостности и прямолинейности"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance/02-Tolerance kruhovitosti a valcovitosti": {
+    "storage": "02-ROUNDNESS",
+    "labels": {
+      "cs": "Tolerance kruhovitosti a válcovitosti",
+      "en": "Roundness and cylindricity tolerances",
+      "de": "Rundheits- und Zylindrizitätstoleranzen",
+      "fr": "Tolérances de circularité et de cylindricité",
+      "ru": "Допуски круглости и цилиндричности"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance/03-Tolerance smeru": {
+    "storage": "03-DIRECTION",
+    "labels": {
+      "cs": "Tolerance směru (rovnoběžnosti, kolmosti a sklonu), tolerance kruhoveho čelního házení a celkového čelního házení",
+      "en": "Orientation tolerances and axial runout",
+      "de": "Richtungstoleranzen und Planlauf",
+      "fr": "Tolérances d'orientation et battement axial",
+      "ru": "Допуски ориентации и торцевое биение"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance/04-Tolerance kruhoveho obvodoveho hazeni": {
+    "storage": "04-RUNOUT",
+    "labels": {
+      "cs": "Tolerance kruhového obvodového házení a celkového obvodového házení, Tolerance polohy (souososti a souměrnosti)",
+      "en": "Radial runout and position tolerances",
+      "de": "Rundlauf- und Lagetoleranzen",
+      "fr": "Battement radial et tolérances de position",
+      "ru": "Радиальное биение и допуски расположения"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance/05-Tolerance tvaru valcovych ploch": {
+    "storage": "05-CYLINDER",
+    "labels": {
+      "cs": "Tolerance tvaru válcových ploch v závislosti na stupni přesnosti rozměrů IT",
+      "en": "Cylindrical form tolerances by IT grade",
+      "de": "Zylindrische Formtoleranzen nach IT-Grad",
+      "fr": "Tolérances de forme cylindrique selon le grade IT",
+      "ru": "Допуски формы цилиндрических поверхностей по квалитету IT"
+    }
+  },
+  "02-TOLEROVANI/04-Geometricke tolerance/06-Tolerance rovinnosti": {
+    "storage": "06-FLATNESS",
+    "labels": {
+      "cs": "Tolerance rovinnosti, přímosti a rovnoběžnosti v zavislosti na stupni přesnosti rozměrů IT",
+      "en": "Flatness, straightness and parallelism by IT grade",
+      "de": "Ebenheit, Geradheit und Parallelität nach IT-Grad",
+      "fr": "Planéité, rectitude et parallélisme selon le grade IT",
+      "ru": "Плоскостность, прямолинейность и параллельность по квалитету IT"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/01-Metricke zavity ISO - pro vseobecne pouziti": {
+    "storage": "01-GENERAL",
+    "labels": {
+      "cs": "Metrické závity ISO - pro všeobecné použití",
+      "en": "ISO metric threads for general use",
+      "de": "Metrische ISO-Gewinde für allgemeine Zwecke",
+      "fr": "Filetages métriques ISO d'usage général",
+      "ru": "Метрические резьбы ISO общего назначения"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/02-Metricke zavity ISO - pro jemnou mechaniku a optiku": {
+    "storage": "02-PRECISION",
+    "labels": {
+      "cs": "Metrické závity ISO - pro jemnou mechaniku a optiku",
+      "en": "ISO metric threads for precision mechanics and optics",
+      "de": "Metrische ISO-Gewinde für Feinmechanik und Optik",
+      "fr": "Filetages métriques ISO pour mécanique de précision et optique",
+      "ru": "Метрические резьбы ISO для точной механики и оптики"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani": {
+    "storage": "03-TOLERANCE",
+    "labels": {
+      "cs": "Metrické závity ISO - tolerování",
+      "en": "ISO metric thread tolerances",
+      "de": "Toleranzen metrischer ISO-Gewinde",
+      "fr": "Tolérances des filetages métriques ISO",
+      "ru": "Допуски метрических резьб ISO"
+    }
+  },
+  "03-ZAVITY/03-Palcove zavity ISO/01-Palcove zavity ISO - prehled": {
+    "storage": "01-OVERVIEW",
+    "labels": {
+      "cs": "Palcové závity ISO - přehled",
+      "en": "ISO inch thread overview",
+      "de": "Übersicht der ISO-Zollgewinde",
+      "fr": "Aperçu des filetages ISO en pouces",
+      "ru": "Обзор дюймовых резьб ISO"
+    }
+  },
+  "03-ZAVITY/03-Palcove zavity ISO/02-Palcove zavity ISO - zakladni rozmery": {
+    "storage": "02-SIZES",
+    "labels": {
+      "cs": "Palcové závity ISO - základní rozměry",
+      "en": "ISO inch thread basic dimensions",
+      "de": "Grundmaße der ISO-Zollgewinde",
+      "fr": "Dimensions de base des filetages ISO en pouces",
+      "ru": "Основные размеры дюймовых резьб ISO"
+    }
+  },
+  "03-ZAVITY/03-Palcove zavity ISO/03-Palcove zavity ISO - delky zasroubovanych zavitu": {
+    "storage": "03-ENGAGE",
+    "labels": {
+      "cs": "Palcové závity ISO - délky zašroubovaných závitů",
+      "en": "ISO inch thread engagement lengths",
+      "de": "Einschraublängen der ISO-Zollgewinde",
+      "fr": "Longueurs d'engagement des filetages ISO en pouces",
+      "ru": "Длины свинчивания дюймовых резьб ISO"
+    }
+  },
+  "03-ZAVITY/03-Palcove zavity ISO/04-Palcove zavity ISO - trida presnosti zavitu": {
+    "storage": "04-GRADES",
+    "labels": {
+      "cs": "Palcové závity ISO - třída přesnosti závitů",
+      "en": "ISO inch thread accuracy classes",
+      "de": "Genauigkeitsklassen der ISO-Zollgewinde",
+      "fr": "Classes de précision des filetages ISO en pouces",
+      "ru": "Классы точности дюймовых резьб ISO"
+    }
+  },
+  "03-ZAVITY/05-Trubkove zavity ISO/01-Rozmery trubkovych zavitu podle ISO 7 pro spoje tesnici mezi boky": {
+    "storage": "01-ISO-7",
+    "labels": {
+      "cs": "Rozměry trubkových závitů podle ISO 7 pro spoje těsnící mezi boky",
+      "en": "ISO 7 pipe threads for pressure-tight joints on the threads",
+      "de": "ISO-7-Rohrgewinde für im Gewinde dichtende Verbindungen",
+      "fr": "Filetages de tuyauterie ISO 7 pour joints étanches dans le filetage",
+      "ru": "Трубные резьбы ISO 7 для соединений с уплотнением по резьбе"
+    }
+  },
+  "03-ZAVITY/05-Trubkove zavity ISO/02-Rozmery trubkovĂ˝ch zavitu podle ISO 228 pro spoje netesnici mezi boky": {
+    "storage": "02-ISO-228",
+    "labels": {
+      "cs": "Rozměry trubkových závitů podle ISO 228 pro spoje netěsnící mezi boky",
+      "en": "ISO 228 pipe threads for joints not sealed on the threads",
+      "de": "ISO-228-Rohrgewinde für nicht im Gewinde dichtende Verbindungen",
+      "fr": "Filetages de tuyauterie ISO 228 pour joints sans étanchéité dans le filetage",
+      "ru": "Трубные резьбы ISO 228 для соединений без уплотнения по резьбе"
+    }
+  },
+  "03-ZAVITY/06-Lichobeznikove zavity/01-Lichobeznikove zavity - zakladni rozmery": {
+    "storage": "01-SIZES",
+    "labels": {
+      "cs": "Lichoběžníkové závity - základní rozměry",
+      "en": "Trapezoidal thread basic dimensions",
+      "de": "Grundmaße der Trapezgewinde",
+      "fr": "Dimensions de base des filetages trapézoïdaux",
+      "ru": "Основные размеры трапецеидальных резьб"
+    }
+  },
+  "03-ZAVITY/06-Lichobeznikove zavity/02-Lichobeznikove zavity - tolerancni pole": {
+    "storage": "02-TOLERANCE",
+    "labels": {
+      "cs": "Lichoběžníkové závity - tolerování",
+      "en": "Trapezoidal thread tolerances",
+      "de": "Trapezgewindetoleranzen",
+      "fr": "Tolérances des filetages trapézoïdaux",
+      "ru": "Допуски трапецеидальных резьб"
+    }
+  },
+  "03-ZAVITY/06-Lichobeznikove zavity/03-Lichobeznikove zavity - delka zasroubovanych zavitÅ¯": {
+    "storage": "03-ENGAGE",
+    "labels": {
+      "cs": "Lichoběžníkové závity - délka zašroubovaných závitů",
+      "en": "Trapezoidal thread engagement lengths",
+      "de": "Einschraublängen der Trapezgewinde",
+      "fr": "Longueurs d'engagement des filetages trapézoïdaux",
+      "ru": "Длины свинчивания трапецеидальных резьб"
+    }
+  },
+  "03-ZAVITY/06-Lichobeznikove zavity/03-Lichobeznikove zavity - delka zasroubovanych zavitĹŻ": {
+    "storage": "03-ENGAGE",
+    "labels": {
+      "cs": "Lichoběžníkové závity - délka zašroubovaných závitů",
+      "en": "Trapezoidal thread engagement lengths",
+      "de": "Einschraublängen der Trapezgewinde",
+      "fr": "Longueurs d'engagement des filetages trapézoïdaux",
+      "ru": "Длины свинчивания трапецеидальных резьб"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/01-Valcove a kuzelove konce hridelu podle CSN 01 4990 a ISO 775/01-Rozmery valcovych a kuzelovych koncu hridelu": {
+    "storage": "01-SIZES",
+    "labels": {
+      "cs": "Rozměry válcových a kuželových konců hřídelů",
+      "en": "Cylindrical and tapered shaft end dimensions",
+      "de": "Maße zylindrischer und kegeliger Wellenenden",
+      "fr": "Dimensions des bouts d'arbres cylindriques et coniques",
+      "ru": "Размеры цилиндрических и конических концов валов"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/01-Valcove a kuzelove konce hridelu podle CSN 01 4990 a ISO 775/02-Mezni uchylky vrcholovych uhlu kuzelovych koncu hridelu": {
+    "storage": "02-ANGLES",
+    "labels": {
+      "cs": "Mezní úchylky vrcholových úhlů kuželových konců hřídelů",
+      "en": "Limit deviations of tapered shaft end angles",
+      "de": "Grenzabweichungen der Kegelwinkel von Wellenenden",
+      "fr": "Écarts limites des angles des bouts d'arbres coniques",
+      "ru": "Предельные отклонения углов конических концов валов"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/01-Valcove a kuzelove konce hridelu podle CSN 01 4990 a ISO 775/03-Dovolene tocive momenty hridelu": {
+    "storage": "03-TORQUE",
+    "labels": {
+      "cs": "Dovolené točivé momenty hřídelů",
+      "en": "Permissible shaft torques",
+      "de": "Zulässige Wellendrehmomente",
+      "fr": "Couples admissibles des arbres",
+      "ru": "Допустимые крутящие моменты валов"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/03-Jemne drazkovani/01-Jemne drazkovani s primkovym profilem boku": {
+    "storage": "01-STRAIGHT",
+    "labels": {
+      "cs": "Jemné drážkování s přímkovým profilem boků",
+      "en": "Fine splines with straight flanks",
+      "de": "Feinverzahnungen mit geraden Flanken",
+      "fr": "Cannelures fines à flancs droits",
+      "ru": "Мелкие шлицы с прямолинейными боковыми сторонами"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/03-Jemne drazkovani/02-Jemne drazkovani s evolventnÃ­m profilem boku": {
+    "storage": "02-INVOLUTE",
+    "labels": {
+      "cs": "Jemné drážkování s evolventním profilem boků",
+      "en": "Fine splines with involute flanks",
+      "de": "Feinverzahnungen mit Evolventenflanken",
+      "fr": "Cannelures fines à flancs en développante",
+      "ru": "Мелкие шлицы с эвольвентными боковыми сторонами"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/03-Jemne drazkovani/02-Jemne drazkovani s evolventnĂ­m profilem boku": {
+    "storage": "02-INVOLUTE",
+    "labels": {
+      "cs": "Jemné drážkování s evolventním profilem boků",
+      "en": "Fine splines with involute flanks",
+      "de": "Feinverzahnungen mit Evolventenflanken",
+      "fr": "Cannelures fines à flancs en développante",
+      "ru": "Мелкие шлицы с эвольвентными боковыми сторонами"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/03-Jemne drazkovani/03-Presnost jemneho drazkovani": {
+    "storage": "03-ACCURACY",
+    "labels": {
+      "cs": "Přesnost jemného drážkování",
+      "en": "Fine spline accuracy",
+      "de": "Genauigkeit der Feinverzahnungen",
+      "fr": "Précision des cannelures fines",
+      "ru": "Точность мелких шлицев"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani/01-Rada lehka podle CSN EN ISO 14": {
+    "storage": "01-LIGHT",
+    "labels": {
+      "cs": "Řada lehká podle ČSN EN ISO 14",
+      "en": "Light series — ČSN EN ISO 14",
+      "de": "Leichte Reihe — ČSN EN ISO 14",
+      "fr": "Série légère — ČSN EN ISO 14",
+      "ru": "Лёгкая серия — ČSN EN ISO 14"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani/02-Rada stredni podle CSN EN ISO 14": {
+    "storage": "02-MEDIUM",
+    "labels": {
+      "cs": "Řada střední podle ČSN EN ISO 14",
+      "en": "Medium series — ČSN EN ISO 14",
+      "de": "Mittlere Reihe — ČSN EN ISO 14",
+      "fr": "Série moyenne — ČSN EN ISO 14",
+      "ru": "Средняя серия — ČSN EN ISO 14"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani/03-Rada tezka podle CSN 01 4942": {
+    "storage": "03-HEAVY",
+    "labels": {
+      "cs": "Řada těžká podle ČSN 01 4942",
+      "en": "Heavy series — ČSN 01 4942",
+      "de": "Schwere Reihe — ČSN 01 4942",
+      "fr": "Série lourde — ČSN 01 4942",
+      "ru": "Тяжёлая серия — ČSN 01 4942"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani/04-Drsnost povrchu drazek a per": {
+    "storage": "04-ROUGHNESS",
+    "labels": {
+      "cs": "Drsnost povrchů drážek a per",
+      "en": "Spline and key surface roughness",
+      "de": "Oberflächenrauheit von Nuten und Passfedern",
+      "fr": "Rugosité des cannelures et clavettes",
+      "ru": "Шероховатость шлицев и шпонок"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani/05-Licovani rovnobokeho drazkovani podle ISO": {
+    "storage": "05-ISO-FITS",
+    "labels": {
+      "cs": "Lícování rovnobokého drážkování podle ISO",
+      "en": "Straight-sided spline fits — ISO",
+      "de": "Passungen von Keilwellenverzahnungen — ISO",
+      "fr": "Ajustements des cannelures à flancs parallèles — ISO",
+      "ru": "Посадки прямобочных шлицев — ISO"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/04-Rovnoboke drazkovani/06-Licovani rovnobokeho drazkovani podle CSN": {
+    "storage": "06-CSN-FITS",
+    "labels": {
+      "cs": "Lícování rovnobokého drážkování podle ČSN",
+      "en": "Straight-sided spline fits — ČSN",
+      "de": "Passungen von Keilwellenverzahnungen — ČSN",
+      "fr": "Ajustements des cannelures à flancs parallèles — ČSN",
+      "ru": "Посадки прямобочных шлицев — ČSN"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/05-Evolventni drazkovani/01-Licovani evolventniho drazkovani": {
+    "storage": "01-FITS",
+    "labels": {
+      "cs": "Lícování evolventního drážkování",
+      "en": "Involute spline fits",
+      "de": "Passungen von Evolventenverzahnungen",
+      "fr": "Ajustements des cannelures en développante",
+      "ru": "Посадки эвольвентных шлицев"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/05-Evolventni drazkovani/02-Uchylky sirky drazek a tloustky zubu": {
+    "storage": "02-DEVIATION",
+    "labels": {
+      "cs": "Úchylky šířky drážek a tloušťky zubů",
+      "en": "Space-width and tooth-thickness deviations",
+      "de": "Abweichungen der Lückenbreite und Zahndicke",
+      "fr": "Écarts de largeur des creux et d'épaisseur des dents",
+      "ru": "Отклонения ширины впадин и толщины зубьев"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/05-Evolventni drazkovani/03-Tolerance kruhoveho obvodoveho hazeni": {
+    "storage": "03-RUNOUT",
+    "labels": {
+      "cs": "Tolerance kruhového obvodového házení",
+      "en": "Radial runout tolerance",
+      "de": "Rundlauftoleranz",
+      "fr": "Tolérance de battement radial",
+      "ru": "Допуск радиального биения"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/05-Evolventni drazkovani/04-Drsnost povrchu evolventniho drazkovani": {
+    "storage": "04-ROUGHNESS",
+    "labels": {
+      "cs": "Drsnost povrchu evolventního drážkování",
+      "en": "Involute spline surface roughness",
+      "de": "Oberflächenrauheit von Evolventenverzahnungen",
+      "fr": "Rugosité des cannelures en développante",
+      "ru": "Шероховатость эвольвентных шлицев"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/01-Moduly valivych soukoli podle CSN a ISO": {
+    "storage": "01-MODULES",
+    "labels": {
+      "cs": "Moduly valivých soukolí podle ČSN a ISO",
+      "en": "Gear modules — ČSN and ISO",
+      "de": "Zahnradmodule — ČSN und ISO",
+      "fr": "Modules d'engrenages — ČSN et ISO",
+      "ru": "Модули зубчатых передач — ČSN и ISO"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/02-Moduly a pocty chodu sneku": {
+    "storage": "02-WORMS",
+    "labels": {
+      "cs": "Moduly a počty chodů šneků",
+      "en": "Worm modules and number of starts",
+      "de": "Schneckenmodule und Gangzahlen",
+      "fr": "Modules et nombres de filets des vis sans fin",
+      "ru": "Модули и число заходов червяков"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/03-Porovnani metrickych modulu s moduly Diametral Pitch": {
+    "storage": "03-MODULE-DP",
+    "labels": {
+      "cs": "Porovnání metrických modulů s moduly Diametral Pitch",
+      "en": "Metric module and diametral pitch comparison",
+      "de": "Vergleich von metrischem Modul und Diametral Pitch",
+      "fr": "Comparaison du module métrique et du diametral pitch",
+      "ru": "Сопоставление метрического модуля и diametral pitch"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/04-Prevodova cisla": {
+    "storage": "04-RATIOS",
+    "labels": {
+      "cs": "Převodová čísla",
+      "en": "Gear ratios",
+      "de": "Übersetzungsverhältnisse",
+      "fr": "Rapports de transmission",
+      "ru": "Передаточные числа"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/05-Prevodova cisla snekovych prevodu": {
+    "storage": "05-WORM-RATIO",
+    "labels": {
+      "cs": "Převodová čísla šnekových převodů",
+      "en": "Worm gear ratios",
+      "de": "Übersetzungen von Schneckengetrieben",
+      "fr": "Rapports des engrenages à vis sans fin",
+      "ru": "Передаточные числа червячных передач"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/06-Uhly sklonu sikmych zubu celnich a kuzelovych kol": {
+    "storage": "06-HELIX",
+    "labels": {
+      "cs": "Úhly sklonu šikmých zubů čelních a kuželových kol",
+      "en": "Helix angles of cylindrical and bevel gears",
+      "de": "Schrägungswinkel von Stirn- und Kegelrädern",
+      "fr": "Angles d'hélice des engrenages cylindriques et coniques",
+      "ru": "Углы наклона зубьев цилиндрических и конических колёс"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/07-Tloustky zubu na tetive a konstantnÃ­ vysky zubu": {
+    "storage": "07-CHORDAL",
+    "labels": {
+      "cs": "Tloušťky zubů na tětivě a konstantní výšky zubů",
+      "en": "Chordal tooth thicknesses and constant tooth heights",
+      "de": "Sehnenzahndicken und konstante Zahnhöhen",
+      "fr": "Épaisseurs de dent à la corde et hauteurs constantes",
+      "ru": "Толщина зубьев по хорде и постоянная высота зубьев"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/07-Tloustky zubu na tetive a konstantnĂ­ vysky zubu": {
+    "storage": "07-CHORDAL",
+    "labels": {
+      "cs": "Tloušťky zubů na tětivě a konstantní výšky zubů",
+      "en": "Chordal tooth thicknesses and constant tooth heights",
+      "de": "Sehnenzahndicken und konstante Zahnhöhen",
+      "fr": "Épaisseurs de dent à la corde et hauteurs constantes",
+      "ru": "Толщина зубьев по хорде и постоянная высота зубьев"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/08-Prumery valecku pro mereni pres valecky": {
+    "storage": "08-ROLLERS",
+    "labels": {
+      "cs": "Průměry válečků pro měření přes válečky",
+      "en": "Roller diameters for gear measurement",
+      "de": "Rollendurchmesser zur Zahnradmessung",
+      "fr": "Diamètres des rouleaux pour la mesure des engrenages",
+      "ru": "Диаметры роликов для измерения зубчатых колёс"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/09-Rozmer pres zuby celnich kol s primymi zuby": {
+    "storage": "09-SPAN",
+    "labels": {
+      "cs": "Rozměr přes zuby čelních kol s přímými zuby",
+      "en": "Span measurement of spur gears",
+      "de": "Zahnweitenmaß von geradverzahnten Stirnrädern",
+      "fr": "Mesure sur plusieurs dents des engrenages droits",
+      "ru": "Длина общей нормали прямозубых колёс"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/10-Stupne presnosti ozubenych kol podle CSN a ISO": {
+    "storage": "10-GRADES",
+    "labels": {
+      "cs": "Stupně přesnosti ozubených kol podle ČSN a ISO",
+      "en": "Gear accuracy grades — ČSN and ISO",
+      "de": "Zahnradgenauigkeitsgrade — ČSN und ISO",
+      "fr": "Classes de précision des engrenages — ČSN et ISO",
+      "ru": "Степени точности зубчатых колёс — ČSN и ISO"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/11-Doporucena prirazeni presnosti ozubeni": {
+    "storage": "11-ACCURACY",
+    "labels": {
+      "cs": "Doporučené přiřazení přesnosti ozubení",
+      "en": "Recommended gear accuracy assignments",
+      "de": "Empfohlene Zuordnung der Verzahnungsgenauigkeit",
+      "fr": "Choix recommandé de la précision des engrenages",
+      "ru": "Рекомендуемое назначение точности зубчатых передач"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/12-Uchylky profilu zubu podle ISO": {
+    "storage": "12-PROFILE",
+    "labels": {
+      "cs": "Úchylky profilu zubu podle ISO",
+      "en": "Tooth profile deviations — ISO",
+      "de": "Zahnprofilabweichungen — ISO",
+      "fr": "Écarts de profil des dents — ISO",
+      "ru": "Отклонения профиля зубьев — ISO"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/13-Uchylky rozteci podle ISO": {
+    "storage": "13-PITCH",
+    "labels": {
+      "cs": "Úchylky roztečí podle ISO",
+      "en": "Pitch deviations — ISO",
+      "de": "Teilungsabweichungen — ISO",
+      "fr": "Écarts de pas — ISO",
+      "ru": "Отклонения шага — ISO"
+    }
+  },
+  "04-HRIDELE, DRAZKY A OZUBENI/06-Ozubeni/14-Uchylky sklonu a tvaru boku zubu podle ISO": {
+    "storage": "14-FLANKS",
+    "labels": {
+      "cs": "Úchylky sklonu a tvaru boku zubu podle ISO",
+      "en": "Tooth flank form and alignment deviations — ISO",
+      "de": "Zahnflankenform- und Richtungsabweichungen — ISO",
+      "fr": "Écarts de forme et d'orientation des flancs — ISO",
+      "ru": "Отклонения формы и направления боковых сторон зубьев — ISO"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou": {
+    "storage": "01-HEX-HEAD",
+    "labels": {
+      "cs": "Šrouby se šestihrannou hlavou",
+      "en": "Hexagon head screws and bolts",
+      "de": "Sechskantschrauben",
+      "fr": "Vis et boulons à tête hexagonale",
+      "ru": "Винты и болты с шестигранной головкой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/02-Licovane srouby": {
+    "storage": "02-FITTED",
+    "labels": {
+      "cs": "Lícované šrouby",
+      "en": "Fitted bolts",
+      "de": "Passschrauben",
+      "fr": "Boulons ajustés",
+      "ru": "Призонные болты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/03-Zavrtne srouby": {
+    "storage": "03-STUDS",
+    "labels": {
+      "cs": "Závrtné šrouby",
+      "en": "Studs",
+      "de": "Stiftschrauben",
+      "fr": "Goujons",
+      "ru": "Шпильки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou": {
+    "storage": "04-CAP-HEAD",
+    "labels": {
+      "cs": "Šrouby s válcovou hlavou",
+      "en": "Cylindrical head screws",
+      "de": "Zylinderschrauben",
+      "fr": "Vis à tête cylindrique",
+      "ru": "Винты с цилиндрической головкой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby": {
+    "storage": "05-SUNK-HEAD",
+    "labels": {
+      "cs": "Zápustné šrouby",
+      "en": "Countersunk screws",
+      "de": "Senkschrauben",
+      "fr": "Vis à tête fraisée",
+      "ru": "Винты с потайной головкой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/06-Srouby s pulkulatou hlavou": {
+    "storage": "06-PAN-HEAD",
+    "labels": {
+      "cs": "Šrouby s půlkulatou hlavou",
+      "en": "Pan head screws",
+      "de": "Flachrundschrauben",
+      "fr": "Vis à tête bombée",
+      "ru": "Винты с полукруглой головкой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/07-Srouby s hlavou T": {
+    "storage": "07-T-HEAD",
+    "labels": {
+      "cs": "Šrouby s hlavou T",
+      "en": "T-head bolts",
+      "de": "Hammerkopfschrauben",
+      "fr": "Boulons à tête en T",
+      "ru": "Болты с Т-образной головкой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/08-Upinaci srouby": {
+    "storage": "08-CLAMPING",
+    "labels": {
+      "cs": "Upínací šrouby",
+      "en": "Clamping screws",
+      "de": "Spannschrauben",
+      "fr": "Vis de serrage",
+      "ru": "Зажимные винты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby": {
+    "storage": "09-SET",
+    "labels": {
+      "cs": "Stavěcí šrouby",
+      "en": "Set screws",
+      "de": "Gewindestifte",
+      "fr": "Vis sans tête",
+      "ru": "Установочные винты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/10-Otocne srouby s okem": {
+    "storage": "10-EYE",
+    "labels": {
+      "cs": "Otočné šrouby s okem",
+      "en": "Eye bolts",
+      "de": "Augenschrauben",
+      "fr": "Boulons à œil",
+      "ru": "Рым-болты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/11-Srouby do zdiva a zakladu": {
+    "storage": "11-ANCHORS",
+    "labels": {
+      "cs": "Šrouby do zdiva a základů",
+      "en": "Masonry and foundation bolts",
+      "de": "Mauer- und Ankerschrauben",
+      "fr": "Boulons d'ancrage et de fondation",
+      "ru": "Анкерные и фундаментные болты"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice": {
+    "storage": "01-HEXAGON",
+    "labels": {
+      "cs": "Šestihranné matice",
+      "en": "Hexagon nuts",
+      "de": "Sechskantmuttern",
+      "fr": "Écrous hexagonaux",
+      "ru": "Шестигранные гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/02-Korunove_matice": {
+    "storage": "02-CASTLE",
+    "labels": {
+      "cs": "Korunové matice",
+      "en": "Castellated nuts",
+      "de": "Kronenmuttern",
+      "fr": "Écrous à créneaux",
+      "ru": "Корончатые гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/03-Male_matice": {
+    "storage": "03-SMALL",
+    "labels": {
+      "cs": "Malé matice",
+      "en": "Small nuts",
+      "de": "Kleine Muttern",
+      "fr": "Petits écrous",
+      "ru": "Малые гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/04-Uzavrene matice": {
+    "storage": "04-CAP",
+    "labels": {
+      "cs": "Uzavřené matice",
+      "en": "Cap nuts",
+      "de": "Hutmuttern",
+      "fr": "Écrous borgnes",
+      "ru": "Колпачковые гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/05-Privarovaci_matice": {
+    "storage": "05-WELD",
+    "labels": {
+      "cs": "Přivařovací matice",
+      "en": "Weld nuts",
+      "de": "Schweißmuttern",
+      "fr": "Écrous à souder",
+      "ru": "Приварные гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/06-Pojistne_matice_dvoudilne": {
+    "storage": "06-TWO-PART",
+    "labels": {
+      "cs": "Dvoudílné pojistné matice",
+      "en": "Two-piece locknuts",
+      "de": "Zweiteilige Sicherungsmuttern",
+      "fr": "Écrous de freinage en deux parties",
+      "ru": "Двухсоставные стопорные гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/07-Samojistne_matice": {
+    "storage": "07-LOCKING",
+    "labels": {
+      "cs": "Samojistné matice",
+      "en": "Self-locking nuts",
+      "de": "Selbstsichernde Muttern",
+      "fr": "Écrous autofreinés",
+      "ru": "Самоконтрящиеся гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/08-Ryhovane_matice": {
+    "storage": "08-KNURLED",
+    "labels": {
+      "cs": "Rýhované matice",
+      "en": "Knurled nuts",
+      "de": "Rändelmuttern",
+      "fr": "Écrous moletés",
+      "ru": "Рифлёные гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/09-Kridlate_matice": {
+    "storage": "09-WING",
+    "labels": {
+      "cs": "Křídlaté matice",
+      "en": "Wing nuts",
+      "de": "Flügelmuttern",
+      "fr": "Écrous à oreilles",
+      "ru": "Барашковые гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/01-Podlozky pod 6HR matice a 6HR hlavy sroubu": {
+    "storage": "01-HEXAGON",
+    "labels": {
+      "cs": "Podložky pod šestihranné matice a šestihranné hlavy šroubů",
+      "en": "Washers for hexagon nuts and bolt heads",
+      "de": "Scheiben für Sechskantmuttern und Schraubenköpfe",
+      "fr": "Rondelles pour écrous et têtes hexagonales",
+      "ru": "Шайбы под шестигранные гайки и головки болтов"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/02-Podlozky pro srouby s valcovou pulkulatou hlavou": {
+    "storage": "02-CAP-HEAD",
+    "labels": {
+      "cs": "Podložky pod válcové a pulkulové hlavy šroubů podle ČSN 02 1703",
+      "en": "Washers for cylindrical and pan heads — ČSN 02 1703",
+      "de": "Scheiben für Zylinder- und Flachrundköpfe — ČSN 02 1703",
+      "fr": "Rondelles pour têtes cylindriques et bombées — ČSN 02 1703",
+      "ru": "Шайбы под цилиндрические и полукруглые головки — ČSN 02 1703"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/03-Pruzne podlozky": {
+    "storage": "03-SPRING",
+    "labels": {
+      "cs": "Pružné podložky",
+      "en": "Spring washers",
+      "de": "Federscheiben",
+      "fr": "Rondelles élastiques",
+      "ru": "Пружинные шайбы"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/04-Ozubene podlozky": {
+    "storage": "04-TOOTHED",
+    "labels": {
+      "cs": "Ozubené a vějířovité podložky",
+      "en": "Toothed and serrated lock washers",
+      "de": "Zahn- und Fächerscheiben",
+      "fr": "Rondelles de freinage dentées et éventail",
+      "ru": "Зубчатые и веерные стопорные шайбы"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/05-Pojistne podlozky": {
+    "storage": "05-LOCK",
+    "labels": {
+      "cs": "Pojistné podložky",
+      "en": "Lock washers",
+      "de": "Sicherungsscheiben",
+      "fr": "Rondelles de freinage",
+      "ru": "Стопорные шайбы"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/DIN_ PODLOZKY": {
+    "storage": "06-DIN",
+    "labels": {
+      "cs": "Podložky DIN",
+      "en": "DIN washers",
+      "de": "DIN-Scheiben",
+      "fr": "Rondelles DIN",
+      "ru": "Шайбы DIN"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/01-Cepy/01-Cepy s hlavou": {
+    "storage": "01-HEADED",
+    "labels": {
+      "cs": "Čepy s hlavou podle ISO 2341",
+      "en": "Headed clevis pins — ISO 2341",
+      "de": "Bolzen mit Kopf — ISO 2341",
+      "fr": "Axes à tête — ISO 2341",
+      "ru": "Пальцы с головкой — ISO 2341"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/01-Cepy/02-Cepy bez hlavy": {
+    "storage": "02-HEADLESS",
+    "labels": {
+      "cs": "Čepy bez hlavy s dírami pro závlačky podle ISO 2340",
+      "en": "Headless clevis pins with cotter holes — ISO 2340",
+      "de": "Bolzen ohne Kopf mit Splintlöchern — ISO 2340",
+      "fr": "Axes sans tête avec trous de goupille — ISO 2340",
+      "ru": "Пальцы без головки с отверстиями под шплинт — ISO 2340"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/01-Cepy/03-Cepy podle zbytkovych norem CSN": {
+    "storage": "03-CSN",
+    "labels": {
+      "cs": "Čepy podle zbytkových norem ČSN",
+      "en": "Clevis pins from retained ČSN standards",
+      "de": "Bolzen nach verbleibenden ČSN-Normen",
+      "fr": "Axes selon les normes ČSN conservées",
+      "ru": "Пальцы по сохранённым стандартам ČSN"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/01-Zavlacky": {
+    "storage": "01-SPLIT",
+    "labels": {
+      "cs": "Závlačky podle ČSN 02 1781",
+      "en": "Split cotter pins — ČSN 02 1781",
+      "de": "Splinte — ČSN 02 1781",
+      "fr": "Goupilles fendues — ČSN 02 1781",
+      "ru": "Разводные шплинты — ČSN 02 1781"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/02-Pojistky": {
+    "storage": "02-CLIPS",
+    "labels": {
+      "cs": "Pojistky pro čepy s drážkou podle ČSN 02 2939",
+      "en": "Retainers for grooved pins — ČSN 02 2939",
+      "de": "Sicherungen für Nutbolzen — ČSN 02 2939",
+      "fr": "Arrêts pour axes rainurés — ČSN 02 2939",
+      "ru": "Стопоры для пальцев с канавкой — ČSN 02 2939"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/03-Pojistne krouzky dratove": {
+    "storage": "03-WIRE",
+    "labels": {
+      "cs": "Pojistné kroužky drátové podle ČSN 02 2925",
+      "en": "Wire retaining rings — ČSN 02 2925",
+      "de": "Drahtsicherungsringe — ČSN 02 2925",
+      "fr": "Anneaux de retenue en fil — ČSN 02 2925",
+      "ru": "Проволочные стопорные кольца — ČSN 02 2925"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/04-Pojistne krouzky trmenove": {
+    "storage": "04-E-CLIPS",
+    "labels": {
+      "cs": "Pojistné kroužky třmenové podle ČSN 02 2929",
+      "en": "E-type retaining rings — ČSN 02 2929",
+      "de": "E-Sicherungsscheiben — ČSN 02 2929",
+      "fr": "Anneaux d'arrêt en E — ČSN 02 2929",
+      "ru": "Стопорные кольца типа E — ČSN 02 2929"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/05-Pojistne krouzky pro hridele": {
+    "storage": "05-SHAFTS",
+    "labels": {
+      "cs": "Pojistné kroužky pro hřídele podle ČSN 02 2930",
+      "en": "Retaining rings for shafts — ČSN 02 2930",
+      "de": "Sicherungsringe für Wellen — ČSN 02 2930",
+      "fr": "Anneaux d'arrêt pour arbres — ČSN 02 2930",
+      "ru": "Стопорные кольца для валов — ČSN 02 2930"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/06-Pojistne krouzky pro diry": {
+    "storage": "06-BORES",
+    "labels": {
+      "cs": "Pojistné kroužky pro díry podle ČSN 02 2931",
+      "en": "Retaining rings for bores — ČSN 02 2931",
+      "de": "Sicherungsringe für Bohrungen — ČSN 02 2931",
+      "fr": "Anneaux d'arrêt pour alésages — ČSN 02 2931",
+      "ru": "Стопорные кольца для отверстий — ČSN 02 2931"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/07-Pojistne desky pro hridele": {
+    "storage": "07-PLATES",
+    "labels": {
+      "cs": "Pojistné desky pro hřídele podle ČSN 02 2703",
+      "en": "Shaft retaining plates — ČSN 02 2703",
+      "de": "Sicherungsplatten für Wellen — ČSN 02 2703",
+      "fr": "Plaques de retenue pour arbres — ČSN 02 2703",
+      "ru": "Стопорные пластины для валов — ČSN 02 2703"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/08-Pridrzky cepu": {
+    "storage": "08-PIN-CLIPS",
+    "labels": {
+      "cs": "Přídržky čepů podle ČSN 02 2702",
+      "en": "Pin retaining plates — ČSN 02 2702",
+      "de": "Halteplatten für Bolzen — ČSN 02 2702",
+      "fr": "Plaques de retenue pour axes — ČSN 02 2702",
+      "ru": "Удерживающие пластины пальцев — ČSN 02 2702"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/11-Zakolnik": {
+    "storage": "11-LINCHPIN",
+    "labels": {
+      "cs": "Zákolník",
+      "en": "Linchpins",
+      "de": "Klappstecker",
+      "fr": "Goupilles à anneau",
+      "ru": "Чеки с кольцом"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/12-Zavlacka-pruzna-jednoducha": {
+    "storage": "12-R-CLIPS",
+    "labels": {
+      "cs": "Jednoduché pružné závlačky",
+      "en": "Single spring cotter pins",
+      "de": "Einfache Federstecker",
+      "fr": "Goupilles bêta simples",
+      "ru": "Одинарные пружинные шплинты"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/02-Pojistky/DIN_11024-ZAVLACKY_PEROVE": {
+    "storage": "11-DIN-11024",
+    "labels": {
+      "cs": "DIN 11024 ZÁVLAČKY PÉROVÉ",
+      "en": "Spring cotter pins — DIN 11024",
+      "de": "Federstecker — DIN 11024",
+      "fr": "Goupilles bêta — DIN 11024",
+      "ru": "Пружинные шплинты — DIN 11024"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/01-Valcove koliky kalene": {
+    "storage": "01-HARDENED",
+    "labels": {
+      "cs": "Válcové kolíky kalené podle ISO 8734",
+      "en": "Hardened cylindrical pins — ISO 8734",
+      "de": "Gehärtete Zylinderstifte — ISO 8734",
+      "fr": "Goupilles cylindriques trempées — ISO 8734",
+      "ru": "Закалённые цилиндрические штифты — ISO 8734"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/02-Valcove koliky nekalene": {
+    "storage": "02-SOFT",
+    "labels": {
+      "cs": "Válcové kolíky nekalené podle ISO 2338",
+      "en": "Unhardened cylindrical pins — ISO 2338",
+      "de": "Ungehärtete Zylinderstifte — ISO 2338",
+      "fr": "Goupilles cylindriques non trempées — ISO 2338",
+      "ru": "Незакалённые цилиндрические штифты — ISO 2338"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/03-Valcové koliky s vnitrnim zavitem nekalene": {
+    "storage": "03-THREADED",
+    "labels": {
+      "cs": "Válcové kolíky s vnitřním závitem nekalené podle ISO 8733",
+      "en": "Unhardened cylindrical pins with internal thread — ISO 8733",
+      "de": "Ungehärtete Zylinderstifte mit Innengewinde — ISO 8733",
+      "fr": "Goupilles cylindriques non trempées à taraudage — ISO 8733",
+      "ru": "Незакалённые цилиндрические штифты с внутренней резьбой — ISO 8733"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/04-Kuzelove koliky nekalene": {
+    "storage": "04-TAPER",
+    "labels": {
+      "cs": "Kuželové kolíky nekalené podle ISO 2339",
+      "en": "Unhardened taper pins — ISO 2339",
+      "de": "Ungehärtete Kegelstifte — ISO 2339",
+      "fr": "Goupilles coniques non trempées — ISO 2339",
+      "ru": "Незакалённые конические штифты — ISO 2339"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/05-Kuzelove koliky s vnitrnim zavitem": {
+    "storage": "05-INTERNAL",
+    "labels": {
+      "cs": "Kuželové kolíky s vnitřním závitem ISO 8736",
+      "en": "Taper pins with internal thread — ISO 8736",
+      "de": "Kegelstifte mit Innengewinde — ISO 8736",
+      "fr": "Goupilles coniques à taraudage — ISO 8736",
+      "ru": "Конические штифты с внутренней резьбой — ISO 8736"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/06-Kuzelove koliky s vnejsim zavitem": {
+    "storage": "06-EXTERNAL",
+    "labels": {
+      "cs": "Kuželové kolíky s vnějším závitem ISO 8737",
+      "en": "Taper pins with external thread — ISO 8737",
+      "de": "Kegelstifte mit Außengewinde — ISO 8737",
+      "fr": "Goupilles coniques à filetage extérieur — ISO 8737",
+      "ru": "Конические штифты с наружной резьбой — ISO 8737"
+    }
+  },
+  "07-CEPY, POJISTKY A KOLIKY/03-Koliky/07-Pruzne koliky": {
+    "storage": "07-SPRING",
+    "labels": {
+      "cs": "Pružné kolíky podle ISO 8752",
+      "en": "Spring pins — ISO 8752",
+      "de": "Spannstifte — ISO 8752",
+      "fr": "Goupilles élastiques — ISO 8752",
+      "ru": "Пружинные штифты — ISO 8752"
+    }
+  },
+  "14-TECHNOLOGIE/04-DRSNOSI POVRCHU/01-Hodnoty parametru drsnosti povrchu": {
+    "storage": "01-VALUES",
+    "labels": {
+      "cs": "Hodnoty parametrů drsnosti povrchu",
+      "en": "Surface roughness parameter values",
+      "de": "Werte der Oberflächenrauheitsparameter",
+      "fr": "Valeurs des paramètres de rugosité",
+      "ru": "Значения параметров шероховатости"
+    }
+  },
+  "14-TECHNOLOGIE/22-Ukosy/pdf": {
+    "storage": "01-PDF",
+    "labels": {
+      "cs": "Dokumenty PDF",
+      "en": "PDF documents",
+      "de": "PDF-Dokumente",
+      "fr": "Documents PDF",
+      "ru": "Документы PDF"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/01-Uchylky rozmeru der A-D": {
+    "storage": "01-A-D",
+    "labels": {
+      "cs": "Úchylky rozměrů děr A až D",
+      "en": "Hole size deviations A–D",
+      "de": "Maßabweichungen von Bohrungen A–D",
+      "fr": "Écarts dimensionnels des alésages A–D",
+      "ru": "Отклонения размеров отверстий A–D"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/02-Uchylky rozmeru der E-EF": {
+    "storage": "02-E-EF",
+    "labels": {
+      "cs": "Úchylky rozměrů děr E a EF",
+      "en": "Hole size deviations E / EF",
+      "de": "Maßabweichungen von Bohrungen E / EF",
+      "fr": "Écarts dimensionnels des alésages E / EF",
+      "ru": "Отклонения размеров отверстий E / EF"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/03-Uchylky rozmeru der F-FG": {
+    "storage": "03-F-FG",
+    "labels": {
+      "cs": "Úchylky rozměrů děr F a FG",
+      "en": "Hole size deviations F / FG",
+      "de": "Maßabweichungen von Bohrungen F / FG",
+      "fr": "Écarts dimensionnels des alésages F / FG",
+      "ru": "Отклонения размеров отверстий F / FG"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/04-Uchylky rozmeru der G-H9": {
+    "storage": "04-G-H9",
+    "labels": {
+      "cs": "Úchylky rozměrů děr G až H9",
+      "en": "Hole size deviations G–H9",
+      "de": "Maßabweichungen von Bohrungen G–H9",
+      "fr": "Écarts dimensionnels des alésages G–H9",
+      "ru": "Отклонения размеров отверстий G–H9"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/05-Uchylky rozmeru der H10-H18": {
+    "storage": "05-H10-H18",
+    "labels": {
+      "cs": "Úchylky rozměrů děr H10 až H18",
+      "en": "Hole size deviations H10–H18",
+      "de": "Maßabweichungen von Bohrungen H10–H18",
+      "fr": "Écarts dimensionnels des alésages H10–H18",
+      "ru": "Отклонения размеров отверстий H10–H18"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/06-Uchylky rozmeru der JS1-JS9": {
+    "storage": "06-JS1-JS9",
+    "labels": {
+      "cs": "Úchylky rozměrů děr JS1 až JS9",
+      "en": "Hole size deviations JS1–JS9",
+      "de": "Maßabweichungen von Bohrungen JS1–JS9",
+      "fr": "Écarts dimensionnels des alésages JS1–JS9",
+      "ru": "Отклонения размеров отверстий JS1–JS9"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/07-Uchylky rozmeru der JS10-JS18": {
+    "storage": "07-JS10-JS18",
+    "labels": {
+      "cs": "Úchylky rozměrů děr JS10 až JS18",
+      "en": "Hole size deviations JS10–JS18",
+      "de": "Maßabweichungen von Bohrungen JS10–JS18",
+      "fr": "Écarts dimensionnels des alésages JS10–JS18",
+      "ru": "Отклонения размеров отверстий JS10–JS18"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/08-Uchylky rozmeru der J-K": {
+    "storage": "08-J-K",
+    "labels": {
+      "cs": "Úchylky rozměrů děr J a K",
+      "en": "Hole size deviations J / K",
+      "de": "Maßabweichungen von Bohrungen J / K",
+      "fr": "Écarts dimensionnels des alésages J / K",
+      "ru": "Отклонения размеров отверстий J / K"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/09-Uchylky rozmeru der M-N": {
+    "storage": "09-M-N",
+    "labels": {
+      "cs": "Úchylky rozměrů děr M a N",
+      "en": "Hole size deviations M / N",
+      "de": "Maßabweichungen von Bohrungen M / N",
+      "fr": "Écarts dimensionnels des alésages M / N",
+      "ru": "Отклонения размеров отверстий M / N"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/10-Uchylky rozmeru der P-R": {
+    "storage": "10-P-R",
+    "labels": {
+      "cs": "Úchylky rozměrů děr P a R",
+      "en": "Hole size deviations P / R",
+      "de": "Maßabweichungen von Bohrungen P / R",
+      "fr": "Écarts dimensionnels des alésages P / R",
+      "ru": "Отклонения размеров отверстий P / R"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/11-Uchylky rozmeru der S-T": {
+    "storage": "11-S-T",
+    "labels": {
+      "cs": "Úchylky rozměrů děr S a T",
+      "en": "Hole size deviations S / T",
+      "de": "Maßabweichungen von Bohrungen S / T",
+      "fr": "Écarts dimensionnels des alésages S / T",
+      "ru": "Отклонения размеров отверстий S / T"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/12-Uchylky rozmeru der U-X": {
+    "storage": "12-U-X",
+    "labels": {
+      "cs": "Úchylky rozměrů děr U až X",
+      "en": "Hole size deviations U–X",
+      "de": "Maßabweichungen von Bohrungen U–X",
+      "fr": "Écarts dimensionnels des alésages U–X",
+      "ru": "Отклонения размеров отверстий U–X"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/09-Uchylky rozmeru der A az ZC/13-Uchylky rozmeru der Y-ZC": {
+    "storage": "13-Y-ZC",
+    "labels": {
+      "cs": "Úchylky rozměrů děr Y až ZC",
+      "en": "Hole size deviations Y–ZC",
+      "de": "Maßabweichungen von Bohrungen Y–ZC",
+      "fr": "Écarts dimensionnels des alésages Y–ZC",
+      "ru": "Отклонения размеров отверстий Y–ZC"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/01-Uchylky rozmeru hridelu a-cd": {
+    "storage": "01-A-CD",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů a až cd",
+      "en": "Shaft size deviations a–cd",
+      "de": "Maßabweichungen von Wellen a–cd",
+      "fr": "Écarts dimensionnels des arbres a–cd",
+      "ru": "Отклонения размеров валов a–cd"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/02-Uchylky rozmeru hridelu d-e": {
+    "storage": "02-D-E",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů d až e",
+      "en": "Shaft size deviations d–e",
+      "de": "Maßabweichungen von Wellen d–e",
+      "fr": "Écarts dimensionnels des arbres d–e",
+      "ru": "Отклонения размеров валов d–e"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/03-Uchylky rozmeru hridelu ef": {
+    "storage": "03-EF",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů ef",
+      "en": "Shaft size deviations ef",
+      "de": "Maßabweichungen von Wellen ef",
+      "fr": "Écarts dimensionnels des arbres ef",
+      "ru": "Отклонения размеров валов ef"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/04-Uchylky rozmeru hridelu f-fg": {
+    "storage": "04-F-FG",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů f až fg",
+      "en": "Shaft size deviations f–fg",
+      "de": "Maßabweichungen von Wellen f–fg",
+      "fr": "Écarts dimensionnels des arbres f–fg",
+      "ru": "Отклонения размеров валов f–fg"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/05-Uchylky rozmeru hridelu g-h7": {
+    "storage": "05-G-H7",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů g až h7",
+      "en": "Shaft size deviations g–h7",
+      "de": "Maßabweichungen von Wellen g–h7",
+      "fr": "Écarts dimensionnels des arbres g–h7",
+      "ru": "Отклонения размеров валов g–h7"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/06-Uchylky rozmeru hridelu h8-h18": {
+    "storage": "06-H8-H18",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů h8 až h18",
+      "en": "Shaft size deviations h8–h18",
+      "de": "Maßabweichungen von Wellen h8–h18",
+      "fr": "Écarts dimensionnels des arbres h8–h18",
+      "ru": "Отклонения размеров валов h8–h18"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/07-Uchylky rozmeru hridelu js1-js9": {
+    "storage": "07-JS1-JS9",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů js1 až js9",
+      "en": "Shaft size deviations js1–js9",
+      "de": "Maßabweichungen von Wellen js1–js9",
+      "fr": "Écarts dimensionnels des arbres js1–js9",
+      "ru": "Отклонения размеров валов js1–js9"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/08-Uchylky rozmeru hridelu js10-js18": {
+    "storage": "08-JS10-JS18",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů js10 až js18",
+      "en": "Shaft size deviations js10–js18",
+      "de": "Maßabweichungen von Wellen js10–js18",
+      "fr": "Écarts dimensionnels des arbres js10–js18",
+      "ru": "Отклонения размеров валов js10–js18"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/09-Uchylky rozmeru hridelu j-k": {
+    "storage": "09-J-K",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů j až k",
+      "en": "Shaft size deviations j–k",
+      "de": "Maßabweichungen von Wellen j–k",
+      "fr": "Écarts dimensionnels des arbres j–k",
+      "ru": "Отклонения размеров валов j–k"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/10-Uchylky rozmeru hridelu m-n": {
+    "storage": "10-M-N",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů m a n",
+      "en": "Shaft size deviations m / n",
+      "de": "Maßabweichungen von Wellen m / n",
+      "fr": "Écarts dimensionnels des arbres m / n",
+      "ru": "Отклонения размеров валов m / n"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/11-Uchylky rozmeru hridelu p-r": {
+    "storage": "11-P-R",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů p a r",
+      "en": "Shaft size deviations p / r",
+      "de": "Maßabweichungen von Wellen p / r",
+      "fr": "Écarts dimensionnels des arbres p / r",
+      "ru": "Отклонения размеров валов p / r"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/12-Uchylky rozmeru hridelu s-t": {
+    "storage": "12-S-T",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů s a t",
+      "en": "Shaft size deviations s / t",
+      "de": "Maßabweichungen von Wellen s / t",
+      "fr": "Écarts dimensionnels des arbres s / t",
+      "ru": "Отклонения размеров валов s / t"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/13-Uchylky rozmeru hridelu u-v": {
+    "storage": "13-U-V",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů u a v",
+      "en": "Shaft size deviations u / v",
+      "de": "Maßabweichungen von Wellen u / v",
+      "fr": "Écarts dimensionnels des arbres u / v",
+      "ru": "Отклонения размеров валов u / v"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/14-Uchylky rozmeru hridelu x-y": {
+    "storage": "14-X-Y",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů x a y",
+      "en": "Shaft size deviations x / y",
+      "de": "Maßabweichungen von Wellen x / y",
+      "fr": "Écarts dimensionnels des arbres x / y",
+      "ru": "Отклонения размеров валов x / y"
+    }
+  },
+  "02-TOLEROVANI/02-Soustava toleranci  a ulozeni ISO/10-Uchylky rozmeru hridelu a az zc/15-Uchylky rozmeru hridelu z-zc": {
+    "storage": "15-Z-ZC",
+    "labels": {
+      "cs": "Úchylky rozměrů hřídelů z až zc",
+      "en": "Shaft size deviations z–zc",
+      "de": "Maßabweichungen von Wellen z–zc",
+      "fr": "Écarts dimensionnels des arbres z–zc",
+      "ru": "Отклонения размеров валов z–zc"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/01-Metricke zavity ISO - pro vseobecne pouziti/01-rozmery pro M1 az M18": {
+    "storage": "01-M1-M18",
+    "labels": {
+      "cs": "Rozměry M1 až M18",
+      "en": "Dimensions M1 to M18",
+      "de": "Maße M1 bis M18",
+      "fr": "Dimensions M1 à M18",
+      "ru": "Размеры M1–M18"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/01-Metricke zavity ISO - pro vseobecne pouziti/02-rozmery pro M20 az M48": {
+    "storage": "02-M20-M48",
+    "labels": {
+      "cs": "Rozměry M20 až M48",
+      "en": "Dimensions M20 to M48",
+      "de": "Maße M20 bis M48",
+      "fr": "Dimensions M20 à M48",
+      "ru": "Размеры M20–M48"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/01-Metricke zavity ISO - pro vseobecne pouziti/03-rozmery pro M50 az M82": {
+    "storage": "03-M50-M82",
+    "labels": {
+      "cs": "Rozměry M50 až M82",
+      "en": "Dimensions M50 to M82",
+      "de": "Maße M50 bis M82",
+      "fr": "Dimensions M50 à M82",
+      "ru": "Размеры M50–M82"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/01-Metricke zavity ISO - pro vseobecne pouziti/04-rozmery pro M85 az M175": {
+    "storage": "04-M85-M175",
+    "labels": {
+      "cs": "Rozměry M85 až M175",
+      "en": "Dimensions M85 to M175",
+      "de": "Maße M85 bis M175",
+      "fr": "Dimensions M85 à M175",
+      "ru": "Размеры M85–M175"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/01-Metricke zavity ISO - pro vseobecne pouziti/05-rozmery pro M180 az M300": {
+    "storage": "05-M180-M300",
+    "labels": {
+      "cs": "Rozměry M180 až M300",
+      "en": "Dimensions M180 to M300",
+      "de": "Maße M180 bis M300",
+      "fr": "Dimensions M180 à M300",
+      "ru": "Размеры M180–M300"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/01-Tolerancni pole pro ulozeni s vuli": {
+    "storage": "01-CLEARANCE",
+    "labels": {
+      "cs": "Toleranční pole pro uložení s vůlí",
+      "en": "Fundamental deviations and tolerance grades for clearance fits",
+      "de": "Grundabweichungen und Toleranzgrade für Spielpassungen",
+      "fr": "Écarts fondamentaux et grades pour ajustements avec jeu",
+      "ru": "Основные отклонения и квалитеты для посадок с зазором"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/02-Tolerancni znacky pro ulozeni s vuli": {
+    "storage": "02-SYMBOLS",
+    "labels": {
+      "cs": "Toleranční značky pro uložení s vůlí",
+      "en": "Tolerance designations for clearance fits",
+      "de": "Toleranzbezeichnungen für Spielpassungen",
+      "fr": "Désignations de tolérance pour ajustements avec jeu",
+      "ru": "Обозначения допусков для посадок с зазором"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/03-Delky zasroubovani pro ulozeni s vuli": {
+    "storage": "03-ENGAGE",
+    "labels": {
+      "cs": "Délky zašroubování pro uložení s vůlí",
+      "en": "Engagement lengths for clearance fits",
+      "de": "Einschraublängen für Spielpassungen",
+      "fr": "Longueurs d'engagement pour ajustements avec jeu",
+      "ru": "Длины свинчивания для посадок с зазором"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/04-Zakladni uchylky a stupne presnosti pro ulozeni prechodna": {
+    "storage": "04-TRANSIT",
+    "labels": {
+      "cs": "Základní úchylky a stupně přesnosti pro uložení přechodná",
+      "en": "Fundamental deviations and tolerance grades for transition fits",
+      "de": "Grundabweichungen und Toleranzgrade für Übergangspassungen",
+      "fr": "Écarts fondamentaux et grades pour ajustements de transition",
+      "ru": "Основные отклонения и квалитеты для переходных посадок"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/05-Tolerancni znacky pro ulozeni prechodna": {
+    "storage": "05-SYMBOLS",
+    "labels": {
+      "cs": "Toleranční značky pro uložení přechodná",
+      "en": "Tolerance designations for transition fits",
+      "de": "Toleranzbezeichnungen für Übergangspassungen",
+      "fr": "Désignations de tolérance pour ajustements de transition",
+      "ru": "Обозначения допусков для переходных посадок"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/06-Kombinace tolerancnich poli pro ulozeni prechodna": {
+    "storage": "06-ZONES",
+    "labels": {
+      "cs": "Kombinace tolerančních polí pro uložení přechodná",
+      "en": "Tolerance-zone combinations for transition fits",
+      "de": "Toleranzfeldkombinationen für Übergangspassungen",
+      "fr": "Combinaisons de zones de tolérance pour ajustements de transition",
+      "ru": "Сочетания полей допусков для переходных посадок"
+    }
+  },
+  "03-ZAVITY/02-Metricke zavity ISO/03-Metricke zavity ISO - tolerovani/07-Tolerancni znacky pro ulozeni s presahem": {
+    "storage": "07-PRESS",
+    "labels": {
+      "cs": "Toleranční značky pro uložení s přesahem",
+      "en": "Tolerance designations for interference fits",
+      "de": "Toleranzbezeichnungen für Übermaßpassungen",
+      "fr": "Désignations de tolérance pour ajustements avec serrage",
+      "ru": "Обозначения допусков для посадок с натягом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/01-vyrobni tridy A a B": {
+    "storage": "01-GRADE-AB",
+    "labels": {
+      "cs": "výrobní třída A a B",
+      "en": "Product grades A and B",
+      "de": "Produktklassen A und B",
+      "fr": "Grades de produit A et B",
+      "ru": "Классы точности изделия A и B"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/02-vyrobni tridy C": {
+    "storage": "02-GRADE-C",
+    "labels": {
+      "cs": "výrobní třídy C",
+      "en": "Product grade C",
+      "de": "Produktklasse C",
+      "fr": "Grade de produit C",
+      "ru": "Класс точности изделия C"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/03-vyrobni tridy A a B - zavit k hlave": {
+    "storage": "03-FULL-AB",
+    "labels": {
+      "cs": "výrobní třída A a B - závitem k hlavě",
+      "en": "Product grades A and B — fully threaded",
+      "de": "Produktklassen A und B — Vollgewinde",
+      "fr": "Grades de produit A et B — filetage total",
+      "ru": "Классы точности изделия A и B — полная резьба"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/04-vyrobni tridy C - zavit k hlave": {
+    "storage": "04-FULL-C",
+    "labels": {
+      "cs": "výrobní třída C - závit k hlavě",
+      "en": "Product grade C — fully threaded",
+      "de": "Produktklasse C — Vollgewinde",
+      "fr": "Grade de produit C — filetage total",
+      "ru": "Класс точности изделия C — полная резьба"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/05-vyrobni tridy A a B - s jemnym metrickym zavitem": {
+    "storage": "05-FINE-AB",
+    "labels": {
+      "cs": "výrobní třída A a B - s jemným metrickým závitem",
+      "en": "Product grades A and B — fine pitch thread",
+      "de": "Produktklassen A und B — Feingewinde",
+      "fr": "Grades de produit A et B — filetage à pas fin",
+      "ru": "Классы точности изделия A и B — мелкая резьба"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/06-vyrobni tridy A a B - s jemnym metrickym zavitem se zavitem k hlave": {
+    "storage": "06-FULL-FINE",
+    "labels": {
+      "cs": "výrobní třída A a B - s jemným metrickým závitem k hlavě",
+      "en": "Product grades A and B — fully threaded, fine pitch",
+      "de": "Produktklassen A und B — Vollgewinde mit feiner Steigung",
+      "fr": "Grades de produit A et B — filetage total à pas fin",
+      "ru": "Классы точности изделия A и B — полная мелкая резьба"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/07-presne srouby s malou 6HR hlavou": {
+    "storage": "07-SMALL-HEX",
+    "labels": {
+      "cs": "Přesné šrouby s malou šestihrannou hlavou",
+      "en": "Precision bolts with small hexagon head",
+      "de": "Präzisionsschrauben mit kleinem Sechskantkopf",
+      "fr": "Boulons de précision à petite tête hexagonale",
+      "ru": "Точные болты с малой шестигранной головкой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/03-Zavrtne srouby/01-rozmery M3 az M16": {
+    "storage": "01-M3-M16",
+    "labels": {
+      "cs": "Rozměry M3 až M16",
+      "en": "Dimensions M3 to M16",
+      "de": "Maße M3 bis M16",
+      "fr": "Dimensions M3 à M16",
+      "ru": "Размеры M3–M16"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/03-Zavrtne srouby/02-rozmery M16 az M30": {
+    "storage": "02-M16-M30",
+    "labels": {
+      "cs": "Rozměry M16 až M30",
+      "en": "Dimensions M16 to M30",
+      "de": "Maße M16 bis M30",
+      "fr": "Dimensions M16 à M30",
+      "ru": "Размеры M16–M30"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/01-S vnitrnim sestihranem, trida C": {
+    "storage": "01-SOCKET",
+    "labels": {
+      "cs": "Šrouby s válcovou hlavou a vnitřním šestihrannem",
+      "en": "Hexagon socket head cap screws — grade C",
+      "de": "Zylinderschrauben mit Innensechskant — Produktklasse C",
+      "fr": "Vis à tête cylindrique à six pans creux — grade C",
+      "ru": "Винты с цилиндрической головкой и внутренним шестигранником — класс C"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/02-S drazkou, trida A": {
+    "storage": "02-SLOTTED",
+    "labels": {
+      "cs": "Šrouby s válcovou hlavou s drážkou",
+      "en": "Slotted cylindrical head screws — grade A",
+      "de": "Zylinderschrauben mit Schlitz — Produktklasse A",
+      "fr": "Vis à tête cylindrique fendue — grade A",
+      "ru": "Винты с цилиндрической головкой и шлицем — класс A"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/03-S velkou hlavou, trida A": {
+    "storage": "03-LARGE",
+    "labels": {
+      "cs": "Šrouby s velkou válcovou hlavou",
+      "en": "Large cylindrical head screws — grade A",
+      "de": "Schrauben mit großem Zylinderkopf — Produktklasse A",
+      "fr": "Vis à grande tête cylindrique — grade A",
+      "ru": "Винты с большой цилиндрической головкой — класс A"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/04-SROUBY_S_PULKULATOU_HLAVOU_S_VNITRNIM_6HR-A2": {
+    "storage": "04-BUTTON-A2",
+    "labels": {
+      "cs": "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2",
+      "en": "Hexagon socket button head screws — A2",
+      "de": "Schrauben mit Flachrundkopf und Innensechskant — A2",
+      "fr": "Vis à tête bombée à six pans creux — A2",
+      "ru": "Винты с полукруглой головкой и внутренним шестигранником — A2"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/01-S kuzelovou hlavou, trida A": {
+    "storage": "01-CONICAL",
+    "labels": {
+      "cs": "Zápustné šrouby s kuželovou hlavou výrobní třídy A",
+      "en": "Countersunk head screws — grade A",
+      "de": "Senkschrauben — Produktklasse A",
+      "fr": "Vis à tête fraisée — grade A",
+      "ru": "Винты с потайной головкой — класс A"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/02-S cockovitou hlavou, trida A": {
+    "storage": "02-RAISED",
+    "labels": {
+      "cs": "Zápustné šrouby s čočkovitou hlavou",
+      "en": "Raised countersunk head screws — grade A",
+      "de": "Linsensenkschrauben — Produktklasse A",
+      "fr": "Vis à tête fraisée bombée — grade A",
+      "ru": "Винты с полупотайной головкой — класс A"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/03-S krizovou drazkou, pevnost 4.8": {
+    "storage": "03-CROSS-48",
+    "labels": {
+      "cs": "Zápustné šrouby s křížovou drážkou h nebo z, pevnost 4.8",
+      "en": "Cross-recessed countersunk screws — class 4.8",
+      "de": "Senkschrauben mit Kreuzschlitz — Festigkeitsklasse 4.8",
+      "fr": "Vis à tête fraisée à empreinte cruciforme — classe 4.8",
+      "ru": "Винты с потайной головкой и крестообразным шлицем — класс 4.8"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/04-S krizovou drazkou, pevnost 8.8": {
+    "storage": "04-CROSS-88",
+    "labels": {
+      "cs": "Zápustné šrouby s křížovou drážkou h nebo z, pevnost 8.8",
+      "en": "Cross-recessed countersunk screws — class 8.8",
+      "de": "Senkschrauben mit Kreuzschlitz — Festigkeitsklasse 8.8",
+      "fr": "Vis à tête fraisée à empreinte cruciforme — classe 8.8",
+      "ru": "Винты с потайной головкой и крестообразным шлицем — класс 8.8"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/05-Do plechu s krizovou drazkou": {
+    "storage": "05-TAPPING",
+    "labels": {
+      "cs": "Zápustné šrouby do plechu s křížovou drážkou",
+      "en": "Cross-recessed countersunk tapping screws",
+      "de": "Senkblechschrauben mit Kreuzschlitz",
+      "fr": "Vis autotaraudeuses à tête fraisée à empreinte cruciforme",
+      "ru": "Самонарезающие винты с потайной головкой и крестообразным шлицем"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/06-S cockovitou hlavou s krizovou drazkou": {
+    "storage": "06-CROSS-UP",
+    "labels": {
+      "cs": "Zápustné šrouby s čočkovitou hlavou s křížovou drážkou",
+      "en": "Cross-recessed raised countersunk screws",
+      "de": "Linsensenkschrauben mit Kreuzschlitz",
+      "fr": "Vis à tête fraisée bombée à empreinte cruciforme",
+      "ru": "Винты с полупотайной головкой и крестообразным шлицем"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/05-Zapustne srouby/07-S kuzelovou hlavou, vnitrni 6HR": {
+    "storage": "07-SOCKET",
+    "labels": {
+      "cs": "Zápustné šrouby s vnitřním šestihranem",
+      "en": "Hexagon socket countersunk head screws",
+      "de": "Senkschrauben mit Innensechskant",
+      "fr": "Vis à tête fraisée à six pans creux",
+      "ru": "Винты с потайной головкой и внутренним шестигранником"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/06-Srouby s pulkulatou hlavou/01-S krizovou drazkou vyrobni tridy A": {
+    "storage": "01-CROSS-A",
+    "labels": {
+      "cs": "S křížovou drážkou výrobní třídy A",
+      "en": "Cross-recessed pan head screws — grade A",
+      "de": "Flachrundschrauben mit Kreuzschlitz — Produktklasse A",
+      "fr": "Vis à tête bombée à empreinte cruciforme — grade A",
+      "ru": "Винты с полукруглой головкой и крестообразным шлицем — класс A"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/06-Srouby s pulkulatou hlavou/01-Srouby s pulkulatou halvou s krizovou drazkou": {
+    "storage": "01-CROSS",
+    "labels": {
+      "cs": "Šrouby s půlkulatou hlavou s křížovou drážkou",
+      "en": "Cross-recessed pan head screws",
+      "de": "Flachrundschrauben mit Kreuzschlitz",
+      "fr": "Vis à tête bombée à empreinte cruciforme",
+      "ru": "Винты с полукруглой головкой и крестообразным шлицем"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/06-Srouby s pulkulatou hlavou/02-Do plechu s krizovou drazkou": {
+    "storage": "02-TAPPING",
+    "labels": {
+      "cs": "Do plechu s křížovou drážkou",
+      "en": "Cross-recessed pan head tapping screws",
+      "de": "Flachrundblechschrauben mit Kreuzschlitz",
+      "fr": "Vis autotaraudeuses à tête bombée à empreinte cruciforme",
+      "ru": "Самонарезающие винты с полукруглой головкой и крестообразным шлицем"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/06-Srouby s pulkulatou hlavou/02-Srouby do plechu s pulkulatou hlavou a krizovou drazkou": {
+    "storage": "02-TAPPING",
+    "labels": {
+      "cs": "Šrouby do plechu s půlkulatou hlavou s křížovou drážkou",
+      "en": "Cross-recessed pan head tapping screws",
+      "de": "Flachrundblechschrauben mit Kreuzschlitz",
+      "fr": "Vis autotaraudeuses à tête bombée à empreinte cruciforme",
+      "ru": "Самонарезающие винты с полукруглой головкой и крестообразным шлицем"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/08-Upinaci srouby/01-Do obrobenych upinacich drazek T": {
+    "storage": "01-T-SLOTS",
+    "labels": {
+      "cs": "Upínací šrouby do obrobených upínacích drážek T",
+      "en": "Clamping bolts for machined T-slots",
+      "de": "Spannschrauben für bearbeitete T-Nuten",
+      "fr": "Boulons de serrage pour rainures en T usinées",
+      "ru": "Зажимные болты для обработанных Т-пазов"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/08-Upinaci srouby/02-Obrobene upinaci T drazky": {
+    "storage": "02-SLOTS",
+    "labels": {
+      "cs": "Obrobené upínací T-drážky",
+      "en": "Machined T-slots",
+      "de": "Bearbeitete T-Nuten",
+      "fr": "Rainures en T usinées",
+      "ru": "Обработанные Т-пазы"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/08-Upinaci srouby/03-S osazenym koncem": {
+    "storage": "03-SHOULDER",
+    "labels": {
+      "cs": "Upínací šrouby s osazeným koncem",
+      "en": "Clamping screws with shoulder end",
+      "de": "Spannschrauben mit abgesetztem Ende",
+      "fr": "Vis de serrage à extrémité épaulée",
+      "ru": "Зажимные винты со ступенчатым концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/08-Upinaci srouby/04-Se zaoblenym cipkem": {
+    "storage": "04-ROUND",
+    "labels": {
+      "cs": "Upínací šrouby se zaobleným čípkem",
+      "en": "Clamping screws with rounded dog point",
+      "de": "Spannschrauben mit abgerundetem Zapfen",
+      "fr": "Vis de serrage à téton arrondi",
+      "ru": "Зажимные винты с закруглённой цапфой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/01-S drazkou a plochym koncem": {
+    "storage": "01-FLAT",
+    "labels": {
+      "cs": "Stavěcí šrouby s drážkou a plochým koncem",
+      "en": "Slotted set screws with flat point",
+      "de": "Gewindestifte mit Schlitz und flacher Spitze",
+      "fr": "Vis sans tête fendues à bout plat",
+      "ru": "Установочные винты со шлицем и плоским концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/02-S drazkou a kuzelovym dulkem": {
+    "storage": "02-CUP",
+    "labels": {
+      "cs": "Stavěcí šrouby s drážkou a kuželovým důlkem",
+      "en": "Slotted set screws with cup point",
+      "de": "Gewindestifte mit Schlitz und Ringschneide",
+      "fr": "Vis sans tête fendues à cuvette",
+      "ru": "Установочные винты со шлицем и засверлённым концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/03-S drazkou a s cipkem": {
+    "storage": "03-DOG",
+    "labels": {
+      "cs": "Stavěcí šrouby s drážkou a čípkem",
+      "en": "Slotted set screws with dog point",
+      "de": "Gewindestifte mit Schlitz und Zapfen",
+      "fr": "Vis sans tête fendues à téton",
+      "ru": "Установочные винты со шлицем и цилиндрическим концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/04-S drazkou a s hrotem": {
+    "storage": "04-CONE",
+    "labels": {
+      "cs": "Stavěcí šrouby s drážkou a hrotem",
+      "en": "Slotted set screws with cone point",
+      "de": "Gewindestifte mit Schlitz und Kegelkuppe",
+      "fr": "Vis sans tête fendues à pointe conique",
+      "ru": "Установочные винты со шлицем и коническим концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/05-S vnitrnim sestihranem": {
+    "storage": "05-SOCKET",
+    "labels": {
+      "cs": "Stavěcí šrouby s vnitřním šestihranem",
+      "en": "Hexagon socket set screws",
+      "de": "Gewindestifte mit Innensechskant",
+      "fr": "Vis sans tête à six pans creux",
+      "ru": "Установочные винты с внутренним шестигранником"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/XX_05-STAVECI_SROUBY-s_vnitrnim_6hr_a_s_cipkem": {
+    "storage": "XX-DOG",
+    "labels": {
+      "cs": "Stavěcí šrouby s vnitřním šestihranem a čípkem",
+      "en": "Hexagon socket set screws with dog point",
+      "de": "Gewindestifte mit Innensechskant und Zapfen",
+      "fr": "Vis sans tête à six pans creux à téton",
+      "ru": "Установочные винты с внутренним шестигранником и цилиндрическим концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/XX_06-STAVECI_SROUBY-s_vnitrnim_6hr_a_hrotem": {
+    "storage": "XX-CONE",
+    "labels": {
+      "cs": "Stavěcí šrouby s vnitřním šestihranem a hrotem",
+      "en": "Hexagon socket set screws with cone point",
+      "de": "Gewindestifte mit Innensechskant und Kegelkuppe",
+      "fr": "Vis sans tête à six pans creux à pointe conique",
+      "ru": "Установочные винты с внутренним шестигранником и коническим концом"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/XX_DIN_913-SROUB_STAVECI_S_VNITRNIM_6HR": {
+    "storage": "XX-DIN-913",
+    "labels": {
+      "cs": "Stavěcí šrouby s vnitřním šestihranem a plochým koncem — DIN 913",
+      "en": "Hexagon socket set screws with flat point — DIN 913",
+      "de": "Gewindestifte mit Innensechskant und flacher Spitze — DIN 913",
+      "fr": "Vis sans tête à six pans creux à bout plat — DIN 913",
+      "ru": "Установочные винты с внутренним шестигранником и плоским концом — DIN 913"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/XX_DIN_914-SROUB_STAVECI_S_VNITRNIM_6HR": {
+    "storage": "XX-DIN-914",
+    "labels": {
+      "cs": "Stavěcí šrouby s vnitřním šestihranem a hrotem — DIN 914",
+      "en": "Hexagon socket set screws with cone point — DIN 914",
+      "de": "Gewindestifte mit Innensechskant und Kegelkuppe — DIN 914",
+      "fr": "Vis sans tête à six pans creux à pointe conique — DIN 914",
+      "ru": "Установочные винты с внутренним шестигранником и коническим концом — DIN 914"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/09-Staveci srouby/XX_DIN_915-SROUB_STAVECI_S_VNITRNIM_6HR": {
+    "storage": "XX-DIN-915",
+    "labels": {
+      "cs": "Stavěcí šrouby s vnitřním šestihranem a čípkem — DIN 915",
+      "en": "Hexagon socket set screws with dog point — DIN 915",
+      "de": "Gewindestifte mit Innensechskant und Zapfen — DIN 915",
+      "fr": "Vis sans tête à six pans creux à téton — DIN 915",
+      "ru": "Установочные винты с внутренним шестигранником и цилиндрическим концом — DIN 915"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/11-Srouby do zdiva a zakladu/01-SROUBY_TVARU_A_a_D": {
+    "storage": "01-FORMS-AD",
+    "labels": {
+      "cs": "Kotevní šrouby — tvary A a D",
+      "en": "Anchor bolts — forms A and D",
+      "de": "Ankerschrauben — Formen A und D",
+      "fr": "Boulons d'ancrage — formes A et D",
+      "ru": "Анкерные болты — формы A и D"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/11-Srouby do zdiva a zakladu/02-SROUBY_TVARU_B_a_C": {
+    "storage": "02-FORMS-BC",
+    "labels": {
+      "cs": "Kotevní šrouby — tvary B a C",
+      "en": "Anchor bolts — forms B and C",
+      "de": "Ankerschrauben — Formen B und C",
+      "fr": "Boulons d'ancrage — formes B et C",
+      "ru": "Анкерные болты — формы B и C"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/11-Srouby do zdiva a zakladu/03-SROUBY_TVARU_E": {
+    "storage": "03-FORM-E",
+    "labels": {
+      "cs": "Kotevní šrouby — tvar E",
+      "en": "Anchor bolts — form E",
+      "de": "Ankerschrauben — Form E",
+      "fr": "Boulons d'ancrage — forme E",
+      "ru": "Анкерные болты — форма E"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/01-Typ 1, trida A a B": {
+    "storage": "01-TYPE1-AB",
+    "labels": {
+      "cs": "Šestihranné matice, výrobní třída A a B",
+      "en": "Hexagon nuts, style 1 — grades A and B",
+      "de": "Sechskantmuttern, Typ 1 — Produktklassen A und B",
+      "fr": "Écrous hexagonaux, style 1 — grades A et B",
+      "ru": "Шестигранные гайки, тип 1 — классы A и B"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/02-Typ 1, trida A a B s jemnym metrickym zavitem": {
+    "storage": "02-TYPE1-F",
+    "labels": {
+      "cs": "Šestihranné matice s jemným metrickým závitem, výrobní třída A a B",
+      "en": "Hexagon nuts, style 1 — grades A and B, fine thread",
+      "de": "Sechskantmuttern, Typ 1 — Produktklassen A und B, Feingewinde",
+      "fr": "Écrous hexagonaux, style 1 — grades A et B, pas fin",
+      "ru": "Шестигранные гайки, тип 1 — классы A и B, мелкая резьба"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/03-Nizke se srazenim, trida A a B": {
+    "storage": "03-LOW",
+    "labels": {
+      "cs": "Šestihranné matice nízké se sražením výrobní třída A a B",
+      "en": "Chamfered thin hexagon nuts — grades A and B",
+      "de": "Sechskantmuttern niedrige Form mit Fase — Produktklassen A und B",
+      "fr": "Écrous hexagonaux bas chanfreinés — grades A et B",
+      "ru": "Низкие шестигранные гайки с фаской — классы A и B"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/04-Nizke s jemnym metrickym zavitem": {
+    "storage": "04-LOW-FINE",
+    "labels": {
+      "cs": "Šestihranné matice nízké s jemným metrickým závitem",
+      "en": "Thin hexagon nuts with fine thread",
+      "de": "Sechskantmuttern niedrige Form mit Feingewinde",
+      "fr": "Écrous hexagonaux bas à pas fin",
+      "ru": "Низкие шестигранные гайки с мелкой резьбой"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/05-Nizke bez srazeni": {
+    "storage": "05-NO-CHAMF",
+    "labels": {
+      "cs": "Šestihranné matice nízké bez sražení",
+      "en": "Unchamfered thin hexagon nuts",
+      "de": "Sechskantmuttern niedrige Form ohne Fase",
+      "fr": "Écrous hexagonaux bas non chanfreinés",
+      "ru": "Низкие шестигранные гайки без фаски"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/06-Typ 2, trida A a B": {
+    "storage": "06-TYPE2-AB",
+    "labels": {
+      "cs": "Šestihranné matice, typ 2 výrobní třída A a B",
+      "en": "Hexagon nuts, style 2 — grades A and B",
+      "de": "Sechskantmuttern, Typ 2 — Produktklassen A und B",
+      "fr": "Écrous hexagonaux, style 2 — grades A et B",
+      "ru": "Шестигранные гайки, тип 2 — классы A и B"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/07-Typ 2, trida A a B s jemnym metrickym zavitem": {
+    "storage": "07-TYPE2-F",
+    "labels": {
+      "cs": "Šestihranné matice s jemným metrickým závitem, typ2, výrobní třída A a B",
+      "en": "Hexagon nuts, style 2 — grades A and B, fine thread",
+      "de": "Sechskantmuttern, Typ 2 — Produktklassen A und B, Feingewinde",
+      "fr": "Écrous hexagonaux, style 2 — grades A et B, pas fin",
+      "ru": "Шестигранные гайки, тип 2 — классы A и B, мелкая резьба"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/01-Sestihranne_matice/08-Vyrobni_trida_C_(hrube)": {
+    "storage": "08-GRADE-C",
+    "labels": {
+      "cs": "Šestihranné matice, výrobní třída C (hrubé)",
+      "en": "Hexagon nuts — grade C",
+      "de": "Sechskantmuttern — Produktklasse C",
+      "fr": "Écrous hexagonaux — grade C",
+      "ru": "Шестигранные гайки — класс C"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/02-Korunove_matice/01-Korunove matice CSN 02 1411": {
+    "storage": "01-CSN-1411",
+    "labels": {
+      "cs": "Korunové matice ČSN 02 1411",
+      "en": "Castellated nuts — ČSN 02 1411",
+      "de": "Kronenmuttern — ČSN 02 1411",
+      "fr": "Écrous à créneaux — ČSN 02 1411",
+      "ru": "Корончатые гайки — ČSN 02 1411"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/05-Matice/02-Korunove_matice/02-Korunove matice nizke": {
+    "storage": "02-LOW",
+    "labels": {
+      "cs": "Nízké korunové matice",
+      "en": "Thin castellated nuts",
+      "de": "Kronenmuttern niedrige Form",
+      "fr": "Écrous à créneaux bas",
+      "ru": "Низкие корончатые гайки"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/DIN_ PODLOZKY/nerez": {
+    "storage": "01-STAINLESS",
+    "labels": {
+      "cs": "Korozivzdorná ocel",
+      "en": "Stainless steel",
+      "de": "Nichtrostender Stahl",
+      "fr": "Acier inoxydable",
+      "ru": "Нержавеющая сталь"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/01-vyrobni tridy A a B/01-rozmery M1,6 az M10": {
+    "storage": "01-M1.6-M10",
+    "labels": {
+      "cs": "Rozměry M1,6 až M10",
+      "en": "Dimensions M1.6 to M10",
+      "de": "Maße M1.6 bis M10",
+      "fr": "Dimensions M1.6 à M10",
+      "ru": "Размеры M1.6–M10"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/01-vyrobni tridy A a B/02-rozmery M12 az M33": {
+    "storage": "02-M12-M33",
+    "labels": {
+      "cs": "Rozměry M12 až M33",
+      "en": "Dimensions M12 to M33",
+      "de": "Maße M12 bis M33",
+      "fr": "Dimensions M12 à M33",
+      "ru": "Размеры M12–M33"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/01-vyrobni tridy A a B/03-rozmery M36 az M64": {
+    "storage": "03-M36-M64",
+    "labels": {
+      "cs": "Rozměry M36 až M64",
+      "en": "Dimensions M36 to M64",
+      "de": "Maße M36 bis M64",
+      "fr": "Dimensions M36 à M64",
+      "ru": "Размеры M36–M64"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/02-vyrobni tridy C/01-rozmery M5 az M27": {
+    "storage": "01-M5-M27",
+    "labels": {
+      "cs": "Rozměry M5 až M27",
+      "en": "Dimensions M5 to M27",
+      "de": "Maße M5 bis M27",
+      "fr": "Dimensions M5 à M27",
+      "ru": "Размеры M5–M27"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/02-vyrobni tridy C/02-rozmery M30 az M64": {
+    "storage": "02-M30-M64",
+    "labels": {
+      "cs": "Rozměry M30 až M64",
+      "en": "Dimensions M30 to M64",
+      "de": "Maße M30 bis M64",
+      "fr": "Dimensions M30 à M64",
+      "ru": "Размеры M30–M64"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/03-vyrobni tridy A a B - zavit k hlave/01-rozmery M1,6 az M10": {
+    "storage": "01-M1.6-M10",
+    "labels": {
+      "cs": "Rozměry M1,6 až M10",
+      "en": "Dimensions M1.6 to M10",
+      "de": "Maße M1.6 bis M10",
+      "fr": "Dimensions M1.6 à M10",
+      "ru": "Размеры M1.6–M10"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/03-vyrobni tridy A a B - zavit k hlave/02-rozmery M12 az M33": {
+    "storage": "02-M12-M33",
+    "labels": {
+      "cs": "Rozměry M12 až M33",
+      "en": "Dimensions M12 to M33",
+      "de": "Maße M12 bis M33",
+      "fr": "Dimensions M12 à M33",
+      "ru": "Размеры M12–M33"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/03-vyrobni tridy A a B - zavit k hlave/03-rozmery M36 az M64": {
+    "storage": "03-M36-M64",
+    "labels": {
+      "cs": "Rozměry M36 až M64",
+      "en": "Dimensions M36 to M64",
+      "de": "Maße M36 bis M64",
+      "fr": "Dimensions M36 à M64",
+      "ru": "Размеры M36–M64"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/04-vyrobni tridy C - zavit k hlave/01-rozmery M5 az M27": {
+    "storage": "01-M5-M27",
+    "labels": {
+      "cs": "Rozměry M5 až M27",
+      "en": "Dimensions M5 to M27",
+      "de": "Maße M5 bis M27",
+      "fr": "Dimensions M5 à M27",
+      "ru": "Размеры M5–M27"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/04-vyrobni tridy C - zavit k hlave/02-rozmery M33 az M64": {
+    "storage": "02-M30-M64",
+    "labels": {
+      "cs": "Rozměry M30 až M64",
+      "en": "Dimensions M30 to M64",
+      "de": "Maße M30 bis M64",
+      "fr": "Dimensions M30 à M64",
+      "ru": "Размеры M30–M64"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/05-vyrobni tridy A a B - s jemnym metrickym zavitem/01-rozmery M8x1 az M16x1,5": {
+    "storage": "01-SIZES",
+    "labels": {
+      "cs": "Rozměry M8x1 až M16x1,5",
+      "en": "Dimensions M8x1 to M16x1.5",
+      "de": "Maße M8x1 bis M16x1.5",
+      "fr": "Dimensions M8x1 à M16x1.5",
+      "ru": "Размеры M8x1–M16x1.5"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/05-vyrobni tridy A a B - s jemnym metrickym zavitem/02-rozmery M18x1,5 az M30x2,5": {
+    "storage": "02-SIZES",
+    "labels": {
+      "cs": "Rozměry M18x1,5 až M30x2,5",
+      "en": "Dimensions M18x1.5 to M30x2.5",
+      "de": "Maße M18x1.5 bis M30x2.5",
+      "fr": "Dimensions M18x1.5 à M30x2.5",
+      "ru": "Размеры M18x1.5–M30x2.5"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/05-vyrobni tridy A a B - s jemnym metrickym zavitem/03-rozmery M33x2 az M52x4": {
+    "storage": "03-SIZES",
+    "labels": {
+      "cs": "Rozměry M33x2 až M52x4",
+      "en": "Dimensions M33x2 to M52x4",
+      "de": "Maße M33x2 bis M52x4",
+      "fr": "Dimensions M33x2 à M52x4",
+      "ru": "Размеры M33x2–M52x4"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/05-vyrobni tridy A a B - s jemnym metrickym zavitem/04-rozmery M56x4 az M64x4": {
+    "storage": "04-SIZES",
+    "labels": {
+      "cs": "Rozměry M56x4 až M64x4",
+      "en": "Dimensions M56x4 to M64x4",
+      "de": "Maße M56x4 bis M64x4",
+      "fr": "Dimensions M56x4 à M64x4",
+      "ru": "Размеры M56x4–M64x4"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/06-vyrobni tridy A a B - s jemnym metrickym zavitem se zavitem k hlave/01-rozmery M8x1 az M16x1,5": {
+    "storage": "01-SIZES",
+    "labels": {
+      "cs": "Rozměry M8x1 až M16x1,5",
+      "en": "Dimensions M8x1 to M16x1.5",
+      "de": "Maße M8x1 bis M16x1.5",
+      "fr": "Dimensions M8x1 à M16x1.5",
+      "ru": "Размеры M8x1–M16x1.5"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/06-vyrobni tridy A a B - s jemnym metrickym zavitem se zavitem k hlave/02-rozmery M18x1,5 az M30x2": {
+    "storage": "02-SIZES",
+    "labels": {
+      "cs": "Rozměry M18x1,5 až M30x2",
+      "en": "Dimensions M18x1.5 to M30x2",
+      "de": "Maße M18x1.5 bis M30x2",
+      "fr": "Dimensions M18x1.5 à M30x2",
+      "ru": "Размеры M18x1.5–M30x2"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/06-vyrobni tridy A a B - s jemnym metrickym zavitem se zavitem k hlave/02-rozmery M18x1,5 az M30x2,5": {
+    "storage": "02-SIZES",
+    "labels": {
+      "cs": "Rozměry M18x1,5 až M30x2",
+      "en": "Dimensions M18x1.5 to M30x2",
+      "de": "Maße M18x1.5 bis M30x2",
+      "fr": "Dimensions M18x1.5 à M30x2",
+      "ru": "Размеры M18x1.5–M30x2"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/06-vyrobni tridy A a B - s jemnym metrickym zavitem se zavitem k hlave/03-rozmery M33x2 az M52x4": {
+    "storage": "03-SIZES",
+    "labels": {
+      "cs": "Rozměry M33x2 až M52x4",
+      "en": "Dimensions M33x2 to M52x4",
+      "de": "Maße M33x2 bis M52x4",
+      "fr": "Dimensions M33x2 à M52x4",
+      "ru": "Размеры M33x2–M52x4"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/01-Srouby se 6HR hlavou/06-vyrobni tridy A a B - s jemnym metrickym zavitem se zavitem k hlave/04-rozmery M56x4 az M64x4": {
+    "storage": "04-SIZES",
+    "labels": {
+      "cs": "Rozměry M56x4 až M64x4",
+      "en": "Dimensions M56x4 to M64x4",
+      "de": "Maße M56x4 bis M64x4",
+      "fr": "Dimensions M56x4 à M64x4",
+      "ru": "Размеры M56x4–M64x4"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/01-S vnitrnim sestihranem, trida C/01-rozmery M1,6 az M12": {
+    "storage": "01-M1.6-M12",
+    "labels": {
+      "cs": "Rozměry M1,6 až M12",
+      "en": "Dimensions M1.6 to M12",
+      "de": "Maße M1.6 bis M12",
+      "fr": "Dimensions M1.6 à M12",
+      "ru": "Размеры M1.6–M12"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/01-S vnitrnim sestihranem, trida C/02-rozmery M14 az M64": {
+    "storage": "02-M14-M64",
+    "labels": {
+      "cs": "Rozměry M14 až M64",
+      "en": "Dimensions M14 to M64",
+      "de": "Maße M14 bis M64",
+      "fr": "Dimensions M14 à M64",
+      "ru": "Размеры M14–M64"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/01-S vnitrnim sestihranem, trida C/03-hmotnosti M1,6 az M20": {
+    "storage": "03-M1.6-M20",
+    "labels": {
+      "cs": "Hmotnosti M1,6 až M20",
+      "en": "Weights M1.6 to M20",
+      "de": "Gewichte M1.6 bis M20",
+      "fr": "Masses M1.6 à M20",
+      "ru": "Масса M1.6–M20"
+    }
+  },
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/01-S vnitrnim sestihranem, trida C/04-hmotnosti M24 az M64": {
+    "storage": "04-M24-M64",
+    "labels": {
+      "cs": "Hmotnosti M24 až M64",
+      "en": "Weights M24 to M64",
+      "de": "Gewichte M24 bis M64",
+      "fr": "Masses M24 à M64",
+      "ru": "Масса M24–M64"
+    }
+  }
+}

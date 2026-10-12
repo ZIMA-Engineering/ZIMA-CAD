@@ -27,6 +27,14 @@ LEGACY_VERSIONED_CAD = re.compile(r"\.(?:asm|drw|frm|neu|prt)\.\d+$", re.IGNOREC
 LANGUAGES = ("cs", "en", "de", "fr", "ru")
 NAMESPACE = uuid.UUID("aa8cf669-b83c-57af-991a-9f966393422f")
 PACKAGE_PREFIX = "ZIMA-CAD/windows/9999999999/config/lib/03-ENGINEERING-TABLES/"
+DIRECTORY_CATALOG = json.loads((Path(__file__).parent / "data" / "engineering-table-directories.json").read_text(encoding="utf-8"))
+
+
+def reviewed_directory(directory: Path) -> dict | None:
+    for root in (directory, *directory.parents):
+        if root.name == "04-MECHANICAL_TABLES":
+            return DIRECTORY_CATALOG.get(directory.relative_to(root).as_posix())
+    return None
 
 
 @dataclass(frozen=True)
@@ -180,7 +188,7 @@ def allowed_content(path: Path) -> bool:
 
 
 def ini_label(text: str, language: str) -> str:
-    match = re.search(rf"(?im)^\s*Label\\{re.escape(language)}\s*=\s*(.*?)\s*$", text)
+    match = re.search(rf"(?im)^[ \t]*Label\\{re.escape(language)}[ \t]*=[ \t]*(.*)$", text)
     if not match:
         return ""
     return match.group(1).strip().strip('"')
@@ -205,6 +213,9 @@ def generated_english_label(directory: Path) -> str:
 
 
 def english_label(directory: Path) -> str:
+    reviewed = reviewed_directory(directory)
+    if reviewed:
+        return reviewed["labels"]["en"]
     metadata = directory / "0000-index" / "metadata.ini"
     text = metadata.read_text(encoding="utf-8-sig", errors="replace") if metadata.is_file() else ""
     existing = ini_label(text, "en")
@@ -225,6 +236,9 @@ def english_slug(text: str) -> str:
 
 
 def compact_storage_name(directory: Path, sequence: int, maximum: int = 30) -> str:
+    reviewed = reviewed_directory(directory)
+    if reviewed:
+        return reviewed["storage"]
     prefix_match = re.match(r"^(\d+|XX)[-_ ]*", directory.name, re.IGNORECASE)
     prefix = prefix_match.group(1).upper() if prefix_match else f"{sequence:02d}"
     label = re.sub(r"^(?:\d+|XX)[-_ ]*", "", english_label(directory), flags=re.IGNORECASE)
@@ -248,8 +262,8 @@ def directory_metadata(text: str, label: str, english: str, identity: str, root:
             body = body.replace("Label\\cs=STROJNICKÉ TAUBULKY", "Label\\cs=STROJNICKÉ TABULKY")
         if not re.search(r"(?im)^\s*Label\\(?:cs|en|de|fr|ru)\s*=", body):
             body = f"\nLabel\\cs={label}\n" + body.lstrip("\n")
-        if re.search(r"(?im)^\s*Label\\en\s*=\s*(?:\"\")?\s*$", body):
-            body = re.sub(r"(?im)^\s*Label\\en\s*=.*$", lambda _: f"Label\\en={english}", body)
+        if re.search(r'(?im)^[ \t]*Label\\en[ \t]*=[ \t]*(?:"")?[ \t]*$', body):
+            body = re.sub(r"(?im)^[ \t]*Label\\en[ \t]*=.*$", lambda _: f"Label\\en={english}", body)
         elif not re.search(r"(?im)^\s*Label\\en\s*=", body):
             body = f"Label\\en={english}\n" + body.lstrip("\n")
         replacement = (
@@ -271,8 +285,8 @@ def directory_metadata(text: str, label: str, english: str, identity: str, root:
     if localized_labels:
         for language, value in zip(LANGUAGES, localized_labels, strict=True):
             key = rf"Label\\{language}"
-            if re.search(rf"(?im)^\s*{key}\s*=.*$", text):
-                text = re.sub(rf"(?im)^\s*{key}\s*=.*$", lambda _: f"Label\\{language}={value}", text)
+            if re.search(rf"(?im)^[ \t]*{key}[ \t]*=.*$", text):
+                text = re.sub(rf"(?im)^[ \t]*{key}[ \t]*=.*$", lambda _: f"Label\\{language}={value}", text)
             else:
                 directory_end = re.search(r"(?m)^\[[^]]+\]\s*$", text[text.index("\n", text.index("[Directory]")) + 1:])
                 insert_at = (text.index("\n", text.index("[Directory]")) + 1 + directory_end.start()) if directory_end else len(text)
@@ -490,6 +504,11 @@ def verify_import(source: Path, destination: Path) -> dict[str, object]:
         if identity.group(1) in identities:
             raise RuntimeError(f"Duplicate converted metadata identity: {identity.group(1)}")
         identities.add(identity.group(1))
+        reviewed = reviewed_directory(directory)
+        if reviewed:
+            for language in LANGUAGES:
+                if ini_label(text, language) != reviewed["labels"][language]:
+                    raise RuntimeError(f"Reviewed directory label differs ({language}): {metadata}")
         metadata_count += 1
 
     unresolved_html: list[str] = []
@@ -540,15 +559,17 @@ def import_tree(source: Path, destination: Path, dry_run: bool = False) -> dict[
         old_text = old_metadata.read_text(encoding="utf-8-sig") if old_metadata.is_file() else ""
         identity = str(uuid.uuid5(NAMESPACE, relative_source.as_posix() or "."))
         label = "STROJNICKÉ TABULKY" if directory == source else directory.name
+        reviewed = reviewed_directory(directory)
+        localized = tuple(reviewed["labels"][language] for language in LANGUAGES) if reviewed else None
         metadata_pairs.append((
             old_metadata,
             destination / relative_target / "0000-index" / "metadata.ini",
             directory_metadata(
                 old_text, label, english_label(directory) if directory != source else "MECHANICAL TABLES",
                 identity, directory == source,
-                ("STROJNICKÉ TABULKY", "MECHANICAL TABLES", "MASCHINENBAUTABELLEN",
+                localized or (("STROJNICKÉ TABULKY", "MECHANICAL TABLES", "MASCHINENBAUTABELLEN",
                  "TABLES DE CONSTRUCTION MÉCANIQUE", "МАШИНОСТРОИТЕЛЬНЫЕ ТАБЛИЦЫ")
-                if directory == source else TOP_LEVEL_LABELS.get(directory.name),
+                if directory == source else TOP_LEVEL_LABELS.get(directory.name)),
             ),
         ))
 

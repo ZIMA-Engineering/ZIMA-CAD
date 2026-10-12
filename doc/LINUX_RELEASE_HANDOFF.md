@@ -2,6 +2,18 @@
 
 ## File Manager follow-up (2026-10-12)
 
+The 2026101208 follow-up exposes only Overview and Files. Without localized or
+generic Overview HTML, the native Overview shows the localized directory title,
+logo and subdirectory cards, following the ZIMA-Parts automatic index. A single
+click opens a card; native files remain in Files. Project metadata and the main
+image appear in the same Overview, with editing available through the existing
+context menu. Verify initial Files/Overview choice, directory/project navigation,
+localized preview precedence and Light/Dark/Light on Linux. The engineering-table
+snapshot now has complete five-language labels for all 312 directories and
+reviewed concise English storage names. Empty INI labels no longer consume the
+next line. Directory IDs, settings, protection and reference assets are retained.
+The Windows checks do not establish Linux desktop or filesystem behavior.
+
 The shared C++ application now includes the native File Manager, metadata
 version 3, configurable data sources and native Part/Assembly parameter editing.
 Build `zima_file_manager_ui_tests` and the product on Linux, then run the
