@@ -13,6 +13,14 @@ languages and factory source paths in the packaged layout. No production project
 data or engineering-table content is part of the Windows fixture. OCCT remains
 8.0.0 and no native document schema changed.
 
+The 2026101204 follow-up keeps every source row above the active tree, opens a
+source root when its row is clicked, hides `0000-index` and adds a text filter
+to each textual Files column. Confirm these interactions on the native Linux
+desktop, including horizontal header scrolling and direct editing of metadata
+and native parameter cells. Double-click must open an entry only from the File
+name column. Windows candidate/signed smoke and packaged File Manager acceptance
+pass; those results do not establish native Linux presentation or interaction.
+
 ## Shared Feature follow-up (2026-10-12)
 
 The next Windows follow-up uses the shared ordinary Feature command and native

@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Signed Windows [2026101204](releases/2026101204.md#signed-windows-publication)
+was published at `2026-10-12T11:38:59Z` with persistent File Manager sources,
+hidden `0000-index` navigation, per-column table filters and direct parameter
+cell editing. Clean candidate/signed smoke, all 21 factory assets, production
+trust, packaged File Manager and application-lifecycle scenarios, 27 publisher
+tests with two platform-only skips, public asset hashes and installable discovery
+from signed 2026101202 pass. Native Linux verification remains assigned to the
+Linux host.
+
 Signed Windows [2026101203](releases/2026101203.md#signed-windows-publication)
 was published at `2026-10-12T10:25:24Z` with the native File Manager,
 configurable data sources, native parameter editing and metadata version 3.
