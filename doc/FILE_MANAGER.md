@@ -5,18 +5,20 @@ File Manager tab keeps its own selected source, current directory, navigation
 history, view, filters and checked items. Opening another directory in a new tab
 does not change an existing File Manager tab.
 
-The navigation row starts with Home, followed by Back, Forward, Up, the current
-path, the name filter and a direct link to File Manager settings. Home always
-opens the current ZIMA-CAD working directory. File > Open and the main Open
-toolbar action open a File Manager tab; native CAD files open from its Overview
-or Files view.
+The navigation row starts with Home, followed by Back, Forward, Up and the
+current path. Home always opens the current ZIMA-CAD working directory. File >
+Open and the main Open toolbar action open a File Manager tab; native CAD files
+open from its Overview or Files view.
 
 ## Data sources
 
-The left side follows the source-oriented navigation used by ZIMA-Parts. The
-working directory is a fixed first source and is not part of the configurable
-source list. Each additional source has a persistent header and its own folder
-tree, so the active source remains visible even when the user navigates deeply.
+The left side follows the source-oriented navigation used by ZIMA-Parts. A
+compact toolbar links directly to File Manager settings. The working directory
+is the fixed first source and is not part of the configurable source list. All
+source rows remain visible above the active source's folder tree, so the active
+source remains clear when the user navigates deeply. Clicking a source row
+opens its root. The internal `0000-index` support directory is hidden from the
+folder tree and content views.
 
 Global Settings > File Manager controls source order, enabled state, path and
 read-only state. Factory sources are provided for drawing formats, materials,
@@ -39,10 +41,14 @@ The right side has three views:
   metadata without requiring the user to edit INI or HTML.
 - **Overview** automatically builds image-backed tiles from directory contents,
   project images and `0000-index/thumbnails`. It does not render `index_*.html`.
-- **Files** lists folders and files with checkboxes, metadata parameter columns,
-  a name filter and ASMZ, PRTZ, DRWZ and version filters. Version 3 metadata
-  cells and native Part or Assembly parameters can be edited in writable
-  sources. Copy, Move and Delete operate on the checked rows.
+- **Files** lists folders and files with checkboxes and metadata parameter
+  columns. Every textual column has its own contains filter in a second header
+  row, matching the ZIMA-Parts workflow. Version 3 metadata cells and native
+  Part or Assembly parameters can be edited in writable sources by clicking a
+  selected cell. Double-clicking opens an entry only in the **File name**
+  column, so parameter editing cannot open the document. Copy, Move and Delete
+  operate on the checked rows; the separate Versions toggle controls numbered
+  version files.
 
 The older `index_*.html` files remain untouched. A legacy directory is detected
 as a project when `0000-index` contains both an index HTML file and a `01.*`
@@ -116,6 +122,8 @@ then on explicitly selected copies of real projects.
 ## Verification
 
 `zima_file_manager_ui_tests` creates an isolated synthetic working directory and
-library. It verifies separate source pages, project detection, Overview and
-Files content, mirrored parameter reading and editing, and independent state in
-multiple File Manager tabs. It never reads or writes production project data.
+library. It verifies the fixed source list, source-root navigation, hidden
+`0000-index` directories, per-column filters, file-name-only opening, parameter
+editing, project detection, Overview and Files content, mirrored parameter
+updates and independent state in multiple File Manager tabs. It never reads or
+writes production project data.

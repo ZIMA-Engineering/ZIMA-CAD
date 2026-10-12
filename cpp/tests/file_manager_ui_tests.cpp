@@ -8,7 +8,8 @@
 #include <QSettings>
 #include <QTabWidget>
 #include <QTemporaryDir>
-#include <QToolBox>
+#include <QStackedWidget>
+#include <QTreeView>
 #include <QTreeWidget>
 
 #include <iostream>
@@ -38,18 +39,28 @@ int main(int argc,char** argv){
 
         zima::app::ApplicationSettings settings;settings.language="cs";settings.file_manager.default_view="overview";settings.file_manager.thumbnail_size=96;
         settings.file_manager.sources.push_back({"synthetic","Testovací knihovna",source,source,true,false,false});
-        zima::app::FileManagerTab first(settings,working,project);first.resize(1100,700);QString native_edit;
+        zima::app::FileManagerTab first(settings,working,project);first.resize(1100,700);QString native_edit,opened_file;
+        first.open_file_requested=[&](const QString& path){opened_file=path;};
         first.native_parameters_requested=[](const QString& path){zima::app::FileManagerNativeParameters data;if(path.endsWith(".prtz",Qt::CaseInsensitive)){data.order={"native_length"};data.values.insert("native_length","125");data.labels["native_length"].insert("cs","Nativní délka");}return data;};
         first.native_parameter_edit_requested=[&](const QString& path,const QString& parameter,const QString& value){native_edit=QFileInfo(path).fileName()+QLatin1Char(':')+parameter+QLatin1Char('=')+value;return QString{};};
         first.navigate(working);first.navigate(project);
-        auto* sources=first.findChild<QToolBox*>("fileManagerSources");auto* views=first.findChild<QTabWidget*>("fileManagerViews");
+        auto* sources=first.findChild<QListWidget*>("fileManagerSources");auto* source_trees=first.findChild<QStackedWidget*>("fileManagerSourceTrees");auto* views=first.findChild<QTabWidget*>("fileManagerViews");
         auto* overview=first.findChild<QListWidget*>("fileManagerOverview");auto* files=first.findChild<QTreeWidget*>("fileManagerFiles");
-        check(sources&&sources->count()==2,"Working directory and configured source are not separate source pages");
+        check(sources&&sources->count()==2&&source_trees&&source_trees->count()==2,"Working directory and configured source are not separate source pages");
+        auto* source_tree=first.findChild<QTreeView*>("fileManagerSourceTree_synthetic");check(source_tree,"Configured source tree is missing");
+        const auto project_index=source_tree->model()->index(0,0,source_tree->rootIndex());source_tree->expand(project_index);application.processEvents();
+        bool exposed_index=false;for(int row=0;row<source_tree->model()->rowCount(project_index);++row)if(source_tree->model()->index(row,0,project_index).data().toString().compare("0000-index",Qt::CaseInsensitive)==0)exposed_index=true;
+        check(!exposed_index,"Source tree exposed the internal 0000-index directory");
+        sources->setCurrentRow(0);sources->itemClicked(sources->item(0));check(first.current_directory()==QDir::cleanPath(working),"Clicking the source itself did not open its root");
+        sources->setCurrentRow(1);sources->itemClicked(sources->item(1));check(first.current_directory()==QDir::cleanPath(source),"Clicking a configured source did not open its root");first.navigate(project);
         check(views&&views->isTabVisible(0),"Project view is not available for metadata v3 project");
         check(overview&&overview->count()==3,"Overview did not load synthetic directory entries or exposed 0000-index");
         check(files&&files->topLevelItemCount()==3&&files->columnCount()==9,"File table did not load metadata and native parameter columns");
-        bool bracket_found=false;for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);if(item->text(2)!="BRACKET.prtz")continue;bracket_found=true;check(item->text(6)=="S355"&&item->text(8)=="125","Metadata or native parameter was not loaded");const auto cell=files->indexFromItem(item,8);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Parameter delegate did not create an editor");line->setText("150");files->itemDelegate()->setModelData(editor,files->model(),cell);delete editor;}
+        bool bracket_found=false;for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);if(item->text(2)!="BRACKET.prtz")continue;bracket_found=true;check(item->text(6)=="S355"&&item->text(8)=="125","Metadata or native parameter was not loaded");files->itemDoubleClicked(item,8);check(opened_file.isEmpty(),"Double-clicking a parameter cell opened the file");files->itemDoubleClicked(item,2);check(opened_file==QDir::cleanPath(project+"/BRACKET.prtz"),"Double-clicking the file-name cell did not open the file");const auto cell=files->indexFromItem(item,8);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Parameter delegate did not create an editor");line->setText("150");files->itemDelegate()->setModelData(editor,files->model(),cell);delete editor;}
         check(bracket_found,"Native Part is missing from the file table");
+        check(files->editTriggers()==QAbstractItemView::SelectedClicked,"Parameter cells do not use the ZIMA-Parts selected-click editing behavior");
+        auto* name_filter=first.findChild<QLineEdit*>("fileManagerColumnFilter_2");auto* type_filter=first.findChild<QLineEdit*>("fileManagerColumnFilter_3");check(name_filter&&type_filter,"Per-column file filters are missing");
+        name_filter->setText("BRACKET");check(!files->topLevelItem(0)->isHidden()||!files->topLevelItem(1)->isHidden()||!files->topLevelItem(2)->isHidden(),"Name filter hid every matching file");int visible=0;for(int row=0;row<files->topLevelItemCount();++row)visible+=!files->topLevelItem(row)->isHidden();check(visible==1,"Name column filter did not isolate the matching file");name_filter->clear();type_filter->setText("ASMZ");visible=0;for(int row=0;row<files->topLevelItemCount();++row)visible+=!files->topLevelItem(row)->isHidden();check(visible==1,"Type column filter did not isolate the assembly");type_filter->clear();
         check(native_edit=="BRACKET.prtz:native_length=150","Native parameter edit was not routed to the document provider");
         QSettings edited(index+"/metadata.ini",QSettings::IniFormat);if(edited.value("Parts/BRACKET\\native_length").toString()!="150"||edited.value("Files/BRACKET/Provider").toString()!="zima-cad"){
             for(const auto& key:edited.allKeys())std::cerr<<key.toStdString()<<'='<<edited.value(key).toString().toStdString()<<'\n';

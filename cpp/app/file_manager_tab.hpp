@@ -11,8 +11,9 @@ class QListWidget;
 class QLabel;
 class QPushButton;
 class QTabWidget;
-class QToolBox;
 class QToolButton;
+class QSortFilterProxyModel;
+class QStackedWidget;
 class QTreeView;
 class QTreeWidget;
 
@@ -47,6 +48,7 @@ private:
     struct SourcePage {
         FileManagerSource source;
         QFileSystemModel* model{};
+        QSortFilterProxyModel* proxy{};
         QTreeView* tree{};
     };
 
@@ -60,9 +62,9 @@ private:
     bool refreshing_files_{};
     QMap<QString,QPair<QString,FileManagerNativeParameters>> native_parameter_cache_;
 
-    QToolBox* source_box_{};
+    QListWidget* source_list_{};
+    QStackedWidget* source_stack_{};
     QLineEdit* path_{};
-    QLineEdit* name_filter_{};
     QToolButton* back_{};
     QToolButton* forward_{};
     QToolButton* up_{};
@@ -78,9 +80,6 @@ private:
     QPushButton* copy_{};
     QPushButton* move_{};
     QPushButton* remove_{};
-    QToolButton* filter_asmz_{};
-    QToolButton* filter_prtz_{};
-    QToolButton* filter_drwz_{};
     QToolButton* filter_versions_{};
 
     void build_ui();
@@ -89,6 +88,7 @@ private:
     void refresh_project();
     void refresh_overview();
     void refresh_files();
+    void apply_file_filters();
     void update_actions();
     void open_entry(const QString& path);
     void edit_project(const QString& directory, bool create);
