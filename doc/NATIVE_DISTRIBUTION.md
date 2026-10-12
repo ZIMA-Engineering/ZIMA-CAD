@@ -2,6 +2,17 @@
 
 ## Scope and status
 
+Signed Windows [2026101208](releases/2026101208.md#signed-windows-publication)
+was published at `2026-10-12T17:16:15Z`. File Manager exposes Overview and Files,
+with native subdirectory cards and integrated project information when Overview
+HTML is absent. The engineering-table factory tree has reviewed storage names
+and five-language labels for all 312 directories. Canonical QSettings metadata
+keys, scalar comma labels and parameter lists are verified. Committed-source
+candidate/signed smoke, all 21 factory assets, packaged File Manager, both
+table-tree inventories, 29 packaging/publisher tests with two platform-only
+skips, public asset digests and signed 2026101202 update discovery pass.
+Native Linux build and desktop acceptance remain assigned to the Linux host.
+
 Signed Windows [2026101207](releases/2026101207.md#signed-windows-publication)
 was published at `2026-10-12T14:58:53Z`. Administrators can edit localized
 directory metadata for read-only File Manager sources, while

@@ -13,6 +13,13 @@ snapshot now has complete five-language labels for all 312 directories and
 reviewed concise English storage names. Empty INI labels no longer consume the
 next line. Directory IDs, settings, protection and reference assets are retained.
 The Windows checks do not establish Linux desktop or filesystem behavior.
+The final shared implementation uses canonical QSettings hierarchy keys,
+retains earlier authored CAD escaped-key values and accepts both parameter
+lists and scalar definitions. Verify standard backslash-separated INI data
+from ZIMA-Parts, comma-containing labels and explicit edits on Linux. Signed
+Windows 2026101208 passed native label reading for all 1,560 packaged labels,
+five-language root/card presentation, packaged File Manager integration,
+candidate/signed smoke and public updater discovery.
 
 The shared C++ application now includes the native File Manager, metadata
 version 3, configurable data sources and native Part/Assembly parameter editing.
