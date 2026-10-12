@@ -34,10 +34,15 @@ row itself and displays metadata-backed directory labels in both the Tree and
 Files views. Verify project creation at the root of a writable source, the
 disabled action for a read-only source, cached label refresh after editing and
 the hidden `0000-index` directory. The shared factory data now includes the
-filtered `03-ENGINEERING-TABLES` snapshot: 637 documents/images and 312 metadata
-version 3 directories. Linux must verify browsing this committed data from the
-packaged read-only source. The Windows checks do not establish Linux filesystem
-performance or native presentation.
+filtered `03-ENGINEERING-TABLES` snapshot: 1,448 files, including 279 HTML
+pages, and 312 metadata version 3 directories. Local web assets were copied
+beside their pages, and links were rewritten to the short English physical
+directory names. Linux must verify localized page choice, ordinary `index.html`
+fallback, automatic tiles, SVG/PNG tree branding and browsing this committed
+data from the packaged read-only source. Signed Windows 2026101206 passed the
+packaged File Manager contract, archive inventory, native smoke and public
+update discovery. Those checks do not establish Linux filesystem performance
+or native presentation.
 
 ## Shared Feature follow-up (2026-10-12)
 

@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Signed Windows [2026101206](releases/2026101206.md#signed-windows-publication)
+was published at `2026-10-12T14:23:49Z`. File Manager directory properties,
+localized labels and branding, source-root project overviews and localized HTML
+selection are included with the filtered 312-directory engineering-table source.
+Clean candidate/signed smoke, all 21 factory assets, production trust, packaged
+File Manager behavior, 29 packaging/publisher tests with two platform-only skips,
+public asset digests and installable discovery from signed 2026101202 pass.
+Native Linux build, packaged browsing and desktop verification remain assigned
+to the Linux host.
+
 Signed Windows [2026101205](releases/2026101205.md#signed-windows-publication)
 was published at `2026-10-12T12:09:06Z`. File Manager browsing now preserves
 read-only factory, library and network sources without creating or updating
