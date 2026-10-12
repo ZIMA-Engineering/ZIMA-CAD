@@ -1,6 +1,9 @@
 #include <QRegularExpression>
 #include "file_dialog.hpp"
 #include "resource_icon.hpp"
+#include "directory_metadata.hpp"
+#include <QApplication>
+#include <QHash>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -31,6 +34,18 @@ public:
         // QFileSystemModel calls its icon provider from its gatherer thread.
         // Palette-aware SVG rendering and the shared icon cache belong to GUI
         // painting instead; never install them as a worker icon provider.
+        if ((role == Qt::DisplayRole || role == Qt::ToolTipRole) && index.column() == 0) {
+            if (const auto* files = qobject_cast<const QFileSystemModel*>(sourceModel())) {
+                const auto info=files->fileInfo(mapToSource(index));
+                if(info.isDir()){
+                    const QString path=info.absoluteFilePath();
+                    if(role==Qt::ToolTipRole)return path;
+                    auto found=labels_.constFind(path);
+                    if(found==labels_.cend())found=labels_.insert(path,localized_directory_label(path,qApp->property("zimaLanguage").toString()));
+                    return *found;
+                }
+            }
+        }
         if (role == Qt::DecorationRole && index.column() == 0) {
             if (const auto* files = qobject_cast<const QFileSystemModel*>(sourceModel())) {
                 const auto info = files->fileInfo(mapToSource(index));
@@ -83,6 +98,7 @@ protected:
 
 private:
     QString name_header_;
+    mutable QHash<QString,QString> labels_;
 };
 
 class Utf8FileNameDelegate final : public QStyledItemDelegate {

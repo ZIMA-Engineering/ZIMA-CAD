@@ -9,6 +9,8 @@
 #include <QPalette>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QDir>
+#include <QSettings>
 #include <QWidget>
 #include <fstream>
 #include <iostream>
@@ -27,10 +29,14 @@ int main(int argc,char** argv) {
         for(int i=0;i<512;++i)
             std::ofstream((directory.path()+QString("/part-%1.prtz").arg(i)).toStdString())<<"{}";
         const auto target=directory.path()+"/selected.PRTZ";
+        const QString library=directory.filePath("structural");QDir().mkpath(library+"/0000-index");QSettings metadata(library+"/0000-index/metadata.ini",QSettings::IniFormat);
+        const QStringList languages{"cs","en","de","fr","ru"},labels{"Konstrukční oceli","Structural steels","Baustähle","Aciers de construction","Конструкционные стали"};
+        for(int index=0;index<languages.size();++index)metadata.setValue("Directory/Label/"+languages[index],labels[index]);metadata.sync();
         std::ofstream(target.toStdString())<<"{}";
         QWidget parent;parent.resize(600,400);parent.show();
         const auto original=application.palette();
         for(int iteration=0;iteration<6;++iteration) {
+            const int language=iteration%5;application.setProperty("zimaLanguage",languages[language]);
             auto palette=original;
             if(iteration%3==1) {
                 palette.setColor(QPalette::Window,QColor("#25292e"));
@@ -41,7 +47,7 @@ int main(int argc,char** argv) {
             application.setPalette(palette);
             QTimer heartbeat;heartbeat.setInterval(20);
             QElapsedTimer elapsed;elapsed.start();
-            int beats=0;bool icon=false,visited=false;
+            int beats=0;bool icon=false,visited=false,label_seen=false;
             QObject::connect(&heartbeat,&QTimer::timeout,[&] {
                 auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
                 if(!dialog)return;
@@ -49,6 +55,7 @@ int main(int argc,char** argv) {
                 auto* proxy=dialog->proxyModel();
                 auto* files=proxy?qobject_cast<QFileSystemModel*>(proxy->sourceModel()):nullptr;
                 if(files) {
+                    const auto folder=proxy->mapFromSource(files->index(library));if(folder.isValid()){label_seen=folder.data(Qt::DisplayRole).toString()==labels[language];check(files->filePath(proxy->mapToSource(folder))==library,"Localized label changed the real directory path");}
                     const auto index=files->index(target);
                     const auto actual=proxy->mapFromSource(index);
                     if(actual.isValid()) {
@@ -71,7 +78,7 @@ int main(int argc,char** argv) {
             heartbeat.start();
             const auto selected=zima::app::open_file(&parent,"File selection regression",directory.path(),"Part (*.prtz *.PRTZ)");
             heartbeat.stop();
-            check(visited&&icon&&beats>=20,"File selection did not remain responsive while idle");
+            check(visited&&icon&&beats>=20,"File selection did not remain responsive while idle");check(label_seen,"Open dialog did not use localized directory metadata");
             check(iteration%2==0?selected.isEmpty():selected==target,"File selection changed OK/Cancel behavior");
             application.processEvents();
         }

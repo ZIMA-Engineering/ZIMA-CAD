@@ -198,6 +198,35 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(ValueError): package.refresh_source(repo, current, current, source, root)
             self.assertEqual((source / 'unknown.txt').read_text(), 'preserve')
 
+    def test_private_browser_data_rejected_in_source_runtime_and_zip(self):
+        for prefix in ('ZIMA-CAD', 'ZIMA-CAD/windows/2026101209', 'ZIMA-CAD/source/2026101209'):
+            for private in ('config/www/profile/Cookies', 'config/WWW/credentials.ini',
+                            'config/windows/www/cache/data', 'config/linux/www/bookmarks.json'):
+                with self.assertRaisesRegex(ValueError, 'Private browser user data'):
+                    package.safe_name(prefix + '/' + private)
+        package.safe_name('ZIMA-CAD/source/2026101209/cpp/browser/credentials.cpp')
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);private=root/'config/www/profile';private.mkdir(parents=True)
+            (private/'Cookies').write_bytes(b'synthetic-private-fixture')
+            with self.assertRaisesRegex(ValueError, 'Private browser user data'):
+                package.inventory(root)
+            archive=root/'private.zip'
+            with zipfile.ZipFile(archive, 'w') as zipped:
+                zipped.writestr('ZIMA-CAD/config/www/credentials.ini', 'synthetic-private-fixture')
+            with self.assertRaisesRegex(ValueError, 'Private browser user data'):
+                package.validate_archive(archive)
+
+    def test_tracked_private_browser_data_blocks_source_export(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);repo=root/'repo';repo.mkdir()
+            package.git(repo,'init','-q');package.git(repo,'config','user.name','Packaging test')
+            package.git(repo,'config','user.email','test@example.invalid')
+            private=repo/'config/www';private.mkdir(parents=True)
+            (private/'credentials.ini').write_text('synthetic-private-fixture',encoding='utf-8')
+            package.git(repo,'add','.');package.git(repo,'commit','-qm','private fixture')
+            with self.assertRaisesRegex(ValueError,'Private browser user data'):
+                package.export_source(repo,'HEAD',root/'source')
+
     def test_case_collision(self):
         with tempfile.TemporaryDirectory() as temp:
             archive = Path(temp) / 'duplicate.zip'

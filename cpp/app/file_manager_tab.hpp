@@ -5,6 +5,7 @@
 #include <QWidget>
 #include <functional>
 
+class QAction;
 class QFileSystemModel;
 class QLineEdit;
 class QListWidget;
@@ -24,7 +25,9 @@ struct FileManagerNativeParameters {
     QStringList order;
     QMap<QString,QString> values;
     QMap<QString,QMap<QString,QString>> labels;
+    QMap<QString,QMap<QString,QString>> localized_values;
     QString error;
+    bool unsaved{};
 };
 
 class FileManagerTab final : public QWidget {
@@ -32,16 +35,21 @@ public:
     explicit FileManagerTab(const ApplicationSettings& settings,
         const QString& working_directory, const QString& initial_path = {},
         QWidget* parent = nullptr);
+    ~FileManagerTab() override;
 
     std::function<void(const QString&)> open_file_requested;
+    std::function<void(const QString&)> preview_file_requested;
     std::function<void(const QString&)> new_tab_requested;
     std::function<void()> settings_requested;
+    std::function<void(const QString&)> working_directory_requested;
     std::function<void(const QString&)> title_changed;
     std::function<FileManagerNativeParameters(const QString&)> native_parameters_requested;
+    std::function<QString(const QString&)> native_parameters_revision_requested;
     std::function<QString(const QString&,const QString&,const QString&)> native_parameter_edit_requested;
 
     [[nodiscard]] QString current_directory() const { return current_directory_; }
     void set_working_directory(const QString& path);
+    void set_working_directory_action(QAction* action);
     void reload_settings(const ApplicationSettings& settings);
     void navigate(const QString& path, bool track_history = true);
 
@@ -66,6 +74,7 @@ private:
     QListWidget* source_list_{};
     QStackedWidget* source_stack_{};
     QLineEdit* path_{};
+    QToolButton* choose_working_directory_{};
     QToolButton* back_{};
     QToolButton* forward_{};
     QToolButton* up_{};
@@ -81,12 +90,14 @@ private:
     QWebEngineView* overview_web_{};
     QTreeWidget* files_{};
     QPushButton* copy_{};
+    QPushButton* clean_{};
     QPushButton* move_{};
     QPushButton* remove_{};
     QToolButton* filter_versions_{};
 
     void build_ui();
     void rebuild_sources();
+    void refresh_source_labels();
     void refresh_directory();
     void refresh_overview_header();
     void refresh_overview();
@@ -100,6 +111,9 @@ private:
     void show_tree_menu(QTreeView* tree, const QPoint& point);
     void copy_selected(bool move);
     void delete_selected();
+    void clean_directory(const QString& directory);
+    void save_column_layout();
+    void restore_column_layout();
     void save_parameter(const QModelIndex& index);
     [[nodiscard]] int source_index_for(const QString& path) const;
     [[nodiscard]] bool current_source_read_only() const;

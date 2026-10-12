@@ -461,6 +461,7 @@ bool ApplicationSettings::save(QString* error) const {
 
 void apply_application_translations(QApplication& application,
     const ApplicationSettings& settings) {
+    application.setProperty("zimaLanguage",settings.language);
     constexpr auto name = "zimaIniTranslator";
     if (auto* previous = application.findChild<QTranslator*>(
             name, Qt::FindDirectChildrenOnly)) {

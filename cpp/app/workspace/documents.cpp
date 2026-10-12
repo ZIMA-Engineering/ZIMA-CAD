@@ -228,6 +228,7 @@ QString AssemblyWorkspaceWindow::create_document(
 void AssemblyWorkspaceWindow::close_document(int tab_index) {
     if(close_browser(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(close_file_manager(tab_index<0?tabs_->currentIndex():tab_index))return;
+    if(close_model_preview(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(section_dialog_&&!active_sketch_id_.empty())return;
     if (properties_dialog_ != nullptr) {
         state_->setText(tr("Nejprve dokončete nebo zrušte otevřené vlastnosti."));
@@ -355,6 +356,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
 void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
     active_browser_=nullptr;
     active_file_manager_=nullptr;
+    active_preview_=nullptr;
     if(opening)section_tree_expanded_.erase(workspace_.displayed_document_id());
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
@@ -434,6 +436,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         tabs_->setTabData(index,id);
         if(active_file_manager_==page){displayed_index=index;displayed_label=label;}
     }
+    for(const auto& [id,page]:preview_tabs_){const QString label=QFileInfo(id.mid(8)).fileName();const int index=tabs_->addTab(resource_icon("file-manager"),label);tabs_->setTabData(index,id);if(active_preview_==page){displayed_index=index;displayed_label=label;}}
     for (int index = 0; index < tabs_->count(); ++index) {
         // Keep the slot width stable, with the close button near the tab's right edge.
         auto* close_slot = new QWidget(tabs_);
@@ -445,7 +448,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         auto* dirty_marker=new QLabel(close_slot);dirty_marker->setObjectName("documentTabDirtyMarker");
         dirty_marker->setFixedSize(12,22);dirty_marker->setAlignment(Qt::AlignCenter);
         const auto tab_id=tabs_->tabData(index).toString();
-        const bool utility=browser_tabs_.contains(tab_id)||file_manager_tabs_.contains(tab_id);
+        const bool utility=browser_tabs_.contains(tab_id)||file_manager_tabs_.contains(tab_id)||preview_tabs_.contains(tab_id);
         const bool dirty=!utility &&
             workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
         dirty_marker->setText(dirty?QStringLiteral("*"):QString{});

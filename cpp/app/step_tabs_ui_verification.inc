@@ -16,6 +16,11 @@ int verify_hidden_step_tabs(QApplication& application) {
         check(result.ok,"STEP Assembly import failed");flush();
         auto* tabs=window.findChild<QTabBar*>("documentTabs");check(tabs&&tabs->count()==1,"STEP exposed hidden source tabs");
         check(window.execute_console_command("save").ok,"STEP Assembly save failed");flush();
+        bool assembly_thumbnail=false;
+        for(const auto& file:std::filesystem::recursive_directory_iterator(output))if(QString::fromStdString(document::path_to_utf8(file.path().filename())).endsWith(".asmz.png",Qt::CaseInsensitive)){
+            const QImage image(QString::fromStdString(document::path_to_utf8(file.path())));assembly_thumbnail=!image.isNull()&&image.width()<=320&&image.height()<=240;
+        }
+        check(assembly_thumbnail,"Assembly Save did not capture a bounded current-view PNG");
         std::size_t parts=0,assemblies=0;
         for(const auto& file:std::filesystem::recursive_directory_iterator(output/"sources")) {
             if(file.path().extension()==".prtz") {const auto loaded=document::PartDocument::load(file.path());check(!loaded.history.empty(),"Saved STEP source is empty");++parts;}

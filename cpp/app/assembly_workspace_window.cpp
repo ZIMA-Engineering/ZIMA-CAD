@@ -88,7 +88,7 @@ AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
     // subtree with the central widget; deleting QFileSystemModel pages while
     // their stack is still processing filesystem notifications corrupts the
     // Windows heap when the application exits with a File Manager tab open.
-    file_manager_tabs_.clear();active_file_manager_=nullptr;
+    file_manager_tabs_.clear();active_file_manager_=nullptr;preview_tabs_.clear();active_preview_=nullptr;
     for(const auto& [id,page]:browser_tabs_)delete page;
     browser_tabs_.clear();active_browser_=nullptr;
     delete browser_runtime_;browser_runtime_=nullptr;

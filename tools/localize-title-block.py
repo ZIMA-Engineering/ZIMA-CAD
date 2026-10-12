@@ -71,9 +71,7 @@ def main():
         if operations:
             commands.append({'command': 'template.sketch.edit', 'arguments': {'operations': operations}})
         if not sketch['drawing_template']['images']:
-            commands.append({'command': 'template.image.create', 'arguments': {
-                'path': str(source.with_name('ZIMA-Engineering.svg')),
-                'x_mm': 189, 'y_mm': 22.5, 'height_mm': 7, 'lock_aspect': True}})
+            raise ValueError('The maintained title block must contain its embedded company logo.')
         with tempfile.TemporaryDirectory(prefix='zima-title-block-') as temporary:
             generated = Path(temporary) / target.name
             commands.append({'command': 'template.save', 'arguments': {

@@ -766,9 +766,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         loaded_sketch_ids.insert(sketch.at("id").get<std::string>());
     }
     std::stringstream sketch_ids(ini_value(ini, "Sketches", "items"));
+    std::map<std::string,std::size_t> sketch_order;
     while (std::getline(sketch_ids, id, ',')) {
         id = trim_ini(std::move(id));
-        if (id.empty() || loaded_sketch_ids.contains(id)) continue;
+        if (id.empty()) continue;
+        sketch_order.emplace(id,sketch_order.size());
+        if (loaded_sketch_ids.contains(id)) continue;
         const auto serialized = ini_required(ini, "Sketch." + id, "data");
         auto sketch = nlohmann::json::parse(serialized);
         if (sketch.at("id").get<std::string>() != id) {
@@ -777,6 +780,16 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         root["sketches"].push_back(std::move(sketch));
         loaded_sketch_ids.insert(id);
     }
+    // The explicit Sketch index records the authored entity-table order.
+    // History traversal discovers standalone Sketches before owned profiles;
+    // restore the persisted order before checking the exact definition proof.
+    std::stable_sort(root["sketches"].begin(),root["sketches"].end(),[&](const auto& a,const auto& b) {
+        const auto rank=[&](const auto& sketch) {
+            const auto found=sketch_order.find(sketch.at("id").template get<std::string>());
+            return found==sketch_order.end()?sketch_order.size():found->second;
+        };
+        return rank(a)<rank(b);
+    });
     if (const auto cursor = ini_value(ini, "Document", "history_cursor");
         !cursor.empty()) {
         root["history_cursor"] = std::stoull(cursor);
@@ -861,10 +874,7 @@ void write_part_ini(
                 json_text(language.value());
         }
     }
-    auto parameter_values=root.at("user_parameter_values");
-    for(const auto& [name,value]:root.at("user_parameters").items())
-        if(!parameter_values.contains(name)||!parameter_values.at(name).contains(""))parameter_values[name][""]=value;
-    ini["UserParameterValues"]["Data"]=parameter_values.dump();
+    ini["UserParameterValues"]["Data"]=root.at("user_parameter_values").dump();
     std::vector<std::string> container_ids;
     std::vector<PartHistoryEntry> order_entries;
     for (const auto& entry : root.at("history_order")) {
@@ -12867,6 +12877,11 @@ nlohmann::json PartDocument::serialized(
         {"history_cursor", std::min(history_cursor, effective_order.size())},
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
+    // Include default parameter mirrors in the exact definition before
+    // hashing it. The INI reader exposes these persisted values unchanged.
+    for(const auto& [name,value]:root.at("user_parameters").items())
+        if(!root["user_parameter_values"].contains(name)||!root["user_parameter_values"].at(name).contains(""))
+            root["user_parameter_values"][name][""]=value;
     apply_document_copy_identity(root, copy);
     root["calculation_definition_fingerprint"] = calculation_definition_fingerprint(root);
     return root;

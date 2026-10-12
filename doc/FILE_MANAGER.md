@@ -62,7 +62,7 @@ The right side has two views:
   directory/source context menu. There is no separate Project tab.
   The automatic cards can be disabled per directory. Cards and their text
   follow the live Qt palette in Light and Dark themes.
-- **Files** lists folders and files with checkboxes and metadata parameter
+- **Files** groups folders before files in both sort directions and lists entries with checkboxes and metadata parameter
   columns. Every textual column has its own contains filter in a second header
   row, matching the ZIMA-Parts workflow. Version 3 metadata cells and native
   Part or Assembly parameters can be edited in writable sources by clicking a
@@ -70,6 +70,87 @@ The right side has two views:
   column, so parameter editing cannot open the document. Copy, Move and Delete
   operate on the checked rows; the separate Versions toggle controls numbered
   version files.
+
+### Table interaction and thumbnails
+
+The File name column combines its checkbox, thumbnail/type icon and name.
+There are no separate Select or Preview columns. Initial name width follows
+the contents within a 180–360 px range; every column can be resized and moved.
+Its filter moves with its logical column. Column order and widths use semantic
+column IDs in `file-manager-layout.ini`, beside local overrides or in the
+installation-root `config` directory, never the immutable version directory.
+Clicking a checkbox on an already selected row sets all selected rows to that
+same checked/unchecked state and preserves the selected group. Unselected rows
+remain unchanged. The bottom actions have additional clearance from the edge;
+Clean precedes Copy, Move and Delete. Overview and Files have palette-aware icons.
+
+The Files thumbnail slider controls 24–128 px presentation and remembers its
+value. Hovering over an actual thumbnail shows a bounded enlarged image.
+Double-clicking a STEP/STP, IGES/IGS or DXF thumbnail opens its read-only main
+preview tab; other thumbnails open an internal image inspector. File-name
+double-click keeps the existing document/open-directory behavior. Directory
+cards in Overview retain their existing `0000-index/01_<language>` / `01` images;
+native model thumbnails do not introduce file cards into Overview. HTML keeps
+priority. Document-mode tabs and small margins remove the unnecessary outer frame.
+
+Each GUI Save of the visible top-level Part or Assembly captures the current
+framebuffer as a PNG of at most 320 × 240 px with its aspect ratio retained.
+It does not fit the view, regenerate geometry or create an Undo transaction.
+The exact-extension path is `0000-index/thumbnails/<filename>.png` (for example
+`bracket.prtz.png`), with `Files/<filename>/Thumbnail` recording the relative
+path. A basename alias (`bracket.png`) is written for ZIMA-Parts only when there
+is one native document with that stem; exact-extension images keep Part/Assembly
+names independent. Existing Parts basename thumbnails remain readable.
+Saving a nested activated Part does not capture its enclosing Assembly as that
+Part's preview. Thumbnail failure cannot roll back a successful native save.
+The GUI command console has the same capture hook. Headless CLI saves have no
+interactive framebuffer and do not promise these current-view thumbnails.
+
+### Clean
+
+Clean is available in the directory/source context menu and before Copy in
+Files. It adopts the ZIMA-Parts archive rule: numbered `.prtz`, `.asmz`, `.drwz`,
+`.frmz`, `.tblz` and `.symz` files are archives, including orphaned archives and
+numbers larger than uint64. Current unnumbered documents are retained.
+The recursive plan excludes protected ancestors/descendants, read-only sources,
+links and paths outside the canonical root. The confirmation lists the planned
+files. Cancel changes nothing. Before moving each file to the OS recycle bin,
+its path, inherited protection and SHA-256 are checked again. No permanent-delete
+fallback is used when the recycle operation fails.
+
+### Foreign-model inspection
+
+One STEP/IGES/DXF path owns one preview main tab; repeated requests select it.
+Preview tabs do not create native documents, source Part tabs or editable CAD
+history. STEP uses one transferred source, shared definition meshes and global
+occurrence placement, then the existing ZIMA mesh renderer. Its tree exposes the
+product hierarchy, visibility and double-click framing. DXF uses the source-only
+ZIMA-libqdxf/libdxfrw snapshot from Parts, with layer visibility/colors, units,
+dimensions, middle-button pan, wheel zoom and Fit. Closed/bulged polylines,
+block instances and rational spline weights are supported; unsupported entities
+are explicitly reported so a partial preview is not mistaken for a complete one.
+The supported scope is inspection, not automatic manufacturing acceptance.
+
+DXF stays an independent 2D tool. Future editing needs an entity document for
+lines/arcs/polylines/text/blocks/layers, reversible edits and preservation of
+unsupported source entities; rendered Qt items/pictures are not an editable
+source of truth. Native Body/history/Sketcher transactions do not own this tool.
+Gap/duplicate/intersection checking for cutting and DXF writing remain future work.
+
+### Factory labels and camera behavior
+
+`tools/update-library-directory-metadata.py` regenerates the 31 repository-owned
+Materials, Symbols and Sheet Metal directory metadata files, with 155 labels in
+cs/en/de/fr/ru and eight `logo-text.svg` symbol-category icons. Physical directory
+names stay unchanged. The shared label reader serves both File Manager and
+ordinary file/directory choosers while keeping real paths and filenames intact.
+
+The Part/Assembly mesh viewport preserves screen position on width changes from
+side panels. A projection-space shift crops the visible area without changing
+orientation, zoom or stored camera state, including perspective/fly projection.
+The common picker uses the same projection. Explicit Fit clears this anchor.
+Height changes retain ordinary vertical-scale behavior. No geometry work occurs
+solely because a panel changes width.
 
 Directory Properties is an internal ZIMA-CAD properties window. It edits all
 five localized directory labels, whether child folders appear in Files, the
@@ -209,3 +290,37 @@ All Overview index pages have valid local links. One unused legacy
 import report records them and no active Overview page uses that file.
 The original source inventory remained 2,806 files and 297,145,161 bytes before
 and after the import.
+
+Delete moves checked files and directories to the operating system recycle bin after confirmation. Cancel leaves them unchanged. A failed recycle operation reports an error and never falls back to permanent deletion. Directory protection still applies.
+
+The navigation row displays the application working directory as read-only text.
+Browsing does not change it. A directory or source context menu offers **Set as
+working directory**, using the existing application-wide directory and instance
+ownership path; every open File Manager receives the change. The current folder
+stays selected in its tree, whose tooltip shows its full platform-native path.
+Overview content extends to the right and bottom edges; only its text header
+retains a small inset. HTML uses the same content boundary.
+
+**Parameter protection.** `Directory/PreventParameterEdit=true` disables File
+Manager parameter and note editing in that directory and its descendants.
+This is independent of `PreventRemoval`. Directory Properties can change the
+setting; source read-only permissions still apply. Blocked cells cannot create
+an editor or save through the delegate.
+
+**Formats example.** `ZE-TITLE-BLOCK.tblz` and `ZE-DRAWING-FRAME.frmz` each own a
+native `name` parameter with a shared English value and cs/en/de/fr/ru labels and
+values. `config/formats/0000-index/metadata.ini` shows their same-language mirrors
+under `Parts/<stem>/name/<language>` and the `zima-cad` provider under `Files`.
+Files reads the native value for the active language; editing a localized value
+updates that language while preserving the shared value and other translations.
+Shared-only parameters retain their ordinary shared-value editing behavior.
+The same native parameter path supports `.prtz`, `.asmz`, `.frmz`, `.tblz` and
+`.symz`. This adds no required sidecar and performs no model regeneration.
+The title block keeps all five embedded SVG logos; the redundant loose import
+SVG and two explicitly unwanted FR backup files were recycled.
+
+The icon after the working-directory field binds the same QAction as File → Set working directory (F12), including its icon, enabled state and shared localized directory chooser.
+
+Parameter cache validity includes the revision of any authoritative open native document in addition to file modification time and size. Unsaved metadata edits therefore appear without reloading closed files or recalculating geometry.
+
+Unsaved native values appear in the UI but are not published into the persistent file metadata mirror. The cache key includes the saved/dirty state; mirroring resumes after a successful native save. Directory-property changes refresh inherited protection and factory-source labels in the current view immediately.

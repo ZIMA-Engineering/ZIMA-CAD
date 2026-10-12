@@ -153,6 +153,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { navigate_document_kind(); });
     tree_->setMouseTracking(true);
     viewer_ = new zima::viewer::MeshView;
+    viewer_->set_preserve_screen_position_on_resize(true);
     initialize_symbol_handles();
     viewer_->setObjectName("modelViewer");
     operation_activity_ = new ui::OperationActivity(this, viewer_);
@@ -1616,6 +1617,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     browser_stack_=new QStackedWidget(central);
     browser_stack_->setObjectName("browserStack");browser_stack_->hide();
     layout->addWidget(browser_stack_,1);
+    preview_stack_=new QStackedWidget(central);preview_stack_->setObjectName("modelPreviewStack");preview_stack_->hide();layout->addWidget(preview_stack_,1);
     file_manager_stack_=new QStackedWidget(central);
     file_manager_stack_->setObjectName("fileManagerStack");file_manager_stack_->hide();
     layout->addWidget(file_manager_stack_,1);
@@ -1644,14 +1646,15 @@ void AssemblyWorkspaceWindow::create_layout() {
     operation_progress_->hide();
     statusBar()->addPermanentWidget(operation_progress_);
     connect(tabs_, &QTabBar::tabCloseRequested, this,
-        [this](int index) { if(!close_browser(index)&&!close_file_manager(index))close_document(index); });
+        [this](int index) { if(!close_browser(index)&&!close_file_manager(index)&&!close_model_preview(index))close_document(index); });
     connect(tabs_, &QTabBar::currentChanged, this, [this](int index) {
         if (index < 0) return;
         const auto tab_id=tabs_->tabData(index).toString();
         if(tab_id.startsWith("web:")){select_browser(tab_id);return;}
         if(tab_id.startsWith("files:")){select_file_manager(tab_id);return;}
+        if(tab_id.startsWith("preview:")){select_model_preview(tab_id);return;}
         active_browser_=nullptr;
-        active_file_manager_=nullptr;
+        active_file_manager_=nullptr;active_preview_=nullptr;
         if(browser_stack_)browser_stack_->hide();
         if(file_manager_stack_)file_manager_stack_->hide();
         if(measurement_dialog_)measurement_dialog_->reject();

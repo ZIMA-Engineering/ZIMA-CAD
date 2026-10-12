@@ -87,7 +87,7 @@ dynamic text, user-content boundaries and visible layout when adding UI.
 `config/formats/ZE-TITLE-BLOCK.tblz` contains CS, EN, DE, FR and RU Family rows.
 The original Czech source and language reference fixtures are in
 `tests/fixtures/drawing-library/ZE-TITLE-BLOCK-{CS,EN,DE,FR,RU}.tblz`. Each embeds the company SVG logo from
-`config/formats/ZIMA-Engineering.svg`, with its aspect ratio preserved, and
+`resources/branding/ZIMA-Engineering.svg`, with its aspect ratio preserved, and
 retains the original geometry, constraints, data fields and BOM tokens.
 
 To regenerate variants after updating the Czech source, run:

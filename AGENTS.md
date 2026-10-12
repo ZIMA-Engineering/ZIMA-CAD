@@ -876,3 +876,29 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
 - Verify the complete Bend domain against solid Cut, outward surface thickness
   and Fuse; connectivity and valid BRep alone do not prove absence of notches.
   Candidate style promotion remains the user's decision after practical tests.
+
+## Private browser data and releases (mandatory)
+
+- Saved browser accounts and passwords, cookies, browsing history, cache and
+  bookmarks are private user data. Never commit them, include them in source
+  archives or portable releases, or copy them into immutable factory defaults.
+- Keep the complete user browser tree (`config/www`, including any platform
+  override) outside published artifacts. System credential-store contents and
+  private signing keys must never be exported or logged.
+- Keep the browser user-data ignore rule and packaging rejection checks active.
+  Build releases from committed Git data and reject private browser trees even
+  if accidentally tracked. Verify both source and runtime archive inventories
+  before publication; publish only reviewed factory browser defaults.
+- Preserve the user's local browser profile and saved credentials when building,
+  updating or cleaning development/release artifacts.
+- This requirement was explicitly requested by the user on 2026-10-12.
+
+## Embedded native library artwork (mandatory)
+
+- A native title block, frame or symbol owns its inserted images inside the
+  native document, including SVG bytes. A stored image name identifies its
+  import; it must not become a required external file dependency.
+- Verify opening and rendering from an isolated directory without the original
+  image files before removing redundant import assets. Keep every Family and
+  language variant's embedded image intact.
+- This requirement was reaffirmed by the user on 2026-10-12.

@@ -1,5 +1,31 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## File Manager and preview follow-up (2026-10-12)
+
+The Windows follow-up adds combined file-name/check/preview cells, movable and
+resizable columns with attached filters, directories-first sorting, group checks,
+bounded save thumbnails, hover enlargement and a Files size slider. Shared
+directory labels now also serve ordinary choosers. The 34 factory library
+directories have 170 labels and eight symbol-category SVGs. Verify all of these
+with the shared C++ implementation in a Linux desktop session.
+
+Build/run `zima_model_preview_ui_tests` in addition to File Manager and chooser
+contracts. Verify STEP/IGES native mesh preview, DXF blocks/bulges/rational
+splines/layers/units, unsupported-entity notices, no source writes, main-tab reuse,
+and orthographic/perspective width changes without geometry uploads or camera
+changes. DXF remains a separate read-only 2D tool; editing and manufacturing
+validation are deferred. Verify Linux trash success/failure and protected cleanup
+on disposable fixtures. User data and immutable version settings must remain intact.
+Windows execution and packaging do not establish Linux acceptance.
+
+Verify the working-directory field and shared File-menu chooser action, inherited
+parameter protection, native library parameters in all five languages and live
+open-document cache invalidation. Unsaved native values must not reach persistent
+metadata mirrors. Confirm title-block SVG rendering with no external image file.
+The Part persistence correction normalizes parameter mirrors before calculating
+the definition proof and restores the explicit Sketch index order; run Save Copy,
+mixed standalone/owned Sketch roundtrips and document-operation regressions.
+
 ## File Manager follow-up (2026-10-12)
 
 The 2026101208 follow-up exposes only Overview and Files. Without localized or

@@ -86,6 +86,7 @@
 #include <QApplication>
 #include <QFileDialog>
 #include <QImage>
+#include "file_manager_tab.hpp"
 #include <QPainter>
 #include <QCheckBox>
 #include <QColor>
@@ -3378,6 +3379,7 @@ int verify_save_copy_ui_case(QApplication& application, const std::filesystem::p
         responder.start(); action->trigger(); responder.stop(); flush();
         check(chosen && !failed,"Unicode file chooser did not complete without an error");
     };
+    const char* phase="setup";
     try {
         window.resize(1100,850); window.show(); flush();
         check(fs::equivalent(fs::u8path(run("context").at("working_directory").get<std::string>()),directory),
@@ -3393,19 +3395,23 @@ int verify_save_copy_ui_case(QApplication& application, const std::filesystem::p
         const auto target = named(requested_target);
         auto source_drawing = source; source_drawing.replace_extension(".drwz");
         auto target_drawing = target; target_drawing.replace_extension(".drwz");
+        phase="write original fixture";
         part.save(source,boundaries);
         auto drawing = zima::drawing::DrawingDocument::create_default();
         drawing.source_document_id = part.document_id; drawing.source_path = source;
         drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
             part.document_id,source,boundaries.back().mesh,zima::drawing::ViewOrientation::Front));
         drawing.save(source_drawing);
+        phase="open original fixture";
         check(window.open_document_path(qpath(source)),"Cannot open Unicode Save As fixture");
         flush();
         auto* tabs = window.findChild<QTabBar*>("documentTabs");
         const auto tab_count = tabs->count();
         const auto tab_label = tabs->tabText(tabs->currentIndex());
+        phase="create Part copy";
         choose("saveDocumentAsAction",requested_target);
         check(fs::exists(target) && fs::exists(target_drawing),"Save As did not publish Unicode model and Drawing copies");
+        phase="reopen Part copy";
         const auto copy = PartDocument::load(target);
         const auto drawing_copy = zima::drawing::DrawingDocument::load(target_drawing);
         check(copy.document_id != part.document_id && copy.user_parameters.at("COPY_SOURCE") == part.document_id &&
@@ -3421,6 +3427,7 @@ int verify_save_copy_ui_case(QApplication& application, const std::filesystem::p
         auto reverse_model_target=reverse_target;reverse_model_target.replace_extension(".prtz");
         const auto reverse_tab_count=tabs->count();const auto reverse_tab_label=tabs->tabText(tabs->currentIndex());
         choose("saveDocumentAsAction",reverse_requested);
+        phase="reopen Drawing model copy";
         const auto reverse_model=PartDocument::load(reverse_model_target);
         const auto reverse_drawing=zima::drawing::DrawingDocument::load(reverse_target);
         check(reverse_model.document_id!=part.document_id&&reverse_drawing.document_id!=drawing.document_id&&
@@ -3505,7 +3512,7 @@ int verify_save_copy_ui_case(QApplication& application, const std::filesystem::p
         std::cout << "Save Copy and Unicode GUI/CLI native file contracts passed\n";
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "Save Copy UI contract failed: " << error.what() << std::endl;
+        std::cerr << "Save Copy UI contract failed at " << phase << ": " << error.what() << std::endl;
         return 1;
     }
 }

@@ -92,6 +92,13 @@ def safe_name(name):
             raise ValueError('Unsafe archive member: ' + name)
         if re.fullmatch(r'(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\..*)?', part, re.I):
             raise ValueError('Reserved Windows file name: ' + name)
+    parts = name.casefold().split('/')
+    for index, part in enumerate(parts):
+        if part != 'config':
+            continue
+        tail = parts[index + 1:]
+        if tail[:1] == ['www'] or (tail[:1] in (['windows'], ['linux']) and tail[1:2] == ['www']):
+            raise ValueError('Private browser user data must not be published: ' + name)
     return name
 
 
@@ -467,6 +474,7 @@ def package(args):
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')
     shutil.copy2(source / 'LICENSE', licenses / 'ZIMA-CAD.txt')
     shutil.copy2(source / 'cpp/third_party/qtkeychain/COPYING', licenses / 'qtkeychain.txt')
+    shutil.copy2(source / 'cpp/third_party/qdxf/LICENSE', licenses / 'ZIMA-libqdxf-libdxfrw.txt')
     for notice in (args.installed / 'share').glob('*/copyright'):
         shutil.copy2(notice, licenses / (notice.parent.name + '.txt'))
     if args.qt_sdk:

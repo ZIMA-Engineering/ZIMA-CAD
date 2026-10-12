@@ -296,8 +296,15 @@ data={"arcs":[],"bsplines":[],"circles":[],"constraints":[],"corner_radii":[],"c
 [Sketches]
 items=ze-frame-sketch-A4,ze-frame-sketch-A3,ze-frame-sketch-A2,ze-frame-sketch-A1,ze-frame-sketch-A0
 
+[UserParameterLabels]
+name\cs=Název
+name\de=Name
+name\en=Name
+name\fr=Nom
+name\ru=Название
+
 [UserParameterValues]
-Data={}
+Data={"name":{"":"ZIMA-Engineering drawing frame","cs":"Výkresový rámeček ZIMA-Engineering","de":"ZIMA-Engineering Zeichnungsrahmen","en":"ZIMA-Engineering drawing frame","fr":"Cadre de dessin ZIMA-Engineering","ru":"Рамка чертежа ZIMA-Engineering"}}
 
 [UserParameters]
-Order=
+Order=name

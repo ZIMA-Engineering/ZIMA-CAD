@@ -120,6 +120,8 @@ public:
     // "Pohled kolmo" views.
     void animate_camera_state(const std::array<float, 8>& state);
     void fit_all();
+    // Workspace side-panel width changes crop the view without recentering it.
+    void set_preserve_screen_position_on_resize(bool enabled);
     // Frame an editing subject while retaining the complete passive scene.
     void fit_points(const std::vector<zima::kernel::Vec3>& points);
     void set_display_mode(DisplayMode mode);

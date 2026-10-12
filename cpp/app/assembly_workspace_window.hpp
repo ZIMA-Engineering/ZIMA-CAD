@@ -234,6 +234,13 @@ private:
     void select_file_manager(const QString& id);
     bool close_file_manager(int index);
     void reload_file_managers();
+    void save_model_thumbnail(const QString& path);
+    QStackedWidget* preview_stack_{};
+    QPointer<QWidget> active_preview_;
+    std::map<QString,QWidget*> preview_tabs_;
+    void open_model_preview(const QString& path);
+    void select_model_preview(const QString& id);
+    bool close_model_preview(int index);
     [[nodiscard]] FileManagerNativeParameters file_manager_native_parameters(const QString& path) const;
     [[nodiscard]] QString edit_file_manager_native_parameter(const QString& path,const QString& parameter,const QString& value);
     QTreeWidget* tree_{};

@@ -106,6 +106,8 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
         finish_document_switch(change.kind==Kind::Open);
     }else if(change.kind==Kind::Save){
         if(workspace_.open_drawing(change.document_id))drawing_workspace_->edit_workspace_document(change.document_id);
+        else if(const auto* part=workspace_.open_part(change.document_id))save_model_thumbnail(QString::fromStdString(document::path_to_utf8(part->path)));
+        else if(const auto* assembly=workspace_.open_assembly(change.document_id))save_model_thumbnail(QString::fromStdString(document::path_to_utf8(assembly->path)));
         refresh_tabs();
     }else{
         if(change.kind==Kind::History)cancel_sketch_segment();

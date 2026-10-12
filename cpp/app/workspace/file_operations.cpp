@@ -16,6 +16,9 @@
 #include <QPainter>
 #include "../surface_wire_visibility.hpp"
 #include "../file_manager_tab.hpp"
+#include "../directory_metadata.hpp"
+#include <QSaveFile>
+#include <QSettings>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -190,6 +193,23 @@ void AssemblyWorkspaceWindow::finish_status_operation(
     });
 }
 
+void AssemblyWorkspaceWindow::save_model_thumbnail(const QString& path) {
+    // Capture only the document actually displayed. An activated nested Part
+    // must never receive a thumbnail of the enclosing Assembly.
+    if(!viewer_||!viewer_->isVisible()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
+    const QImage image=viewer_->grabFramebuffer().scaled(320,240,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+    const QString thumbnail=document_thumbnail_path(path);const QFileInfo output(thumbnail);
+    if(image.isNull()||!QDir().mkpath(output.absolutePath())){state_->setText(tr("Dokument je uložen, ale miniaturu nelze vytvořit."));return;}
+    QSaveFile file(thumbnail);if(!file.open(QIODevice::WriteOnly)||!image.save(&file,"PNG")||!file.commit()){state_->setText(tr("Dokument je uložen, ale miniaturu nelze vytvořit."));return;}
+    const QFileInfo document(path);QSettings metadata(QDir(document.absolutePath()).filePath("0000-index/metadata.ini"),QSettings::IniFormat);metadata.setAtomicSyncRequired(true);
+    metadata.setValue("Files/"+document.fileName()+"/Thumbnail",QDir(document.absolutePath()).relativeFilePath(thumbnail));metadata.sync();
+    // Parts consumes basename images. Keep this interoperable alias only when
+    // it is unambiguous; exact-extension previews always remain independent.
+    const auto siblings=QDir(document.absolutePath()).entryList({document.completeBaseName()+".prtz",document.completeBaseName()+".asmz",document.completeBaseName()+".drwz"},QDir::Files);
+    if(siblings.size()==1){QSaveFile alias(QDir(output.absolutePath()).filePath(document.completeBaseName()+".png"));if(alias.open(QIODevice::WriteOnly)&&image.save(&alias,"PNG"))alias.commit();}
+    for(const auto& [id,page]:file_manager_tabs_)if(page->current_directory()==document.absolutePath())page->navigate(page->current_directory(),false);
+}
+
 void AssemblyWorkspaceWindow::save_active_assembly() {
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (assembly == nullptr) return;
@@ -214,7 +234,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         report_operation_error(application_settings_.text("message.save_failed",
             tr("Uložení se nezdařilo")),QObject::tr(error.what()));return;
     }
-    if(!pending)return;
+    if(!pending){save_model_thumbnail(path);return;}
     begin_status_operation(tr("Ukládám sestavu %1…").arg(
         QFileInfo(path).fileName()));
     try {
@@ -224,6 +244,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
         if (!workspace::complete_document_save(workspace_, saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
+        save_model_thumbnail(path);
         change_working_directory(workspace_.open_assembly(id)->path.parent_path());
         update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
@@ -313,7 +334,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         report_operation_error(application_settings_.text("message.save_failed",
             tr("Uložení se nezdařilo")),QObject::tr(error.what()));return;
     }
-    if(!pending)return;
+    if(!pending){save_model_thumbnail(path);return;}
     begin_status_operation(tr("Ukládám Part %1…").arg(
         QFileInfo(path).fileName()));
     try {
@@ -325,6 +346,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
         if (!workspace::complete_document_save(workspace_, saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
+        save_model_thumbnail(path);
         change_working_directory(workspace_.open_part(id)->path.parent_path());
         update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();

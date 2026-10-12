@@ -345,8 +345,15 @@ data={"arcs":[],"bsplines":[],"circles":[],"constraints":[{"first":"p257","geome
 [Sketches]
 items=ze-title-block-sketch-Frame,ze-title-block-sketch-CS,ze-title-block-sketch-EN,ze-title-block-sketch-DE,ze-title-block-sketch-FR,ze-title-block-sketch-RU
 
+[UserParameterLabels]
+name\cs=Název
+name\de=Name
+name\en=Name
+name\fr=Nom
+name\ru=Название
+
 [UserParameterValues]
-Data={}
+Data={"name":{"":"ZIMA-Engineering title block","cs":"Razítko ZIMA-Engineering","de":"ZIMA-Engineering Schriftfeld","en":"ZIMA-Engineering title block","fr":"Cartouche ZIMA-Engineering","ru":"Основная надпись ZIMA-Engineering"}}
 
 [UserParameters]
-Order=
+Order=name

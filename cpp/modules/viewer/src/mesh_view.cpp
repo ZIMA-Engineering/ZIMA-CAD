@@ -398,6 +398,9 @@ struct MeshView::Impl {
     QPoint last_pointer;
     QVector3D center;
     QPointF pan_pixels;
+    QPointF resize_shift_pixels;
+    int viewport_width{};
+    bool preserve_screen_position_on_resize{};
     float radius{1.0F};
     float view_scale{1.4F};
     float reference_view_scale{1.4F};
@@ -689,6 +692,10 @@ struct MeshView::Impl {
     [[nodiscard]] QMatrix4x4 projection(int width, int height) const {
         const float aspect = height > 0 ? static_cast<float>(width) / height : 1.0F;
         QMatrix4x4 result;
+        const auto anchored=[&](const QMatrix4x4& projection){
+            QMatrix4x4 shift;shift.translate(static_cast<float>(2*resize_shift_pixels.x()/std::max(1,width)),static_cast<float>(-2*resize_shift_pixels.y()/std::max(1,height)));
+            return shift*projection;
+        };
         const float vertical = std::max(view_scale, 0.001F);
         // Fit All owns the navigation radius, not the clipping volume. A
         // regenerated or newly opened model can grow while retaining its camera.
@@ -729,7 +736,7 @@ struct MeshView::Impl {
             }
             result.perspective(kPerspectiveFieldOfViewDegrees,
                 std::max(aspect, 0.001F), near_plane, far_plane);
-            return result;
+            return anchored(result);
         }
         float depth_extent = std::max({radius * 20.0F, 100.0F,
             fly_navigation_enabled
@@ -741,7 +748,7 @@ struct MeshView::Impl {
         }
         result.ortho(-vertical * aspect, vertical * aspect, -vertical, vertical,
                      -depth_extent, depth_extent);
-        return result;
+        return anchored(result);
     }
 };
 
@@ -2436,6 +2443,7 @@ void MeshView::fit_points(const std::vector<zima::kernel::Vec3>& points) {
         minimum={std::min(minimum.x,p.x),std::min(minimum.y,p.y),std::min(minimum.z,p.z)};
         maximum={std::max(maximum.x,p.x),std::max(maximum.y,p.y),std::max(maximum.z,p.z)};
     }
+    impl_->resize_shift_pixels={};
     impl_->center=QVector3D((minimum.x+maximum.x)/2,(minimum.y+maximum.y)/2,(minimum.z+maximum.z)/2);
     const double radius=std::hypot(maximum.x-minimum.x,maximum.y-minimum.y,maximum.z-minimum.z)/2;
     const double dpi=physicalDpiY()>=50&&physicalDpiY()<=400?physicalDpiY():96.;
@@ -2450,6 +2458,7 @@ void MeshView::fit_points(const std::vector<zima::kernel::Vec3>& points) {
 }
 
 void MeshView::fit_all() {
+    impl_->resize_shift_pixels={};
     // World coordinates are millimetres. Qt reports widget DPI in the same
     // logical-pixel units as height(), so startup is approximately 1:1 on
     // this monitor, independently of window size and desktop scaling.
@@ -3017,8 +3026,18 @@ void main(){
     impl_->vertex_array.release();
 }
 
-void MeshView::resizeGL(int, int height) {
-    impl_->viewport_height = std::max(1, height);
+void MeshView::set_preserve_screen_position_on_resize(bool enabled){
+    impl_->preserve_screen_position_on_resize=enabled;
+    if(!enabled)impl_->resize_shift_pixels={};
+}
+
+void MeshView::resizeGL(int, int) {
+    const int current_width=width(),current_height=height();
+    if(impl_->preserve_screen_position_on_resize&&impl_->viewport_width>0&&current_height==impl_->viewport_height){
+        impl_->resize_shift_pixels.rx()+=(impl_->viewport_width-current_width)*.5;
+    }
+    impl_->viewport_width=current_width;
+    impl_->viewport_height = std::max(1, current_height);
 }
 
 void MeshView::upload_mesh() {

@@ -27,6 +27,7 @@ browser::Tab* AssemblyWorkspaceWindow::open_browser(const QUrl& requested) {
     ensure_browser_runtime();
     const auto id=QStringLiteral("web:%1").arg(++browser_tab_sequence_,8,10,QLatin1Char('0'));
     auto* page=new browser::Tab(*browser_runtime_,browser_stack_);
+    active_preview_=nullptr;
     active_file_manager_=nullptr;if(file_manager_stack_)file_manager_stack_->hide();
     browser_tabs_[id]=page;browser_stack_->addWidget(page);active_browser_=page;
     connect(page,&browser::Tab::title_changed,this,[this,id,page]{
@@ -44,6 +45,7 @@ void AssemblyWorkspaceWindow::select_browser(const QString& id) {
     if(properties_dialog_||!active_sketch_id_.empty()) {
         refresh_tabs();return;
     }
+    active_preview_=nullptr;
     active_file_manager_=nullptr;if(file_manager_stack_)file_manager_stack_->hide();
     active_browser_=found->second;browser_stack_->setCurrentWidget(found->second);
     QString error;if(!browser_runtime_->bookmarks.reload(&error))state_->setText(error);
