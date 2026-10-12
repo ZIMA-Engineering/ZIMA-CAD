@@ -1,6 +1,18 @@
 int verify_file_manager_workspace(QApplication& application) {
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto choose_document=[&](zima::app::AssemblyWorkspaceWindow& host,const QString& selected){
+        bool dialog_seen=false,dialog_contract=false;QTimer chooser;chooser.setInterval(20);
+        QObject::connect(&chooser,&QTimer::timeout,&host,[&]{
+            auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget());if(!dialog)return;
+            dialog_seen=true;const QString filters=dialog->nameFilters().join(';');
+            dialog_contract=dialog->testOption(QFileDialog::DontUseNativeDialog)&&dialog->fileMode()==QFileDialog::ExistingFile;
+            for(const auto* extension:{"*.prtz","*.asmz","*.drwz","*.frmz","*.tblz","*.symz"})dialog_contract=dialog_contract&&filters.contains(extension);
+            chooser.stop();if(selected.isEmpty())dialog->reject();else{dialog->selectFile(selected);if(auto* name=dialog->findChild<QLineEdit*>("fileNameEdit"))name->setText(selected);QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);}
+        });
+        chooser.start();host.findChild<QAction*>("openDocumentAction")->trigger();chooser.stop();flush();
+        check(dialog_seen&&dialog_contract,"File Open did not use the existing localized native-document chooser");
+    };
     try {
         QTemporaryDir directory;check(directory.isValid(),"Cannot create File Manager workspace fixture");
         QSettings settings(directory.filePath("config.ini"),QSettings::IniFormat);settings.setValue("Paths/WorkingDirectory",directory.path());settings.sync();
@@ -28,12 +40,15 @@ int verify_file_manager_workspace(QApplication& application) {
         int file_index=-1,document_index=-1;for(int index=0;index<tabs->count();++index){const auto id=tabs->tabData(index);if(file_index<0&&id.toString().startsWith("files:"))file_index=index;if(id==document)document_index=index;}
         check(file_index>=0&&document_index>=0,"File Manager or CAD tab disappeared");tabs->setCurrentIndex(file_index);flush();check(files->isVisible()&&!browser->isVisible()&&!cad->isVisible(),"Returning to File Manager retained another surface");
         tabs->setCurrentIndex(document_index);flush();check(cad->isVisible()&&!files->isVisible()&&!browser->isVisible(),"Returning to CAD retained a utility surface");
-        window.findChild<QAction*>("openDocumentAction")->trigger();flush();check(tabs->tabData(tabs->currentIndex()).toString().startsWith("files:"),"File Open did not open File Manager");
+        const int before_open=tabs->count();choose_document(window,{});check(tabs->count()==before_open&&tabs->tabData(tabs->currentIndex())==document,"Cancelling File Open changed the CAD tabs or active context");
+        tabs->setCurrentIndex(file_index);flush();const auto file_tab=tabs->tabData(tabs->currentIndex());choose_document(window,{});check(tabs->count()==before_open&&tabs->tabData(tabs->currentIndex())==file_tab&&files->isVisible(),"Cancelling File Open duplicated or replaced the existing File Manager");
+        choose_document(window,part_path);check(tabs->count()==before_open&&tabs->tabData(tabs->currentIndex())==document&&cad->isVisible(),"File Open did not reuse the existing native document without adding a File Manager tab");
         for(int index=tabs->count()-1;index>=0;--index){const QString id=tabs->tabData(index).toString();if(id.startsWith("files:")||id.startsWith("web:")){emit tabs->tabCloseRequested(index);flush();}}
         check(tabs->count()==original&&tabs->tabData(tabs->currentIndex())==document&&cad->isVisible(),"Closing utility tabs did not restore CAD context");
         {
             zima::app::AssemblyWorkspaceWindow shutdown(directory.path(),directory.path());shutdown.show();flush();
             shutdown.findChild<QAction*>("newFileManagerTabAction")->trigger();flush();
+            auto* shutdown_tabs=shutdown.findChild<QTabBar*>("documentTabs");const int shutdown_count=shutdown_tabs->count();const auto shutdown_active=shutdown_tabs->tabData(shutdown_tabs->currentIndex());choose_document(shutdown,{});check(shutdown_tabs->count()==shutdown_count&&shutdown_tabs->tabData(shutdown_tabs->currentIndex())==shutdown_active,"File Open duplicated the File Manager when no CAD document was open");
         }
         std::cout<<"File Manager native editing, tabs, File Open and exclusive CAD/browser switching passed\n";return 0;
     } catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

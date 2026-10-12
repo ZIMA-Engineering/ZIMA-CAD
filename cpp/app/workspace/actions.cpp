@@ -31,7 +31,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     open_document_action_->setObjectName("openDocumentAction");
     open_document_action_->setShortcuts({QKeySequence(Qt::Key_F2), QKeySequence::Open});
     connect(open_document_action_, &QAction::triggered, this,
-        [this] { open_file_manager(); });
+        [this] { open_document(); });
     file->addAction(open_document_action_);
     auto* import_action = make_action(t("menu.file.import", "Importovat…"), "open");
     import_action->setObjectName("importDocumentAction");

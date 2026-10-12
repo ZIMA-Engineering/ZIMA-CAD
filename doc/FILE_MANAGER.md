@@ -7,8 +7,11 @@ does not change an existing File Manager tab.
 
 The navigation row starts with Home, followed by Back, Forward, Up and the
 current path. Home always opens the current ZIMA-CAD working directory. File >
-Open and the main Open toolbar action open a File Manager tab; native CAD files
-open from its Overview or Files view.
+Open, F2, Ctrl+O and the main Open toolbar action use the existing localized
+document-selection dialog. They do not create a File Manager tab. File Manager
+has its own action in the toolbar's utility menu and can open native documents
+from Files. Cancelling document selection preserves the active CAD or File
+Manager tab; choosing an already open document activates its existing tab.
 
 ## Data sources
 
@@ -166,6 +169,17 @@ contract also creates a project overview at a synthetic source root, verifies
 the removal lock, and edits directory metadata explicitly for a read-only
 source while retaining its non-editable native parameters. It never reads or
 writes production project data.
+
+The integrated File Manager workspace contract verifies that File Open uses
+the existing localized document chooser with all six native document/library
+filters. Cancel preserves the active CAD or File Manager tab, including a
+workspace containing only a File Manager. Selecting an already open document
+activates that document without inserting a utility tab. The independent
+File Manager action still creates multiple tabs explicitly. The shared file
+dialog contract additionally checks repeated selection/Cancel, uppercase
+extensions, dense-directory responsiveness and Light/Dark/Light presentation.
+These checks are verified on Windows; native Linux desktop verification remains
+assigned to the Linux host.
 
 `tools/test_import_engineering_tables.py` verifies the deterministic filtered
 import and metadata conversion on synthetic content. The committed factory
