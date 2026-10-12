@@ -2,10 +2,14 @@
 
 ## Scope and status
 
-Windows 2026101203 is being prepared with the native File Manager, configurable
-data sources, native parameter editing and metadata version 3. Local isolated
-and integrated GUI tests pass; signed packaged acceptance is pending. See the
-[release record](releases/2026101203.md).
+Signed Windows [2026101203](releases/2026101203.md#signed-windows-publication)
+was published at `2026-10-12T10:25:24Z` with the native File Manager,
+configurable data sources, native parameter editing and metadata version 3.
+Clean candidate/signed smoke, all 21 factory assets, production trust, packaged
+File Manager and application-lifecycle scenarios, 29 publisher tests, public
+asset hashes and installable discovery from signed 2026101202 pass. The recorded
+browser whole-window capture limitation remains; native Linux verification is
+assigned to the Linux host.
 
 Signed Windows [2026101202](releases/2026101202.md#signed-windows-publication)
 was published at `2026-10-12T02:42:36Z` with shared Part/Assembly Features,
