@@ -2419,5 +2419,22 @@
   "Zobrazovat skryté a systémové soubory": "Показывать скрытые и системные файлы",
   "Nativní parametry nyní nelze upravit.": "Сейчас нативные параметры нельзя изменить.",
   "Dokument se během ukládání změnil. Zkuste úpravu znovu.": "Документ изменился во время сохранения. Повторите изменение.",
-  "Tento typ souboru nemá upravitelné nativní parametry.": "У этого типа файла нет редактируемых нативных параметров."
+  "Tento typ souboru nemá upravitelné nativní parametry.": "У этого типа файла нет редактируемых нативных параметров.",
+  "Vlastnosti adresáře": "Свойства папки",
+  "Vlastnosti adresáře…": "Свойства папки…",
+  "Zobrazovat podadresáře v záložce Soubory": "Показывать подпапки на вкладке «Файлы»",
+  "Vytvořit automatický přehled, když chybí HTML": "Создавать автоматический обзор при отсутствии HTML",
+  "Obecné": "Общие",
+  "Bez loga": "Без логотипа",
+  "Pouze logo": "Только логотип",
+  "Logo a název": "Логотип и название",
+  "Soubor loga": "Файл логотипа",
+  "Vybrat logo": "Выбрать логотип",
+  "Loga (*.svg *.png)": "Логотипы (*.svg *.png)",
+  "ID": "Идентификатор",
+  "Parametry": "Параметры",
+  "ID parametru smí obsahovat pouze písmena bez diakritiky, číslice, tečku, pomlčku a podtržítko.": "Идентификатор параметра может содержать только латинские буквы, цифры, точки, дефисы и знаки подчёркивания.",
+  "ID parametrů musí být jedinečná.": "Идентификаторы параметров должны быть уникальными.",
+  "Vyberte existující logo ve formátu SVG nebo PNG.": "Выберите существующий логотип в формате SVG или PNG.",
+  "Logo nelze zkopírovat do adresáře metadat.": "Не удалось скопировать логотип в папку метаданных."
 }

@@ -2,3 +2,10 @@ tools/dependencies/*.patch text eol=lf whitespace=-blank-at-eol
 tools/dependencies/vcpkg-ports/opencascade/*.patch text eol=lf whitespace=-blank-at-eol
 # Retain the upstream port's verbatim comment formatting.
 tools/dependencies/vcpkg-ports/opencascade/portfile.cmake whitespace=-blank-at-eol
+
+# Preserve imported reference documents and data byte-for-byte. Metadata and
+# repository documentation remain normalized UTF-8 text.
+config/lib/03-ENGINEERING-TABLES/** -text -whitespace
+config/lib/03-ENGINEERING-TABLES/**/*.ini text eol=lf
+config/lib/03-ENGINEERING-TABLES/0000-index/import.json text eol=lf
+config/lib/03-ENGINEERING-TABLES/README.md text eol=lf

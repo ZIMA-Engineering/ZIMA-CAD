@@ -1,0 +1,59 @@
+body, p, td, th {
+  font-family: Verdana,Arial,sans-serif;
+  font-size: 12pt;
+  line-height: 1.2;
+}
+
+table th, 
+.nadpis,
+.zacatek {
+  border-width: 1px;
+  padding: 4px 16px;
+  border-style: solid;
+  border-color: gray;
+  background-color: #CCC;
+  text-align: center;
+}
+
+table {
+  border-width: 1px;
+  border-spacing: 0px;
+  border-style: solid;
+  border-color: #C9C9C9;
+  border-collapse: separate;
+  background-color: white;
+}
+
+table td {
+  border-width: 1px;
+  padding: 4px 16px;
+  border-style: solid;
+  border-color: #EEE;
+  text-align: center;
+}
+
+.poznamka,
+.poznamky {
+  padding: 12px;
+  border: 1px solid #CCC;
+  background-color: #EEE;
+  margin-bottom: 2em;
+  margin-top: 2em;
+}
+
+tr.blue td {
+  background-color: #CDF;
+}
+
+table.normal {
+    border-color: #C9C9C9;
+}
+
+table.normal tr,
+table.normal td{
+border: 1px solid #6B6B6B;
+}
+
+.grey{
+background-color: #CCC;
+}

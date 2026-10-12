@@ -1,0 +1,178 @@
+body, p, td, th {
+  font-family: Verdana,Arial,sans-serif;
+  font-size: 12pt;
+  line-height: 1.2;
+}
+
+table {
+  width: 800px;
+  background-color: #C0D0FF;
+  border-collapse: separate;
+  border-color: #C9C9C9;
+}
+
+table.inlined {
+  width: auto;
+}
+
+table, td, tr {
+  border: 1px solid #6B6B6B;
+}
+
+td {
+  height: 25px;
+  vertical-align: top;
+}  
+
+.nadpis {
+  font-weight: bold;
+  background-color: #F00000;
+  color: white;
+  font-size: 16px;
+}
+
+.suda  { background-color: white;}     
+.zacatek  { font-weight: bold; background-color: #100050; color: white;}     
+
+/*
+ * Custom overrides.
+ */
+table {
+  border-width: 1px;
+  border-spacing: 0px;
+  border-style: solid;
+  border-color: #C9C9C9;
+  border-collapse: separate;
+  background-color: white;
+}
+
+table th {
+  border-width: 1px;
+  padding: 4px 16px;
+  border-style: solid;
+  border-color: gray;
+  background-color: #CCC;
+  text-align: center;
+}
+
+table td {
+  border-width: 1px;
+  padding: 4px 16px;
+  border-style: solid;
+  border-color: gray;
+  background-color: white;
+  text-align: center;
+}
+
+th.vertical {
+  text-align: left;
+}
+
+span.invisible-text {
+  color: transparent !important;
+}
+
+span.promenna {
+  font-style: italic;
+}
+
+.priklad-znaceni {
+  padding-left: 4em;
+  white-space: nowrap;
+}
+
+.poznamka-o-jednotkach {
+  font-size: smaller;
+  text-align: right;
+}
+
+.podbod-poznamky {
+  margin-bottom: 0px;
+  margin-top: 0px;
+  padding-bottom: 0px;
+  padding-left: 4em;
+  padding-top: 0px;
+}
+
+.nadpis-tabulky {
+  text-align: left;
+}
+
+tr.suda,
+tbody tr:nth-child(even) td {
+  background-color: #CDF;
+}
+
+
+.poznamka,
+.poznamky {
+  padding: 12px;
+  border: 1px solid #CCC;
+  background-color: #EEE;
+  margin-bottom: 2em;
+  margin-top: 2em;
+}
+
+.poznamka:before {
+  content: 'Poznámka:';
+  font-weight: bold;
+}
+
+.poznamky:before {
+  content: 'Poznámky:';
+  font-weight: bold;
+}
+
+.poznamka > p,
+.poznamky > p {
+  margin-top: .5em;
+  margin-bottom: .5em;
+}
+
+.poznamka > p:last-child,
+.poznamky > p:last-child {
+  margin-bottom: 0;
+}
+
+.poznamka > p.nadpis,
+.poznamky > p.nadpis {
+  display: none;
+}
+
+/*
+ * -- styl na matematiku --
+ */
+
+table.vzorec {
+  border-collapse: collapse;
+  border-color: red;
+  border-spacing: 0;
+  border-width: 0;
+  width: auto;
+}
+
+table.vzorec,
+table.vzorec tr,
+table.vzorec td {
+  border-width: 0;
+}
+
+table.vzorec tr.skryte {
+  display: none;
+}
+
+table.vzorec td {
+  padding: 4px 2px;
+  vertical-align: middle;
+  text-align: center;
+}
+
+table.vzorec td.citatel {
+  border-bottom: 1px solid black;
+  padding-bottom: 2px;
+}
+
+table.vzorec td.jmenovatel {
+  border-top: 1px solid black;
+  padding-top: 2px;
+}

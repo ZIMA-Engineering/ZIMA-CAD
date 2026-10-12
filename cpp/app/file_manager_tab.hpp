@@ -16,6 +16,7 @@ class QSortFilterProxyModel;
 class QStackedWidget;
 class QTreeView;
 class QTreeWidget;
+class QWebEngineView;
 
 namespace zima::app {
 
@@ -75,7 +76,9 @@ private:
     QLabel* project_details_{};
     QLabel* project_image_{};
     QPushButton* edit_project_{};
+    QStackedWidget* overview_stack_{};
     QListWidget* overview_{};
+    QWebEngineView* overview_web_{};
     QTreeWidget* files_{};
     QPushButton* copy_{};
     QPushButton* move_{};
@@ -91,7 +94,9 @@ private:
     void apply_file_filters();
     void update_actions();
     void open_entry(const QString& path);
+    void edit_directory(const QString& directory, bool read_only);
     void edit_project(const QString& directory, bool create);
+    void show_source_menu(const QPoint& point);
     void show_tree_menu(QTreeView* tree, const QPoint& point);
     void copy_selected(bool move);
     void delete_selected();

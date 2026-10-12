@@ -522,10 +522,10 @@ if(ZIMA_BUILD_TESTS)
         app/application_settings.cpp app/zima_resources.qrc)
     set_target_properties(zima_file_manager_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
     target_include_directories(zima_file_manager_ui_tests PRIVATE app)
-    target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg)
+    target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg Qt6::WebEngineWidgets)
     target_compile_options(zima_file_manager_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_file_manager_ui COMMAND zima_file_manager_ui_tests)
-    set_tests_properties(zima_file_manager_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion")
+    set_tests_properties(zima_file_manager_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox")
 endif()
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp

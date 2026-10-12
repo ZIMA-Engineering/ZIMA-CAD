@@ -10,8 +10,8 @@ Verify multiple tabs, source trees, Project/Overview/Files views, native save
 and reopen, metadata mirroring, application shutdown with an open filesystem
 model and switching between CAD, File Manager and WebEngine. Confirm all five
 languages and factory source paths in the packaged layout. No production project
-data or engineering-table content is part of the Windows fixture. OCCT remains
-8.0.0 and no native document schema changed.
+data is part of the Windows fixture. OCCT remains 8.0.0 and no native document
+schema changed.
 
 The 2026101204 follow-up keeps every source row above the active tree, opens a
 source root when its row is clicked, hides `0000-index` and adds a text filter
@@ -28,6 +28,16 @@ and that no `0000-index` directory or `metadata.ini` is created. Repeat the
 writable-source edit and mirror checks to confirm that their behavior is
 unchanged. Windows local, packaged and public release checks pass; native Linux
 filesystem and desktop behavior still require Linux-host verification.
+
+The 2026101206 follow-up adds the project-overview context action to the source
+row itself and displays metadata-backed directory labels in both the Tree and
+Files views. Verify project creation at the root of a writable source, the
+disabled action for a read-only source, cached label refresh after editing and
+the hidden `0000-index` directory. The shared factory data now includes the
+filtered `03-ENGINEERING-TABLES` snapshot: 637 documents/images and 312 metadata
+version 3 directories. Linux must verify browsing this committed data from the
+packaged read-only source. The Windows checks do not establish Linux filesystem
+performance or native presentation.
 
 ## Shared Feature follow-up (2026-10-12)
 

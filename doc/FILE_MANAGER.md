@@ -26,10 +26,21 @@ symbols, templates, sheet-metal assets, native ZIMA-CAD library content and
 engineering tables. Custom local or network sources can be added. Factory
 source names follow the application language; their paths remain configurable.
 
+The context menu on a source row provides the same Open, Open in New Tab,
+Directory Properties and Create/Edit Project Overview actions as a directory
+row. This allows the root of a writable source to be configured even though it
+is represented by the source row rather than by an item in its folder tree.
+
 `config/lib/02-NATIVE` is reserved for native reusable engineering content such
 as fasteners, gears and keyway definitions. `config/lib/03-ENGINEERING-TABLES`
-is reserved for the reviewed engineering-table library. Legacy Pro/ENGINEER CAD
-documents are not copied into that library.
+contains the reviewed File Manager import of the engineering-table hierarchy.
+The import preserves HTML/CSS/JavaScript navigation, documents, data files,
+preview images and legacy metadata parameters. Shared web assets are copied
+locally for independent pages, and links are rewritten to the imported short
+English directory names. It excludes legacy Pro/ENGINEER CAD documents,
+backups and desktop metadata. The Tree and Files views read human-readable
+localized directory labels from metadata version 3. Label reads are cached per
+File Manager source and invalidated after Directory Properties changes them.
 
 ## Views
 
@@ -39,8 +50,10 @@ The right side has three views:
   the project number, localized title and description, customer, main image and
   optional project or company logo. A click-based editor writes version 3
   metadata without requiring the user to edit INI or HTML.
-- **Overview** automatically builds image-backed tiles from directory contents,
-  project images and `0000-index/thumbnails`. It does not render `index_*.html`.
+- **Overview** renders `0000-index/index_<language>.html` for the active
+  application language, falls back to `index.html` or `index.htm`, and otherwise
+  builds image-backed tiles from directory contents, project images and
+  `0000-index/thumbnails`. The automatic overview can be disabled per directory.
 - **Files** lists folders and files with checkboxes and metadata parameter
   columns. Every textual column has its own contains filter in a second header
   row, matching the ZIMA-Parts workflow. Version 3 metadata cells and native
@@ -50,10 +63,12 @@ The right side has three views:
   operate on the checked rows; the separate Versions toggle controls numbered
   version files.
 
-The older `index_*.html` files remain untouched. A legacy directory is detected
-as a project when `0000-index` contains both an index HTML file and a `01.*`
-image, but its project fields remain read-only until a controlled metadata
-conversion is implemented.
+Directory Properties is an internal ZIMA-CAD properties window. It edits all
+five localized directory labels, whether child folders appear in Files, the
+automatic-overview fallback, the ordered parameter definitions, and SVG/PNG
+branding. `logo.svg` or `logo.png` shows only the image; `logo-text.svg` or
+`logo-text.png` shows the image with localized text. SVG has priority. Read-only
+sources expose the same information without allowing changes.
 
 ## Metadata version 3
 
@@ -129,5 +144,17 @@ then on explicitly selected copies of real projects.
 library. It verifies the fixed source list, source-root navigation, hidden
 `0000-index` directories, per-column filters, file-name-only opening, parameter
 editing, project detection, Overview and Files content, mirrored parameter
-updates and independent state in multiple File Manager tabs. It never reads or
-writes production project data.
+updates and independent state in multiple File Manager tabs. The source-row
+contract also creates a project overview at a synthetic source root. It never
+reads or writes production project data.
+
+`tools/test_import_engineering_tables.py` verifies the deterministic filtered
+import and metadata conversion on synthetic content. The committed factory
+snapshot contains 1,448 verified files (155,953,349 bytes) and 312 verified
+metadata files. Its imported content-tree SHA-256 is
+`8aa6f36fdb20a7cd53b175d58f97423b2ae15e582efd7fda1fcabbb2ba6492e5`.
+All Overview index pages have valid local links. One unused legacy
+`index-parts_cs.html` page retains two already-missing source references; the
+import report records them and no active Overview page uses that file.
+The original source inventory remained 2,806 files and 297,145,161 bytes before
+and after the import.

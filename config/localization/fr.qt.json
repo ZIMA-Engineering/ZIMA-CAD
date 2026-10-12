@@ -2419,5 +2419,22 @@
   "Zobrazovat skryté a systémové soubory": "Afficher les fichiers cachés et système",
   "Nativní parametry nyní nelze upravit.": "Les paramètres natifs ne peuvent pas être modifiés pour le moment.",
   "Dokument se během ukládání změnil. Zkuste úpravu znovu.": "Le document a été modifié pendant l’enregistrement. Réessayez la modification.",
-  "Tento typ souboru nemá upravitelné nativní parametry.": "Ce type de fichier ne possède aucun paramètre natif modifiable."
+  "Tento typ souboru nemá upravitelné nativní parametry.": "Ce type de fichier ne possède aucun paramètre natif modifiable.",
+  "Vlastnosti adresáře": "Propriétés du dossier",
+  "Vlastnosti adresáře…": "Propriétés du dossier…",
+  "Zobrazovat podadresáře v záložce Soubory": "Afficher les sous-dossiers dans l’onglet Fichiers",
+  "Vytvořit automatický přehled, když chybí HTML": "Créer un aperçu automatique en l’absence de HTML",
+  "Obecné": "Général",
+  "Bez loga": "Aucun logo",
+  "Pouze logo": "Logo uniquement",
+  "Logo a název": "Logo et nom",
+  "Soubor loga": "Fichier du logo",
+  "Vybrat logo": "Sélectionner un logo",
+  "Loga (*.svg *.png)": "Logos (*.svg *.png)",
+  "ID": "ID",
+  "Parametry": "Paramètres",
+  "ID parametru smí obsahovat pouze písmena bez diakritiky, číslice, tečku, pomlčku a podtržítko.": "L’identifiant du paramètre ne peut contenir que des lettres sans accent, des chiffres, des points, des traits d’union et des traits de soulignement.",
+  "ID parametrů musí být jedinečná.": "Les identifiants des paramètres doivent être uniques.",
+  "Vyberte existující logo ve formátu SVG nebo PNG.": "Sélectionnez un logo SVG ou PNG existant.",
+  "Logo nelze zkopírovat do adresáře metadat.": "Impossible de copier le logo dans le dossier des métadonnées."
 }

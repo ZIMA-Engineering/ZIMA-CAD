@@ -1,0 +1,103 @@
+BODY { 
+	font-family: Verdana;
+	}
+
+TABLE {
+	width: 1500px;
+	background-color: #C0D0FF;
+	border-collapse: separate;
+	border-spacing: 0;
+	}
+
+TABLE, TD, TR {
+	border:1px solid #6B6B6B;
+	}
+
+TD {
+	height:25px;
+	vertical-align:middle;
+	text-align: center;
+	}
+
+.SUDA {
+	background-color: white;
+	}
+
+.ZACATEK {
+	font-weight: bold;
+	background-color: #100050;
+	color: white;
+	}
+
+.NADPIS {
+	font-weight: bold;
+	background-color: #F00000;
+	color: white;
+	font-size: 16px;
+	}
+
+.bt {
+	border-top: 2px solid black;
+}
+
+.bb {
+	border-bottom: 2px solid black;
+}
+
+.bl {
+	border-left: 2px solid black;
+}
+
+
+.br {
+	border-right: 2px solid black;
+}
+
+.btl {
+	border-top: 2px solid black;
+	border-left: 2px solid black;
+}
+
+.btr {
+	border-top: 2px solid black;
+	border-right: 2px solid black;
+}
+
+.btrl {
+	border-top: 2px solid black;
+	border-right: 2px solid black;
+	border-left: 2px solid black;
+}
+
+.cb {
+	background: gray;
+}
+
+.cbbr{
+  	background: gray;
+	border-right: 2px solid black;
+}
+
+.cbbl{
+  	background: gray;
+	border-left: 2px solid black;
+}
+
+
+.cbbt{
+  	background: gray;
+	border-top: 2px solid black;
+}
+
+
+.cbbrt{
+  	background: gray;
+	border-top: 2px solid black;
+	border-right: 2px solid black;
+}
+
+.cbblt{
+  	background: gray;
+	border-top: 2px solid black;
+	border-left: 2px solid black;
+}

@@ -1,0 +1,23 @@
+{
+  "source": "04-MECHANICAL_TABLES",
+  "directories": 312,
+  "files": 1448,
+  "bytes": 155953349,
+  "localizedHtml": 217,
+  "localizedWebFiles": 217,
+  "htmlFiles": 279,
+  "metadataVersion": 3,
+  "maximumPackageMemberLength": 178,
+  "excluded": {
+    "backup-or-desktop": 415,
+    "legacy-cad": 993,
+    "legacy-cad-support": 20,
+    "obsolete-metadata-backup": 37
+  },
+  "verifiedFiles": 1448,
+  "verifiedBytes": 155953349,
+  "verifiedMetadata": 312,
+  "verifiedTransformedFiles": 217,
+  "unresolvedLocalHtmlReferences": 2,
+  "contentTreeSha256": "8aa6f36fdb20a7cd53b175d58f97423b2ae15e582efd7fda1fcabbb2ba6492e5"
+}

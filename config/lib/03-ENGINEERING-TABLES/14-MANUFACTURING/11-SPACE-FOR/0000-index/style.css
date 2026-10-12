@@ -1,0 +1,8 @@
+body { font-family: Verdana;}        
+table { width: 900px; background-color: #C0D0FF; border-collapse: separate; border-color: #C9C9C9; font-size:}      
+table, td, tr { border:1px solid #6B6B6B;}      
+td { height:25px; vertical-align:middle; vertical-align:top;}  
+.nadpis {font-weight: bold; background-color: #F00000; color: white; font-size: 16px;}
+.suda  { background-color: white;}     
+.zacatek  { font-weight: bold; background-color: #100050; color: white;}     
+
