@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Signed Windows [2026101209](releases/2026101209.md#signed-windows-publication)
+was published at `2026-10-12T21:21:51Z`. It completes File Manager thumbnail,
+column, cleanup, foreign-model inspection and working-directory interactions,
+adds localized native library parameters and independent edit protection, fixes
+Save Copy persistence and excludes private browser data from source/runtime
+packages. Native formats, protected modeling contracts and OCCT 8.0.0 are unchanged.
+The clean committed-source build, candidate/signed smoke, all 21 factory assets,
+production trust, signed-package File Manager/Save Copy/STEP GUI checks, scoped
+native/five-language tests and 31 packaging/publisher tests pass (two Unix-only
+skips). Public asset digests match local acceptance; signed 2026101202 discovers
+an installable update. Native Linux verification remains assigned to its host.
+
 Signed Windows [2026101208](releases/2026101208.md#signed-windows-publication)
 was published at `2026-10-12T17:16:15Z`. File Manager exposes Overview and Files,
 with native subdirectory cards and integrated project information when Overview

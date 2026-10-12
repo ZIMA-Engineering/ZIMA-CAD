@@ -6,7 +6,9 @@ history, view, filters and checked items. Opening another directory in a new tab
 does not change an existing File Manager tab.
 
 The navigation row starts with Home, followed by Back, Forward, Up and the
-current path. Home always opens the current ZIMA-CAD working directory. File >
+read-only application working directory. The icon after the field invokes the same
+directory chooser as File > Set working directory (F12). Home always opens
+the current ZIMA-CAD working directory. File >
 Open, F2, Ctrl+O and the main Open toolbar action use the existing localized
 document-selection dialog. They do not create a File Manager tab. File Manager
 has its own action in the toolbar's utility menu and can open native documents
@@ -30,8 +32,8 @@ engineering tables. Custom local or network sources can be added. Factory
 source names follow the application language; their paths remain configurable.
 
 The context menu on a source row provides the same Open, Open in New Tab,
-Directory Properties and Create/Edit Project Overview actions as a directory
-row. This allows the root of a writable source to be configured even though it
+Set as Working Directory, Directory Properties and Create/Edit Project Overview
+actions as a directory row. This allows the root of a writable source to be configured even though it
 is represented by the source row rather than by an item in its folder tree.
 
 `config/lib/02-NATIVE` is reserved for native reusable engineering content such
@@ -139,9 +141,10 @@ Gap/duplicate/intersection checking for cutting and DXF writing remain future wo
 
 ### Factory labels and camera behavior
 
-`tools/update-library-directory-metadata.py` regenerates the 31 repository-owned
-Materials, Symbols and Sheet Metal directory metadata files, with 155 labels in
-cs/en/de/fr/ru and eight `logo-text.svg` symbol-category icons. Physical directory
+`tools/update-library-directory-metadata.py` regenerates the 34 repository-owned
+Formats, Templates, Native Library, Materials, Symbols and Sheet Metal directory
+metadata files, with 170 labels in cs/en/de/fr/ru and eight `logo-text.svg`
+symbol-category icons. Physical directory
 names stay unchanged. The shared label reader serves both File Manager and
 ordinary file/directory choosers while keeping real paths and filenames intact.
 

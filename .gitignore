@@ -63,3 +63,9 @@ screenshots/
 
 # Shared user browser data: bookmarks, cookies, cache and credential metadata.
 /config/www/
+/config/windows/www/
+/config/linux/www/
+# Local File Manager column state is user-owned configuration.
+/config/file-manager-layout.ini
+/config/windows/file-manager-layout.ini
+/config/linux/file-manager-layout.ini
