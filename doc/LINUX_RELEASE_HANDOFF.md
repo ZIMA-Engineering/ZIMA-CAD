@@ -52,7 +52,10 @@ moving of direct contents, the protected directory itself and any ancestor
 containing a protected descendant. Verify localized label changes, the lock
 checkbox, save errors on a physically read-only filesystem and retained copy-out
 behavior. The engineering-table import already has the lock enabled in all 312
-metadata directories.
+metadata directories. Signed Windows 2026101207 passed clean candidate and
+signed smoke, packaged File Manager verification, both packaged table-tree
+inventories and public updater discovery. Those Windows results do not establish
+native Linux filesystem enforcement or presentation.
 
 ## Shared Feature follow-up (2026-10-12)
 

@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Signed Windows [2026101207](releases/2026101207.md#signed-windows-publication)
+was published at `2026-10-12T14:58:53Z`. Administrators can edit localized
+directory metadata for read-only File Manager sources, while
+`Directory/PreventRemoval` protects library contents from move and deletion.
+Clean candidate/signed smoke, all 21 factory assets, packaged File Manager,
+the complete engineering-table archive inventory, 29 packaging/publisher tests
+with two platform-only skips, public asset digests and installable discovery
+from signed 2026101202 pass. Native Linux build, packaged browsing and desktop
+verification remain assigned to the Linux host.
+
 Signed Windows [2026101206](releases/2026101206.md#signed-windows-publication)
 was published at `2026-10-12T14:23:49Z`. File Manager directory properties,
 localized labels and branding, source-root project overviews and localized HTML
