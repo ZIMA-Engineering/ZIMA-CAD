@@ -70,6 +70,8 @@ void validate_feature_parameters(const FeatureParameters& p) {
     static_cast<void>(name(p.thin_mode,thin_modes));
     if(!std::isfinite(p.profile_plane_offset)||!positive(p.thin_thickness))invalid();
     const auto first=p.effective_side(0),second=p.effective_side(1);
+    if(p.type==FeatureType::Axis && !first.axis_enabled && !second.axis_enabled)
+        throw std::invalid_argument("Osa musí mít alespoň jeden nenulový směr.");
     if(first.operation==FeatureSideOperation::Revolution&&second.operation==FeatureSideOperation::Revolution&&
         first.rotation_extent!=FeatureRotationExtent::UpTo&&second.rotation_extent!=FeatureRotationExtent::UpTo)
         validate_feature_rotation_span(first.rotation_extent==FeatureRotationExtent::Full?360:first.angle_degrees,
@@ -112,6 +114,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
             {"angle_degrees",side.angle_degrees},{"rotation_extent",name(side.rotation_extent,rotations)},
             {"draft_angle_degrees",side.draft_angle_degrees},
             {"targets",std::move(targets)}});
+        if(!side.axis_enabled)sides.back()["axis_enabled"]=false;
         if(side.operation==FeatureSideOperation::Twist) {
             sides.back()["twist_reverse"]=side.twist_reverse;
             sides.back()["twist_smooth"]=side.twist_smooth;
@@ -153,6 +156,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
                 side.twist_smooth=value.at("twist_smooth").get<bool>();
             }
             side.length=value.at("length").get<double>();
+            side.axis_enabled=value.value("axis_enabled",true);
             side.extrusion_extent=parse(value.at("extrusion_extent"),conditions);
             side.angle_degrees=value.at("angle_degrees").get<double>();
             side.draft_angle_degrees=value.at("draft_angle_degrees").get<double>();

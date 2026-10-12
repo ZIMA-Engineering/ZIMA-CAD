@@ -1,4 +1,26 @@
-# Axis container extents
+# Axis extents
+
+## Ordinary Feature Axis
+
+The Part and Assembly toolbars use the shared Feature Axis described in
+[Unified Feature types](UNIFIED_FEATURE_TYPES.md). Each side offers Length,
+Up to or None; symmetry uses Side 1 on both sides. No default-plane section is
+shown. None stores `axis_enabled=false` while retaining the authored numerical
+length, target and lock. Its effective endpoint stays at the origin with its
+original Start/End identity. The common profile-target resolver supplies the
+native plane or captured original-face geometry without an OCCT query.
+
+`feature.get/create/set` use the same native Feature definitions in both
+documents. Assembly material operations remain subtraction-only. Ordinary Axis
+creation, editing and Sketcher return consume the same internal Properties
+window and shared placement contract as Part features.
+
+## Construction-reference data
+
+The construction API also supplies native datum data used by existing reference
+and curve workflows. Its extent representation below is separate from the
+ordinary Feature Axis parameter object. Release 2026101108 extended this
+construction path; the ordinary Feature controls were completed subsequently.
 
 The Axis container uses the existing placement and direction controls. Its finite
 geometry offers three extent modes:

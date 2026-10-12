@@ -299,6 +299,9 @@ public:
         const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
         const std::string& editing_object_id = {}) const;
+    // Assembly-owned features consume the ordinary Part feature implementation.
+    // This transient carrier contains editing data, not calculated component bodies.
+    [[nodiscard]] zima::document::PartDocument feature_document() const;
     [[nodiscard]] zima::kernel::ViewerMesh origin_viewer_mesh() const;
     // Same as above, but scaling the origin axis/plane display size to the
     // supplied scene bounding-box diagonal (matches PartDocument's overload

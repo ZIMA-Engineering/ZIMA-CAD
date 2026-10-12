@@ -6463,6 +6463,17 @@ void PartDocument::resolve_constructions(
         append(source_geometry, local_origin);
         reframe_owned_sketches(container.id);
         reframe_embedded_sketches(container);
+        if(container.feature_kind==FeatureKind::Feature && container.feature.type==FeatureType::Axis) {
+            for(auto& side:container.feature.sides) {
+                if(!side.axis_enabled || side.extrusion_extent!=EndCondition::UpTo)continue;
+                for(auto& target:side.targets) {
+                    if(target.reference.owner_id==container.id){container.placement.reference_valid=false;return;}
+                    const auto current=resolve_profile_target(target,source_geometry);
+                    if(!current){container.placement.reference_valid=false;return;}
+                    target=*current;
+                }
+            }
+        }
         if(container.feature_kind==FeatureKind::GeneralSurface)
             append(source_geometry,general_surface_definition_mesh(container).original_references);
         if(container.feature_kind==FeatureKind::Feature)append(source_geometry,feature_result_mesh(container).original_references);
@@ -9826,6 +9837,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if (container.feature_kind == FeatureKind::Feature) {
             const auto& p=container.feature;
             validate_feature_parameters(p);
+            if(p.type==FeatureType::Axis && feature_result_mesh(container).axes.empty())
+                throw std::invalid_argument("Axis end target is missing or outside the selected direction.");
             const auto sketch=std::ranges::find_if(sketches,[&](const auto& item){return item.id==p.sketch_id;});
             if(sketch==sketches.end())throw std::runtime_error("Extrusion references a missing Sketch");
             zima::kernel::FeatureGroupRequest group;

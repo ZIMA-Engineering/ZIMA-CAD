@@ -12,6 +12,7 @@
 #include "application_settings.hpp"
 #include "application_instance.hpp"
 #include "tree_reference_state.hpp"
+#include "component_reference_kind.hpp"
 
 #include <QMainWindow>
 
@@ -689,6 +690,8 @@ private:
     // (mirrors pending_construction_reference_index_/construction_reference_dialog_
     // above, but a row has two independently pickable cells).
     ComponentPropertiesDialog* component_placement_dialog_{};
+    mutable ComponentReferenceKindIndex component_reference_kind_index_;
+    mutable std::optional<std::size_t> component_reference_kind_revision_;
     std::optional<std::size_t> pending_component_placement_index_;
     bool pending_component_placement_component_side_{};
     bool component_placement_auto_advance_{};
@@ -868,6 +871,8 @@ private:
     // accepts BOTH a component-side and a target-side pick per row.
     [[nodiscard]] bool component_placement_reference_candidate_allowed(
         const zima::viewer::ViewerCandidate& candidate, bool match_other_side = true) const;
+    [[nodiscard]] zima::assembly::MateReferenceKind component_reference_kind(
+        const zima::viewer::ViewerCandidate& candidate) const;
     void start_component_placement_reference_selection(
         std::size_t index, bool component_side, bool auto_advance = false);
     void accept_component_placement_reference(
@@ -1182,8 +1187,6 @@ private:
     calculate_part_with_resolved_references(
         zima::document::PartDocument& document,
         const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;
-    void calculate_assembly_cuts(
-        zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
     // Optional command-owned Assembly scene, built synchronously after source
     // refresh. Tree, actions and selection preparation still run normally.

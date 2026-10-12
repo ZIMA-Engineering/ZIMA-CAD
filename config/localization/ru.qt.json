@@ -2342,5 +2342,8 @@
   "Cannot read bookmark file: %1": "Не удалось прочитать файл закладок: %1",
   "Cannot save bookmark file: %1": "Не удалось сохранить файл закладок: %1",
   "Cannot save bookmark icon: %1": "Не удалось сохранить значок закладки: %1",
-  "Download failed. Error code: %1.": "Ошибка скачивания. Код ошибки: %1."
+  "Download failed. Error code: %1.": "Ошибка скачивания. Код ошибки: %1.",
+  "Axis end target is missing or outside the selected direction.": "Конечная ссылка оси отсутствует или находится вне выбранного направления.",
+  "Read a Feature and its owned Sketch without calculation.": "Прочитать элемент и принадлежащий ему эскиз без расчёта.",
+  "Create or edit a Feature through the shared Part/Assembly transaction.": "Создать или изменить элемент общей операцией детали и сборки."
 }

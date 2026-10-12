@@ -2,7 +2,7 @@
 
 ## Agreed behavior
 
-One Modeling command opens one Feature Properties dialog. Its top-level type
+Part Modeling and Assembly use the same Feature Properties dialog. Its top-level type
 selector offers Point, Axis, Plane, Sketch and Extrusion. The last
 choice retains the independent operation on each side, symmetry, Boolean
 operation, solid/surface/thin result and optional origin/centroid paths.
@@ -25,13 +25,14 @@ value even when the numeric control displays fewer decimal places.
 | Type | Additional controls | Normal View result |
 | --- | --- | --- |
 | Point | None | Point at the Feature work-frame origin and its name |
-| Axis | Work plane, offset, independent lengths and symmetry | Axis, its origin and both endpoints, and the Feature name |
+| Axis | Independent Length / Up to / None ends and symmetry | Axis, its origin and both endpoints, and the Feature name |
 | Plane | Work plane and offset | Offset plane, its origin and the Feature name |
 | Sketch | Work plane, offset and Sketcher entry | Sketch geometry, origin and Feature name |
 | Extrusion | Independent Extrusion/Revolution side controls | The selected result and optional authored paths |
 
-The Axis is always the origin axis normal to the selected work plane. Its
-origin lies on the offset plane; lengths are measured from this point. The
+The Axis follows its resolved native work-frame direction. Its internal Sketch
+frame remains persisted, but Axis Properties does not offer a separate default
+plane or plane offset. Lengths are measured from its origin. The
 origin-axis checkbox is unnecessary for this type and the centroid option is
 absent. Plane results show only the offset plane. Labels are anchored at the
 origin on that plane, with a readable screen-space gap. The Axis uses the same
@@ -41,10 +42,22 @@ highlights its border as well as its origin, and coincident unselected planes
 cannot cover that highlight. Selecting an Axis highlights its
 line and its three defining markers, without adding a fourth midpoint marker.
 The **Point** and **Text** checkboxes control the idle origin marker and name.
+Disabling an Axis end preserves its authored length, target and numerical lock.
+The effective disabled extent is zero; its endpoint retains the same native
+identity at the origin. At least one end must remain enabled. Plane and original
+face targets use the shared persisted target resolver. Native datum-plane
+intersection is exact; trimmed curved faces use their persisted triangulation.
+Symmetry uses the complete Side 1 definition and retains Side 2 for later use.
 While Feature Properties is open, the complete Origin is exposed for every
 type, including Point. The same presentation controls are available for other
 meaningful placed modeling and sheet containers; see [surface placement and
 Origin display](SURFACE_PLACEMENT.md).
+
+Assembly material operations subtract only from selected immediate editable
+Part occurrences. Datum and Sketch results do not modify component material.
+The 3D Curve command already shares its definition, dialog and native evaluation
+between Part and Assembly. Source documents remain authoritative; showing a
+datum feature does not take ownership of a component's calculated result.
 
 ## Extrusion draft angle
 

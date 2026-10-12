@@ -36,6 +36,37 @@ void cylinder_face_placement_verify(const kernel::OcctKernel& kernel, fs::path d
             assembly::InstancePath{{occurrence}},face->owner_id,face->semantic_key};
     };
     const auto moving=face_reference(two.occurrence_id), fixed=face_reference(one.occurrence_id);
+    // A visible STEP face has its analytic definition in the original packet,
+    // not necessarily on its display triangle. Classify the actual picker
+    // identity before passing the row to the native placement equations.
+    app::ComponentReferenceKindIndex kinds;
+    const auto scene=group.build_scene();
+    kinds.rebuild(scene.original_references);
+    for(const auto& reference:{moving,fixed}) {
+        const auto visible=std::ranges::find_if(scene.triangle_references,[&](const auto& value) {
+            return value.instance_path==reference.instance_path.encoded() &&
+                value.owner_id==reference.owner_id && value.semantic_key==reference.semantic_key;
+        });
+        require(visible!=scene.triangle_references.end(),"Imported cylinder has no visible face");
+        require(!visible->surface,"STEP regression fixture unexpectedly duplicates surface metadata");
+        viewer::ViewerCandidate picked;
+        picked.kind=viewer::CandidateKind::Face;picked.geometry=viewer::CandidateGeometry::Display;
+        picked.instance_path=reference.instance_path.encoded();picked.owner_id=reference.owner_id;
+        picked.semantic_key=reference.semantic_key;
+        require(kinds.kind(picked)==assembly::MateReferenceKind::CylinderFace,
+            "Visible STEP cylinder was classified as a planar face");
+        picked.geometry=viewer::CandidateGeometry::OriginalReference;
+        require(kinds.kind(picked)==assembly::MateReferenceKind::CylinderFace,
+            "Cylinder kind depends on the picker packet");
+        picked.instance_path+="/missing";
+        require(kinds.kind(picked)==assembly::MateReferenceKind::Face,
+            "Cylinder lookup leaked into another occurrence");
+    }
+    kinds.rebuild({});
+    viewer::ViewerCandidate stale;
+    stale.kind=viewer::CandidateKind::Face;stale.instance_path=moving.instance_path.encoded();
+    stale.owner_id=moving.owner_id;stale.semantic_key=moving.semantic_key;
+    require(kinds.kind(stale)==assembly::MateReferenceKind::Face,"Rebuilt scene retained a removed cylinder");
     for (const bool flip : {false,true,false}) {
         auto test=group;
         assembly::ComponentPlacementReference row;

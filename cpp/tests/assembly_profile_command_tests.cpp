@@ -3,6 +3,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/document/feature_serialization.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -12,6 +13,44 @@ using commands::Json;
 namespace fs = std::filesystem;
 namespace {
 using namespace assembly_profile_test;
+void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory,"assembly-shared-feature");
+    const auto sketch=f.rectangle(1,2,3,2);
+    auto feature=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
+    feature.feature.sides[0].length=4;
+    const auto id=feature.id;
+    const auto created=f.run("feature.create",{{"sketch",sketch},{"parameters",document::serialize_feature_parameters(feature.feature)},{"targets",{f.first}}});
+    require(created.at("container")==id&&created.at("parameters").at("type")=="modeling","Feature CLI did not use the shared definition");
+    near(f.volume(f.first),976);near(f.volume(f.second),1000);
+    feature=f.doc().find_cut(id)->definition;
+    const auto revision=f.state().session.revision();
+    require(!f.run("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(feature.feature)}}).at("changed").get<bool>(),
+        "Unchanged Feature CLI reported a change");
+    require(f.state().session.revision()==revision,"Unchanged Assembly Feature committed or calculated");
+    for(auto type:{document::FeatureType::Axis,document::FeatureType::Point,document::FeatureType::Plane,document::FeatureType::Sketch}) {
+        feature=f.doc().find_cut(id)->definition;feature.feature.type=type;
+        feature.feature.sides[0].length=7;feature.feature.sides[1].axis_enabled=false;
+        f.run("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(feature.feature)}});
+        near(f.volume(f.first),1000);near(f.volume(f.second),1000);
+        const auto& stored=f.doc().find_cut(id)->definition;
+        require(stored.feature_id==feature.feature_id&&stored.feature.sketch_id==sketch,"Assembly Feature type replaced native identity");
+        require(f.doc().find_cut(id)->input_component_bodies.size()==f.doc().components.size(),"Datum Feature lost its Properties input boundary");
+        require(!f.doc().owns_component_result(f.first),"Datum Feature pinned historical Part geometry");
+        if(type==document::FeatureType::Axis) {
+            const auto mesh=f.doc().construction_viewer_mesh();
+            const auto axis=std::ranges::find_if(mesh.axes,[&](const auto& value){return value.reference.owner_id==id&&value.reference.semantic_key=="axis";});
+            require(axis!=mesh.axes.end(),"Assembly did not render its shared Axis Feature");near(axis->display_length,7);
+        }
+        f.run("save");const auto restored=assembly::AssemblyDocument::load(directory/"assembly-shared-feature.asmz");
+        require(restored.find_cut(id)->definition==stored,"Assembly Feature did not round-trip the shared Part definition");
+    }
+    f.run("undo");require(f.doc().find_cut(id)->definition.feature.type==document::FeatureType::Plane,"Feature type Undo lost ownership");
+    f.run("redo");require(f.doc().find_cut(id)->definition.feature.type==document::FeatureType::Sketch,"Feature type Redo lost ownership");
+    f.run("value_lock.set",{{"object",id},{"key","side0_length"},{"locked",true}});
+    auto locked=f.doc().find_cut(id)->definition.feature;locked.sides[0].length+=1;
+    f.reject("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(locked)}},"value_locked");
+    require(f.live.open_part(f.source)->session.document().history.size()==1,"Assembly Feature modified its source Part history");
+}
 void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-extrusion");const auto sketch=f.rectangle(-1,-1.5,2,3);
     const auto source_revision=f.live.open_part(f.source)->session.revision();
@@ -207,7 +246,7 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
 }
 int main(){try{
     const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-assembly-profile-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);shared_feature(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Assembly profiles: exact cuts, source ownership, shared draft edits, original end targets, native files and history passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

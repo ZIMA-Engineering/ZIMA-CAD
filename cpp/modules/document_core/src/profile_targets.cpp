@@ -50,13 +50,36 @@ std::optional<ExtrusionParameters::EndTarget> resolve_profile_target(
     if(planar){result.kind=EndTargetKind::Plane;result.fallback_triangles.clear();}
     return result;
 }
+std::optional<double> axis_target_distance(kernel::Vec3 origin,kernel::Vec3 ray,
+        const ExtrusionParameters::EndTarget& target) {
+    const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+    const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const auto cross=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
+    double distance=std::numeric_limits<double>::infinity();
+    if(target.kind==EndTargetKind::Point)distance=dot(sub(target.fallback_origin,origin),ray);
+    else if(target.kind==EndTargetKind::Plane) {
+        const double denominator=dot(target.fallback_normal,ray);
+        if(std::abs(denominator)<1e-10)return std::nullopt;
+        distance=dot(sub(target.fallback_origin,origin),target.fallback_normal)/denominator;
+    } else {
+        for(std::size_t j=0;j+2<target.fallback_triangles.size();j+=3) {
+            const auto a=target.fallback_triangles[j];
+            const auto u=sub(target.fallback_triangles[j+1],a),v=sub(target.fallback_triangles[j+2],a);
+            const auto h=cross(ray,v);const double det=dot(u,h);if(std::abs(det)<1e-12)continue;
+            const auto delta=sub(origin,a);const double b=dot(delta,h)/det;
+            const auto q=cross(delta,u);const double c=dot(ray,q)/det;
+            if(b < -1e-9 || c < -1e-9 || b+c > 1+1e-9)continue;
+            const double d=dot(v,q)/det;if(d>1e-8)distance=std::min(distance,d);
+        }
+    }
+    if(!std::isfinite(distance)||distance<=1e-8)return std::nullopt;
+    return distance;
+}
 // Axis termination consumes the same persisted target geometry as profiles.
 // It is independent of container placement and never invokes the solid kernel.
 bool resolve_axis_extents(ConstructionObject& object, const kernel::ViewerReferenceGeometry& geometry) {
     if(object.kind!=ConstructionKind::Axis)return true;
     const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
-    const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
-    const auto cross=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
     const auto direction=sub(object.axis_point(1),object.origin);
     auto resolved=object.axis_ends;
     for(std::size_t i=0;i<(object.axis_extent_mode==AxisExtentMode::TwoSides?2u:1u);++i) {
@@ -70,26 +93,9 @@ bool resolve_axis_extents(ConstructionObject& object, const kernel::ViewerRefere
             requested.kind=EndTargetKind::Point;
         const auto target=resolve_profile_target(requested,geometry);if(!target)return false;
         const kernel::Vec3 ray{i?-direction.x:direction.x,i?-direction.y:direction.y,i?-direction.z:direction.z};
-        double distance=std::numeric_limits<double>::infinity();
-        if(target->kind==EndTargetKind::Point)distance=dot(sub(target->fallback_origin,object.origin),ray);
-        else if(target->kind==EndTargetKind::Plane) {
-            const double denominator=dot(target->fallback_normal,ray);
-            if(std::abs(denominator)<1e-10)return false;
-            distance=dot(sub(target->fallback_origin,object.origin),target->fallback_normal)/denominator;
-        } else {
-            // Trimmed non-planar faces use the captured profile-target triangles.
-            for(std::size_t j=0;j+2<target->fallback_triangles.size();j+=3) {
-                const auto a=target->fallback_triangles[j];
-                const auto u=sub(target->fallback_triangles[j+1],a),v=sub(target->fallback_triangles[j+2],a);
-                const auto h=cross(ray,v);const double det=dot(u,h);if(std::abs(det)<1e-12)continue;
-                const auto delta=sub(object.origin,a);const double b=dot(delta,h)/det;
-                const auto q=cross(delta,u);const double c=dot(ray,q)/det;
-                if(b < -1e-9 || c < -1e-9 || b+c > 1+1e-9)continue;
-                const double d=dot(v,q)/det;if(d>1e-8)distance=std::min(distance,d);
-            }
-        }
-        if(!std::isfinite(distance)||distance<=1e-8)return false;
-        end.resolved_length=distance;
+        const auto distance=axis_target_distance(object.origin,ray,*target);
+        if(!distance)return false;
+        end.resolved_length=*distance;
     }
     object.axis_ends=std::move(resolved);return true;
 }

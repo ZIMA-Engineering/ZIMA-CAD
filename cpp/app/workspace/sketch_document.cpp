@@ -540,13 +540,12 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
     const std::string finished_sketch_id = active_sketch_id_;
     std::string return_container_id;
     std::optional<zima::document::FeatureKind> return_feature_kind;
+    if(pending_profile_feature_&&property_owned_sketch_draft_&&
+            property_owned_sketch_draft_->id==finished_sketch_id) {
+        return_container_id=pending_profile_feature_->id;
+        return_feature_kind=pending_profile_feature_->feature_kind;
+    }
     if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        if (pending_profile_feature_ && property_owned_sketch_draft_ &&
-            property_owned_sketch_draft_->id == finished_sketch_id &&
-            !part->session.document().find_container(pending_profile_feature_->id)) {
-            return_container_id = pending_profile_feature_->id;
-            return_feature_kind = pending_profile_feature_->feature_kind;
-        }
         const auto sketch = std::find_if(part->session.document().sketches.begin(),
             part->session.document().sketches.end(), [&](const auto& value) {
                 return value.id == finished_sketch_id;

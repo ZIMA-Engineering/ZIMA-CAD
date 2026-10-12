@@ -396,16 +396,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(selection_action_);
         add_command(insert_action_);
         add_group_separator();
-        for (auto* action : {construction_point_action_, construction_axis_action_,
-                             construction_plane_action_}) {
-            add_command(action);
-        }
-        add_group_separator();
-        add_command(sketch_action_);
+        if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
+        for(int i=0;i<6;++i)
+            if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
         add_command(curve_3d_action_);
         tools_toolbar_->addSeparator();
-        add_command(extrusion_action_);
-        add_command(revolution_action_);
         mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
         pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
         add_symbol_group();

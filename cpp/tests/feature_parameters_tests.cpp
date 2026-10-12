@@ -155,9 +155,42 @@ int main() { try {
             for(const auto& point:result.edges.front().points)check(std::abs(point.x-18)<1e-9,"Plane is not at its signed offset");
         }
     }
+    // Ordinary Feature Axis, independently of the older Construction editor.
+    for(const auto plane:{zima::sketcher::SketchPlane::XY,zima::sketcher::SketchPlane::XZ,zima::sketcher::SketchPlane::YZ}) {
+        auto part=PartDocument::create_default();auto sketch=zima::sketcher::Sketch::create_default();
+        auto axis=PartDocument::create_feature_container(sketch.id);
+        axis.feature.type=FeatureType::Axis;sketch.owner_container_id=axis.id;
+        sketch.plane=plane;sketch.plane_auto=false;part.history={axis};part.sketches={sketch};
+        part.resolve_constructions();axis=part.history.front();
+        const auto origin=part.sketches.front().world_point(0,0),normal=part.sketches.front().normal();
+        const auto original=part.feature_result_mesh(axis);
+        for(std::size_t side:{0u,1u})for(double length:{17.25,31.5,9.125}) {
+            auto changed=axis;
+            changed.feature.sides[1-side].axis_enabled=false;
+            auto& end=changed.feature.sides[side];end.extrusion_extent=EndCondition::UpTo;
+            ExtrusionParameters::EndTarget target;target.kind=EndTargetKind::Plane;
+            target.reference={"target","plane",{}};target.fallback_normal=normal;
+            const double signed_length=side?-length:length;
+            target.fallback_origin={origin.x+normal.x*signed_length,origin.y+normal.y*signed_length,origin.z+normal.z*signed_length};
+            end.targets={target};
+            const auto output=part.feature_result_mesh(changed);
+            check(output.axes.size()==1&&std::abs(output.axes.front().display_length-length)<1e-9,"Feature Axis Up-to did not trim the selected side");
+            check(output.points.back().reference==original.points.back().reference&&output.points[1].reference==original.points[1].reference,
+                "Feature Axis termination replaced endpoint identities");
+            check(load_feature_parameters(serialize_feature_parameters(changed.feature))==changed.feature,"Axis Up-to/disabled side did not round-trip");
+            end.targets.front().fallback_origin=origin;
+            check(part.feature_result_mesh(changed).axes.empty(),"Axis accepted a zero-distance target");
+            end.targets.front().fallback_origin={origin.x-normal.x*signed_length,origin.y-normal.y*signed_length,origin.z-normal.z*signed_length};
+            check(part.feature_result_mesh(changed).axes.empty(),"Axis accepted a target on the other side");
+            end.targets.clear();check(part.feature_result_mesh(changed).axes.empty(),"Incomplete Axis draft emitted a false preview");
+        }
+        axis.feature.sides[0].axis_enabled=axis.feature.sides[1].axis_enabled=false;
+        rejected([&]{validate_feature_parameters(axis.feature);});
+    }
     auto p=fixture();
     for(const double value:{0.,-1.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
         auto invalid=p;invalid.sides[1].length=value;
+        invalid.sides[1].operation=FeatureSideOperation::Extrusion;
         rejected([&]{static_cast<void>(serialize_feature_parameters(invalid));});
     }
     const auto valid=serialize_feature_parameters(p);

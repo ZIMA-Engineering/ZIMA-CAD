@@ -1,5 +1,6 @@
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/document/profile_targets.hpp>
 #include <algorithm>
 
 namespace zima::document {
@@ -22,8 +23,23 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
     mesh.points.back().always_visible=feature.feature.show_point;
     if(!feature.feature.show_text)mesh.points.back().label.clear();
     if(feature.feature.type==FeatureType::Axis) {
-        const double forward=feature.feature.effective_side(0).length;
-        const double reverse=feature.feature.effective_side(1).length;
+        const auto extent=[&](std::size_t side)->std::optional<double> {
+            const auto settings=feature.feature.effective_side(side);
+            if(!settings.axis_enabled)return 0.;
+            if(settings.extrusion_extent==EndCondition::Length)return settings.length;
+            if(!feature.placement.reference_valid)return std::nullopt;
+            const Vec3 direction=side?Vec3{-normal.x,-normal.y,-normal.z}:normal;
+            std::optional<double> distance;
+            for(const auto& target:settings.targets) {
+                const auto hit=axis_target_distance(origin,direction,target);
+                if(hit && (!distance || *hit<*distance))distance=hit;
+            }
+            return distance;
+        };
+        const auto end=extent(0),start=extent(1);
+        if(!end||!start)return mesh; // An incomplete draft has no valid Axis preview.
+        const double forward=*end,reverse=*start;
+        if(forward==0&&reverse==0)return mesh;
         const auto first=along(-reverse),last=along(forward);
         ViewerEdge edge;edge.points={first,last};edge.reference={feature.id,"axis",{}};
         edge.display_owner_id=feature.id;edge.construction=edge.overlay=edge.dash_dot=true;

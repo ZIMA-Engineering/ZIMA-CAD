@@ -1,4 +1,5 @@
 #include "profile_command_fixture.hpp"
+#include "../app/component_reference_kind.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/file_path.hpp>

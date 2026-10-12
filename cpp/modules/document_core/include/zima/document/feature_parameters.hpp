@@ -21,6 +21,7 @@ struct FeatureSideParameters {
     std::vector<ExtrusionParameters::EndTarget> targets;
     // Positive removes material away from the neutral Sketch plane.
     double draft_angle_degrees{};
+    bool axis_enabled{true};
     bool twist_reverse{};
     bool twist_smooth{true};
     bool operator==(const FeatureSideParameters&) const = default;
@@ -52,10 +53,10 @@ struct FeatureParameters {
         if(side>=sides.size())throw std::out_of_range("Invalid Feature side");
         auto value=sides[symmetric?0:side];
         if(type==FeatureType::Axis) {
-            value.operation=FeatureSideOperation::Extrusion;
-            value.extrusion_extent=EndCondition::Length;
+            value.operation=value.axis_enabled?FeatureSideOperation::Extrusion:FeatureSideOperation::None;
+            if(value.extrusion_extent==EndCondition::ThroughAll)value.extrusion_extent=EndCondition::Length;
             value.draft_angle_degrees=0;
-            value.targets.clear();
+            if(value.extrusion_extent!=EndCondition::UpTo)value.targets.clear();
         } else if(type!=FeatureType::Modeling) value.operation=FeatureSideOperation::None;
         return value;
     }

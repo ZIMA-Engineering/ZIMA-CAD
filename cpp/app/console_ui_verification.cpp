@@ -62,6 +62,8 @@
 #include <QMenu>
 #include <QFileDialog>
 #include <zima/interchange/dxf.hpp>
+#include <zima/interchange/step_model.hpp>
+#include "component_properties_dialog.hpp"
 #include <zima/document/file_path.hpp>
 #include <QTimer>
 #include <QQuaternion>
@@ -217,6 +219,91 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "surface_trim_ui_verification.inc"
 #include "drawing_file_rename_ui_verification.inc"
 
+#include "cylinder_mate_ui_verification.inc"
+Q_NEVER_INLINE static int verify_feature_axis_ends(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    try {
+        const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        const auto run=[&](const char* command,commands::Json arguments=commands::Json::object()) {
+            const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));
+            if(!result.ok)throw std::runtime_error(result.message);return result.data;
+        };
+        window.showMaximized();flush();
+        for(const auto* kind:{"part","assembly"}) {
+            const auto name=std::string("feature-axis-")+kind;
+            const auto created=run("new",{{"type",kind},{"name",name}});flush();
+            const auto active=std::ranges::find_if(created,[](const auto& row){return row.at("active").template get<bool>();});
+            check(active!=created.end(),"New Feature document is inactive");
+            const auto owner=active->at("id").get<std::string>();
+            const auto native_path=std::filesystem::u8path(active->at("path").get<std::string>());
+            const auto target=run("construction.create",{{"kind","plane"},{"base_plane","xy"},{"offset_mm",25},{"name","Axis target"}});
+            const auto revision=run("documents");
+            auto* action=window.findChild<QAction*>("featureShortcut1Action");
+            check(action&&action->isEnabled(),"Shared Axis shortcut unavailable");action->trigger();flush();
+            const auto editor=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
+            auto* dialog=editor();check(dialog&&dialog->isVisible(),"Shared Axis dialog missing");
+            check(!dialog->findChild<QGroupBox*>("featurePlaneGroup")->isVisible(),"Axis exposes its inactive work plane");
+            check(dialog->set_reference(0,{{},owner+":origin","origin:point"},"Origin"),"Axis Origin entry rejected");flush();
+            const auto id=dialog->container_id();
+            auto* first=dialog->findChild<QComboBox*>("featureSideEnd0");
+            auto* second=dialog->findChild<QComboBox*>("featureSideEnd1");
+            auto* length=dialog->findChild<QDoubleSpinBox*>("featureSideValue0");
+            check(first&&second&&first->isVisible()&&second->isVisible(),"Axis end controls missing");
+            length->setValue(17.25);second->setCurrentIndex(2);first->setCurrentIndex(2);flush();
+            check(!dialog->pending_value().feature.sides[0].axis_enabled&&dialog->pending_value().feature.sides[0].length==17.25,
+                "Disabling an Axis end destroyed its authored length");
+            first->setCurrentIndex(1);
+            dialog->set_extrusion_target({target.at("entity").get<std::string>(),"plane",{}},{0,0,25},{0,0,1},"Axis target");flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Axis View missing");
+            const auto axis=std::ranges::find_if(view->mesh().axes,[&](const auto& value){return value.reference.owner_id==id&&value.reference.semantic_key=="axis";});
+            check(axis!=view->mesh().axes.end()&&std::abs(axis->display_length-25)<1e-8,"Axis Up-to preview did not update");
+            check(run("documents")==revision,"Axis draft changed the document");
+            dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"Axis OK did not commit and close");
+            run("save");
+            const auto saved=std::string(kind)=="part"?document::PartDocument::load(native_path):
+                assembly::AssemblyDocument::load(native_path).feature_document();
+            const auto* stored=saved.find_container(id);check(stored,"Shared Axis did not persist");
+            check(!stored->feature.sides[1].axis_enabled&&stored->feature.sides[0].length==17.25&&
+                stored->feature.sides[0].extrusion_extent==document::EndCondition::UpTo,"Axis native file lost inactive settings");
+            const auto row=[&]() -> QTreeWidgetItem* {
+                for(QTreeWidgetItemIterator i(window.findChild<QTreeWidget*>("documentTree"));*i;++i)
+                    if((*i)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                        ((*i)->data(0,Qt::UserRole+3)=="part-container"||(*i)->data(0,Qt::UserRole+3)=="assembly-cut"))return *i;
+                throw std::runtime_error("Axis Tree row missing");
+            };
+            window.show_tree_item_properties(row());flush();dialog=editor();check(dialog,"Axis Properties did not reopen");
+            const auto before=run("documents");dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!editor()&&run("documents")==before,"Unchanged Axis OK created a transaction");
+            window.show_tree_item_properties(row());flush();dialog=editor();check(dialog,"Axis Cancel editor missing");
+            dialog->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(0);
+            dialog->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(41);
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(run("documents")==before,"Axis Cancel committed pending values");
+            window.show_tree_item_properties(row());flush();dialog=editor();
+            check(dialog,"Feature owned Sketch editor missing");
+            dialog->findChild<QComboBox*>("featureType")->setCurrentIndex(3);flush();
+            dialog->findChild<QPushButton*>("featureSketchButton")->click();flush();
+            check(!editor(),"Feature properties remained open inside its Sketcher");
+            auto* finish=window.findChild<QAction*>("finishSketchAction");
+            check(finish&&finish->isEnabled(),"Feature owned Sketch did not enter Sketcher");
+            finish->trigger();flush();dialog=editor();
+            check(dialog,"Feature owned Sketch did not return to its shared properties");
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(run("documents")==before,"Cancelling Feature Sketch round trip created a transaction");
+            auto* sketch_action=window.findChild<QAction*>("featureShortcut3Action");
+            check(sketch_action&&sketch_action->isEnabled(),"Shared Sketch shortcut unavailable");
+            sketch_action->trigger();flush();dialog=editor();check(dialog,"New Sketch Feature dialog missing");
+            check(dialog->set_reference(0,{{},owner+":origin","origin:point"},"Origin"),"New Sketch Feature Origin entry rejected");flush();
+            dialog->findChild<QPushButton*>("featureSketchButton")->click();flush();
+            check(!editor()&&finish->isEnabled(),"New Feature Sketch draft did not enter Sketcher");
+            finish->trigger();flush();dialog=editor();check(dialog,"New Feature Sketch draft did not return to Properties");
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(run("documents")==before,"Cancelling a new Feature Sketch draft created a transaction");
+        }
+        std::cout<<"Ordinary Feature Axis: Part/Assembly shared dialog, Up-to preview, disabled ends, retained lengths, native files, unchanged OK and Cancel passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<"Feature Axis GUI: "<<error.what()<<'\n';return 1;}
+}
+
 Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
@@ -318,6 +405,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY")) return verify_feature_prototype(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ROLES_ONLY")) return verify_sketch_roles(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_AXIS_UP_TO_ONLY")) return verify_axis_up_to(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_MATE_ONLY"))return verify_cylinder_mate(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_ENDS_ONLY"))return verify_feature_axis_ends(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROTATION_HANDLE_ONLY")) return verify_rotation_handle_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLES_ONLY")) return verify_holes_ui(application,window,directory);

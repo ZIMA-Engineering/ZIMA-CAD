@@ -2342,5 +2342,8 @@
   "Cannot read bookmark file: %1": "Die Lesezeichendatei kann nicht gelesen werden: %1",
   "Cannot save bookmark file: %1": "Die Lesezeichendatei kann nicht gespeichert werden: %1",
   "Cannot save bookmark icon: %1": "Das Lesezeichensymbol kann nicht gespeichert werden: %1",
-  "Download failed. Error code: %1.": "Download fehlgeschlagen. Fehlercode: %1."
+  "Download failed. Error code: %1.": "Download fehlgeschlagen. Fehlercode: %1.",
+  "Axis end target is missing or outside the selected direction.": "Das Endziel der Achse fehlt oder liegt außerhalb der gewählten Richtung.",
+  "Read a Feature and its owned Sketch without calculation.": "Ein Element und seine eigene Skizze ohne Berechnung lesen.",
+  "Create or edit a Feature through the shared Part/Assembly transaction.": "Ein Element über die gemeinsame Teil-/Baugruppenoperation erstellen oder bearbeiten."
 }

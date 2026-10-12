@@ -1,4 +1,5 @@
 #include <zima/document/profile_serialization.hpp>
+#include <zima/document/feature_serialization.hpp>
 #include <nlohmann/json.hpp>
 #include <cmath>
 #include <stdexcept>
@@ -9,6 +10,10 @@ void require_positive(double value, const char* field) {
 }
 }
 void load_profile_parameters(HistoryContainer& container, const nlohmann::json& source) {
+    if(container.feature_kind==FeatureKind::Feature) {
+        container.feature=load_feature_parameters(source.at("feature"));
+        return;
+    }
     if (container.feature_kind == FeatureKind::Extrusion) {
             container.extrusion.sheet_cut = source.at("sheet_cut");
             container.extrusion.sheet_cut_clearance = source.at("sheet_cut_clearance");
@@ -215,6 +220,10 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
     } else throw std::runtime_error("Expected an Extrusion or Revolution definition");
 }
 void save_profile_parameters(const HistoryContainer& container, nlohmann::json& serialized) {
+    if(container.feature_kind==FeatureKind::Feature) {
+        serialized["feature"]=serialize_feature_parameters(container.feature);
+        return;
+    }
     if (container.feature_kind == FeatureKind::Extrusion) {
             serialized["sketch_id"] = container.extrusion.sketch_id;
             serialized["origin_centerline"] = container.extrusion.origin_centerline;

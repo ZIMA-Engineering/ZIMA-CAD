@@ -55,6 +55,7 @@ void validate_profile_definition(const document::HistoryContainer& value) {
             throw ProfileOperationError("invalid_arguments", "A surface cannot subtract material.");
         for (std::size_t i=0; i<2; ++i) {
             const auto& side=value.feature.effective_side(i);
+            if(value.feature.type==document::FeatureType::Axis&&!side.axis_enabled)continue;
             if (side.operation==document::FeatureSideOperation::Revolution &&
                 side.rotation_extent==document::FeatureRotationExtent::UpTo &&
                 (side.targets.size()!=1 || !side.targets.front().reference.valid()))
@@ -187,9 +188,10 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const auto& previous = state->session.calculated_boundaries();
     if (feature) {
         auto& container=*next.find_container(container_id);
-        if(container.feature.type==document::FeatureType::Modeling)
+        if(container.feature.type==document::FeatureType::Modeling || container.feature.type==document::FeatureType::Axis)
         for (auto& side:container.feature.sides) {
-            const bool limit=(side.operation==document::FeatureSideOperation::Extrusion && side.extrusion_extent==document::EndCondition::UpTo) ||
+            const bool limit=((side.operation==document::FeatureSideOperation::Extrusion ||
+                (container.feature.type==document::FeatureType::Axis&&side.axis_enabled)) && side.extrusion_extent==document::EndCondition::UpTo) ||
                 (side.operation==document::FeatureSideOperation::Revolution && side.rotation_extent==document::FeatureRotationExtent::UpTo);
             if(!limit)continue;
             if (container.feature.symmetric && &side==&container.feature.sides[1]) continue;

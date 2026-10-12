@@ -41,7 +41,8 @@ void AssemblyDocument::validate_sketch_containers() const {
         const auto* cut=find_cut(sketch.owner_container_id);
         if(!cut)throw std::runtime_error("Assembly Sketch has no owning container.");
         const auto& feature=cut->definition;
-        const auto& owned=feature.feature_kind==document::FeatureKind::Extrusion?feature.extrusion.sketch_id:feature.revolution.sketch_id;
+        const auto& owned=feature.feature_kind==document::FeatureKind::Feature?feature.feature.sketch_id:
+            feature.feature_kind==document::FeatureKind::Extrusion?feature.extrusion.sketch_id:feature.revolution.sketch_id;
         if(owned!=sketch.id)throw std::runtime_error("Assembly cut owns a different Sketch.");
     }
     for(const auto& container:sketch_containers)if(!owners.contains(container.id))

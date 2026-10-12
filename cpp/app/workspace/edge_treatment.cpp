@@ -3,6 +3,7 @@
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/document/profile_targets.hpp>
 #include <limits>
 #include <QUuid>
 
@@ -657,14 +658,15 @@ void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
         ? std::optional<std::string>{}
         : resolve_active_occurrence(part->session.document().document_id);
     viewer_->set_candidate_filter(
-        [path = expected_path.value_or(std::string{}),
+        [this,path = expected_path.value_or(std::string{}),
          assembly_cut = extrusion_target_assembly_cut_](
             const auto& candidate) {
             bool owned_path = candidate.instance_path == path;
-            if (assembly_cut && !candidate.instance_path.empty()) {
-                const auto decoded = zima::assembly::InstancePath::decode(
-                    candidate.instance_path);
-                owned_path = !decoded.occurrence_ids.empty();
+            if (assembly_cut) {
+                const auto decoded=zima::assembly::InstancePath::decode(candidate.instance_path);
+                const auto prefix=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+                owned_path=decoded.occurrence_ids.size()>=prefix.occurrence_ids.size()&&
+                    std::equal(prefix.occurrence_ids.begin(),prefix.occurrence_ids.end(),decoded.occurrence_ids.begin());
             }
             const bool target_kind =
                 candidate.kind == zima::viewer::CandidateKind::Face ||
@@ -714,10 +716,12 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             return;
         }
     } else {
-        const auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
-        if (path.occurrence_ids.empty() ||
-            assembly->session.document().find_occurrence(path.occurrence_ids.front()) ==
-                nullptr) {
+        const auto path=zima::assembly::InstancePath::decode(candidate.instance_path);
+        const auto prefix=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+        if(path.occurrence_ids.size()<prefix.occurrence_ids.size() ||
+            !std::equal(prefix.occurrence_ids.begin(),prefix.occurrence_ids.end(),path.occurrence_ids.begin()) ||
+            (path.occurrence_ids.size()>prefix.occurrence_ids.size()&&
+             !assembly->session.document().find_occurrence(path.occurrence_ids[prefix.occurrence_ids.size()]))) {
             state_->setText(tr("Vyberte plochu komponenty aktivní sestavy."));
             return;
         }
@@ -742,99 +746,29 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
         }catch(const std::exception& error){state_->setText(tr(error.what()));}
         return;
     }
-    zima::kernel::Vec3 origin;
-    zima::kernel::Vec3 normal;
-    bool resolved = false;
-    std::vector<zima::kernel::Vec3> surface_triangles;
-    QString target_label = tr("Plocha");
-    if (part != nullptr) {
-        if (const auto* container =
-                part->session.document().find_container(candidate.owner_id)) {
-            target_label = tr("%1 / plocha").arg(
-                QString::fromStdString(container->name));
+    try {
+        auto local=zima::assembly::InstancePath::decode(candidate.instance_path);
+        const auto prefix=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+        local.occurrence_ids.erase(local.occurrence_ids.begin(),
+            local.occurrence_ids.begin()+static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
+        zima::document::ExtrusionParameters::EndTarget requested;
+        requested.reference={candidate.owner_id,candidate.semantic_key,local.encoded()};
+        requested.label=tr("Plocha").toStdString();
+        if(const auto* feature=assembly->session.document().find_cut(candidate.owner_id))requested.label=feature->definition.name;
+        else if(const auto* object=assembly->session.document().find_construction(candidate.owner_id))requested.label=object->name;
+        // This is the same persisted input packet used by the shared feature
+        // preview. It is already in the exact active Assembly's local frame.
+        const auto target=zima::document::resolve_profile_target(requested,primitive_reference_geometry_);
+        if(!target)throw std::runtime_error("The original extrusion target is unavailable.");
+        if(target->kind==zima::document::EndTargetKind::Plane)
+            extrusion_target_dialog_->set_extrusion_target(target->reference,target->fallback_origin,target->fallback_normal,target->label);
+        else {
+            if(extrusion_target_dialog_->requires_planar_end_target())throw std::runtime_error("Pro zakončení závitu vyberte rovinu nebo rovinnou plochu.");
+            extrusion_target_dialog_->set_extrusion_surface_target(target->reference,target->fallback_triangles,target->label);
         }
-    }
-    const zima::document::ConstructionObject* construction =
-        part != nullptr
-        ? part->session.document().find_construction(candidate.owner_id)
-        : assembly->session.document().find_construction(candidate.owner_id);
-    if (construction == nullptr && construction_plane) {
-        const auto& constructions = part != nullptr
-            ? part->session.document().constructions
-            : assembly->session.document().constructions;
-        const auto found = std::find_if(
-            constructions.begin(), constructions.end(), [&](const auto& value) {
-                return value.entity_id == candidate.owner_id;
-            });
-        if (found != constructions.end()) construction = &*found;
-    }
-    if (construction != nullptr &&
-        construction->kind == zima::document::ConstructionKind::Plane) {
-        target_label = QString::fromStdString(construction->name);
-        origin = construction->entity_origin;
-        normal = construction->direction;
-        resolved = true;
-    } else {
-        // Consume the exact persisted Face packet which produced the offered
-        // viewer candidate. Re-resolving it from a document's final body can
-        // disagree with creation/rollback presentation and prevented a new
-        // additive Extrusion from accepting a source-solid face.
-        surface_triangles = viewer_->candidate_face_triangles(candidate);
-        for (std::size_t triangle = 0;
-             triangle + 2 < surface_triangles.size(); triangle += 3) {
-            const auto& first = surface_triangles[triangle];
-            const auto& second = surface_triangles[triangle + 1];
-            const auto& third = surface_triangles[triangle + 2];
-            const zima::kernel::Vec3 a{second.x - first.x, second.y - first.y,
-                                       second.z - first.z};
-            const zima::kernel::Vec3 b{third.x - first.x, third.y - first.y,
-                                       third.z - first.z};
-            normal = {a.y * b.z - a.z * b.y,
-                      a.z * b.x - a.x * b.z,
-                      a.x * b.y - a.y * b.x};
-            const double length = std::sqrt(normal.x * normal.x +
-                                            normal.y * normal.y +
-                                            normal.z * normal.z);
-            if (length <= 1e-12) continue;
-            normal = {normal.x / length, normal.y / length, normal.z / length};
-            origin = first;
-            resolved = true;
-            for (const auto& point : surface_triangles) {
-                const double distance = (point.x - origin.x) * normal.x +
-                    (point.y - origin.y) * normal.y +
-                    (point.z - origin.z) * normal.z;
-                if (std::abs(distance) > 1e-6) resolved = false;
-            }
-            break;
-        }
-    }
-    // Up-to a planar solid face follows its underlying geometric plane. The
-    // selected face remains the persisted reference owner, but its trimmed
-    // boundary must not reject a profile which crosses an edge of that face.
-    // This is the expected CAD interaction for e.g. a cylinder whose projected
-    // circle only partly overlaps the selected planar face. Curved faces keep
-    // their finite persisted triangle packet and exact OCCT target surface.
-    if (!resolved && extrusion_target_dialog_->requires_planar_end_target()) {
-        state_->setText(tr("Pro zakončení závitu vyberte rovinu nebo rovinnou plochu."));
-        return;
-    }
-    if (!resolved && !surface_triangles.empty()) {
-        extrusion_target_dialog_->set_extrusion_surface_target(
-            {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
-            std::move(surface_triangles), target_label.toStdString());
-        finish_extrusion_target_selection();
-        state_->setText(tr("Cílová plocha vytažení byla nastavena."));
-        return;
-    }
-    if (!resolved) {
-        state_->setText(tr("Vybraná plocha nemá použitelnou geometrii."));
-        return;
-    }
-    extrusion_target_dialog_->set_extrusion_target(
-        {candidate.owner_id, candidate.semantic_key, candidate.instance_path},
-        origin, normal, target_label.toStdString());
-    finish_extrusion_target_selection();
-    state_->setText(tr("Cílová plocha vytažení byla nastavena."));
+        finish_extrusion_target_selection();state_->setText(tr("Cílová plocha vytažení byla nastavena."));
+    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+
 }
 
 void AssemblyWorkspaceWindow::finish_extrusion_target_selection() {

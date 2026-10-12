@@ -12,6 +12,7 @@
 #include "../authored_feature_wire.hpp"
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/general_surface.hpp>
+#include <zima/document/sheet_form_definition.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
 #include "../sketch_external_reference_kind.hpp"
@@ -447,8 +448,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         ? primitive_reference_geometry_
                         : document.construction_reference_geometry_for(
                               container->id, reference_geometry());
-                auto placement_dimensions =
-                    zima::document::container_placement_dimensions(
+                auto placement_dimensions = container->feature_kind==zima::document::FeatureKind::SheetForm
+                    ? zima::document::sheet_form_placement_dimensions(*container,placement_reference_geometry)
+                    : zima::document::container_placement_dimensions(
                         container->id, container->placement,
                         placement_reference_geometry);
                 if (!parameter_dimension_preview_) {
@@ -925,7 +927,17 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             if (cut != document.cuts.end()) {
                 const auto& definition = cut->definition;
                 using zima::document::FeatureKind;
-                if (definition.feature_kind == FeatureKind::Extrusion) {
+                if(definition.feature_kind==FeatureKind::Feature) {
+                    auto placement=zima::document::container_placement_dimensions(definition.id,definition.placement,reference_geometry());
+                    append_nonzero_parameter_dimensions(mesh.dimensions,std::move(placement));
+                    if(!primitive_origin_preview_mesh_) {
+                        const auto sketch=std::ranges::find(document.sketches,definition.feature.sketch_id,&zima::sketcher::Sketch::id);
+                        if(sketch!=document.sketches.end()) {
+                            auto display=feature_view_cues(definition,*sketch).dimensions;
+                            mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                        }
+                    }
+                } else if (definition.feature_kind == FeatureKind::Extrusion) {
                     const auto sketch = std::find_if(document.sketches.begin(),
                         document.sketches.end(), [&](const auto& value) {
                             return value.id == definition.extrusion.sketch_id;
@@ -2093,6 +2105,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         }
         if (active) for (const auto& sketch : source.sketches) {
             const auto* owner = source.find_sketch_container(sketch.owner_container_id);
+            if(!owner)if(const auto* feature=source.find_cut(sketch.owner_container_id);
+                    feature&&feature->definition.feature_kind==zima::document::FeatureKind::Feature&&
+                    feature->definition.feature.shows_sketch())owner=&feature->definition;
             if (!owner || owner->suppressed || sketch.suppressed || sketch.id == active_sketch_id_ ||
                 sketch.id == sketch_properties_preview_id_ ||
                 (property_owned_sketch_draft_ && property_owned_sketch_draft_->id == sketch.id)) continue;
@@ -2306,6 +2321,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 component.calculated_source = found->second;
             }
         }
+        rollback_document.cuts.resize(assembly_cut_rollback_->cut_index);
         auto display=active_assembly_display(rollback_document);
         if(active_assembly_sketch) {
             if(const auto* sketch=active_sketch()) append_mesh(display,sketch_viewer_mesh(*sketch));
@@ -2463,7 +2479,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;
     const bool profile_feature_owner = active_part != nullptr || active_assembly_owner;
     extrusion_action_->setEnabled(profile_feature_owner);
-    if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(profile_feature_owner&&workspace_.open_part(workspace_.active_document_id())!=nullptr);
+    if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(profile_feature_owner);
     revolution_action_->setEnabled(profile_feature_owner);
     sketch_action_->setEnabled(active_part != nullptr || active_assembly_owner);
     const bool has_active_part_sketch =

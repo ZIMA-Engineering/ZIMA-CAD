@@ -2342,5 +2342,8 @@
   "Cannot read bookmark file: %1": "Cannot read bookmark file: %1",
   "Cannot save bookmark file: %1": "Cannot save bookmark file: %1",
   "Cannot save bookmark icon: %1": "Cannot save bookmark icon: %1",
-  "Download failed. Error code: %1.": "Download failed. Error code: %1."
+  "Download failed. Error code: %1.": "Download failed. Error code: %1.",
+  "Axis end target is missing or outside the selected direction.": "Axis end target is missing or outside the selected direction.",
+  "Read a Feature and its owned Sketch without calculation.": "Read a Feature and its owned Sketch without calculation.",
+  "Create or edit a Feature through the shared Part/Assembly transaction.": "Create or edit a Feature through the shared Part/Assembly transaction."
 }

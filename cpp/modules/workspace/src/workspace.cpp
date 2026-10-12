@@ -1,3 +1,4 @@
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/component_source.hpp>
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/appearance_operations.hpp>
@@ -1103,49 +1104,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
 void Workspace::calculate_assembly_cuts(
     zima::assembly::AssemblyDocument& document) const {
     zima::kernel::OcctKernel kernel;
-    for (auto& cut : document.cuts) {
-        cut.input_component_bodies.clear();
-        for (const auto& component : document.components) {
-            cut.input_component_bodies.emplace(
-                component.occurrence_id, component.calculated_source);
-        }
-        if (cut.definition.suppressed || cut.target_occurrence_ids.empty()) continue;
-        zima::document::PartDocument cutter;
-        cutter.document_precision = document.document_precision;
-        cutter.user_parameters = document.user_parameters;
-        cutter.relations = document.relations;
-        cutter.sketches = document.sketches;
-        cutter.constructions = document.constructions;
-        cutter.history = {cut.definition};
-        auto operations = cutter.kernel_operations(true);
-        if (operations.size() != 1) {
-            throw std::runtime_error("Assembly cut did not produce one cutter operation");
-        }
-        operations.front().operation = zima::kernel::BooleanOperation::Add;
-        const auto boundaries = kernel.evaluate_history(operations);
-        if (boundaries.empty()) throw std::runtime_error("Assembly cut body is empty");
-        for (const auto& target_id : cut.target_occurrence_ids) {
-            auto* target = document.find_occurrence(target_id);
-            if (target == nullptr) {
-                throw std::runtime_error(
-                    "Assembly cut target must be an immediate component occurrence");
-            }
-            if (target->suppressed) continue;
-            target->calculated_source = kernel.subtract_bodies(
-                zima::assembly::calculate_component_body(*target,kernel), boundaries.back(),
-                {target->placement.x, target->placement.y, target->placement.z},
-                {target->placement.rotation_x, target->placement.rotation_y,
-                 target->placement.rotation_z}, operations.front().boolean_tolerance,
-                operations.front().mesh_deflection);
-        }
-    }
-    document.calculate_derived_copies(kernel);
-    if(!document.sections.empty()){
-        auto mesh=document.build_scene();
-        append_mesh(mesh,document.origin_viewer_mesh());
-        append_mesh(mesh,document.construction_viewer_mesh());
-        zima::document::resolve_section_placements(document.sections,mesh.original_references);
-    }
+    calculate_resolved_assembly_cuts(kernel,document);
 }
 
 zima::assembly::AssemblyDocument Workspace::prepare_assembly_calculation(

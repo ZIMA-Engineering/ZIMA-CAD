@@ -23,24 +23,18 @@ document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog*
     ref.measured_offset=measured;
     return ref;
 }
-zima::assembly::MateReferenceKind component_reference_kind(
-    const zima::viewer::ViewerCandidate& candidate, const zima::kernel::ViewerMesh& mesh) {
-    using namespace zima;
-    if (candidate.kind == viewer::CandidateKind::Vertex) return assembly::MateReferenceKind::Point;
-    if (candidate.kind == viewer::CandidateKind::Axis) return assembly::MateReferenceKind::Axis;
-    if (candidate.kind == viewer::CandidateKind::Face) {
-        const auto& faces = candidate.geometry == viewer::CandidateGeometry::OriginalReference
-            ? mesh.original_references.triangle_references : mesh.triangle_references;
-        if (candidate.geometry_index < faces.size()) {
-            const auto& face = faces[candidate.geometry_index];
-            if (face.owner_id == candidate.owner_id && face.semantic_key == candidate.semantic_key &&
-                face.instance_path == candidate.instance_path && face.surface &&
-                face.surface->kind == kernel::SurfaceGeometry::Kind::Cylinder)
-                return assembly::MateReferenceKind::CylinderFace;
-        }
-    }
-    return assembly::MateReferenceKind::Face;
 }
+
+zima::assembly::MateReferenceKind AssemblyWorkspaceWindow::component_reference_kind(
+    const zima::viewer::ViewerCandidate& candidate) const {
+    // set_mesh advances this revision even when only source metadata changes.
+    // Reuse the lookup across hover/entry and rebuild for the actual new packet.
+    const auto revision=viewer_->base_mesh_revision();
+    if(component_reference_kind_revision_!=revision) {
+        component_reference_kind_index_.rebuild(viewer_->mesh().original_references);
+        component_reference_kind_revision_=revision;
+    }
+    return component_reference_kind_index_.kind(candidate);
 }
 
 void AssemblyWorkspaceWindow::end_placement_branch_selection() {
@@ -1156,7 +1150,7 @@ bool AssemblyWorkspaceWindow::component_placement_reference_candidate_allowed(
         candidate.owner_id.empty() || candidate.semantic_key.empty()) return false;
     if (candidate.kind != CandidateKind::Vertex && candidate.kind != CandidateKind::Axis &&
         candidate.kind != CandidateKind::Face && candidate.kind != CandidateKind::Plane) return false;
-    const auto kind = component_reference_kind(candidate, viewer_->mesh());
+    const auto kind = component_reference_kind(candidate);
     const auto& rows = component_placement_dialog_->placement_references();
     if (match_other_side && !pending_component_placement_component_side_ && *pending_component_placement_index_ < rows.size()) {
         const auto& source = rows[*pending_component_placement_index_].component_reference;
@@ -1200,7 +1194,7 @@ void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
 void AssemblyWorkspaceWindow::accept_component_placement_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     if (!component_placement_reference_candidate_allowed(candidate)) return;
-    const auto kind = component_reference_kind(candidate, viewer_->mesh());
+    const auto kind = component_reference_kind(candidate);
     auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
     const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
         .parent().value_or(zima::assembly::InstancePath{});

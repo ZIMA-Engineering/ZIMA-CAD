@@ -1156,13 +1156,22 @@ const zima::document::ConstructionObject* AssemblyDocument::find_construction(
     return nullptr;
 }
 
+zima::document::PartDocument AssemblyDocument::feature_document() const {
+    document::PartDocument carrier;
+    carrier.document_id=document_id;carrier.name=name;
+    carrier.sketches=sketches;carrier.constructions=constructions;
+    carrier.history=sketch_containers;
+    for(const auto& feature:cuts)carrier.history.push_back(feature.definition);
+    carrier.user_parameters=user_parameters;carrier.user_parameter_order=user_parameter_order;
+    carrier.user_parameter_labels=user_parameter_labels;carrier.user_parameter_values=user_parameter_values;
+    carrier.relations=relations;carrier.document_units=document_units;carrier.document_precision=document_precision;
+    carrier.dimension_identifiers=dimension_identifiers;carrier.dimension_layouts=dimension_layouts;
+    return carrier;
+}
+
 zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
     const std::string& editing_object_id) const {
-    auto carrier = zima::document::PartDocument::create_default();
-    carrier.document_id = document_id;
-    carrier.name = name;
-    carrier.constructions = constructions;
-    carrier.history = sketch_containers;
+    auto carrier = feature_document();
     carrier.symbol_annotations = symbol_annotations;
     for(const auto& component:components)if(component.derived_copy&&component.visible) {
         document::ConstructionObject origin;
@@ -1608,10 +1617,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             zima::document::FeatureKind::Extrusion;
         const bool revolution = feature.feature_kind ==
             zima::document::FeatureKind::Revolution;
-        const std::string& sketch_id = extrusion
+        const bool shared_feature=feature.feature_kind==zima::document::FeatureKind::Feature;
+        const std::string& sketch_id = shared_feature?feature.feature.sketch_id:extrusion
             ? feature.extrusion.sketch_id : feature.revolution.sketch_id;
         if (feature.id.empty() || !cut_ids.insert(feature.id).second ||
-            (!extrusion && !revolution) ||
+            (!extrusion && !revolution && !shared_feature) ||
             feature.combine_mode != zima::document::CombineMode::Subtract ||
             std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                 return sketch.id == sketch_id;
@@ -1979,7 +1989,9 @@ bool AssemblyDocument::owns_component_result(const std::string& id) const {
     const auto component=std::ranges::find(components,id,&PartOccurrence::occurrence_id);
     return component!=components.end() && (component->derived_copy ||
         std::ranges::any_of(cuts,[&](const auto& cut) {
-            return !cut.definition.suppressed && std::ranges::find(cut.target_occurrence_ids,id)!=cut.target_occurrence_ids.end();
+            return !cut.definition.suppressed &&
+                !(cut.definition.feature_kind==document::FeatureKind::Feature&&cut.definition.feature.sketch_only()) &&
+                std::ranges::find(cut.target_occurrence_ids,id)!=cut.target_occurrence_ids.end();
         }));
 }
 
@@ -2168,6 +2180,7 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
         feature.feature_kind = kind == "extrusion"
             ? zima::document::FeatureKind::Extrusion
             : kind == "revolution" ? zima::document::FeatureKind::Revolution
+            : kind == "feature" ? zima::document::FeatureKind::Feature
             : throw std::runtime_error("Invalid Assembly cut kind");
         feature.combine_mode = zima::document::CombineMode::Subtract;
         feature.suppressed = value.at("suppressed").get<bool>();
@@ -2298,11 +2311,7 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
 }
 
 std::vector<zima::document::DimensionParameter> AssemblyDocument::dimension_parameters() const {
-    zima::document::PartDocument owned;
-    owned.sketches = sketches;
-    owned.history = sketch_containers;
-    owned.constructions = constructions;
-    for (const auto& cut : cuts) owned.history.push_back(cut.definition);
+    auto owned=feature_document();
     auto result = owned.dimension_parameters();
     for (const auto& component : components) {
         if(component.derived_copy)zima::document::append_pattern_dimension_parameters(result,
@@ -2422,7 +2431,8 @@ nlohmann::json AssemblyDocument::serialized(
     for (const auto& cut : cuts) {
         const auto& feature = cut.definition;
         if (feature.feature_kind != zima::document::FeatureKind::Extrusion &&
-            feature.feature_kind != zima::document::FeatureKind::Revolution) {
+            feature.feature_kind != zima::document::FeatureKind::Revolution &&
+            feature.feature_kind != zima::document::FeatureKind::Feature) {
             throw std::runtime_error("Assembly cut must be an Extrusion or Revolution");
         }
         nlohmann::json input_bodies = nlohmann::json::object();
@@ -2435,7 +2445,8 @@ nlohmann::json AssemblyDocument::serialized(
         }
         nlohmann::json saved_cut = {{"id", feature.id}, {"feature_id", feature.feature_id},
             {"feature_parent_id", feature.feature_parent_id}, {"name", feature.name},
-            {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion ? "extrusion" : "revolution"},
+            {"kind", feature.feature_kind == zima::document::FeatureKind::Feature ? "feature":
+                feature.feature_kind == zima::document::FeatureKind::Extrusion ? "extrusion" : "revolution"},
             {"suppressed", feature.suppressed}, {"placement", feature.placement},
             {"value_locks", feature.value_locks}, {"targets", cut.target_occurrence_ids},
             {"input_component_bodies", std::move(input_bodies)}};
@@ -2548,7 +2559,8 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         ini["Children." + cut.definition.id]["items"] = cut.definition.feature_id;
         ini["Entity." + cut.definition.feature_id] = {
             {"id", cut.definition.feature_id}, {"name", cut.definition.name},
-            {"kind", cut.definition.feature_kind ==
+            {"kind", cut.definition.feature_kind == zima::document::FeatureKind::Feature ? "feature":
+                cut.definition.feature_kind ==
                 zima::document::FeatureKind::Extrusion ? "protrusion" : "revolve"},
             {"tree_exposure", "internal"},
             {"param.cpp_data", cut_json->dump()},

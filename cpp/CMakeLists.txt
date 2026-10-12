@@ -1385,6 +1385,7 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_placement_reference_assignment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_placement_command_tests tests/placement_command_tests.cpp)
     target_link_libraries(zima_cpp_placement_command_tests PRIVATE zima_command_host)
+    target_include_directories(zima_cpp_placement_command_tests PRIVATE modules/viewer/include)
     add_test(NAME zima_cpp_placement_command_tests COMMAND zima_cpp_placement_command_tests)
     set_tests_properties(zima_cpp_placement_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
@@ -1674,6 +1675,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_axis_up_to_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_AXIS_UP_TO_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_feature_axis_ends_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_axis_ends_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_AXIS_ENDS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_cylinder_mate_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_cylinder_mate_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_CYLINDER_MATE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_named_views_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_named_views_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_NAMED_VIEWS_ONLY=1"

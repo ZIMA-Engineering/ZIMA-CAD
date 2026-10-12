@@ -13,6 +13,30 @@
 #include <mutex>
 
 namespace zima::document {
+std::vector<kernel::ViewerDimension> sheet_form_placement_dimensions(
+        const HistoryContainer& feature,const kernel::ViewerReferenceGeometry& geometry) {
+    using namespace kernel::sheet_material;
+    const auto& p=feature.placement;
+    auto dimensions=container_placement_dimensions(feature.id,p,geometry);
+    std::erase_if(dimensions,[](const auto& dimension) {
+        return dimension.kind==kernel::ViewerDimensionKind::Angular;
+    });
+    const double degrees=p.absolute_rotation_y;
+    if(std::abs(degrees)<=1e-9)return dimensions;
+    const kernel::Vec3 angles{p.rotation_x,p.rotation_y,p.rotation_z};
+    const auto normal=construction_direction_from_local_axis("y",angles);
+    const auto second=construction_direction_from_local_axis("z",angles);
+    const double radians=degrees*std::acos(-1.)/180.;
+    // Undo only the authored sheet-normal angle in the calculated native frame.
+    // Inspecting an existing FORM does not resolve placement or calculate bodies.
+    const auto first=add(mul(second,std::cos(radians)),mul(cross(normal,second),-std::sin(radians)));
+    const kernel::Vec3 origin{p.x,p.y,p.z};
+    dimensions.push_back({origin,origin,add(origin,mul(first,22.)),add(origin,mul(second,22.)),degrees,
+        {feature.id,"parameter:placement:rotation_y",{}},"RY = "," °"});
+    auto& angle=dimensions.back();angle.kind=kernel::ViewerDimensionKind::Angular;
+    angle.plane_normal=normal;angle.sweep_degrees=degrees;angle.value_lock_key="placement:rotation_y";
+    return dimensions;
+}
 namespace {
 constexpr std::array<const char*,4> names{"FORM_CUT","FORM","FORM_FLAT","FORM_SYMBOL"};
 void local_references(const sketcher::Sketch& sketch,const std::string& document) {

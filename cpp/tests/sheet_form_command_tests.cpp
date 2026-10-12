@@ -40,6 +40,22 @@ int main(){try {
     feature.sheet_form.support=*face;
     const auto geometry=part.construction_reference_geometry_for(stock.id,baseline.back().mesh.original_references);
     feature.placement=document::sheet_form_attachment(*face,part.body_history.find(body)->origin().id,geometry,{},{});
+    for(double degrees:{30.,-40.,15.,-370.}) {
+        auto rotated=feature;rotated.placement.absolute_rotation_y=degrees;
+        check(document::resolve_sheet_form_feature_placement(rotated.sheet_form,rotated.placement,geometry),"FORM angle fixture cannot resolve");
+        const auto dimensions=document::sheet_form_placement_dimensions(rotated,geometry);
+        const auto angle=std::ranges::find_if(dimensions,[](const auto& value) {
+            return value.reference.semantic_key=="parameter:placement:rotation_y";
+        });
+        check(angle!=dimensions.end(),"FORM sheet angle annotation missing");
+        const auto outward=kernel::sheet_material::mul(face->surface->axis,face->surface->reversed?-1.:1.);
+        near(kernel::sheet_material::dot(angle->plane_normal,outward),1.);
+        near(kernel::sheet_material::dot(kernel::sheet_material::sub(angle->line_first,angle->witness_first),outward),0.);
+        near(kernel::sheet_material::dot(kernel::sheet_material::sub(angle->line_second,angle->witness_second),outward),0.);
+        near(angle->value,degrees);near(angle->sweep_degrees,degrees);
+        check(angle->value_lock_key=="placement:rotation_y","FORM annotation changed its editable parameter");
+        check(feature.placement.absolute_rotation_y==0.,"Annotation inspection changed the original FORM");
+    }
     workspace::Workspace live;live.add_part(part,baseline);
     check(workspace::commit_sheet_form(live,kernel,part.document_id,feature),"FORM command did not create history");
     const auto saved=[&]()->const document::PartDocument&{return live.open_part(part.document_id)->session.document();};

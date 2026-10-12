@@ -191,7 +191,7 @@ int main(int argc,char** argv) {
                 auto* field=dialog.findChild<QWidget*>(name);
                 const bool draft_field=QString(name).startsWith("featureSideDraft");
                 const bool shown=draft_field?i==4&&(QString(name).endsWith('0')?first:second)->currentIndex()==1:
-                    QString(name)=="featureThinSide"?i==4:QString(name).startsWith("featureProfile")?i!=0:(i==1||i==4);
+                    QString(name)=="featureThinSide"?i==4:QString(name).startsWith("featureProfile")?(i!=0&&i!=1):(i==1||i==4);
                 if(field->isVisible()!=shown)throw std::runtime_error("Wrong Feature field visibility");
                 if(shown) {
                     const auto* container=field->parentWidget();
@@ -204,6 +204,19 @@ int main(int argc,char** argv) {
             }
         }
         auto* name=dialog.findChild<QLineEdit*>("featureName");
+        type->setCurrentIndex(1);flush();
+        const auto check_axis=[&](bool ok){if(!ok)throw std::runtime_error("Ordinary Feature Axis end controls are inconsistent");};
+        check_axis(first_end->isVisible()&&second_end->isVisible()&&
+            !dialog.findChild<QGroupBox*>("featurePlaneGroup")->isVisible());
+        for(auto* ending:{first_end,second_end}) {
+            ending->setCurrentIndex(1);flush();
+            const std::size_t side=ending==first_end?0:1;
+            check_axis(dialog.pending_value().feature.sides[side].extrusion_extent==zima::document::EndCondition::UpTo);
+            ending->setCurrentIndex(2);flush();
+            check_axis(!dialog.pending_value().feature.sides[side].axis_enabled);
+            ending->setCurrentIndex(0);flush();
+            check_axis(dialog.pending_value().feature.sides[side].length>0);
+        }
         name->setText("My reference");type->setCurrentIndex(1);flush();
         if(dialog.pending_value().name!="My reference"||!dialog.pending_value().feature.automatic_name.empty())
             throw std::runtime_error("Type switch overwrote a custom name");

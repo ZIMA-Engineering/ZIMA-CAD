@@ -44,6 +44,9 @@ struct SheetFormDefinition {
     const kernel::ViewerReferenceGeometry&,kernel::Vec3 sheet_normal);
 [[nodiscard]] bool sheet_form_corner_faces_available(const kernel::FaceReference&,
     const kernel::FaceReference&,const kernel::ViewerReferenceGeometry&);
+// FORM has one sheet-normal angle, rather than the generic Euler angles.
+[[nodiscard]] std::vector<kernel::ViewerDimension> sheet_form_placement_dimensions(
+    const HistoryContainer&,const kernel::ViewerReferenceGeometry&);
 [[nodiscard]] SheetFormParameters copy_sheet_form_definition(const SheetFormDefinition&,
     const std::vector<kernel::BodyResult>& calculated={});
 [[nodiscard]] HistoryContainer create_sheet_form();

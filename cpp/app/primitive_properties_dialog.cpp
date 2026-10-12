@@ -729,6 +729,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         name_->setObjectName("featureName");
         feature_automatic_name_=initial.feature.automatic_name;
         feature_panel_=new FeatureParameterPanel(this,initial.feature);
+        if(assembly_cut_mode)feature_panel_->set_assembly_context();
         header_form->insertRow(0,tr("Typ prvku"),feature_panel_->type_row());
         feature_panel_->set_subtract(initial.combine_mode==zima::document::CombineMode::Subtract);
         auto* feature_scroll=new QScrollArea(this);
@@ -1448,9 +1449,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 selected_targets.end(), id) != selected_targets.end()
                     ? Qt::Checked : Qt::Unchecked);
         }
-        content_layout()->addWidget(new QLabel(
-            tr("Cílové komponenty sestavy"), this));
+        auto* target_label=new QLabel(tr("Cílové komponenty sestavy"),this);
+        content_layout()->addWidget(target_label);
         content_layout()->addWidget(assembly_targets_);
+        if(feature_panel_) {
+            const auto show_targets=[this,target_label] {
+                const bool active=!feature_panel_->parameters().sketch_only();
+                target_label->setVisible(active);assembly_targets_->setVisible(active);
+            };
+            feature_panel_->on_change(show_targets);show_targets();
+        }
     }
 
     error_ = new QLabel(this);
@@ -2462,7 +2470,7 @@ bool PrimitivePropertiesDialog::submit() {
                     item->data(Qt::UserRole).toString().toStdString());
             }
         }
-        if (selected_targets.empty()) {
+        if (selected_targets.empty()&&(!feature_panel_||!result.feature.sketch_only())) {
             error_->setText(tr("Vyberte alespoň jednu cílovou komponentu sestavy."));
             return false;
         }

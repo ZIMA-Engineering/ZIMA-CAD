@@ -3,7 +3,7 @@
 ## Scope and status
 
 Signed Windows [2026101108](releases/2026101108.md#signed-windows-publication)
-was published at `2026-10-11T22:17:31Z` with browser tabs, ordinary Axis None ends
+was published at `2026-10-11T22:17:31Z` with browser tabs, construction Axis None ends
 and corrected imported STEP source save/close behavior. Its complete Qt 6.11.0
 SDK includes WebEngine/WebChannel; OCCT remains 8.0.0. Clean and signed native
 smoke, all 21 factory assets, packaged browser/GUI contracts, bootstrap trust,

@@ -1,5 +1,19 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Shared Feature follow-up (2026-10-12)
+
+The next Windows follow-up uses the shared ordinary Feature command and native
+parameters in Parts and Assemblies, including independent Axis Length/Up to/None
+ends and transient owned Sketch editing. Assembly material operations remain
+subtractions from immediate editable Part occurrences. Rebuild and run the
+Feature parameter, Assembly profile, placement/cylinder, Axis extent and
+five-language contracts on Linux, then the ordinary Axis, cylinder-mate and
+inserted FORM GUI checks in the native desktop session. Verify the actual
+STEP cylinder picker, movement, Flip and native persistence, and the FORM angle
+witnesses in the sheet plane. Windows verification does not establish these
+Linux desktop results. OCCT remains pinned to 8.0.0; use one matching Qt kit
+for all Linux Qt modules and runtime plugins.
+
 ## Browser graphics follow-up (2026-10-12)
 
 Windows 2026101201 selects the shared OpenGL Qt Quick graphics API before

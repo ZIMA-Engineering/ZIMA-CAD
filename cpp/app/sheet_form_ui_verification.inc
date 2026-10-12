@@ -499,6 +499,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         check(dialog->pending_value().placement.references==complete_references&&
             dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled()&&angle->isEnabled(),"FORM support restoration lost references or offsets");
         check(run("documents").data==revision,"FORM support clearing created a document revision");
+        angle->setValue(-370);flush();
         pending=dialog->pending_value();
         const auto before_resize=placement_table->geometry();
         dialog->resize(dialog->width()+80,dialog->height()+80);flush();
@@ -553,6 +554,20 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             }
         }
         const auto original=saved.find_container(id)->sheet_form;const auto placed=saved.find_container(id)->placement;
+        const auto annotation_revision=run("documents").data;
+        const auto annotation_camera=view->camera_state();
+        tree->itemDoubleClicked(row(id),0);flush();
+        const auto sheet_angle=std::ranges::find_if(view->mesh().dimensions,[&](const auto& value) {
+            return value.reference.owner_id==id&&value.reference.semantic_key=="parameter:placement:rotation_y";
+        });
+        check(sheet_angle!=view->mesh().dimensions.end(),"FORM double-click lost its sheet angle");
+        check(kernel::sheet_material::dot(sheet_angle->plane_normal,outward)>1.-1e-8,
+            "Inserted FORM angle is not in the sheet plane");
+        for(const auto tip:{sheet_angle->line_first,sheet_angle->line_second})
+            check(std::abs(kernel::sheet_material::dot(kernel::sheet_material::sub(tip,sheet_angle->witness_first),outward))<1e-8,
+                "FORM angular witness leaves its support plane");
+        check(run("documents").data==annotation_revision&&view->camera_state()==annotation_camera,
+            "FORM double-click changed the document or camera");
         run("undo");check(!native().first.find_container(id),"FORM creation Undo failed");run("redo");check(native().first.find_container(id),"FORM creation Redo failed");
         window.show_tree_item_properties(row(id));flush();dialog=editor();check(dialog,"FORM edit Properties missing");
         const auto* reopened_table=dialog->findChild<QTableWidget*>("primitiveReferenceTable");

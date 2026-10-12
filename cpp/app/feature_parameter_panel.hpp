@@ -30,6 +30,7 @@
 #include <memory>
 #include <vector>
 #include <QSignalBlocker>
+#include <QStandardItemModel>
 
 namespace zima::app {
 // Shared parameter editor. History, placement and Sketch lifecycle belong to the host dialog.
@@ -152,7 +153,8 @@ public:
             s.twist_smooth->setObjectName(QString("featureTwistSmooth%1").arg(i));s.twist_smooth->setChecked(s.pending.twist_smooth);
             rows->addRow(s.twist_smooth);
             connect(s.mode,&QComboBox::currentIndexChanged,this,[this,i]{refresh_side(i);});
-            connect(s.end,&QComboBox::currentIndexChanged,this,[this,i]{auto& a=sides_[i];a.value->setEnabled(a.mode->currentIndex()!=0&&a.end->currentIndex()==0);a.target->setEnabled(a.mode->currentIndex()!=0&&a.end->currentIndex()==(a.mode->currentIndex()==2?2:1));});
+            connect(s.end,&QComboBox::currentIndexChanged,this,[this,i]{auto& a=sides_[i];const int mode=a.displayed_axis?1:a.mode->currentIndex();a.value->setEnabled(mode!=0&&a.end->currentIndex()==0);a.target->setEnabled(mode!=0&&a.end->currentIndex()==(mode==2?2:1));
+                if(!refreshing_side_&&a.displayed_axis){a.pending=capture_side(a,a.previous_mode);a.displayed_end=a.end->currentIndex();}});
             sides->addWidget(s.box);refresh_side(i);
         }
         content_->addLayout(sides);
@@ -236,6 +238,12 @@ public:
         last_operation_=value?1:0;
         refresh_operations();
     }
+    void set_assembly_context() {
+        set_subtract(true);
+        operation_group_->button(0)->setEnabled(false);
+        if(auto* model=qobject_cast<QStandardItemModel*>(result_->model()))model->item(1)->setEnabled(false);
+        if(result_->currentIndex()==1)result_->setCurrentIndex(0);
+    }
     void bind_side_locks(std::set<std::string>& locks,std::function<void()> changed) {
         locks_=&locks;locks_changed_=std::move(changed);
         for(int i=0;i<2;++i)refresh_side_lock(i);
@@ -255,7 +263,7 @@ private:
         QGroupBox* box{};QComboBox* mode{};QComboBox* end{};ui::UnitDoubleSpinBox* value{};ui::UnitDoubleSpinBox* draft{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
         QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
         document::FeatureSideParameters pending;
-        int previous_mode{};
+        int previous_mode{},displayed_end{};
         double displayed_value{},authored_value{},displayed_draft{};
         ui::UnitDoubleSpinBox* twist_angle{};QComboBox* twist_direction{};QCheckBox* twist_smooth{};
         double displayed_twist_angle{};
@@ -290,7 +298,12 @@ private:
         auto value=side.pending;value.operation=static_cast<document::FeatureSideOperation>(mode);
         if(side.draft&&side.draft->value()!=side.displayed_draft)value.draft_angle_degrees=side.draft->value();
         const double number=side.value->value()==side.displayed_value?side.authored_value:side.value->value();
-        if(side.displayed_axis)value.length=number;
+        if(side.displayed_axis) {
+            value.length=number;
+            value.axis_enabled=side.end->currentIndex()!=2;
+            if(value.axis_enabled&&side.end->currentIndex()!=side.displayed_end)
+                value.extrusion_extent=side.end->currentIndex()==1?document::EndCondition::UpTo:document::EndCondition::Length;
+        }
         else {
             if(mode==1){value.length=number;value.extrusion_extent=static_cast<document::EndCondition>(side.end->currentIndex());}
             if(mode==2){value.angle_degrees=number;value.rotation_extent=static_cast<document::FeatureRotationExtent>(side.end->currentIndex());}
@@ -310,7 +323,7 @@ private:
         const auto type=selected_type();
         const bool modeling=type==document::FeatureType::Modeling;
         const bool lengths=modeling||type==document::FeatureType::Axis;
-        plane_group_->setVisible(type!=document::FeatureType::Point);
+        plane_group_->setVisible(type!=document::FeatureType::Point&&type!=document::FeatureType::Axis);
         sketch_group_->setVisible(modeling||type==document::FeatureType::Sketch);
         result_group_->setVisible(modeling);
         options_row_->setVisible(lengths);
@@ -321,8 +334,8 @@ private:
             s.box->setVisible(lengths&&(i==0||!symmetric_));
             s.rows->setRowVisible(s.mode,modeling);
             s.rows->setRowVisible(s.draft,modeling&&s.mode->currentIndex()==1);
-            s.rows->setRowVisible(s.end,modeling&&s.mode->currentIndex()!=3);
-            s.rows->setRowVisible(s.target_row,modeling&&s.mode->currentIndex()!=3);
+            s.rows->setRowVisible(s.end,lengths&&(type==document::FeatureType::Axis||s.mode->currentIndex()!=3));
+            s.rows->setRowVisible(s.target_row,lengths&&(type==document::FeatureType::Axis||s.mode->currentIndex()!=3));
         }
     }
     void refresh_operations() {
@@ -349,14 +362,16 @@ private:
         s.rows->setRowVisible(s.draft,selected_type()==document::FeatureType::Modeling&&mode==1);
         s.end->clear();
         if(mode==2)s.end->addItems({tr("Úhel"),tr("Plná rotace"),tr("Až k")});
-        else s.end->addItems({tr("Délka"),tr("Až k"),tr("Skrz vše")});
-        s.end->setCurrentIndex(s.displayed_axis?0:mode==2?static_cast<int>(s.pending.rotation_extent):static_cast<int>(s.pending.extrusion_extent));
+        else s.end->addItems({tr("Délka"),tr("Až k"),s.displayed_axis?tr("Nevytvářet"):tr("Skrz vše")});
+        s.end->setCurrentIndex(s.displayed_axis?(!s.pending.axis_enabled?2:s.pending.extrusion_extent==document::EndCondition::UpTo?1:0):mode==2?static_cast<int>(s.pending.rotation_extent):static_cast<int>(s.pending.extrusion_extent));
+        s.displayed_end=s.end->currentIndex();
         s.end->setEnabled(mode!=0);s.value->setEnabled(mode!=0&&s.end->currentIndex()==0);
         refresh_operations();
         s.label->setText(mode==2?tr("Úhel"):tr("Délka"));
         s.value->set_quantity(mode==2?ui::InputQuantity::Angle:ui::InputQuantity::Length);
         s.value->setMaximum(mode==2?360:1000000);
-        s.authored_value=mode==2?s.pending.angle_degrees:s.pending.length;s.value->setValue(s.authored_value);
+        s.authored_value=mode==2?s.pending.angle_degrees:s.pending.length;
+        s.value->setValue(s.authored_value);
         s.displayed_value=s.value->value();
         s.target->setEnabled(mode!=0 && s.end->currentIndex()==(mode==2?2:1));
         const bool twisting=mode==3;

@@ -13,6 +13,7 @@
 #include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/document/solid_state_calculation.hpp>
+#include <zima/document/profile_targets.hpp>
 #include "group_solid_state_calculation.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -268,11 +269,13 @@ void calculate_resolved_assembly_cuts(
         document.construction_viewer_mesh().original_references);
     for (auto& cut : document.cuts) {
         cut.input_component_bodies.clear();
+        // Datums also need their input boundary when Properties rolls back
+        // later Assembly operations. Snapshots share the calculated packets.
         for (const auto& component : document.components) {
             cut.input_component_bodies.emplace(
                 component.occurrence_id, component.calculated_source);
         }
-        if (cut.definition.suppressed || cut.target_occurrence_ids.empty()) continue;
+        if (cut.definition.suppressed) continue;
         for(auto& sketch:document.sketches)if(sketch.owner_container_id==cut.definition.id&&
             std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.body_edge;})) {
             const auto body=assembly_sketch_body_reference_geometry(document,sketch);
@@ -281,11 +284,26 @@ void calculate_resolved_assembly_cuts(
             for(const auto& source:sources)static_cast<void>(sketch.refresh_external_references(source,reference_geometry,false,&body));
         }
         zima::document::PartDocument cutter_document;
+        cutter_document.document_id=document.document_id;
         cutter_document.document_precision = document.document_precision;
         cutter_document.user_parameters = document.user_parameters;
         cutter_document.relations = document.relations;
         cutter_document.sketches = document.sketches;
         cutter_document.constructions = document.constructions;
+        if(cut.definition.feature_kind==document::FeatureKind::Feature) {
+            auto& definition=cut.definition.feature;
+            for(std::size_t side=0;side<(definition.symmetric?1u:2u);++side) {
+                const auto value=definition.effective_side(side);
+                const bool up_to=(value.operation==document::FeatureSideOperation::Extrusion&&value.extrusion_extent==document::EndCondition::UpTo) ||
+                    (value.operation==document::FeatureSideOperation::Revolution&&value.rotation_extent==document::FeatureRotationExtent::UpTo);
+                if(!up_to || (definition.type==document::FeatureType::Axis&&!value.axis_enabled))continue;
+                auto& targets=definition.sides[side].targets;
+                if(targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
+                const auto target=document::resolve_profile_target(targets.front(),reference_geometry);
+                if(!target)throw std::runtime_error("The original extrusion target is unavailable.");
+                targets.front()=*target;
+            }
+        }
         cutter_document.history = {cut.definition};
         cutter_document.resolve_constructions(reference_geometry);
         cut.definition = cutter_document.history.front();
@@ -300,6 +318,14 @@ void calculate_resolved_assembly_cuts(
                 });
             if (target != document.sketches.end()) *target = *owned_sketch;
         }
+        if(cut.definition.feature_kind==document::FeatureKind::Feature && cut.definition.feature.sketch_only()) {
+            if(!cut.definition.placement.reference_valid)
+                throw std::runtime_error("The proposed feature placement references cannot be resolved.");
+            static_cast<void>(cutter_document.kernel_operations(true)); // Validate the native definition, without calculating a body.
+            append_reference_geometry(reference_geometry,cutter_document.feature_result_mesh(cut.definition).original_references);
+            continue;
+        }
+        if(cut.target_occurrence_ids.empty())continue;
         auto cutter_operations = cutter_document.kernel_operations(true);
         if (cutter_operations.size() != 1) {
             throw std::runtime_error(

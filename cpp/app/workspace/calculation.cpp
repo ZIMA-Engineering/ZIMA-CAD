@@ -26,9 +26,4 @@ AssemblyWorkspaceWindow::calculate_part_with_resolved_references(
         kernel_, document, previous, part_calculation_policy());
 }
 
-void AssemblyWorkspaceWindow::calculate_assembly_cuts(
-    zima::assembly::AssemblyDocument& document) const {
-    workspace::calculate_resolved_assembly_cuts(kernel_, document);
-}
-
 } // namespace zima::app

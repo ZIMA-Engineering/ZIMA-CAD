@@ -1,6 +1,7 @@
 # Unified Feature
 
-The Part Modeling command commits one native `Feature` history container.
+The Part Modeling and Assembly commands commit the same native `Feature`
+history-container definition.
 Its type selector and removal of the former basic primitives are described in
 [Unified Feature types](UNIFIED_FEATURE_TYPES.md). Low-level Sketch, Extrusion,
 Revolution and sheet operations remain available to the commands that need them.
@@ -17,8 +18,27 @@ not calculate a body.
 
 The shared placement solver and its reference contract are unchanged. Feature
 opts into the same capability predicate used by the Properties dialog and View.
-Assembly commands retain their existing subtraction-only ownership contract;
-the new unified action is enabled for Part editing, including an activated Part.
+Assembly commands retain their subtraction-only ownership contract. The unified
+action and its Point, Axis, Plane, Sketch, Extrusion and Revolution shortcuts
+are available in both owning-document contexts, including activated components.
+`AssemblyDocument::feature_document()` supplies a transient carrier to the same
+Part feature frame, preview, datum-rendering and parameter implementations.
+Component bodies are not copied into that carrier.
+
+The Assembly transaction records component input boundaries for Properties
+rollback. Datum definitions retain that inspection boundary but do not own
+component output geometry. A private owned Sketch remains a draft until feature
+OK in both contexts; returning from Sketcher and Cancel do not create a document
+transaction. Unchanged Assembly OK compares the definition, target list and
+owned Sketch before preparing dependencies or invoking calculation.
+
+`feature.get`, `feature.create` and `feature.set` expose the common definition
+through the native command host. Creation converts a standalone Sketch;
+`parameters` is a merge patch of the native Feature parameter object returned
+by `feature.get`. Changing `sketch_id` is rejected. The commands enforce numeric
+locks and Assembly target ownership through the existing transactions.
+The `axis_enabled` side flag is omitted when true and explicitly stored when
+false. It preserves inactive numerical values and reference targets.
 
 ## Side and ancestry contract
 

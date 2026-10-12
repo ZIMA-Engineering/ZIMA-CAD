@@ -2342,5 +2342,8 @@
   "Cannot read bookmark file: %1": "Nelze načíst soubor záložek: %1",
   "Cannot save bookmark file: %1": "Nelze uložit soubor záložek: %1",
   "Cannot save bookmark icon: %1": "Nelze uložit ikonu záložky: %1",
-  "Download failed. Error code: %1.": "Stahování selhalo. Kód chyby: %1."
+  "Download failed. Error code: %1.": "Stahování selhalo. Kód chyby: %1.",
+  "Axis end target is missing or outside the selected direction.": "Koncová reference osy chybí nebo leží mimo zvolený směr.",
+  "Read a Feature and its owned Sketch without calculation.": "Číst prvek a jeho vlastní skicu bez výpočtu.",
+  "Create or edit a Feature through the shared Part/Assembly transaction.": "Vytvořit nebo upravit prvek pomocí společné operace dílu a sestavy."
 }

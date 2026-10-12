@@ -316,6 +316,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     content_layout()->addWidget(freedom_);
 
     error_ = new QLabel(this);
+    error_->setObjectName("componentPlacementError");
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);

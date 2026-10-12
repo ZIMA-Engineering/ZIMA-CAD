@@ -23,9 +23,8 @@ class ReferenceCellItem;
 
 namespace zima::app {
 
-// Embedded placement-reference table for an Assembly component, matching
-// the Python reference design (AssemblyComponentPropertiesDialog, app.py:
-// 6850-6999): up to 3 rows are entered directly in this dialog instead of
+// Embedded placement-reference table for an Assembly component: up to three
+// rows are entered directly in this dialog instead of
 // via separate Plane/Axis/Point/Angle Mate commands and a "Vazby" tree
 // branch. Each row picks a component-side reference (geometry on the
 // occurrence being placed, in its own un-transformed source-body frame) and

@@ -900,7 +900,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                     "GUI type switch did not update its automatic name");
                 check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
                       pending.feature.centroid_centerline==inactive.centroid_centerline,"Type switch discarded inactive settings");
-                check(dialog()->findChild<QGroupBox*>("featurePlaneGroup")->isVisible()==(type!=0),"Wrong work-plane controls for Feature type");
+                check(dialog()->findChild<QGroupBox*>("featurePlaneGroup")->isVisible()==(type>=2),"Wrong work-plane controls for Feature type");
                 check(dialog()->findChild<QGroupBox*>("featureSketchGroup")->isVisible()==(type>=3),"Wrong Sketch controls for Feature type");
                 check(dialog()->findChild<QGroupBox*>("featureResultGroup")->isVisible()==(type==4),"Wrong modeling controls for Feature type");
                 check(dialog()->findChild<QCheckBox*>("featureOriginAxis")->isVisible()==(type==4)&&
