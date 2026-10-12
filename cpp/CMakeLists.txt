@@ -517,6 +517,15 @@ if(ZIMA_BUILD_TESTS)
         qt6keychain Qt6::WebEngineWidgets Qt6::WebChannel Qt6::Svg Qt6::Quick Qt6::OpenGLWidgets)
     target_compile_options(zima_browser_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_browser_ui COMMAND zima_browser_ui_tests)
+    add_executable(zima_file_manager_ui_tests tests/file_manager_ui_tests.cpp
+        app/file_manager_tab.cpp app/file_dialog.cpp app/resource_icon.cpp
+        app/application_settings.cpp app/zima_resources.qrc)
+    set_target_properties(zima_file_manager_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
+    target_include_directories(zima_file_manager_ui_tests PRIVATE app)
+    target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg)
+    target_compile_options(zima_file_manager_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_file_manager_ui COMMAND zima_file_manager_ui_tests)
+    set_tests_properties(zima_file_manager_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion")
 endif()
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp
@@ -536,7 +545,7 @@ add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp app/body_scale_command.cpp app/body_scale_ui_verification.cpp
-    app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
+    app/application_settings.cpp app/global_settings_dialog.cpp app/file_manager_tab.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
@@ -1665,12 +1674,16 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_axis_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_browser_workspace_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_file_manager_workspace_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_step_tabs_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_step_tabs_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_STEP_TABS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_browser_workspace_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BROWSER_WORKSPACE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 90)
+    set_tests_properties(zima_cpp_file_manager_workspace_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FILE_MANAGER_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_axis_up_to_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_AXIS_UP_TO_ONLY=1"

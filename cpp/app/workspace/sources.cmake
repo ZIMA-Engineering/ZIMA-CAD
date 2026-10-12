@@ -21,6 +21,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/edge_preview_helpers.cpp
     app/workspace/edge_treatment.cpp
     app/workspace/file_operations.cpp
+    app/workspace/file_manager.cpp
     app/workspace/geometry_helpers.cpp
     app/workspace/interchange.cpp
     app/workspace/layout.cpp

@@ -15,6 +15,7 @@
 #include <QSvgRenderer>
 #include <QPainter>
 #include "../surface_wire_visibility.hpp"
+#include "../file_manager_tab.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -418,6 +419,8 @@ void AssemblyWorkspaceWindow::change_working_directory(const std::filesystem::pa
     catch(const std::exception&) {if(required)throw;return;}
     working_directory_=path;
     setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(path)));
+    const QString directory=QString::fromStdString(document::path_to_utf8(path));
+    for(const auto& [id,page]:file_manager_tabs_)page->set_working_directory(directory);
 }
 
 void AssemblyWorkspaceWindow::set_working_directory() {
@@ -768,6 +771,7 @@ void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_
             next.qt_translations = application_settings_.qt_translations;
         }
         application_settings_ = std::move(next);
+        reload_file_managers();
         if(browser_runtime_)browser_runtime_->configure(application_settings_.browser);
         drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
         if (!language_changed) apply_application_translations(*qApp, application_settings_);

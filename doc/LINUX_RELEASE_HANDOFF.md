@@ -1,5 +1,18 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## File Manager follow-up (2026-10-12)
+
+The shared C++ application now includes the native File Manager, metadata
+version 3, configurable data sources and native Part/Assembly parameter editing.
+Build `zima_file_manager_ui_tests` and the product on Linux, then run the
+standalone and integrated File Manager contracts in a native desktop session.
+Verify multiple tabs, source trees, Project/Overview/Files views, native save
+and reopen, metadata mirroring, application shutdown with an open filesystem
+model and switching between CAD, File Manager and WebEngine. Confirm all five
+languages and factory source paths in the packaged layout. No production project
+data or engineering-table content is part of the Windows fixture. OCCT remains
+8.0.0 and no native document schema changed.
+
 ## Shared Feature follow-up (2026-10-12)
 
 The next Windows follow-up uses the shared ordinary Feature command and native

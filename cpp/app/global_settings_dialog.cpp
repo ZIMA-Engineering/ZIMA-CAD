@@ -21,6 +21,10 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QHeaderView>
+#include <QSpinBox>
+#include <QTableWidget>
+#include <QUuid>
 #include <QWidget>
 #include <QSettings>
 #include <QSaveFile>
@@ -58,7 +62,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
           "dialog.options.title", tr("Globální nastavení")), parent),
       settings_(std::move(settings)),system_setup_(system_setup),first_launch_(first_launch) {
     setObjectName(system_setup_?"systemSetupDialog":"globalSettingsDialog");
-    setMinimumWidth(620);
+    setMinimumWidth(820);
     auto* config_label = new QLabel(
         QStringLiteral("%1: %2").arg(
             settings_.text("label.options", tr("Nastavení")),
@@ -253,6 +257,103 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     });
     browser_button(tr("Clear cache"),[this]{if(browser_clear_cache)browser_clear_cache();});
     sections_->addTab(browser_page_,tr("Web browser"));
+    file_manager_page_=new QWidget(sections_);file_manager_page_->setObjectName("globalFileManagerSettings");
+    auto* file_manager_layout=new QVBoxLayout(file_manager_page_);
+    auto* source_label=new QLabel(tr("Zdroje dat"),file_manager_page_);
+    auto source_font=source_label->font();source_font.setBold(true);source_label->setFont(source_font);
+    file_manager_layout->addWidget(source_label);
+    file_manager_sources_=new QTableWidget(file_manager_page_);
+    file_manager_sources_->setObjectName("fileManagerSources");
+    file_manager_sources_->setColumnCount(4);
+    file_manager_sources_->setHorizontalHeaderLabels({tr("Zapnuto"),tr("Název"),tr("Cesta"),tr("Pouze pro čtení")});
+    file_manager_sources_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
+    file_manager_sources_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
+    file_manager_sources_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);
+    file_manager_sources_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::ResizeToContents);
+    file_manager_sources_->verticalHeader()->hide();
+    file_manager_sources_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    file_manager_sources_->setSelectionMode(QAbstractItemView::SingleSelection);
+    const auto add_source_row=[this](const FileManagerSource& source){
+        const int row=file_manager_sources_->rowCount();file_manager_sources_->insertRow(row);
+        auto* enabled=new QTableWidgetItem;enabled->setCheckState(source.enabled?Qt::Checked:Qt::Unchecked);
+        enabled->setData(Qt::UserRole,source.id);enabled->setData(Qt::UserRole+1,source.factory);
+        auto* name=new QTableWidgetItem(source.name);if(source.factory)name->setFlags(name->flags()&~Qt::ItemIsEditable);
+        auto* path=new QTableWidgetItem(QDir::toNativeSeparators(source.path));
+        auto* read_only=new QTableWidgetItem;read_only->setCheckState(source.read_only?Qt::Checked:Qt::Unchecked);
+        file_manager_sources_->setItem(row,0,enabled);file_manager_sources_->setItem(row,1,name);
+        file_manager_sources_->setItem(row,2,path);file_manager_sources_->setItem(row,3,read_only);
+    };
+    for(const auto& source:settings_.file_manager.sources)add_source_row(source);
+    file_manager_layout->addWidget(file_manager_sources_,1);
+    auto* source_actions=new QHBoxLayout;
+    const auto source_button=[&](const QString& text,const char* name,std::function<void()> action){
+        auto* button=new QPushButton(text,file_manager_page_);button->setObjectName(name);source_actions->addWidget(button);
+        connect(button,&QPushButton::clicked,this,std::move(action));return button;
+    };
+    source_button(tr("Přidat"),"fileManagerAddSource",[this,add_source_row]{
+        const QString path=choose_directory(this,tr("Vybrat zdroj dat"),
+            settings_.resolved_paths.value("WorkingDirectory"),settings_.translations);
+        if(path.isEmpty())return;
+        FileManagerSource source;source.id=QStringLiteral("custom-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+        source.name=QFileInfo(path).fileName();source.path=QDir::toNativeSeparators(path);source.resolved_path=path;
+        source.enabled=true;source.read_only=false;add_source_row(source);
+        file_manager_sources_->selectRow(file_manager_sources_->rowCount()-1);
+    });
+    source_button(tr("Odebrat"),"fileManagerRemoveSource",[this]{
+        const int row=file_manager_sources_->currentRow();if(row<0)return;
+        if(file_manager_sources_->item(row,0)->data(Qt::UserRole+1).toBool()){
+            QMessageBox::information(this,tr("Správce souborů"),tr("Výchozí zdroj lze vypnout, ale nelze jej odebrat."));return;
+        }
+        file_manager_sources_->removeRow(row);
+    });
+    source_button(tr("Procházet…"),"fileManagerBrowseSource",[this]{
+        const int row=file_manager_sources_->currentRow();if(row<0)return;
+        const QString path=choose_directory(this,tr("Vybrat zdroj dat"),
+            file_manager_sources_->item(row,2)->text(),settings_.translations);
+        if(!path.isEmpty())file_manager_sources_->item(row,2)->setText(QDir::toNativeSeparators(path));
+    });
+    source_actions->addStretch();
+    source_button(tr("Nahoru"),"fileManagerSourceUp",[this]{
+        const int row=file_manager_sources_->currentRow();if(row<=0)return;
+        for(int column=0;column<file_manager_sources_->columnCount();++column){
+            auto* first=file_manager_sources_->takeItem(row,column);auto* second=file_manager_sources_->takeItem(row-1,column);
+            file_manager_sources_->setItem(row-1,column,first);file_manager_sources_->setItem(row,column,second);
+        }file_manager_sources_->selectRow(row-1);
+    });
+    source_button(tr("Dolů"),"fileManagerSourceDown",[this]{
+        const int row=file_manager_sources_->currentRow();if(row<0||row+1>=file_manager_sources_->rowCount())return;
+        for(int column=0;column<file_manager_sources_->columnCount();++column){
+            auto* first=file_manager_sources_->takeItem(row,column);auto* second=file_manager_sources_->takeItem(row+1,column);
+            file_manager_sources_->setItem(row+1,column,first);file_manager_sources_->setItem(row,column,second);
+        }file_manager_sources_->selectRow(row+1);
+    });
+    file_manager_layout->addLayout(source_actions);
+    auto* file_manager_form=new QFormLayout;
+    file_manager_company_name_=new QLineEdit(settings_.file_manager.company_name,file_manager_page_);
+    file_manager_company_logo_=new QLineEdit(settings_.file_manager.company_logo,file_manager_page_);
+    file_manager_company_website_=new QLineEdit(settings_.file_manager.company_website,file_manager_page_);
+    auto* logo_row=new QWidget(file_manager_page_);auto* logo_layout=new QHBoxLayout(logo_row);logo_layout->setContentsMargins(0,0,0,0);
+    logo_layout->addWidget(file_manager_company_logo_,1);auto* logo_browse=new QPushButton(tr("Procházet…"),logo_row);logo_layout->addWidget(logo_browse);
+    connect(logo_browse,&QPushButton::clicked,this,[this]{
+        const QString path=open_file(this,tr("Vybrat firemní logo"),file_manager_company_logo_->text(),
+            tr("Obrázky (*.svg *.png *.jpg *.jpeg *.webp)"),settings_.translations);
+        if(!path.isEmpty())file_manager_company_logo_->setText(QDir::toNativeSeparators(path));
+    });
+    file_manager_default_view_=new QComboBox(file_manager_page_);
+    file_manager_default_view_->addItem(tr("Přehled"),"overview");file_manager_default_view_->addItem(tr("Soubory"),"files");
+    file_manager_default_view_->setCurrentIndex(std::max(0,file_manager_default_view_->findData(settings_.file_manager.default_view)));
+    file_manager_thumbnail_size_=new QSpinBox(file_manager_page_);file_manager_thumbnail_size_->setRange(64,256);
+    file_manager_thumbnail_size_->setSuffix(" px");file_manager_thumbnail_size_->setValue(settings_.file_manager.thumbnail_size);
+    file_manager_show_hidden_=new QCheckBox(tr("Zobrazovat skryté a systémové soubory"),file_manager_page_);
+    file_manager_show_hidden_->setChecked(settings_.file_manager.show_hidden);
+    file_manager_form->addRow(tr("Název firmy"),file_manager_company_name_);
+    file_manager_form->addRow(tr("Firemní logo"),logo_row);
+    file_manager_form->addRow(tr("Web firmy"),file_manager_company_website_);
+    file_manager_form->addRow(tr("Výchozí zobrazení"),file_manager_default_view_);
+    file_manager_form->addRow(tr("Velikost náhledů"),file_manager_thumbnail_size_);
+    file_manager_form->addRow(file_manager_show_hidden_);
+    file_manager_layout->addLayout(file_manager_form);
+    sections_->addTab(file_manager_page_,tr("Správce souborů"));
     updates_ = new UpdatesPage([this](bool rollback) {
         auto* service = UpdateService::get();
         const auto blocker = service->restartBlocker();
@@ -301,6 +402,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
 void GlobalSettingsDialog::show_updates() { sections_->setCurrentWidget(updates_); }
 void GlobalSettingsDialog::show_ai() { sections_->setCurrentWidget(ai_); }
 void GlobalSettingsDialog::show_browser() { sections_->setCurrentWidget(browser_page_); }
+void GlobalSettingsDialog::show_file_manager() { sections_->setCurrentWidget(file_manager_page_); }
 
 const ApplicationSettings& GlobalSettingsDialog::settings() const {
     return settings_;
@@ -336,6 +438,27 @@ bool GlobalSettingsDialog::submit() {
     settings_.browser.block_third_party_cookies=browser_cookies_->isChecked();
     settings_.browser.save_passwords=browser_save_passwords_->isChecked();
     settings_.browser.autofill_passwords=browser_autofill_->isChecked();
+    settings_.file_manager.sources.clear();
+    for(int row=0;row<file_manager_sources_->rowCount();++row){
+        FileManagerSource source;
+        source.id=file_manager_sources_->item(row,0)->data(Qt::UserRole).toString();
+        source.factory=file_manager_sources_->item(row,0)->data(Qt::UserRole+1).toBool();
+        source.enabled=file_manager_sources_->item(row,0)->checkState()==Qt::Checked;
+        source.name=file_manager_sources_->item(row,1)->text().trimmed();
+        source.path=QDir::fromNativeSeparators(file_manager_sources_->item(row,2)->text().trimmed());
+        source.read_only=file_manager_sources_->item(row,3)->checkState()==Qt::Checked;
+        if(source.name.isEmpty()||source.path.isEmpty()){
+            show_file_manager();file_manager_sources_->selectRow(row);
+            QMessageBox::warning(this,tr("Správce souborů"),tr("Každý zdroj musí mít název a cestu."));return false;
+        }
+        settings_.file_manager.sources.push_back(std::move(source));
+    }
+    settings_.file_manager.company_name=file_manager_company_name_->text().trimmed();
+    settings_.file_manager.company_logo=QDir::fromNativeSeparators(file_manager_company_logo_->text().trimmed());
+    settings_.file_manager.company_website=file_manager_company_website_->text().trimmed();
+    settings_.file_manager.default_view=file_manager_default_view_->currentData().toString();
+    settings_.file_manager.thumbnail_size=file_manager_thumbnail_size_->value();
+    settings_.file_manager.show_hidden=file_manager_show_hidden_->isChecked();
     settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
     settings_.drawing_view_style=drawing_view_style_->currentData().toString();
     settings_.drawing_pdf_directory=drawing_pdf_directory_->text().trimmed();

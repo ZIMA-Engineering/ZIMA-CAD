@@ -2,6 +2,11 @@
 
 ## Scope and status
 
+Windows 2026101203 is being prepared with the native File Manager, configurable
+data sources, native parameter editing and metadata version 3. Local isolated
+and integrated GUI tests pass; signed packaged acceptance is pending. See the
+[release record](releases/2026101203.md).
+
 Signed Windows [2026101202](releases/2026101202.md#signed-windows-publication)
 was published at `2026-10-12T02:42:36Z` with shared Part/Assembly Features,
 ordinary Axis end controls, STEP cylinder reference classification and the

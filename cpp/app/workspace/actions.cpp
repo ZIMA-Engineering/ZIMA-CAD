@@ -31,7 +31,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     open_document_action_->setObjectName("openDocumentAction");
     open_document_action_->setShortcuts({QKeySequence(Qt::Key_F2), QKeySequence::Open});
     connect(open_document_action_, &QAction::triggered, this,
-        [this] { open_document(); });
+        [this] { open_file_manager(); });
     file->addAction(open_document_action_);
     auto* import_action = make_action(t("menu.file.import", "Importovat…"), "open");
     import_action->setObjectName("importDocumentAction");
@@ -957,6 +957,10 @@ void AssemblyWorkspaceWindow::create_actions() {
     browser_action->setObjectName("newBrowserTabAction");
     main_toolbar_->addAction(browser_action);tools->addAction(browser_action);
     connect(browser_action,&QAction::triggered,this,[this]{open_browser();});
+    auto* file_manager_action=make_action(tr("Nový tab Správce souborů"),"file-manager");
+    file_manager_action->setObjectName("newFileManagerTabAction");
+    main_toolbar_->addAction(file_manager_action);tools->addAction(file_manager_action);
+    connect(file_manager_action,&QAction::triggered,this,[this]{open_file_manager();});
     auto* toolbar_spacer = new QWidget(main_toolbar_);
     toolbar_spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     main_toolbar_->addWidget(toolbar_spacer);

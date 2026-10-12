@@ -12,7 +12,9 @@ class QComboBox;
 class QCheckBox;
 class QDoubleSpinBox;
 class QLineEdit;
+class QTableWidget;
 class QTabWidget;
+class QSpinBox;
 class UpdatesPage;
 
 namespace zima::app {
@@ -27,6 +29,7 @@ public:
     void show_updates();
     void show_ai();
     void show_browser();
+    void show_file_manager();
     std::function<void()> browser_passwords, browser_clear_cookies, browser_clear_cache;
 
 protected:
@@ -47,6 +50,14 @@ private:
     AiSettingsPage* ai_{};
     QWidget* desktop_{};
     QWidget* browser_page_{};
+    QWidget* file_manager_page_{};
+    QTableWidget* file_manager_sources_{};
+    QLineEdit* file_manager_company_name_{};
+    QLineEdit* file_manager_company_logo_{};
+    QLineEdit* file_manager_company_website_{};
+    QComboBox* file_manager_default_view_{};
+    QSpinBox* file_manager_thumbnail_size_{};
+    QCheckBox* file_manager_show_hidden_{};
     QLineEdit* browser_home_{};
     QCheckBox* browser_start_{};
     QCheckBox* browser_download_{};

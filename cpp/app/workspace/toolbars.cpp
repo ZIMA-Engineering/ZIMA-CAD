@@ -17,13 +17,15 @@ namespace {
 void AssemblyWorkspaceWindow::update_document_area_visibility() {
     refresh_named_view_choices();
     const bool web=active_browser_!=nullptr;
-    const bool has_document = workspace_.size() != 0 && !web;
-    if (tabs_ != nullptr) tabs_->setVisible(workspace_.size()!=0||!browser_tabs_.empty());
+    const bool files=active_file_manager_!=nullptr;
+    const bool has_document = workspace_.size() != 0 && !web && !files;
+    if (tabs_ != nullptr) tabs_->setVisible(workspace_.size()!=0||!browser_tabs_.empty()||!file_manager_tabs_.empty());
     if(browser_stack_)browser_stack_->setVisible(web);
+    if(file_manager_stack_)file_manager_stack_->setVisible(files);
     if (document_splitter_ != nullptr) document_splitter_->setVisible(has_document);
     if (centralWidget() != nullptr) centralWidget()->update();
     save_action_->setEnabled(has_document);
-    close_document_action_->setEnabled(has_document||web);
+    close_document_action_->setEnabled(has_document||web||files);
     regenerate_document_action_->setEnabled(has_document);
     fit_view_action_->setEnabled(has_document);
     selection_action_->setEnabled(has_document);
@@ -50,8 +52,8 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     if(command_insert_menu_)command_insert_menu_->setEnabled(has_document);
     if(undo_action_)undo_action_->setEnabled(has_document&&undo_action_->isEnabled());
     if(redo_action_)redo_action_->setEnabled(has_document&&redo_action_->isEnabled());
-    if(section_action_&&web)section_action_->setEnabled(false);
-    if(measure_action_&&web)measure_action_->setEnabled(false);
+    if(section_action_&&(web||files))section_action_->setEnabled(false);
+    if(measure_action_&&(web||files))measure_action_->setEnabled(false);
     refresh_delete_file_actions();
     if (!has_document && state_ != nullptr) state_->setText(tr("Připraveno."));
 }
@@ -59,7 +61,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
 void AssemblyWorkspaceWindow::update_application_actions() {
     if(section_action_)section_action_->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id()&&!workspace_.open_drawing(workspace_.displayed_document_id())&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     for (auto* action : application_actions_) action->setEnabled(false);
-    if (workspace_.size() == 0 || active_browser_) return;
+    if (workspace_.size() == 0 || active_browser_ || active_file_manager_) return;
     const auto owner=workspace_.active_document_id();
     const auto saved=document_application_modes_.find(owner);
     active_application_=saved==document_application_modes_.end()

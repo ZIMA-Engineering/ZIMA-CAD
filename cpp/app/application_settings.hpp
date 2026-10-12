@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMap>
+#include <QVector>
 #include <zima/document/sweep_precision.hpp>
 #include <QString>
 #include "../common/document_naming.hpp"
@@ -9,6 +10,26 @@
 class QApplication;
 
 namespace zima::app {
+
+struct FileManagerSource {
+    QString id;
+    QString name;
+    QString path;
+    QString resolved_path;
+    bool enabled{true};
+    bool read_only{true};
+    bool factory{};
+};
+
+struct FileManagerPreferences {
+    QVector<FileManagerSource> sources;
+    QString company_name{QStringLiteral("ZIMA-Engineering")};
+    QString company_logo;
+    QString company_website{QStringLiteral("https://zima-engineering.cz")};
+    QString default_view{QStringLiteral("overview")};
+    int thumbnail_size{144};
+    bool show_hidden{};
+};
 
 struct StartupContext {
     QString working_directory;
@@ -39,6 +60,7 @@ struct ApplicationSettings {
     bool use_iso_application_font{false};
     bool stacked_tolerances{};
     browser::Preferences browser;
+    FileManagerPreferences file_manager;
     double sheet_cut_tolerance{0.05};
     document::SweepPrecisionDefaults sweep_precision_defaults;
 

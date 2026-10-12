@@ -70,6 +70,8 @@ class SketchTextPropertiesDialog;
 class SectionPropertiesDialog;
 class MeasurementDialog;
 class SketchOffsetDialog;
+class FileManagerTab;
+struct FileManagerNativeParameters;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
     friend int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
@@ -224,6 +226,16 @@ private:
     void ensure_browser_runtime();
     void select_browser(const QString& id);
     bool close_browser(int index);
+    QStackedWidget* file_manager_stack_{};
+    QPointer<QWidget> active_file_manager_;
+    std::map<QString,FileManagerTab*> file_manager_tabs_;
+    unsigned file_manager_tab_sequence_{};
+    FileManagerTab* open_file_manager(const QString& initial_path={});
+    void select_file_manager(const QString& id);
+    bool close_file_manager(int index);
+    void reload_file_managers();
+    [[nodiscard]] FileManagerNativeParameters file_manager_native_parameters(const QString& path) const;
+    [[nodiscard]] QString edit_file_manager_native_parameter(const QString& path,const QString& parameter,const QString& value);
     QTreeWidget* tree_{};
     TreeReferenceState tree_reference_state_;
     QToolButton* document_kind_button_{};

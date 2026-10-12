@@ -1,6 +1,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include "workspace_internal.hpp"
+#include "../file_manager_tab.hpp"
 #include "new_document_options.hpp"
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/symbol_operations.hpp>
@@ -226,6 +227,7 @@ QString AssemblyWorkspaceWindow::create_document(
 
 void AssemblyWorkspaceWindow::close_document(int tab_index) {
     if(close_browser(tab_index<0?tabs_->currentIndex():tab_index))return;
+    if(close_file_manager(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(section_dialog_&&!active_sketch_id_.empty())return;
     if (properties_dialog_ != nullptr) {
         state_->setText(tr("Nejprve dokončete nebo zrušte otevřené vlastnosti."));
@@ -352,6 +354,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
 
 void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
     active_browser_=nullptr;
+    active_file_manager_=nullptr;
     if(opening)section_tree_expanded_.erase(workspace_.displayed_document_id());
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
@@ -425,6 +428,12 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         tabs_->setTabData(index,id);
         if(active_browser_==page){displayed_index=index;displayed_label=page->title();}
     }
+    for(const auto& [id,page]:file_manager_tabs_) {
+        const QString label=page->property("fileManagerTitle").toString().left(60);
+        const int index=tabs_->addTab(resource_icon("file-manager"),label.isEmpty()?tr("Správce souborů"):label);
+        tabs_->setTabData(index,id);
+        if(active_file_manager_==page){displayed_index=index;displayed_label=label;}
+    }
     for (int index = 0; index < tabs_->count(); ++index) {
         // Keep the slot width stable, with the close button near the tab's right edge.
         auto* close_slot = new QWidget(tabs_);
@@ -435,7 +444,9 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         // The dirty marker owns a fixed slot: saving must not resize the tab.
         auto* dirty_marker=new QLabel(close_slot);dirty_marker->setObjectName("documentTabDirtyMarker");
         dirty_marker->setFixedSize(12,22);dirty_marker->setAlignment(Qt::AlignCenter);
-        const bool dirty=!browser_tabs_.contains(tabs_->tabData(index).toString()) &&
+        const auto tab_id=tabs_->tabData(index).toString();
+        const bool utility=browser_tabs_.contains(tab_id)||file_manager_tabs_.contains(tab_id);
+        const bool dirty=!utility &&
             workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
         dirty_marker->setText(dirty?QStringLiteral("*"):QString{});
         dirty_marker->setToolTip(dirty?tr("Neuložené změny"):QString{});
@@ -445,8 +456,10 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         close->setObjectName("documentTabCloseButton");
         close->setFixedSize(26, 22);
         close->setFocusPolicy(Qt::NoFocus);
-        close->setToolTip(tr("Zavřít dokument"));
-        close->setAccessibleName(tr("Zavřít dokument"));
+        const QString close_text=file_manager_tabs_.contains(tab_id)?tr("Zavřít Správce souborů"):
+            browser_tabs_.contains(tab_id)?tr("Zavřít webový prohlížeč"):tr("Zavřít dokument");
+        close->setToolTip(close_text);
+        close->setAccessibleName(close_text);
         // Match the reference-row remove button. An actual widget
         // avoids the platform-specific QTabBar close subcontrol/icon.
         const auto document_id = tabs_->tabData(index);

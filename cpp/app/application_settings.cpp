@@ -24,6 +24,7 @@
 #include <QScopeGuard>
 #include <QTranslator>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 
 namespace zima::app {
@@ -220,6 +221,64 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         for (auto it = messages.begin(); it != messages.end(); ++it)
             if (it.value().isString()) result.qt_translations.insert(it.key(), it.value().toString());
     }
+
+    const auto source_label = [&result](const QString& id, const QString& fallback) {
+        return result.text(QStringLiteral("file_manager.source.") + id, fallback);
+    };
+    const QString config_directory = QFileInfo(result.config_path).absolutePath();
+    const auto add_factory_source = [&](const QString& id, const QString& fallback,
+                                        const QString& configured, const QString& resolved) {
+        result.file_manager.sources.push_back({
+            id, source_label(id, fallback), configured, resolved, true, true, true});
+    };
+    const QString encoded_sources = value("FileManager/Sources", QString{});
+    if (encoded_sources.isEmpty()) {
+        add_factory_source("formats", QStringLiteral("Formáty ZIMA-CAD"),
+            result.configured_paths.value("Formats"), result.resolved_paths.value("Formats"));
+        add_factory_source("materials", QStringLiteral("Materiály ZIMA-CAD"),
+            result.configured_paths.value("Materials"), result.resolved_paths.value("Materials"));
+        add_factory_source("symbols", QStringLiteral("Symboly ZIMA-CAD"),
+            result.configured_paths.value("Symbols"), result.resolved_paths.value("Symbols"));
+        add_factory_source("templates", QStringLiteral("Šablony ZIMA-CAD"),
+            result.configured_paths.value("Templates"), result.resolved_paths.value("Templates"));
+        add_factory_source("sheet_metal", QStringLiteral("Plechové prvky"),
+            QStringLiteral("lib/01-SHEETMETAL"), QDir(config_directory).absoluteFilePath("lib/01-SHEETMETAL"));
+        add_factory_source("native", QStringLiteral("Nativní knihovna ZIMA-CAD"),
+            QStringLiteral("lib/02-NATIVE"), QDir(config_directory).absoluteFilePath("lib/02-NATIVE"));
+        add_factory_source("engineering_tables", QStringLiteral("Strojírenské tabulky"),
+            QStringLiteral("lib/03-ENGINEERING-TABLES"), QDir(config_directory).absoluteFilePath("lib/03-ENGINEERING-TABLES"));
+    } else {
+        const auto array = QJsonDocument::fromJson(encoded_sources.toUtf8()).array();
+        for (const auto& entry : array) {
+            const auto object = entry.toObject();
+            FileManagerSource source;
+            source.id = object.value("id").toString();
+            source.name = object.value("name").toString();
+            source.path = object.value("path").toString();
+            source.enabled = object.value("enabled").toBool(true);
+            source.read_only = object.value("readOnly").toBool(true);
+            source.factory = object.value("factory").toBool(false);
+            if (source.id.isEmpty() || source.path.trimmed().isEmpty()) continue;
+            if (source.factory) source.name = source_label(source.id, source.id);
+            source.resolved_path = QDir::isAbsolutePath(source.path)
+                ? QDir::cleanPath(source.path)
+                : QDir(config_directory).absoluteFilePath(source.path);
+            result.file_manager.sources.push_back(std::move(source));
+        }
+    }
+    result.file_manager.company_name = value("FileManager/CompanyName", "ZIMA-Engineering");
+    result.file_manager.company_logo = value("FileManager/CompanyLogo", QString{});
+    if (!result.file_manager.company_logo.isEmpty() && !QDir::isAbsolutePath(result.file_manager.company_logo))
+        result.file_manager.company_logo = QDir(config_directory).absoluteFilePath(result.file_manager.company_logo);
+    result.file_manager.company_website = value("FileManager/CompanyWebsite", "https://zima-engineering.cz");
+    result.file_manager.default_view = value("FileManager/DefaultView", "overview").toLower();
+    if (!QStringList{"project", "overview", "files"}.contains(result.file_manager.default_view))
+        result.file_manager.default_view = "overview";
+    bool thumbnail_ok = false;
+    result.file_manager.thumbnail_size = value("FileManager/ThumbnailSize", "144").toInt(&thumbnail_ok);
+    if (!thumbnail_ok) result.file_manager.thumbnail_size = 144;
+    result.file_manager.thumbnail_size = std::clamp(result.file_manager.thumbnail_size, 64, 256);
+    result.file_manager.show_hidden = value("FileManager/ShowHidden", "false").toLower() == "true";
     return result;
 }
 
@@ -329,6 +388,17 @@ bool ApplicationSettings::save(QString* error) const {
     }
     try {zima::document::validate_sheet_cut_tolerance(sheet_cut_tolerance);sweep_precision_defaults.validate();}
     catch(const std::exception& issue){if(error)*error=QObject::tr(issue.what());return false;}
+    QJsonArray file_manager_sources;
+    for (const auto& source : file_manager.sources) {
+        QJsonObject object;
+        object.insert("id", source.id);
+        object.insert("name", source.name);
+        object.insert("path", QDir::fromNativeSeparators(source.path));
+        object.insert("enabled", source.enabled);
+        object.insert("readOnly", source.read_only);
+        object.insert("factory", source.factory);
+        file_manager_sources.push_back(object);
+    }
     QMap<QString, QVariant> common{
         {"Drawing/PdfDirectory",drawing_pdf_directory},
         {"Drawing/DxfDirectory",drawing_dxf_directory},
@@ -338,6 +408,13 @@ bool ApplicationSettings::save(QString* error) const {
         {"Browser/AskDownloadPath",browser.ask_download_path},
         {"Browser/BlockThirdPartyCookies",browser.block_third_party_cookies},
         {"Browser/SavePasswords",browser.save_passwords},{"Browser/AutofillPasswords",browser.autofill_passwords},
+        {"FileManager/Sources",QString::fromUtf8(QJsonDocument(file_manager_sources).toJson(QJsonDocument::Compact))},
+        {"FileManager/CompanyName",file_manager.company_name},
+        {"FileManager/CompanyLogo",file_manager.company_logo},
+        {"FileManager/CompanyWebsite",file_manager.company_website},
+        {"FileManager/DefaultView",file_manager.default_view},
+        {"FileManager/ThumbnailSize",file_manager.thumbnail_size},
+        {"FileManager/ShowHidden",file_manager.show_hidden},
         {"Application/UseISOFont", use_iso_application_font},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
         {"DocumentNames/Uppercase", document_naming.uppercase},

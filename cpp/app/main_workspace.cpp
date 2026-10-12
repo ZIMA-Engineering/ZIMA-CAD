@@ -9142,6 +9142,7 @@ int verify_selection_filter(QApplication& application,
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
 #include "browser_workspace_ui_verification.inc"
+#include "file_manager_workspace_ui_verification.inc"
 #include "step_tabs_ui_verification.inc"
 #include "sheet_exchange_ui_verification.inc"
 #include "sheet_transition_ui_verification.inc"
@@ -9205,6 +9206,8 @@ int verify_startup_contract(
         return verify_new_document_options(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BROWSER_WORKSPACE_ONLY"))
         return verify_browser_workspace(application);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FILE_MANAGER_ONLY"))
+        return verify_file_manager_workspace(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_STEP_TABS_ONLY"))
         return verify_hidden_step_tabs(application);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATION_TEMPLATES_ONLY")) {
