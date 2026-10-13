@@ -1,5 +1,16 @@
 # Application updates
 
+Signed Windows [2026101303](releases/2026101303.md#signed-windows-publication)
+was published at `2026-10-13T19:43:46Z`. Clean committed-source candidate and
+signed smoke, all 20 factory native loads, production bootstrap trust, nine
+packaged GUI workflows and full source/runtime integrity checks pass. Uploaded
+digests and all three anonymous public downloads match accepted signed assets.
+The trusted signed 2026101302 helper offers 2026101303 as installable without
+installing it during this check. Existing archives, user configuration and
+projects are preserved; `zima-cad.bat` launches the rebuilt local 1303 product.
+The linked release record retains the precise import, general UI/preview and
+Linux verification gaps.
+
 Signed Windows [2026101106](releases/2026101106.md) was published at
 `2026-10-11T16:12:53Z`. The ordinary FORM library offers only the completed
 outward corner and Window, preserving original inward controls outside the

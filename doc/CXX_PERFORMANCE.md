@@ -4,6 +4,12 @@ For new commands and feature extensions, follow the
 [performance-by-design guide](FEATURE_PERFORMANCE_GUIDE.md). It translates the
 measured optimizations into lifecycle, ownership and verification rules.
 
+The 2026-10-13 follow-up is included in signed Windows
+[2026101303](releases/2026101303.md#signed-windows-publication), with committed
+source, signed-package workflows and public/update acceptance. Measurements
+below remain scoped local results; the remaining G92K1 precise volume-integration
+latency and documented GUI/Linux verification gaps remain open.
+
 ## Deferred user observations (2026-10-13)
 
 The user authorized implementation on 2026-10-13 in this order: foreign-model

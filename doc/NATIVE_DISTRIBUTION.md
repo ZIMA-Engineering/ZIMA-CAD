@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Signed Windows [2026101303](releases/2026101303.md#signed-windows-publication)
+was published at `2026-10-13T19:43:46Z`. It includes bounded native parameter
+reading and saved metadata mirrors, directory parameter/thumbnail sources,
+foreign preview dispatch, protected cleanup/icons, owning-Body Extrusion planes,
+native IO and confirmed-wire rendering improvements. New labels cover all five
+languages; shared C++, OCCT 8.0.0 and native formats are retained. Fresh committed
+candidate/signed smoke, 20 factory loads, production trust, nine packaged GUI
+workflows, 6,268 unchanged checksums and all 1,916 committed config comparisons
+pass. Three anonymous public downloads match accepted assets; signed 1302 offers
+an installable update. Remaining precise G92K1 import latency, broad GUI/preview
+assertion gaps and Linux execution are explicit in the linked finite record.
+
 Signed Windows [2026101302](releases/2026101302.md#signed-windows-publication)
 was published at `2026-10-13T12:46:18Z`. It fixes Window-menu save-state
 queries on utility tabs, adds F10 through the existing active-tab close handler
