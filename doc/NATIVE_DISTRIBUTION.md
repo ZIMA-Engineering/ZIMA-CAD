@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Signed Windows [2026101302](releases/2026101302.md#signed-windows-publication)
+was published at `2026-10-13T12:46:18Z`. It fixes Window-menu save-state
+queries on utility tabs, adds F10 through the existing active-tab close handler
+while retaining F9/Ctrl+W and native Save/Discard/Cancel, and makes Files rows
+uniform at the selected thumbnail size. The failure is reproduced before the
+fix; actual menu/keyboard, native/utility-only/empty-window, uniform-row and
+adjacent save/copy/STEP/template tests pass, together with all five catalogs.
+Clean candidate/signed smoke, all 20 native factory loads, production trust,
+five signed-package GUI workflows, all 6,261 unchanged checksums, the complete
+1,916-file committed configuration comparison and installable discovery from
+signed 2026101301 pass. Native Linux acceptance remains assigned to its host.
+
 Signed Windows [2026101301](releases/2026101301.md#signed-windows-publication)
 was published at `2026-10-13T11:27:49Z`. It reduces repeated history and
 aggregate-analysis work while retaining exact geometry, references and native
