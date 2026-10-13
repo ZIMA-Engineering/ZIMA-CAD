@@ -213,7 +213,7 @@ geometry kernel and written in C++. It follows the selected application language
 | F6 / Ctrl+S | Save document |
 | F7 / Ctrl+Shift+S | Save document as |
 | F8 | Rename file |
-| F9 / Ctrl+W | Close the active document tab |
+| F10 / F9 / Ctrl+W | Close the active native document, browser, File Manager or preview tab |
 | F12 | Set the working directory |
 | Ctrl+Shift+C | Toggle the CAD command console |
 

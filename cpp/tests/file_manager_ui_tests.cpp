@@ -173,8 +173,17 @@ int main(int argc,char** argv){
         const QPoint click=files->style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,&checkbox,files).center();
         QMouseEvent press(QEvent::MouseButtonPress,click,files->viewport()->mapToGlobal(click),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&press);QMouseEvent release(QEvent::MouseButtonRelease,click,files->viewport()->mapToGlobal(click),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&release);
         check(a->checkState(0)==Qt::Checked&&b->checkState(0)==Qt::Checked&&c->checkState(0)==Qt::Unchecked&&files->selectedItems().size()==2,"Actual checkbox click lost the selected row group");a->setCheckState(0,Qt::Unchecked);files->clearSelection();
-        {QImage thumbnail(320,240,QImage::Format_RGB32);thumbnail.fill(Qt::red);QDir().mkpath(index+"/thumbnails");check(thumbnail.save(index+"/thumbnails/BRACKET.png")&&thumbnail.save(index+"/thumbnails/ASSEMBLY.png"),"Cannot write thumbnail fixtures");}
+        {QImage thumbnail(320,240,QImage::Format_RGB32);thumbnail.fill(Qt::red);QDir().mkpath(index+"/thumbnails");check(thumbnail.save(index+"/thumbnails/BRACKET.png")&&thumbnail.scaled(240,320,Qt::IgnoreAspectRatio).save(index+"/thumbnails/ASSEMBLY.png"),"Cannot write thumbnail fixtures");}
         first.navigate(project);application.processEvents();QTreeWidgetItem* preview_row{};for(int row=0;row<files->topLevelItemCount();++row)if(files->topLevelItem(row)->text(0)=="BRACKET.prtz")preview_row=files->topLevelItem(row);check(preview_row&&!preview_row->data(0,Qt::UserRole+4).toString().isEmpty(),"Parts-compatible basename thumbnail was not discovered");
+        const auto check_uniform_rows=[&]{
+            application.processEvents();
+            for(int row=0;row<files->topLevelItemCount();++row){
+                auto* item=files->topLevelItem(row);if(item->isHidden())continue;
+                check(files->visualItemRect(item).height()==sizes->value()+4,
+                    "Files row height differs for a directory, empty preview or image aspect ratio");
+            }
+        };
+        for(const int size:{48,72,144,192,72}){sizes->setValue(size);check_uniform_rows();}
         ItemGeometryProbe geometry;const auto preview_index=files->indexFromItem(preview_row,zima::app::file_preview_column);const auto preview_geometry=geometry.geometry(files,preview_index);const QPoint preview_point=preview_geometry.thumbnail.center();check(files->indexAt(preview_point)==preview_index,"Thumbnail point does not resolve to its real styled file cell");
         check(!preview_row->icon(0).isNull()&&preview_row->icon(0).cacheKey()!=qvariant_cast<QIcon>(preview_index.data(Qt::DecorationRole)).cacheKey(),"Thumbnail replaced the file-type icon");
         for(int row=0;row<files->topLevelItemCount();++row){const auto index=files->indexFromItem(files->topLevelItem(row),zima::app::file_preview_column);if(qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).isNull())continue;check(geometry.geometry(files,index).thumbnail.center().x()==preview_point.x(),"Preview images do not share one vertical line");}
@@ -245,7 +254,7 @@ int main(int argc,char** argv){
             localized.setValue("Directory/Label/cs",name.startsWith("01")?"Zeta":"Alfa");
             localized.setValue("Directory/Label/en",name.startsWith("01")?"Zulu":"Alpha");localized.sync();
         }
-        first.navigate(order);files->sortItems(0,Qt::AscendingOrder);
+        first.navigate(order);files->sortItems(0,Qt::AscendingOrder);check_uniform_rows();
         check(files->topLevelItemCount()==2&&files->topLevelItem(0)->text(0)=="Zeta"&&files->topLevelItem(1)->text(0)=="Alfa","Directory table sorts translated labels instead of actual filenames");
         files->sortItems(0,Qt::DescendingOrder);check(files->topLevelItem(0)->text(0)=="Alfa","Descending filename order is incorrect");
         auto english=settings;english.language="en";first.reload_settings(english);first.navigate(order);files=first.findChild<QTreeWidget*>("fileManagerFiles");files->sortItems(0,Qt::AscendingOrder);

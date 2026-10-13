@@ -1090,6 +1090,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         sketch_external_reference_action_->setEnabled(false);
         sketch_external_profile_action_->setEnabled(false);
         rebuild_application_toolbar();
+        update_document_area_visibility();
         return;
     }
     if (auto* drawing =

@@ -352,3 +352,15 @@ The icon after the working-directory field binds the same QAction as File → Se
 Parameter cache validity includes the revision of any authoritative open native document in addition to file modification time and size. Unsaved metadata edits therefore appear without reloading closed files or recalculating geometry.
 
 Unsaved native values appear in the UI but are not published into the persistent file metadata mirror. The cache key includes the saved/dirty state; mirroring resumes after a successful native save. Directory-property changes refresh inherited protection and factory-source labels in the current view immediately.
+
+## Window menu and row sizing
+
+The Window menu lists all native, browser, File Manager and preview tabs. Only
+native documents have a save state; utility tabs must not enter native save-state
+queries. Selecting a menu entry uses the ordinary active-tab switching path.
+F10 closes the active tab through its existing close handler, retaining F9 and
+Ctrl+W. Native documents retain Save/Discard/Cancel protection.
+
+Files rows have one uniform height derived from the thumbnail-size control,
+including directories and files without previews. Preview aspect ratio does not
+change row height; image rendering keeps its aspect ratio and minimal margins.

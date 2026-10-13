@@ -1,6 +1,40 @@
 int verify_file_manager_workspace(QApplication& application) {
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto check_window_menu=[&](zima::app::AssemblyWorkspaceWindow& host){
+        auto* tabs=host.findChild<QTabBar*>("documentTabs");
+        auto* menu=host.findChild<QMenu*>("windowMenu");
+        check(tabs&&menu,"Window menu or tabs are missing");
+        host.raise();host.activateWindow();flush();
+        auto* bar=host.menuBar();const QPoint point=bar->actionGeometry(menu->menuAction()).center();
+        QMouseEvent press(QEvent::MouseButtonPress,point,bar->mapToGlobal(point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(bar,&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,point,bar->mapToGlobal(point),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(bar,&release);flush();
+        check(menu->isVisible(),"Clicking Window did not open its menu");
+        const auto actions=menu->actions();
+        if(tabs->count()==0){check(actions.size()==1&&!actions.front()->isEnabled(),"Empty Window menu is not disabled");menu->hide();return;}
+        check(actions.size()==tabs->count(),"Window menu does not list every native and utility tab");
+        for(int index=0;index<tabs->count();++index){
+            check(actions[index]->isCheckable()&&actions[index]->isChecked()==(index==tabs->currentIndex()),"Window menu active checkmark is incorrect");
+            auto* marker=tabs->tabButton(index,QTabBar::RightSide)->findChild<QLabel*>("documentTabDirtyMarker");
+            check(marker&&actions[index]->text()==tabs->tabText(index)+(marker->text().isEmpty()?QString{}:QStringLiteral(" *")),
+                "Window menu title or unsaved marker differs from its tab");
+        }
+        std::vector<QVariant> ids;for(int index=0;index<tabs->count();++index)ids.push_back(tabs->tabData(index));
+        menu->hide();bar->setActiveAction(nullptr);
+        for(int index=0;index<actions.size();++index){actions[index]->trigger();flush();check(tabs->tabData(tabs->currentIndex())==ids[index],"Window menu selected the wrong tab");}
+    };
+    const auto close_with_f10=[&](zima::app::AssemblyWorkspaceWindow& host){
+        auto* close=host.findChild<QAction*>("closeDocumentAction");
+        check(close&&close->shortcuts().contains(QKeySequence(Qt::Key_F10))&&
+            close->shortcuts().contains(QKeySequence(Qt::Key_F9))&&close->shortcuts().contains(QKeySequence::Close),
+            "Close does not retain F10, F9 and the standard shortcut");
+        check(close->isEnabled(),"Close is disabled for the active native or utility tab");
+        host.raise();host.activateWindow();host.setFocus();flush();
+        QKeyEvent press(QEvent::KeyPress,Qt::Key_F10,Qt::NoModifier);QApplication::sendEvent(&host,&press);
+        QKeyEvent release(QEvent::KeyRelease,Qt::Key_F10,Qt::NoModifier);QApplication::sendEvent(&host,&release);flush();
+    };
     const auto choose_document=[&](zima::app::AssemblyWorkspaceWindow& host,const QString& selected){
         bool dialog_seen=false,dialog_contract=false;QTimer chooser;chooser.setInterval(20);
         QObject::connect(&chooser,&QTimer::timeout,&host,[&]{
@@ -17,9 +51,9 @@ int verify_file_manager_workspace(QApplication& application) {
         QTemporaryDir directory;check(directory.isValid(),"Cannot create File Manager workspace fixture");
         QSettings settings(directory.filePath("config.ini"),QSettings::IniFormat);settings.setValue("Paths/WorkingDirectory",directory.path());settings.setValue("Application/Language","cs");settings.sync();
         zima::app::AssemblyWorkspaceWindow window(directory.path(),directory.path());
-        window.resize(1366,768);window.show();flush();
+        window.resize(1366,768);window.show();flush();check_window_menu(window);
         check(window.execute_console_command("new part file-manager-context").ok,"Cannot create File Manager CAD context");
-        check(window.execute_console_command("save").ok,"Cannot save File Manager CAD context");flush();
+        check(window.execute_console_command("save").ok,"Cannot save File Manager CAD context");flush();check_window_menu(window);
         const QString part_path=directory.filePath("file-manager-context.prtz");check(QFileInfo::exists(part_path),"File Manager native fixture was not saved");
         const QString thumbnail=directory.filePath("0000-index/thumbnails/file-manager-context.prtz.png");QImage saved_thumbnail(thumbnail);check(!saved_thumbnail.isNull()&&saved_thumbnail.width()<=320&&saved_thumbnail.height()<=240,"Save did not create a bounded PNG preview");
         auto* tabs=window.findChild<QTabBar*>("documentTabs");check(tabs,"Document tabs missing");
@@ -27,13 +61,14 @@ int verify_file_manager_workspace(QApplication& application) {
         auto* action=window.findChild<QAction*>("newFileManagerTabAction");check(action,"File Manager action missing");
         action->trigger();flush();
         check(tabs->count()==original+1&&tabs->tabData(tabs->currentIndex()).toString().startsWith("files:"),"File Manager is not an ordinary active tab");
+        check_window_menu(window);
         auto* files=window.findChild<QStackedWidget*>("fileManagerStack");auto* browser=window.findChild<QStackedWidget*>("browserStack");auto* cad=window.findChild<QSplitter*>("documentSplitter");
         check(files&&files->isVisible()&&browser&&!browser->isVisible()&&cad&&!cad->isVisible(),"File Manager did not exclusively replace the document area");
         auto* table=window.findChild<QTreeWidget*>("fileManagerFiles");check(table,"File Manager file table missing");
         auto* live_manager=dynamic_cast<zima::app::FileManagerTab*>(files->currentWidget());check(live_manager,"Active File Manager is missing");
         auto* retained_view=live_manager->findChild<QTabWidget*>("fileManagerViews");check(retained_view&&retained_view->currentIndex()==1,"New File Manager did not start in Files");
         auto parameter_request=nlohmann::json{{"command","document.parameters.get"},{"arguments",{{"document",document.toString().toStdString()}}}};auto rows=window.execute_console_command(QString::fromStdString(parameter_request.dump())).data.at("parameters");for(auto& row:rows)if(row.at("key")=="name")row["values"][""]="Unsaved name from the open Part";
-        auto parameter_change=nlohmann::json{{"command","document.parameters.set"},{"arguments",{{"document",document.toString().toStdString()},{"parameters",rows}}}};check(window.execute_console_command(QString::fromStdString(parameter_change.dump())).ok,"Cannot prepare an unsaved native parameter change");live_manager->navigate(directory.path(),false);flush();
+        auto parameter_change=nlohmann::json{{"command","document.parameters.set"},{"arguments",{{"document",document.toString().toStdString()},{"parameters",rows}}}};check(window.execute_console_command(QString::fromStdString(parameter_change.dump())).ok,"Cannot prepare an unsaved native parameter change");live_manager->navigate(directory.path(),false);flush();check_window_menu(window);
         check(zima::document::PartDocument::load(std::filesystem::u8path(part_path.toStdString())).user_parameters.at("name")!="Unsaved name from the open Part","Parameter inspection unexpectedly saved the open document");
         QSettings saved_mirror(directory.filePath("0000-index/metadata.ini"),QSettings::IniFormat);check(saved_mirror.value("Parts/file-manager-context/name").toString()!="Unsaved name from the open Part","Inspection persisted an unsaved native parameter into the file cache");
         QTreeWidgetItem* part_item{};for(int row=0;row<table->topLevelItemCount();++row)if(table->topLevelItem(row)->text(0).compare("file-manager-context.prtz",Qt::CaseInsensitive)==0)part_item=table->topLevelItem(row);
@@ -43,7 +78,7 @@ int verify_file_manager_workspace(QApplication& application) {
         QSettings metadata(directory.filePath("0000-index/metadata.ini"),QSettings::IniFormat);check(metadata.value("Directory/Version").toInt()==3&&metadata.value("Files/file-manager-context/Provider").toString()=="zima-cad","Native edit did not create the metadata v3 provider mirror");
         action->trigger();flush();check(tabs->count()==original+2,"Multiple File Manager tabs were not retained");
         auto* web_action=window.findChild<QAction*>("newBrowserTabAction");check(web_action,"Browser action missing");web_action->trigger();flush();
-        check(tabs->tabData(tabs->currentIndex()).toString().startsWith("web:")&&browser->isVisible()&&!files->isVisible(),"Browser switch retained the File Manager surface");
+        check(tabs->tabData(tabs->currentIndex()).toString().startsWith("web:")&&browser->isVisible()&&!files->isVisible(),"Browser switch retained the File Manager surface");check_window_menu(window);
         int file_index=-1,document_index=-1;for(int index=0;index<tabs->count();++index){const auto id=tabs->tabData(index);if(file_index<0&&id.toString().startsWith("files:"))file_index=index;if(id==document)document_index=index;}
         check(file_index>=0&&document_index>=0,"File Manager or CAD tab disappeared");tabs->setCurrentIndex(file_index);flush();check(files->isVisible()&&!browser->isVisible()&&!cad->isVisible(),"Returning to File Manager retained another surface");
         tabs->setCurrentIndex(document_index);flush();check(cad->isVisible()&&!files->isVisible()&&!browser->isVisible(),"Returning to CAD retained a utility surface");
@@ -70,14 +105,14 @@ int verify_file_manager_workspace(QApplication& application) {
         const QString dxf=directory.filePath("inspection.dxf");{QFile fixture(dxf);check(fixture.open(QIODevice::WriteOnly),"Cannot write DXF preview fixture");fixture.write("0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10\n21\n5\n0\nENDSEC\n0\nEOF\n");}
         const int before_preview=tabs->count();manager->preview_file_requested(dxf);flush();auto* preview=window.findChild<QStackedWidget*>("modelPreviewStack");check(tabs->count()==before_preview+1&&tabs->tabData(tabs->currentIndex()).toString().startsWith("preview:")&&preview&&preview->isVisible()&&!files->isVisible()&&!cad->isVisible()&&!browser->isVisible(),"DXF preview did not open as one exclusive main tab");
         check(!window.findChild<QAction*>("saveDocumentAction")->isEnabled()&&!window.findChild<QAction*>("saveDocumentAsAction")->isEnabled(),"Read-only preview enabled native save commands");
-        manager->preview_file_requested(dxf);flush();check(tabs->count()==before_preview+1,"Repeated preview duplicated its main tab");emit tabs->tabCloseRequested(tabs->currentIndex());flush();check(tabs->count()==before_preview&&!preview->isVisible(),"Closing preview retained its surface or tab");
-        for(int index=tabs->count()-1;index>=0;--index){const QString id=tabs->tabData(index).toString();if(id.startsWith("files:")||id.startsWith("web:")){emit tabs->tabCloseRequested(index);flush();}}
+        manager->preview_file_requested(dxf);flush();check(tabs->count()==before_preview+1,"Repeated preview duplicated its main tab");check_window_menu(window);close_with_f10(window);check(tabs->count()==before_preview&&!preview->isVisible(),"Closing preview retained its surface or tab");
+        for(int index=tabs->count()-1;index>=0;--index){const QString id=tabs->tabData(index).toString();if(id.startsWith("files:")||id.startsWith("web:")){tabs->setCurrentIndex(index);flush();close_with_f10(window);}}
         check(tabs->count()==original&&tabs->tabData(tabs->currentIndex())==document&&cad->isVisible(),"Closing utility tabs did not restore CAD context");
         {
             zima::app::AssemblyWorkspaceWindow shutdown(directory.path(),directory.path());shutdown.show();flush();
             shutdown.findChild<QAction*>("newFileManagerTabAction")->trigger();flush();
             auto* shutdown_tabs=shutdown.findChild<QTabBar*>("documentTabs");const int shutdown_count=shutdown_tabs->count();const auto shutdown_active=shutdown_tabs->tabData(shutdown_tabs->currentIndex());choose_document(shutdown,{});check(shutdown_tabs->count()==shutdown_count&&shutdown_tabs->tabData(shutdown_tabs->currentIndex())==shutdown_active,"File Open duplicated the File Manager when no CAD document was open");
-            shutdown.findChild<QAction*>("newBrowserTabAction")->trigger();flush();
+            check_window_menu(shutdown);shutdown.findChild<QAction*>("newBrowserTabAction")->trigger();flush();check_window_menu(shutdown);
             const QString close_fixture=directory.filePath("close-first.prtz");check(QFile::copy(part_path,close_fixture),"Cannot isolate first-tab close fixture");
             choose_document(shutdown,close_fixture);
             check(shutdown_tabs->count()==3&&!shutdown_tabs->tabData(0).toString().startsWith("web:")&&
@@ -94,6 +129,41 @@ int verify_file_manager_workspace(QApplication& application) {
                 check(remaining_files->isVisible()==file_tab&&remaining_browser->isVisible()!=file_tab&&!remaining_cad->isVisible(),
                     "Remaining utility tabs lost exclusive page display after closing the first native tab");
             }
+            while(shutdown_tabs->count()>0){check_window_menu(shutdown);const int count=shutdown_tabs->count();close_with_f10(shutdown);check(shutdown_tabs->count()==count-1,"F10 did not close a utility-only tab");}
+            check_window_menu(shutdown);
+        }
+        {
+            const QString native_directory=directory.filePath("keyboard-native");QDir().mkpath(native_directory);
+            zima::app::AssemblyWorkspaceWindow keyboard(native_directory,directory.path());keyboard.show();flush();
+            auto* native_tabs=keyboard.findChild<QTabBar*>("documentTabs");
+            for(const auto* type:{"part","assembly","drawing"}){
+                check(keyboard.execute_console_command(QString("new %1 F10-%1").arg(type)).ok,"Cannot create F10 native fixture");
+                check(keyboard.execute_console_command("save").ok,"Cannot save F10 native fixture");flush();check_window_menu(keyboard);
+                const int count=native_tabs->count();close_with_f10(keyboard);check(native_tabs->count()==count-1,"F10 did not close the saved native tab");
+            }
+            check(keyboard.execute_console_command("new part F10-PROMPT").ok&&keyboard.execute_console_command("save").ok,"Cannot create saved prompt fixture");flush();
+            const auto native_id=native_tabs->tabData(native_tabs->currentIndex()).toString().toStdString();
+            const auto change_name=[&](const char* value){
+                auto get=nlohmann::json{{"command","document.parameters.get"},{"arguments",{{"document",native_id}}}};
+                auto parameters=keyboard.execute_console_command(QString::fromStdString(get.dump())).data.at("parameters");
+                for(auto& parameter:parameters)if(parameter.at("key")=="name")parameter["values"][""]=value;
+                auto set=nlohmann::json{{"command","document.parameters.set"},{"arguments",{{"document",native_id},{"parameters",parameters}}}};
+                check(keyboard.execute_console_command(QString::fromStdString(set.dump())).ok,"Cannot prepare unsaved F10 changes");flush();
+            };
+            const auto answer_prompt=[&](QMessageBox::StandardButton answer){
+                bool seen=false;QTimer timer;timer.setInterval(20);
+                QObject::connect(&timer,&QTimer::timeout,&keyboard,[&]{if(auto* prompt=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){seen=true;timer.stop();prompt->button(answer)->click();}});
+                timer.start();close_with_f10(keyboard);timer.stop();check(seen,"F10 skipped the unsaved-change prompt");
+            };
+            change_name("F10 pending save");check_window_menu(keyboard);answer_prompt(QMessageBox::Cancel);
+            check(native_tabs->count()==1&&native_tabs->tabData(native_tabs->currentIndex()).toString().toStdString()==native_id,"Cancel lost the native tab");
+            answer_prompt(QMessageBox::Save);check(native_tabs->count()==0,"Save did not close the native tab");
+            const auto path=std::filesystem::u8path(QDir(native_directory).filePath("F10-PROMPT.prtz").toStdString());
+            check(zima::document::PartDocument::load(path).user_parameters.at("name")=="F10 pending save","F10 Save lost pending changes");
+            check(keyboard.execute_console_command("open F10-PROMPT.prtz").ok,"Cannot reopen F10 prompt fixture");flush();
+            change_name("F10 discard");answer_prompt(QMessageBox::Discard);check(native_tabs->count()==0,"Discard did not close the native tab");
+            check(zima::document::PartDocument::load(path).user_parameters.at("name")=="F10 pending save","F10 Discard saved pending changes");
+            check_window_menu(keyboard);
         }
         std::cout<<"File Manager native editing, tabs, File Open and exclusive CAD/browser switching passed\n";return 0;
     } catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

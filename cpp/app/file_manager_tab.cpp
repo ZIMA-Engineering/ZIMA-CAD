@@ -626,10 +626,9 @@ public:
     QSize sizeHint(const QStyleOptionViewItem& option,const QModelIndex& index)const override{
         auto styled=option;if(index.column()==0)styled.decorationSize={20,20};
         auto size=QStyledItemDelegate::sizeHint(styled,index);
-        if(index.column()==file_preview_column&&!qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).isNull()){
+        if(index.column()==file_preview_column){
             const auto* view=qobject_cast<QAbstractItemView*>(parent());size.setWidth(view->iconSize().width()+4);
-            const auto image_size=qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).actualSize(view->iconSize());
-            size.setHeight(std::max(size.height(),image_size.height()+4));
+            size.setHeight(std::max(size.height(),view->iconSize().height()+4));
         }
         return size;
     }
@@ -706,7 +705,7 @@ void FileManagerTab::build_ui(){
     overview_stack_->addWidget(automatic_overview_);
     connect(overview_,&QListWidget::itemClicked,this,[this](QListWidgetItem* item){open_entry(item->data(Qt::UserRole).toString());});views_->addTab(overview_stack_,resource_icon("overview"),tr("Přehled"));
 
-    auto* files_page=new QWidget(views_);auto* files_layout=new QVBoxLayout(files_page);files_layout->setContentsMargins(0,0,0,12);files_=new FileTable(files_page);files_->setObjectName("fileManagerFiles");files_->setHeader(new ColumnFilterHeader(files_));files_->setRootIsDecorated(false);files_->setAlternatingRowColors(true);files_->setSelectionMode(QAbstractItemView::ExtendedSelection);files_->setEditTriggers(QAbstractItemView::SelectedClicked);files_->header()->setSortIndicator(0,Qt::AscendingOrder);files_->setSortingEnabled(true);files_->setIconSize({48,48});files_->header()->setSectionsMovable(true);files_->header()->setStretchLastSection(false);
+    auto* files_page=new QWidget(views_);auto* files_layout=new QVBoxLayout(files_page);files_layout->setContentsMargins(0,0,0,12);files_=new FileTable(files_page);files_->setObjectName("fileManagerFiles");files_->setHeader(new ColumnFilterHeader(files_));files_->setRootIsDecorated(false);files_->setUniformRowHeights(true);files_->setAlternatingRowColors(true);files_->setSelectionMode(QAbstractItemView::ExtendedSelection);files_->setEditTriggers(QAbstractItemView::SelectedClicked);files_->header()->setSortIndicator(0,Qt::AscendingOrder);files_->setSortingEnabled(true);files_->setIconSize({48,48});files_->header()->setSectionsMovable(true);files_->header()->setStretchLastSection(false);
     static_cast<ColumnFilterHeader*>(files_->header())->filters_changed=[this]{apply_file_filters();};
     connect(files_,&QTreeWidget::itemDoubleClicked,this,[this](QTreeWidgetItem* item,int column){if(column==0)open_entry(item->data(0,Qt::UserRole).toString());});files_layout->addWidget(files_,1);
     auto* actions=new QHBoxLayout;filter_versions_=new QToolButton(files_page);filter_versions_->setText(tr("Verze"));filter_versions_->setCheckable(true);filter_versions_->setObjectName("fileManagerFilterVersions");actions->addWidget(filter_versions_);connect(filter_versions_,&QToolButton::toggled,this,[this]{refresh_overview();refresh_files();});

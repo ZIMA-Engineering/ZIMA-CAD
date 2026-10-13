@@ -45,7 +45,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(export_action_);
     close_document_action_ = make_action(t("menu.file.close", "Zavřít"), "close");
     close_document_action_->setObjectName("closeDocumentAction");
-    close_document_action_->setShortcuts({QKeySequence(Qt::Key_F9), QKeySequence::Close});
+    close_document_action_->setShortcuts({QKeySequence(Qt::Key_F10), QKeySequence(Qt::Key_F9), QKeySequence::Close});
     connect(close_document_action_, &QAction::triggered, this,
         [this] { close_document(); });
     save_action_ = make_action(t("menu.file.save", "Uložit"), "save");
@@ -423,7 +423,9 @@ void AssemblyWorkspaceWindow::create_actions() {
             return;
         }
         for (int index = 0; index < tabs_->count(); ++index) {
-            const bool dirty=workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
+            const auto id=tabs_->tabData(index).toString().toStdString();
+            // Utility tabs have no native document or save state.
+            const bool dirty=workspace_.find(id)&&workspace::document_needs_save(workspace_,id);
             auto* action = window_menu->addAction(tabs_->tabIcon(index), tabs_->tabText(index)+(dirty?QStringLiteral(" *"):QString{}));
             action->setCheckable(true);
             action->setChecked(index == tabs_->currentIndex());
