@@ -17,7 +17,11 @@ Json direct_details(const assembly::PartOccurrence& item) {
         rows.push_back({{"kind",kind},{"component",reference(row.component_reference)},{"target",reference(row.target_reference)},{"offset",row.offset},{"flip",row.flip},{"locked",row.offset_locked},
             {"lower_limit",row.lower_limit?Json(*row.lower_limit):Json(nullptr)},{"upper_limit",row.upper_limit?Json(*row.upper_limit):Json(nullptr)}});
     }
-    return {{"source_path",document::path_to_utf8(item.source_path)},{"placement_references",std::move(rows)},{"cached_volume_mm3",item.calculated_source->volume},{"cached_area_mm2",item.calculated_source->surface_area},{"value_locks",item.value_locks},{"bom_ignore_variant",item.bom_ignore_variant}};
+    return {{"source_path",document::path_to_utf8(item.source_path)},{"placement_references",std::move(rows)},
+        {"cached_volume_mm3",item.calculated_source->physical_properties_current?Json(item.calculated_source->volume):Json(nullptr)},
+        {"cached_area_mm2",item.calculated_source->physical_properties_current?Json(item.calculated_source->surface_area):Json(nullptr)},
+        {"physical_properties_current",item.calculated_source->physical_properties_current},
+        {"value_locks",item.value_locks},{"bom_ignore_variant",item.bom_ignore_variant}};
 }
 // Traverse the calculated/persisted hierarchy, not newly edited open sources.
 // Selection and query paths therefore describe the same snapshot on screen.

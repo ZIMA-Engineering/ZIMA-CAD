@@ -30,10 +30,14 @@ after conversion and cannot overwrite another native document. Explicit
 case-only renaming is supported on Windows through the existing staged native
 rename transaction, including dependency updates.
 
-Factory start templates are `START_PART.prtz`, `START_ASSEMBLY.asmz` and
-`START_SKELETON.prtz`. Their file paths are configuration references, not input
+Factory start templates are `START_PART_mm.prtz`, `START_ASSEMBLY_mm.asmz` and
+`START_SKELETON_mm.prtz`, each with a corresponding `_in` variant. Their file paths are configuration references, not input
 to the naming conversion. Skeleton detection remains case-insensitive.
 User-defined template filenames are respected as configured.
+System Setup configures all three templates; mm/in presets switch the complete
+set. Removed unsuffixed factory settings resolve to the matching available unit
+variant only when their configured file is absent. Existing custom files remain
+unchanged.
 
 Verification covers independent and combined settings, composed/decomposed
 Unicode, absent settings, GUI/CLI configuration parity, creation from factory

@@ -379,7 +379,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(!skin){skin=new QAction(resource_icon("surface-from-solid"),tr("Plochy z tělesa"),this);
             skin->setObjectName("surfaceFromSolidAction");connect(skin,&QAction::triggered,this,[this]{start_shell(true);});}
         const auto* skin_input=modeling_part?zima::workspace::calculated_operation_input(modeling_part->session,{}):nullptr;
-        bool skin_source=skin_input&&skin_input->volume>0.;
+        bool skin_source=skin_input&&skin_input->has_solid();
         if(modeling_part&&!skin_source)for(const auto& body:modeling_part->session.document().body_history.bodies())try {
             if(zima::workspace::shell_source_input(*modeling_part,{},body.scope.id)){skin_source=true;break;}
         }catch(const std::exception&){}

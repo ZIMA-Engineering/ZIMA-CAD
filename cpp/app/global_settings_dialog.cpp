@@ -187,11 +187,14 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         template_page_=new QWidget(sections_);auto* template_form=new QFormLayout(template_page_);
         part_template_=new QComboBox(template_page_);part_template_->setEditable(true);part_template_->setObjectName("setupPartTemplate");
         assembly_template_=new QComboBox(template_page_);assembly_template_->setEditable(true);assembly_template_->setObjectName("setupAssemblyTemplate");
+        skeleton_template_=new QComboBox(template_page_);skeleton_template_->setEditable(true);skeleton_template_->setObjectName("setupSkeletonTemplate");
         const QDir templates(settings_.resolved_paths.value("Templates"));
         part_template_->addItems(templates.entryList({"*.prtz"},QDir::Files));part_template_->setCurrentText(settings_.part_template);
         assembly_template_->addItems(templates.entryList({"*.asmz"},QDir::Files));assembly_template_->setCurrentText(settings_.assembly_template);
+        skeleton_template_->addItems(templates.entryList({"*.prtz"},QDir::Files));skeleton_template_->setCurrentText(settings_.skeleton_template);
         template_form->addRow(tr("Výchozí šablona dílu"),part_template_);
         template_form->addRow(tr("Výchozí šablona sestavy"),assembly_template_);
+        template_form->addRow(tr("Výchozí šablona Skeletonu"),skeleton_template_);
         auto* note=new QLabel(tr("Jednotky vybraných šablon musí odpovídat předvolbě. Formát papíru a rohové razítko se vybírají samostatně ve výkresu."),template_page_);
         note->setWordWrap(true);template_form->addRow(note);
         sections_->addTab(template_page_,tr("Šablony"));
@@ -204,6 +207,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
             unit_fields_["Time"]->setCurrentText("s");
             part_template_->setCurrentText("START_PART_"+unit+".prtz");
             assembly_template_->setCurrentText("START_ASSEMBLY_"+unit+".asmz");
+            skeleton_template_->setCurrentText("START_SKELETON_"+unit+".prtz");
         });
     }
     auto* sheet_page=new QWidget(sections_);
@@ -476,17 +480,19 @@ bool GlobalSettingsDialog::submit() {
     QString error;
     if(system_setup_) {
         settings_.part_template=part_template_->currentText().trimmed();settings_.assembly_template=assembly_template_->currentText().trimmed();
+        settings_.skeleton_template=skeleton_template_->currentText().trimmed();
         const QDir config(QFileInfo(settings_.config_path).absolutePath());
         const QDir templates(config.absoluteFilePath(settings_.configured_paths.value("Templates")));
         try {
             const auto part=zima::document::PartDocument::load(std::filesystem::u8path(templates.absoluteFilePath(settings_.part_template).toStdString()));
             const auto assembly=zima::assembly::AssemblyDocument::load(std::filesystem::u8path(templates.absoluteFilePath(settings_.assembly_template).toStdString()));
+            const auto skeleton=zima::document::PartDocument::load(std::filesystem::u8path(templates.absoluteFilePath(settings_.skeleton_template).toStdString()));
             for(auto it=settings_.units.cbegin();it!=settings_.units.cend();++it)
-                if(part.document_units.at(it.key().toStdString())!=it.value().toStdString()||assembly.document_units.at(it.key().toStdString())!=it.value().toStdString()) {
+                if(part.document_units.at(it.key().toStdString())!=it.value().toStdString()||assembly.document_units.at(it.key().toStdString())!=it.value().toStdString()||skeleton.document_units.at(it.key().toStdString())!=it.value().toStdString()) {
                     sections_->setCurrentWidget(template_page_);QMessageBox::critical(this,tr("Uložení selhalo"),tr("Jednotky šablon neodpovídají zvoleným jednotkám."));return false;
                 }
         } catch(const std::exception&) {
-            sections_->setCurrentWidget(template_page_);QMessageBox::critical(this,tr("Uložení selhalo"),tr("Vyberte platné nativní šablony dílu a sestavy."));return false;
+            sections_->setCurrentWidget(template_page_);QMessageBox::critical(this,tr("Uložení selhalo"),tr("Vyberte platné nativní šablony dílu, sestavy a Skeletonu."));return false;
         }
         struct Snapshot {QString path;QByteArray bytes;bool existed;};std::vector<Snapshot> snapshots;
         for(const auto& path:{settings_.config_path,settings_.platform_config_path,setup_config(settings_)}) {

@@ -32,7 +32,7 @@ struct Fixture {
     }
     command_host::Options options() {
         command_host::Options o;
-        o.settings=[]{return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+        o.settings=[]{return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
         o.interaction=[this]{return interaction;};return o;
     }
     Json run(const char* command, Json args=Json::object()) {

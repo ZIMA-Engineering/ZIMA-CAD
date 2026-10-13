@@ -112,7 +112,7 @@ SheetFormDefinition definition(PartDocument part,const std::vector<kernel::BodyR
     });
     const auto& cutting=*part.body_history.find(result.bodies[0]);
     const auto cut_output=calculated.empty()?std::map<std::string,kernel::BodySnapshot>::const_iterator{}:calculated.back().body_outputs.find(cutting.scope.id);
-    const bool cut_solid=!calculated.empty()&&cut_output!=calculated.back().body_outputs.end()&&cut_output->second->volume>0.;
+    const bool cut_solid=!calculated.empty()&&cut_output!=calculated.back().body_outputs.end()&&cut_output->second->has_solid();
     if(!cutting.entries.empty()&&!cut_solid) {
         result.cut_sketches=cut_sketches(part,cutting);
         result.cut_sketch=result.cut_sketches.front();
@@ -126,23 +126,23 @@ SheetFormDefinition definition(PartDocument part,const std::vector<kernel::BodyR
         throw std::invalid_argument("FORM requires a calculated outer surface.");
     const auto source=calculated.back().body_outputs.find(shape.scope.id);
     if(source==calculated.back().body_outputs.end()||source->second->mesh.triangle_references.empty()||
-        source->second->volume<0.||!source->second->calculation_errors.empty())
+        (source->second->physical_properties_current&&source->second->volume<0.)||!source->second->calculation_errors.empty())
         throw std::invalid_argument("FORM requires a calculated outer surface.");
     std::set<std::pair<std::string,std::string>> faces;
     for(const auto& face:source->second->mesh.triangle_references) {
-        if(!face.valid()||(source->second->volume==0.&&!face.surface_result)||!face.instance_path.empty())
+        if(!face.valid()||(!source->second->has_solid()&&!face.surface_result)||!face.instance_path.empty())
             throw std::invalid_argument("FORM requires a calculated outer surface.");
         faces.emplace(face.owner_id,face.semantic_key);
     }
     // Choose an existing persisted face as the shell anchor. This does not
     // create topology identity from traversal position.
     result.surface={faces.begin()->first,faces.begin()->second,{}};
-    result.surface.surface_result=source->second->volume==0.;
-    if(source->second->volume>0.||cut_solid) {
+    result.surface.surface_result=!source->second->has_solid();
+    if(source->second->has_solid()||cut_solid) {
         const auto& closed=cut_solid?calculated.back().body_boundaries.at(cutting.scope.id).back():source->second.get();
         auto& openings=cut_solid?result.solid_cut_supports:result.solid_opening_faces;
         if(cut_solid) {
-            if(!part.form_outward||source->second->volume!=0.||!closed.calculation_errors.empty()||
+            if(!part.form_outward||source->second->has_solid()||!closed.calculation_errors.empty()||
                 std::ranges::find(part.body_history.order(),cutting.scope.id)>=std::ranges::find(part.body_history.order(),shape.scope.id))
                 throw std::invalid_argument("Invalid FORM definition.");
         }else {

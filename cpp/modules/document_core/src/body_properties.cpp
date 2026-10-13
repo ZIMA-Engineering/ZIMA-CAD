@@ -78,6 +78,7 @@ BodyProperties evaluate_body_properties(const PartDocument& doc,const std::vecto
         for(const auto& input:inputs) {
             const auto& body=*input.body;
             if(!body.calculation_errors.empty())throw std::invalid_argument("The measured history contains a failed calculation.");
+            if(!body.physical_properties_current)throw std::invalid_argument("Regenerate the model before measuring body properties.");
             const double v=std::abs(body.volume);row.area+=std::abs(body.surface_area);
             if(body.surface_area>0) {
                 if(body.surface_centroid) {

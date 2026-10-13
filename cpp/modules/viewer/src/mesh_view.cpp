@@ -1,5 +1,6 @@
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/axis_display.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/state_display.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include "../../../common/datum_display.hpp"
@@ -233,6 +234,7 @@ struct MeshView::Impl {
     };
     std::optional<SilhouetteConnectivity> silhouette_connectivity;
     std::set<std::pair<std::string,std::string>> curve3d_point_owners;
+    std::map<std::pair<std::string,std::string>,std::pair<ReferenceVisibility,EdgeKey>> marker_parents;
     std::optional<std::array<float, 3>> silhouette_view_direction;
     GLsizei silhouette_vertex_count{};
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
@@ -468,6 +470,34 @@ struct MeshView::Impl {
         if(component_origin_handle && key==*component_origin_handle)return true;
         return (key.semantic_key != "origin" && !key.semantic_key.starts_with("origin:")) ||
             !origin_visibility_filter || origin_visibility_filter(key);
+    }
+    bool helper_point_visible(const kernel::ViewerPoint& point) const {
+        auto axis_key=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
+        const auto parent=marker_parents.find({point.reference.owner_id,point.reference.instance_path});
+        // Unified Feature Axis endpoints keep their real Start/End ancestry.
+        // They are not the older construction-axis presentation keys.
+        constexpr std::string_view side_point="point:from:";
+        if(axis_key.empty()&&parent!=marker_parents.end()&&parent->second.first==ReferenceVisibility::Axes&&
+            parent->second.second.semantic_key=="axis"&&point.display_owner_id==point.reference.owner_id&&
+            point.reference.semantic_key.starts_with(side_point)&&
+            kernel::feature_side_parent(std::string_view(point.reference.semantic_key).substr(side_point.size())))
+            axis_key="axis";
+        const bool defining_marker=point.reference.semantic_key=="point"||point.reference.semantic_key=="preview:plane-offset-point";
+        if(axis_key.empty()&&(!defining_marker||parent==marker_parents.end()))return true;
+        const auto category=axis_key.empty()?parent->second.first:ReferenceVisibility::Axes;
+        const auto reference=axis_key.empty()?parent->second.second:EdgeKey{point.reference.owner_id,axis_key,point.reference.instance_path};
+        const bool explicit_entry=std::ranges::any_of(allowed_kinds,[category](auto kind){
+            return kind==CandidateKind::Vertex||kind==CandidateKind::SketchPoint||
+                (category==ReferenceVisibility::Axes&&(kind==CandidateKind::Axis||kind==CandidateKind::SketchAxis))||
+                (category==ReferenceVisibility::Planes&&kind==CandidateKind::Plane);
+        });
+        return (category==ReferenceVisibility::Axes?show_axes:show_planes)||explicit_entry||editing_origin_visible||
+            constraint_reference_owner_ids.contains(point.reference.owner_id)||
+            constraint_reference_owner_ids.contains(reference.owner_id)||
+            constraint_reference_edges.contains(reference)||
+            constraint_reference_edges.contains(EdgeKey{point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
+            feature_preview_owner_ids.contains(point.reference.owner_id)||
+            feature_preview_owner_ids.contains(reference.owner_id);
     }
     std::optional<EdgeKey> component_origin_handle;
     bool gpu_dirty{true};
@@ -939,6 +969,21 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->curve3d_point_owners.clear();
     for(const auto& edge:impl_->mesh.edges)if(is_curve3d_edge(edge.reference.semantic_key))
         impl_->curve3d_point_owners.emplace(edge.display_owner_id,edge.reference.instance_path);
+    impl_->marker_parents.clear();
+    const auto marker_parent=[&](const auto& reference,ReferenceVisibility category){
+        const EdgeKey key{reference.owner_id,reference.semantic_key,reference.instance_path};
+        impl_->marker_parents[{reference.owner_id,reference.instance_path}]={category,key};
+        if(reference.owner_id.ends_with(":entity")){
+            const auto origin=reference.owner_id.substr(0,reference.owner_id.size()-7)+":origin";
+            impl_->marker_parents[{origin,reference.instance_path}]={category,key};
+        }
+    };
+    for(const auto& axis:impl_->mesh.axes)if(!axis.reference.semantic_key.starts_with("origin:"))marker_parent(axis.reference,ReferenceVisibility::Axes);
+    // Assembly presentation can omit a hidden datum's line while retaining
+    // its real points. Its original reference packet still defines ownership.
+    for(const auto& axis:impl_->mesh.original_references.axes)if(!axis.reference.semantic_key.starts_with("origin:"))marker_parent(axis.reference,ReferenceVisibility::Axes);
+    for(const auto& edge:impl_->mesh.edges)if(edge.reference.semantic_key=="plane")marker_parent(edge.reference,ReferenceVisibility::Planes);
+    for(const auto& face:impl_->mesh.original_references.triangle_references)if(face.semantic_key=="plane")marker_parent(face,ReferenceVisibility::Planes);
     impl_->rebuild_sketch_interaction_mesh();
     if (fit_view) fit_all();
     impl_->rebuild_persisted_reference_mesh();
@@ -1389,6 +1434,21 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     }
     std::erase_if(candidates, [&](const auto& candidate) {
         return !impl_->origin_visible({candidate.owner_id,candidate.semantic_key,candidate.instance_path});
+    });
+    std::erase_if(candidates,[&](const auto& candidate){
+        if(candidate.kind==CandidateKind::Container&&candidate.semantic_key.empty()) {
+            const auto parent=impl_->marker_parents.find({candidate.owner_id,candidate.instance_path});
+            if(parent!=impl_->marker_parents.end()) {
+                const auto& points=candidate.geometry==CandidateGeometry::OriginalReference?impl_->persisted_reference_mesh.points:impl_->mesh.points;
+                const auto point=std::ranges::find_if(points,[&](const auto& value){return value.display_owner_id==candidate.owner_id&&value.reference.instance_path==candidate.instance_path;});
+                if(point!=points.end())return !impl_->helper_point_visible(*point);
+            }
+        }
+        if(candidate.kind!=CandidateKind::Vertex&&candidate.kind!=CandidateKind::SketchPoint&&
+            !(candidate.kind==CandidateKind::Container&&(candidate.semantic_key=="point"||
+                !kernel::axis_endpoint_parent_key(candidate.semantic_key).empty()||candidate.semantic_key.starts_with("point:from:"))))return false;
+        const auto& points=candidate.geometry==CandidateGeometry::OriginalReference?impl_->persisted_reference_mesh.points:impl_->mesh.points;
+        return candidate.geometry_index<points.size()&&!impl_->helper_point_visible(points[candidate.geometry_index]);
     });
     const bool origin_geometry_requested = impl_->component_origin_handle || impl_->editing_origin_visible ||
         std::ranges::any_of(impl_->allowed_kinds, [](CandidateKind kind) {
@@ -2904,8 +2964,8 @@ void MeshView::set_reference_visibility(
                     impl_->confirmed_candidate->semantic_key,impl_->confirmed_candidate->instance_path})) clear_selection();
             break;
         case ReferenceVisibility::Points: impl_->show_points = visible; break;
-        case ReferenceVisibility::Axes: impl_->show_axes = visible; break;
-        case ReferenceVisibility::Planes: impl_->show_planes = visible; break;
+        case ReferenceVisibility::Axes: impl_->show_axes = visible; impl_->candidates.clear(); break;
+        case ReferenceVisibility::Planes: impl_->show_planes = visible; impl_->candidates.clear(); break;
         case ReferenceVisibility::Symbols:
             impl_->show_symbols=visible;impl_->candidates.clear();
             if(!visible&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Symbol)clear_selection();
@@ -4986,6 +5046,7 @@ if (impl_->show_origins) {
         // even later, right below) is never hidden either.
         if (points_visible) {
             for (const auto& point : impl_->mesh.points) {
+                if(!impl_->helper_point_visible(point))continue;
                 if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 // In an inactive Sketch this point is deliberately visible
                 // only together with the whole-container hover/selection

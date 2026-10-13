@@ -20,7 +20,7 @@ const kernel::BodyResult* shell_source_input(const PartState& state,const std::s
     const auto& calculated=state.session.calculated_boundaries();
     if(calculated.empty())return nullptr;
     const auto found=calculated.back().body_outputs.find(source);
-    if(found==calculated.back().body_outputs.end()||!found->second->calculation_errors.empty()||found->second->volume<=0.)return nullptr;
+    if(found==calculated.back().body_outputs.end()||!found->second->calculation_errors.empty()||!found->second->has_solid())return nullptr;
     return &found->second.get();
 }
 std::vector<kernel::FaceReference> shell_input_faces(const PartState& state,const std::string& id,const std::string& source_body) {

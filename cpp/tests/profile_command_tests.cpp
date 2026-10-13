@@ -19,7 +19,7 @@ void near(double actual,double expected,const std::source_location location=std:
 struct Fixture {
     workspace::Workspace live;const kernel::OcctKernel& kernel;fs::path directory;command_host::Interaction interaction;command_host::Host host;
     Fixture(const kernel::OcctKernel& kernel,fs::path directory):kernel(kernel),directory(std::move(directory)),host(live,kernel,this->directory,options()){}
-    command_host::Options options(){command_host::Options o;o.settings=[]{return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};o.interaction=[this]{return interaction;};return o;}
+    command_host::Options options(){command_host::Options o;o.settings=[]{return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};o.interaction=[this]{return interaction;};return o;}
     Json run(const char* command,Json args=Json::object()){
         const auto r=host.execute({{"command",command},{"arguments",std::move(args)}});
         if(!r.ok)throw std::runtime_error((live.open_part(live.active_document_id())?part().session.document().name:live.active_document_id())+" "+std::string(command)+": "+r.code+": "+r.message);return r.data;

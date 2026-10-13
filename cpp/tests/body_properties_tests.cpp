@@ -5,6 +5,9 @@
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/physical_properties.hpp>
+#include <zima/document/body_origin_attachment.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <iostream>
 #include <BRepTools.hxx>
@@ -40,6 +43,136 @@ void geometry(const kernel::OcctKernel& kernel) {
     zima::test::ProfilePrism cutter{2,8,6};cutter.translation={8,0,0};
     const auto cut=kernel.evaluate_history({{"block",box},{"cut",cutter,kernel::BooleanOperation::Subtract}}).back();
     near(cut.volume,384,"cut volume");near(cut.volume_integrals->centroid.x,4,"cut centroid");near(cut.volume_integrals->inertia[8],384*(64+64)/12.,"cut inertia");
+}
+
+void deferred_analysis(const kernel::OcctKernel& kernel) {
+    using E=kernel::ExtrusionRequest;
+    auto request=zima::test::rectangular_request(10,8,6);
+    E::BSplineCurve bottom;bottom.start={0,0,0};bottom.end={10,0,0};
+    bottom.control_points={{0,0,0},{5,0,0},{10,0,0}};bottom.degree=2;
+    request.outer_profile=E::CurvedProfile{{bottom,E::LineCurve{{10,0,0},{10,8,0}},
+        E::LineCurve{{10,8,0},{0,8,0}},E::LineCurve{{0,8,0},{0,0,0}}}};
+    const std::vector<kernel::HistoryOperation> operations{{"pending-box",request}};
+    const auto complete=kernel.evaluate_history(operations).back();
+    kernel::BodyResult pending;
+    {
+        kernel::AggregatePropertyScope scope(kernel::AggregatePropertyDemand::Deferred);
+        pending=kernel.evaluate_history(operations).back();
+    }
+    check(!pending.physical_properties_current&&pending.has_solid()&&!pending.volume_integrals&&!pending.surface_centroid,
+        "Adaptive analysis was not deferred or lost solid classification");
+    const auto packet=document::serialize_body_result(pending);
+    check(packet.at("volume").at("pending")==true&&packet.at("surface_area").is_null(),"Pending analysis serialized a false zero");
+    auto restored=document::load_body_result(packet);
+    check(!restored.physical_properties_current&&restored.has_solid(),"Native cache lost pending analysis");
+    auto doc=document::PartDocument::create_default();
+    const auto values=document::physical_values(doc,{restored});
+    check(!values.contains("model.volume")&&!values.contains("model.area")&&!values.contains("model.mass"),"Pending analysis exposed false physical values");
+    const auto solid=restored.kernel_shape.get();
+    const auto faces=restored.mesh.triangle_references;
+    kernel::OcctKernel reopened;reopened.ensure_body_properties(restored);
+    check(restored.physical_properties_current&&restored.kernel_shape.get()==solid&&restored.mesh.triangle_references==faces,
+        "Explicit analysis changed geometry or identity");
+    near(restored.volume,complete.volume,"Deferred volume");near(restored.surface_area,complete.surface_area,"Deferred area");
+    for(int i=0;i<9;++i)near(restored.volume_integrals->inertia[i],complete.volume_integrals->inertia[i],"Deferred tensor");
+    check(document::load_body_result(document::serialize_body_result(restored)).physical_properties_current,"Completed analysis remained pending after save/reopen");
+    const auto before=document::serialize_body_result(restored);reopened.ensure_body_properties(restored);
+    check(document::serialize_body_result(restored)==before,"Repeated analysis modified a current packet");
+    auto mixed=operations;mixed.front().body.id="material";
+    kernel::BoundarySurfaceRequest surface;surface.region_id="surface-region";
+    const std::array<kernel::Vec3,4> corners{{{0,0,0},{10,0,0},{10,8,0},{0,8,0}}};
+    for(std::size_t i=0;i<corners.size();++i) {
+        auto& edge=surface.boundaries[i];surface.source_owners[i]="surface-edge-"+std::to_string(i);
+        edge.outer_profile=E::CurvedProfile{{E::LineCurve{corners[i],corners[(i+1)%4]}}};
+        edge.outer_edge_source_ids={"curve"};edge.outer_vertex_source_ids={"start"};edge.open_profile_end_id="end";edge.direction={0,0,1};
+    }
+    mixed.push_back({"skin",surface});mixed.back().body.id="surface";
+    const auto mixed_complete=kernel.evaluate_history(mixed).back();kernel::BodyResult mixed_pending;
+    {kernel::AggregatePropertyScope demand(kernel::AggregatePropertyDemand::Deferred);mixed_pending=kernel.evaluate_history(mixed).back();}
+    check(!mixed_pending.physical_properties_current,"Mixed Body analysis was not deferred");
+    const auto mixed_archive=mixed_pending.kernel_shape.get();const auto mixed_faces=mixed_pending.mesh.triangle_references;
+    reopened.ensure_body_properties(mixed_pending);
+    near(mixed_pending.volume,mixed_complete.volume,"Mixed solid/surface volume");
+    near(mixed_pending.surface_area,mixed_complete.surface_area,"Mixed solid/surface area");
+    for(int i=0;i<9;++i)near(mixed_pending.volume_integrals->inertia[i],mixed_complete.volume_integrals->inertia[i],"Mixed tensor");
+    check(mixed_pending.kernel_shape.get()==mixed_archive&&mixed_pending.mesh.triangle_references==mixed_faces,
+        "Compound analysis changed mixed Body geometry or identity");
+    kernel::AggregatePropertyScope scope(kernel::AggregatePropertyDemand::Deferred);
+    auto changed=operations;std::get<E>(changed.front().primitive).direction={0,0,12};
+    auto edited=kernel.evaluate_history_incremental(changed,{pending}).back();
+    check(!edited.physical_properties_current&&edited.source_fingerprint!=pending.source_fingerprint,"Changed geometry reused stale analysis");
+    reopened.ensure_body_properties(edited);near(edited.volume,960,"Changed deferred volume");
+}
+
+void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::path& directory) {
+    auto doc=document::PartDocument::create_default();
+    auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_bspline({{0,0},{5,0},{10,0}},2));
+    static_cast<void>(sketch.add_segment(10,0,10,8));static_cast<void>(sketch.add_segment(10,8,0,8));
+    static_cast<void>(sketch.add_segment(0,8,0,0));
+    auto feature=document::PartDocument::create_extrusion_container(sketch.id);
+    sketch.owner_container_id=feature.id;feature.extrusion.length_forward=6;
+    doc.history={feature};doc.sketches={sketch};document::BodyHistoryGraph graph;
+    static_cast<void>(document::create_origin_bound_body(graph,doc.document_id,"Analysis source"));
+    graph.insert({document::PartHistoryKind::Feature,feature.id});doc.set_body_history(graph);doc.resolve_constructions();
+    doc.physical_parameters["MASS_DENSITY"]="7850";doc.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
+    auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc);
+    check(!calculated.back().physical_properties_current&&calculated.back().has_solid(),"Native adaptive Part did not defer analysis");
+    {
+        auto historical=doc;
+        auto suppressed=document::PartDocument::create_fillet_container({calculated.back().mesh.edges.front().reference});
+        suppressed.suppressed=true;historical.insert_history_entry(document::PartHistoryKind::Feature,suppressed.id);historical.history.push_back(suppressed);
+        const auto history=workspace::calculate_part_with_resolved_references(kernel,historical);
+        const auto path=directory/"historical-analysis.prtz";historical.save(path,history);
+        std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(path,&cached);
+        auto body=reopened.body_history.bodies().front();body.cursor=1;reopened.body_history.update_body(body);reopened.body_history.activate(body.scope.id);
+        workspace::Workspace inspection;inspection.add_part(reopened,cached,path);inspection.activate(reopened.document_id);
+        const auto before=inspection.open_part(reopened.document_id)->session.document().serialized();
+        const auto revision=inspection.open_part(reopened.document_id)->session.revision();
+        auto draft=workspace::prepare_body_properties_edit(inspection,reopened.document_id);
+        kernel::OcctKernel fresh;workspace::calculate_body_properties(inspection,fresh,reopened.document_id,draft.initial);
+        draft=workspace::prepare_body_properties_edit(inspection,reopened.document_id);
+        near(draft.initial.volume,480,"Native historical analysis");
+        check(draft.initial.error.empty()&&inspection.open_part(reopened.document_id)->session.revision()==revision&&
+            inspection.open_part(reopened.document_id)->session.document().serialized()==before,
+            "Native inspector regenerated geometry or changed authored history");
+    }
+    auto incomplete=calculated.back();incomplete.kernel_compound_bodies.clear();
+    bool rejected=false;try{kernel.ensure_body_properties(incomplete);}catch(const std::invalid_argument&){rejected=true;}
+    check(rejected&&!incomplete.physical_properties_current,"Missing analysis solids were reported as an empty measured body");
+    auto partially_analyzed=calculated;kernel.ensure_body_properties(partially_analyzed.back());
+    const auto completed=kernel.evaluate_history_incremental(doc.kernel_operations(),partially_analyzed);
+    check(completed.back().physical_properties_current&&completed.back().source_fingerprint==calculated.back().source_fingerprint,
+        "Current geometry cache bypassed requested analysis");
+    for(const auto* bodies:{&completed.back().body_inputs,&completed.back().body_outputs})for(const auto& [body,value]:*bodies)
+        check(value->physical_properties_current,"Graph cache left requested Body analysis pending");
+    for(const auto& [body,values]:completed.back().body_boundaries)
+        check(values.back().physical_properties_current,"Graph cache left requested local analysis pending");
+    const auto repeated=kernel.evaluate_history_incremental(doc.kernel_operations(),completed);
+    for(const auto& [body,values]:completed.back().body_boundaries)
+        check(values.shares_with(repeated.back().body_boundaries.at(body)),"Completed analysis copied unchanged local history");
+    doc.save(directory/"analysis-source.prtz",calculated);
+    workspace::Workspace live;live.add_part(doc,calculated,directory/"analysis-source.prtz");
+    auto child=assembly::AssemblyDocument::create_default();live.add_assembly(child,directory/"analysis-child.asmz");
+    static_cast<void>(live.insert_open_part(child.document_id,doc.document_id,"Adaptive source"));
+    auto root=assembly::AssemblyDocument::create_default();live.add_assembly(root,directory/"analysis-root.asmz");
+    static_cast<void>(live.insert_open_assembly(root.document_id,child.document_id,"Nested source"));
+    const auto revision=live.open_assembly(root.document_id)->session.revision();
+    const auto child_revision=live.open_assembly(child.document_id)->session.revision();
+    const auto part_revision=live.open_part(doc.document_id)->session.revision();
+    const auto placement=live.open_assembly(root.document_id)->session.document().components.front().placement;
+    const auto original=live.open_part(doc.document_id)->session.calculated_boundaries().back();
+    check(!assembly::physical_values(live.open_assembly(root.document_id)->session.document()).contains("model.mass"),"Pending nested source exposed fake mass");
+    workspace::regenerate_assembly(live,kernel,root.document_id);
+    const auto values=assembly::physical_values(live.open_assembly(root.document_id)->session.document());
+    near(values.at("model.volume"),480,"Nested explicit volume");near(values.at("model.mass"),480*7.85e-6,"Nested explicit mass");
+    check(live.open_assembly(root.document_id)->session.revision()==revision&&
+        live.open_assembly(child.document_id)->session.revision()==child_revision&&
+        live.open_part(doc.document_id)->session.revision()==part_revision,"Analysis-only regeneration created an Undo transaction");
+    check(live.open_assembly(root.document_id)->session.document().components.front().placement==placement,"Analysis repositioned an Assembly component");
+    const auto& after=live.open_part(doc.document_id)->session.calculated_boundaries().back();
+    check(after.kernel_shape==original.kernel_shape&&after.mesh.vertices==original.mesh.vertices&&
+        after.mesh.triangle_references==original.mesh.triangle_references,"Analysis changed source geometry or identity");
 }
 void sheet_integrals(const kernel::OcctKernel& kernel) {
     auto doc=document::PartDocument::create_default();
@@ -89,7 +222,7 @@ void sheet_integrals(const kernel::OcctKernel& kernel) {
 }
 void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","mass-model"}});const auto id=live.active_document_id();
     check(!host.execute({{"command","body_properties.create"},{"arguments",Json::object()}}).ok,"Empty model accepted body properties");
@@ -305,9 +438,9 @@ void surfaces(const kernel::OcctKernel& kernel) {
 }
 }
 int main(){try {
-    kernel::OcctKernel kernel;geometry(kernel);sheet_integrals(kernel);placed_bodies(kernel);surfaces(kernel);
+    kernel::OcctKernel kernel;geometry(kernel);deferred_analysis(kernel);sheet_integrals(kernel);placed_bodies(kernel);surfaces(kernel);
     const auto parent=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto dir=parent/("zima-body-properties-"+kernel::make_stable_id());
-    std::filesystem::create_directory(dir);workflow(kernel,dir);centroid_placement(kernel,dir);
+    std::filesystem::create_directory(dir);workflow(kernel,dir);centroid_placement(kernel,dir);deferred_assembly(kernel,dir);
     check(std::filesystem::canonical(dir).parent_path()==parent,"Invalid test cleanup path");std::filesystem::remove_all(dir);
     std::cout<<"Body properties analytical, history, transaction and persistence checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

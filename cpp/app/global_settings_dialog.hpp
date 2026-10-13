@@ -44,6 +44,7 @@ private:
     QComboBox* unit_preset_{};
     QComboBox* part_template_{};
     QComboBox* assembly_template_{};
+    QComboBox* skeleton_template_{};
     QWidget* template_page_{};
     QTabWidget* sections_{};
     UpdatesPage* updates_{};

@@ -20,7 +20,7 @@ double area(const document::SectionResult& result) {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
     command_host::Host host(live,kernel,dir,options);
     const auto run=[&](const char* name,Json args=Json::object()){const auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result.data;};
     run("new",{{"type","part"},{"name","section-reference-source"}});const auto part_id=live.active_document_id();

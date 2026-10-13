@@ -43,7 +43,7 @@ int main() {
         const auto start_assembly_template =
             zima::assembly::AssemblyDocument::load(
                 std::filesystem::current_path() /
-                "config/templates/START_ASSEMBLY.asmz");
+                "config/templates/START_ASSEMBLY_mm.asmz");
         require(start_assembly_template.document_id ==
                     "template-start-assembly" &&
                     start_assembly_template.components.empty() &&
@@ -1878,12 +1878,14 @@ int main() {
         // axes at their prior/default value); which world axis that is
         // depends on which face of the box was matched first, so compare
         // the whole resolved origin rather than assuming Z specifically.
+        const auto datum_references=associative_assembly.construction_viewer_mesh().original_references.triangle_references;
         require(associative_assembly.constructions.front().reference_valid &&
                     associative_assembly.constructions.back().reference_valid &&
                     !(associative_assembly.constructions.front().origin ==
                         associative_assembly.constructions.back().origin) &&
-                    associative_assembly.construction_viewer_mesh()
-                        .original_references.triangle_references.size() == 4,
+                    std::ranges::count_if(datum_references,[&](const auto& face){
+                        return face.owner_id==referenced_plane.entity_id||face.owner_id==second_referenced_plane.entity_id;
+                    }) == 4,
                 "Assembly datum plane did not distinguish repeated occurrence paths");
         const auto associative_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-associative-assembly-datum.asmz";

@@ -24,7 +24,7 @@ Json ref(const char* kind,const std::string& owner,const std::string& key={},con
 }
 void verify_mixed_units(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     const auto execute=[&](const char* n,Json a){return run(host,n,std::move(a));};
     const auto settings=[&](const std::string& id,const char* length,const char* mass){
@@ -129,7 +129,7 @@ void verify_mixed_units(const kernel::OcctKernel& kernel,fs::path dir) {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;bool editing=false;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     options.interaction=[&]{command_host::Interaction value;value.editing=editing;return value;};
     command_host::Host host(live,kernel,dir,options);
     require(host.execute_text("measurement.list").code=="unsupported_document","Measurement query accepted no document");

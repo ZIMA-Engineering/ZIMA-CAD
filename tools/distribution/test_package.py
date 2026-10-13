@@ -50,7 +50,7 @@ class PackageTests(unittest.TestCase):
     def test_native_factory_assets_include_future_libraries_and_exclude_backups(self):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp)
-            expected = ('config/templates/START_PART.prtz',
+            expected = ('config/templates/START_PART_mm.prtz',
                         'config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz',
                         'config/lib/future/NEW-FEATURE.PRTZ',
                         'config/symbols/example.symz', 'config/formats/example.tblz')

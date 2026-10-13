@@ -17,7 +17,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings value;value.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return value;};
+    options.settings=[] {command_host::Settings value;value.templates={fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return value;};
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("drill_point.get missing").code=="unsupported_document","Drill query without Part failed incorrectly");
     run(host,"new",{{"type","part"},{"name","drill-command"}});

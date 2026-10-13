@@ -145,7 +145,7 @@ void delete_part_history(Workspace& live,const std::string& document_id,const ke
     const auto deletion=plan_history_deletion(original,id);
     detach_deleted_history_references(next,deletion);
     next.erase_history_object(id);
-    auto calculated=calculate_part_with_resolved_references(kernel,next);
+    auto calculated=calculate_part_with_resolved_references(kernel,next,&part.session.calculated_boundaries());
     commit_part_document(live,document_id,std::move(next),std::move(calculated));
 }
 bool set_part_history_cursor(Workspace& live,const std::string& document_id,std::size_t index) {

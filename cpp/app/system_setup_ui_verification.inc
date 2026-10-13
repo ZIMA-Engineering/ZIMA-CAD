@@ -27,6 +27,8 @@ int verify_system_setup_ui(QApplication& application,const std::filesystem::path
             GlobalSettingsDialog dialog(settings,&owner,true,false,&context);dialog.show();application.processEvents();
             auto* combo=dialog.findChild<QComboBox*>("setupUnitPreset");check(combo,"Preset missing");combo->setCurrentIndex(combo->findData(preset));
             check(dialog.findChild<QComboBox*>("setupPartTemplate")->currentText()=="START_PART_"+preset+".prtz","Preset did not select matching Part template");
+            check(dialog.findChild<QComboBox*>("setupAssemblyTemplate")->currentText()=="START_ASSEMBLY_"+preset+".asmz","Preset did not select matching Assembly template");
+            check(dialog.findChild<QComboBox*>("setupSkeletonTemplate")->currentText()=="START_SKELETON_"+preset+".prtz","Preset did not select matching Skeleton template");
             dialog.grab().save(QString::fromStdString((directory/("setup-"+preset.toStdString()+".png")).string()));
             dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
             check(dialog.result()==QDialog::Accepted,"Setup OK did not save");
@@ -36,18 +38,19 @@ int verify_system_setup_ui(QApplication& application,const std::filesystem::path
             const auto part=zima::document::PartDocument::load(std::filesystem::u8path((settings.resolved_paths.value("Templates")+"/"+settings.part_template).toStdString()));
             check(part.document_units.at("Length")==preset.toStdString(),"Native template units differ from preset");
             AssemblyWorkspaceWindow window(root+"/config");window.resize(1200,900);window.show();application.processEvents();
-            for(const QString type:{"part","assembly"}) {
+            for(const QString type:{"part","assembly","skeleton"}) {
                 window.findChild<QAction*>("newDocumentAction")->trigger();application.processEvents();
                 auto* creation=window.findChild<QDialog*>("newDocumentDialog");check(creation,"New Document missing after setup");
                 creation->findChild<QLineEdit*>("newDocumentFileName")->setText(type+"_"+preset);
-                for(auto* radio:creation->findChildren<QRadioButton*>())if(radio->property("documentType").toString()==type)radio->setChecked(true);
+                for(auto* radio:creation->findChildren<QRadioButton*>())if(radio->property("documentType").toString()==(type=="skeleton"?"part":type))radio->setChecked(true);
+                if(type=="skeleton")creation->findChild<QLineEdit*>("newDocumentFileName")->setText("skeleton_"+preset+"_skeleton");
                 creation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
-                if(type=="part")check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),"Preset Part did not activate editable Body");
+                if(type!="assembly")check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),"Preset Part did not activate editable Body");
                 window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
-                QDirIterator files(root,{type+"_"+preset+(type=="part"?".prtz":".asmz")},QDir::Files,QDirIterator::Subdirectories);
+                QDirIterator files(root,{type+"_"+preset+(type=="skeleton"?"_skeleton.prtz":type=="part"?".prtz":".asmz")},QDir::Files,QDirIterator::Subdirectories);
                 check(files.hasNext(),"GUI did not save the new preset document");
                 const auto path=std::filesystem::u8path(files.next().toStdString());
-                const auto units=type=="part"?zima::document::PartDocument::load(path).document_units:zima::assembly::AssemblyDocument::load(path).document_units;
+                const auto units=type!="assembly"?zima::document::PartDocument::load(path).document_units:zima::assembly::AssemblyDocument::load(path).document_units;
                 check(units.at("Length")==preset.toStdString(),"GUI new document overrode selected template units");
             }
         }
@@ -74,6 +77,9 @@ int verify_system_setup_ui(QApplication& application,const std::filesystem::path
             GlobalSettingsDialog dialog(localized,&owner,true,false,&context);dialog.show();application.processEvents();
             check(dialog.windowTitle()==localized.qt_translations.value("System Setup"),"Setup title not translated");
             check(dialog.findChild<QComboBox*>("setupUnitPreset")->itemText(1)==localized.qt_translations.value("Metrické jednotky (mm)"),"Setup preset not translated");
+            check(std::ranges::any_of(dialog.findChildren<QLabel*>(),[&](const auto* label){
+                return label->text()==localized.qt_translations.value("Výchozí šablona Skeletonu");
+            }),"Skeleton template label not translated");
             dialog.reject();
         }
         apply_application_translations(application,ApplicationSettings::load());

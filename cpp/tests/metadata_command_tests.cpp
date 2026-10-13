@@ -18,7 +18,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 void verify_failed_sheet_settings(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","failed-sheet-settings"}});
     const auto id=live.active_document_id();auto* state=live.open_part(id);
@@ -128,7 +128,7 @@ void verify_binding_units() {
     binding_unit_matrix(assembly);
 }
 void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","unit-relations"}});
     const auto id=live.active_document_id();test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"length_mm",10},{"width_mm",20},{"height_mm",30}});
     auto* part=live.open_part(id);auto authored=part->session.document();std::string dimension;
@@ -175,7 +175,7 @@ void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
 }
 void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
     for(const bool assembly_mode:{false,true}) {
-        workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+        workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
         command_host::Host host(live,kernel,dir,options);
         const auto execute=[&](const char* n,Json a){return run(host,n,std::move(a));};
         run(host,"new",{{"type","part"},{"name",assembly_mode?"angle-stock":"angle-part"}});
@@ -239,7 +239,7 @@ void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
     }
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","metadata-part"}});
     const auto id=live.active_document_id();zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     auto* part=live.open_part(id);const auto original=workspace::user_parameters(live,id);const auto cached=part->session.calculated_boundaries().back().kernel_shape;

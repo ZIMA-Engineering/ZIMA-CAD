@@ -100,7 +100,7 @@ void near(double a, double b) {
 }
 void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     workspace::Workspace live; command_host::Interaction interaction; command_host::Options options;
-    options.settings=[] { return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}}; };
+    options.settings=[] { return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}}; };
     options.interaction=[&] { return interaction; }; command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","construction-edit"}});
     const auto document=live.active_document_id(); auto* state=live.open_part(document);
@@ -237,13 +237,13 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
 #include "cylinder_face_placement_contract.inc"
 int main(int argc, char** argv) { try {
     if (argc == 2 && std::string_view(argv[1]) == "--refresh-start-templates") {
-        for (const auto* name : {"START_PART.prtz", "START_SKELETON.prtz"}) {
+        for (const auto* name : {"START_PART_mm.prtz", "START_SKELETON_mm.prtz"}) {
             const auto path = fs::path("config/templates") / name;
             std::vector<kernel::BodyResult> calculated;
             const auto part = document::PartDocument::load(path, &calculated);
             part.save(path, calculated);
         }
-        const fs::path path = "config/templates/START_ASSEMBLY.asmz";
+        const fs::path path = "config/templates/START_ASSEMBLY_mm.asmz";
         assembly::AssemblyDocument::load(path).save(path);
         std::cout << "Native start templates regenerated with the current serializer\n";
         return 0;

@@ -71,10 +71,19 @@ public:
     }
 };
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+double measured_volume(const kernel::OcctKernel& engine,const kernel::BodyResult& source) {
+    if(source.physical_properties_current)return source.volume;
+    auto measured=source;engine.ensure_body_properties(measured);return measured.volume;
+}
 void near(double a,double b,double tolerance=1e-6) {
     if(std::abs(a-b)>tolerance)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));
 }
-void valid(const kernel::BodyResult& result) {
+void valid(const kernel::BodyResult& source) {
+    std::optional<kernel::BodyResult> measured;
+    if(!source.physical_properties_current) {
+        measured=source;kernel::OcctKernel analysis;analysis.ensure_body_properties(*measured);
+    }
+    const auto& result=measured?*measured:source;
     for(const auto& [owner,error]:result.calculation_errors)std::cerr<<owner<<": "<<error<<std::endl;
     check(result.calculation_errors.empty(),"FORM calculation failed");
     const auto shape=kernel::read_calculated_body_shape(result);
@@ -339,6 +348,7 @@ int main(int argc,char** argv){try {
     }
     if((argc==3||argc==4)&&(std::string_view(argv[1])=="--verify-workspace-corner-copies"||
         std::string_view(argv[1])=="--verify-workspace-corner-copy-matrix")) {
+        kernel::AggregatePropertyScope ordinary(kernel::AggregatePropertyDemand::Deferred);
         const bool matrix=std::string_view(argv[1])=="--verify-workspace-corner-copy-matrix";
         std::vector<kernel::BodyResult> previous;auto part=document::PartDocument::load(argv[2],&previous);
         const auto form=std::ranges::find_if(part.history.rbegin(),part.history.rend(),[&](const auto& f){return f.feature_kind==document::FeatureKind::SheetForm&&(argc==3||f.id==argv[3]);});
@@ -390,15 +400,15 @@ int main(int argc,char** argv){try {
             check(!workspace::commit_derived_copy(live,kernel,unchanged,unchanged.initial)&&state->session.revision()==revision,"Unchanged copy changed geometry or history");
             const auto path=std::filesystem::path("build/form-diagnostic")/(pattern?"workspace-corner-pattern.prtz":"workspace-corner-mirror.prtz");
             state->session.document().save(path,state->session.calculated_boundaries());
-            std::vector<kernel::BodyResult> reopened;auto saved=document::PartDocument::load(path,&reopened);valid(reopened.back());near(reopened.back().volume,result.volume);
+            std::vector<kernel::BodyResult> reopened;auto saved=document::PartDocument::load(path,&reopened);valid(reopened.back());near(measured_volume(kernel,reopened.back()),measured_volume(kernel,result));
             if(matrix)state->session.document().save(std::filesystem::path("build/form-diagnostic")/("corner-copy-case-"+std::to_string(scenario)+".prtz"),state->session.calculated_boundaries());
-            auto calculated=workspace::calculate_part_with_resolved_references(kernel,saved,&reopened);valid(calculated.back());near(calculated.back().volume,result.volume);
+            auto calculated=workspace::calculate_part_with_resolved_references(kernel,saved,&reopened);valid(calculated.back());near(measured_volume(kernel,calculated.back()),measured_volume(kernel,result));
             check(state->session.undo()&&!state->session.document().find_container(value.id),"Corner copy Undo failed");
             check(state->session.redo()&&state->session.document().find_container(value.id),"Corner copy Redo failed");
             if(scenario==0) {
                 auto changed=workspace::prepare_derived_copy_edit(live,part.document_id,value.id,true);auto increased=changed.initial;
                 increased.parameters.pattern->linear[0].count=3;
-                const auto old_volume=state->session.calculated_boundaries().back().volume;
+                const auto old_volume=measured_volume(kernel,state->session.calculated_boundaries().back());
                 const auto input_document=state->session.document().serialized();const auto input_revision=state->session.revision();
                 bool edited=false;
                 try {edited=workspace::commit_derived_copy(live,kernel,changed,increased);}
@@ -411,7 +421,7 @@ int main(int argc,char** argv){try {
                 }
                 check(edited,"Changed copy incorrectly reused previous result");
                 valid(state->session.calculated_boundaries().back());
-                check(std::abs(state->session.calculated_boundaries().back().volume-old_volume)>1e-5,"Changed copy count did not change geometry");
+                check(std::abs(measured_volume(kernel,state->session.calculated_boundaries().back())-old_volume)>1e-5,"Changed copy count did not change geometry");
                 check(state->session.undo(),"Changed copy Undo failed");
                 auto unfold=document::PartDocument::create_sketch_container();unfold.feature_kind=document::FeatureKind::Unbend;unfold.sheet_state.all=true;
                 check(workspace::commit_sheet_state(live,kernel,part.document_id,unfold),"Corner-copy Unbend did not commit");
@@ -977,7 +987,8 @@ int main(int argc,char** argv){try {
                     near(dot(document::construction_direction_from_local_axis("x",rotation),request.x_direction),1.);
                     near(dot(document::construction_direction_from_local_axis("y",rotation),normal),1.);
                     native.insert_history_entry(document::PartHistoryKind::Feature,feature.id);native.history.push_back(feature);
-                    const auto persisted=workspace::calculate_part_with_resolved_references(kernel,native);
+                    workspace::PartCalculationPolicy measured;measured.refresh_physical_properties=true;
+                    const auto persisted=workspace::calculate_part_with_resolved_references(kernel,native,nullptr,measured);
                     std::cout<<"Persisted placement volume "<<persisted.back().volume<<" vs "<<result.back().volume<<std::endl;
                     valid(persisted.back());near(persisted.back().volume,result.back().volume);
                     if(solid_definition)verify_corner_transition_radii(persisted.back(),feature.id,thickness);
@@ -986,7 +997,7 @@ int main(int argc,char** argv){try {
                     check(reopened.history.back()==native.history.back(),"Corner native reopen changed placement or definition");
                     valid(reopened_result.back());near(reopened_result.back().volume,persisted.back().volume);
                     if(solid_definition)verify_corner_transition_radii(reopened_result.back(),feature.id,thickness);
-                    const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,reopened,&reopened_result);
+                    const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,reopened,&reopened_result,measured);
                     valid(regenerated.back());near(regenerated.back().volume,persisted.back().volume);
                     if(solid_definition)verify_corner_transition_radii(regenerated.back(),feature.id,thickness);
                     std::cout<<"Corner native two-face placement, independent definition, save/reopen and regeneration passed\n";

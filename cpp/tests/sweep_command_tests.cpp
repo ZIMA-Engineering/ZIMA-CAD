@@ -27,7 +27,7 @@ struct Fixture {
         : directory(directory), host(live, kernel, this->directory, options()) {}
     command_host::Options options() {
         command_host::Options value;
-        value.settings = [] { return command_host::Settings{{fs::absolute("config/templates"), "START_PART.prtz", "START_ASSEMBLY.asmz", "Body"}, {}}; };
+        value.settings = [] { return command_host::Settings{{fs::absolute("config/templates"), "START_PART_mm.prtz", "START_ASSEMBLY_mm.asmz", "Body"}, {}}; };
         value.interaction = [this] { return interaction; };
         return value;
     }

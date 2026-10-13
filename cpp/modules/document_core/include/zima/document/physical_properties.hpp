@@ -52,7 +52,7 @@ inline std::map<std::string,double> physical_values(const PartDocument& doc,
     const double volume=boundaries.empty()?0:std::abs(boundaries.back().volume);
     const double area=boundaries.empty()?0:std::abs(boundaries.back().surface_area);
     const auto density=material_density_kg_mm3(doc);
-    if(boundaries.empty() && !doc.history.empty()) {
+    if((boundaries.empty() && !doc.history.empty()) || (!boundaries.empty()&&!boundaries.back().physical_properties_current)) {
         auto result=physical_values_from_totals(doc,0,0,std::nullopt,density);
         result.erase("model.volume");result.erase("model.area");return result;
     }

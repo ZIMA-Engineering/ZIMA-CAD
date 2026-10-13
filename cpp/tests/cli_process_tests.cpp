@@ -832,7 +832,7 @@ int main(int argc,char** argv){
         require(result.exit_code==1&&result.results().at(0).at("message")=="No document is open.","Configured English translation not used");
         // Local template path belongs to the project's config, not to base.ini.
         const auto local_templates=project/fs::path(u8"šablony; s mezerou");fs::create_directory(local_templates);
-        fs::copy_file(repository/"config/templates/START_PART.prtz",local_templates/"custom.prtz");
+        fs::copy_file(repository/"config/templates/START_PART_mm.prtz",local_templates/"custom.prtz");
         const auto catalogue_directory=project/"catalogue";fs::create_directory(catalogue_directory);
         write(catalogue_directory/"en.ini",QByteArray("[QtTranslations]\nQObject|Těleso 1 = Body from context\nQMainWindow|Není otevřený dokument. = Context-specific empty document\n"));
         write(catalogue_directory/"en.qt.json",QByteArray("{\"Vytažení\":\"Extrusion from JSON\",\"List\":\"Sheet from JSON\"}"));

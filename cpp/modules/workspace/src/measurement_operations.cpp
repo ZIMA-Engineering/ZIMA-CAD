@@ -79,8 +79,10 @@ std::optional<measurement::MeasurementGeometry> resolve_measurement(
             }
             if(owner)if(const auto* item=owner->find_occurrence(address->occurrence_id)) {
                 if(item->source_document_id==address->source_document_id&&!item->source_missing) {
-                    geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
-                    geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
+                    if(item->calculated_source->physical_properties_current) {
+                        geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
+                        geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
+                    } else {geometry->values.volume.reset();geometry->values.area.reset();geometry->values.mass.reset();}
                     if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
                 }
             }
@@ -94,8 +96,11 @@ std::optional<measurement::MeasurementGeometry> resolve_measurement(
             for(const auto& result:part->session.calculated_boundaries()){
                 const auto& faces=result.mesh.original_references.triangle_references;
                 if(!faces.empty()&&std::ranges::all_of(faces,[&](const auto& ref){return ref.owner_id==reference.owner_id;})){
-                    geometry->values.volume=kernel::MeasurementValue{std::abs(result.volume),false};
-                    geometry->values.area=kernel::MeasurementValue{std::abs(result.surface_area),false};break;
+                    if(result.physical_properties_current) {
+                        geometry->values.volume=kernel::MeasurementValue{std::abs(result.volume),false};
+                        geometry->values.area=kernel::MeasurementValue{std::abs(result.surface_area),false};
+                    } else {geometry->values.volume.reset();geometry->values.area.reset();geometry->values.mass.reset();}
+                    break;
                 }
             }
         }

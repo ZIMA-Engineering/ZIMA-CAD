@@ -4,6 +4,13 @@ For new commands and feature extensions, follow the
 [performance-by-design guide](FEATURE_PERFORMANCE_GUIDE.md). It translates the
 measured optimizations into lifecycle, ownership and verification rules.
 
+The [2026-10-13 Fillet/copy-history investigation](performance/20261013-fillet-copy-history.md)
+records exact copy-operand and reference-boundary reuse, parallel property
+integration during first full regeneration, demand-based aggregate analysis and
+sheet-source preparation, verified runtime provenance for
+repeated regeneration, and measured Fillet edits/deletion on a private
+FORM/Pattern model.
+
 The [2026-09-30 application audit](PERFORMANCE_AUDIT_20260930.md) records current
 Windows Release baselines, a solved-input Sketch dimension-edit cross-check,
 prioritized optimization candidates and the dead-code review. It proposes no

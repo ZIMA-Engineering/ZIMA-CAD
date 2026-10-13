@@ -4,9 +4,60 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <sstream>
+#include <cstdlib>
 #include <iostream>
 using namespace zima;
 static void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
+struct HistoryTrace {
+    std::ostringstream log;std::streambuf* old=std::cerr.rdbuf(log.rdbuf());
+    std::string flag_before=std::getenv("ZIMA_CPP_PROFILE_COMMAND")?std::getenv("ZIMA_CPP_PROFILE_COMMAND"):"";
+    static void flag(const std::string& value) {
+#ifdef _WIN32
+        _putenv_s("ZIMA_CPP_PROFILE_COMMAND",value.c_str());
+#else
+        if(value.empty())unsetenv("ZIMA_CPP_PROFILE_COMMAND");else setenv("ZIMA_CPP_PROFILE_COMMAND",value.c_str(),1);
+#endif
+    }
+    HistoryTrace(){flag("1");}~HistoryTrace(){std::cerr.rdbuf(old);flag(flag_before);}
+};
+static void verify_live_regeneration(const kernel::OcctKernel& kernel) {
+    auto doc=document::PartDocument::create_default();auto box=test::rectangular_feature(doc,{10,10,10});
+    doc.history={box};const auto input=workspace::calculate_part(kernel,doc);
+    auto fillet=document::PartDocument::create_fillet_container({input.back().mesh.edges.front().reference});
+    fillet.edge_treatment.primary_size=.5;doc.history.push_back(fillet);
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));
+    for(const auto& feature:doc.history)graph.insert({document::PartHistoryKind::Feature,feature.id});
+    doc.set_body_history(graph);const auto original=workspace::calculate_part(kernel,doc);
+    require(kernel.has_current_calculation(original),"Live calculation lost its runtime proof");
+    kernel::OcctKernel another;
+    require(!another.has_current_calculation(original),"A different kernel accepted another runtime's proof");
+    std::vector<kernel::BodyResult> loaded;
+    doc=document::PartDocument::from_serialized(doc.serialized(original),&loaded);
+    require(!kernel.has_current_calculation(loaded),"Native loading restored an ephemeral runtime proof");
+    workspace::Workspace live;const auto id=doc.document_id;live.add_part(doc,std::move(loaded));
+    {HistoryTrace trace;static_cast<void>(workspace::regenerate_part(live,kernel,id));
+        require(trace.log.str().find("operations=2 reused=0 calculated=2")!=std::string::npos,"First regeneration reused an unverified native snapshot");}
+    auto& session=live.open_part(id)->session;const auto before=session.document().serialized(session.calculated_boundaries());
+    {HistoryTrace trace;static_cast<void>(workspace::regenerate_part(live,kernel,id));
+        require(trace.log.str().find("operations=2 reused=2 calculated=0")!=std::string::npos,"Repeated regeneration recalculated unchanged live geometry");}
+    require(before==session.document().serialized(session.calculated_boundaries()),"Live regeneration changed persisted geometry/properties/references");
+    {HistoryTrace trace;workspace::delete_part_history(live,id,kernel,fillet.id);
+        require(trace.log.str().find("operations=1 reused=1 calculated=0")!=std::string::npos,"Deleting the last Fillet recalculated its unchanged input");}
+    auto measured=session.calculated_boundaries().back();kernel.ensure_body_properties(measured);
+    require(std::abs(measured.volume-1000)<1e-8,"Deletion retained rounded geometry");
+    std::vector<kernel::BodyResult> reopened;
+    static_cast<void>(document::PartDocument::from_serialized(session.document().serialized(session.calculated_boundaries()),&reopened));
+    kernel::OcctKernel fresh;fresh.ensure_body_properties(reopened.back());
+    require(std::abs(reopened.back().volume-1000)<1e-8,"Deleted history lost its real analysis solid on reopen");
+    require(workspace::step_part_document_history(live,id,false)&&session.document().find_container(fillet.id),"Deletion Undo lost the Fillet");
+    require(workspace::step_part_document_history(live,id,true)&&!session.document().find_container(fillet.id),"Deletion Redo failed");
+    auto changed=session.document();changed.find_container(box.id)->extrusion.length_forward=6;
+    session.commit(changed,session.calculated_boundaries());
+    static_cast<void>(workspace::regenerate_part(live,kernel,id));
+    require(std::abs(session.calculated_boundaries().back().volume-1200)<1e-8,"Changed source reused obsolete live geometry");
+}
 static void verify_sheet_suppression(const kernel::OcctKernel& kernel) {
     auto doc=document::PartDocument::create_default();
     auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
@@ -36,6 +87,7 @@ static void verify_sheet_suppression(const kernel::OcctKernel& kernel) {
 int main() {
     try {
         kernel::OcctKernel kernel;
+        verify_live_regeneration(kernel);
         verify_sheet_suppression(kernel);
         auto doc=document::PartDocument::create_default();
         auto source=test::rectangular_feature(doc,{10,10,10});

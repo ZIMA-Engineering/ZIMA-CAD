@@ -649,6 +649,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         });
     const auto persisted_face_hits = ordered_ray_candidates(
         references, ray_origin, ray_direction, false, reference_index);
+    std::optional<std::pair<std::string,std::string>> visible_treatment;
     const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,
                                      CandidateGeometry geometry) {
         // Standalone Thread owns a visual cylindrical envelope but no B-Rep
@@ -716,6 +717,13 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         const auto display_face_hits = geometry == CandidateGeometry::Display
             ? ordered_ray_candidates(source, ray_origin, ray_direction, true, display_index)
             : std::vector<PickCandidate>{};
+        if(!display_face_hits.empty()) {
+            const auto& reference=display_face_hits.front().reference;
+            auto key=reference.semantic_key;
+            while(const auto parent=kernel::boolean_face_parent(key))key=parent->second;
+            if(key.starts_with("fillet:face")||key.starts_with("chamfer:face"))
+                visible_treatment=std::pair{reference.display_owner_id.empty()?source_face_owner(reference):reference.display_owner_id,reference.instance_path};
+        }
         const auto& faces = geometry == CandidateGeometry::Display
             ? display_face_hits : persisted_face_hits;
         for (const auto& face : faces) {
@@ -1140,6 +1148,23 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         if (priority(left) != priority(right)) {
             return priority(left) < priority(right);
+        }
+        if(visible_treatment&&left.kind==CandidateKind::Container&&right.kind==CandidateKind::Container) {
+            // A narrow, actually hit treatment face must not lose ordinary
+            // selection to its preceding Sketch within the wire tolerance.
+            // Reference candidate kinds keep their existing ordering. Explicit
+            // datum markers also retain their ordinary depth ordering.
+            const auto rank=[&](const auto& candidate) {
+                if(candidate.geometry==CandidateGeometry::Display&&candidate.owner_id==visible_treatment->first&&candidate.instance_path==visible_treatment->second)return 0;
+                if(!candidate.semantic_key.empty()&&candidate.semantic_key!="sketch")return 0;
+                const auto& points=candidate.geometry==CandidateGeometry::Display?mesh.points:references.points;
+                if(candidate.geometry_index<points.size()) {
+                    const auto& point=points[candidate.geometry_index];
+                    if(point.display_owner_id==candidate.owner_id&&point.reference.instance_path==candidate.instance_path)return 0;
+                }
+                return 1;
+            };
+            if(rank(left)!=rank(right))return rank(left)<rank(right);
         }
         if (std::abs(left.distance - right.distance) > 1.0e-9) {
             return left.distance < right.distance;

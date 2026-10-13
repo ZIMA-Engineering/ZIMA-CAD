@@ -434,7 +434,7 @@ void AssemblyWorkspaceWindow::configure_shell_source_entry(PrimitivePropertiesDi
     if(part&&source.empty()) {
         const auto* input=zima::workspace::calculated_operation_input(part->session,
             part->session.document().find_container(dialog->pending_value().id)?dialog->pending_value().id:std::string{});
-        if(!input||input->volume<=0.)dialog->set_shell_source_selection_active(true);
+        if(!input||!input->has_solid())dialog->set_shell_source_selection_active(true);
     }
 }
 

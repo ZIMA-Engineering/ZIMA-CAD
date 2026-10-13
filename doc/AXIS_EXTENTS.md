@@ -15,6 +15,28 @@ documents. Assembly material operations remain subtraction-only. Ordinary Axis
 creation, editing and Sketcher return consume the same internal Properties
 window and shared placement contract as Part features.
 
+## Viewer helper-point visibility
+
+The Axes visibility switch hides the associated finite endpoints and defining
+point markers, including generated profile/sweep/helix axis endpoints. The
+Planes switch similarly hides a native Plane's defining-point marker. Ordinary
+hidden helper points are removed from the common candidate offer; independent
+Point containers remain visible. Explicit point/axis/plane reference entry and
+reference inspection retain their existing exceptions. Origin visibility keeps
+its separate established rules.
+
+These switches filter already calculated viewer data. They do not remove native
+points, change identities, calculate geometry or move the camera. The shared
+MeshView behavior applies to Parts and Assembly occurrences.
+`zima_model_preview_ui` verifies native Windows picking, reference entry and
+inspection, visibility restoration, unchanged camera and an exact framebuffer
+comparison against a fresh packet without the hidden helper geometry.
+It additionally uses the production Feature Axis packet and its real Start/End
+point ancestry in a nested occurrence, including an Assembly packet whose hidden
+Axis line has already been omitted. Original reference ownership remains available
+to hide its center and endpoint markers together. Explicit point entry can still
+select those same persisted identities.
+
 ## Construction-reference data
 
 The construction API also supplies native datum data used by existing reference

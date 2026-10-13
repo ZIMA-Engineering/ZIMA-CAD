@@ -1,6 +1,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include "workspace_internal.hpp"
+#include "../thumbnail_image.hpp"
 #include <zima/ui/operation_activity.hpp>
 #include <zima/workspace/symbol_operations.hpp>
 #include "updateservice.h"
@@ -197,7 +198,7 @@ void AssemblyWorkspaceWindow::save_model_thumbnail(const QString& path) {
     // Capture only the document actually displayed. An activated nested Part
     // must never receive a thumbnail of the enclosing Assembly.
     if(!viewer_||!viewer_->isVisible()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
-    const QImage image=viewer_->grabFramebuffer().scaled(320,240,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+    const QImage image=compact_thumbnail_image(viewer_->grabFramebuffer()).scaled(320,240,Qt::KeepAspectRatio,Qt::SmoothTransformation);
     const QString thumbnail=document_thumbnail_path(path);const QFileInfo output(thumbnail);
     if(image.isNull()||!QDir().mkpath(output.absolutePath())){state_->setText(tr("Dokument je uložen, ale miniaturu nelze vytvořit."));return;}
     QSaveFile file(thumbnail);if(!file.open(QIODevice::WriteOnly)||!image.save(&file,"PNG")||!file.commit()){state_->setText(tr("Dokument je uložen, ale miniaturu nelze vytvořit."));return;}

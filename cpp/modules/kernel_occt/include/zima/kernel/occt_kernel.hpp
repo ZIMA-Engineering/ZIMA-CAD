@@ -9,6 +9,18 @@ namespace zima::kernel {
 struct SolidStraighteningPlan;
 class StepSourceDocument;
 
+enum class AggregatePropertyDemand { All, Final, Deferred };
+// Explicit calculation policy only; no viewer/selection callbacks install it.
+class AggregatePropertyScope final {
+public:
+    explicit AggregatePropertyScope(AggregatePropertyDemand demand);
+    ~AggregatePropertyScope();
+    AggregatePropertyScope(const AggregatePropertyScope&) = delete;
+    AggregatePropertyScope& operator=(const AggregatePropertyScope&) = delete;
+private:
+    AggregatePropertyDemand previous_;
+};
+
 struct FrozenStepComponent {
     std::shared_ptr<const std::string> brep;
     ImmutableVector<StepRequest::TopologyIdentity> topology;
@@ -21,6 +33,9 @@ public:
     OcctKernel(const OcctKernel&) = delete;
     OcctKernel& operator=(const OcctKernel&) = delete;
     [[nodiscard]] std::string name() const override;
+    [[nodiscard]] bool has_current_calculation(const std::vector<BodyResult>& boundaries) const;
+    // Integrate the already calculated solid; never rebuild geometry or references.
+    void ensure_body_properties(BodyResult& body) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(

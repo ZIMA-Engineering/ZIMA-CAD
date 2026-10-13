@@ -9,12 +9,108 @@
 #include <iostream>
 #include <set>
 #include <filesystem>
+#include <sstream>
+#include <cstdlib>
+#include <nlohmann/json.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 using namespace zima;
 static void require(bool b,const char* m){if(!b)throw std::runtime_error(m);}
-static void close(double a,double b){require(std::abs(a-b)<1e-7,"Mirror changed a geometric measure");}
+static void close(double a,double b){if(std::abs(a-b)>=1e-7){std::cerr<<"Measure: actual="<<a<<" expected="<<b<<'\n';throw std::runtime_error("Mirror changed a geometric measure");}}
 template<class F> void rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}require(rejected,"Invalid Mirror accepted");}
 static zima::test::ProfilePrism box(double length){zima::test::ProfilePrism result{length,5,7};result.translation={4,2,1};return result;}
+struct HistoryTrace {
+    std::ostringstream log;
+    std::streambuf* previous_stream=std::cerr.rdbuf(log.rdbuf());
+    std::string previous_flag=std::getenv("ZIMA_CPP_PROFILE_COMMAND")?std::getenv("ZIMA_CPP_PROFILE_COMMAND"):"";
+    static void flag(const std::string& value) {
+#ifdef _WIN32
+        _putenv_s("ZIMA_CPP_PROFILE_COMMAND",value.c_str());
+#else
+        if(value.empty())unsetenv("ZIMA_CPP_PROFILE_COMMAND");else setenv("ZIMA_CPP_PROFILE_COMMAND",value.c_str(),1);
+#endif
+    }
+    HistoryTrace(){flag("1");}
+    ~HistoryTrace(){std::cerr.rdbuf(previous_stream);flag(previous_flag);}
+};
+static void same_packet(const nlohmann::json& a,const nlohmann::json& b,const std::string& path={}) {
+    if(a.is_number()&&b.is_number()) {
+        const double x=a.get<double>(),y=b.get<double>();
+        if(std::abs(x-y)>1e-9*std::max({1.,std::abs(x),std::abs(y)})) {
+            std::cerr<<"Packet mismatch "<<path<<": "<<x<<" / "<<y<<'\n';
+            throw std::runtime_error("Incremental copy changed calculated geometry/properties");
+        }return;
+    }
+    require(a.type()==b.type()&&a.size()==b.size(),"Incremental copy changed packet structure");
+    if(a.is_object())for(auto it=a.begin();it!=a.end();++it) {
+        require(b.contains(it.key()),"Incremental copy lost a packet field");same_packet(it.value(),b.at(it.key()),path+"/"+it.key());
+    }else if(a.is_array())for(std::size_t i=0;i<a.size();++i)same_packet(a[i],b[i],path+"/"+std::to_string(i));
+    else require(a==b,"Incremental copy changed persisted reference identity");
+}
+static void compare_calculation(const kernel::BodyResult& a,const kernel::BodyResult& b) {
+    auto packet=[](auto body) {
+        // OCCT archive addresses are private to an individual calculation.
+        body.kernel_shape.clear();body.kernel_faces.clear();body.kernel_edges.clear();body.kernel_vertices.clear();
+        return document::serialize_body_result(body,false,false);
+    };
+    same_packet(packet(a),packet(b));
+}
+static void incremental_copy_sources() {
+    kernel::HistoryOperation stock{"cache-stock",zima::test::ProfilePrism{20,20,20}};
+    zima::test::ProfilePrism hole{4,4,1};hole.translation={2,2,-2};
+    auto through=static_cast<kernel::ExtrusionRequest>(hole);through.extent=kernel::ExtrusionRequest::Extent::ThroughAll;
+    kernel::HistoryOperation source{"cache-source",through,kernel::BooleanOperation::Subtract};
+    kernel::HistoryOperation copy;copy.owner_id="cache-pattern";copy.operation=kernel::BooleanOperation::Subtract;
+    kernel::BodyHistoryScope scope;scope.source_feature_id=source.owner_id;scope.combination=kernel::BodyCombination::Pattern;
+    scope.pattern.count=2;scope.pattern.linear[0].count=2;scope.pattern.linear[0].spacing=8;copy.feature_copy=scope;
+    zima::test::ProfilePrism tail{2,2,20};tail.translation={16,16,0};
+    kernel::HistoryOperation last{"cache-last",tail,kernel::BooleanOperation::Subtract};
+    std::vector<kernel::HistoryOperation> operations{stock,source,copy,last};kernel::OcctKernel warm;
+    auto result=warm.evaluate_history(operations);close(result.back().volume,7280);
+    const auto verify=[&](bool expect_prefix=false) {
+        std::vector<kernel::BodyResult> next;
+        {HistoryTrace trace;next=warm.evaluate_history_incremental(operations,result);
+            if(expect_prefix)require(trace.log.str().find("operations=4 reused=3 calculated=1 copy_sources=1")!=std::string::npos,
+                "A final edit recalculated the unchanged copy/source history");}
+        kernel::OcctKernel fresh;
+        const auto expected=fresh.evaluate_history(operations);
+        require(next.size()==expected.size(),"Incremental copy lost a history boundary");
+        for(std::size_t i=0;i<next.size();++i)compare_calculation(next[i],expected[i]);
+        result=next;
+    };
+    std::get<kernel::ExtrusionRequest>(operations.back().primitive).direction.z=19;verify(true);
+    // Restore operands from live cache after a native packet round trip.
+    for(auto& boundary:result)boundary=document::load_body_result(document::serialize_body_result(boundary));
+    std::get<kernel::ExtrusionRequest>(operations.back().primitive).direction.z=18;verify(true);
+    for(const double extent:{17.,16.,15.,14.,13.,12.,11.,10.,9.,8.}) {
+        std::get<kernel::ExtrusionRequest>(operations.back().primitive).direction.z=extent;verify(true);
+    }
+    // Changed source, Through All input and copy transform/count invalidate reuse.
+    std::get<kernel::ExtrusionRequest>(operations[1].primitive).direction.z=2;verify();
+    std::get<kernel::ExtrusionRequest>(operations[0].primitive).direction.z=24;verify();
+    operations[2].feature_copy->pattern.linear[0].spacing=6;verify();
+    operations[2].feature_copy->pattern.count=3;operations[2].feature_copy->pattern.linear[0].count=3;verify();
+    operations[2].feature_copy->combination=kernel::BodyCombination::Mirror;
+    operations[2].feature_copy->mirror_plane={{10,0,0},{1,0,0}};verify();
+    auto& limited=std::get<kernel::ExtrusionRequest>(operations[1].primitive);
+    limited.extent=kernel::ExtrusionRequest::Extent::UpToPlane;limited.target_is_datum=true;
+    limited.target_face={"cache-limit","plane",{}};
+    limited.target_plane_origin={0,0,12};verify();
+    limited.target_plane_origin.z=14;verify();
+    std::get<kernel::ExtrusionRequest>(operations.back().primitive).direction.z=17;verify();
+    kernel::OcctKernel cold;const auto rebuilt=cold.evaluate_history_incremental(operations,result);
+    compare_calculation(rebuilt.back(),result.back());
+    // A separate Body requesting one feature must receive that operand, not stock.
+    for(auto& operation:operations)operation.body.id="cache-main";
+    auto external=copy;external.owner_id="cache-external";external.feature_copy.reset();external.operation=kernel::BooleanOperation::Add;
+    external.body.id="cache-copy-body";external.body.source_id="cache-main";
+    external.body.source_feature_id=source.owner_id;external.body.combination=kernel::BodyCombination::Pattern;
+    external.body.pattern.count=2;external.body.pattern.linear[0].count=2;external.body.pattern.linear[0].spacing=30;operations.push_back(external);
+    result=warm.evaluate_history(operations);
+    std::get<kernel::ExtrusionRequest>(operations[3].primitive).direction.z=16;verify();
+    close(result.back().body_outputs.at("cache-copy-body")->volume,256);
+}
 int main(){try{
+    incremental_copy_sources();
     kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;
     // Profile direction carries modeling intent; test only placement zero here.

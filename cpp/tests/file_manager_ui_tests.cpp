@@ -1,4 +1,6 @@
 #include "file_manager_tab.hpp"
+#include "file_entry_geometry.hpp"
+#include "thumbnail_image.hpp"
 
 #include <QAction>
 #include <QPersistentModelIndex>
@@ -42,9 +44,9 @@
 namespace {
 class ItemGeometryProbe final : public QStyledItemDelegate {
 public:
-    QPoint decoration_center(QAbstractItemView* view,const QModelIndex& index)const {
+    zima::app::FileEntryGeometry geometry(QAbstractItemView* view,const QModelIndex& index)const {
         QStyleOptionViewItem option;option.initFrom(view);option.rect=view->visualRect(index);option.decorationSize=view->iconSize();initStyleOption(&option,index);
-        return view->style()->subElementRect(QStyle::SE_ItemViewItemDecoration,&option,view).center();
+        return zima::app::file_entry_geometry(option,index,view);
     }
 };
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
@@ -145,11 +147,12 @@ int main(int argc,char** argv){
         QPalette light=original_palette;light.setColor(QPalette::Window,QColor("#efefef"));light.setColor(QPalette::Button,QColor("#efefef"));light.setColor(QPalette::ButtonText,Qt::black);light.setColor(QPalette::Base,Qt::white);light.setColor(QPalette::AlternateBase,QColor("#f6f6f6"));light.setColor(QPalette::Text,Qt::black);light.setColor(QPalette::WindowText,Qt::black);light.setColor(QPalette::Mid,QColor("#b0b0b0"));application.setPalette(light);
         capture("overview-light.png");QPalette dark=light;dark.setColor(QPalette::Window,QColor("#202020"));dark.setColor(QPalette::Button,QColor("#303030"));dark.setColor(QPalette::ButtonText,Qt::white);dark.setColor(QPalette::Base,QColor("#252525"));dark.setColor(QPalette::AlternateBase,QColor("#303030"));dark.setColor(QPalette::Text,Qt::white);dark.setColor(QPalette::WindowText,Qt::white);dark.setColor(QPalette::Mid,QColor("#606060"));application.setPalette(dark);capture("overview-dark.png");check(overview->palette().color(QPalette::Text)==QColor(Qt::white),"Overview did not follow a live dark palette");application.setPalette(light);capture("overview-light-restored.png");check(overview->palette().color(QPalette::Text)==QColor(Qt::black),"Overview did not restore the live light palette");application.setPalette(original_palette);
         overview->itemClicked(overview->item(0));check(first.current_directory()==QDir::cleanPath(project+"/SUBDIR"),"Single-clicking an overview tile did not navigate");first.navigate(project);
-        check(files&&files->topLevelItemCount()==3&&files->columnCount()==7,"File table did not load metadata and native parameter columns");
-        bool bracket_found=false;for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);if(item->text(0)!="BRACKET.prtz")continue;bracket_found=true;check(item->text(4)=="S355"&&item->text(6)=="125","Metadata or native parameter was not loaded");files->itemDoubleClicked(item,6);check(opened_file.isEmpty(),"Double-clicking a parameter cell opened the file");files->itemDoubleClicked(item,0);check(opened_file==QDir::cleanPath(project+"/BRACKET.prtz"),"Double-clicking the file-name cell did not open the file");const auto cell=files->indexFromItem(item,6);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Parameter delegate did not create an editor");line->setText("150");files->itemDelegate()->setModelData(editor,files->model(),cell);delete editor;}
+        check(files&&files->topLevelItemCount()==3&&files->columnCount()==8,"File table did not load metadata and native parameter columns");
+        bool bracket_found=false;for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);if(item->text(0)!="BRACKET.prtz")continue;bracket_found=true;check(item->text(5)=="S355"&&item->text(7)=="125","Metadata or native parameter was not loaded");files->itemDoubleClicked(item,7);check(opened_file.isEmpty(),"Double-clicking a parameter cell opened the file");files->itemDoubleClicked(item,0);check(opened_file==QDir::cleanPath(project+"/BRACKET.prtz"),"Double-clicking the file-name cell did not open the file");const auto cell=files->indexFromItem(item,7);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Parameter delegate did not create an editor");line->setText("150");files->itemDelegate()->setModelData(editor,files->model(),cell);delete editor;}
         check(bracket_found,"Native Part is missing from the file table");
+        {zima::app::FileManagerTab retained(settings,working,project);auto* retained_views=retained.findChild<QTabWidget*>("fileManagerViews");retained_views->setCurrentIndex(1);retained.set_working_directory(working);check(retained_views->currentIndex()==1,"Working-directory refresh reset the user's Files view");retained.navigate(project,false);check(retained_views->currentIndex()==1,"Same-directory refresh reset the user's Files view");retained.reload_settings(settings);check(retained_views->currentIndex()==1,"Settings reload reset the user's Files view");}
         check(files->editTriggers()==QAbstractItemView::SelectedClicked,"Parameter cells do not use the ZIMA-Parts selected-click editing behavior");
-        auto* name_filter=first.findChild<QLineEdit*>("fileManagerColumnFilter_0");auto* type_filter=first.findChild<QLineEdit*>("fileManagerColumnFilter_1");check(name_filter&&type_filter,"Per-column file filters are missing");
+        auto* name_filter=first.findChild<QLineEdit*>("fileManagerColumnFilter_0");auto* type_filter=first.findChild<QLineEdit*>("fileManagerColumnFilter_2");check(name_filter&&type_filter,"Per-column file filters are missing");
         name_filter->setText("BRACKET");check(!files->topLevelItem(0)->isHidden()||!files->topLevelItem(1)->isHidden()||!files->topLevelItem(2)->isHidden(),"Name filter hid every matching file");int visible=0;for(int row=0;row<files->topLevelItemCount();++row)visible+=!files->topLevelItem(row)->isHidden();check(visible==1,"Name column filter did not isolate the matching file");name_filter->clear();type_filter->setText("ASMZ");visible=0;for(int row=0;row<files->topLevelItemCount();++row)visible+=!files->topLevelItem(row)->isHidden();check(visible==1,"Type column filter did not isolate the assembly");type_filter->clear();
         check(native_edit=="BRACKET.prtz:native_length=150","Native parameter edit was not routed to the document provider");
         QSettings edited(index+"/metadata.ini",QSettings::IniFormat);if(edited.value("Parts/BRACKET/native_length").toString()!="150"||edited.value("Files/BRACKET/Provider").toString()!="zima-cad"){
@@ -157,7 +160,10 @@ int main(int argc,char** argv){
             throw std::runtime_error("Native parameter mirror or provider was not saved");
         }
 
-        auto* sizes=first.findChild<QSlider*>("fileManagerThumbnailSize");check(sizes,"Thumbnail size control is missing");sizes->setValue(72);check(files->iconSize()==QSize(72,72),"Thumbnail slider did not change file previews");
+        auto* sizes=first.findChild<QSlider*>("fileManagerThumbnailSize");check(sizes,"Thumbnail size control is missing");
+        check(sizes->value()==96&&sizes->minimum()==48&&sizes->maximum()==192,"Thumbnail default/range is not enlarged");
+        check(!first.findChild<QLineEdit*>("fileManagerColumnFilter_1"),"Preview column has a meaningless text filter");
+        sizes->setValue(72);check(files->iconSize()==QSize(72,72)&&files->columnWidth(zima::app::file_preview_column)==76,"Thumbnail slider did not change file previews and column width");
         check(!views->tabIcon(0).isNull()&&!views->tabIcon(1).isNull(),"Overview and Files icons are missing");
         check(files->columnWidth(0)<=360&&files->header()->sectionsMovable(),"Filename column stretches or cannot be reordered");
         files->header()->moveSection(0,2);application.processEvents();check(name_filter->x()==files->header()->sectionViewportPosition(0)+2,"Filter did not move with its column");files->header()->moveSection(2,0);
@@ -167,9 +173,14 @@ int main(int argc,char** argv){
         const QPoint click=files->style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,&checkbox,files).center();
         QMouseEvent press(QEvent::MouseButtonPress,click,files->viewport()->mapToGlobal(click),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&press);QMouseEvent release(QEvent::MouseButtonRelease,click,files->viewport()->mapToGlobal(click),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&release);
         check(a->checkState(0)==Qt::Checked&&b->checkState(0)==Qt::Checked&&c->checkState(0)==Qt::Unchecked&&files->selectedItems().size()==2,"Actual checkbox click lost the selected row group");a->setCheckState(0,Qt::Unchecked);files->clearSelection();
-        {QImage thumbnail(320,240,QImage::Format_RGB32);thumbnail.fill(Qt::red);QDir().mkpath(index+"/thumbnails");check(thumbnail.save(index+"/thumbnails/BRACKET.png"),"Cannot write thumbnail fixture");}
+        {QImage thumbnail(320,240,QImage::Format_RGB32);thumbnail.fill(Qt::red);QDir().mkpath(index+"/thumbnails");check(thumbnail.save(index+"/thumbnails/BRACKET.png")&&thumbnail.save(index+"/thumbnails/ASSEMBLY.png"),"Cannot write thumbnail fixtures");}
         first.navigate(project);application.processEvents();QTreeWidgetItem* preview_row{};for(int row=0;row<files->topLevelItemCount();++row)if(files->topLevelItem(row)->text(0)=="BRACKET.prtz")preview_row=files->topLevelItem(row);check(preview_row&&!preview_row->data(0,Qt::UserRole+4).toString().isEmpty(),"Parts-compatible basename thumbnail was not discovered");
-        ItemGeometryProbe geometry;const auto preview_index=files->indexFromItem(preview_row,0);const QPoint preview_point=geometry.decoration_center(files,preview_index);check(files->indexAt(preview_point)==preview_index,"Thumbnail point does not resolve to its real styled file cell");
+        ItemGeometryProbe geometry;const auto preview_index=files->indexFromItem(preview_row,zima::app::file_preview_column);const auto preview_geometry=geometry.geometry(files,preview_index);const QPoint preview_point=preview_geometry.thumbnail.center();check(files->indexAt(preview_point)==preview_index,"Thumbnail point does not resolve to its real styled file cell");
+        check(!preview_row->icon(0).isNull()&&preview_row->icon(0).cacheKey()!=qvariant_cast<QIcon>(preview_index.data(Qt::DecorationRole)).cacheKey(),"Thumbnail replaced the file-type icon");
+        for(int row=0;row<files->topLevelItemCount();++row){const auto index=files->indexFromItem(files->topLevelItem(row),zima::app::file_preview_column);if(qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).isNull())continue;check(geometry.geometry(files,index).thumbnail.center().x()==preview_point.x(),"Preview images do not share one vertical line");}
+        QStyleOptionViewItem preview_option;check(!files->itemDelegate()->createEditor(files,preview_option,preview_index),"Preview cell created a parameter editor");
+        const auto name_geometry=geometry.geometry(files,files->indexFromItem(preview_row,0));const auto type_icon=files->style()->subElementRect(QStyle::SE_ItemViewItemDecoration,&name_geometry.content,files);const auto filename=files->style()->subElementRect(QStyle::SE_ItemViewItemText,&name_geometry.content,files);check(type_icon.right()<filename.left()&&filename.right()<preview_geometry.thumbnail.left(),"Type icon, filename and thumbnail are not in their independent visual order");
+        check(first.findChild<QSlider*>("fileManagerThumbnailSize")->width()==300,"Thumbnail slider did not gain finer pointer control");
         QHelpEvent help(QEvent::ToolTip,preview_point,files->viewport()->mapToGlobal(preview_point));QApplication::sendEvent(files->viewport(),&help);check(wait_until([]{return QToolTip::isVisible()&&QToolTip::text().contains("data:image/png;base64,");},1500),"Hover did not show the enlarged thumbnail after native tooltip animation");QToolTip::hideText();opened_file.clear();QMouseEvent double_click(QEvent::MouseButtonDblClick,preview_point,files->viewport()->mapToGlobal(preview_point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&double_click);application.processEvents();auto* inspector=first.findChild<QDialog*>("fileManagerImagePreview");check(inspector&&opened_file.isEmpty(),"Thumbnail double-click opened the CAD file instead of its image inspector");inspector->reject();application.processEvents();views->setCurrentIndex(0);
 
         {QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",true);metadata.sync();}QDir().mkpath(project+"/ZZZ-directory");first.navigate(project);for(const auto order:{Qt::AscendingOrder,Qt::DescendingOrder}){files->sortByColumn(0,order);check(files->topLevelItem(0)->data(0,Qt::UserRole+3).toBool(),"Directory group mixed with files");}QDir(project+"/ZZZ-directory").removeRecursively();{QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",false);metadata.sync();}first.navigate(project);
@@ -180,8 +191,8 @@ int main(int argc,char** argv){
         zima::app::FileManagerTab second(files_settings,working,working);check(second.findChild<QTabWidget*>("fileManagerViews")->currentIndex()==1,"Initial Files preference was ignored");second.navigate(source);
         check(first.current_directory()==QDir::cleanPath(project)&&second.current_directory()==QDir::cleanPath(source),"File Manager tabs do not keep independent navigation state");
         first.navigate(working);check(views->count()==2&&views->isTabVisible(0)&&overview_title->text()=="working"&&overview_details->isHidden(),"Directory overview retained stale project information");
-        check(files->columnCount()==5&&files->topLevelItemCount()==1,"Native parameters were not exposed without metadata");
-        const auto native_cell=files->indexFromItem(files->topLevelItem(0),4);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,native_cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Native parameter was not editable without metadata");line->setText("175");files->itemDelegate()->setModelData(editor,files->model(),native_cell);delete editor;
+        check(files->columnCount()==6&&files->topLevelItemCount()==1,"Native parameters were not exposed without metadata");
+        const auto native_cell=files->indexFromItem(files->topLevelItem(0),5);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,native_cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Native parameter was not editable without metadata");line->setText("175");files->itemDelegate()->setModelData(editor,files->model(),native_cell);delete editor;
         QSettings created(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(created.value("Directory/Version").toInt()==3&&created.value("Directory/Kind").toString()=="directory","Editing a native parameter did not initialize metadata v3");
         check(created.value("Parts/PANEL/native_length").toString()=="175"&&created.value("Files/PANEL/Provider").toString()=="zima-cad","New metadata did not mirror the native edit");
         first.navigate(read_only);check(files->topLevelItemCount()==1,"Read-only source did not display its native file");
@@ -203,10 +214,42 @@ int main(int argc,char** argv){
 
         QString protected_before;{QSettings metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);protected_before=metadata.value("Parts/PANEL/native_length").toString();metadata.setValue("Directory/PreventParameterEdit",true);metadata.sync();}
         first.navigate(working);QTreeWidgetItem* locked_native{};for(int row=0;row<files->topLevelItemCount();++row)if(files->topLevelItem(row)->text(0)=="PANEL.prtz")locked_native=files->topLevelItem(row);check(locked_native&&!(locked_native->flags()&Qt::ItemIsEditable),"Parameter protection did not lock native cells");
-        const auto locked_cell=files->indexFromItem(locked_native,4);check(!files->itemDelegate()->createEditor(files,option,locked_cell),"Protected cell created an editor");native_edit.clear();QLineEdit blocked_editor;blocked_editor.setText("999");files->itemDelegate()->setModelData(&blocked_editor,files->model(),locked_cell);check(native_edit.isEmpty(),"Protected delegate called the native edit callback");QSettings locked_metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(locked_metadata.value("Parts/PANEL/native_length").toString()==protected_before,"Protected delegate changed persisted parameters");
+        const auto locked_cell=files->indexFromItem(locked_native,5);check(!files->itemDelegate()->createEditor(files,option,locked_cell),"Protected cell created an editor");native_edit.clear();QLineEdit blocked_editor;blocked_editor.setText("999");files->itemDelegate()->setModelData(&blocked_editor,files->model(),locked_cell);check(native_edit.isEmpty(),"Protected delegate called the native edit callback");QSettings locked_metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(locked_metadata.value("Parts/PANEL/native_length").toString()==protected_before,"Protected delegate changed persisted parameters");
         const QString inherited_parameters=working+"/params-child";QDir().mkpath(inherited_parameters);{QFile child(inherited_parameters+"/PANEL.prtz");check(child.open(QIODevice::WriteOnly),"Cannot create inherited parameter fixture");child.write("synthetic-native-fixture");}first.navigate(inherited_parameters);check(files->topLevelItemCount()==1&&!(files->topLevelItem(0)->flags()&Qt::ItemIsEditable),"Parameter protection was not inherited by a child directory");
         first.navigate(working);bool parameter_properties=false;QTimer::singleShot(0,[&]{auto* menu=first.findChild<QMenu*>("fileManagerSourceMenu");if(!menu)return;auto* action=menu->findChild<QAction*>("fileManagerSourceProperties");parameter_properties=action;if(action)action->trigger();menu->close();});sources->customContextMenuRequested(sources->visualItemRect(sources->item(0)).center());check(parameter_properties,"Working directory properties are unavailable");directory_editor=first.findChild<QDialog*>("fileManagerDirectoryEditor");auto* parameter_protection=directory_editor?directory_editor->findChild<QCheckBox*>("fileManagerDirectoryPreventParameterEdit"):nullptr;check(parameter_protection&&parameter_protection->isChecked(),"Directory properties did not expose stored parameter protection");parameter_protection->setChecked(false);directory_editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();first.navigate(inherited_parameters);check(files->topLevelItem(0)->flags()&Qt::ItemIsEditable,"Removing parameter protection did not restore child editing");first.navigate(working);
         first.set_working_directory(source);check(working_field->text()==QDir::toNativeSeparators(source)&&second.current_directory()==QDir::cleanPath(source),"Updating the working-directory field changed another tab navigation");first.set_working_directory(working);
+        const QString preferences=fixture.filePath("preferences");QDir().mkpath(preferences);
+        auto persisted_settings=settings;persisted_settings.base_config_path=preferences+"/config.ini";
+        {QSettings layout(preferences+"/file-manager-layout.ini",QSettings::IniFormat);layout.setValue("Table/Order",QStringList{"type","file","size","modified"});layout.setValue("Widths/file",210);layout.setValue("Thumbnails/Size",48);layout.sync();}
+        zima::app::FileManagerTab migrated(persisted_settings,working,working);
+        auto* migrated_files=migrated.findChild<QTreeWidget*>("fileManagerFiles");auto* migrated_size=migrated.findChild<QSlider*>("fileManagerThumbnailSize");
+        check(migrated_size->value()==96&&migrated_files->columnWidth(0)==210,"Preview migration lost filename width or retained the old small default");
+        check(migrated_files->header()->logicalIndex(0)==2&&migrated_files->header()->logicalIndex(1)==0&&migrated_files->header()->logicalIndex(2)==1,"Preview migration did not preserve semantic column order");
+        migrated_size->setValue(144);migrated.navigate(working);
+        zima::app::FileManagerTab restored(persisted_settings,working,working);
+        check(restored.findChild<QSlider*>("fileManagerThumbnailSize")->value()==144&&restored.findChild<QTreeWidget*>("fileManagerFiles")->columnWidth(1)==148,"Preview size/width was not restored in a new tab");
+        for(const auto background:{QColor(Qt::white),QColor("#252525")}) {
+            QImage input(100,100,QImage::Format_ARGB32);input.fill(background);
+            for(int y=40;y<60;++y)for(int x=35;x<65;++x)input.setPixelColor(x,y,Qt::red);
+            const auto compact=zima::app::compact_thumbnail_image(input);
+            check(compact.size()==QSize(34,24)&&compact.pixelColor(2,2)==QColor(Qt::red),"Thumbnail retained empty margin or clipped foreground");
+            if(background!=QColor(Qt::white)) {
+                input.setPixelColor(92,82,QColor(background.red()+1,background.green(),background.blue()));
+                check(zima::app::compact_thumbnail_image(input).width()==62,"Thumbnail clipped a foreground pixel close to the background");
+            }
+        }
+        const QString order=working+"/sort-proof";
+        for(const auto name:{QString("01-zeta"),QString("02-alpha")}) {
+            const QString index=order+"/"+name+"/0000-index";QDir().mkpath(index);
+            QSettings localized(index+"/metadata.ini",QSettings::IniFormat);
+            localized.setValue("Directory/Label/cs",name.startsWith("01")?"Zeta":"Alfa");
+            localized.setValue("Directory/Label/en",name.startsWith("01")?"Zulu":"Alpha");localized.sync();
+        }
+        first.navigate(order);files->sortItems(0,Qt::AscendingOrder);
+        check(files->topLevelItemCount()==2&&files->topLevelItem(0)->text(0)=="Zeta"&&files->topLevelItem(1)->text(0)=="Alfa","Directory table sorts translated labels instead of actual filenames");
+        files->sortItems(0,Qt::DescendingOrder);check(files->topLevelItem(0)->text(0)=="Alfa","Descending filename order is incorrect");
+        auto english=settings;english.language="en";first.reload_settings(english);first.navigate(order);files=first.findChild<QTreeWidget*>("fileManagerFiles");files->sortItems(0,Qt::AscendingOrder);
+        check(files->topLevelItem(0)->text(0)=="Zulu","Changing language reordered directories");
         std::cout<<"File Manager sources, project detection, overview, parameters and independent tabs passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

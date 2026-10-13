@@ -19,7 +19,7 @@ commands::Result run(command_host::Host& host,const std::string& command,Json ar
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return settings;};
+    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return settings;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","opening-limits"}});
     zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});

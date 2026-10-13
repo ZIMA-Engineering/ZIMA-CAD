@@ -47,12 +47,12 @@ void factory(const std::filesystem::path& root) {
         }
         drawing::save_template_sketch(sketch,path);
     }
-    for(const auto* filename:{"START_PART.prtz","START_SKELETON.prtz"}) {
+    for(const auto* filename:{"START_PART_mm.prtz","START_SKELETON_mm.prtz"}) {
         const auto path=root/"config/templates"/filename;auto part=document::PartDocument::load(path);
         for(const auto* key:{"general_tolerance","tolerancing"}){part.user_parameters.erase(key);part.user_parameter_values.erase(key);part.user_parameter_labels.erase(key);std::erase(part.user_parameter_order,key);}
         part.save(path);
     }
-    const auto path=root/"config/templates/START_ASSEMBLY.asmz";auto assembly=assembly::AssemblyDocument::load(path);
+    const auto path=root/"config/templates/START_ASSEMBLY_mm.asmz";auto assembly=assembly::AssemblyDocument::load(path);
     for(const auto* key:{"general_tolerance","tolerancing"}){assembly.user_parameters.erase(key);assembly.user_parameter_values.erase(key);assembly.user_parameter_labels.erase(key);std::erase(assembly.user_parameter_order,key);}
     assembly.save(path);
 }

@@ -14,6 +14,7 @@ struct NativeTemplateSettings {
     std::filesystem::path drawing_frame_template, drawing_title_block_template;
     std::filesystem::path materials_directory;
     std::string drawing_frame_variant, drawing_title_block_variant;
+    std::filesystem::path skeleton_template{"START_SKELETON_mm.prtz"};
 };
 // Uses the existing body-origin attachment contract unchanged.
 [[nodiscard]] document::PartDocument part_from_template(const NativeTemplateSettings& settings);

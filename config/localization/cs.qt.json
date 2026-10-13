@@ -2460,5 +2460,7 @@
   "Položku nelze přesunout do koše: %1": "Položku nelze přesunout do koše: %1",
   "Nastavit jako pracovní adresář": "Nastavit jako pracovní adresář",
   "Zakázat úpravy parametrů": "Zakázat úpravy parametrů",
-  "Ochrana úprav parametrů platí také pro podadresáře.": "Ochrana úprav parametrů platí také pro podadresáře."
+  "Ochrana úprav parametrů platí také pro podadresáře.": "Ochrana úprav parametrů platí také pro podadresáře.",
+  "Výchozí šablona Skeletonu": "Výchozí šablona Skeletonu",
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Vyberte platné nativní šablony dílu, sestavy a Skeletonu."
 }

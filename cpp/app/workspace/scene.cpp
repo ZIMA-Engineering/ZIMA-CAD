@@ -4,6 +4,7 @@
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/assembly_scene.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
 #include "../document_numeric_display.hpp"
@@ -862,26 +863,17 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     // the feature never invokes OCCT or enumerates topology.
                     const auto* part_state =
                         workspace_.open_part(document.document_id);
-                    std::size_t calculated_before{};
-                    for (auto history = document.history.begin();
-                         history != stored_container; ++history) {
-                        if (history->feature_kind != FeatureKind::Sketch) {
-                            ++calculated_before;
-                        }
-                    }
+                    const auto* input=part_state?zima::workspace::calculated_operation_input(
+                        part_state->session,container->id):nullptr;
                     const auto& routes = container->edge_treatment.routes;
                     // The open feature dialog already publishes the correct
                     // transient route dimensions. Do not stack a second
                     // persisted inspection set on top of it.
                     if (!(edge_treatment_dialog_ != nullptr &&
                             edge_treatment_preview_owner_id_ == container->id) &&
-                        part_state != nullptr && calculated_before > 0 &&
-                        part_state->session.calculated_boundaries().size() >=
-                            calculated_before &&
+                        input != nullptr &&
                         !routes.empty() && !routes.front().empty()) {
-                        const auto& input_mesh =
-                            part_state->session.calculated_boundaries()
-                                [calculated_before - 1].mesh;
+                        const auto& input_mesh=input->mesh;
                         std::vector<zima::kernel::ViewerEdge> route_edges;
                         route_edges.reserve(routes.front().size());
                         bool complete = true;
@@ -908,6 +900,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                                 {std::move(route_edges)}, container->edge_treatment,
                                 container->feature_kind,
                                 container->id);
+                            if(const auto* body=document.body_owner_for_object(container->id)) {
+                                zima::kernel::ViewerMesh dimensions;dimensions.dimensions=std::move(geometry.dimensions);
+                                geometry.dimensions=document.place_body_mesh(std::move(dimensions),body->scope.id).dimensions;
+                            }
                             mesh.dimensions.insert(mesh.dimensions.end(),
                                 std::make_move_iterator(
                                     geometry.dimensions.begin()),

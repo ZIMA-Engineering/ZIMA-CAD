@@ -215,6 +215,7 @@ zima::workspace::NativeTemplateSettings native_template_settings(const Applicati
         QObject::tr("List %1").arg(1).toStdString()};
     configure_new_drawing(result,new_drawing_options(settings));
     result.materials_directory=std::filesystem::u8path(settings.resolved_paths.value("Materials").toStdString());
+    result.skeleton_template=std::filesystem::u8path(settings.skeleton_template.toStdString());
     return result;
 }
 

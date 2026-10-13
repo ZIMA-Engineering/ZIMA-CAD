@@ -214,7 +214,7 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     auto source=document::PartDocument::create_default();source.name="Box source";auto box=zima::test::rectangular_feature(source);zima::test::resize_rectangular_feature(source,box,{10,20,30});source.history.push_back(box);
     const auto body=kernel.evaluate_history(source.kernel_operations());kernel.export_step(interchange::step_product(source,body),document::path_to_utf8(dir/fs::path(u8"kvádr.step")));

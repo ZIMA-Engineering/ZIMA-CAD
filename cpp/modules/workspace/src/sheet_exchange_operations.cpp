@@ -24,7 +24,8 @@ SheetDxfResult prepare_sheet_dxf(const document::PartDocument& source,
     const auto found=calculated.back().body_outputs.find(body->scope.id);
     if(found==calculated.back().body_outputs.end())throw std::invalid_argument("Sheet DXF requires a calculated sheet body.");
     const auto outline=kernel::sheet_flat_contour(found->second.get(),thickness,document::sheet_cut_tolerance(source.document_precision));
-    SheetDxfResult result;result.thickness=thickness;result.volume=found->second->volume;
+    auto measured=found->second.get();kernel.ensure_body_properties(measured);
+    SheetDxfResult result;result.thickness=thickness;result.volume=measured.volume;
     result.contour=sketcher::Sketch::create_default();result.contour.name="DXF";
     for(const auto& arc:outline.arcs) {
         if(arc.full)static_cast<void>(result.contour.add_circle(arc.center.x,arc.center.y,arc.radius));

@@ -172,7 +172,7 @@ int main() {
             for(const auto* locale : {"cs_CZ.UTF-8", "cs_CZ.utf8", "Czech_Czechia.1250"})
                 if(std::setlocale(LC_NUMERIC,locale))break;
             auto document = zima::document::PartDocument::load(
-                std::filesystem::current_path()/"config/templates/START_PART.prtz");
+                std::filesystem::current_path()/"config/templates/START_PART_mm.prtz");
             document.history.push_back(zima::test::rectangular_feature(document));
             const auto operations=document.kernel_operations();
             require(operations.front().boolean_tolerance==0.001 && operations.front().mesh_deflection==0.1,
@@ -186,7 +186,7 @@ int main() {
         const auto start_part_template =
             zima::document::PartDocument::load(
                 std::filesystem::current_path() /
-                "config/templates/START_PART.prtz");
+                "config/templates/START_PART_mm.prtz");
         require(start_part_template.document_id == "template-start-part" &&
                     start_part_template.history.empty() &&
                     start_part_template.sketches.empty() &&

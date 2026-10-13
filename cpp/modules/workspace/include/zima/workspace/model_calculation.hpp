@@ -27,6 +27,7 @@ struct PartCalculationPolicy {
     bool reject_errors{};
     std::string edited_document_id;
     std::optional<std::size_t> edited_history_limit;
+    bool refresh_physical_properties{};
 };
 
 // Validated new definitions and already failed features retain their native
@@ -48,7 +49,8 @@ struct PartCalculationPolicy {
 // Explicit interactive calculation also resolves Assembly-owned cutter references.
 // Workspace's dependency refresh continues using its existing cached-cut path.
 void calculate_resolved_assembly_cuts(
-    const kernel::OcctKernel& kernel, assembly::AssemblyDocument& document);
+    const kernel::OcctKernel& kernel, assembly::AssemblyDocument& document,
+    bool refresh_physical_properties=false);
 
 struct PartRegenerationResult { bool references_changed{}; };
 // Synchronous operations on the Workspace owner thread. No activation or View work.
@@ -57,6 +59,11 @@ struct PartRegenerationResult { bool references_changed{}; };
     const std::string& document_id, const PartCalculationPolicy& policy = {});
 void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
     const std::string& document_id, const PartCalculationPolicy& policy = {});
+
+// Explicit physical measurement of existing calculated inputs; no history replay
+// or Undo transaction. The cache generation changes only when analysis is completed.
+void calculate_body_properties(Workspace& workspace, const kernel::OcctKernel& kernel,
+    const std::string& document_id, const document::BodyProperties& position);
 
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,

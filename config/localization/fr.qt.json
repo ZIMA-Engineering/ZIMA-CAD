@@ -2460,5 +2460,7 @@
   "Položku nelze přesunout do koše: %1": "Impossible de déplacer l’élément vers la corbeille : %1",
   "Nastavit jako pracovní adresář": "Définir comme répertoire de travail",
   "Zakázat úpravy parametrů": "Interdire la modification des paramètres",
-  "Ochrana úprav parametrů platí také pro podadresáře.": "La protection des paramètres s’applique aussi aux sous-répertoires."
+  "Ochrana úprav parametrů platí také pro podadresáře.": "La protection des paramètres s’applique aussi aux sous-répertoires.",
+  "Výchozí šablona Skeletonu": "Modèle Skeleton par défaut",
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Sélectionnez des modèles natifs valides de pièce, d’assemblage et de Skeleton."
 }

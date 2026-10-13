@@ -1061,6 +1061,9 @@ struct KernelRigidPlacement {
 inline constexpr const char* kernel_body_compound = "ZIMA-BODY-COMPOUND-V1";
 
 struct BodyResult {
+    // Ephemeral proof of calculation by a live kernel instance. Never serialized.
+    // A loaded native snapshot intentionally has no proof.
+    std::shared_ptr<const void> calculation_provenance;
     // Original-source evaluation geometry at each solid-state boundary. These
     // immutable packets are not selectable topology and never enter mesh.
     // Native persistence retains them for reference resolution without OCCT.
@@ -1072,6 +1075,11 @@ struct BodyResult {
     std::string shaft_thread_owner;
     std::array<FaceReference,4> shaft_thread_references{};
     ViewerMesh mesh;
+    // Geometry can be current while optional aggregate analysis is pending.
+    // Pending scalar slots must never be exposed as measured zero values.
+    bool physical_properties_current{true};
+    bool solid_present{};
+    [[nodiscard]] bool has_solid() const { return physical_properties_current ? volume > 0. : solid_present; }
     double volume{};
     double surface_area{};
     std::optional<VolumeIntegrals> volume_integrals;

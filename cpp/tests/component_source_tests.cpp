@@ -11,7 +11,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","source-part"}});const auto part_id=live.active_document_id();
     const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
     run(host,"new",{{"type","assembly"},{"name","source-middle"}});const auto middle_id=live.active_document_id();const auto leaf=run(host,"component.insert",{{"source",part_id}}).data.at("occurrence").get<std::string>();run(host,"save");

@@ -100,6 +100,59 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         const auto finish=[&](bool commit) {
             dialog()->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         };
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_MODEL");!model.isEmpty()) {
+            const auto opened=run("open",{{"path",model.toStdString()}});view->set_projection_mode(viewer::ProjectionMode::Orthographic);view->fit_all();flush();
+            const auto revision=opened.at(0).at("revision");
+            const auto owner=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_OWNER").toStdString();
+            check(!owner.empty(),"User-model treatment is missing");
+            QPointF surface;
+            bool found=false;
+            for(const auto orientation:{viewer::StandardView::Isometric,viewer::StandardView::Bottom,
+                viewer::StandardView::Back,viewer::StandardView::Front,viewer::StandardView::Left,
+                viewer::StandardView::Right,viewer::StandardView::Top}) {
+            view->set_standard_view(orientation);
+            QEventLoop settle;QTimer::singleShot(1000,&settle,&QEventLoop::quit);settle.exec();flush();
+            const QPointF center(view->width()/2.,view->height()/2.);
+            const auto ray0=view->ray_at(center),rayx=view->ray_at(center+QPointF(100,0)),rayy=view->ray_at(center+QPointF(0,100));
+            check(ray0&&rayx&&rayy,"Missing orthographic test rays");
+            const auto delta=[](auto a,auto b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+            const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+            const auto u=delta(rayx->first,ray0->first),v=delta(rayy->first,ray0->first);
+            const auto& mesh=view->mesh();
+            for(std::size_t triangle=0;triangle<mesh.triangle_references.size()&&!found;++triangle) {
+                const auto& reference=mesh.triangle_references[triangle];
+                if(reference.owner_id!=owner&&reference.display_owner_id!=owner)continue;
+                const auto a=mesh.vertices[mesh.triangles[3*triangle]],b=mesh.vertices[mesh.triangles[3*triangle+1]],c=mesh.vertices[mesh.triangles[3*triangle+2]];
+                const auto offset=delta(kernel::Vec3{(a.x+b.x+c.x)/3,(a.y+b.y+c.y)/3,(a.z+b.z+c.z)/3},ray0->first);
+                const QPointF point=center+QPointF(100*dot(offset,u)/dot(u,u),100*dot(offset,v)/dot(v,v));
+                const auto candidates=view->selection_candidates_at(point);
+                const auto ray=view->ray_at(point);if(!ray)continue;
+                const auto faces=viewer::ordered_ray_candidates(view->mesh(),ray->first,ray->second);
+                if(faces.empty()||(faces.front().reference.owner_id!=owner&&faces.front().reference.display_owner_id!=owner))continue;
+                if(candidates.empty()||candidates.front().kind!=viewer::CandidateKind::Container||candidates.front().owner_id!=owner)continue;
+                surface=point;found=true;
+            }
+            if(found)break;
+            }
+            if(!found)window.grab().save(QString::fromStdString((directory/"user-model-fillet-pick-failure.png").string()));
+            check(found,"Rounded surface did not offer its own Fillet through the common picker");click(surface);
+            const auto radius_visible=[&]{return std::ranges::any_of(view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==owner&&dimension.kind==kernel::ViewerDimensionKind::Radius;});};
+            check(!radius_visible(),"Single-clicking the rounded surface exposed its radius annotation");
+            const auto selected_feature=[&] {
+                const auto* item=tree->currentItem();
+                return item&&item->isSelected()&&item->data(0,Qt::UserRole).toString().toStdString()==owner&&
+                    item->data(0,Qt::UserRole+3)=="part-container";
+            };
+            check(selected_feature(),"Single-clicking the rounded surface did not select its feature in the Tree");
+            check(run("documents").at(0).at("revision")==revision,"Surface selection created a transaction");
+            mouse(QEvent::MouseButtonDblClick,surface,Qt::LeftButton,Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease,surface,Qt::LeftButton,Qt::NoButton);
+            check(radius_visible(),"Double-clicking the rounded surface omitted its radius annotation");
+            check(selected_feature(),"Double-clicking the rounded surface lost its selected Tree feature");
+            check(run("documents").at(0).at("revision")==revision,"Surface inspection created a transaction");
+            window.grab().save(QString::fromStdString((directory/"user-model-fillet-inspection.png").string()));
+            std::cout<<"User-model rounded surface: single-click Tree selection, double-click radius and unchanged revision passed\n";return 0;
+        }
 #include "form_topology_ui_verification.inc"
 #include "treatment_selection_ui_verification.inc"
         const auto drag=[&](const std::string& owner,const std::string& key,int handle,bool cancel=false) {

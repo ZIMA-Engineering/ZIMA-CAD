@@ -558,7 +558,7 @@ sections continue to use the general Sweep calculation.
 
 Native Part INI format **30** / JSON payload **54** stores Flat and Bend parameters, the
 owned Flat profile, Bend start Sketch and both embedded Bend Sketches;
-`config/templates/START_PART.prtz` uses that format. Earlier Part
+`config/templates/START_PART_mm.prtz` and its inch variant use that format. Earlier Part
 formats are intentionally unsupported. Assembly format is unchanged.
 
 Console commands `bend.create`, `bend.get` and `bend.set` use the same workspace

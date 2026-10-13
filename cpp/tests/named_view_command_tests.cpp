@@ -11,7 +11,7 @@ void require(bool yes,const char* message){if(!yes)throw std::runtime_error(mess
 template<class Fn> void rejects(Fn fn){bool failed=false;try{fn();}catch(const std::exception&){failed=true;}require(failed,"Invalid named view accepted");}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;bool editing=false;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     options.interaction=[&]{command_host::Interaction result;result.editing=editing;result.active_occurrence=live.active_occurrence_path();return result;};
     command_host::Host host(live,kernel,dir,options);
     const auto run=[&](const char* name,Json args=Json::object()){

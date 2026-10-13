@@ -222,7 +222,7 @@ PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, cons
     switch(type) {
         case NativeDocumentType::Part: {
             auto selected=settings;
-            if(assembly::is_skeleton_file(target))selected.part_template="START_SKELETON.prtz";
+            if(assembly::is_skeleton_file(target))selected.part_template=settings.skeleton_template;
             prepared.document_=PreparedNativeDocument::Part{part_from_template(selected),{}};break;
         }
         case NativeDocumentType::Assembly: prepared.document_=assembly_from_template(settings);break;

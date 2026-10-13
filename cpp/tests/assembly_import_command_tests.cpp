@@ -22,7 +22,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
     double configured_cut_tolerance=.025;
-    options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
+    options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
     command_host::Host host(live,kernel,dir,options);
     const auto expected_material=document::load_material_library("config/materials/01_steels/structural/S235JR.matz");
     const auto verify_defaults=[&](const document::PartDocument& doc) {

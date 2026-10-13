@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/model_dimension_layout_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <QSignalBlocker>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -114,7 +115,15 @@ void AssemblyWorkspaceWindow::show_parameter_dimensions(
     construction_dimension_object_id_ = owner_id;
     opening_component_edit_={owner_id,component};
     preserve_view_on_refresh_ = true;
-    refresh_scene();
+    if(component.empty()&&!properties_dialog_&&active_sketch_id_.empty()) {
+        // Rebuilding the Tree is not a new user selection. Keep the requested
+        // inspector while replacing its rows, then restore the matching row.
+        // Re-confirming the View would obstruct dimension hover and editing.
+        const QSignalBlocker selection_signals(tree_);
+        refresh_scene();
+        select_container(owner_id);
+    } else refresh_scene();
+    update_body_color_actions();
     if (!component.empty()) {
         for (QTreeWidgetItemIterator i(tree_);*i;++i) {
             if ((*i)->data(0,Qt::UserRole+3).toString()=="part-opening-component" &&

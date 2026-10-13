@@ -160,6 +160,20 @@ int main(int argc, char** argv) {
                 "GUI or CLI did not warn about invalid Sheet Cut configuration");
             require(read(root+"/Projects/config.ini")==invalid_config,"Loading invalid configuration modified the user's file");
         }
+        {
+            const auto templates=zima::app::ApplicationSettings::load(root+"/Projects",exe).resolved_paths.value("Templates");
+            for(const auto* file:{"START_PART_in.prtz","START_ASSEMBLY_in.asmz","START_SKELETON_in.prtz"})
+                write(templates+"/"+file,"fixture");
+            write(root+"/Projects/config.ini","[Units]\nLength=in\n[Templates]\nPart=START_PART.prtz\nAssembly=START_ASSEMBLY.asmz\nSkeleton=START_SKELETON.prtz\n");
+            const auto gui=zima::app::ApplicationSettings::load(root+"/Projects",exe);
+            const auto console=zima::cli::load_settings(std::filesystem::u8path(exe.toStdString()),std::filesystem::u8path((root+"/Projects").toStdString()),{});
+            require(gui.part_template=="START_PART_in.prtz"&&gui.assembly_template=="START_ASSEMBLY_in.asmz"&&gui.skeleton_template=="START_SKELETON_in.prtz"&&
+                console.documents.templates.part_template=="START_PART_in.prtz"&&console.documents.templates.assembly_template=="START_ASSEMBLY_in.asmz"&&
+                console.documents.templates.skeleton_template=="START_SKELETON_in.prtz","Removed factory settings did not select the unit variants equally in GUI/CLI");
+            write(templates+"/START_PART.prtz","user template");
+            require(zima::app::ApplicationSettings::load(root+"/Projects",exe).part_template=="START_PART.prtz",
+                "An existing custom template was replaced by the factory rename");
+        }
         std::cout << "Portable GUI/CLI settings, persistence and version switching passed\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

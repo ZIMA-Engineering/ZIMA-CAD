@@ -21,11 +21,12 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return settings;};
+    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return settings;};
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("fillet.get missing").code=="unsupported_document","Fillet query accepted no document");
     run(host,"new",{{"type","part"},{"name","edge-treatment"}});
     auto* state=live.open_part(live.active_document_id());const auto doc_id=live.active_document_id();
+    const auto measured_volume=[&]{auto body=state->session.calculated_boundaries().back();kernel.ensure_body_properties(body);return body.volume;};
     const auto body=state->session.document().body_history.active_body_id();
     require(host.execute({{"command","fillet.create"},{"arguments",{{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner","missing"},{"key","edge"}}})}}})}}}}).code=="missing_input","Fillet accepted an empty input body");
     const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container").get<std::string>();
@@ -38,7 +39,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto routes=[&](Json reference=Json(nullptr)){return Json::array({Json{{"edges",Json::array({edge})},{"start",reference}}});};
     const auto id=run(host,"fillet.create",{{"routes",routes()},{"radius_mm",2}}).data.at("container").get<std::string>();
     const double corner=1-std::numbers::pi/4;
-    near(state->session.calculated_boundaries().back().volume,400000-corner*4*50);
+    near(measured_volume(),400000-corner*4*50);
     auto original=*state->session.document().find_container(id);run(host,"undo");require(!state->session.document().find_container(id),"Fillet create needs multiple Undo steps");run(host,"redo");
     require(*state->session.document().find_container(id)==original,"Fillet Redo lost identity");
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
@@ -69,17 +70,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // A variable rolling-ball fillet is not a stack of planar quarter-circles
     // with radius interpolated in world Z. Bound it by the two constant-radius
     // solids and verify mirrored R1/R2 produce equal volume on this symmetric box.
-    const auto linear_volume=state->session.calculated_boundaries().back().volume;
+    const auto linear_volume=measured_volume();
     require(linear_volume>400000-corner*25*50&&linear_volume<400000-corner*4*50,"Variable Fillet volume is outside constant-radius bounds");
     run(host,"fillet.set",{{"container",id},{"reverse",true}});near(radius_at(end_z),5,.1);near(radius_at(start_z),2,.1);
-    near(state->session.calculated_boundaries().back().volume,linear_volume,1e-4);
+    near(measured_volume(),linear_volume,1e-4);
     run(host,"undo");near(radius_at(end_z),2,.1);run(host,"redo");near(radius_at(end_z),5,.1);
     auto locked=*state->session.document().find_container(id);locked.value_locks={"primary","secondary"};
     static_cast<void>(workspace::commit_edge_treatment(live,kernel,doc_id,locked,workspace::EdgeTreatmentEditMode::Replace));
     for(const auto* field:{"radius_mm","radius_end_mm"})require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{field,3}}}}).code=="value_locked","Fillet bypassed dimension lock");
     run(host,"save");std::vector<kernel::BodyResult> saved;const auto loaded=document::PartDocument::load(directory/"edge-treatment.prtz",&saved);
     require(*loaded.find_container(id)==locked,"Native Fillet lost its routes/R1/locks");
-    near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,saved.back().volume,1e-5);
+    auto saved_analysis=saved.back();kernel.ensure_body_properties(saved_analysis);
+    near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,saved_analysis.volume,1e-5);
     zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","110"}});require(state->session.document().find_container(id)->edge_treatment.route_start_vertices==locked.edge_treatment.route_start_vertices,"Source change replaced R1 ancestry");
     const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body");zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{"reverse",false}}}}).code=="inactive_body","Fillet edited inactive Body");
@@ -92,8 +94,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container");state=live.open_part(live.active_document_id());
     const auto chamfer_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}}})}}});
     const auto chamfer=run(host,"chamfer.create",{{"routes",chamfer_routes},{"distance_a_mm",2}}).data.at("container").get<std::string>();
-    near(state->session.calculated_boundaries().back().volume,399900);
-    run(host,"chamfer.set",{{"container",chamfer},{"mode","two_distances"},{"distance_b_mm",5}});near(state->session.calculated_boundaries().back().volume,399750);
+    near(measured_volume(),399900);
+    run(host,"chamfer.set",{{"container",chamfer},{"mode","two_distances"},{"distance_b_mm",5}});near(measured_volume(),399750);
     const auto side_distances=[&]() {
         std::pair<double,double> result{};
         for(const auto& e:state->session.calculated_boundaries().back().mesh.edges)if(e.reference.owner_id==chamfer)
@@ -103,7 +105,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto first=side_distances();near(std::min(first.first,first.second),2);near(std::max(first.first,first.second),5);
     run(host,"chamfer.set",{{"container",chamfer},{"flip",true}});const auto flipped=side_distances();near(flipped.first,first.second);near(flipped.second,first.first);
     run(host,"chamfer.set",{{"container",chamfer},{"mode","distance_angle"},{"distance_a_mm",3},{"angle_degrees",30}});
-    near(state->session.calculated_boundaries().back().volume,400000-.5*9*std::tan(std::numbers::pi/6)*50);
+    near(measured_volume(),400000-.5*9*std::tan(std::numbers::pi/6)*50);
     auto chamfer_locked=*state->session.document().find_container(chamfer);chamfer_locked.value_locks={"primary","secondary","treatment_angle"};
     static_cast<void>(workspace::commit_edge_treatment(live,kernel,live.active_document_id(),chamfer_locked,workspace::EdgeTreatmentEditMode::Replace));
     const auto unchanged=state->session.revision();
@@ -140,9 +142,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         std::set<std::pair<std::string,std::string>> ids;
         for(const auto& face:result.mesh.triangle_references)ids.emplace(face.owner_id,face.semantic_key);return ids;
     };
-    const auto many_volume=state->session.calculated_boundaries().back().volume;check_radii(state->session.calculated_boundaries().back(),false);
+    const auto many_volume=measured_volume();check_radii(state->session.calculated_boundaries().back(),false);
     require(many_volume>400000-4*corner*25*50&&many_volume<400000-4*corner*4*50,"Four-contour Fillet has an invalid volume");
-    run(host,"fillet.set",{{"container",many},{"reverse",true}});check_radii(state->session.calculated_boundaries().back(),true);near(state->session.calculated_boundaries().back().volume,many_volume,.001);
+    run(host,"fillet.set",{{"container",many},{"reverse",true}});check_radii(state->session.calculated_boundaries().back(),true);near(measured_volume(),many_volume,.001);
     const auto ids=face_ids(state->session.calculated_boundaries().back());std::reverse(four_routes.begin(),four_routes.end());
     run(host,"fillet.set",{{"container",many},{"routes",four_routes}});check_radii(state->session.calculated_boundaries().back(),true);
     require(face_ids(state->session.calculated_boundaries().back())==ids,"Reordering Fillet routes replaced generated face ancestry");
@@ -167,7 +169,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto grouped=Json::array({Json{{"edges",Json::array({a,b})}},Json{{"edges",Json::array({c})}}});
         const auto treatment=run(host,(prefix+".create").c_str(),{{"routes",grouped}}).data.at("container").get<std::string>();
         const auto full=*state->session.document().find_container(treatment);const double cut=10*(fillet?corner:.5);
-        near(state->session.calculated_boundaries().back().volume,1000-3*cut);
+        near(measured_volume(),1000-3*cut);
         const auto unchanged=state->session.revision();const auto* original_cache=state->session.calculated_boundaries().data();
         for(auto args:std::vector<Json>{{{"route",-1}},{{"route",Json(std::numeric_limits<std::uint64_t>::max())}},{{"route",3}},{{"route",.5}},
             {{"route",0},{"edge",c}},{{"route",0},{"edge",Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")},{"instance_path","foreign"}}}},
@@ -181,18 +183,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         run(host,"body.activate",{{"body",owning_body}});
         removal=run(host,"edge_treatment.remove",{{"container",treatment},{"route",0},{"edge",a}}).data;
         require(!removal.at("removed").get<bool>()&&removal.at("routes").size()==2&&removal.at("routes")[0].at("edges")[0].at("key")==b.at("key"),"Exact member deletion removed another edge");
-        near(state->session.calculated_boundaries().back().volume,1000-2*cut);
+        near(measured_volume(),1000-2*cut);
         run(host,"undo");require(*state->session.document().find_container(treatment)==full,"Member removal took multiple Undo steps");run(host,"redo");
         removal=run(host,"edge_treatment.remove",{{"container",treatment},{"route",1}}).data;
         require(!removal.at("removed").get<bool>()&&removal.at("routes").size()==1,"Route deletion removed the wrong selection");
-        near(state->session.calculated_boundaries().back().volume,1000-cut);
+        near(measured_volume(),1000-cut);
         run(host,"save");const auto remaining=document::PartDocument::load(directory/(name+".prtz"));
         require(*remaining.find_container(treatment)==*state->session.document().find_container(treatment),"Native file lost remaining route identity");
         near(kernel.evaluate_history(remaining.kernel_operations()).back().volume,1000-cut);
         const auto single=*state->session.document().find_container(treatment);
         removal=run(host,"edge_treatment.remove",{{"container",treatment},{"route",0},{"edge",b}}).data;
         require(removal.at("removed").get<bool>()&&removal.at("calculation_errors").empty()&&!state->session.document().find_container(treatment),"Last edge retained an empty treatment");
-        near(state->session.calculated_boundaries().back().volume,1000);
+        near(measured_volume(),1000);
         run(host,"undo");require(*state->session.document().find_container(treatment)==single,"Undo lost deleted feature identity");run(host,"redo");
         require(!state->session.document().find_container(treatment),"Redo failed to delete the last route");
     }
@@ -208,14 +210,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(generated!=parent_body.mesh.edges.end(),"Missing generated rim for dependency fixture");
     const Json generated_edge={{"owner",generated->reference.owner_id},{"key",generated->reference.semantic_key}};
     const auto child=run(host,"fillet.create",{{"radius_mm",.2},{"routes",Json::array({Json{{"edges",Json::array({generated_edge})}}})}}).data.at("container").get<std::string>();
-    const auto intact_volume=state->session.calculated_boundaries().back().volume;
+    const auto intact_volume=measured_volume();
     const auto deletion=host.execute({{"command","edge_treatment.remove"},{"arguments",{{"container",parent},{"route",0}}}});
     require(!deletion.ok&&deletion.code=="calculation_errors"&&deletion.data.at("changed")==true&&deletion.data.at("removed")==true,
         "Dependent last-route removal did not report its committed history change");
     require(!state->session.document().find_container(parent)&&state->session.document().find_container(child)&&
         !deletion.data.at("calculation_errors").empty(),"Dependent feature or its error was lost");
     run(host,"undo");require(state->session.document().find_container(parent)&&state->session.calculated_boundaries().back().calculation_errors.empty(),"Undo failed to restore dependency geometry");
-    near(state->session.calculated_boundaries().back().volume,intact_volume);
+    near(measured_volume(),intact_volume);
     // A closed circular edge needs no invented R1 endpoint for constant radius.
     run(host,"new",{{"type","part"},{"name","circular-fillet"}});zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","10"},{"height_mm","20"}});state=live.open_part(live.active_document_id());
     const auto& input=state->session.calculated_boundaries().back();
@@ -223,11 +225,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(ring!=input.mesh.edges.end(),"Cylinder top ring is missing");
     const auto ring_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",ring->reference.owner_id},{"key",ring->reference.semantic_key}}})}}});
     run(host,"fillet.create",{{"routes",ring_routes}});
-    near(state->session.calculated_boundaries().back().volume,2000*std::numbers::pi-2*std::numbers::pi*(55./6-9*std::numbers::pi/4),1e-4);
+    near(measured_volume(),2000*std::numbers::pi-2*std::numbers::pi*(55./6-9*std::numbers::pi/4),1e-4);
     // Properties commits pending geometry and annotation placement together;
     // a layout-only edit reuses the current calculated body and has one Undo.
     const auto treatment=state->session.document().history.back();
-    const auto volume=state->session.calculated_boundaries().back().volume;
+    const auto volume=measured_volume();
     kernel::DimensionLayout layout;layout.text_along=4;layout.text_outward=3;
     const std::vector<kernel::DimensionLayoutEntry> layouts{{treatment.id,"parameter:primary",layout}};
     const auto layout_revision=state->session.revision();
@@ -239,14 +241,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     }
     require(workspace::commit_edge_treatment(live,kernel,live.active_document_id(),treatment,workspace::EdgeTreatmentEditMode::Replace,layouts),"Layout-only edit was ignored");
     require(state->session.document().dimension_layouts==layouts,"Layout-only edit was not stored");
-    near(state->session.calculated_boundaries().back().volume,volume);
+    near(measured_volume(),volume);
     require(!workspace::commit_edge_treatment(live,kernel,live.active_document_id(),treatment,workspace::EdgeTreatmentEditMode::Replace,layouts),"Unchanged layout created an Undo step");
     run(host,"undo");require(state->session.document().dimension_layouts.empty(),"Layout-only edit did not undo in one step");
     auto changed=treatment;changed.edge_treatment.primary_size=.75;
     require(workspace::commit_edge_treatment(live,kernel,live.active_document_id(),changed,workspace::EdgeTreatmentEditMode::Replace,layouts),"Combined treatment edit was ignored");
-    require(state->session.document().dimension_layouts==layouts&&std::abs(state->session.calculated_boundaries().back().volume-volume)>.1,"Combined edit lost annotation or geometry");
+    require(state->session.document().dimension_layouts==layouts&&std::abs(measured_volume()-volume)>.1,"Combined edit lost annotation or geometry");
     run(host,"undo");require(state->session.document().dimension_layouts.empty()&&*state->session.document().find_container(treatment.id)==treatment,"Combined geometry/layout edit took multiple Undo steps");
-    near(state->session.calculated_boundaries().back().volume,volume);
+    near(measured_volume(),volume);
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);

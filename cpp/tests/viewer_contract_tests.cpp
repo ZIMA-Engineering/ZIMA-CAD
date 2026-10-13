@@ -15,6 +15,29 @@ void require(bool condition, const char* message) {
 }
 }
 
+static void verify_treatment_surface_selection() {
+    using namespace zima;using viewer::CandidateKind;
+    for(const auto role:{"fillet:face:rounded-corner","chamfer:face:beveled-corner"}) {
+        kernel::ViewerMesh mesh;
+        mesh.vertices={{-10,-10,0},{10,-10,0},{0,10,0}};mesh.triangles={0,1,2};
+        mesh.triangle_references={{"treatment",role,{}}};
+        mesh.edges.push_back({{{-3,0,1},{3,0,1}},{"preceding-sketch","segment:baseline",{}}});
+        const auto offered=[&]{return viewer::ordered_viewer_candidates(mesh,{0,0,10},{0,0,-1},.2);};
+        const auto containers=viewer::filter_candidates(offered(),{CandidateKind::Container});
+        require(!containers.empty()&&containers.front().owner_id=="treatment","Visible treatment lost ordinary selection to its preceding Sketch");
+        const auto references=viewer::filter_candidates(offered(),{CandidateKind::Face});
+        require(references.size()==1&&references.front().owner_id=="treatment"&&references.front().semantic_key==role,"Treatment selection changed the real face reference");
+        const auto curves=viewer::filter_candidates(offered(),{CandidateKind::SketchSegment});
+        require(curves.size()==1&&curves.front().owner_id=="preceding-sketch","Explicit Sketch selection lost its original curve");
+        kernel::ViewerPoint point{{0,0,2},{"native-point","point",{}},"Point",true};point.display_owner_id="native-point";
+        mesh.points={point};const auto points=viewer::filter_candidates(offered(),{CandidateKind::Container});
+        require(points.front().owner_id=="native-point","Treatment surface hid an explicit foreground datum marker");mesh.points.clear();
+        mesh.vertices.insert(mesh.vertices.end(),{{-10,-10,2},{10,-10,2},{0,10,2}});mesh.triangles.insert(mesh.triangles.end(),{3,4,5});
+        mesh.triangle_references.push_back({"foreground","front-panel",{}});
+        const auto hidden=viewer::filter_candidates(offered(),{CandidateKind::Container});
+        require(hidden.front().owner_id=="foreground","Hidden treatment stole selection through a foreground face");
+    }
+}
 static void verify_picking_acceleration() {
     using namespace zima;
     kernel::ViewerMesh mesh,references;
@@ -56,6 +79,7 @@ static void verify_picking_acceleration() {
 int main() {
     try {
         verify_picking_acceleration();
+        verify_treatment_surface_selection();
         {
             using namespace zima::kernel;
             using namespace zima::viewer;

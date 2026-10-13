@@ -57,6 +57,33 @@ document::PartDocument part(double angle) {
 int main(){try {
     kernel::OcctKernel kernel;
     {
+        auto operations=part(90).kernel_operations();
+        auto folded=kernel.evaluate_history(operations);
+        kernel::HistoryOperation unbend;unbend.owner_id="demand-unbend";unbend.primitive=kernel::SheetStateRequest{};
+        unbend.suppressed=true;operations.push_back(unbend);
+        auto suppressed=kernel.evaluate_history_incremental(operations,folded);
+        close(suppressed.back().volume,folded.back().volume,1e-9);
+        operations.back().suppressed=false;
+        auto unfolded=kernel.evaluate_history_incremental(operations,suppressed);
+        kernel::OcctKernel independent;
+        auto fresh=independent.evaluate_history(operations);
+        close(unfolded.back().volume,fresh.back().volume,1e-9);references_close(unfolded.back(),fresh.back());
+        auto flat=*operations.front().sheet_material;flat.unfolded=true;
+        operations.push_back(cut_at(flat,20,flat.neutral_radius*flat.angle*.5,1,1,"demand-late-cut"));
+        auto cut=kernel.evaluate_history_incremental(operations,unfolded);
+        check(cut.back().volume<unfolded.back().volume,"Late cut did not change the flat sheet");
+        kernel::HistoryOperation back;back.owner_id="demand-refold";back.primitive=kernel::SheetStateRequest{false,true,{}};
+        operations.push_back(back);
+        auto refolded=kernel.evaluate_history_incremental(operations,cut);
+        fresh=independent.evaluate_history(operations);
+        close(refolded.back().volume,fresh.back().volume,1e-9);references_close(refolded.back(),fresh.back());
+        check(refolded.back().volume<folded.back().volume,"A newly demanded Refold lost the late material cut");
+        const auto restored=document::load_body_result(document::serialize_body_result(refolded.back()));
+        references_close(refolded.back(),restored);
+        auto repeated=kernel.evaluate_history_incremental(operations,refolded);
+        close(repeated.back().volume,restored.volume,1e-9);references_close(repeated.back(),restored);
+    }
+    {
         auto source=part(77).kernel_operations();const auto parent=*source.front().sheet_material;
         kernel::SheetMaterialDefinition child;child.owner_id="attached-flat";child.parent_owner_id=parent.owner_id;
         child.thickness=2;const kernel::sheet_material::Coordinate end{13,parent.angle*parent.neutral_radius,0};

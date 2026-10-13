@@ -440,8 +440,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
             select_container(candidate.owner_id);
             viewer_->set_feature_selected_edge_indices(
-                edge_treatment_feature_edges(
-                    candidate.owner_id, candidate.instance_path));
+                edge_treatment_feature_edges(candidate.owner_id,candidate.instance_path));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("segment:")) {

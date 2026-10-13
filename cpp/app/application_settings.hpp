@@ -26,7 +26,7 @@ struct FileManagerPreferences {
     QString company_name{QStringLiteral("ZIMA-Engineering")};
     QString company_logo;
     QString company_website{QStringLiteral("https://zima-engineering.cz")};
-    QString default_view{QStringLiteral("overview")};
+    QString default_view{QStringLiteral("files")};
     int thumbnail_size{144};
     bool show_hidden{};
 };
@@ -51,8 +51,9 @@ struct ApplicationSettings {
     QMap<QString, QString> units;
     QMap<QString, QString> translations;
     QMap<QString, QString> qt_translations;
-    QString part_template{QStringLiteral("START_PART.prtz")};
-    QString assembly_template{QStringLiteral("START_ASSEMBLY.asmz")};
+    QString part_template{QStringLiteral("START_PART_mm.prtz")};
+    QString assembly_template{QStringLiteral("START_ASSEMBLY_mm.asmz")};
+    QString skeleton_template{QStringLiteral("START_SKELETON_mm.prtz")};
     QString drawing_pdf_directory{QStringLiteral("pdf")};
     QString drawing_dxf_directory{QStringLiteral("export")};
     QString drawing_view_style{QStringLiteral("hidden_edges")};

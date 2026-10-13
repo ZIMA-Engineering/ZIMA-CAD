@@ -80,7 +80,7 @@ void verifyProvider(const QString& directory) {
 void verifyHostAndConsole(const QString& directory) {
     workspace::Workspace live;kernel::OcctKernel kernel;std::filesystem::path working=directory.toStdString();
     command_host::Interaction interaction;command_host::Options options;options.interaction=[&]{return interaction;};
-    options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body 1"},{}};};
+    options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body 1"},{}};};
     command_host::Host host(live,kernel,working,options);
     int mutations=0;
     const auto execute=[&](const QString& text){auto result=host.execute_text(text.toStdString());if(host.change())++mutations;return result;};
@@ -180,7 +180,7 @@ int main(int argc,char** argv) {
         QTemporaryDir temporary;
         workspace::Workspace workspace;kernel::OcctKernel kernel;std::filesystem::path working=temporary.path().toStdString();
         command_host::Options options;
-        options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body 1"},{}};};
+        options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body 1"},{}};};
         command_host::Host host(workspace,kernel,working,options);
         const auto execute=[&](const QString& text){return host.execute_text(text.toStdString());};
         const auto created=execute("new part AI-Integration-Diagnostic");

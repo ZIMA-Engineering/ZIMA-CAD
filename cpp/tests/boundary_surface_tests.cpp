@@ -1,4 +1,5 @@
 #include <zima/document/boundary_surface.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/surface_results.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
@@ -37,6 +38,10 @@
 #include <sstream>
 using namespace zima;
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
+double measured_area(const kernel::OcctKernel& engine,const kernel::BodyResult& body) {
+    if(body.physical_properties_current)return body.surface_area;
+    auto measured=body;engine.ensure_body_properties(measured);return measured.surface_area;
+}
 kernel::BoundarySurfaceRequest rectangle(double height=0){
     kernel::BoundarySurfaceRequest r;r.region_id="region";
     const std::array<kernel::Vec3,4> p{{{0,0,0},{100,0,0},{100,80,height},{0,80,0}}};
@@ -70,6 +75,22 @@ int main(){try{
     require(kernel::has_surface_results(flat.mesh),"Surface classification lost");
     require(flat.mesh.original_references.edges.size()==4,"Boundary edge identities missing");
     require(flat.mesh.original_references.points.size()==4,"Corner identities missing");
+    {
+        // A later suppressed FORM must not turn an uncapped rational surface
+        // into a volume-integration error or invent solid mass properties.
+        const auto patch=rectangle(20);const auto surface=calculate(patch);
+        kernel::HistoryOperation disabled_form{"disabled-form",kernel::SheetFormRequest{}};
+        disabled_form.suppressed=true;
+        const auto history=k.evaluate_history({{"boundary",patch},disabled_form});
+        const auto& actual=history.back();
+        require(actual.calculation_errors.empty()&&actual.volume==0&&!actual.volume_integrals,
+                "FORM history attempted to integrate a surface-only volume");
+        require(actual.surface_area==surface.surface_area&&actual.surface_centroid==surface.surface_centroid,
+                "FORM history changed surface-only area properties");
+        require(document::serialize_viewer_reference_geometry(actual.mesh.original_references)==
+                document::serialize_viewer_reference_geometry(surface.mesh.original_references),
+                "FORM history changed rational surface reference geometry");
+    }
     // A tight circle/line join exposes filling's final approximation error,
     // which its plate G0Error and sampled shape validator both underestimate.
     const auto difficult=difficult_arc_patch();const auto accurate=calculate(difficult);
@@ -873,7 +894,7 @@ int main(){try{
         stored_owned.general_surface.boundaries[2].sketch_feature->placement.absolute_rotation_z==180,
         "Owned Sketch features lost independent parent-local placement");
     const auto& owned_result=owned_state->session.calculated_boundaries().back();
-    require(owned_result.calculation_errors.empty()&&std::abs(owned_result.surface_area-8000)<.01&&std::abs(owned_result.volume)<1e-9,
+    require(owned_result.calculation_errors.empty()&&std::abs(measured_area(k,owned_result)-8000)<.01&&!owned_result.has_solid(),
         "Mixed owned Sketch/3D Curve surface lost area or became solid");
     require(owned_state->session.document().constructions.empty()&&owned_state->session.document().sketches.size()==owned_input.sketches.size(),
         "General surface leaked owned geometry to document root");
@@ -967,7 +988,7 @@ int main(){try{
     std::vector<kernel::BodyResult> owned_cache;
     auto owned_reopened=document::PartDocument::load(owned_file,&owned_cache);std::filesystem::remove(owned_file);
     kernel::OcctKernel owned_cold;const auto owned_rebuilt=owned_cold.evaluate_history_incremental(owned_reopened.kernel_operations(),owned_cache);
-    require(owned_rebuilt.back().calculation_errors.empty()&&std::abs(owned_rebuilt.back().surface_area-8000)<.01,
+    require(owned_rebuilt.back().calculation_errors.empty()&&std::abs(measured_area(k,owned_rebuilt.back())-8000)<.01,
         "Cold native owned surface reopen lost calculation");
     auto bad_owned=stored_owned;bad_owned.general_surface.boundaries[3].curve->parent_construction_id="wrong-parent";
     bool bad_owned_rejected=false;try{static_cast<void>(workspace::commit_general_surface(owned_live,k,owned_input.document_id,bad_owned));}catch(const std::exception&){bad_owned_rejected=true;}
@@ -1046,7 +1067,7 @@ int main(){try{
     require(workspace::commit_surface_trim(trim_live,k,intersection_input.document_id,trim_feature),"Native Trim did not commit");
     auto* trim_state=trim_live.open_part(intersection_input.document_id);const auto stored_trim=*trim_state->session.document().find_container(trim_feature.id);
     require(!stored_trim.surface_trim.retained_region_key.empty()&&trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&
-        std::abs(trim_state->session.calculated_boundaries().back().surface_area-12000)<.02,"Trim did not persist its exact retained intent");
+        std::abs(measured_area(k,trim_state->session.calculated_boundaries().back())-12000)<.02,"Trim did not persist its exact retained intent");
     const auto trim_before=trim_state->session.document().serialized();
     require(!workspace::commit_surface_trim(trim_live,k,intersection_input.document_id,stored_trim)&&trim_state->session.document().serialized()==trim_before,
         "Unchanged Trim created an Undo transaction");
@@ -1059,18 +1080,18 @@ int main(){try{
     trim_state->session.document().save(trim_file,trim_state->session.calculated_boundaries());std::vector<kernel::BodyResult> trim_cache;
     const auto reopened_trim=document::PartDocument::load(trim_file,&trim_cache);std::filesystem::remove(trim_file);kernel::OcctKernel trim_cold;
     const auto rebuilt_trim=trim_cold.evaluate_history(reopened_trim.kernel_operations());
-    require(rebuilt_trim.back().calculation_errors.empty()&&std::abs(rebuilt_trim.back().surface_area-12000)<.02&&
+    require(rebuilt_trim.back().calculation_errors.empty()&&std::abs(measured_area(k,rebuilt_trim.back())-12000)<.02&&
         reopened_trim.find_container(trim_feature.id)->surface_trim==stored_trim.surface_trim,"Cold native Trim lost its region or result");
     require(workspace::step_part_document_history(trim_live,intersection_input.document_id,false)&&!trim_state->session.document().find_container(trim_feature.id),"Trim Undo failed");
     require(workspace::step_part_document_history(trim_live,intersection_input.document_id,true)&&trim_state->session.document().serialized()==trim_before,"Trim Redo lost region intent");
     auto moved_tool=*trim_state->session.document().find_container(crossing_surface.id);moved_tool.placement.x=60;
     require(workspace::commit_general_surface(trim_live,k,intersection_input.document_id,moved_tool)&&
-        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(trim_state->session.calculated_boundaries().back().surface_area-12800)<.02&&
+        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(measured_area(k,trim_state->session.calculated_boundaries().back())-12800)<.02&&
         trim_state->session.document().find_container(trim_feature.id)->surface_trim.retained_region_key==stored_trim.surface_trim.retained_region_key,
         "Moving the cutting surface lost the retained native region");
     moved_tool=*trim_state->session.document().find_container(crossing_surface.id);moved_tool.placement.x=20;
     require(workspace::commit_general_surface(trim_live,k,intersection_input.document_id,moved_tool)&&
-        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(trim_state->session.calculated_boundaries().back().surface_area-9600)<.02,
+        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(measured_area(k,trim_state->session.calculated_boundaries().back())-9600)<.02,
         "A moving tool changed the retained region to the seed's opposite side");
     moved_tool=*trim_state->session.document().find_container(crossing_surface.id);moved_tool.placement.x=-20;
     require(workspace::commit_general_surface(trim_live,k,intersection_input.document_id,moved_tool)&&
@@ -1079,13 +1100,13 @@ int main(){try{
     require(workspace::commit_general_surface(trim_live,k,intersection_input.document_id,moved_tool),"Trim tool restoration did not commit");
     auto repaired_trim=*trim_state->session.document().find_container(trim_feature.id);repaired_trim.surface_trim.seed={10,40,0};
     require(workspace::commit_surface_trim(trim_live,k,intersection_input.document_id,repaired_trim)&&
-        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(trim_state->session.calculated_boundaries().back().surface_area-9600)<.02,
+        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(measured_area(k,trim_state->session.calculated_boundaries().back())-9600)<.02,
         "Selecting a new retained region could not repair Trim");
     moved_tool=*trim_state->session.document().find_container(crossing_surface.id);moved_tool.placement.x=520;
     require(workspace::commit_general_surface(trim_live,k,intersection_input.document_id,moved_tool),"Moving the complete trim input failed");
     auto moved_target=*trim_state->session.document().find_container(base_surface.id);moved_target.placement.x=500;
     require(workspace::commit_general_surface(trim_live,k,intersection_input.document_id,moved_target)&&
-        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(trim_state->session.calculated_boundaries().back().surface_area-9600)<.02,
+        trim_state->session.calculated_boundaries().back().calculation_errors.empty()&&std::abs(measured_area(k,trim_state->session.calculated_boundaries().back())-9600)<.02,
         "Trim did not follow its native region after the complete input moved away from the original click");
     workspace::delete_part_history(trim_live,intersection_input.document_id,k,crossing_surface.id);
     const auto unresolved_trim=document::PartDocument::from_serialized(trim_state->session.document().serialized());
@@ -1110,7 +1131,7 @@ int main(){try{
     static_cast<void>(reference_profile.add_circle(0,0,2));reference_sweep.sweep2d.profiles[profile_index].sketch_serialized=reference_profile.serialized();
     workspace::commit_sweep(intersection_live,k,intersection_input.document_id,reference_sweep,workspace::SweepEditMode::Create);
     require(intersection_state->session.calculated_boundaries().back().calculation_errors.empty()&&
-        std::abs(intersection_state->session.calculated_boundaries().back().surface_area-16000-320*std::acos(-1.))<.05,
+        std::abs(measured_area(k,intersection_state->session.calculated_boundaries().back())-16000-320*std::acos(-1.))<.05,
         "Sweep could not consume the projected intersection's exact curve");
     require(workspace::part_history_dependencies(intersection_state->session.document()).contains({intersection_feature.id,reference_sweep.id}),
         "Sweep lost its projected intersection prerequisite");

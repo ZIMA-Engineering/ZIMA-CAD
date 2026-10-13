@@ -46,7 +46,8 @@ data live inside native documents; see [cache storage](CACHE_STORAGE.md).
 choose **Modeling** or **Sheet Metal**. Both create the same ordinary Part from
 the configured start template; the choice only selects the working environment
 in the application dropdown. **Skeleton** uses Modeling, appends `_skeleton`
-to the filename and loads `START_SKELETON.prtz` from the template directory.
+to the filename and loads the configured Skeleton template (`START_SKELETON_mm.prtz`
+by default, with `START_SKELETON_in.prtz` for the inch preset) from the template directory.
 It starts with one active empty Body and black surfaces with approximately 70%
 transparency. It contains no modeling geometry, material or manufacturing
 parameters. Skeleton identity is determined only by the case-insensitive

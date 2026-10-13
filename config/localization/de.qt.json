@@ -2460,5 +2460,7 @@
   "Položku nelze přesunout do koše: %1": "Das Element kann nicht in den Papierkorb verschoben werden: %1",
   "Nastavit jako pracovní adresář": "Als Arbeitsverzeichnis festlegen",
   "Zakázat úpravy parametrů": "Parameterbearbeitung sperren",
-  "Ochrana úprav parametrů platí také pro podadresáře.": "Der Schutz vor Parameterbearbeitung gilt auch für Unterverzeichnisse."
+  "Ochrana úprav parametrů platí také pro podadresáře.": "Der Schutz vor Parameterbearbeitung gilt auch für Unterverzeichnisse.",
+  "Výchozí šablona Skeletonu": "Standardvorlage für Skeleton",
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Gültige native Vorlagen für Teil, Baugruppe und Skeleton auswählen."
 }

@@ -382,6 +382,7 @@ void AssemblyWorkspaceWindow::synchronize_instance_files() {
 }
 void AssemblyWorkspaceWindow::refresh_tabs() {
     synchronize_instance_files();
+    const int previous_index=tabs_->currentIndex();
     tabs_->blockSignals(true);
     while (tabs_->count() > 0) tabs_->removeTab(0);
     int displayed_index = -1;
@@ -475,8 +476,21 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         });
         tabs_->setTabButton(index, QTabBar::RightSide, close_slot);
     }
+    const bool select_remaining=displayed_index<0&&tabs_->count()>0;
+    if(select_remaining) {
+        displayed_index=std::clamp(previous_index,0,tabs_->count()-1);
+        displayed_label=tabs_->tabText(displayed_index);
+    }
     tabs_->setCurrentIndex(displayed_index);
     tabs_->blockSignals(false);
+    // Closing the last CAD document leaves utility tabs outside Workspace.
+    // Blocking rebuild signals must not leave a selected tab without its page.
+    if(select_remaining) {
+        const QString id=tabs_->tabData(displayed_index).toString();
+        if(browser_tabs_.contains(id))select_browser(id);
+        else if(file_manager_tabs_.contains(id))select_file_manager(id);
+        else if(preview_tabs_.contains(id))select_model_preview(id);
+    }
     setWindowTitle(QStringLiteral("ZIMA-CAD — %1 — %2")
         .arg(instance_.label(), displayed_label));
     update_document_area_visibility();

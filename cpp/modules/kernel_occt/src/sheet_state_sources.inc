@@ -24,9 +24,32 @@ struct ConnectivityError : std::runtime_error {
     ConnectivityError():std::runtime_error("Reconstructed sheet state is not a valid solid."){}
 };
 
+bool identical_material(const TopoDS_Shape& a,const TopoDS_Shape& b) {
+    if(a.IsEqual(b))return true;
+    // Boolean results can wrap the same unchanged solids in new compounds.
+    // Compare actual runtime solids including orientation and location. Do not
+    // infer equality from volume, bounds, tolerances or persisted identifiers.
+    struct Equal {bool operator()(const TopoDS_Shape& x,const TopoDS_Shape& y)const{return x.IsEqual(y);}};
+    std::unordered_map<TopoDS_Shape,std::size_t,TopTools_ShapeMapHasher,Equal> solids;
+    const auto collect=[&](auto&& self,const TopoDS_Shape& shape,bool remove)->bool {
+        if(shape.ShapeType()==TopAbs_SOLID) {
+            if(!remove){++solids[shape];return true;}
+            const auto found=solids.find(shape);
+            if(found==solids.end()||found->second==0)return false;
+            --found->second;return true;
+        }
+        if(shape.ShapeType()!=TopAbs_COMPOUND&&shape.ShapeType()!=TopAbs_COMPSOLID)return false;
+        for(TopoDS_Iterator it(shape);it.More();it.Next())if(!self(self,it.Value(),remove))return false;
+        return true;
+    };
+    return collect(collect,a,false)&&collect(collect,b,true)&&
+        std::ranges::all_of(solids,[](const auto& value){return value.second==0;});
+}
+
 PrimitiveData difference(const PrimitiveData& a,const PrimitiveData& b,
         const std::string& owner) {
     if(a.shape.IsNull()||b.shape.IsNull())return a;
+    if(!std::getenv("ZIMA_CPP_FORCE_MATERIAL_DIFFERENCE")&&identical_material(a.shape,b.shape))return {};
     BRepAlgoAPI_Cut cut;set_boolean_inputs(cut,a.shape,b.shape);
     cut.SetToFillHistory(true);cut.SetFuzzyValue(1e-7);cut.Build();
     if(!cut.IsDone())throw std::runtime_error("Cannot retain the authored sheet material change.");

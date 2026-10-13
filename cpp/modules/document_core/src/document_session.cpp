@@ -18,7 +18,8 @@ void publish_profile_axes(zima::kernel::ViewerMesh& mesh) {
         return std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
             return face.display_owner_id==reference.owner_id &&
                 face.instance_path==reference.instance_path &&
-                zima::kernel::solid_state_parent(face.semantic_key).has_value();
+                (zima::kernel::solid_state_parent(face.semantic_key).has_value()||
+                    face.semantic_key.starts_with("sheet-state:"));
         });
     };
     for (const auto& axis : mesh.original_references.axes) {

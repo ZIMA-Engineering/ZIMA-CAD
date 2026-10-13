@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_properties_edits.hpp>
+#include <zima/workspace/model_calculation.hpp>
 namespace zima::command_host {
 namespace {
 commands::Json details(const document::BodyProperties& row) {
@@ -24,7 +25,11 @@ void Host::register_body_properties_commands() {
             if(interaction().template_document)return Result::failure("unsupported_document",tr("Body properties require an open Part."));
             try {
                 const auto id=workspace_.active_document_id();
-                const auto edit=workspace::prepare_body_properties_edit(workspace_,id,create?std::string{}:args.at("object").get<std::string>(),tr("Vlastnosti tělesa"));
+                auto edit=workspace::prepare_body_properties_edit(workspace_,id,create?std::string{}:args.at("object").get<std::string>(),tr("Vlastnosti tělesa"));
+                if(create) {
+                    workspace::calculate_body_properties(workspace_,kernel_,id,edit.initial);
+                    edit=workspace::prepare_body_properties_edit(workspace_,id,{},tr("Vlastnosti tělesa"));
+                }
                 auto row=edit.initial;if(args.contains("name"))row.name=args.at("name").get<std::string>();
                 if(args.contains("visible"))row.visible=args.at("visible").get<bool>();
                 if(args.contains("rotation_degrees")) {

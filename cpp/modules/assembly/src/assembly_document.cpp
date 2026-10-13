@@ -1075,6 +1075,8 @@ PartOccurrence AssemblyDocument::create_assembly_occurrence(
         if (!is_skeleton(child) && child.visible && !suppressed.contains(child.occurrence_id)) {
             snapshot.volume += child.calculated_source->volume;
             snapshot.surface_area += child.calculated_source->surface_area;
+            snapshot.physical_properties_current=snapshot.physical_properties_current&&child.calculated_source->physical_properties_current;
+            snapshot.solid_present=snapshot.solid_present||child.calculated_source->has_solid();
         }
     }
     occurrence.calculated_source = std::move(snapshot);

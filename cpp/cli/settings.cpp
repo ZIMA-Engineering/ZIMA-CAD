@@ -2,6 +2,7 @@
 #include "../common/document_naming.hpp"
 #include <zima/document/precision.hpp>
 #include "../common/installation.hpp"
+#include "../common/factory_template.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -50,7 +51,7 @@ Values read_ini(const fs::path& path,bool catalogue=false){
         // Other GUI-only settings do not constrain a command-line process.
         const auto full_key=section+"/"+key;
         if(!catalogue && !full_key.starts_with("DocumentNames/") && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" && full_key!="Paths/Materials" &&
-            full_key!="Templates/Part" && full_key!="Templates/Assembly" && full_key!="Units/Length" &&
+            full_key!="Templates/Part" && full_key!="Templates/Assembly" && full_key!="Templates/Skeleton" && full_key!="Units/Length" &&
             full_key!="Units/Angle" && full_key!="Units/Mass" && full_key!="Units/Time" &&
             full_key!="Units/Temperature" && full_key!="Units/Stress" && full_key!="SheetMetal/CutTolerance" && !full_key.starts_with("SweepPrecision/"))continue;
         if(catalogue&&section!="QtTranslations")continue;
@@ -105,7 +106,7 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     result.documents.normalize_document_name=DocumentNaming{enabled("DocumentNames/Uppercase"),enabled("DocumentNames/RemoveDiacritics"),enabled("DocumentNames/ReplaceSpaces")};
     result.stacked_tolerances=value("Dimensions/ToleranceLayout","inline")=="stacked";
     result.documents.templates={configured_path("Paths/Templates","templates"),
-        fs::u8path(value("Templates/Part","START_PART.prtz")),fs::u8path(value("Templates/Assembly","START_ASSEMBLY.asmz")),"Těleso 1"};
+        fs::u8path(value("Templates/Part",value("Units/Length","mm")=="in"?"START_PART_in.prtz":"START_PART_mm.prtz")),fs::u8path(value("Templates/Assembly",value("Units/Length","mm")=="in"?"START_ASSEMBLY_in.asmz":"START_ASSEMBLY_mm.asmz")),"Těleso 1"};
     result.documents.templates.materials_directory=configured_path("Paths/Materials","materials");
     try {
         result.documents.templates.sheet_cut_tolerance=document::sheet_cut_tolerance({
@@ -122,6 +123,12 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
         sweep_default("SweepPrecision/Sweep3D","0.001"),sweep_default("SweepPrecision/HelicalSweep","0.1")};
     for(const auto& [key,fallback]:Values{{"Length","mm"},{"Angle","deg"},{"Mass","kg"},{"Time","s"},{"Temperature","C"},{"Stress","MPa"}})
         result.documents.units[key]=value(("Units/"+key).c_str(),fallback.c_str());
+    result.documents.templates.skeleton_template=fs::u8path(value("Templates/Skeleton",
+        result.documents.units.at("Length")=="in"?"START_SKELETON_in.prtz":"START_SKELETON_mm.prtz"));
+    for(auto* selected:{&result.documents.templates.part_template,&result.documents.templates.assembly_template,
+            &result.documents.templates.skeleton_template})
+        *selected=distribution::updated_factory_template(result.documents.templates.directory,*selected,
+            result.documents.units.at("Length")=="in");
     const auto language=value("Application/Language","cs");
     const auto catalogue=configured_path("Paths/Localization","localization")/fs::u8path(language+".ini");
     if(fs::is_regular_file(catalogue))for(const auto& [key,text]:read_ini(catalogue,true))result.translations[key.substr(15)]=text;

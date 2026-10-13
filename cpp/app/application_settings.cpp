@@ -1,5 +1,6 @@
 #include "application_settings.hpp"
 #include <zima/document/precision.hpp>
+#include "../common/factory_template.hpp"
 #include "../common/installation.hpp"
 #include "../common/technical_font.hpp"
 #include <memory>
@@ -184,8 +185,13 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     result.initial_configured_paths = result.configured_paths;
     for (auto it = unit_defaults.cbegin(); it != unit_defaults.cend(); ++it)
         result.units.insert(it.key(), value("Units/" + it.key(), it.value()));
-    result.part_template = value("Templates/Part", "START_PART.prtz");
-    result.assembly_template = value("Templates/Assembly", "START_ASSEMBLY.asmz");
+    result.part_template = value("Templates/Part", result.units.value("Length")=="in"?"START_PART_in.prtz":"START_PART_mm.prtz");
+    result.assembly_template = value("Templates/Assembly", result.units.value("Length")=="in"?"START_ASSEMBLY_in.asmz":"START_ASSEMBLY_mm.asmz");
+    result.skeleton_template = value("Templates/Skeleton", result.units.value("Length")=="in"?"START_SKELETON_in.prtz":"START_SKELETON_mm.prtz");
+    for(auto* selected:{&result.part_template,&result.assembly_template,&result.skeleton_template})
+        *selected=qpath(distribution::updated_factory_template(
+            std::filesystem::u8path(result.resolved_paths.value("Templates").toUtf8().toStdString()),
+            std::filesystem::u8path(selected->toUtf8().toStdString()),result.units.value("Length")=="in"));
     result.drawing_pdf_directory=value("Drawing/PdfDirectory","pdf");
     result.drawing_dxf_directory=value("Drawing/DxfDirectory","export");
     result.drawing_view_style=value("Drawing/ViewDisplayStyle","hidden_edges");
@@ -271,9 +277,9 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     if (!result.file_manager.company_logo.isEmpty() && !QDir::isAbsolutePath(result.file_manager.company_logo))
         result.file_manager.company_logo = QDir(config_directory).absoluteFilePath(result.file_manager.company_logo);
     result.file_manager.company_website = value("FileManager/CompanyWebsite", "https://zima-engineering.cz");
-    result.file_manager.default_view = value("FileManager/DefaultView", "overview").toLower();
+    result.file_manager.default_view = value("FileManager/DefaultView", "files").toLower();
     if (!QStringList{"overview", "files"}.contains(result.file_manager.default_view))
-        result.file_manager.default_view = "overview";
+        result.file_manager.default_view = "files";
     bool thumbnail_ok = false;
     result.file_manager.thumbnail_size = value("FileManager/ThumbnailSize", "144").toInt(&thumbnail_ok);
     if (!thumbnail_ok) result.file_manager.thumbnail_size = 144;
@@ -424,7 +430,8 @@ bool ApplicationSettings::save(QString* error) const {
         {"SweepPrecision/Sweep2D",sweep_precision_defaults.sweep2d},
         {"SweepPrecision/Sweep3D",sweep_precision_defaults.sweep3d},
         {"SweepPrecision/HelicalSweep",sweep_precision_defaults.helical},
-        {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template}};
+        {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template},
+        {"Templates/Skeleton", skeleton_template}};
     for (auto it = units.cbegin(); it != units.cend(); ++it) common.insert("Units/" + it.key(), it.value());
     QMap<QString, QVariant> paths;
     for (auto it = configured_paths.cbegin(); it != configured_paths.cend(); ++it) {

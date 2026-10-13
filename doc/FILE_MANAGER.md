@@ -75,8 +75,10 @@ The right side has two views:
 
 ### Table interaction and thumbnails
 
-The File name column combines its checkbox, thumbnail/type icon and name.
-There are no separate Select or Preview columns. Initial name width follows
+The File name column contains its checkbox, compact file-type icon and name.
+The following Preview column aligns thumbnails independently of filename length;
+a thumbnail never replaces the file-type icon. There is no separate Select
+column. Preview has no text filter or parameter editor. Initial name width follows
 the contents within a 180–360 px range; every column can be resized and moved.
 Its filter moves with its logical column. Column order and widths use semantic
 column IDs in `file-manager-layout.ini`, beside local overrides or in the
@@ -86,12 +88,35 @@ same checked/unchecked state and preserves the selected group. Unselected rows
 remain unchanged. The bottom actions have additional clearance from the edge;
 Clean precedes Copy, Move and Delete. Overview and Files have palette-aware icons.
 
-The Files thumbnail slider controls 24–128 px presentation and remembers its
-value. Hovering over an actual thumbnail shows a bounded enlarged image.
+The Files thumbnail slider controls 48–192 px presentation, defaults to 96 px,
+and remembers its value. Its 300 px track provides finer pointer control without increasing PNG
+storage size. Hovering over an actual thumbnail shows a bounded enlarged image.
 Double-clicking a STEP/STP, IGES/IGS or DXF thumbnail opens its read-only main
 preview tab; other thumbnails open an internal image inspector. File-name
-double-click keeps the existing document/open-directory behavior. Directory
-cards in Overview retain their existing `0000-index/01_<language>` / `01` images;
+double-click keeps the existing document/open-directory behavior.
+
+The factory default initializes a new File Manager in Files. An explicit user
+Overview/Files preference initializes a new File Manager only.
+Opening a CAD document, returning to the File Manager, refreshing its directory,
+changing the working directory or reloading settings preserves its selected view.
+
+Directory ordering in the tree and the Files name column uses the actual disk
+folder name, independent of localized labels. The initial order is ascending;
+directories remain before files. Closing the first or last native-document tab
+with browser/File Manager tabs remaining activates a real remaining utility page
+and keeps later tab switching functional.
+
+Thumbnails have their own narrow column after the file name and type icon. The
+size slider retains 300 pixels of pointer travel. Images keep their aspect ratio
+and use two pixels of cell clearance. Save/display removes only exactly uniform
+outer image background, with a retained border and no clipping of foreground
+pixels. Small decoded previews use a bounded cache keyed by actual image bytes;
+changed thumbnails cannot reuse stale pixels. Saved PNG dimensions remain bounded
+by 320 x 240 pixels. Eight symbol categories reuse their SVG tree logos as `01.svg`
+Overview directory previews. The FORM category has an SVG logo/preview and the two
+factory FORM definitions have compact previews rendered from their native geometry.
+
+Directory cards in Overview retain their existing `0000-index/01_<language>` / `01` images;
 native model thumbnails do not introduce file cards into Overview. HTML keeps
 priority. Document-mode tabs and small margins remove the unnecessary outer frame.
 

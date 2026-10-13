@@ -25,7 +25,7 @@ void shifted(const Json& local,const Json& world,double dx,double dy,double dz) 
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","source"}});const auto part_id=live.active_document_id();
     const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();

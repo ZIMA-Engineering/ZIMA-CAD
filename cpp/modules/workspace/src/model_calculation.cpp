@@ -7,6 +7,7 @@
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/body_link_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -96,6 +97,12 @@ std::vector<zima::kernel::BodyResult> calculate_part(
         }
     }
     const std::vector<kernel::BodyResult> empty_previous;
+    // Saved analysis frames are real placement inputs and must be refreshed
+    // before reference settling. Otherwise aggregate analysis is demand driven.
+    const bool eager_analysis=std::getenv("ZIMA_CPP_EAGER_ANALYSIS")!=nullptr;
+    kernel::AggregatePropertyScope properties(document.body_properties.empty()&&!eager_analysis
+        ?policy.refresh_physical_properties?kernel::AggregatePropertyDemand::Final:kernel::AggregatePropertyDemand::Deferred
+        :kernel::AggregatePropertyDemand::All);
     auto calculated = kernel.evaluate_history_recovering(operations,
         calculation_input == nullptr ? empty_previous : *calculation_input);
     validate_part_calculation(document,calculated,policy);
@@ -168,7 +175,9 @@ calculate_part_reference_state(
                 std::chrono::duration<double,std::milli>(now-phase_start).count());
             phase_start=now;
         };
-        calculated = calculate_part(kernel, document, incremental_source, {});
+        PartCalculationPolicy calculation_policy;
+        calculation_policy.refresh_physical_properties=policy.refresh_physical_properties;
+        calculated = calculate_part(kernel, document, incremental_source, calculation_policy);
         phase("calculation");
         const auto history_before = document.history;
         const auto constructions_before = document.constructions;
@@ -249,15 +258,17 @@ std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
 
 void calculate_resolved_assembly_cuts(
     const zima::kernel::OcctKernel& kernel,
-    zima::assembly::AssemblyDocument& document) {
+    zima::assembly::AssemblyDocument& document,bool refresh_physical_properties) {
     if (calculation_runner) {
         const auto runner = calculation_runner;
         runner([&] {
             CalculationExecutionScope synchronous({});
-            calculate_resolved_assembly_cuts(kernel,document);
+            calculate_resolved_assembly_cuts(kernel,document,refresh_physical_properties);
         });
         return;
     }
+    kernel::AggregatePropertyScope properties(refresh_physical_properties?
+        kernel::AggregatePropertyDemand::All:kernel::AggregatePropertyDemand::Deferred);
     // Assembly-owned cutters use the exact same persisted placement solver
     // as Part history containers.  The input universe is the Assembly's real
     // pre-cut component geometry plus its own Origin/constructions; no OCCT
@@ -368,13 +379,22 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     if (!part) throw std::invalid_argument("Regeneration requires an open Part document");
     const auto& previous = part->session.document();
     auto next = previous;
-    apply_relation_dimensions(next,document::physical_values(previous,part->session.calculated_boundaries()));
+    auto relation_input=part->session.calculated_boundaries();
+    if(!next.relations.empty()&&!relation_input.empty()) {
+        const auto integrate=[&]{kernel.ensure_body_properties(relation_input.back());};
+        if(calculation_runner)calculation_runner(integrate);else integrate();
+    }
+    apply_relation_dimensions(next,document::physical_values(previous,relation_input));
     refresh_body_links(workspace,next,part->path);
-    // Explicit Regenerate recalculates geometry even when parameters match
-    // the persisted cache (for example after a kernel calculation fix).
+    // Native snapshots must be recalculated by this runtime at least once.
+    // Thereafter explicit regeneration uses the existing dependency-aware
+    // incremental calculation, retaining only unchanged live calculations.
     auto relation_policy=policy;
+    relation_policy.refresh_physical_properties=true;
     if(!next.relations.empty())relation_policy.reject_errors=true;
-    auto calculated = calculate_part_with_resolved_references(kernel, next, nullptr, relation_policy);
+    const auto& current=part->session.calculated_boundaries();
+    auto calculated = calculate_part_with_resolved_references(kernel, next,
+        kernel.has_current_calculation(current)?&current:nullptr, relation_policy);
     if(!calculated.empty()&&!calculated.back().solid_state_reference_views.empty()) {
         auto geometry=construction_reference_source_geometry(calculated);
         const auto views=document::solid_state_reference_views(next,calculated.back(),geometry);
@@ -409,6 +429,88 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         part->session.update_calculated_boundaries(std::move(calculated));
     }
     return {references_changed};
+}
+
+void calculate_body_properties(Workspace& workspace,const kernel::OcctKernel& kernel,
+    const std::string& id,const document::BodyProperties& position) {
+    auto* part=workspace.open_part(id);
+    if(!part)throw std::invalid_argument("Body properties require an open Part.");
+    auto calculated=part->session.calculated_boundaries();
+    const auto inputs=document::body_properties_inputs(part->session.document(),calculated,position);
+    std::map<std::string,kernel::BodyResult> analysis;
+    for(const auto& input:inputs)if(!input.body->physical_properties_current) {
+        auto body=*input.body;
+        const auto integrate=[&]{kernel.ensure_body_properties(body);};
+        if(calculation_runner)calculation_runner(integrate);else integrate();
+        analysis.insert_or_assign(body.source_fingerprint,std::move(body));
+    }
+    if(analysis.empty())return;
+    const auto update=[&](auto&& self,kernel::BodyResult& result)->bool {
+        bool changed=false;
+        if(const auto found=analysis.find(result.source_fingerprint);found!=analysis.end()&&!result.physical_properties_current) {
+            const auto& source=found->second;
+            result.volume=source.volume;result.surface_area=source.surface_area;
+            result.volume_integrals=source.volume_integrals;result.surface_centroid=source.surface_centroid;
+            result.physical_properties_current=true;result.solid_present=source.solid_present;changed=true;
+        }
+        for(auto& [body,values]:result.body_boundaries) {
+            auto local=values.get();bool updated=false;
+            for(auto& value:local)updated=self(self,value)||updated;
+            if(updated){values=std::move(local);changed=true;}
+        }
+        for(auto* snapshots:{&result.body_inputs,&result.body_outputs})for(auto& [body,value]:*snapshots) {
+            auto local=value.get();
+            if(self(self,local)){value=std::move(local);changed=true;}
+        }
+        return changed;
+    };
+    for(auto& result:calculated)update(update,result);
+    part->session.update_calculated_boundaries(std::move(calculated));
+}
+
+static bool complete_assembly_analysis(Workspace& live,const kernel::OcctKernel& kernel,
+    assembly::AssemblyDocument& document,std::set<std::string>& visiting) {
+    if(!visiting.insert(document.document_id).second)
+        throw std::runtime_error("External Sketch document dependency cycle detected");
+    bool changed=false;
+    for(auto& component:document.components) {
+        if(component.source_missing||assembly::is_skeleton(component)||component.calculated_source->physical_properties_current)continue;
+        if(component.source_kind==assembly::ComponentSourceKind::Assembly) {
+            auto source=live.open_assembly(component.source_document_id)
+                ?live.open_assembly(component.source_document_id)->session.document()
+                :read_family_assembly(&live,component.source_path,component.source_document_id,false);
+            complete_assembly_analysis(live,kernel,source,visiting);
+            const auto complete=assembly::AssemblyDocument::create_assembly_occurrence(
+                component.name,component.source_document_id,component.source_path,source);
+            auto snapshot=complete.calculated_source.get();
+            snapshot.source_fingerprint=component.calculated_source->source_fingerprint;
+            component.calculated_source=std::move(snapshot);
+            assembly::capture_nested_mass(component,source);
+            // This is source analysis only. The owning Assembly's component
+            // placements, mates, hierarchy and authored properties stay intact.
+            if(auto* open=live.open_assembly(source.document_id))open->session.update_source_geometry(std::move(source));
+        } else {
+            auto analyzed=component.calculated_source.get();
+            const auto integrate=[&]{kernel.ensure_body_properties(analyzed);};
+            if(calculation_runner)calculation_runner(integrate);else integrate();
+            component.calculated_source=std::move(analyzed);
+            if(auto* open=live.open_part(component.source_document_id)) {
+                auto boundaries=open->session.calculated_boundaries();
+                if(!boundaries.empty()&&boundaries.back().source_fingerprint==component.calculated_source->source_fingerprint&&
+                    !boundaries.back().physical_properties_current) {
+                    boundaries.back()=component.calculated_source.get();
+                    open->session.update_calculated_boundaries(std::move(boundaries));
+                }
+            }
+        }
+        changed=true;
+    }
+    visiting.erase(document.document_id);return changed;
+}
+
+static bool complete_assembly_analysis(Workspace& live,const kernel::OcctKernel& kernel,
+    assembly::AssemblyDocument& document) {
+    std::set<std::string> visiting;return complete_assembly_analysis(live,kernel,document,visiting);
 }
 
 static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKernel& kernel,
@@ -478,10 +580,11 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
         auto next = regenerated->session.document();
         const bool references_changed =
             refresh_assembly_sketch_external_references(next);
-        calculate_resolved_assembly_cuts(kernel, next);
+        calculate_resolved_assembly_cuts(kernel, next,true);
+        const bool analysis_changed=complete_assembly_analysis(workspace,kernel,next);
         if (references_changed || !next.cuts.empty()) {
             regenerated->session.commit(std::move(next));
-        }
+        } else if(analysis_changed)regenerated->session.update_source_geometry(std::move(next));
     }
 }
 
@@ -494,6 +597,7 @@ void regenerate_assembly(Workspace& workspace,const kernel::OcctKernel& kernel,
     auto staged=workspace;
     auto original=current->session;
     auto draft=original.document();
+    complete_assembly_analysis(staged,kernel,draft);
     apply_relation_dimensions(draft,assembly::physical_values(draft));
     staged.open_assembly(id)->session.commit(std::move(draft));
     regenerate_assembly_impl(staged,kernel,id,policy);

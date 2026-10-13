@@ -3,6 +3,7 @@
 #include "tree_visibility.hpp"
 #include "body_properties_display.hpp"
 #include <zima/workspace/body_properties_edits.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <QTreeWidgetItemIterator>
 namespace zima::app {
 using namespace workspace_detail;
@@ -11,7 +12,14 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
     if(properties_dialog_||tree_edit_dialog_||!section_dialog_.isNull())return;
     const auto id=workspace_.displayed_document_id();
     workspace::BodyPropertiesEdit edit;
-    try{edit=workspace::prepare_body_properties_edit(workspace_,id,object,tr("Měření tělesa").toStdString());}
+    try{
+        edit=workspace::prepare_body_properties_edit(workspace_,id,object,tr("Měření tělesa").toStdString());
+        if(edit.creating) {
+            ui::OperationActivity::Scope activity(operation_activity_,tr("Měření tělesa"));
+            workspace::calculate_body_properties(workspace_,kernel_,id,edit.initial);
+            edit=workspace::prepare_body_properties_edit(workspace_,id,object,tr("Měření tělesa").toStdString());
+        }
+    }
     catch(const std::exception& e){state_->setText(tr(e.what()));return;}
     cancel_sketch_segment();const auto& part=*workspace_.open_part(id);const auto& doc=part.session.document();
     auto input=std::make_shared<kernel::ViewerMesh>();

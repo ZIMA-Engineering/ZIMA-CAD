@@ -27,6 +27,7 @@
 #include <BRepGProp_Face.hxx>
 #include <BRepGProp_Domain.hxx>
 #include <BRepGProp_VinertGK.hxx>
+#include <BRepGProp_Vinert.hxx>
 #include <future>
 #include <atomic>
 #include <thread>
@@ -201,8 +202,14 @@
 #include <map>
 #include <set>
 #include <memory>
+#include <functional>
 
 namespace zima::kernel {
+
+namespace { thread_local AggregatePropertyDemand aggregate_property_demand=AggregatePropertyDemand::All; }
+AggregatePropertyScope::AggregatePropertyScope(AggregatePropertyDemand demand)
+    :previous_(aggregate_property_demand) { aggregate_property_demand=demand; }
+AggregatePropertyScope::~AggregatePropertyScope() { aggregate_property_demand=previous_; }
 
 namespace {
 
@@ -5630,6 +5637,136 @@ double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties,
     return error;
 }
 
+// Match OCCT's adaptive VolumeProperties face loop, including its reference
+// point and ordered reduction. Only independent face integrations are parallel.
+// Repeated solid instances retain OCCT's own shared-solid handling.
+double corner_form_integrals(const TopoDS_Shape& shape,GProp_GProps& properties) {
+    std::unordered_set<const TopoDS_TShape*> solids;
+    for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next()) {
+        const auto solid=it.Current();
+        if(!solids.insert(solid.TShape().get()).second)
+            return BRepGProp::VolumeProperties(shape,properties,1e-12);
+    }
+    gp_XYZ sum(0,0,0);unsigned count=0;
+    for(TopExp_Explorer it(shape,TopAbs_VERTEX);it.More();it.Next(),++count)
+        sum+=BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).XYZ();
+    if(!count)return BRepGProp::VolumeProperties(shape,properties,1e-12);
+    sum/=count;const gp_Pnt location(sum);
+    std::vector<TopoDS_Face> faces;
+    for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+        const auto face=TopoDS::Face(it.Current());
+        // A mesh-only face needs OCCT's mesh integration fallback.
+        if(BRep_Tool::Surface(face).IsNull())
+            return BRepGProp::VolumeProperties(shape,properties,1e-12);
+        if(face.Orientation()==TopAbs_FORWARD||face.Orientation()==TopAbs_REVERSED)faces.push_back(face);
+    }
+    const auto workers=std::min<std::size_t>({4,std::max(1u,std::thread::hardware_concurrency()),faces.size()});
+    if(workers<2)return BRepGProp::VolumeProperties(shape,properties,1e-12);
+    std::vector<GProp_GProps> pieces(faces.size());std::vector<double> errors(faces.size());
+    std::atomic_size_t cursor{0};std::vector<std::future<void>> jobs;
+    for(std::size_t worker=0;worker<workers;++worker)jobs.push_back(std::async(std::launch::async,[&] {
+        for(auto index=cursor.fetch_add(1);index<faces.size();index=cursor.fetch_add(1)) {
+            BRepGProp_Face face(faces[index]);BRepGProp_Domain domain(faces[index]);
+            BRepGProp_Vinert contribution;contribution.SetLocation(location);
+            errors[index]=contribution.Perform(face,domain,1e-12);
+            pieces[index]=contribution;
+        }
+    }));
+    for(auto& job:jobs)job.get();
+    gp_Pnt origin(0,0,0);origin.Transform(shape.Location());
+    properties=GProp_GProps(origin);double error=0.;
+    for(std::size_t index=0;index<pieces.size();++index) {
+        if(!std::isfinite(errors[index])||errors[index]<0.)
+            throw std::runtime_error("FORM could not create a valid sheet.");
+        properties.Add(pieces[index]);error=std::max(error,errors[index]);
+    }
+    return error;
+}
+
+void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result,
+    bool surface_result,bool imported_step,bool parallel_corner_volume,
+    const std::function<void(const char*)>& profile=[](const char*){}) {
+    const bool profile_calc=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
+    GProp_GProps volume_properties;
+    GProp_GProps surface_properties;
+    // Rational sweep surfaces need adaptive integration; fixed Gauss
+    // quadrature can misreport even an exact circular section by percent.
+    bool rational_surface = false;
+    for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
+        BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
+        if (surface.GetType() == GeomAbs_BSplineSurface ||
+            surface.GetType() == GeomAbs_BezierSurface ||
+            surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
+            surface.GetType() == GeomAbs_SurfaceOfRevolution) {
+            rational_surface = true;
+            break;
+        }
+    }
+    TopoDS_Compound volume_shape;BRep_Builder volume_builder;volume_builder.MakeCompound(volume_shape);
+    for(TopExp_Explorer solid(shape,TopAbs_SOLID);solid.More();solid.Next())volume_builder.Add(volume_shape,solid.Current());
+    const bool parallel_properties=parallel_corner_volume&&volume_shape.NbChildren()>0;
+    std::optional<double> rational_volume;
+    const auto integration_start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    double tensor_seconds=0.,volume_seconds=0.;
+    if (rational_surface) {
+        // The adaptive Gauss overload includes all physical properties.
+        // GK defaults to volume only; enabling its centroid/inertia flags
+        // is substantially slower on trimmed FORM skins at this precision.
+        std::future<std::pair<GProp_GProps,double>> tensor;
+        if(parallel_properties)tensor=std::async(std::launch::async,[volume_shape,profile_calc,&tensor_seconds] {
+            const auto start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+            GProp_GProps properties;
+            const auto error=corner_form_integrals(volume_shape,properties);
+            if(profile_calc)tensor_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
+            return std::pair{properties,error};
+        });
+        else {
+            const double error=BRepGProp::VolumeProperties(volume_shape,volume_properties,1e-12);
+            if(profile_calc)tensor_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-integration_start).count();
+            if(!std::isfinite(error)||error<0)throw std::runtime_error("OCCT rational volume integration failed");
+        }
+        // Preserve the established span-aware volume calculation. The
+        // fast full tensor integration is independently checked against GK.
+        GProp_GProps volume_only;
+        const auto volume_start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+        const auto volume_error=parallel_properties?corner_form_volume(volume_shape,volume_only):
+            imported_step&&volume_shape.NbChildren()>0?corner_form_volume(volume_shape,volume_only,
+                "OCCT rational volume integration failed"):
+            BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
+        if(profile_calc)volume_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-volume_start).count();
+        if(!std::isfinite(volume_error)||volume_error<0)throw std::runtime_error("OCCT rational volume integration failed");
+        rational_volume=volume_only.Mass();
+        if(tensor.valid()) {
+            auto [properties,error]=tensor.get();
+            if(!std::isfinite(error)||error<0)throw std::runtime_error("FORM could not create a valid sheet.");
+            volume_properties=std::move(properties);
+        }
+    }
+    else {
+        BRepGProp::VolumeProperties(volume_shape, volume_properties);
+        if(profile_calc)tensor_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-integration_start).count();
+    }
+    if(profile_calc)std::fprintf(stderr,"Kernel properties tensor=%.6f volume_gk=%.6f combined=%.6f parallel=%d\n",
+        tensor_seconds,volume_seconds,std::chrono::duration<double>(std::chrono::steady_clock::now()-integration_start).count(),int(rational_surface&&parallel_properties));
+    profile("volume and inertia");
+    // Uncapped rational surfaces need adaptive area integration too: fixed
+    // quadrature over a circular loft overstates even a cylinder's lateral area.
+    // Keep the established solid-only calculation path unchanged.
+    if(rational_surface&&surface_result)
+        BRepGProp::SurfaceProperties(shape,surface_properties,1e-9);
+    else BRepGProp::SurfaceProperties(shape, surface_properties);
+    result.volume = rational_volume.value_or(volume_properties.Mass());
+    result.surface_area = surface_properties.Mass();
+    if(result.surface_area>0) {
+        const auto center=surface_properties.CentreOfMass();
+        result.surface_centroid=Vec3{center.X(),center.Y(),center.Z()};
+    }
+    store_volume_integrals(result,volume_properties);
+    profile("surface properties");
+    result.physical_properties_current=true;
+    result.solid_present=TopExp_Explorer(shape,TopAbs_SOLID).More();
+}
+
 BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
@@ -5642,6 +5779,7 @@ BodyResult make_result(
     double mesh_deflection = 0.0,
     bool calculate_body_properties = true,
     bool parallel_corner_volume = false) {
+    const bool profile_calc=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
     const bool profile_form=std::getenv("ZIMA_CPP_FORM_PROFILE")&&std::ranges::any_of(owned_faces,
         [](const auto& face){return face.reference.semantic_key.starts_with("form:");});
     const bool imported_step=std::ranges::any_of(owned_faces,[](const auto& face){
@@ -5650,6 +5788,7 @@ BodyResult make_result(
     auto profile_start=std::chrono::steady_clock::now();
     const auto profile=[&](const char* phase) {
         const auto now=std::chrono::steady_clock::now();
+        if(profile_calc)std::fprintf(stderr,"Kernel result %s: %.6f s\n",phase,std::chrono::duration<double>(now-profile_start).count());
         if(profile_form)std::fprintf(stderr,"FORM result %s: %.6f s\n",phase,std::chrono::duration<double>(now-profile_start).count());
         if(profile_import)std::fprintf(stderr,"STEP result %s: %.6f s\n",phase,std::chrono::duration<double>(now-profile_start).count());
         profile_start=now;
@@ -5674,71 +5813,21 @@ BodyResult make_result(
     BodyResult result;
     // Mesh-only reference packets discard aggregate properties. Keep face/edge
     // measurements below: downstream references still require those values.
-    if (calculate_body_properties) {
-        GProp_GProps volume_properties;
-        GProp_GProps surface_properties;
-        // Rational sweep surfaces need adaptive integration; fixed Gauss
-        // quadrature can misreport even an exact circular section by percent.
-        bool rational_surface = false;
-        for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
-            BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
-            if (surface.GetType() == GeomAbs_BSplineSurface ||
-                surface.GetType() == GeomAbs_BezierSurface ||
-                surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
-                surface.GetType() == GeomAbs_SurfaceOfRevolution) {
-                rational_surface = true;
-                break;
-            }
+    // Cheap analytic properties may be completed immediately. Adaptive surface
+    // integration is optional analysis and stays off the ordinary editing path.
+    const bool adaptive_analysis=calculate_body_properties&&aggregate_property_demand==AggregatePropertyDemand::Deferred&&[&] {
+        for(TopExp_Explorer face(shape,TopAbs_FACE);face.More();face.Next()) {
+            const auto type=BRepAdaptor_Surface(TopoDS::Face(face.Current())).GetType();
+            if(type==GeomAbs_BSplineSurface||type==GeomAbs_BezierSurface||
+                type==GeomAbs_SurfaceOfExtrusion||type==GeomAbs_SurfaceOfRevolution)return true;
         }
-        TopoDS_Compound volume_shape;BRep_Builder volume_builder;volume_builder.MakeCompound(volume_shape);
-        for(TopExp_Explorer solid(shape,TopAbs_SOLID);solid.More();solid.Next())volume_builder.Add(volume_shape,solid.Current());
-        std::optional<double> rational_volume;
-        if (rational_surface) {
-            // The adaptive Gauss overload includes all physical properties.
-            // GK defaults to volume only; enabling its centroid/inertia flags
-            // is substantially slower on trimmed FORM skins at this precision.
-            std::future<std::pair<GProp_GProps,double>> tensor;
-            if(parallel_corner_volume)tensor=std::async(std::launch::async,[volume_shape] {
-                GProp_GProps properties;
-                const auto error=BRepGProp::VolumeProperties(volume_shape,properties,1e-12);
-                return std::pair{properties,error};
-            });
-            else {
-                const double error=BRepGProp::VolumeProperties(volume_shape,volume_properties,1e-12);
-                if(!std::isfinite(error)||error<0)throw std::runtime_error("OCCT rational volume integration failed");
-            }
-            // Preserve the established span-aware volume calculation. The
-            // fast full tensor integration is independently checked against GK.
-            GProp_GProps volume_only;
-            const auto volume_error=parallel_corner_volume?corner_form_volume(volume_shape,volume_only):
-                imported_step&&volume_shape.NbChildren()>0?corner_form_volume(volume_shape,volume_only,
-                    "OCCT rational volume integration failed"):
-                BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
-            if(!std::isfinite(volume_error)||volume_error<0)throw std::runtime_error("OCCT rational volume integration failed");
-            rational_volume=volume_only.Mass();
-            if(tensor.valid()) {
-                auto [properties,error]=tensor.get();
-                if(!std::isfinite(error)||error<0)throw std::runtime_error("FORM could not create a valid sheet.");
-                volume_properties=std::move(properties);
-            }
-        }
-        else BRepGProp::VolumeProperties(volume_shape, volume_properties);
-        profile("volume and inertia");
-        // Uncapped rational surfaces need adaptive area integration too: fixed
-        // quadrature over a circular loft overstates even a cylinder's lateral area.
-        // Keep the established solid-only calculation path unchanged.
-        if(rational_surface&&std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
-            BRepGProp::SurfaceProperties(shape,surface_properties,1e-9);
-        else BRepGProp::SurfaceProperties(shape, surface_properties);
-        result.volume = rational_volume.value_or(volume_properties.Mass());
-        result.surface_area = surface_properties.Mass();
-        if(result.surface_area>0) {
-            const auto center=surface_properties.CentreOfMass();
-            result.surface_centroid=Vec3{center.X(),center.Y(),center.Z()};
-        }
-        store_volume_integrals(result,volume_properties);
-        profile("surface properties");
-    }
+        return false;
+    }();
+    result.physical_properties_current=calculate_body_properties&&!adaptive_analysis;
+    result.solid_present=TopExp_Explorer(shape,TopAbs_SOLID).More();
+    if(result.physical_properties_current)calculate_aggregate_properties(shape,result,
+        std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}),
+        imported_step,parallel_corner_volume,profile);
     if (persist_kernel_shape) {
         if(std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
             persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result);
@@ -5760,6 +5849,7 @@ BodyResult make_result(
     TopExp::MapShapesAndAncestors(
         shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
 
+    double face_measurement_seconds=0.;
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         const TopoDS_Face face = TopoDS::Face(explorer.Current());
         TopLoc_Location location;
@@ -5768,8 +5858,10 @@ BodyResult make_result(
         if (triangulation.IsNull()) continue;
         FaceReference reference = face_references->reference_for(face);
         if (reference.valid()) {
+            const auto start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
             GProp_GProps measured;
             BRepGProp::SurfaceProperties(face, measured);
+            if(profile_calc)face_measurement_seconds+=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
             reference.measured_area = std::abs(measured.Mass());
         }
         if (reference.valid()) if (const auto surface=analytic_surface(face))
@@ -5815,6 +5907,7 @@ BodyResult make_result(
         }
     }
     profile("face packets");
+    if(profile_calc)std::fprintf(stderr,"Kernel face measurements: %.6f s\n",face_measurement_seconds);
     TopTools_IndexedMapOfShape sampled_edges;
     TopTools_IndexedMapOfShape hidden_edges;
     for (const auto& edge : hidden_display_edges) hidden_edges.Add(edge);
@@ -6257,6 +6350,11 @@ void compact_history_reference_geometry(std::vector<BodyResult>& boundaries) {
 }  // namespace
 
 struct OcctKernel::LiveCache {
+    const std::shared_ptr<const void> provenance=std::make_shared<const int>(0);
+    std::vector<BodyResult> mark_current(std::vector<BodyResult> result,bool proven) const {
+        for(auto& boundary:result)boundary.calculation_provenance=proven?provenance:nullptr;
+        return result;
+    }
     std::unordered_map<std::string,sheet_form_geometry::Operands> prepared_forms;
     std::deque<std::string> prepared_form_order;
     struct Topology {
@@ -6278,6 +6376,18 @@ struct OcctKernel::LiveCache {
 
     std::unordered_map<std::string, Boundary> boundaries;
     std::deque<std::string> insertion_order;
+    struct CopySource {
+        PrimitiveData operand;
+        BodyResult solid;
+        std::vector<sheet_form_geometry::Instance> forms;
+    };
+    std::unordered_map<std::string, CopySource> copy_sources;
+    std::deque<std::string> copy_source_order;
+    // Full reference packets are larger than the shared live topology. Keep
+    // only recent copy-history boundaries, rather than one full prefix per
+    // long-lived cached shape. A miss simply calculates an earlier boundary.
+    std::unordered_map<std::string, ViewerReferenceGeometry> copy_references;
+    std::deque<std::string> copy_reference_order;
     std::unordered_map<std::string, ViewerMesh> reference_meshes;
     std::deque<std::string> reference_insertion_order;
 };
@@ -6358,6 +6468,91 @@ OcctKernel::~OcctKernel() = default;
 
 std::string OcctKernel::name() const {
     return "OCCT";
+}
+
+bool OcctKernel::has_current_calculation(const std::vector<BodyResult>& boundaries) const {
+    return !boundaries.empty()&&std::ranges::all_of(boundaries,[&](const auto& boundary){
+        return boundary.calculation_errors.empty()&&boundary.calculation_provenance==live_cache_->provenance;
+    });
+}
+
+// Preserve the geometry calculation's exact ordered physical reduction when
+// completing a cached compound. Each Body keeps its own area integration policy.
+static void aggregate_body_properties(BodyResult& document,const std::set<std::string>& available) {
+    document.volume=0.;document.surface_area=0.;document.physical_properties_current=true;
+    document.solid_present=false;document.volume_integrals.reset();document.surface_centroid.reset();
+    for(const auto& id:available) {
+        const auto& output=document.body_outputs.at(id).get();
+        document.volume += output.volume;
+        document.surface_area += output.surface_area;
+        document.physical_properties_current=document.physical_properties_current&&output.physical_properties_current;
+        document.solid_present=document.solid_present||output.has_solid();
+    }
+    if(document.physical_properties_current&&document.volume>0) {
+        VolumeIntegrals total;bool valid=true;
+        for(const auto& id:available) {
+            const auto& body=document.body_outputs.at(id).get();if(body.volume==0)continue;
+            if(!body.volume_integrals){valid=false;break;}
+            const auto c=body.volume_integrals->centroid;total.centroid.x+=body.volume*c.x;
+            total.centroid.y+=body.volume*c.y;total.centroid.z+=body.volume*c.z;
+        }
+        if(valid) {
+            total.centroid.x/=document.volume;total.centroid.y/=document.volume;total.centroid.z/=document.volume;
+            for(const auto& id:available) {
+                const auto& body=document.body_outputs.at(id).get();if(!body.volume_integrals)continue;
+                const auto& p=*body.volume_integrals;for(int i=0;i<9;++i)total.inertia[i]+=p.inertia[i];
+                inertia_shift(total.inertia,body.volume,{p.centroid.x-total.centroid.x,p.centroid.y-total.centroid.y,p.centroid.z-total.centroid.z});
+            }document.volume_integrals=total;
+        }
+    }
+
+    if(document.physical_properties_current&&document.surface_area>0) {
+        Vec3 sum{};bool complete=true;
+        for(const auto& id:available) {
+            const auto& body=document.body_outputs.at(id).get();
+            if(body.surface_area<=0)continue;
+            if(!body.surface_centroid){complete=false;break;}
+            const auto c=*body.surface_centroid;const double weight=body.surface_area/document.surface_area;
+            sum.x+=weight*c.x;sum.y+=weight*c.y;sum.z+=weight*c.z;
+        }
+        if(complete)document.surface_centroid=sum;
+    }
+    if(!document.physical_properties_current) {
+        document.volume=0.;document.surface_area=0.;document.volume_integrals.reset();document.surface_centroid.reset();
+    }
+}
+
+void OcctKernel::ensure_body_properties(BodyResult& body) const {
+    if(body.physical_properties_current)return;
+    if(body.kernel_shape==kernel_body_compound&&body.kernel_compound_bodies.empty()&&
+        (!body.mesh.triangles.empty()||body.has_solid()))
+        throw std::invalid_argument("Regenerate the model before measuring body properties.");
+    if(body.kernel_shape==kernel_body_compound) {
+        auto analyzed=body;
+        const std::set<std::string> available(body.kernel_compound_bodies.begin(),body.kernel_compound_bodies.end());
+        for(const auto& id:available)if(!analyzed.body_outputs.at(id)->physical_properties_current) {
+            auto output=analyzed.body_outputs.at(id).get();ensure_body_properties(output);
+            analyzed.body_outputs.insert_or_assign(id,std::move(output));
+        }
+        aggregate_body_properties(analyzed,available);
+        body=std::move(analyzed);return;
+    }
+    TopoDS_Shape shape;
+    if(!body.kernel_shape.empty())shape=read_kernel_shape(body);
+    else if(const auto found=live_cache_->boundaries.find(body.source_fingerprint);found!=live_cache_->boundaries.end())
+        shape=found->second.shape;
+    else throw std::invalid_argument("Regenerate the model before measuring body properties.");
+    if(shape.IsNull())throw std::invalid_argument("Regenerate the model before measuring body properties.");
+    BodyResult properties;
+    calculate_aggregate_properties(shape,properties,
+        std::ranges::any_of(body.mesh.triangle_references,[](const auto& face){return face.surface_result;})||
+            std::ranges::any_of(body.kernel_faces,[](const auto& face){return face.reference.surface_result;}),
+        std::ranges::any_of(body.mesh.triangle_references,[](const auto& face){return face.semantic_key.starts_with("step:face:#");}),true);
+    // Publish only completed analysis. Geometry, bindings, ancestry, mesh and
+    // source fingerprint remain exactly the previously calculated snapshot.
+    body.volume=properties.volume;body.surface_area=properties.surface_area;
+    body.volume_integrals=properties.volume_integrals;body.surface_centroid=properties.surface_centroid;
+    body.solid_present=properties.solid_present;body.physical_properties_current=true;
 }
 
 
@@ -6758,6 +6953,7 @@ BodyResult OcctKernel::scale_body(const BodyResult& source,double factor,Vec3 ce
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())
         throw std::runtime_error("Body scale did not produce valid geometry.");
     BodyResult result;result.kernel_shape=serialize_kernel_shape(transform.Shape());
+    result.physical_properties_current=source.physical_properties_current;result.solid_present=source.has_solid();
     result.mesh=scaled_body_mesh(source.mesh,factor,center,owner);
     result.volume=source.volume*factor*factor*factor;result.surface_area=source.surface_area*factor*factor;
     if(source.surface_centroid)result.surface_centroid=scaled_body_point(*source.surface_centroid,factor,center);
@@ -6809,6 +7005,7 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
     if(source.kernel_shape.empty())throw std::invalid_argument("Zdroj Pole nemá vypočtené těleso.");
     const auto placement=primitive_transform(translation,rotation);auto input=source;place_body_result(input,placement);
     BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);BodyResult result;
+    result.physical_properties_current=source.physical_properties_current;result.solid_present=source.has_solid();
     const auto shape=read_kernel_shape(source);
     for(unsigned index=1;index<p.count;++index) {
         gp_Trsf copy;
@@ -6857,13 +7054,15 @@ std::vector<BodyResult> OcctKernel::evaluate_history_recovering(
             return !(operation.body == BodyHistoryScope{});
         })) {
         try {
-            return evaluate_body_histories(operations, previous_boundaries, true);
+            return live_cache_->mark_current(evaluate_body_histories(operations, previous_boundaries, true),
+                previous_boundaries.empty()||has_current_calculation(previous_boundaries));
         } catch (const Standard_Failure& failure) {
             throw std::runtime_error(failure.GetMessageString());
         }
     }
     HistoryContext context;
-    return evaluate_flat_history_recovering(operations,previous_boundaries,context);
+    return live_cache_->mark_current(evaluate_flat_history_recovering(operations,previous_boundaries,context),
+        previous_boundaries.empty()||has_current_calculation(previous_boundaries));
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
@@ -6979,12 +7178,28 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         local.body = {};
         branches.back().operations.push_back(std::move(local));
     }
+    const auto analysis_current=[](auto&& self,const BodyResult& body)->bool {
+        if(!body.physical_properties_current)return false;
+        for(const auto& [id,values]:body.body_boundaries)for(const auto& value:values)
+            if(!self(self,value))return false;
+        for(const auto* snapshots:{&body.body_inputs,&body.body_outputs})for(const auto& [id,value]:*snapshots)
+            if(!self(self,value.get()))return false;
+        return true;
+    };
     if (previous_boundaries.size() == operations.size() &&
         previous_boundaries.back().calculation_errors.empty() &&
         previous_boundaries.back().source_fingerprint == history_fingerprint(operations, operations.size()) &&
+        (aggregate_property_demand==AggregatePropertyDemand::Deferred ||
+            (aggregate_property_demand==AggregatePropertyDemand::Final&&previous_boundaries.back().physical_properties_current&&
+                std::ranges::all_of(previous_boundaries.back().body_outputs,[](const auto& item){return item.second->physical_properties_current;})) ||
+            (aggregate_property_demand==AggregatePropertyDemand::All&&std::ranges::all_of(previous_boundaries,
+                [&](const auto& boundary){return analysis_current(analysis_current,boundary);}))) &&
         previous_boundaries.back().body_boundaries.size() == static_cast<std::size_t>(
-            std::ranges::count_if(branches, [](const auto& branch) { return branch.scope.source_id.empty(); })))
+            std::ranges::count_if(branches, [](const auto& branch) { return branch.scope.source_id.empty(); }))) {
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
+            std::cerr<<"[history graph reuse] operations="<<operations.size()<<" reused="<<operations.size()<<" calculated=0\n";
         return previous_boundaries;
+    }
     const BodyResult empty;
     const auto& previous = previous_boundaries.empty() ? empty : previous_boundaries.back();
     BodyResult document;
@@ -7091,6 +7306,15 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 local=std::move(captured);
             }
         }
+        if(!local.empty()&&((aggregate_property_demand==AggregatePropertyDemand::All&&
+                std::ranges::any_of(local,[](const auto& boundary){return !boundary.physical_properties_current;})) ||
+                (aggregate_property_demand==AggregatePropertyDemand::Final&&!local.back().physical_properties_current))) {
+            auto analyzed=local.get();
+            if(aggregate_property_demand==AggregatePropertyDemand::All) {
+                for(auto& boundary:analyzed)ensure_body_properties(boundary);
+            } else ensure_body_properties(analyzed.back());
+            local=std::move(analyzed);
+        }
         if (branch.scope.source_id.empty()) document.body_boundaries.emplace(branch.scope.id, local);
         HistoryOperation placement_key;
         placement_key.body = branch.scope;
@@ -7104,10 +7328,19 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         BodySnapshot input_snapshot;
         const auto old_input = previous.body_inputs.find(branch.scope.id);
         if (old_input != previous.body_inputs.end() && old_input->second->calculation_errors.empty() &&
-            local.back().calculation_errors.empty() && old_input->second->source_fingerprint == input_key) {
+            local.back().calculation_errors.empty() && old_input->second->source_fingerprint == input_key &&
+            (aggregate_property_demand==AggregatePropertyDemand::Deferred||old_input->second->physical_properties_current)) {
             input_snapshot = old_input->second;
         } else {
             auto placed = local.back();
+            // A shortened history may end on a previously intermediate packet
+            // without an archive. Pending analysis must retain its real solid,
+            // rather than publish an empty compound with visible geometry.
+            if(placed.kernel_shape.empty()&&(placed.has_solid()||!placed.mesh.triangles.empty())) {
+                const auto native=live_cache_->boundaries.find(local.back().source_fingerprint);
+                if(native!=live_cache_->boundaries.end()&&!native->second.shape.IsNull())
+                    placed.kernel_shape=serialize_kernel_shape(native->second.shape);
+            }
             if (!(branch.scope.translation == Vec3{}) || !(branch.scope.rotation_degrees == Vec3{})) {
                 const auto placement = primitive_transform(branch.scope.translation, branch.scope.rotation_degrees);
                 if (!placed.kernel_shape.empty()) {
@@ -7225,6 +7458,9 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             if (!recover_errors) throw;
             output = preserve_failed_inputs(error.what());
         }
+        if(aggregate_property_demand!=AggregatePropertyDemand::Deferred&&!output->physical_properties_current) {
+            auto analyzed=output.get();ensure_body_properties(analyzed);output=std::move(analyzed);
+        }
         document.calculation_errors.insert(output->calculation_errors.begin(), output->calculation_errors.end());
         if (!branch.scope.source_id.empty()) local = {output.get()};
         document.body_outputs.emplace(branch.scope.id, std::move(output));
@@ -7248,42 +7484,13 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     for (const auto& id : available) {
         const auto& output = document.body_outputs.at(id).get();
         if (!output.kernel_shape.empty()) document.kernel_compound_bodies.push_back(id);
-        document.volume += output.volume;
-        document.surface_area += output.surface_area;
         append_body_viewer(document.mesh, output.mesh);
         document.sheet_cuts.insert(document.sheet_cuts.end(),output.sheet_cuts.begin(),output.sheet_cuts.end());
     }
     document.kernel_shape = kernel_body_compound;
     profile("viewer aggregate");
-    if(document.volume>0) {
-        VolumeIntegrals total;bool valid=true;
-        for(const auto& id:available) {
-            const auto& body=document.body_outputs.at(id).get();if(body.volume==0)continue;
-            if(!body.volume_integrals){valid=false;break;}
-            const auto c=body.volume_integrals->centroid;total.centroid.x+=body.volume*c.x;
-            total.centroid.y+=body.volume*c.y;total.centroid.z+=body.volume*c.z;
-        }
-        if(valid) {
-            total.centroid.x/=document.volume;total.centroid.y/=document.volume;total.centroid.z/=document.volume;
-            for(const auto& id:available) {
-                const auto& body=document.body_outputs.at(id).get();if(!body.volume_integrals)continue;
-                const auto& p=*body.volume_integrals;for(int i=0;i<9;++i)total.inertia[i]+=p.inertia[i];
-                inertia_shift(total.inertia,body.volume,{p.centroid.x-total.centroid.x,p.centroid.y-total.centroid.y,p.centroid.z-total.centroid.z});
-            }document.volume_integrals=total;
-        }
-    }
+    aggregate_body_properties(document,available);
     document.source_fingerprint = history_fingerprint(operations, operations.size());
-    if(document.surface_area>0) {
-        Vec3 sum{};bool complete=true;
-        for(const auto& id:available) {
-            const auto& body=document.body_outputs.at(id).get();
-            if(body.surface_area<=0)continue;
-            if(!body.surface_centroid){complete=false;break;}
-            const auto c=*body.surface_centroid;const double weight=body.surface_area/document.surface_area;
-            sum.x+=weight*c.x;sum.y+=weight*c.y;sum.z+=weight*c.z;
-        }
-        if(complete)document.surface_centroid=sum;
-    }
     boundaries.back() = std::move(document);
     compact_history_reference_geometry(boundaries);
     return boundaries;
@@ -7297,13 +7504,15 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             return !(operation.body == BodyHistoryScope{});
         })) {
         try {
-            return evaluate_body_histories(operations, previous_boundaries);
+            return live_cache_->mark_current(evaluate_body_histories(operations, previous_boundaries),
+                previous_boundaries.empty()||has_current_calculation(previous_boundaries));
         } catch (const Standard_Failure& failure) {
             throw std::runtime_error(failure.GetMessageString());
         }
     }
     HistoryContext context;
-    return evaluate_flat_history(operations,previous_boundaries,context);
+    return live_cache_->mark_current(evaluate_flat_history(operations,previous_boundaries,context),
+        previous_boundaries.empty()||has_current_calculation(previous_boundaries));
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_flat_history(
@@ -7339,7 +7548,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::unordered_map<std::string, StepDocumentCache> step_documents;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
-        const bool retain_sheet_sources=std::ranges::any_of(operations,[](const auto& operation){return std::holds_alternative<SheetStateRequest>(operation.primitive);});
+        // A source contribution is needed only before a later active state
+        // operation. Suppressed states and edits after the final state do not
+        // require extracting material differences during ordinary modeling.
+        std::vector<bool> sheet_sources_needed(operations.size());
+        bool retain_sheet_sources=false;
+        for(std::size_t index=operations.size();index>0;--index) {
+            sheet_sources_needed[index-1]=retain_sheet_sources;
+            const auto& operation=operations[index-1];
+            retain_sheet_sources=retain_sheet_sources||(!operation.suppressed&&
+                std::holds_alternative<SheetStateRequest>(operation.primitive));
+        }
         const bool has_forms=std::ranges::any_of(operations,[](const auto& operation){return std::holds_alternative<SheetFormRequest>(operation.primitive);});
         double sheet_state_tolerance=1.;
         for(const auto& operation:operations)if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive))
@@ -7355,7 +7574,27 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const std::string& fingerprint, const TopoDS_Shape& shape,
                 std::shared_ptr<const LiveCache::Topology> topology) {
             if (fingerprint.empty() || shape.IsNull()) return;
-            if(retain_sheet_sources) {
+            const bool trace=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
+            auto start=trace?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+            const auto phase=[&](const char* name) {
+                if(!trace)return;
+                const auto now=std::chrono::steady_clock::now();
+                std::fprintf(stderr,"Kernel retention count=%zu index=%zu owner=%s phase=%s total=%.6f s\n",
+                    operations.size(),current_operation,operations[current_operation].owner_id.c_str(),name,
+                    std::chrono::duration<double>(now-start).count());
+                start=now;
+            };
+            if(!context.requested_solids.empty()) {
+                auto [packet,inserted]=live_cache_->copy_references.insert_or_assign(fingerprint,original_references);
+                static_cast<void>(packet);
+                if(inserted)live_cache_->copy_reference_order.push_back(fingerprint);
+                while(live_cache_->copy_reference_order.size()>8) {
+                    live_cache_->copy_references.erase(live_cache_->copy_reference_order.front());
+                    live_cache_->copy_reference_order.pop_front();
+                }
+            }
+            phase("prefix-cache");
+            if(sheet_sources_needed[current_operation]) {
                 PrimitiveData output;output.shape=shape;output.faces=topology->faces;
                 output.edges=topology->edges;output.vertices=topology->vertices;
                 const auto regions=sheet_material::regions_before(operations,current_operation+1);
@@ -7388,10 +7627,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                 }
             }
+            phase("sheet-state-sources");
             auto [iterator, inserted] =
                 live_cache_->boundaries.insert_or_assign(fingerprint,
-                    LiveCache::Boundary{shape, std::move(topology),context.original_faces,sheet_sources,retain_original_edges});
+                    LiveCache::Boundary{shape, std::move(topology),context.original_faces,
+                        sheet_sources_needed[current_operation]?sheet_sources:nullptr,retain_original_edges});
             static_cast<void>(iterator);
+            phase("boundary-cache");
             if (!inserted) return;
             live_cache_->insertion_order.push_back(fingerprint);
             while (live_cache_->insertion_order.size() > kLiveShapeCacheLimit) {
@@ -7401,10 +7643,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
         };
         std::map<std::string,PrimitiveData> copy_operands;
-        // A settling pass after an in-Body Form copy needs only its completed
-        // result. Reuse the whole unchanged history when no caller requests
-        // a separate operand. Changed or extended histories still rebuild the
-        // operands at their real operation boundaries.
+        // A complete unchanged Form history can also be read from its saved
+        // packet when no external caller needs a separate source operand.
         const bool reuse_complete_form_copy=has_forms&&context.requested_solids.empty()&&
             operations.size()==previous_boundaries.size()&&!previous_boundaries.empty()&&
             previous_boundaries.back().source_fingerprint==fingerprint(operations,operations.size());
@@ -7413,9 +7653,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::size_t matching_prefix = 0;
         const auto available = std::min(
             operations.size(), previous_boundaries.size());
-        // Requested operands must be calculated with their real preceding
-        // geometry (Through All / Up To included), not reconstructed in UI.
-        while ((context.requested_solids.empty()||reuse_complete_form_copy) && matching_prefix < available &&
+        while (matching_prefix < available &&
                previous_boundaries[matching_prefix].calculation_errors.empty() &&
                previous_boundaries[matching_prefix].source_fingerprint ==
                    fingerprint(operations, matching_prefix + 1)) {
@@ -7444,12 +7682,43 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             ++matching_prefix;
         }
+        // A copied feature needs its standalone operand at its actual input
+        // boundary, including Through All / Up To and external dependencies.
+        // Reuse that exact calculation, never the complete preceding Body.
+        // A cold/missing source starts calculation at the source operation.
+        if(!reuse_complete_form_copy)for(std::size_t index=0;index<matching_prefix;++index) {
+            const auto& operation=operations[index];
+            if(context.requested_solids.contains(operation.owner_id)&&
+                !live_cache_->copy_sources.contains(fingerprint(operations,index+1)+":solid:"+operation.owner_id)) {
+                matching_prefix=index;break;
+            }
+        }
+        const auto restore_copy_sources=[&](std::size_t prefix) {
+            std::size_t restored=0;
+            for(std::size_t index=0;index<prefix;++index) {
+                const auto& operation=operations[index];
+                if(!context.requested_solids.contains(operation.owner_id))continue;
+                const auto found=live_cache_->copy_sources.find(fingerprint(operations,index+1)+":solid:"+operation.owner_id);
+                if(found==live_cache_->copy_sources.end())continue;
+                copy_operands.insert_or_assign(operation.owner_id,found->second.operand);
+                context.source_solids.insert_or_assign(operation.owner_id,found->second.solid);
+                if(!found->second.forms.empty())form_copy_operands.insert_or_assign(operation.owner_id,found->second.forms);
+                ++restored;
+            }
+            return restored;
+        };
         const auto complete_live=matching_prefix>0&&matching_prefix==operations.size()
             ? live_cache_->boundaries.find(previous_boundaries[matching_prefix-1].source_fingerprint)
             : live_cache_->boundaries.end();
         if (matching_prefix == operations.size() &&
+            (context.requested_solids.empty()||matching_prefix==previous_boundaries.size()||
+                (matching_prefix>0&&live_cache_->copy_references.contains(previous_boundaries[matching_prefix-1].source_fingerprint)))&&
             (!context.require_original_faces || complete_live!=live_cache_->boundaries.end()) &&
             (!retain_original_edges || (complete_live!=live_cache_->boundaries.end()&&complete_live->second.original_edges_retained))) {
+            const auto restored=restore_copy_sources(matching_prefix);
+            if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
+                std::cerr<<"[history reuse] operations="<<operations.size()<<" reused="<<matching_prefix
+                    <<" calculated=0 copy_sources="<<restored<<'\n';
             if(complete_live!=live_cache_->boundaries.end())context.original_faces=complete_live->second.original_faces;
             std::vector<BodyResult> reused{
                 previous_boundaries.begin(),
@@ -7460,12 +7729,15 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             // references from the final packet, restricted to prefix owners.
             std::unordered_set<std::string> owners;
             for(const auto& operation:operations)if(!operation.suppressed)owners.insert(operation.owner_id);
-            if(!reused.empty()&&matching_prefix<previous_boundaries.size())reused.back().mesh.original_references=reference_geometry_for_owners(
-                previous_boundaries.back().mesh.original_references,owners);
+            if(!reused.empty()&&matching_prefix<previous_boundaries.size()) {
+                if(!context.requested_solids.empty())reused.back().mesh.original_references=
+                    live_cache_->copy_references.at(previous_boundaries[matching_prefix-1].source_fingerprint);
+                else reused.back().mesh.original_references=reference_geometry_for_owners(
+                    previous_boundaries.back().mesh.original_references,owners);
+            }
             compact_history_reference_geometry(reused);
             return reused;
         }
-        if(!context.requested_solids.empty())matching_prefix=0;
         std::size_t reusable_prefix = matching_prefix;
         if (std::any_of(operations.begin(), operations.end(), [](const auto& operation) {
                 return std::holds_alternative<ThreadSurfaceRequest>(
@@ -7479,8 +7751,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         }
         while (reusable_prefix > 0) {
             const auto& boundary = previous_boundaries[reusable_prefix - 1];
-            if (!boundary.kernel_shape.empty() ||
-                live_cache_->boundaries.contains(boundary.source_fingerprint)) {
+            if ((!boundary.kernel_shape.empty() ||
+                live_cache_->boundaries.contains(boundary.source_fingerprint))&&
+                (context.requested_solids.empty()||live_cache_->copy_references.contains(boundary.source_fingerprint))) {
                 break;
             }
             --reusable_prefix;
@@ -7499,13 +7772,22 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         if(retain_original_edges&&reusable_prefix>0&&
             !live_cache_->boundaries.at(previous_boundaries[reusable_prefix-1].source_fingerprint).original_edges_retained)
             reusable_prefix=0;
-        if(retain_sheet_sources&&reusable_prefix>0&&
+        const bool remaining_sheet_state=std::ranges::any_of(
+            operations.begin()+static_cast<std::ptrdiff_t>(reusable_prefix),operations.end(),
+            [](const auto& operation){return !operation.suppressed&&std::holds_alternative<SheetStateRequest>(operation.primitive);});
+        if(remaining_sheet_state&&reusable_prefix>0&&
             !live_cache_->boundaries.at(previous_boundaries[reusable_prefix-1].source_fingerprint).sheet_sources) {
             // A fused boundary does not retain the separate authored material
             // regions. Reconstruct them once when the first state operation
             // is added to a previously calculated ordinary feature history.
             reusable_prefix=0;
         }
+        const auto restored_sources=restore_copy_sources(reusable_prefix);
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"[history reuse] operations="<<operations.size()
+            <<" reused="<<reusable_prefix<<" calculated="<<std::ranges::count_if(
+                operations.begin()+static_cast<std::ptrdiff_t>(reusable_prefix),operations.end(),
+                [](const auto& operation){return !operation.suppressed;})
+            <<" copy_sources="<<restored_sources<<'\n';
         if (reusable_prefix > 0) {
             const auto& prefix_boundary =
                 previous_boundaries[reusable_prefix - 1];
@@ -7525,9 +7807,15 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     prefix_owners.insert(operations[index].owner_id);
                 }
             }
-            original_references = reference_geometry_for_owners(
-                previous_boundaries.back().mesh.original_references,
-                prefix_owners);
+            if(!context.requested_solids.empty()) {
+                // A later operation may create descendants owned by an older
+                // source. Owner filtering of the final packet cannot recover
+                // their actual creation boundary or original ordered geometry.
+                original_references=live_cache_->copy_references.at(prefix_boundary.source_fingerprint);
+                std::erase(live_cache_->copy_reference_order,prefix_boundary.source_fingerprint);
+                live_cache_->copy_reference_order.push_back(prefix_boundary.source_fingerprint);
+            } else original_references = reference_geometry_for_owners(
+                previous_boundaries.back().mesh.original_references,prefix_owners);
             boundaries.insert(boundaries.end(), previous_boundaries.begin(),
                 previous_boundaries.begin() +
                     static_cast<std::ptrdiff_t>(reusable_prefix));
@@ -7548,6 +7836,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            struct OperationProfile {
+                const HistoryOperation& operation;
+                std::size_t count,index;
+                bool active=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
+                std::chrono::steady_clock::time_point start=active?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+                ~OperationProfile() {
+                    if(active)std::fprintf(stderr,"Kernel operation count=%zu index=%zu owner=%s primitive=%zu total=%.6f s\n",
+                        count,index,operation.owner_id.c_str(),operation.primitive.index(),
+                        std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+                }
+            } operation_profile{operation,operations.size(),operation_index};
             const auto* feature_group=std::get_if<FeatureGroupRequest>(&operation.primitive);
             const bool reference_only=feature_group && feature_group->children.empty() &&
                 (feature_group->allow_empty || !feature_group->reference_profiles.empty());
@@ -7555,7 +7854,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             group_inputs.clear();
             form_operands.reset();
             copied_form_operands.clear();
-            if(retain_sheet_sources) {
+            if(sheet_sources_needed[operation_index]) {
                 sheet_input.shape=result_shape;sheet_input.faces=owned_topology->faces;
                 sheet_input.edges=owned_topology->edges;sheet_input.vertices=owned_topology->vertices;
             }
@@ -7582,17 +7881,39 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const std::vector<OwnedVertex>& vertices, bool original = false,
                 bool persist = true, bool collect = false,
                 const std::vector<TopoDS_Shape>& hidden = {}, bool calculate_body_properties = true) {
+                const bool retain_analysis_solid=calculate_body_properties;
+                calculate_body_properties=calculate_body_properties&&
+                    (aggregate_property_demand==AggregatePropertyDemand::All||aggregate_property_demand==AggregatePropertyDemand::Deferred||
+                    (aggregate_property_demand==AggregatePropertyDemand::Final&&operation_index+1==operations.size()));
+                const bool trace=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
+                if(trace)std::fprintf(stderr,"Kernel packet count=%zu index=%zu owner=%s properties=%d\n",
+                    operations.size(),operation_index,operation.owner_id.c_str(),int(calculate_body_properties));
+                const auto start=trace?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
                 auto result=make_result(shape, faces, edges, vertices, original, persist,
                     collect, hidden, operation.mesh_deflection, calculate_body_properties,
-                    std::holds_alternative<SheetFormRequest>(operation.primitive)&&
-                        (!std::get<SheetFormRequest>(operation.primitive).solid_opening_faces.empty()||
-                         (std::get<SheetFormRequest>(operation.primitive).outward&&
-                          sheet_form_geometry::corner_definition(std::get<SheetFormRequest>(operation.primitive)))));
+                    // Later cuts and copies retain the FORM's rational patches.
+                    // Their complete properties need the same exact parallel
+                    // integration as the FORM itself, not a serial reintegration.
+                    has_forms);
+                if(retain_analysis_solid&&!result.physical_properties_current&&result.kernel_shape.empty())
+                    result.kernel_shape=serialize_kernel_shape(shape);
+                if(trace)std::fprintf(stderr,"Kernel packet done count=%zu index=%zu owner=%s total=%.6f s\n",
+                    operations.size(),operation_index,operation.owner_id.c_str(),
+                    std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
                 return result;
             };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
             const auto apply_edge_treatment = [&](const auto& treatment,bool publish=true) {
+                const bool trace_treatment=std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr;
+                auto treatment_stamp=trace_treatment?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+                const auto treatment_phase=[&](const char* phase){
+                    if(!trace_treatment)return;
+                    const auto now=std::chrono::steady_clock::now();
+                    std::fprintf(stderr,"Edge treatment %s %s: %.3f ms\n",operation.owner_id.c_str(),phase,
+                        std::chrono::duration<double,std::milli>(now-treatment_stamp).count());
+                    treatment_stamp=now;
+                };
                 const TopoDS_Shape input_shape=result_shape;
                 if (result_shape.IsNull()) {
                     throw std::invalid_argument(
@@ -7665,6 +7986,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                 }
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                    treatment_phase("selection");
                     BRepFilletAPI_MakeFillet algorithm(result_shape);
                     // FORM's internal transitions use exact rational circular
                     // parameterization; ordinary Fillet keeps its established
@@ -7737,7 +8059,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     selected = resolve_edge_treatment_contours(
                         algorithm, selected, owned_topology->edges,
                         "Fillet", operation.owner_id);
+                    treatment_phase("contours");
                     algorithm.Build();
+                    treatment_phase("build");
                     if(!publish&&std::getenv("ZIMA_CPP_FORM_PROFILE")&&
                        (!algorithm.IsDone()||algorithm.Shape().IsNull()||!BRepCheck_Analyzer(algorithm.Shape()).IsValid()))
                     {
@@ -7756,6 +8080,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     auto treatment_faces = propagate_topology(
                         algorithm, owned_topology->faces,
                         std::vector<OwnedFace>{});
+                    treatment_phase("validation and face propagation");
                     auto generated_faces = generated_edge_treatment_faces(
                         algorithm, selected, operation.owner_id, "fillet:face");
                     treatment_faces.insert(treatment_faces.end(),
@@ -7766,7 +8091,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         operation.owner_id, "fillet:face",
                         std::max(1.0e-7, operation.boolean_tolerance),
                         treatment_faces);
+                    treatment_phase("generated and unmapped faces");
                     classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
+                    treatment_phase("surface classification");
                     auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),
@@ -7778,19 +8105,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 owned_topology->vertices),
                             propagate_display_edges(
                                 algorithm, owned_topology->hidden_display_edges)});
+                    treatment_phase("edge and vertex propagation");
                     result_shape = algorithm.Shape();
                     auto unified = unify_preserving_face_provenance(result_shape,
                         treatment_topology->faces, treatment_topology->edges,
                         treatment_topology->vertices,
                         std::max(1.0e-7, operation.boolean_tolerance));
+                    treatment_phase("unify");
                     result_shape = std::move(unified.shape);
                     auto completed_edges = complete_edge_treatment_edges(
                         result_shape, unified.faces, unified.edges,
                         owned_topology->edges, selected, operation.owner_id,
                         "fillet:edge");
+                    treatment_phase("complete edges");
                     auto completed_vertices = complete_edge_treatment_vertices(
                         result_shape, completed_edges, unified.vertices, selected,
                         operation.owner_id, "fillet:vertex");
+                    treatment_phase("complete vertices");
                     owned_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{std::move(unified.faces),
                             std::move(completed_edges),
@@ -7933,11 +8264,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                 }
                 if(!publish)return;
+                treatment_phase("thread surfaces");
                 boundaries.push_back(
                     make_operation_result(result_shape, owned_topology->faces,
                         owned_topology->edges, owned_topology->vertices,
                         true, persist_boundary_shape, true,
                         owned_topology->hidden_display_edges));
+                treatment_phase("result packet");
                 append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
                 append_reference_geometry(original_references,
                     reference_geometry_for_owners(boundaries.back().mesh.original_references,
@@ -7946,6 +8279,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     fingerprint(operations, boundaries.size());
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology);
+                treatment_phase("reference publication and cache");
             };
             const auto retain_copy_solid=[&](const PrimitiveData& operand,const std::vector<ViewerAxis>& additional_axes=std::vector<ViewerAxis>{}) {
                 if(!context.requested_solids.contains(operation.owner_id))return;
@@ -7962,6 +8296,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 solid.mesh.axes.insert(solid.mesh.axes.end(),additional_axes.begin(),additional_axes.end());
                 solid.mesh.original_references.axes=solid.mesh.axes;
                 solid.source_fingerprint=fingerprint(operations,operation_index+1)+":solid:"+operation.owner_id;
+                const auto key=solid.source_fingerprint;
+                const auto forms=form_copy_operands.find(operation.owner_id);
+                auto [cached,inserted]=live_cache_->copy_sources.insert_or_assign(key,LiveCache::CopySource{
+                    operand,solid,forms==form_copy_operands.end()?std::vector<sheet_form_geometry::Instance>{}:forms->second});
+                static_cast<void>(cached);
+                if(inserted)live_cache_->copy_source_order.push_back(key);
+                while(live_cache_->copy_source_order.size()>kLiveShapeCacheLimit) {
+                    live_cache_->copy_sources.erase(live_cache_->copy_source_order.front());
+                    live_cache_->copy_source_order.pop_front();
+                }
                 context.source_solids.insert_or_assign(operation.owner_id,std::move(solid));
             };
             if (operation.owner_id.empty()) {
@@ -7972,7 +8316,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if (persist_boundary_shape && !result_shape.IsNull()) {
                     boundary.kernel_shape = serialize_kernel_shape(result_shape);
                     boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
-                } else if (!persist_boundary_shape) {
+                } else if (!persist_boundary_shape&&boundary.physical_properties_current) {
                     boundary.kernel_shape.clear();
                     boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
                 }
@@ -8254,7 +8598,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         hollow.primitive=ShellRequest{form->solid_opening_faces,.5*form->thickness};
                         hollow.boolean_tolerance=operation.boolean_tolerance;shell_history.push_back(std::move(hollow));
                         const auto walls=evaluate_history_incremental(shell_history,closed);
-                        if(walls.empty()||!walls.back().calculation_errors.empty()||walls.back().volume<=0.)
+                        if(walls.empty()||!walls.back().calculation_errors.empty()||!walls.back().has_solid())
                             throw std::runtime_error("FORM definition calculation failed.");
                         const auto native=live_cache_->boundaries.find(walls.back().source_fingerprint);
                         if(native==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
@@ -8520,7 +8864,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // requests it; an ordinary insertion needs no extra Cut.
                     const PrimitiveData final{result_shape,owned_topology->faces,
                         owned_topology->edges,owned_topology->vertices};
-                    if(retain_sheet_sources||context.requested_solids.contains(operation.owner_id)) {
+                    if(sheet_sources_needed[operation_index]||context.requested_solids.contains(operation.owner_id)) {
                         // The exact delta is sufficient: (S - (S - F)) union
                         // (F - S) reproduces F, without the original cutter's
                         // redundant coincident trims in the rounded copy.
@@ -10595,6 +10939,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 auto symbols=sheet_material::form_symbol_edges(calculated_form_history,state);
                 boundary.mesh.edges.insert(boundary.mesh.edges.end(),std::make_move_iterator(symbols.begin()),std::make_move_iterator(symbols.end()));
             }
+        }
+        if(aggregate_property_demand==AggregatePropertyDemand::All) {
+            for(auto& boundary:boundaries)ensure_body_properties(boundary);
+        } else if(aggregate_property_demand==AggregatePropertyDemand::Final&&!boundaries.empty())
+            ensure_body_properties(boundaries.back());
+        // Pending analysis at any editable history position must also work
+        // after native reopen, when this kernel's live shape cache is absent.
+        for(auto& boundary:boundaries)if(!boundary.physical_properties_current&&boundary.kernel_shape.empty()) {
+            const auto native=live_cache_->boundaries.find(boundary.source_fingerprint);
+            if(native!=live_cache_->boundaries.end()&&!native->second.shape.IsNull())
+                boundary.kernel_shape=serialize_kernel_shape(native->second.shape);
         }
         compact_history_reference_geometry(boundaries);
         return boundaries;

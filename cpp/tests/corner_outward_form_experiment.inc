@@ -718,7 +718,8 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         workspace::Workspace live;live.add_part(stock,baseline);
         check(workspace::commit_sheet_form(live,engine,stock.document_id,feature),"Outward FORM insertion did not commit");
         auto* state=live.open_part(stock.document_id);check(state,"Outward native session missing");
-        valid(state->session.calculated_boundaries().back());near(state->session.calculated_boundaries().back().volume,results.back().volume);
+        auto measured=state->session.calculated_boundaries().back();engine.ensure_body_properties(measured);
+        valid(measured);near(measured.volume,results.back().volume);
         verify_window_side(state->session.calculated_boundaries().back());
         const auto inserted=*state->session.document().find_container(feature.id);
         const auto revision=state->session.revision();const auto fingerprint=state->session.calculated_boundaries().back().source_fingerprint;
@@ -743,7 +744,8 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         check(*reopened.find_container(feature.id)==inserted,"Outward native save/reopen changed references or embedded definition");
         valid(reopened_results.back());
         verify_window_side(reopened_results.back());
-        const auto regenerated=workspace::calculate_part_with_resolved_references(engine,reopened,&reopened_results);
+        workspace::PartCalculationPolicy analysis;analysis.refresh_physical_properties=true;
+        const auto regenerated=workspace::calculate_part_with_resolved_references(engine,reopened,&reopened_results,analysis);
         valid(regenerated.back());near(regenerated.back().volume,results.back().volume);
         verify_window_side(regenerated.back());
         check(source.part.serialized(*source.calculated)==authored,"Outward placement modified source authoring document");

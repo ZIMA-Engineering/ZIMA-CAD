@@ -305,9 +305,14 @@ Relations, in that order. Availability follows the existing document actions.
 Parameters and Family Table are no longer duplicated in the View toolbar. The
 document-type heading is omitted; source/Drawing navigation retains its icon
 and destination label.
-Single Tree selection confirms visible geometry in azure. An ordinary double-click
-also exposes the object's existing dimensions where supported, without opening
-Properties or the source document. Source documents open through context menus.
+Single View/Tree selection selects visible geometry and its owning feature in
+the Tree; it does not automatically expose parameter dimensions. An ordinary
+double-click exposes the object's existing dimensions where supported, without
+opening Properties or the source document. Scene publication for dimension
+inspection preserves the selected Tree feature without re-confirming the View
+and obstructing dimension hover/editing. Active command and reference-entry
+interactions retain their established controls. Source documents open through
+context menus. This ordinary click contract is binding in `AGENTS.md`.
 
 A perpendicular external axis is stored as an `axis_point` reference and shown
 as a point cross. Nonperpendicular or missing source axes hide that cross and

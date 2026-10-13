@@ -611,7 +611,7 @@ void third_direction_transactions(const std::filesystem::path& file) {
 void body_history() {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     const auto templates=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/templates";
-    options.settings=[templates]{return command_host::Settings{{templates,"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    options.settings=[templates]{return command_host::Settings{{templates,"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     auto directory=std::filesystem::temp_directory_path();command_host::Host host(live,kernel,directory,options);
     const auto run=[&](const char* name,commands::Json args=commands::Json::object()) {
         const auto result=host.execute({{"command",name},{"arguments",args}});

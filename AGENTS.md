@@ -188,6 +188,29 @@
 - Verify frame changes and symbol/text orientation when modifying this area.
   This requirement was reaffirmed by the user on 2026-09-22.
 
+## Ordinary selection and double-click inspection (mandatory)
+
+- Use one consistent ordinary left-click contract in the model View and Tree,
+  across Part and Assembly features. A single click selects the object and
+  synchronizes its owning feature's Tree selection. Selecting a Fillet's rounded
+  face selects the Fillet feature, not the preceding feature or Sketch.
+- A single selection click must not automatically expose parameter dimensions
+  or open Properties. A double-click on the feature in the View or Tree exposes
+  its parameter dimensions through the established shared inspection path.
+  Double-clicking a displayed dimension retains its established value editor.
+- Selection and dimension inspection must not calculate geometry, modify the
+  model or create an Undo transaction. Keep the selected feature synchronized
+  between the View and Tree when dimensions appear.
+- This rule applies to ordinary selection outside commands. Preserve reference
+  entry, explicit inspection controls, active Properties/dimension editing and
+  other command-specific interactions, including the shared middle-button
+  confirmation contract. A selection click inside an active editing session
+  must not hide the dimensions required by that session.
+- Verify actual single-click selection, Tree synchronization, double-click
+  dimension display and unchanged document revision. Do not introduce
+  feature-specific single-click shortcuts that bypass this contract.
+- This requirement was clarified and confirmed by the user on 2026-10-13.
+
 ## Property and parameter dialogs
 
 The application must present one consistent visual and interaction style.
