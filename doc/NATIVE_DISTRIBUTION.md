@@ -2,6 +2,19 @@
 
 ## Scope and status
 
+Signed Windows [2026101301](releases/2026101301.md#signed-windows-publication)
+was published at `2026-10-13T11:27:49Z`. It reduces repeated history and
+aggregate-analysis work while retaining exact geometry, references and native
+cached solids for on-demand measurement. The latest eleven-operation test copy
+saves 3.623 seconds (25.3%) on paired first-calculation means. File Manager
+previews, sorting, default view and mixed-tab closing are corrected; explicit
+mm/in Part, Assembly and Skeleton templates replace unsuffixed factory defaults.
+All five catalogs, scoped native/GUI checks, all 20 current native factory assets,
+clean candidate and signed smoke, production trust and nine signed-package GUI
+workflows pass. All 6,260 checksums remain unchanged after those workflows;
+public asset digests and installable discovery from signed 2026101209 pass.
+Native Linux acceptance remains assigned to its host.
+
 Signed Windows [2026101209](releases/2026101209.md#signed-windows-publication)
 was published at `2026-10-12T21:21:51Z`. It completes File Manager thumbnail,
 column, cleanup, foreign-model inspection and working-directory interactions,
