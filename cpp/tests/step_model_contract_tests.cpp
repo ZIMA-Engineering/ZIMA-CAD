@@ -165,6 +165,19 @@ void check_changed_source(kernel::OcctKernel& kernel,const std::filesystem::path
 int main(int argc,char** argv) {
     try {
         kernel::OcctKernel kernel;
+        if(argc==4&&std::string_view(argv[1])=="--import-native-performance") {
+            const auto started=std::chrono::steady_clock::now();
+            auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},std::filesystem::absolute(std::filesystem::u8path(argv[2])));
+            const auto imported_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+            require(!imported.calculated.empty(),"STEP performance import has no calculated geometry");
+            const auto& result=imported.calculated.back();
+            std::cout<<"Complete STEP Part import ms="<<imported_ms<<" boundaries="<<imported.calculated.size()<<" vertices="<<result.mesh.vertices.size()<<" triangles="<<result.mesh.triangles.size()/3<<" original_edges="<<result.mesh.original_references.edges.size()<<" volume="<<result.volume<<std::endl;
+            const auto saved=std::chrono::steady_clock::now();const auto output=std::filesystem::u8path(argv[3]);
+            require(!std::filesystem::exists(output),"STEP performance output already exists");
+            imported.document.save(output,imported.calculated);
+            std::cout<<"Imported native save ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-saved).count()<<" bytes="<<std::filesystem::file_size(output)<<std::endl;
+            return 0;
+        }
         if(argc==6&&std::string_view(argv[1])=="--import-preparation-file") {
             const auto start=std::chrono::steady_clock::now();
             const auto path=std::filesystem::absolute(std::filesystem::u8path(argv[2]));

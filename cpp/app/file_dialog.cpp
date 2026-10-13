@@ -1,6 +1,7 @@
 #include <QRegularExpression>
 #include "file_dialog.hpp"
 #include "resource_icon.hpp"
+#include "native_file_icon.hpp"
 #include "directory_metadata.hpp"
 #include <QApplication>
 #include <QHash>
@@ -50,14 +51,7 @@ public:
             if (const auto* files = qobject_cast<const QFileSystemModel*>(sourceModel())) {
                 const auto info = files->fileInfo(mapToSource(index));
                 if (!info.isDir()) {
-                    const auto suffix = info.suffix().toLower();
-                    QString icon_name;
-                    if (suffix == QStringLiteral("prtz")) icon_name = QStringLiteral("part");
-                    else if (suffix == QStringLiteral("asmz")) icon_name = QStringLiteral("assembly");
-                    else if (suffix == QStringLiteral("drwz")) icon_name = QStringLiteral("drawing");
-                    else if (suffix == QStringLiteral("frmz")) icon_name = QStringLiteral("drawing-format");
-                    else if (suffix == QStringLiteral("tblz")) icon_name = QStringLiteral("title-block");
-                    if (!icon_name.isEmpty()) return resource_icon(icon_name);
+                    if(const auto icon=native_file_icon(info);!icon.isNull())return icon;
                 }
             }
         }

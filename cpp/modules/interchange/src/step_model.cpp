@@ -12,6 +12,9 @@
 #include <iomanip>
 #include <memory>
 #include <stdexcept>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 namespace zima::interchange {
 namespace {
 void insert_body(document::PartDocument& doc, document::HistoryContainer container,
@@ -85,8 +88,12 @@ StepImportedPart import_step_part(document::PartDocument doc,
     if (mesh_deflection && (!std::isfinite(*mesh_deflection) || *mesh_deflection<=0))
         throw std::invalid_argument("Import mesh deflection must be positive");
     const auto absolute=std::filesystem::absolute(source);
+    const bool profile=std::getenv("ZIMA_CPP_IMPORT_PROFILE")!=nullptr;
+    auto started=std::chrono::steady_clock::now();
+    const auto phase=[&](const char* name){const auto now=std::chrono::steady_clock::now();if(profile)std::fprintf(stderr,"STEP Part %s: %.3f ms\n",name,std::chrono::duration<double,std::milli>(now-started).count());started=now;};
     auto prepared=std::make_unique<kernel::StepSourceDocument>(document::path_to_utf8(absolute),"STEP produktovou strukturu nelze načíst");
     const auto nodes=inspect_step_parts(*prepared);
+    phase("source and product inspection");
     std::vector<document::HistoryContainer> containers;
     std::vector<kernel::StepRequest> requests;
     for(const auto& node:nodes)if(!node.assembly) {
@@ -98,6 +105,7 @@ StepImportedPart import_step_part(document::PartDocument doc,
     if(requests.empty())throw std::runtime_error("STEP neobsahuje žádné díly");
     kernel::OcctKernel kernel;
     auto frozen=kernel.freeze_step_components(requests,prepared.get());
+    phase("topology capture and native archive");
     prepared.reset();
     std::size_t index=0;
     for(const auto& node:nodes)if(!node.assembly) {
@@ -106,7 +114,9 @@ StepImportedPart import_step_part(document::PartDocument doc,
         container.imported_step.topology=std::move(frozen.at(index).topology);
         insert_body(doc,std::move(container),node,true,index);++index;
     }
+    phase("source disposal and history ownership");
     auto calculated=kernel.evaluate_history_incremental(doc.kernel_operations(),previous);
+    phase("history calculation and publication packet");
     return {std::move(doc),std::move(calculated),{}};
 }
 StepAssemblyImport import_step_assembly(const std::filesystem::path& source,

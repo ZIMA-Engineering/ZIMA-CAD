@@ -151,8 +151,16 @@ FileManagerNativeParameters AssemblyWorkspaceWindow::file_manager_native_paramet
             },state);if(found)return *found;
         }
         const QString suffix=QFileInfo(path).suffix().toLower();
-        if(QStringList{"prtz","frmz","tblz","symz"}.contains(suffix))return parameters_from(document::PartDocument::load(requested));
-        if(suffix=="asmz")return parameters_from(assembly::AssemblyDocument::load(requested,{},false));
+        if(QStringList{"prtz","asmz","frmz","tblz","symz"}.contains(suffix)){
+            const auto data=document::read_native_user_parameters(requested);
+            struct ParameterInspection {
+                const decltype(data.flat)& user_parameters;
+                const decltype(data.order)& user_parameter_order;
+                const decltype(data.labels)& user_parameter_labels;
+                const decltype(data.values)& user_parameter_values;
+            };
+            return parameters_from(ParameterInspection{data.flat,data.order,data.labels,data.values});
+        }
     }catch(const std::exception& error){result.error=QString::fromUtf8(error.what());}
     return result;
 }

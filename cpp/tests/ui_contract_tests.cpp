@@ -1236,6 +1236,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_INTERACTION_COLORS_ONLY")){verify_interaction_colors(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
@@ -1365,7 +1366,6 @@ int main(int argc, char* argv[]) {
         verify_point_marker_colours(application,parent);
         verify_stable_placement_rows();
         verify_interaction_colors(application,parent);
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_INTERACTION_COLORS_ONLY"))return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PART_DIALOG_LAYOUT_ONLY")) return verify_part_dialog_layout(application,parent);

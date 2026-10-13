@@ -87,6 +87,7 @@
 #include <QFileDialog>
 #include <QImage>
 #include "file_manager_tab.hpp"
+#include "file_entry_geometry.hpp"
 #include <QPainter>
 #include <QCheckBox>
 #include <QColor>

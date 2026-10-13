@@ -9,9 +9,64 @@
 #include <numbers>
 #include <cmath>
 #include <iostream>
+#include <fstream>
+#include <QCryptographicHash>
+#include <chrono>
+#include <zima/document/viewer_packet_json.hpp>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
+void verify_parameter_inspection(const fs::path& directory) {
+    const auto compare=[&](const auto& full,const fs::path& path){
+        const document::UserParameterData expected{full.user_parameters,full.user_parameter_order,full.user_parameter_labels,full.user_parameter_values};
+        require(document::read_native_user_parameters(path)==expected,"Parameter inspection differs from full native loading");
+    };
+    for(const auto& entry:fs::directory_iterator(directory)){
+        const auto extension=entry.path().extension();
+        if(extension==".prtz")compare(document::PartDocument::load(entry.path()),entry.path());
+        else if(extension==".asmz")compare(assembly::AssemblyDocument::load(entry.path(),{},false),entry.path());
+    }
+    for(const auto* relative:{"config/templates/START_PART_mm.prtz","config/templates/START_ASSEMBLY_mm.asmz","config/formats/ZE-TITLE-BLOCK.tblz","config/formats/ZE-DRAWING-FRAME.frmz","config/symbols/annotations/ZE-TEXT.symz"}){
+        const fs::path path(relative);
+        if(path.extension()==".asmz")compare(assembly::AssemblyDocument::load(path,{},false),path);
+        else compare(document::PartDocument::load(path),path);
+    }
+    const auto path=directory/"metadata-buffer.prtz";
+    {
+        std::ofstream output(path,std::ios::binary);
+        output<<"[Cache]\r\ndata="<<std::string(16*1024*1024,'x')<<"\r\n[Document]\r\nformat_version=46\r\ntype=part\r\n[UserParameters]\r\nOrder=NAME,EMPTY\r\n[UserParameterLabels]\r\nNAME\\cs=Příliš žluťoučký\r\n[UserParameterValues]\r\nData=";
+        output<<Json({{"NAME",{{"",std::string(65536,'x')+"=,\\ř"},{"ru","Проверка"}}},{"EMPTY",{{"",""}}}}).dump();
+    }
+    const auto data=document::read_native_user_parameters(path);
+    require(data.order==std::vector<std::string>{"NAME","EMPTY"}&&data.flat.at("NAME")==std::string(65536,'x')+"=,\\ř"&&data.flat.at("EMPTY").empty()&&data.labels.at("NAME").at("cs")=="Příliš žluťoučký"&&data.values.at("NAME").at("ru")=="Проверка","Buffered metadata reader lost exact text, language, empty value or final line");
+    fs::remove(path);
+    // The full native loader uses the same INI syntax around arbitrarily
+    // large cache lines. Preserve whitespace, duplicate-key, CRLF and final
+    // unterminated-line behavior independently of the parameter-only reader.
+    auto authored=document::PartDocument::create_default();
+    authored.user_parameters["TEXT"]=std::string(131071,'x')+"=,\\ř";
+    authored.user_parameter_order={"TEXT"};authored.save(path);
+    const auto expected=document::PartDocument::load(path).serialized();
+    std::ifstream stream(path,std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(stream)),{});stream.close();
+    for(const bool crlf:{false,true}) {
+        std::ofstream output(path,std::ios::binary|std::ios::trunc);
+        output<<"; comment\n# comment\n";
+        std::istringstream lines(bytes);std::string line;
+        while(std::getline(lines,line)) {
+            if(!line.empty()&&line.back()=='\r')line.pop_back();
+            output<<" \t"<<line<<" \t"<<(crlf?"\r\n":"\n");
+        }
+        output<<"[Document]\nname=ignored duplicate\nname="<<authored.name;output.close();
+        require(document::PartDocument::load(path).serialized()==expected,"Buffered full native loader changed INI whitespace, duplicate or final-line behavior");
+    }
+    for(const auto* invalid:{"[]=x","[ ]","orphan=value","[Document]\ninvalid"}) {
+        std::ofstream output(path,std::ios::binary|std::ios::trunc);output<<invalid;output.close();bool rejected=false;
+        try{static_cast<void>(document::PartDocument::load(path));}catch(const std::exception&){rejected=true;}
+        require(rejected,"Full native loader accepted malformed INI");
+    }
+    fs::remove(path);
+}
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
@@ -408,4 +463,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify_failed_sheet_settings(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+#include "native_io_performance_probe.inc"
+int main(int argc,char** argv){try{
+if(argc==3&&std::string_view(argv[1])=="--native-io-performance")return benchmark_native_io(fs::absolute(fs::u8path(argv[2])));
+if(argc==4&&std::string_view(argv[1])=="--compare-native-properties")return compare_native_properties(fs::u8path(argv[2]),fs::u8path(argv[3]));
+kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify_failed_sheet_settings(kernel,dir);verify(kernel,dir);verify_parameter_inspection(dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

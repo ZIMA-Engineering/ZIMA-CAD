@@ -100,14 +100,14 @@ void datum_marker_visibility(QApplication& app) {
 int main(int argc,char** argv){
     QApplication app(argc,argv);
     try{
-        datum_marker_visibility(app);
+        if(!qEnvironmentVariableIsSet("ZIMA_VERIFY_FOREIGN_PREVIEW_ONLY"))datum_marker_visibility(app);
         const QString repository=QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath("../..");int metadata_count=0,logos=0;
         for(const auto& root:{"config/formats","config/templates","config/lib/02-NATIVE","config/materials","config/symbols","config/lib/01-SHEETMETAL"}){
             QDirIterator entries(QDir(repository).filePath(root),{"metadata.ini"},QDir::Files,QDirIterator::Subdirectories);
             while(entries.hasNext()){QSettings metadata(entries.next(),QSettings::IniFormat);for(const auto& language:{"cs","en","de","fr","ru"}){const auto label=metadata.value(QStringLiteral("Directory/Label/%1").arg(language));check(label.metaType().id()==QMetaType::QString&&!label.toString().trimmed().isEmpty(),"Factory library label is missing or not a scalar Qt string");}++metadata_count;
                 const QString logo=QFileInfo(metadata.fileName()).absoluteDir().filePath("logo-text.svg");if(!QFileInfo::exists(logo))continue;++logos;const QIcon icon(logo);for(const auto background:{QColor("#ffffff"),QColor("#25292e")}){QImage image(64,64,QImage::Format_ARGB32);image.fill(background);QPainter painter(&image);icon.paint(&painter,image.rect());painter.end();int visible=0;for(int y=0;y<64;++y)for(int x=0;x<64;++x)visible+=image.pixelColor(x,y)!=background;check(visible>100,"Symbol category logo vanished in a theme");}
             }
-        }check(metadata_count==34&&logos==8,"Factory library metadata/branding inventory differs");
+        }check(metadata_count==34&&logos==9,"Factory library metadata/branding inventory differs");
         QTemporaryDir fixture;check(fixture.isValid(),"Cannot create preview fixture");
         const QString independent_title=fixture.filePath("independent.tblz");check(QFile::copy(QDir(repository).filePath("config/formats/ZE-TITLE-BLOCK.tblz"),independent_title),"Cannot isolate the title block");
         const auto title=zima::document::PartDocument::load(std::filesystem::u8path(independent_title.toStdString()));int embedded_logos=0;

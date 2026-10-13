@@ -364,3 +364,91 @@ Ctrl+W. Native documents retain Save/Discard/Cancel protection.
 Files rows have one uniform height derived from the thumbnail-size control,
 including directories and files without previews. Preview aspect ratio does not
 change row height; image rendering keeps its aspect ratio and minimal margins.
+
+Preview painting fits small raster images as well as SVGs to the selected cell
+size, including high-DPI displays. Exact uniform and monotone vertical-gradient
+backgrounds can be removed when their exterior borders agree. Every differing
+foreground pixel, including near-background strokes, is retained with a
+two-pixel margin; images touching a gradient border are left uncropped. The
+same crop is applied when saving native model thumbnails, which remain bounded
+to 320 by 240 pixels. Display enlargement does not increase stored PNG sizes.
+
+## File Manager follow-up (2026-10-13)
+
+- **Cleanup in Templates:** the user reports that enabling Versions in the
+  Templates source shows version/backup files, but Clean cannot be invoked.
+  Reproduce this state and check the toolbar and directory/source context
+  actions, their enablement, source permissions and inherited removal
+  protection. Distinguish intentional protection from an incorrect disabled
+  action. Preserve current templates, the cleanup scope and recycle-bin
+  confirmation/Cancel behavior. Recorded for later investigation; no cause
+  is now confirmed: factory Templates metadata sets `PreventRemoval=true`.
+  Cleanup keeps this protection and now explains it in its tooltip. Toolbar,
+  source menu and directory menu respect the same inherited protection. Removing
+  the protection explicitly through Directory Properties enables cleanup.
+  Windows checks cover Versions enabled, protection, explicit unprotection,
+  retained current files, cleanup confirmation/Cancel and recycling of only
+  unprotected synthetic archives. Factory/user template protection is not
+  silently changed.
+- **Native file-type icons:** in Templates, the user sees Pro/ENGINEER icons
+  for `.prtz` and `.asmz` files. The user suspects their Windows file associations;
+  this cause is unverified. Check the File Manager icon provider and use the
+  application's own Part/Assembly icons for native ZIMA formats independently
+  of operating-system associations, with correct Light/Dark presentation on
+  Windows and Linux. Check version/backup filename variants as well. Preserve
+  file opening behavior and the user's system associations; this observation
+  does not authorize changing Windows defaults. File Manager and the ordinary
+  file chooser now share the native icon mapping, including uppercase extensions
+  and numeric archive suffixes for Part, Assembly, Drawing, frame, title block
+  and symbol. Light/Dark/Light checks match the application's own icons and leave
+  foreign formats to the existing system provider. No system association is
+  changed. Windows checks passed; Linux desktop execution remains unverified.
+
+## Referenced parameters and thumbnails
+
+Directory Properties exposes independent `IncludeParameters` and
+`IncludeThumbnails` lists. Each line names one source directory. Browse adds a
+relative path where possible; resolved paths remain visible. Clear removes only
+that list. OK validates existing readable targets and rejects cycles or more than
+64 nested sources; Cancel preserves metadata. The controls use the existing
+internal Properties window and all five UI languages.
+
+Includes resolve relative to the directory containing the link. Sources are
+searched in list order, with local definitions taking precedence. Parameter
+columns include inherited definitions and match export stems to source parts;
+STEP and DXF can therefore use the same native Part's parameters. Current native
+source data overrides its source's metadata mirror, including open-document
+revisions. Local export edits write local overrides, never the included source.
+Explicit empty local values remain valid overrides. Inherited directory labels,
+protection and ownership do not replace the local directory's settings.
+
+Local thumbnails take precedence; linked thumbnail directories are independent
+of parameter sources. Missing/cyclic links produce a visible Files status and
+retain usable local content. Existing version-2 include metadata is readable;
+an explicit local parameter override uses the existing version-3 writer.
+
+Saved native documents continue to publish their ordered parameter list, shared
+and localized values, labels and `zima-cad` provider into writable, unprotected
+directory metadata, even though inspection now avoids loading geometry. This
+also initializes a discoverable version-3 metadata mirror in a new directory.
+Unsaved values remain transient until native saving. Included source directories
+are read-only consumers for this traversal; browsing an include never writes
+their mirrors. Other programs can read the saved metadata without loading CAD.
+
+Windows tests cover language changes, native revision/cache invalidation, local
+and empty overrides, independent thumbnails, missing/cyclic/absolute/duplicate
+links, GUI Browse/Clear/Cancel/OK/reopen, rejection before commit and anchored
+resizing. The same matrix passed with the real Windows Qt platform, and the
+properties window was visually inspected. Linux runtime verification remains
+outstanding. Details and timings are in the
+[performance follow-up](performance/20261013-file-manager-followup.md).
+
+## Planned engineering-table revision
+
+On 2026-10-13, the user selected revision of the imported engineering tables as
+the next stage after the current performance work. Review and redesign the
+table content and HTML presentation under `config/lib/03-ENGINEERING-TABLES`,
+retaining usable File Manager navigation, localization and independent local
+page resources. This records the intended next stage only; revision has not
+started. Preserve the original engineering-table source and agree on concrete
+changes before applying them across the library.

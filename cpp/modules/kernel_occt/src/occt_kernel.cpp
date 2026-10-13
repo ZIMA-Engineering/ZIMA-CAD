@@ -5640,7 +5640,8 @@ double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties,
 // Match OCCT's adaptive VolumeProperties face loop, including its reference
 // point and ordered reduction. Only independent face integrations are parallel.
 // Repeated solid instances retain OCCT's own shared-solid handling.
-double corner_form_integrals(const TopoDS_Shape& shape,GProp_GProps& properties) {
+double corner_form_integrals(const TopoDS_Shape& shape,GProp_GProps& properties,
+        const char* failure="FORM could not create a valid sheet.") {
     std::unordered_set<const TopoDS_TShape*> solids;
     for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next()) {
         const auto solid=it.Current();
@@ -5677,7 +5678,7 @@ double corner_form_integrals(const TopoDS_Shape& shape,GProp_GProps& properties)
     properties=GProp_GProps(origin);double error=0.;
     for(std::size_t index=0;index<pieces.size();++index) {
         if(!std::isfinite(errors[index])||errors[index]<0.)
-            throw std::runtime_error("FORM could not create a valid sheet.");
+            throw std::runtime_error(failure);
         properties.Add(pieces[index]);error=std::max(error,errors[index]);
     }
     return error;
@@ -5713,10 +5714,11 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
         // GK defaults to volume only; enabling its centroid/inertia flags
         // is substantially slower on trimmed FORM skins at this precision.
         std::future<std::pair<GProp_GProps,double>> tensor;
-        if(parallel_properties)tensor=std::async(std::launch::async,[volume_shape,profile_calc,&tensor_seconds] {
+        if(parallel_properties)tensor=std::async(std::launch::async,[volume_shape,profile_calc,imported_step,&tensor_seconds] {
             const auto start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
             GProp_GProps properties;
-            const auto error=corner_form_integrals(volume_shape,properties);
+            const auto error=corner_form_integrals(volume_shape,properties,
+                imported_step?"OCCT rational volume integration failed":"FORM could not create a valid sheet.");
             if(profile_calc)tensor_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
             return std::pair{properties,error};
         });
@@ -5729,7 +5731,8 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
         // fast full tensor integration is independently checked against GK.
         GProp_GProps volume_only;
         const auto volume_start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
-        const auto volume_error=parallel_properties?corner_form_volume(volume_shape,volume_only):
+        const auto volume_error=parallel_properties?corner_form_volume(volume_shape,volume_only,
+                imported_step?"OCCT rational volume integration failed":"FORM could not create a valid sheet."):
             imported_step&&volume_shape.NbChildren()>0?corner_form_volume(volume_shape,volume_only,
                 "OCCT rational volume integration failed"):
             BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
@@ -5738,7 +5741,8 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
         rational_volume=volume_only.Mass();
         if(tensor.valid()) {
             auto [properties,error]=tensor.get();
-            if(!std::isfinite(error)||error<0)throw std::runtime_error("FORM could not create a valid sheet.");
+            if(!std::isfinite(error)||error<0)throw std::runtime_error(
+                imported_step?"OCCT rational volume integration failed":"FORM could not create a valid sheet.");
             volume_properties=std::move(properties);
         }
     }
@@ -5827,7 +5831,10 @@ BodyResult make_result(
     result.solid_present=TopExp_Explorer(shape,TopAbs_SOLID).More();
     if(result.physical_properties_current)calculate_aggregate_properties(shape,result,
         std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}),
-        imported_step,parallel_corner_volume,profile);
+        // Imported STEP owns immutable faces too. Reuse the existing ordered
+        // parallel integrals instead of forcing its full tensor through the
+        // serial OCCT face loop. Precision and requested properties are equal.
+        imported_step,parallel_corner_volume||imported_step,profile);
     if (persist_kernel_shape) {
         if(std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
             persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result);

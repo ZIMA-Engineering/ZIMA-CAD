@@ -596,6 +596,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const auto profile_source = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_source : extrusion ? preview.extrusion.profile_source
                                               : preview.revolution.profile_source;
         if (profile_source != zima::document::ProfileSource::Internal) return;
+        if(!preview_document.body_history.bodies().empty()){
+            const auto* body=preview_document.body_owner_for_object(preview.id);
+            const auto body_id=body?body->scope.id:preview_document.body_history.active_body_id();
+            // The command's reference packet and pending placement are already
+            // Body-local. Resolve this carrier in that same frame; resolving
+            // the full Part would re-solve passive Bodies with local inputs and
+            // apply the active Body transform again before scene publication.
+            if(!body_id.empty())preview_document=preview_document.body_document(body_id);
+        }
         const auto& sketch_id = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.sketch_id : extrusion ? preview.extrusion.sketch_id
                                           : preview.revolution.sketch_id;
         auto sketch = std::find_if(preview_document.sketches.begin(),

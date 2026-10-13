@@ -1,6 +1,9 @@
 #include "../../../common/datum_display.hpp"
 #include <zima/document/derived_copy_json.hpp>
 #include "draft_preview.hpp"
+#include "native_io_profile.hpp"
+#include <array>
+#include <cstring>
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_mesh_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
@@ -377,33 +380,43 @@ std::string trim_ini(std::string value) {
     const auto first = value.find_first_not_of(" \t\r");
     if (first == std::string::npos) return {};
     const auto last = value.find_last_not_of(" \t\r");
-    return value.substr(first, last - first + 1);
+    value.erase(last+1);if(first!=0)value.erase(0,first);return value;
 }
 
 IniSections read_ini(const std::filesystem::path& path) {
-    std::ifstream input(path);
+    std::ifstream input(path,std::ios::binary);
     if (!input) {
         throw std::runtime_error("Cannot open document: " + path.string());
     }
     IniSections result;
     std::string line;
     std::string section;
-    while (std::getline(input, line)) {
+    const auto consume_line = [&] {
         line = trim_ini(std::move(line));
-        if (line.empty() || line.front() == '#' || line.front() == ';') continue;
+        if (line.empty() || line.front() == '#' || line.front() == ';') {line.clear();return;}
         if (line.front() == '[' && line.back() == ']') {
             section = trim_ini(line.substr(1, line.size() - 2));
             if (section.empty()) throw std::runtime_error("Invalid INI section");
             result.try_emplace(section);
-            continue;
+            line.clear();return;
         }
         const auto separator = line.find('=');
         if (section.empty() || separator == std::string::npos) {
             throw std::runtime_error("Invalid INI document line");
         }
-        result[section][trim_ini(line.substr(0, separator))] =
-            trim_ini(line.substr(separator + 1));
+        auto key=trim_ini(line.substr(0,separator));line.erase(0,separator+1);
+        result[section][std::move(key)] = trim_ini(std::move(line));line.clear();
+    };
+    std::array<char,65536> buffer;
+    while(input) {
+        input.read(buffer.data(),buffer.size());const auto count=static_cast<std::size_t>(input.gcount());
+        for(std::size_t offset=0;offset<count;) {
+            const auto* first=buffer.data()+offset;const auto* end=static_cast<const char*>(std::memchr(first,'\n',count-offset));
+            const auto length=end?static_cast<std::size_t>(end-first):count-offset;
+            line.append(first,length);offset+=length+(end?1:0);if(end)consume_line();
+        }
     }
+    if(!line.empty())consume_line();
     if (!input.eof()) throw std::runtime_error("Cannot read document: " + path.string());
     return result;
 }
@@ -625,7 +638,9 @@ void add_json_parameters(
 }
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
+    NativeIoProfile profile("Part read");
     const auto ini = read_ini(path);
+    profile.phase("INI scan");
     if (ini_value(ini, "Document", "format_version") != "46") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
@@ -797,8 +812,13 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
     if (const auto found = ini.find("CachedBodies"); found != ini.end() &&
         ini_value(ini, "CachedBodies", "encoding") ==
             "zima-shared-body-results-v1") {
-        const auto data = ini_value(ini, "CachedBodies", "data");
-        if (!data.empty()) root["calculated_boundaries"] = unpack_cache_storage(nlohmann::json::parse(data));
+        const auto& cache=ini.at("CachedBodies");const auto stored=cache.find("data");
+        const std::string empty;const auto& data=stored==cache.end()?empty:stored->second;
+        profile.phase("definition decode");
+        if (!data.empty()) {
+            auto storage=nlohmann::json::parse(data);profile.phase("cache JSON parse");
+            root["calculated_boundaries"] = unpack_cache_storage(storage);profile.phase("cache expansion");
+        }
         root["calculation_definition_fingerprint"] = ini_required(ini, "CachedBodies", "definition_fingerprint");
     }
     return root;
@@ -806,6 +826,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
 
 void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
+    NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
         {"format_version", "46"},
@@ -1007,12 +1028,13 @@ void write_part_ini(
     }
     ini["Sketches"]["items"] = sketch_items;
     if (!root.at("calculated_boundaries").empty()) {
-        ini["CachedBodies"] = {
-            {"encoding", "zima-shared-body-results-v1"},
-            {"definition_fingerprint", root.at("calculation_definition_fingerprint").get<std::string>()},
-            {"data", pack_cache_storage(root.at("calculated_boundaries")).dump()},
-        };
+        auto& cache=ini["CachedBodies"];
+        cache["encoding"]="zima-shared-body-results-v1";
+        cache["definition_fingerprint"]=root.at("calculation_definition_fingerprint").get<std::string>();
+        auto storage=pack_cache_storage(root.at("calculated_boundaries"));profile.phase("cache packing");
+        cache["data"]=storage.dump();profile.phase("cache text encoding");
     }
+    profile.phase("INI/cache preparation");
     const auto temporary = path.string() + ".tmp";
     {
         std::ofstream output(temporary, std::ios::trunc);
@@ -1024,6 +1046,7 @@ void write_part_ini(
         }
         if (!output) throw std::runtime_error("Document write failed: " + path.string());
     }
+    profile.phase("disk write");
     try {
         static_cast<void>(PartDocument::load(temporary));
     } catch (...) {
@@ -1031,6 +1054,7 @@ void write_part_ini(
         std::filesystem::remove(temporary, error);
         throw;
     }
+    profile.phase("validation reload");
     archive_existing_file(path);
     std::filesystem::rename(temporary, path);
 }
@@ -10908,8 +10932,11 @@ std::string serialize_construction_objects(
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
-    NativeReadCapture::observe(path);
-    return from_serialized(read_part_ini(path),calculated_boundaries);
+    NativeIoProfile profile("Part load");
+    NativeReadCapture::observe(path);profile.phase("read capture");
+    auto root=read_part_ini(path);profile.phase("read native data");
+    auto document=from_serialized(root,calculated_boundaries);profile.phase("reconstruction and validation");
+    return document;
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
@@ -12889,7 +12916,9 @@ nlohmann::json PartDocument::serialized(
 void PartDocument::save(const std::filesystem::path& path,
     const std::vector<zima::kernel::BodyResult>& calculated, const DocumentCopyIdentity& copy) const {
     if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
-    write_part_ini(serialized(calculated,copy),path);
+    NativeIoProfile profile("Part save");
+    auto root=serialized(calculated,copy);profile.phase("document serialization");
+    write_part_ini(root,path);profile.phase("write and validation");
 }
 
 }  // namespace zima::document

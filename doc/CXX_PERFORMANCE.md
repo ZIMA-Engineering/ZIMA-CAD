@@ -4,6 +4,117 @@ For new commands and feature extensions, follow the
 [performance-by-design guide](FEATURE_PERFORMANCE_GUIDE.md). It translates the
 measured optimizations into lifecycle, ownership and verification rules.
 
+## Deferred user observations (2026-10-13)
+
+The user authorized implementation on 2026-10-13 in this order: foreign-model
+preview without a thumbnail, File Manager startup, referenced directory metadata
+and thumbnails, Templates cleanup and native icons, Extrusion plane visibility,
+then large-model import/save/load and selected-solid navigation. Engineering
+table revision remains deferred for joint work with the user.
+
+The File Manager startup, foreign preview and directory-include follow-ups are
+implemented and verified on Windows; see the
+[follow-up record](performance/20261013-file-manager-followup.md).
+Remaining large-model investigations below are still in progress.
+
+The user selected **G92K1** as the representative large-model test input for
+these follow-ups. The located original is
+`C:/Users/vladi/Prace/ZIMA-Engineering/03-CAD/01-ACTIVE_PROJECTS/ZE0176-TOYOTA-G92K1/import/G92K1.stp`;
+the user saved its native Part as `Projects/02.prtz`. Use this STEP and its
+native counterpart consistently for import, native save/load, selected-solid
+navigation and File Manager parameter/preview loading investigations. Work on
+isolated copies, preserve the originals, record input hashes and build identity,
+and distinguish cold versus warm runs. Do not commit or package these private
+test models. Retain smaller deterministic regression fixtures alongside this
+representative performance case.
+
+- **File Manager startup:** the user reports approximately 20 seconds to open a
+  File Manager tab. Confirmed on an isolated `02.prtz` copy: first usable content
+  took 21,101 ms and a complete native parameter read took 21,078 ms. Inspecting
+  only native parameter sections reduced these to 608/406 ms in the recorded
+  Windows samples. Saved values still populate the metadata mirror; open
+  documents retain authority over unsaved values. Cold disk and Linux timings
+  are not claimed.
+- **Selected large STEP solid navigation:** confirmed on `Projects/02.prtz`:
+  unselected frames took approximately 14–17 ms, selected frames 253–261 ms.
+  The actual selected display-wire path submits screen-space rectangles as
+  general polygons and repeatedly sets painter state. The optimized pass
+  consumes the same rectangles/projection/style through convex submission and
+  a shared state scope. Baseline endpoint captures verify equivalent images;
+  document state and mesh publication remain unchanged. See the
+  [large-model record](performance/20261013-large-model-followup.md) for timings,
+  exact image comparisons, method and verification limits.
+- **Large STEP import:** G92K1 took more than ten minutes according to the user
+  and eventually completed. During import, a read-only process sample observed
+  9.45 seconds of CPU time over 5.03 seconds of wall time and approximately
+  2,102 MiB working set. These measurements do not identify the slow stage.
+  The new matched stage profile separates 4.4 s of reading, 9.9 s of transfer,
+  11.5 s of topology capture/archive, 2.1 s of meshing and 607 s of span-aware
+  GK volume integration. Backend import completed in 692 s; substantial total
+  latency improvement is not established. The existing ordered tensor
+  integration now runs concurrently at unchanged precision and complete saved
+  properties pass serial/native oracles. GK integration remains the dominant
+  unresolved performance cost. GUI scene publication and completed peak memory
+  are not claimed by this backend probe.
+- **Extrusion working-plane visibility on STEP faces:** fixed a demonstrated
+  preview-context defect. Body-local reference geometry was being resolved
+  against the complete Part, including a following empty Body, and its owning
+  Body transform could be applied twice. Preview preparation now consumes the
+  existing owning-Body document carrier. Shared placement solving and controls
+  are unchanged. Actual imported-face clicks, signed offsets 0/+3/-2/0,
+  independent plane/surface equations and unchanged-document Cancel passed on
+  a two-Body fixture and the private G92K1 document. The existing full
+  profile-frame and imported Extrusion context/Cancel regressions also passed.
+- **Foreign-model preview without a thumbnail:** the user double-clicks the
+  empty Preview cell for a STEP file and nothing opens; DXF needs the same
+  behavior checked. Source tracing confirms that `FileTable::mouseDoubleClickEvent`
+  dispatches preview requests only when the row already has a Preview icon.
+  Remove that image prerequisite for supported STEP/STP, IGES/IGS and DXF preview
+  files while retaining ordinary filename opening and image inspection behavior
+  for other file types. Verify both empty and populated Preview cells, correct
+  main-tab selection/reuse, and unchanged source files. Deferred at the user's
+  request initially; this is now fixed. Empty/populated dispatch, uppercase
+  extensions, STEP/DXF viewers, source integrity, and actual main-window DXF
+  double-click/reuse/close passed. The independent datum-marker/camera check in
+  the general preview suite remains unresolved and is not claimed as passing.
+- **Referenced directory metadata and thumbnails:** the user reports that
+  ZIMA-Parts supports `[Directory] IncludeParameters=../` and
+  `IncludeThumbnails=../`, allowing an export directory to reuse another
+  directory's parameter metadata and thumbnail images. No explicit handling of
+  these keys was found in the current CAD implementation. Investigate and add
+  equivalent behavior, first checking Parts' relative-path base and file/stem
+  matching rules. Preserve local directory labels, localized parameter values,
+  native-document authority and protection/editing ownership; define local
+  overrides and handle missing targets and include cycles. Verify Windows/Linux
+  relative paths and parameters and thumbnails independently. The supplied
+  example uses metadata Version 2 with `Parameters=@Invalid()`; document the
+  intended mapping to CAD metadata Version 3 rather than assuming support.
+  Directory Properties must also let users create, change and clear these links
+  through the GUI, selecting a source directory separately for parameters and
+  thumbnails without manually editing INI files. Persist relative paths where
+  applicable; make the resolved source visible and validate it before saving.
+  Reuse the internal properties-window conventions and translate new controls
+  and validation messages into cs/en/de/fr/ru.
+  Implemented: separate GUI directory links, relative/absolute source traversal,
+  local overrides, matching export stems, source-native authority, revision
+  invalidation, missing/cyclic-link rejection, and independent thumbnails.
+  Windows GUI and five-language checks passed; Linux execution is unverified.
+- **Native save/load and post-OCCT import overhead:** full loading, saving and
+  reopening of the same 646,708,745-byte private native file measured
+  19,758/59,570/22,685 ms before and 16,665/55,616/19,065 ms after. Buffered INI
+  scanning and removal of actual cache-string copies preserve all validation,
+  definitions and complete calculated packets. Input/saved sizes and full
+  definition/packet hashes match. IO does not invoke OCCT. The ordinary reader
+  still reconstructs/validates complete geometry, unlike File Manager's bounded
+  parameter-only reader. Native IO peak memory and Linux measurements remain
+  unverified. Detailed phase logs, numerical variability and the still-expensive
+  import integration are recorded in the
+  [large-model follow-up](performance/20261013-large-model-followup.md).
+
+Preserve the original user documents. These are Windows observations; timings
+and equivalent behavior on Linux have not been verified. The user requested
+local compilation only, with no new GitHub Windows release for this follow-up.
+
 The [2026-10-13 Fillet/copy-history investigation](performance/20261013-fillet-copy-history.md)
 records exact copy-operand and reference-boundary reuse, parallel property
 integration during first full regeneration, demand-based aggregate analysis and

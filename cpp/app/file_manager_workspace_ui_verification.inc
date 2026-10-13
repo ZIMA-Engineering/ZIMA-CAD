@@ -48,6 +48,30 @@ int verify_file_manager_workspace(QApplication& application) {
         check(dialog_seen&&dialog_contract,"File Open did not use the existing localized native-document chooser");
     };
     try {
+        const QString performance_source=qEnvironmentVariable("ZIMA_FILE_MANAGER_PERFORMANCE_SOURCE");
+        if(!performance_source.isEmpty()){
+            QTemporaryDir fixture;check(fixture.isValid(),"Cannot create performance fixture");
+            const QString copied=fixture.filePath(QFileInfo(performance_source).fileName());check(QFile::copy(performance_source,copied),"Cannot isolate performance document");
+            QSettings config(fixture.filePath("config.ini"),QSettings::IniFormat);config.setValue("Paths/WorkingDirectory",fixture.path());config.sync();
+            zima::app::AssemblyWorkspaceWindow host(fixture.path(),fixture.path());host.resize(1366,768);host.show();flush();
+            QElapsedTimer timer;timer.start();host.findChild<QAction*>("newFileManagerTabAction")->trigger();flush();const auto first_ms=timer.elapsed();
+            auto* stack=host.findChild<QStackedWidget*>("fileManagerStack");auto* manager=dynamic_cast<zima::app::FileManagerTab*>(stack->currentWidget());check(manager,"Performance File Manager missing");
+            timer.restart();const auto parameters=manager->native_parameters_requested(copied);const auto read_ms=timer.elapsed();check(parameters.error.isEmpty()&&!parameters.order.isEmpty(),"Performance metadata read failed");
+            QSettings mirror(fixture.filePath("0000-index/metadata.ini"),QSettings::IniFormat);const auto stem=QFileInfo(copied).completeBaseName();
+            check(mirror.value("Directory/Version").toInt()==3&&mirror.value("Directory/Parameters").toString().split(',').size()==parameters.order.size()&&mirror.value("Files/"+stem+"/Provider").toString()=="zima-cad","Saved native parameters are not discoverable by independent metadata readers");
+            for(auto it=parameters.values.cbegin();it!=parameters.values.cend();++it)check(mirror.value("Parts/"+stem+QLatin1Char('/')+it.key()).toString()==it.value(),"Saved shared native parameter was not mirrored");
+            for(auto it=parameters.localized_values.cbegin();it!=parameters.localized_values.cend();++it)for(auto language=it->cbegin();language!=it->cend();++language)check(mirror.value("Parts/"+stem+QLatin1Char('/')+it.key()+(language.key().isEmpty()?QString{}:QLatin1Char('/')+language.key())).toString()==language.value(),"Saved localized native parameter was not mirrored");
+            if(qEnvironmentVariableIsSet("ZIMA_FILE_MANAGER_COMPARE_FULL_METADATA")){
+                const auto full=zima::document::PartDocument::load(std::filesystem::u8path(copied.toStdString()));
+                check(parameters.order.size()==full.user_parameter_order.size(),"Large metadata order changed");
+                for(int index=0;index<parameters.order.size();++index)check(parameters.order[index].toStdString()==full.user_parameter_order[index],"Large metadata order changed");
+                for(const auto& [key,value]:full.user_parameters)check(parameters.values.value(QString::fromStdString(key)).toStdString()==value,"Large shared parameter changed");
+                for(const auto& [key,values]:full.user_parameter_values)for(const auto& [language,value]:values)check(parameters.localized_values.value(QString::fromStdString(key)).value(QString::fromStdString(language)).toStdString()==value,"Large localized parameter changed");
+            }
+            timer.restart();manager->navigate(fixture.path(),false);flush();const auto warm_ms=timer.elapsed();
+            std::cout<<"FILE_MANAGER_PERFORMANCE bytes="<<QFileInfo(copied).size()<<" first_ms="<<first_ms<<" native_read_ms="<<read_ms<<" warm_ms="<<warm_ms<<" parameters="<<parameters.order.size()<<'\n';
+            host.close();return 0;
+        }
         QTemporaryDir directory;check(directory.isValid(),"Cannot create File Manager workspace fixture");
         QSettings settings(directory.filePath("config.ini"),QSettings::IniFormat);settings.setValue("Paths/WorkingDirectory",directory.path());settings.setValue("Application/Language","cs");settings.sync();
         zima::app::AssemblyWorkspaceWindow window(directory.path(),directory.path());
@@ -103,7 +127,11 @@ int verify_file_manager_workspace(QApplication& application) {
         const auto edited_library=zima::document::PartDocument::load(std::filesystem::u8path(demo_title.toStdString()));check(edited_library.user_parameter_values.at("name").at("cs")=="Kontrolní název razítka"&&edited_library.user_parameter_values.at("name").at("en")==parameters.localized_values.value("name").value("en").toStdString()&&edited_library.user_parameter_values.at("name").at("")==parameters.values.value("name").toStdString(),"Localized edit overwrote another language or the shared native value");
         QSettings demo_metadata(QDir(demo).filePath("0000-index/metadata.ini"),QSettings::IniFormat);check(demo_metadata.value("Parts/ZE-TITLE-BLOCK/name/cs").toString()=="Kontrolní název razítka"&&demo_metadata.value("Parts/ZE-TITLE-BLOCK/name/en").toString()==parameters.localized_values.value("name").value("en"),"Localized metadata mirror lost a language value");manager->navigate(directory.path());
         const QString dxf=directory.filePath("inspection.dxf");{QFile fixture(dxf);check(fixture.open(QIODevice::WriteOnly),"Cannot write DXF preview fixture");fixture.write("0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10\n21\n5\n0\nENDSEC\n0\nEOF\n");}
-        const int before_preview=tabs->count();manager->preview_file_requested(dxf);flush();auto* preview=window.findChild<QStackedWidget*>("modelPreviewStack");check(tabs->count()==before_preview+1&&tabs->tabData(tabs->currentIndex()).toString().startsWith("preview:")&&preview&&preview->isVisible()&&!files->isVisible()&&!cad->isVisible()&&!browser->isVisible(),"DXF preview did not open as one exclusive main tab");
+        manager->navigate(directory.path());flush();auto* preview_table=manager->findChild<QTreeWidget*>("fileManagerFiles");QTreeWidgetItem* dxf_item{};
+        for(int row=0;row<preview_table->topLevelItemCount();++row)if(preview_table->topLevelItem(row)->data(0,Qt::UserRole).toString()==dxf)dxf_item=preview_table->topLevelItem(row);
+        check(dxf_item&&dxf_item->icon(zima::app::file_preview_column).isNull(),"DXF empty preview fixture is missing");preview_table->scrollToItem(dxf_item);flush();
+        const auto preview_point=preview_table->visualRect(preview_table->indexFromItem(dxf_item,zima::app::file_preview_column)).center();
+        const int before_preview=tabs->count();QMouseEvent preview_click(QEvent::MouseButtonDblClick,preview_point,preview_table->viewport()->mapToGlobal(preview_point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(preview_table->viewport(),&preview_click);flush();auto* preview=window.findChild<QStackedWidget*>("modelPreviewStack");check(tabs->count()==before_preview+1&&tabs->tabData(tabs->currentIndex()).toString().startsWith("preview:")&&preview&&preview->isVisible()&&!files->isVisible()&&!cad->isVisible()&&!browser->isVisible(),"DXF preview did not open as one exclusive main tab");
         check(!window.findChild<QAction*>("saveDocumentAction")->isEnabled()&&!window.findChild<QAction*>("saveDocumentAsAction")->isEnabled(),"Read-only preview enabled native save commands");
         manager->preview_file_requested(dxf);flush();check(tabs->count()==before_preview+1,"Repeated preview duplicated its main tab");check_window_menu(window);close_with_f10(window);check(tabs->count()==before_preview&&!preview->isVisible(),"Closing preview retained its surface or tab");
         for(int index=tabs->count()-1;index>=0;--index){const QString id=tabs->tabData(index).toString();if(id.startsWith("files:")||id.startsWith("web:")){tabs->setCurrentIndex(index);flush();close_with_f10(window);}}

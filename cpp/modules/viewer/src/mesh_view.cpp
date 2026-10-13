@@ -3409,6 +3409,9 @@ void MeshView::upload_mesh() {
 }
 
 void MeshView::paintGL() {
+    const bool profile_paint=qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_VIEW_PAINT");
+    QElapsedTimer paint_timer;paint_timer.start();
+    const auto paint_phase=[&](const char* name){if(profile_paint)std::fprintf(stderr,"View paint %s: %.3f ms\n",name,paint_timer.nsecsElapsed()/1e6);paint_timer.restart();};
     impl_->relation_marks->labels.clear();
     impl_->relation_marks->setGeometry(rect());impl_->relation_marks->raise();impl_->relation_marks->update();
     update_annotation_presentation();
@@ -4175,6 +4178,7 @@ if (impl_->show_origins) {
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
     impl_->program.release();
+    paint_phase("main GL scene");
     impl_->vertex_array.release();
 
     const bool axes_selectable = std::find(
@@ -4287,17 +4291,23 @@ if (impl_->show_origins) {
                 painter.setPen(QPen(matches(impl_->confirmed_candidate)?interaction::selected:interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
             }
         }
-        const auto draw_reference_segment = [&](const QPointF& first,
-                const QPointF& second, const QColor& color, double width) {
+        const auto reference_segment_polygon = [](const QPointF& first,
+                const QPointF& second, double width) {
             const QLineF line(first, second);
-            if (line.length() <= 1.0e-6) return;
+            if (line.length() <= 1.0e-6) return QPolygonF{};
             const QPointF normal{-line.dy() / line.length() * width * 0.5,
                                  line.dx() / line.length() * width * 0.5};
+            return QPolygonF{first + normal, second + normal,
+                             second - normal, first - normal};
+        };
+        const auto draw_reference_segment = [&](const QPointF& first,
+                const QPointF& second, const QColor& color, double width) {
+            const auto polygon=reference_segment_polygon(first,second,width);
+            if(polygon.isEmpty())return;
             painter.save();
             painter.setPen(Qt::NoPen);
             painter.setBrush(color);
-            painter.drawPolygon(QPolygonF{first + normal, second + normal,
-                                          second - normal, first - normal});
+            painter.drawPolygon(polygon);
             painter.restore();
         };
         const auto screen_infinite_line = [&](const QPointF& first,
@@ -5286,12 +5296,16 @@ if (impl_->show_origins) {
         // Confirmed wires and dimension inspection use one screen-space
         // presentation, including portions inside the solid. Picking still
         // consumes the unchanged common candidate stream.
-        const auto draw_selected_wire = [&](const zima::kernel::ViewerEdge& edge,
-                const QColor& color = interaction::selected) {
-            for (std::size_t i = 1; i < edge.points.size(); ++i)
-                draw_reference_segment(project(edge.points[i - 1]),
-                    project(edge.points[i]), color, interaction::selected_wire_width);
+        painter.save();painter.setPen(Qt::NoPen);painter.setBrush(interaction::selected);
+        std::size_t selected_wire_segments=0;
+        const auto draw_selected_wire = [&](const zima::kernel::ViewerEdge& edge) {
+            for (std::size_t i = 1; i < edge.points.size(); ++i) {
+                const auto polygon=reference_segment_polygon(project(edge.points[i - 1]),
+                    project(edge.points[i]),interaction::selected_wire_width);
+                if(!polygon.isEmpty()){painter.drawConvexPolygon(polygon);++selected_wire_segments;}
+            }
         };
+        paint_phase("base annotation layer");
         for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
         const auto* original_wire = original_container_wire(impl_->confirmed_candidate);
@@ -5317,6 +5331,9 @@ if (impl_->show_origins) {
                 draw_selected_wire(edge);
         }
         }
+        painter.restore();
+        paint_phase("confirmed display wire");
+        if(profile_paint)std::fprintf(stderr,"View selected wire segments=%zu paint_state_pairs=1\n",selected_wire_segments);
         for (const auto& edge : confirmed_component_wire())
             for (std::size_t i=1;i<edge.points.size();++i)
                 draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),

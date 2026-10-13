@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <filesystem>
 namespace zima::document {
 class PartDocument;
 struct SheetMetalDefaults {
@@ -28,6 +29,9 @@ struct FileSettingsData {
 // separate and preserve their language keys and the explicit display order.
 void validate_native_metadata_text(const std::string&);
 void normalize_user_parameters(UserParameterData&);
+// Inspect only the current native file's parameter sections. Skips calculated
+// geometry without decoding it; this is not validation/loading of a model.
+[[nodiscard]] UserParameterData read_native_user_parameters(const std::filesystem::path&);
 void validate_file_settings(const FileSettingsData&);
 [[nodiscard]] const std::map<std::string,std::vector<std::string>>& file_unit_choices();
 }

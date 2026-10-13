@@ -1,6 +1,8 @@
 #include "file_manager_tab.hpp"
 #include "file_entry_geometry.hpp"
 #include "thumbnail_image.hpp"
+#include "file_manager_includes.hpp"
+#include "native_file_icon.hpp"
 
 #include <QAction>
 #include <QPersistentModelIndex>
@@ -21,10 +23,13 @@
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileDialog>
+#include <QPlainTextEdit>
 #include <QListWidget>
 #include <QLineEdit>
 #include <QLabel>
 #include <QImage>
+#include <QPainter>
 #include <QMenu>
 #include <QPushButton>
 #include <QSettings>
@@ -33,6 +38,7 @@
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
+#include <QToolButton>
 #include <QStackedWidget>
 #include <QTreeView>
 #include <QTreeWidget>
@@ -52,11 +58,92 @@ public:
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 void touch(const QString& path){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot create synthetic file");file.write("synthetic");}
 template<class Predicate> bool wait_until(Predicate predicate,int timeout_ms=3000){QElapsedTimer timer;timer.start();while(timer.elapsed()<timeout_ms){QApplication::processEvents();if(predicate())return true;QThread::msleep(10);}return predicate();}
+void verify_directory_includes(QApplication& application){
+    QTemporaryDir fixture;check(fixture.isValid(),"Cannot create include fixture");
+    const auto root=fixture.path(),exports=fixture.filePath("exports"),source=fixture.filePath("native"),images=fixture.filePath("images");
+    for(const auto& path:{exports,source,images})check(QDir().mkpath(path+"/0000-index/thumbnails"),"Cannot create include directories");
+    touch(exports+"/PART.step");touch(exports+"/PART.dxf");touch(exports+"/other.step");
+    {QSettings metadata(source+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Version",2);metadata.setValue("Directory/Parameters","material");for(const auto* language:{"cs","en","de","fr","ru"}){metadata.setValue(QString("Parameters/material/Label/%1").arg(language),QString("Material-%1").arg(language));metadata.setValue(QString("Parts/PART/material/%1").arg(language),QString("S355-%1").arg(language));}metadata.sync();}
+    {QSettings metadata(exports+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Version",2);metadata.setValue("Directory/Parameters",QVariant{});metadata.setValue("Directory/Label/cs","Exports");metadata.setValue("Directory/IncludeParameters","../native");metadata.setValue("Directory/IncludeThumbnails","../images");metadata.sync();}
+    QImage image(20,20,QImage::Format_RGB32);image.fill(Qt::red);check(image.save(images+"/0000-index/thumbnails/PART.png"),"Cannot write included thumbnail");
+    const auto read_bytes=[](const QString& path){QFile file(path);check(file.open(QIODevice::ReadOnly),"Cannot read include metadata");return file.readAll();};
+    const auto source_bytes=read_bytes(source+"/0000-index/metadata.ini");
+    zima::app::ApplicationSettings settings;settings.language="cs";settings.file_manager.default_view="files";settings.file_manager.sources.push_back({"included","Included",source,source,true,true,false});
+    zima::app::FileManagerTab tab(settings,root,exports);tab.resize(1200,800);tab.show();application.processEvents();
+    auto* table=tab.findChild<QTreeWidget*>("fileManagerFiles");
+    const auto item_for=[&](const QString& name){for(int row=0;row<table->topLevelItemCount();++row)if(table->topLevelItem(row)->text(0)==name)return table->topLevelItem(row);throw std::runtime_error("Included export row is absent");};
+    for(const auto* language:{"cs","en","de","fr","ru"}){
+        settings.language=language;tab.reload_settings(settings);tab.navigate(exports);check(table->columnCount()==6&&table->headerItem()->text(5)==QString("Material-%1").arg(language),"Included parameter label did not follow language");
+        for(const auto* name:{"PART.step","PART.dxf"}){auto* item=item_for(name);check(item->text(5)==QString("S355-%1").arg(language)&&item->data(0,Qt::UserRole+4).toString()==images+"/0000-index/thumbnails/PART.png","Relative includes did not match the export stem independently");}
+        check(item_for("other.step")->text(5).isEmpty(),"Includes leaked a different file's parameters");
+    }
+    settings.language="cs";tab.reload_settings(settings);tab.navigate(exports);
+    QStyleOptionViewItem option;const auto index=table->indexFromItem(item_for("PART.step"),5);auto* editor=table->itemDelegate()->createEditor(table,option,index);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Local include override is not editable");line->setText("Local override");table->itemDelegate()->setModelData(editor,table->model(),index);delete editor;tab.navigate(exports);check(item_for("PART.step")->text(5)=="Local override"&&item_for("PART.dxf")->text(5)=="S355-cs","Editing an include changed the source or another export");
+    {QSettings local(exports+"/0000-index/metadata.ini",QSettings::IniFormat);local.setValue("Parts/PART.step/material/cs","");local.sync();}tab.navigate(exports);check(item_for("PART.step")->text(5).isEmpty(),"An explicit empty local override was ignored");
+    image.fill(Qt::blue);check(image.save(exports+"/PART.png"),"Cannot write local thumbnail");tab.navigate(exports);check(item_for("PART.dxf")->data(0,Qt::UserRole+4).toString()==exports+"/PART.png","Local thumbnail did not override an include");QFile::remove(exports+"/PART.png");
+    touch(source+"/PART.prtz");QString revision="1",native_value="Live source";int reads=0;
+    tab.native_parameters_revision_requested=[&](const QString&){return revision;};tab.native_parameters_requested=[&](const QString&){++reads;zima::app::FileManagerNativeParameters result;result.order={"material"};result.values.insert("material",native_value);return result;};
+    tab.navigate(exports);check(item_for("PART.dxf")->text(5)==native_value,"Native source did not override its stale mirror");const auto previous_reads=reads;tab.navigate(exports);check(reads==previous_reads,"Unchanged included native data was loaded again");revision="2";native_value="Unsaved source";tab.navigate(exports);check(item_for("PART.dxf")->text(5)==native_value&&reads>previous_reads,"Included open document revision did not invalidate metadata");
+    check(read_bytes(source+"/0000-index/metadata.ini")==source_bytes,"Browsing or overriding an include changed source metadata");
+    const auto show_properties=[&]()->QDialog*{
+        auto* sources=tab.findChild<QListWidget*>("fileManagerSources");
+        QTimer::singleShot(0,[&]{auto* menu=tab.findChild<QMenu*>("fileManagerSourceMenu");check(menu,"Include source menu missing");menu->findChild<QAction*>("fileManagerSourceProperties")->trigger();menu->close();});
+        sources->customContextMenuRequested(sources->visualItemRect(sources->item(0)).center());
+        auto* dialog=tab.findChild<QDialog*>("fileManagerDirectoryEditor");check(dialog,"Include directory editor missing");return dialog;
+    };
+    // Edit the working root through the existing source Properties action.
+    const auto root_metadata=root+"/0000-index/metadata.ini";QDir().mkpath(root+"/0000-index");{QSettings local(root_metadata,QSettings::IniFormat);local.setValue("Directory/Version",3);local.sync();}
+    auto* dialog=show_properties();auto* parameters=dialog->findChild<QWidget*>("fileManagerIncludeParameters");auto* previews=dialog->findChild<QWidget*>("fileManagerIncludeThumbnails");check(parameters&&previews&&(dialog->windowFlags()&Qt::SubWindow),"Includes do not use the shared properties window");
+    parameters->findChild<QPlainTextEdit*>()->setPlainText("native");previews->findChild<QPlainTextEdit*>()->setPlainText("images");application.processEvents();check(parameters->findChild<QLabel*>("includeResolved")->text()==QDir::toNativeSeparators(source),"Resolved include path is not visible");
+    const auto field_position=parameters->mapTo(dialog,QPoint{}).y();dialog->resize(dialog->width()+100,dialog->height()+120);application.processEvents();check(parameters->mapTo(dialog,QPoint{}).y()==field_position,"Resizing spread the include fields vertically");
+    dialog->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);{QSettings local(root_metadata,QSettings::IniFormat);check(!local.contains("Directory/IncludeParameters"),"Cancel saved pending includes");}
+    dialog=show_properties();parameters=dialog->findChild<QWidget*>("fileManagerIncludeParameters");
+    QTimer chooser;chooser.setInterval(10);QObject::connect(&chooser,&QTimer::timeout,&tab,[&]{if(auto* browser=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())){chooser.stop();browser->setDirectory(source);browser->selectFile(source);QMetaObject::invokeMethod(browser,"accept",Qt::DirectConnection);}});chooser.start();parameters->findChild<QPushButton*>("includeBrowse")->click();chooser.stop();
+    check(parameters->findChild<QPlainTextEdit*>()->toPlainText()=="native","Include directory chooser did not store a relative path");dialog->findChild<QWidget*>("fileManagerIncludeThumbnails")->findChild<QPlainTextEdit*>()->setPlainText("images");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    {QSettings local(root_metadata,QSettings::IniFormat);check(local.value("Directory/IncludeParameters").toStringList()==QStringList{"native"}&&local.value("Directory/IncludeThumbnails").toStringList()==QStringList{"images"},"OK did not persist independent includes");}
+    dialog=show_properties();parameters=dialog->findChild<QWidget*>("fileManagerIncludeParameters");check(parameters->findChild<QPlainTextEdit*>()->toPlainText()=="native","Reopening lost the include");parameters->findChild<QToolButton*>("includeClear")->click();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    {QSettings local(root_metadata,QSettings::IniFormat);check(local.value("Directory/IncludeParameters").toStringList().isEmpty()&&local.value("Directory/IncludeThumbnails").toStringList()==QStringList{"images"},"Clearing parameters also cleared thumbnails");}
+    dialog=show_properties();parameters=dialog->findChild<QWidget*>("fileManagerIncludeParameters");parameters->findChild<QPlainTextEdit*>()->setPlainText("missing");
+    bool rejected=false;QTimer::singleShot(0,[&]{if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){rejected=message->text().contains("missing");message->reject();}});dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();check(rejected&&dialog->isVisible(),"Invalid include was committed or closed its editor");dialog->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    const auto repository=QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath("../..");
+    for(const auto* language:{"cs","en","de","fr","ru"}){
+        {QSettings config(fixture.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);config.setValue("Paths/Localization",QDir(repository).filePath("config/localization"));config.sync();}
+        auto localized=zima::app::ApplicationSettings::load(root,QCoreApplication::applicationFilePath());check(localized.language==language&&localized.qt_translations.contains("Parametry ze zdrojových adresářů"),"Include catalog is unavailable");zima::app::apply_application_translations(application,localized);
+        dialog=show_properties();bool translated=false;for(auto* label:dialog->findChildren<QLabel*>())translated=translated||label->text()==localized.qt_translations.value("Parametry ze zdrojových adresářů");check(translated,"Include UI label was not translated after changing language");
+        const auto capture=qEnvironmentVariable("ZIMA_FILE_MANAGER_CAPTURE_INCLUDES");if(!capture.isEmpty()&&QString(language)=="cs"){application.processEvents();check(dialog->grab().save(capture),"Cannot capture include properties");}
+        dialog->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    }
+    {QSettings config(fixture.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language","cs");config.sync();}zima::app::apply_application_translations(application,zima::app::ApplicationSettings::load(root,QCoreApplication::applicationFilePath()));
+    {QSettings linked(source+"/0000-index/metadata.ini",QSettings::IniFormat);linked.setValue("Directory/IncludeParameters","../exports");linked.sync();}tab.navigate(exports);check(!tab.findChild<QLabel*>("fileManagerIncludeStatus")->text().isEmpty(),"Cyclic includes did not report a visible error");
+    {QSettings linked(source+"/0000-index/metadata.ini",QSettings::IniFormat);linked.remove("Directory/IncludeParameters");linked.sync();QSettings local(exports+"/0000-index/metadata.ini",QSettings::IniFormat);local.setValue("Directory/IncludeThumbnails","../missing");local.sync();}tab.navigate(exports);check(!tab.findChild<QLabel*>("fileManagerIncludeStatus")->text().isEmpty(),"Missing thumbnail include was silently ignored");
+    const QStringList absolute{source,source};check(zima::app::directory_includes(exports,"Directory/IncludeParameters",&absolute).directories.size()==2,"Absolute or duplicate source resolution failed");
+}
+void verify_native_icons_and_cleanup(QApplication& application){
+    QTemporaryDir fixture;check(fixture.isValid(),"Cannot create template fixture");const auto templates=fixture.filePath("templates");check(QDir().mkpath(templates+"/0000-index")&&QDir().mkpath(templates+"/child"),"Cannot create protected templates");
+    const QMap<QString,QString> names{{"START.prtz","part"},{"START.PRTZ.2","part"},{"START.asmz","assembly"},{"START.ASMZ.12","assembly"},{"sheet.drwz","drawing"},{"frame.frmz.3","drawing-format"},{"title.tblz","title-block"},{"text.symz","symbol"}};
+    for(auto it=names.cbegin();it!=names.cend();++it)touch(QDir(templates).filePath(it.key()));
+    {QSettings metadata(templates+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Version",3);metadata.setValue("Directory/PreventRemoval",true);metadata.sync();}
+    zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";settings.file_manager.sources.push_back({"templates","Templates",templates,templates,true,false,true});
+    zima::app::FileManagerTab tab(settings,fixture.path(),templates);tab.resize(1100,700);tab.show();application.processEvents();tab.findChild<QToolButton*>("fileManagerFilterVersions")->setChecked(true);
+    auto* table=tab.findChild<QTreeWidget*>("fileManagerFiles");auto* clean=tab.findChild<QPushButton*>("fileManagerClean");check(!clean->isEnabled()&&!clean->toolTip().isEmpty(),"Protected templates do not explain disabled cleanup with Versions enabled");
+    for(const auto* theme:{"light","dark","light"}){
+        settings.theme=theme;zima::app::apply_application_appearance(application,settings);application.processEvents();
+        for(int row=0;row<table->topLevelItemCount();++row){auto* item=table->topLevelItem(row);const auto icon_name=names.value(item->text(0));if(icon_name.isEmpty())continue;check(!item->icon(0).isNull()&&item->icon(0).pixmap(32,32).toImage()==zima::app::resource_icon(icon_name).pixmap(32,32).toImage(),"Native current/archive icon depends on system association or theme");}
+    }
+    check(zima::app::native_file_icon(QFileInfo(templates+"/foreign.prt")).isNull(),"Native icon mapping changed a foreign file association");
+    auto* sources=tab.findChild<QListWidget*>("fileManagerSources");bool source_protected=false;
+    QTimer::singleShot(0,[&]{auto* menu=tab.findChild<QMenu*>("fileManagerSourceMenu");if(!menu)return;auto* action=menu->findChild<QAction*>("fileManagerSourceClean");source_protected=action&&!action->isEnabled()&&!action->toolTip().isEmpty();menu->close();});sources->customContextMenuRequested(sources->visualItemRect(sources->item(1)).center());check(source_protected,"Source menu bypasses template protection");
+    tab.navigate(templates+"/child");check(!clean->isEnabled(),"Inherited template protection did not disable cleanup");
+    tab.navigate(templates);QTimer::singleShot(0,[&]{auto* menu=tab.findChild<QMenu*>("fileManagerSourceMenu");if(menu){menu->findChild<QAction*>("fileManagerSourceProperties")->trigger();menu->close();}});sources->customContextMenuRequested(sources->visualItemRect(sources->item(1)).center());auto* dialog=tab.findChild<QDialog*>("fileManagerDirectoryEditor");check(dialog,"Template Properties are unavailable");dialog->findChild<QCheckBox*>("fileManagerDirectoryPreventRemoval")->setChecked(false);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();check(clean->isEnabled()&&clean->toolTip().isEmpty(),"Explicitly removing template protection did not enable cleanup");
+    for(auto it=names.cbegin();it!=names.cend();++it)check(QFileInfo::exists(QDir(templates).filePath(it.key())),"Changing protection removed a template or archive");
+}
 }
 
 int main(int argc,char** argv){
     QApplication application(argc,argv);
     try{
+        verify_directory_includes(application);
+        verify_native_icons_and_cleanup(application);
         const QString factory_directory=qEnvironmentVariable("ZIMA_FILE_MANAGER_VERIFY_FACTORY_LABELS");
         if(!factory_directory.isEmpty()){
             check(QFileInfo(factory_directory).isDir(),"Factory label verification directory is missing");int directories=0;
@@ -73,6 +160,29 @@ int main(int argc,char** argv){
             std::cout<<"Native Qt reading of all 1560 factory directory labels passed\n";
         }
         QTemporaryDir fixture(QDir::current().filePath("file-manager-test-XXXXXX"));check(fixture.isValid(),"Cannot create synthetic fixture");
+        {
+            const QString directory=fixture.filePath("foreign-previews");check(QDir().mkpath(directory),"Cannot create foreign preview fixtures");
+            const QStringList names{"model.step","model.STP","model.iges","model.IGS","drawing.DXF","notes.txt"};
+            for(const auto& name:names)touch(QDir(directory).filePath(name));
+            zima::app::ApplicationSettings preview_settings;preview_settings.file_manager.default_view="files";
+            zima::app::FileManagerTab preview_tab(preview_settings,directory,directory);preview_tab.resize(1100,700);preview_tab.show();application.processEvents();
+            auto* table=preview_tab.findChild<QTreeWidget*>("fileManagerFiles");QString preview_request,open_request;
+            preview_tab.preview_file_requested=[&](const QString& path){preview_request=path;};
+            preview_tab.open_file_requested=[&](const QString& path){open_request=path;};
+            QPixmap thumbnail(16,16);thumbnail.fill(Qt::red);
+            for(int row=0;row<table->topLevelItemCount();++row){
+                auto* item=table->topLevelItem(row);const QString path=item->data(0,Qt::UserRole).toString();
+                for(const bool populated:{false,true}){
+                    item->setIcon(zima::app::file_preview_column,populated?QIcon(thumbnail):QIcon{});
+                    table->scrollToItem(item);application.processEvents();preview_request.clear();open_request.clear();
+                    const auto point=table->visualRect(table->indexFromItem(item,zima::app::file_preview_column)).center();
+                    QMouseEvent click(QEvent::MouseButtonDblClick,point,table->viewport()->mapToGlobal(point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(table->viewport(),&click);
+                    check(open_request.isEmpty(),"Preview cell opened the filename");
+                    check(QFileInfo(path).suffix()=="txt"?preview_request.isEmpty():preview_request==path,"Foreign preview depends on thumbnail or extension case");
+                }
+                QFile original(path);check(original.open(QIODevice::ReadOnly)&&original.readAll()=="synthetic","Preview dispatch modified its source");
+            }
+        }
         const QString working=fixture.filePath("working"),source=fixture.filePath("library"),read_only=fixture.filePath("read-only"),project=source+"/DEMO-001",index=project+"/0000-index",html_directory=source+"/HTML-TABLE",html_index=html_directory+"/0000-index";
         QDir root(fixture.path());
         if(!root.mkdir("working"))throw std::runtime_error(("Cannot create synthetic working directory: "+fixture.path()).toStdString());
@@ -185,6 +295,32 @@ int main(int argc,char** argv){
         };
         for(const int size:{48,72,144,192,72}){sizes->setValue(size);check_uniform_rows();}
         ItemGeometryProbe geometry;const auto preview_index=files->indexFromItem(preview_row,zima::app::file_preview_column);const auto preview_geometry=geometry.geometry(files,preview_index);const QPoint preview_point=preview_geometry.thumbnail.center();check(files->indexAt(preview_point)==preview_index,"Thumbnail point does not resolve to its real styled file cell");
+        // Inspect pixels drawn by the actual delegate, not only its cell bounds.
+        // QIcon's raster engine does not itself enlarge a small source image.
+        const auto original_preview=preview_row->icon(zima::app::file_preview_column);
+        const auto preview_palette=files->palette();
+        const QString svg_preview=fixture.filePath("small-preview.svg");
+        {QFile svg(svg_preview);check(svg.open(QIODevice::WriteOnly),"Cannot create small SVG preview");svg.write("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><rect width='10' height='6' fill='#ff0000'/></svg>");}
+        for(bool dark:{false,true,false}) {
+            auto palette=preview_palette;palette.setColor(QPalette::Base,dark?QColor("#252525"):QColor(Qt::white));palette.setColor(QPalette::Text,dark?Qt::white:Qt::black);files->setPalette(palette);
+            for(const auto source_size:{QSize(10,6),QSize(6,10),QSize(320,240),QSize(240,320)}) {
+                QPixmap raster(source_size);raster.fill(Qt::red);
+                for(bool svg:{false,true}) {
+                    if(svg&&source_size!=QSize(10,6))continue;
+                    preview_row->setIcon(zima::app::file_preview_column,svg?QIcon(svg_preview):QIcon(raster));
+                    for(int size:{48,96,144,192})for(qreal ratio:{1.,2.}) {
+                        QStyleOptionViewItem option;option.initFrom(files);option.rect={0,0,size+4,size+4};option.decorationSize={size,size};option.state|=QStyle::State_Enabled;option.state&=~QStyle::State_Selected;
+                        files->setIconSize({size,size});QImage rendered(QSize(size+4,size+4)*ratio,QImage::Format_ARGB32);rendered.setDevicePixelRatio(ratio);rendered.fill(Qt::transparent);
+                        {QPainter painter(&rendered);files->itemDelegate()->paint(&painter,option,preview_index);}
+                        QRect pixels;
+                        for(int y=0;y<rendered.height();++y)for(int x=0;x<rendered.width();++x){const auto color=rendered.pixelColor(x,y);if(color.red()>200&&color.green()<80&&color.blue()<80)pixels=pixels.united(QRect(x,y,1,1));}
+                        const auto expected=source_size.scaled(QSize(size,size),Qt::KeepAspectRatio)*ratio;
+                        check(std::abs(pixels.width()-expected.width())<=2&&std::abs(pixels.height()-expected.height())<=2,"Preview does not fill its cell at the selected size or changes image proportions");
+                    }
+                }
+            }
+        }
+        preview_row->setIcon(zima::app::file_preview_column,original_preview);files->setPalette(preview_palette);files->setIconSize({sizes->value(),sizes->value()});application.processEvents();
         check(!preview_row->icon(0).isNull()&&preview_row->icon(0).cacheKey()!=qvariant_cast<QIcon>(preview_index.data(Qt::DecorationRole)).cacheKey(),"Thumbnail replaced the file-type icon");
         for(int row=0;row<files->topLevelItemCount();++row){const auto index=files->indexFromItem(files->topLevelItem(row),zima::app::file_preview_column);if(qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).isNull())continue;check(geometry.geometry(files,index).thumbnail.center().x()==preview_point.x(),"Preview images do not share one vertical line");}
         QStyleOptionViewItem preview_option;check(!files->itemDelegate()->createEditor(files,preview_option,preview_index),"Preview cell created a parameter editor");
@@ -246,6 +382,21 @@ int main(int argc,char** argv){
                 input.setPixelColor(92,82,QColor(background.red()+1,background.green(),background.blue()));
                 check(zima::app::compact_thumbnail_image(input).width()==62,"Thumbnail clipped a foreground pixel close to the background");
             }
+        }
+        for(bool dark:{false,true}) {
+            QImage input(100,100,QImage::Format_ARGB32);
+            for(int y=0;y<100;++y){const int channel=dark?80-y/2:180+y/2;for(int x=0;x<100;++x)input.setPixelColor(x,y,QColor(channel,channel,channel));}
+            for(int y=40;y<60;++y)for(int x=35;x<65;++x)input.setPixelColor(x,y,Qt::red);
+            const auto compact=zima::app::compact_thumbnail_image(input);
+            check(compact.size()==QSize(34,24)&&compact.pixelColor(2,2)==QColor(Qt::red),"Thumbnail retained the exact vertical View gradient or clipped foreground");
+            auto faint=input;const auto background=faint.pixelColor(0,82);faint.setPixelColor(92,82,QColor(background.red()+1,background.green(),background.blue()));
+            check(zima::app::compact_thumbnail_image(faint).width()==62,"Gradient crop clipped a near-background foreground pixel");
+            auto edge=input;edge.setPixelColor(0,50,Qt::red);
+            check(zima::app::compact_thumbnail_image(edge)==edge,"Gradient crop changed an image with foreground on its side border");
+            edge=input;edge.setPixelColor(50,0,Qt::red);
+            check(zima::app::compact_thumbnail_image(edge)==edge,"Gradient crop changed an image with foreground on its top border");
+            edge=input;for(int x=0;x<100;++x)edge.setPixelColor(x,20,Qt::black);
+            check(zima::app::compact_thumbnail_image(edge)==edge,"Gradient detection accepted a nonmonotone image background");
         }
         const QString order=working+"/sort-proof";
         for(const auto name:{QString("01-zeta"),QString("02-alpha")}) {
