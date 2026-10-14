@@ -1,7 +1,8 @@
 # STEP selection, requested analysis and native save
 
-This is a local Windows follow-up after signed build `2026101401`. It is not
-included in that immutable release. The baseline is commit
+This Windows follow-up is included in signed build
+[2026101402](../releases/2026101402.md#signed-windows-publication), after the
+immutable `2026101401` release. The baseline is commit
 `8fc129446375fb31f2c2f3672935595790b34c37`, Qt 6.11.0 and OCCT 8.0.0.
 Linux execution has not been verified.
 

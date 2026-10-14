@@ -1,5 +1,16 @@
 # Application updates
 
+Signed Windows [2026101402](releases/2026101402.md#signed-windows-publication)
+was published at `2026-10-14T14:24:45Z`. It adds stable feature selection,
+requested exact face analysis, native-save allocation improvements and the
+complete Assembly history insertion cursor. Twenty-nine finite local contracts,
+20 factory native loads, clean candidate/signed smoke, production trust,
+18 packaged GUI workflows, full committed-source inventories and anonymous
+public downloads pass. The signed 1401 updater offers an installable update.
+Assembly JSON 48 / INI 36 requires the regenerated templates; the shared
+placement contract and precision remain unchanged. Native Linux execution and
+the recorded warm Add archive variation remain separate verification gaps.
+
 Signed Windows [2026101303](releases/2026101303.md#signed-windows-publication)
 was published at `2026-10-13T19:43:46Z`. Clean committed-source candidate and
 signed smoke, all 20 factory native loads, production bootstrap trust, nine
