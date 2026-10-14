@@ -16,7 +16,8 @@ load_viewer_reference_geometry(const nlohmann::json& source);
 
 [[nodiscard]] nlohmann::json serialize_body_result(
     const zima::kernel::BodyResult& result, bool include_histories = true,
-    bool include_compound_operands = true);
+    bool include_compound_operands = true,
+    const zima::kernel::ViewerReferenceGeometry* reference_geometry = nullptr);
 // Assemblies already store operands in their native, shared geometry table.
 // Resolve those entries before loading/validating the compound recipe.
 [[nodiscard]] zima::kernel::BodyResult load_body_result(

@@ -211,6 +211,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
     } catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 #include "feature_ui_verification.inc"
+#include "feature_selection_ui_verification.inc"
 #include "boundary_surface_ui_verification.inc"
 #include "sheet_cut_skin_ui_verification.inc"
 #include "surface_wire_visibility_ui_verification.inc"
@@ -390,7 +391,14 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 #include "history_deletion_ui_verification.inc"
+#include "assembly_history_cursor_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_HISTORY_CURSOR_ONLY")) {
+        verify_assembly_history_cursor(application,window,directory);return 0;
+    }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_SELECTION_ONLY")) {
+        verify_feature_selection(application,window,directory);return 0;
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_MODELING_ONLY")) {
         try {verify_feature_modeling(application,window,directory);std::cout<<"Feature modeling and pending profile wire passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

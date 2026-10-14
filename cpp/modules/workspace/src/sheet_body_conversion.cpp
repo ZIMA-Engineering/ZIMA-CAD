@@ -1,5 +1,6 @@
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/measurement_operations.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -131,6 +132,18 @@ double suggest_sheet_thickness(const kernel::ViewerMesh& mesh,const Face& select
         if(distance>.001)nearest=std::min(nearest,distance);
     }
     return std::isfinite(nearest)?nearest:0;
+}
+double suggest_sheet_thickness(const Workspace& live,const std::string& id,
+        const kernel::ViewerMesh& mesh,const Face& selected) {
+    const auto available=faces(mesh);std::vector<Face> planar;
+    for(const auto& [identity,face]:available)if(face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
+        planar.push_back(face);
+    const auto areas=measurement_face_areas(live,id,planar);
+    kernel::ViewerMesh analysis;
+    for(std::size_t i=0;i<planar.size();++i) {
+        planar[i].measured_area=areas[i];analysis.triangle_references.push_back(std::move(planar[i]));
+    }
+    return suggest_sheet_thickness(analysis,selected);
 }
 SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& cache,const Face& selected,double thickness,const kernel::OcctKernel& kernel) {

@@ -23,6 +23,7 @@ void AssemblyDocument::insert_sketch(sketcher::Sketch sketch,
         std::ranges::any_of(sketches,[&](const auto& value){return value.id==sketch.id;}))
         throw std::invalid_argument("The Sketch identity already exists.");
     sketch.validate();sketch.owner_container_id=container.id;container.name=sketch.name;
+    synchronize_history();insert_history_entry(HistoryKind::Sketch,container.id);
     sketch_containers.push_back(std::move(container));sketches.push_back(std::move(sketch));
 }
 void AssemblyDocument::validate_sketch_containers() const {

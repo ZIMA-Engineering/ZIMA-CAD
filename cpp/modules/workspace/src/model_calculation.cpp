@@ -100,6 +100,7 @@ std::vector<zima::kernel::BodyResult> calculate_part(
     // Saved analysis frames are real placement inputs and must be refreshed
     // before reference settling. Otherwise aggregate analysis is demand driven.
     const bool eager_analysis=std::getenv("ZIMA_CPP_EAGER_ANALYSIS")!=nullptr;
+    kernel::FaceMeasurementScope face_measurements(std::getenv("ZIMA_CPP_EAGER_FACE_MEASUREMENTS")!=nullptr);
     kernel::AggregatePropertyScope properties(document.body_properties.empty()&&!eager_analysis
         ?policy.refresh_physical_properties?kernel::AggregatePropertyDemand::Final:kernel::AggregatePropertyDemand::Deferred
         :kernel::AggregatePropertyDemand::All);
@@ -269,6 +270,7 @@ void calculate_resolved_assembly_cuts(
     }
     kernel::AggregatePropertyScope properties(refresh_physical_properties?
         kernel::AggregatePropertyDemand::All:kernel::AggregatePropertyDemand::Deferred);
+    kernel::FaceMeasurementScope face_measurements(std::getenv("ZIMA_CPP_EAGER_FACE_MEASUREMENTS")!=nullptr);
     // Assembly-owned cutters use the exact same persisted placement solver
     // as Part history containers.  The input universe is the Assembly's real
     // pre-cut component geometry plus its own Origin/constructions; no OCCT

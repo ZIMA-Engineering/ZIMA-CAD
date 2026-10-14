@@ -59,13 +59,18 @@ toggles azure inspection of the stored reference; the cross removes it.
 
 ## Accuracy and units
 
-Exact edge lengths/face areas available from explicit body calculation are saved
-with geometry and read without further OCCT calls. Whole-component volume/mass
-uses the source's last calculated data. Mass is not estimated without material density.
+Exact edge lengths and already available face areas are read from calculated
+geometry. Ordinary Part and Assembly modeling does not integrate every face area
+for a future inspector. Native face bindings retain the exact current geometry;
+explicit Measurement integrates only the requested missing face areas. This
+does not remesh, regenerate history, solve placement, modify geometry or create
+an Undo transaction. Whole-component analysis similarly completes missing
+properties from its already calculated solid. Mass requires material density.
 A nested occurrence does not require its owning subassembly to have an open tab.
 If needed, the inspector reads that owner's native document and saved calculated
 sources using the existing Family/source resolver. It preserves the exact
-occurrence path, opens no tab and invokes no geometry or placement calculation.
+occurrence path, opens no tab and performs no geometry regeneration or placement
+calculation. Missing scalar analysis is completed only on the explicit request.
 An unavailable or replaced dependency is reported through the existing missing
 reference state; the saved measurement remains unchanged.
 
@@ -137,7 +142,8 @@ Generated diameter dimensions in Sketcher, Part, Assembly and Drawing use
   values, including shortest-distance endpoints. `saved_values: true` explicitly
   identifies the saved snapshot. It neither refreshes nor saves.
 - `measurement.evaluate references [document]` evaluates one or two references
-  against current calculated data without GUI, history, saving, OCCT or mate solving.
+  against current calculated geometry without GUI, history changes, saving,
+  geometry regeneration or mate solving. Missing exact areas are integrated on demand.
 
 ```json
 {"command":"measurement.evaluate","arguments":{"references":[{"kind":"plane","owner":"<part-id>:origin","key":"origin:plane:xy"},{"kind":"face","owner":"<original-feature-id>","key":"<original-face-key>"}]}}

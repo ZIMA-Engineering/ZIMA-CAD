@@ -10,6 +10,7 @@ struct MeasurementGeometry {
     std::vector<std::array<zima::kernel::Vec3,3>> triangles;
     std::optional<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>> axis, plane;
     bool approximate{}, solid{};
+    std::vector<kernel::FaceReference> source_faces;
 };
 [[nodiscard]] std::optional<MeasurementGeometry> measure_entity(
     const zima::kernel::ViewerMesh&, const zima::kernel::MeasurementReference&);

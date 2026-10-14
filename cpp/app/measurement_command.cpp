@@ -72,7 +72,7 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
 std::optional<Geometry> AssemblyWorkspaceWindow::resolve_measurement(const Ref& reference)const{
     const auto id=workspace_.displayed_document_id();
     if(reference.kind==kernel::MeasurementKind::Object&&reference.owner_id.empty()&&!reference.instance_path.empty()) {
-        const auto scene=workspace_.authoritative_viewer_mesh(id);
+        const auto scene=workspace::measurement_scene(workspace_,id);
         return workspace::resolve_measurement(workspace_,id,reference,scene);
     }
     return workspace::resolve_measurement(workspace_,id,reference,viewer_->mesh());

@@ -191,6 +191,11 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     const auto nested=f.live.active_document_id();
     const std::string leaf=f.run("component.insert",{{"source",f.source}}).at("occurrence");f.run("save");
     f.run("activate",{{"document",f.owner}});
+    // Insert reference sources before their consumer in the unified history.
+    const auto history=f.doc().complete_history_order();
+    const auto boundary=std::ranges::find(history,cut,&assembly::AssemblyDocument::HistoryEntry::id);
+    require(boundary!=history.end(),"Reference consumer missing from history");
+    f.run("history.cursor",{{"index",std::distance(history.begin(),boundary)}});
     const std::string parent1=f.run("component.insert",{{"source",nested}}).at("occurrence");
     const std::string parent2=f.run("component.insert",{{"source",nested}}).at("occurrence");
     f.run("component.set",{{"instance_path",assembly::InstancePath{}.child(parent2).encoded()},{"placement",{{"z_mm",2}}}});

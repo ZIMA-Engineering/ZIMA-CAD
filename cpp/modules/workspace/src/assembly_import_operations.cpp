@@ -160,6 +160,7 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
     if(format==interchange::Format::Step) {
         auto next=before;report.occurrence_id=imported->root_occurrence.occurrence_id;
         report.source_document_id=imported->root_occurrence.source_document_id;
+        next.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Component,report.occurrence_id);
         next.components.push_back(std::move(imported->root_occurrence));
         static_cast<void>(next.build_scene());prepared.open_assembly(owner)->session.commit(std::move(next));
     } else {

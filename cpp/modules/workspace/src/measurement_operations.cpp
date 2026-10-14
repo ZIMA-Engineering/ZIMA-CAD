@@ -1,14 +1,97 @@
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/assembly_scene.hpp>
 #include <map>
 #include <tuple>
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/body_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
 namespace zima::workspace {
+namespace {
+const assembly::AssemblyDocument* measurement_owner(const Workspace& live,const std::string& scene_id,
+        const assembly::AssemblyDocument* owner,const assembly::InstancePath& occurrence,
+        std::optional<assembly::AssemblyDocument>& display) {
+    if(!owner||owner->document_id!=live.active_document_id()||
+        owner->effective_history_cursor()==owner->complete_history_order().size())return owner;
+    const auto parent=occurrence.parent().value_or(assembly::InstancePath{}).encoded();
+    if((scene_id==owner->document_id&&parent.empty())||
+        (scene_id==live.displayed_document_id()&&parent==live.active_occurrence_path())) {
+        display=owner->history_view_document();return &*display;
+    }
+    return owner;
+}
+}
+std::vector<std::optional<double>> measurement_face_areas(
+        const Workspace& live,const std::string& id,std::span<const kernel::FaceReference> faces) {
+    std::vector<std::optional<double>> result(faces.size());kernel::OcctKernel kernel;
+    const auto integrate=[&](const kernel::BodyResult& body,const std::string& path) {
+        std::vector<kernel::FaceReference> requested;
+        std::vector<std::size_t> indices;
+        for(std::size_t i=0;i<faces.size();++i)if(!result[i]&&faces[i].instance_path==path) {
+            auto local=faces[i];local.instance_path.clear();requested.push_back(std::move(local));indices.push_back(i);
+        }
+        if(requested.empty())return;
+        const auto areas=kernel.measure_face_areas(body,requested);
+        for(std::size_t i=0;i<areas.size();++i)if(areas[i])result[indices[i]]=areas[i];
+    };
+    for(std::size_t i=0;i<faces.size();++i)result[i]=faces[i].measured_area;
+    std::set<std::string> paths;for(const auto& face:faces)paths.insert(face.instance_path);
+    for(const auto& path:paths) {
+        if(path.empty()) {
+            if(const auto* part=live.open_part(id)) {
+                const auto& cache=part->session.calculated_boundaries();
+                for(auto boundary=cache.rbegin();boundary!=cache.rend();++boundary) {
+                    integrate(*boundary,path);
+                    for(const auto& [body,rows]:boundary->body_boundaries)
+                        for(std::size_t row=rows.size();row>0;--row)integrate(rows[row-1],path);
+                }
+            }
+            continue;
+        }
+        const auto address=live.resolve_occurrence(id,assembly::InstancePath::decode(path));
+        if(!address)continue;
+        const assembly::AssemblyDocument* owner{};std::optional<assembly::AssemblyDocument> loaded;
+        if(const auto* open=live.open_assembly(address->owner_assembly_document_id))owner=&open->session.document();
+        else for(auto parent=address->instance_path.parent();parent;parent=parent->parent()) {
+            const auto ancestor=live.resolve_occurrence(id,*parent);
+            if(!ancestor||ancestor->source_document_id!=address->owner_assembly_document_id)continue;
+            const auto file=live.occurrence_source_file(id,*parent);if(!file)break;
+            loaded=read_family_assembly(&live,*file,address->owner_assembly_document_id);owner=&*loaded;break;
+        }
+        std::optional<assembly::AssemblyDocument> display;
+        owner=measurement_owner(live,id,owner,address->instance_path,display);
+        if(owner)if(const auto* occurrence=owner->find_occurrence(address->occurrence_id)) {
+            integrate(occurrence->calculated_source,path);
+            // Assembly cuts deliberately retain the original component
+            // references. Their persisted input carries that exact geometry.
+            for(auto cut=owner->cuts.rbegin();cut!=owner->cuts.rend();++cut)
+                if(const auto input=cut->input_component_bodies.find(address->occurrence_id);input!=cut->input_component_bodies.end())
+                    integrate(input->second,path);
+        }
+        // Open sources are authoritative. Their cached local history also
+        // retains original references needed by a measurement of an older face.
+        if(const auto* part=live.open_part(address->source_document_id)) {
+            const auto& cache=part->session.calculated_boundaries();
+            for(auto boundary=cache.rbegin();boundary!=cache.rend();++boundary) {
+                integrate(*boundary,path);
+                for(const auto& [body,rows]:boundary->body_boundaries)
+                    for(std::size_t row=rows.size();row>0;--row)integrate(rows[row-1],path);
+            }
+        }
+    }
+    return result;
+}
 kernel::ViewerMesh measurement_scene(const Workspace& live,const std::string& id) {
-    auto scene=live.authoritative_viewer_mesh(id);
+    std::optional<kernel::ViewerMesh> history_scene;
+    if(const auto* active=live.open_assembly(live.active_document_id());active&&
+        active->session.document().effective_history_cursor()<active->session.document().complete_history_order().size()) {
+        const auto display=active->session.document().history_view_document();
+        if(id==display.document_id)history_scene=display.build_scene();
+        else if(id==live.displayed_document_id()&&!live.active_occurrence_path().empty())
+            history_scene=build_scene_with_assembly_override(live,id,assembly::InstancePath::decode(live.active_occurrence_path()),display);
+    }
+    auto scene=history_scene?std::move(*history_scene):live.authoritative_viewer_mesh(id);
     const auto origin=live.open_part(id)?live.open_part(id)->session.document().origin_viewer_mesh():
         live.open_assembly(id)->session.document().origin_viewer_mesh();
     // The model scene already contains its calculated geometry and Sketches.
@@ -77,18 +160,27 @@ std::optional<measurement::MeasurementGeometry> resolve_measurement(
                     break;
                 }
             }
+            std::optional<assembly::AssemblyDocument> display;
+            owner=measurement_owner(live,id,owner,address->instance_path,display);
             if(owner)if(const auto* item=owner->find_occurrence(address->occurrence_id)) {
                 if(item->source_document_id==address->source_document_id&&!item->source_missing) {
-                    if(item->calculated_source->physical_properties_current) {
-                        geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
-                        geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
-                    } else {geometry->values.volume.reset();geometry->values.area.reset();geometry->values.mass.reset();}
+                    auto analyzed=item->calculated_source.get();
+                    if(!analyzed.physical_properties_current)kernel::OcctKernel{}.ensure_body_properties(analyzed);
+                    geometry->values.volume=kernel::MeasurementValue{std::abs(analyzed.volume),false};
+                    geometry->values.area=kernel::MeasurementValue{std::abs(analyzed.surface_area),false};
                     if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
                 }
             }
         }
     }
     if(!geometry)return {};
+    if(std::ranges::any_of(geometry->source_faces,[](const auto& face){return !face.measured_area;})) {
+        const auto areas=measurement_face_areas(live,id,geometry->source_faces);
+        if(std::ranges::all_of(areas,[](const auto& area){return area.has_value();})) {
+            double area=0;for(const auto& value:areas)area+=*value;
+            geometry->values.area=kernel::MeasurementValue{area,false};
+        }
+    }
     if(const auto* part=live.open_part(id)){
         if(reference.kind==kernel::MeasurementKind::Object){
             // A single-owner snapshot is the selected source solid. Never use
@@ -96,10 +188,10 @@ std::optional<measurement::MeasurementGeometry> resolve_measurement(
             for(const auto& result:part->session.calculated_boundaries()){
                 const auto& faces=result.mesh.original_references.triangle_references;
                 if(!faces.empty()&&std::ranges::all_of(faces,[&](const auto& ref){return ref.owner_id==reference.owner_id;})){
-                    if(result.physical_properties_current) {
-                        geometry->values.volume=kernel::MeasurementValue{std::abs(result.volume),false};
-                        geometry->values.area=kernel::MeasurementValue{std::abs(result.surface_area),false};
-                    } else {geometry->values.volume.reset();geometry->values.area.reset();geometry->values.mass.reset();}
+                    auto analyzed=result;
+                    if(!analyzed.physical_properties_current)kernel::OcctKernel{}.ensure_body_properties(analyzed);
+                    geometry->values.volume=kernel::MeasurementValue{std::abs(analyzed.volume),false};
+                    geometry->values.area=kernel::MeasurementValue{std::abs(analyzed.surface_area),false};
                     break;
                 }
             }

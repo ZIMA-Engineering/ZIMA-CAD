@@ -6,6 +6,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <algorithm>
 
 namespace zima::document {
 namespace {
@@ -45,16 +46,20 @@ public:
         // Full serialized equality resolves hash collisions; a hash alone never
         // decides that two geometries or occurrence records are identical.
         if (!encoded.is_structured() && !encoded.is_string()) return encoded;
-        auto key = encoded.dump();
-        if (key.size() < minimum_block_size) return encoded;
         if(encoded.is_string() && encoded.get_ref<const Json::string_t&>().size()>=4096) {
             // Large archives/binary packets are already owned by the pool.
             // Index their immutable bytes there, rather than retaining another
-            // full escaped copy as a hash-table key. dump() above still checks
-            // encoding and applies the same pooling threshold as before.
+            // full escaped copy as a hash-table key. A raw string this large
+            // always exceeds the pooling threshold. Exact duplicates have
+            // already passed UTF-8 validation; validate each distinct value.
             const auto& bytes=encoded.get_ref<const Json::string_t&>();
             if(const auto found=string_indices.find(bytes);found!=string_indices.end())
                 return Json{{reference_key,found->second}};
+            // Native BReps and base64 buffers are ASCII. Their bytes already
+            // prove UTF-8 validity; avoid allocating an escaped copy merely
+            // to validate them. Non-ASCII input keeps the established check.
+            if(std::any_of(bytes.begin(),bytes.end(),[](unsigned char byte){return byte>=128;}))
+                static_cast<void>(encoded.dump());
             const auto index=values.size();
             values.push_back(std::move(encoded));
             // Moving a json (including array growth) retains its separately
@@ -62,6 +67,8 @@ public:
             string_indices.emplace(values.back().get_ref<const Json::string_t&>(),index);
             return Json{{reference_key,index}};
         }
+        auto key = encoded.dump();
+        if (key.size() < minimum_block_size) return encoded;
         const auto found = indices.find(key);
         if (found != indices.end()) return Json{{reference_key, found->second}};
         const auto index = values.size();
@@ -104,15 +111,21 @@ Json decode(const Json& source, const Json& values, std::size_t limit,
 nlohmann::json pack_cache_storage(const nlohmann::json& value) {
     Writer writer;
     auto root = writer.encode(value);
-    return {{"format", "zima-shared-cache-v1"}, {"root", std::move(root)},
-            {"values", std::move(writer.values)}};
+    Json storage=Json::object();
+    storage["format"]="zima-shared-cache-v1";
+    storage["root"]=std::move(root);
+    storage["values"]=std::move(writer.values);
+    return storage;
 }
 
 nlohmann::json pack_cache_storage(nlohmann::json&& value) {
     Writer writer;
     auto root=writer.encode(std::move(value));
-    return {{"format","zima-shared-cache-v1"},{"root",std::move(root)},
-            {"values",std::move(writer.values)}};
+    Json storage=Json::object();
+    storage["format"]="zima-shared-cache-v1";
+    storage["root"]=std::move(root);
+    storage["values"]=std::move(writer.values);
+    return storage;
 }
 
 nlohmann::json unpack_cache_storage(const nlohmann::json& storage) {

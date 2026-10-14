@@ -207,6 +207,9 @@
 namespace zima::kernel {
 
 namespace { thread_local AggregatePropertyDemand aggregate_property_demand=AggregatePropertyDemand::All; }
+namespace { thread_local bool eager_face_measurements=true; }
+FaceMeasurementScope::FaceMeasurementScope(bool eager):previous_(eager_face_measurements) {eager_face_measurements=eager;}
+FaceMeasurementScope::~FaceMeasurementScope() {eager_face_measurements=previous_;}
 AggregatePropertyScope::AggregatePropertyScope(AggregatePropertyDemand demand)
     :previous_(aggregate_property_demand) { aggregate_property_demand=demand; }
 AggregatePropertyScope::~AggregatePropertyScope() { aggregate_property_demand=previous_; }
@@ -5392,6 +5395,36 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
     std::ostringstream stream;archive.Write(stream);archive.Write(shape,stream);result.kernel_shape=stream.str();
 }
 
+PrimitiveData bound_face_geometry(const BodyResult& body) {
+    PrimitiveData result;BRep_Builder builder;BRepTools_ShapeSet archive(builder);
+    std::istringstream stream(body.kernel_shape.get());archive.Read(stream);archive.Read(result.shape,stream);
+    if(result.shape.IsNull())throw std::runtime_error("Regenerate the model before measuring body properties.");
+    TopTools_IndexedMapOfShape members;TopExp::MapShapes(result.shape,TopAbs_FACE,members);
+    for(const auto& binding:body.kernel_faces) {
+        char orientation{};int object{},location{};std::istringstream fields(binding.locator);
+        if(!(fields>>orientation>>object>>location)||std::string_view("+-ie").find(orientation)==std::string_view::npos||
+            object<1||object>archive.NbShapes()||location<0||!binding.reference.valid())
+            throw std::runtime_error("Invalid native topology binding");
+        fields>>std::ws;if(!fields.eof())throw std::runtime_error("Invalid native topology binding");
+        TopoDS_Shape face;std::istringstream address(binding.locator);archive.Read(face,address);
+        if(face.IsNull()||face.ShapeType()!=TopAbs_FACE||!members.Contains(face))
+            throw std::runtime_error("Invalid native topology binding");
+        result.faces.push_back({TopoDS::Face(face),binding.reference});
+    }
+    return result;
+}
+
+PrimitiveData placed_bound_face_geometry(const BodyResult& body) {
+    auto result=bound_face_geometry(body);
+    for(const auto& placement:body.kernel_placements) {
+        BRepBuilderAPI_Transform transform(result.shape,primitive_transform(placement.translation,placement.rotation_degrees),true);
+        transform.Build();
+        for(auto& face:result.faces)face.shape=TopoDS::Face(transform.ModifiedShape(face.shape));
+        result.shape=transform.Shape();
+    }
+    return result;
+}
+
 std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
     const TopoDS_Face& face, const gp_Pnt& edge_point,
     const gp_Vec& edge_tangent,
@@ -5882,9 +5915,11 @@ BodyResult make_result(
         // parallel integrals instead of forcing its full tensor through the
         // serial OCCT face loop. Precision and requested properties are equal.
         imported_step,parallel_corner_volume||imported_step,profile);
-    if (persist_kernel_shape) {
+    const bool pending_face_measurements=!eager_face_measurements&&!owned_faces.empty();
+    if (persist_kernel_shape||pending_face_measurements) {
         if(std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
             persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result);
+        else if(pending_face_measurements)persist_surface_topology(shape,owned_faces,{},{},result);
         else result.kernel_shape = serialize_kernel_shape(shape);
     }
     profile("BRep persistence");
@@ -5911,13 +5946,14 @@ BodyResult make_result(
             BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) continue;
         FaceReference reference = face_references->reference_for(face);
-        if (reference.valid()) {
+        if (reference.valid()&&eager_face_measurements) {
             const auto start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
             GProp_GProps measured;
             BRepGProp::SurfaceProperties(face, measured);
             if(profile_calc)face_measurement_seconds+=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
             reference.measured_area = std::abs(measured.Mass());
         }
+        else reference.measured_area.reset();
         if (reference.valid()) if (const auto surface=analytic_surface(face))
             reference.surface=std::make_shared<const SurfaceGeometry>(*surface);
         const std::uint32_t base =
@@ -6410,6 +6446,7 @@ struct OcctKernel::LiveCache {
         return result;
     }
     std::unordered_map<std::string,sheet_form_geometry::Operands> prepared_forms;
+    std::unordered_map<std::string,BodySnapshot> reference_measurements;
     std::deque<std::string> prepared_form_order;
     struct Topology {
         std::vector<OwnedFace> faces;
@@ -6438,7 +6475,7 @@ struct OcctKernel::LiveCache {
     std::unordered_map<std::string, CopySource> copy_sources;
     std::deque<std::string> copy_source_order;
     // Full reference packets are larger than the shared live topology. Keep
-    // only recent copy-history boundaries, rather than one full prefix per
+    // only recent copy/subtraction boundaries, rather than one full prefix per
     // long-lived cached shape. A miss simply calculates an earlier boundary.
     std::unordered_map<std::string, ViewerReferenceGeometry> copy_references;
     std::deque<std::string> copy_reference_order;
@@ -6607,6 +6644,42 @@ void OcctKernel::ensure_body_properties(BodyResult& body) const {
     body.volume=properties.volume;body.surface_area=properties.surface_area;
     body.volume_integrals=properties.volume_integrals;body.surface_centroid=properties.surface_centroid;
     body.solid_present=properties.solid_present;body.physical_properties_current=true;
+}
+
+std::vector<std::optional<double>> OcctKernel::measure_face_areas(
+        const BodyResult& body,std::span<const FaceReference> references) const {
+    std::vector<std::optional<double>> result(references.size());
+    const auto from_sources=[&] {
+        for(std::size_t source=body.measurement_sources.size();source>0;--source) {
+            std::vector<FaceReference> missing;std::vector<std::size_t> indices;
+            for(std::size_t i=0;i<references.size();++i)if(!result[i]) {missing.push_back(references[i]);indices.push_back(i);}
+            if(missing.empty())break;
+            const auto values=measure_face_areas(body.measurement_sources[source-1],missing);
+            for(std::size_t i=0;i<values.size();++i)if(values[i])result[indices[i]]=values[i];
+        }
+    };
+    if(body.kernel_shape==kernel_body_compound) {
+        for(const auto& id:body.kernel_compound_bodies) {
+            const auto values=measure_face_areas(body.body_outputs.at(id),references);
+            for(std::size_t i=0;i<values.size();++i)if(values[i])result[i]=values[i];
+        }
+        from_sources();return result;
+    }
+    if(body.kernel_shape.empty()||std::ranges::none_of(body.kernel_faces,[&](const auto& binding){
+        return std::ranges::any_of(references,[&](const auto& reference){return binding.reference==reference;});})) {from_sources();return result;}
+    const auto native=bound_face_geometry(body);
+    const TopologyReferenceIndex<FaceReference,OwnedFace> identities(native.faces);
+    // Match the existing triangle publication and last-value-wins ordering.
+    // Integrate only requested native faces, without meshing or regeneration.
+    for(TopExp_Explorer face(native.shape,TopAbs_FACE);face.More();face.Next()) {
+        const auto identity=identities.reference_for(face.Current());
+        std::optional<double> area;
+        for(std::size_t i=0;i<references.size();++i)if(identity==references[i]) {
+            if(!area) {GProp_GProps properties;BRepGProp::SurfaceProperties(face.Current(),properties);area=std::abs(properties.Mass());}
+            result[i]=area;
+        }
+    }
+    from_sources();return result;
 }
 
 
@@ -7003,12 +7076,27 @@ BodyResult OcctKernel::scale_body(const BodyResult& source,double factor,Vec3 ce
     validate_body_scale(factor,center);
     if(source.kernel_shape.empty())throw std::invalid_argument("The scale source has no calculated Body.");
     gp_Trsf scaling;scaling.SetScale(gp_Pnt(center.x,center.y,center.z),factor);
-    BRepBuilderAPI_Transform transform(read_kernel_shape(source),scaling,true);transform.Build();
+    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source);
+    BRepBuilderAPI_Transform transform(bindings?bindings->shape:read_kernel_shape(source),scaling,true);transform.Build();
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())
         throw std::runtime_error("Body scale did not produce valid geometry.");
     BodyResult result;result.kernel_shape=serialize_kernel_shape(transform.Shape());
     result.physical_properties_current=source.physical_properties_current;result.solid_present=source.has_solid();
     result.mesh=scaled_body_mesh(source.mesh,factor,center,owner);
+    if(bindings) {
+        std::vector<OwnedFace> faces;
+        for(const auto& face:bindings->faces) {
+            ViewerMesh metadata;metadata.triangle_references.push_back(face.reference);
+            const auto changed=scaled_body_mesh(std::move(metadata),factor,center,owner);
+            faces.push_back({TopoDS::Face(transform.ModifiedShape(face.shape)),changed.triangle_references.front()});
+        }
+        persist_surface_topology(transform.Shape(),faces,{},{},result);
+    }
+    if(!source.measurement_sources.empty()) {
+        std::vector<BodySnapshot> references;
+        for(const auto& snapshot:source.measurement_sources)references.emplace_back(scale_body(snapshot,factor,center,owner));
+        result.measurement_sources=std::move(references);
+    }
     result.volume=source.volume*factor*factor*factor;result.surface_area=source.surface_area*factor*factor;
     if(source.surface_centroid)result.surface_centroid=scaled_body_point(*source.surface_centroid,factor,center);
     if(source.volume_integrals) {
@@ -7030,11 +7118,26 @@ BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,co
     const auto placement=primitive_transform(translation,rotation);
     place_body_result(result,placement);
     gp_Trsf reflection;reflection.SetMirror(gp_Ax2(gp_Pnt(plane.point.x,plane.point.y,plane.point.z),gp_Dir(plane.normal.x,plane.normal.y,plane.normal.z)));
-    BRepBuilderAPI_Transform transform(read_kernel_shape(source),reflection*placement,true);transform.Build();
+    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source);
+    BRepBuilderAPI_Transform transform(bindings?bindings->shape:read_kernel_shape(source),reflection*placement,true);transform.Build();
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Zrcadlo nevytvořilo platné těleso.");
     result.kernel_shape=serialize_kernel_shape(transform.Shape());
     result.kernel_placements.clear();result.kernel_compound_bodies.clear();
     result.mesh=mirrored_viewer_mesh(std::move(result.mesh),plane,owner_id);
+    if(bindings) {
+        std::vector<OwnedFace> faces;
+        for(const auto& face:bindings->faces) {
+            ViewerMesh metadata;metadata.triangle_references.push_back(face.reference);
+            const auto changed=mirrored_viewer_mesh(std::move(metadata),plane,owner_id);
+            faces.push_back({TopoDS::Face(transform.ModifiedShape(face.shape)),changed.triangle_references.front()});
+        }
+        persist_surface_topology(transform.Shape(),faces,{},{},result);
+    }
+    if(!source.measurement_sources.empty()) {
+        std::vector<BodySnapshot> references;
+        for(const auto& snapshot:source.measurement_sources)references.emplace_back(mirror_body(snapshot,plane,owner_id,translation,rotation));
+        result.measurement_sources=std::move(references);
+    }
     if(result.surface_centroid) {
         const auto c=*result.surface_centroid;
         const auto p=gp_Pnt(c.x,c.y,c.z).Transformed(reflection);
@@ -7060,7 +7163,9 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
     const auto placement=primitive_transform(translation,rotation);auto input=source;place_body_result(input,placement);
     BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);BodyResult result;
     result.physical_properties_current=source.physical_properties_current;result.solid_present=source.has_solid();
-    const auto shape=read_kernel_shape(source);
+    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source);
+    const auto shape=bindings?bindings->shape:read_kernel_shape(source);
+    std::vector<OwnedFace> copy_faces;
     for(unsigned index=1;index<p.count;++index) {
         gp_Trsf copy;
         if(p.circular)copy.SetRotation(gp_Ax1(gp_Pnt(p.origin.x,p.origin.y,p.origin.z),gp_Dir(p.axis.x,p.axis.y,p.axis.z)),p.angle_degrees*index*std::numbers::pi/180.0);
@@ -7069,6 +7174,11 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
         if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Pole nevytvořilo platné těleso.");
         builder.Add(compound,transform.Shape());
         append_body_viewer(result.mesh,pattern_copy_mesh(input.mesh,p,index,owner,occurrences));
+        if(bindings)for(const auto& face:bindings->faces) {
+            ViewerMesh metadata;metadata.triangle_references.push_back(face.reference);
+            const auto changed=pattern_copy_mesh(std::move(metadata),p,index,owner,occurrences);
+            copy_faces.push_back({TopoDS::Face(transform.ModifiedShape(face.shape)),changed.triangle_references.front()});
+        }
         if(input.surface_centroid) {
             const auto c=*input.surface_centroid;
             const auto placed=gp_Pnt(c.x,c.y,c.z).Transformed(copy);
@@ -7078,6 +7188,12 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
         }
     }
     result.kernel_shape=serialize_kernel_shape(compound);result.volume=source.volume*(p.count-1);result.surface_area=source.surface_area*(p.count-1);
+    if(bindings)persist_surface_topology(compound,copy_faces,{},{},result);
+    if(!source.measurement_sources.empty()) {
+        std::vector<BodySnapshot> references;
+        for(const auto& snapshot:source.measurement_sources)references.emplace_back(pattern_body(snapshot,p,owner,translation,rotation,occurrences));
+        result.measurement_sources=std::move(references);
+    }
     // Rigid copies preserve the exact source integrals, including adaptive
     // integration of spline surfaces; only their coordinate frames change.
     if(source.volume_integrals) {
@@ -7348,7 +7464,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                     preceding_faces.push_back({face.shape.Moved(TopLoc_Location(placement)),face.reference});
             }
         }
-        if(requested_shell_bodies.contains(branch.scope.id)&&local.back().kernel_faces.empty()&&local.back().calculation_errors.empty()) {
+        if(requested_shell_bodies.contains(branch.scope.id)&&
+            (local.back().kernel_faces.empty()||local.back().kernel_edges.empty()||local.back().kernel_vertices.empty())&&local.back().calculation_errors.empty()) {
             const auto native=live_cache_->boundaries.find(local.back().source_fingerprint);
             // A linked skin and its retained solid must be independently usable
             // after reopening, including when embedded into a FORM definition.
@@ -7400,7 +7517,12 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 if (!placed.kernel_shape.empty()) {
                     placed.kernel_placements.push_back({branch.scope.translation, branch.scope.rotation_degrees});
                 }
+                const auto measurement_bindings=placed.kernel_faces;
                 place_body_result(placed, placement);
+                // This path appends a rigid placement and leaves the archived
+                // BRep unchanged. Keep its exact face addresses for on-demand
+                // scalar measurements; no binding is used to solve placement.
+                if(!eager_face_measurements)placed.kernel_faces=measurement_bindings;
             }
             placed.source_fingerprint = input_key;
             input_snapshot = BodySnapshot(std::move(placed));
@@ -7620,6 +7742,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 std::holds_alternative<SheetStateRequest>(operation.primitive));
         }
         const bool has_forms=std::ranges::any_of(operations,[](const auto& operation){return std::holds_alternative<SheetFormRequest>(operation.primitive);});
+        const bool has_subtractions=std::ranges::any_of(operations,[](const auto& operation){
+            return !operation.suppressed&&operation.operation==BooleanOperation::Subtract;});
         double sheet_state_tolerance=1.;
         for(const auto& operation:operations)if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive))
             sheet_state_tolerance=std::min(sheet_state_tolerance,state->tolerance);
@@ -7644,7 +7768,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     std::chrono::duration<double>(now-start).count());
                 start=now;
             };
-            if(!context.requested_solids.empty()) {
+            if(!context.requested_solids.empty()||has_subtractions) {
                 auto [packet,inserted]=live_cache_->copy_references.insert_or_assign(fingerprint,original_references);
                 static_cast<void>(packet);
                 if(inserted)live_cache_->copy_reference_order.push_back(fingerprint);
@@ -7771,7 +7895,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             ? live_cache_->boundaries.find(previous_boundaries[matching_prefix-1].source_fingerprint)
             : live_cache_->boundaries.end();
         if (matching_prefix == operations.size() &&
-            (context.requested_solids.empty()||matching_prefix==previous_boundaries.size()||
+            ((context.requested_solids.empty()&&!has_subtractions)||matching_prefix==previous_boundaries.size()||
                 (matching_prefix>0&&live_cache_->copy_references.contains(previous_boundaries[matching_prefix-1].source_fingerprint)))&&
             (!context.require_original_faces || complete_live!=live_cache_->boundaries.end()) &&
             (!retain_original_edges || (complete_live!=live_cache_->boundaries.end()&&complete_live->second.original_edges_retained))) {
@@ -7790,7 +7914,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             std::unordered_set<std::string> owners;
             for(const auto& operation:operations)if(!operation.suppressed)owners.insert(operation.owner_id);
             if(!reused.empty()&&matching_prefix<previous_boundaries.size()) {
-                if(!context.requested_solids.empty())reused.back().mesh.original_references=
+                if(!context.requested_solids.empty()||has_subtractions)reused.back().mesh.original_references=
                     live_cache_->copy_references.at(previous_boundaries[matching_prefix-1].source_fingerprint);
                 else reused.back().mesh.original_references=reference_geometry_for_owners(
                     previous_boundaries.back().mesh.original_references,owners);
@@ -7799,6 +7923,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             return reused;
         }
         std::size_t reusable_prefix = matching_prefix;
+        if(std::getenv("ZIMA_CPP_CALC_PROFILE"))std::fprintf(stderr,
+            "Kernel reuse matching=%zu available=%zu previous=%s expected=%s live=%d\n",matching_prefix,available,
+            available?previous_boundaries[available-1].source_fingerprint.c_str():"",
+            fingerprint(operations,available).c_str(),int(available&&live_cache_->boundaries.contains(previous_boundaries[available-1].source_fingerprint)));
         if (std::any_of(operations.begin(), operations.end(), [](const auto& operation) {
                 return std::holds_alternative<ThreadSurfaceRequest>(
                     operation.primitive);
@@ -7813,7 +7941,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             const auto& boundary = previous_boundaries[reusable_prefix - 1];
             if ((!boundary.kernel_shape.empty() ||
                 live_cache_->boundaries.contains(boundary.source_fingerprint))&&
-                (context.requested_solids.empty()||live_cache_->copy_references.contains(boundary.source_fingerprint))) {
+                ((context.requested_solids.empty()&&!has_subtractions)||live_cache_->copy_references.contains(boundary.source_fingerprint))) {
                 break;
             }
             --reusable_prefix;
@@ -7891,7 +8019,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     prefix_owners.insert(operations[index].owner_id);
                 }
             }
-            if(!context.requested_solids.empty()) {
+            if(!context.requested_solids.empty()||has_subtractions) {
                 // A later operation may create descendants owned by an older
                 // source. Owner filtering of the final packet cannot recover
                 // their actual creation boundary or original ordered geometry.
@@ -7917,6 +8045,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if(!faces.empty()||(retain_original_edges&&!edges.empty()))context.original_faces=std::make_shared<OriginalFaces>(OriginalFaces{
                 faces,context.original_faces,retain_original_edges?edges:std::vector<OwnedEdge>{},retain_original_edges?vertices:std::vector<OwnedVertex>{}});
         };
+        std::vector<BodySnapshot> measurement_sources;
+        if(!boundaries.empty())measurement_sources=boundaries.back().measurement_sources.get();
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
@@ -7979,6 +8109,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // Their complete properties need the same exact parallel
                     // integration as the FORM itself, not a serial reintegration.
                     has_forms);
+                if(!eager_face_measurements&&(original||collect)&&!result.kernel_faces.empty()) {
+                    BodyResult source;source.kernel_shape=result.kernel_shape;source.kernel_faces=result.kernel_faces;
+                    source.source_fingerprint=operation.owner_id;source.physical_properties_current=false;
+                    source.solid_present=result.has_solid();measurement_sources.emplace_back(std::move(source));
+                }
+                if(!measurement_sources.empty())result.measurement_sources=measurement_sources;
                 if(retain_analysis_solid&&!result.physical_properties_current&&result.kernel_shape.empty())
                     result.kernel_shape=serialize_kernel_shape(shape);
                 if(trace)std::fprintf(stderr,"Kernel packet done count=%zu index=%zu owner=%s total=%.6f s\n",
@@ -10531,6 +10667,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 : live_cache_->reference_meshes.end();
             if (cached_reference != live_cache_->reference_meshes.end()) {
                 operand_mesh = cached_reference->second;
+                if(!eager_face_measurements)if(const auto source=live_cache_->reference_measurements.find(reference_cache_key);
+                    source!=live_cache_->reference_measurements.end())measurement_sources.push_back(source->second);
             } else if (imported_step) {
                 auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,
@@ -10573,6 +10711,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 operand_result.mesh.edges.insert(operand_result.mesh.edges.end(),centerlines.begin(),centerlines.end());
                 const auto endpoints = sweep_endpoints_for_operation(operation);
                 operand_result.mesh.points.insert(operand_result.mesh.points.end(), endpoints.begin(), endpoints.end());
+                if(cache_reference_mesh&&!eager_face_measurements&&!operand_result.kernel_faces.empty()) {
+                    BodyResult source;source.kernel_shape=operand_result.kernel_shape;source.kernel_faces=operand_result.kernel_faces;
+                    source.physical_properties_current=false;source.solid_present=operand_result.has_solid();
+                    source.source_fingerprint=operation.owner_id;
+                    live_cache_->reference_measurements.insert_or_assign(reference_cache_key,std::move(source));
+                }
                 operand_mesh = std::move(operand_result.mesh);
                 if (cache_reference_mesh) {
                     live_cache_->reference_meshes.emplace(
@@ -10583,6 +10727,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                            kLiveShapeCacheLimit) {
                         live_cache_->reference_meshes.erase(
                             live_cache_->reference_insertion_order.front());
+                        live_cache_->reference_measurements.erase(live_cache_->reference_insertion_order.front());
                         live_cache_->reference_insertion_order.pop_front();
                     }
                 }

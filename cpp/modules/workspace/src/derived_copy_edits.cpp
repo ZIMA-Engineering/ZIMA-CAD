@@ -1,4 +1,5 @@
 #include <zima/workspace/derived_copy_operations.hpp>
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
@@ -154,7 +155,12 @@ bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const 
     result.occurrence_id=value.id;result.name=value.name;result.derived_copy=value.parameters;result.copy_placement=value.placement;
     if(!edit.creating)result.visible=value.visible;
     result.placement={};result.placement_references.clear();result.grounded=true;
-    if(edit.creating)next.components.push_back(std::move(result));else *next.find_occurrence(value.id)=std::move(result);
+    if(edit.creating) {
+        next.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Component,result.occurrence_id);
+        next.components.push_back(std::move(result));
+    } else *next.find_occurrence(value.id)=std::move(result);
+    next.synchronize_history();
+    validate_assembly_history_order(next);
     next.calculate_derived_copies(kernel);assembly->session.commit(std::move(next));return true;
 }
 } // namespace zima::workspace

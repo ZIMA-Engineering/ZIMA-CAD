@@ -1,6 +1,7 @@
 #include "group_solid_state_calculation.hpp"
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <algorithm>
@@ -209,6 +210,7 @@ bool commit_construction(Workspace& live, const std::string& document_id,
     check_construction(existing, value, mode);
     auto next = assembly->session.document();
     replace_construction(next, std::move(value), mode);
+    next.synchronize_history();validate_assembly_history_order(next);
     next.resolve_constructions(); require_resolved(next, id);
     assembly->session.commit(std::move(next)); return true;
 }

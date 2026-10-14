@@ -18,6 +18,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <limits>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -238,6 +239,25 @@ struct PointResolution {
 
 class AssemblyDocument {
 public:
+    enum class HistoryKind { Component, Sketch, Cut, Construction };
+    struct HistoryEntry {
+        HistoryKind kind{};
+        std::string id;
+        bool operator==(const HistoryEntry&) const = default;
+    };
+    std::vector<HistoryEntry> history_order;
+    std::size_t history_cursor{std::numeric_limits<std::size_t>::max()};
+    [[nodiscard]] std::vector<HistoryEntry> complete_history_order() const;
+    [[nodiscard]] std::size_t effective_history_cursor() const;
+    [[nodiscard]] bool history_visible(const std::string&) const;
+    void synchronize_history();
+    void validate_history() const;
+    void insert_history_entry(HistoryKind, const std::string&);
+    void insert_history_entry(document::PartHistoryKind, const std::string&);
+    // A transient authoring view, using retained cut inputs. Full calculated
+    // source data and ownership remain in this document.
+    [[nodiscard]] AssemblyDocument history_view_document(
+        std::optional<std::size_t> cursor = {}) const;
     zima::document::DimensionIdentifiers dimension_identifiers;
     [[nodiscard]] std::vector<zima::document::DimensionParameter> dimension_parameters() const;
     void synchronize_dimension_identifiers();

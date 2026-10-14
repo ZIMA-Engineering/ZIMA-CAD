@@ -2462,5 +2462,7 @@
   "Zakázat úpravy parametrů": "Zakázat úpravy parametrů",
   "Ochrana úprav parametrů platí také pro podadresáře.": "Ochrana úprav parametrů platí také pro podadresáře.",
   "Výchozí šablona Skeletonu": "Výchozí šablona Skeletonu",
-  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Vyberte platné nativní šablony dílu, sestavy a Skeletonu."
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.",
+  "Read document history without calculation.": "Načíst historii dokumentu bez výpočtu.",
+  "Set the history insertion index without calculating geometry.": "Nastavit pozici vložení v historii bez výpočtu geometrie."
 }

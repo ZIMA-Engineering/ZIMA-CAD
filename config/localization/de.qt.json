@@ -2462,5 +2462,7 @@
   "Zakázat úpravy parametrů": "Parameterbearbeitung sperren",
   "Ochrana úprav parametrů platí také pro podadresáře.": "Der Schutz vor Parameterbearbeitung gilt auch für Unterverzeichnisse.",
   "Výchozí šablona Skeletonu": "Standardvorlage für Skeleton",
-  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Gültige native Vorlagen für Teil, Baugruppe und Skeleton auswählen."
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Gültige native Vorlagen für Teil, Baugruppe und Skeleton auswählen.",
+  "Read document history without calculation.": "Dokumenthistorie ohne Berechnung lesen.",
+  "Set the history insertion index without calculating geometry.": "Einfügeposition in der Historie ohne Geometrieberechnung setzen."
 }

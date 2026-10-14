@@ -2462,5 +2462,7 @@
   "Zakázat úpravy parametrů": "Prevent parameter editing",
   "Ochrana úprav parametrů platí také pro podadresáře.": "Parameter editing protection also applies to subdirectories.",
   "Výchozí šablona Skeletonu": "Default Skeleton template",
-  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Select valid native Part, Assembly and Skeleton templates."
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Select valid native Part, Assembly and Skeleton templates.",
+  "Read document history without calculation.": "Read document history without calculation.",
+  "Set the history insertion index without calculating geometry.": "Set the history insertion index without calculating geometry."
 }

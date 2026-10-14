@@ -494,7 +494,8 @@ zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value)
 }
 
 nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, bool include_histories,
-        bool include_compound_operands) {
+        bool include_compound_operands,
+        const zima::kernel::ViewerReferenceGeometry* reference_geometry) {
     nlohmann::json faces = nlohmann::json::array();
     const bool has_triangle_tags = std::ranges::any_of(
         result.mesh.triangle_references,
@@ -611,16 +612,18 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"centroid",serialize_vec3(result.volume_integrals->centroid)},
             {"inertia",result.volume_integrals->inertia}}:nlohmann::json(nullptr)},
         {"source_fingerprint", result.source_fingerprint},
-        {"kernel_shape", result.kernel_shape.get()},
         {"viewer_binary_encoding", "f64le-u32le-base64-v1"},
-        {"vertices_binary", pack_vertices(result.mesh.vertices)},
-        {"triangles_binary", pack_indices(result.mesh.triangles)},
-        {"triangle_references", std::move(faces)},
-        {"edges", std::move(edges)}, {"points", std::move(points)},
-        {"axes", std::move(axes)}, {"dimensions", std::move(dimensions)},
-        {"original_references", serialize_reference_geometry(
-            result.mesh.original_references)},
     };
+    // An initializer_list copies its const elements even when its expressions
+    // use std::move. Transfer these large independently owned tables directly.
+    packet["kernel_shape"]=result.kernel_shape.get();
+    packet["vertices_binary"]=pack_vertices(result.mesh.vertices);
+    packet["triangles_binary"]=pack_indices(result.mesh.triangles);
+    packet["triangle_references"]=std::move(faces);
+    packet["edges"]=std::move(edges);packet["points"]=std::move(points);
+    packet["axes"]=std::move(axes);packet["dimensions"]=std::move(dimensions);
+    packet["original_references"]=serialize_reference_geometry(
+        reference_geometry?*reference_geometry:result.mesh.original_references);
     if (!result.kernel_placements.empty()) {
         packet["kernel_placements"] = nlohmann::json::array();
         for (const auto& placement : result.kernel_placements)
@@ -656,6 +659,11 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         }
     }
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
+    if(!result.measurement_sources.empty()) {
+        auto sources=nlohmann::json::array();
+        for(const auto& source:result.measurement_sources)sources.push_back(serialize_body_result(source,false,false));
+        packet["measurement_sources"]=std::move(sources);
+    }
     if(!result.solid_state_reference_views.empty()) {
         auto views=nlohmann::json::object();
         for(const auto& [owner,geometry]:result.solid_state_reference_views) {
@@ -699,14 +707,18 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         }
         for (const auto& [id, body] : result.body_inputs) inputs[id] = serialize_body_result(body);
         for (const auto& [id, body] : result.body_outputs) outputs[id] = serialize_body_result(body);
-        packet["body_histories"] = {{"boundaries", std::move(histories)},
-            {"inputs", std::move(inputs)}, {"outputs", std::move(outputs)}};
+        auto& body_histories=packet["body_histories"];
+        body_histories["boundaries"]=std::move(histories);
+        body_histories["inputs"]=std::move(inputs);
+        body_histories["outputs"]=std::move(outputs);
     } else if (include_compound_operands && result.kernel_shape == zima::kernel::kernel_body_compound) {
         auto outputs = nlohmann::json::object();
         for (const auto& id : result.kernel_compound_bodies)
             outputs[id] = serialize_body_result(result.body_outputs.at(id), false);
-        packet["body_histories"] = {{"boundaries", nlohmann::json::object()},
-            {"inputs", nlohmann::json::object()}, {"outputs", std::move(outputs)}};
+        auto& body_histories=packet["body_histories"];
+        body_histories["boundaries"]=nlohmann::json::object();
+        body_histories["inputs"]=nlohmann::json::object();
+        body_histories["outputs"]=std::move(outputs);
     }
     return packet;
 }
@@ -724,6 +736,17 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         std::map<std::string,zima::kernel::BodySnapshot> compound_operands) {
     zima::kernel::BodyResult result;
+    if(const auto sources=source.find("measurement_sources");sources!=source.end()) {
+        if(!sources->is_array())throw std::runtime_error("Invalid native topology binding");
+        std::vector<zima::kernel::BodySnapshot> loaded;loaded.reserve(sources->size());
+        for(const auto& snapshot:*sources) {
+            auto native=load_body_result(snapshot);
+            if(native.kernel_shape.empty()||native.kernel_faces.empty()||!native.measurement_sources.empty())
+                throw std::runtime_error("Invalid native topology binding");
+            loaded.emplace_back(std::move(native));
+        }
+        result.measurement_sources=std::move(loaded);
+    }
     result.body_outputs=std::move(compound_operands);
     if(const auto views=source.find("solid_state_reference_views");views!=source.end())
         for(const auto& [owner,geometry]:views->items()) {

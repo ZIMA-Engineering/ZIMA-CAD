@@ -533,6 +533,13 @@ anchored. The shared properties-window implementation owns this layout policy.
   properties, or hover code paths. A user action may invoke OCCT only when it
   explicitly requests a body calculation such as Apply, OK, or model
   regeneration.
+- Explicit Measurement and scalar analysis are an exception requested by the
+  user on 2026-10-14. Ordinary modeling must not precompute expensive face areas
+  solely for future inspection. Integrate requested missing scalar values from
+  the exact persisted native geometry when that analysis is explicitly requested;
+  do not regenerate bodies, reconstruct reference identity, change geometry,
+  solve placement or create an Undo transaction. Ordinary selection, hover,
+  reference entry and feature Properties remain outside this exception.
 
 ## Viewer selection contracts
 

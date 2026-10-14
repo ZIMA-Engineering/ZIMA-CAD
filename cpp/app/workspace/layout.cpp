@@ -1,4 +1,5 @@
 #include <zima/workspace/assembly_cut_operations.hpp>
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
@@ -117,6 +118,11 @@ void AssemblyWorkspaceWindow::create_layout() {
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
+    };
+    history_tree->assembly_cursor_moved=[this](std::size_t cursor) {
+        if(!part_history_insertion_allowed()||!workspace_.open_assembly(workspace_.active_document_id()))return;
+        if(!workspace::set_assembly_history_cursor(workspace_,workspace_.active_document_id(),cursor))return;
+        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     };
     tree_->setObjectName("documentTree");
     auto tree_font = tree_->font();
@@ -438,9 +444,27 @@ void AssemblyWorkspaceWindow::create_layout() {
         } else if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             select_occurrence(candidate.instance_path);
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
-            select_container(candidate.owner_id);
+            // Original profile references retain their authored Sketch ID.
+            // Ordinary View selection belongs to its modeling feature; direct
+            // Tree-child selection and command reference entry keep that ID.
+            auto owner_id=candidate.owner_id;
+            if(active_sketch_id_.empty()) {
+                if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+                    const auto& document=part->session.document();
+                    const auto sketch=std::ranges::find(document.sketches,owner_id,&sketcher::Sketch::id);
+                    if(sketch!=document.sketches.end())if(const auto* owner=document.find_container(sketch->owner_container_id);
+                        owner&&owner->feature_kind==document::FeatureKind::Feature&&owner->feature.type==document::FeatureType::Modeling)
+                        owner_id=owner->id;
+                } else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
+                    const auto& document=assembly->session.document();
+                    const auto sketch=std::ranges::find(document.sketches,owner_id,&sketcher::Sketch::id);
+                    if(sketch!=document.sketches.end())if(const auto* cut=document.find_cut(sketch->owner_container_id))
+                        owner_id=cut->definition.id;
+                }
+            }
+            select_container(owner_id);
             viewer_->set_feature_selected_edge_indices(
-                edge_treatment_feature_edges(candidate.owner_id,candidate.instance_path));
+                edge_treatment_feature_edges(owner_id,candidate.instance_path));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("segment:")) {

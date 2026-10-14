@@ -292,6 +292,7 @@ target_link_libraries(zima_document_core
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
     modules/assembly/src/assembly_sketches.cpp
+    modules/assembly/src/assembly_history.cpp
     modules/assembly/src/assembly_session.cpp modules/assembly/src/file_relocation.cpp)
 target_include_directories(zima_assembly PUBLIC modules/assembly/include)
 target_link_libraries(zima_assembly
@@ -823,6 +824,9 @@ if(ZIMA_BUILD_TESTS)
         set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
     add_executable(zima_cpp_measurement_contract_tests tests/measurement_contract_tests.cpp)
+    add_executable(zima_cpp_face_measurement_demand_tests tests/face_measurement_demand_tests.cpp)
+    target_link_libraries(zima_cpp_face_measurement_demand_tests PRIVATE zima_workspace TKBRep TKTopAlgo)
+    add_test(NAME zima_cpp_face_measurement_demand_tests COMMAND zima_cpp_face_measurement_demand_tests)
     target_link_libraries(zima_cpp_measurement_contract_tests PRIVATE zima_viewer zima_document_core zima_assembly zima_kernel_occt nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_measurement_contract_tests COMMAND zima_cpp_measurement_contract_tests)
     add_test(NAME zima_cpp_measurement_partition_contract_tests COMMAND zima_cpp_measurement_contract_tests --partition-proof)
@@ -1419,6 +1423,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_reference_command_tests COMMAND zima_cpp_reference_command_tests)
     set_tests_properties(zima_cpp_reference_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_assembly_history_command_tests tests/assembly_history_command_tests.cpp)
+    add_executable(zima_cpp_assembly_history_cursor_tests tests/assembly_history_cursor_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_history_cursor_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_assembly_history_cursor_tests COMMAND zima_cpp_assembly_history_cursor_tests)
+    set_tests_properties(zima_cpp_assembly_history_cursor_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_assembly_history_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_assembly_history_command_tests COMMAND zima_cpp_assembly_history_command_tests)
     set_tests_properties(zima_cpp_assembly_history_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1726,6 +1734,15 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_feature_modeling_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_feature_selection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_assembly_history_cursor_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_assembly_history_cursor_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ASSEMBLY_HISTORY_CURSOR_ONLY=1"
+        TIMEOUT 120 RUN_SERIAL TRUE)
+    set_tests_properties(zima_cpp_feature_selection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SELECTION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_feature_modeling_wire_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_MODELING_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)

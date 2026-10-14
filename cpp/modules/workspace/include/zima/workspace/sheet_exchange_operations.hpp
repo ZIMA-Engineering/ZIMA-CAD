@@ -14,6 +14,8 @@ struct SheetBodyConversion {
     std::size_t skipped{};
 };
 [[nodiscard]] double suggest_sheet_thickness(const kernel::ViewerMesh&,const kernel::FaceReference&);
+[[nodiscard]] double suggest_sheet_thickness(const Workspace&,const std::string& document,
+    const kernel::ViewerMesh&,const kernel::FaceReference&);
 [[nodiscard]] SheetBodyConversion prepare_sheet_from_body(const document::PartDocument&,
     const std::vector<kernel::BodyResult>&,const kernel::FaceReference&,double thickness,
     const kernel::OcctKernel&);

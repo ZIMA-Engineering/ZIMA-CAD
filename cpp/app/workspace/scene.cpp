@@ -2062,9 +2062,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     const auto& document = assembly->session.document();
     const auto active_assembly_display = [this, &append_curve_radii, &appearance_scene, &document, appearance_generation, assembly](
             const zima::assembly::AssemblyDocument& original) {
-        const auto& source=derived_copy_assembly_preview_&&derived_copy_assembly_preview_->document_id==original.document_id
+        const auto& full_source=derived_copy_assembly_preview_&&derived_copy_assembly_preview_->document_id==original.document_id
             ? *derived_copy_assembly_preview_ : original;
-        const bool active = workspace_.active_document_id() == source.document_id;
+        const bool active = workspace_.active_document_id() == full_source.document_id;
+        std::optional<zima::assembly::AssemblyDocument> history_display;
+        if(active&&!assembly_cut_rollback_&&full_source.effective_history_cursor()<full_source.complete_history_order().size())
+            history_display=full_source.history_view_document();
+        const auto& source=history_display?*history_display:full_source;
         zima::kernel::ViewerMesh mesh;
         if (construction_parameter_preview_ && construction_preview_mesh_ && active &&
             !construction_parameter_preview_->parent_construction_id.empty()) {

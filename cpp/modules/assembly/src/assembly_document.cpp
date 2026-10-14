@@ -1164,6 +1164,14 @@ zima::document::PartDocument AssemblyDocument::feature_document() const {
     carrier.sketches=sketches;carrier.constructions=constructions;
     carrier.history=sketch_containers;
     for(const auto& feature:cuts)carrier.history.push_back(feature.definition);
+    const auto order=complete_history_order();const auto cursor=effective_history_cursor();
+    carrier.history_cursor=0;
+    for(std::size_t i=0;i<order.size();++i)if(order[i].kind!=HistoryKind::Component) {
+        carrier.history_order.push_back({order[i].kind==HistoryKind::Construction?
+            document::PartHistoryKind::Construction:order[i].kind==HistoryKind::Sketch?
+            document::PartHistoryKind::Sketch:document::PartHistoryKind::Feature,order[i].id});
+        if(i<cursor)++carrier.history_cursor;
+    }
     carrier.user_parameters=user_parameters;carrier.user_parameter_order=user_parameter_order;
     carrier.user_parameter_labels=user_parameter_labels;carrier.user_parameter_values=user_parameter_values;
     carrier.relations=relations;carrier.document_units=document_units;carrier.document_precision=document_precision;
@@ -2083,7 +2091,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const SourceResolver& resolver, bool resolve_sources) {
     document::NativeReadCapture::observe(path);
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "35" ||
+    if (ini_value(ini, "Document", "format_version") != "36" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -2107,7 +2115,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const
     return document;
 }
 AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 47 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 48 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -2130,6 +2138,18 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
     AssemblyDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    const auto& cursor=root.at("history_cursor");
+    if(!cursor.is_number_integer())throw std::runtime_error("Invalid Assembly Container data");
+    document.history_cursor=cursor.get<std::size_t>();
+    if(!root.at("history_order").is_array())throw std::runtime_error("Invalid Assembly Container data");
+    for(const auto& entry:root.at("history_order")) {
+        const auto kind=entry.at("kind").get<std::string>();
+        const auto type=kind=="component"?HistoryKind::Component:kind=="sketch"?HistoryKind::Sketch:
+            kind=="cut"?HistoryKind::Cut:kind=="construction"?HistoryKind::Construction:
+            throw std::runtime_error("Invalid Assembly Container data");
+        document.history_order.push_back({type,entry.at("id").get<std::string>()});
+    }
+    if(document.history_cursor>document.history_order.size())throw std::runtime_error("Invalid Assembly Container data");
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
     document.user_parameter_order =
@@ -2308,6 +2328,7 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
     }
     static_cast<void>(document.build_scene());
     document.validate_sketch_containers();
+    document.validate_history();
     document.synchronize_dimension_identifiers();
     return document;
 }
@@ -2456,8 +2477,15 @@ nlohmann::json AssemblyDocument::serialized(
         cuts_json.push_back(std::move(saved_cut));
     }
     static_cast<void>(zima::document::parse_named_views(named_views));
+    auto history_json=nlohmann::json::array();
+    for(const auto& entry:complete_history_order()) {
+        const auto kind=entry.kind==HistoryKind::Component?"component":entry.kind==HistoryKind::Sketch?"sketch":
+            entry.kind==HistoryKind::Cut?"cut":"construction";
+        history_json.push_back({{"kind",kind},{"id",entry.id}});
+    }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 47},
+        {"format", "zima-cad-cpp"}, {"format_version", 48},
+        {"history_order",std::move(history_json)},{"history_cursor",effective_history_cursor()},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2496,7 +2524,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "35"},
+        {"format_version", "36"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

@@ -621,7 +621,10 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         check(!thick_editor(),"Connected shell thickening did not confirm");run("save");
         std::vector<kernel::BodyResult> thick_cache;const auto thickened=document::PartDocument::load(skin_path,&thick_cache);
         const auto& thick_body=thick_cache.back().body_outputs.at(definition.bodies[1]).get();
-        check(thickened.find_container(thick_id)&&thick_body.volume>0&&thick_body.calculation_errors.empty()&&
+        // Inspect exact native geometry explicitly; ordinary GUI confirmation
+        // may retain pending scalar properties without losing its solid.
+        auto analyzed_thick=thick_body;kernel::OcctKernel{}.ensure_body_properties(analyzed_thick);
+        check(thickened.find_container(thick_id)&&analyzed_thick.volume>0&&thick_body.calculation_errors.empty()&&
             std::ranges::none_of(thick_body.mesh.triangle_references,[](const auto& face){return face.surface_result;}),
             "GUI thickening left unconsumed shell patches");
         std::cout<<"FORM GUI create, native face pick, planar rotation, rollback, unchanged OK, replacement, Cancel, Undo/Redo and save/reopen passed"<<std::endl;return 0;

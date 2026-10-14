@@ -1,4 +1,5 @@
 #include <zima/workspace/assembly_cut_operations.hpp>
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/reference_index.hpp>
 #include <algorithm>
@@ -60,9 +61,12 @@ bool move_assembly_cut(Workspace& live, const kernel::OcctKernel& kernel,
     if (!history_order_preserves_dependencies(order, reordered, old_graph.edges))
         throw HistoryOperationError("history_dependency", "The move would place a reference before its source.");
     if (order == reordered) return false;
+    const auto history=reordered_assembly_history(original,cut,before);
+    validate_assembly_history_order(original,&history);
     if (!commit) return true;
     auto next = live.prepare_assembly_calculation(id);
     sort_history_records(next.cuts, reordered, [](const auto& value) { return value.definition.id; });
+    next.history_order=history;
     calculate_resolved_assembly_cuts(kernel, next);
     for (const auto& value : original.cuts) {
         const auto* changed = next.find_cut(value.definition.id);

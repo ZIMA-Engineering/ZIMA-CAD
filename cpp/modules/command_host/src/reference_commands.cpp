@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/measurement_operations.hpp>
 #include <set>
 #include <tuple>
 #include <algorithm>
@@ -132,6 +133,11 @@ void Host::register_reference_commands() {
                 result=details(geometry,frame,wanted,limit);return result.is_null();
             });
             if(result.is_null())return Result::failure("reference_not_found",tr("The exact original reference was not found in the stored document state."));
+            if(kind=="face"&&result.at("area_mm2").is_null()) {
+                const std::array<kernel::FaceReference,1> requested{{{std::get<1>(wanted),std::get<2>(wanted),std::get<3>(wanted)}}};
+                const auto areas=workspace::measurement_face_areas(workspace_,id,requested);
+                if(areas.front())result["area_mm2"]=*areas.front();
+            }
             result["document"]=id;result["revision"]=rev;return Result::success(std::move(result));
         } catch(const workspace::ReferenceQueryError& error){return Result::failure(error.code,tr(error.what()));}
     });

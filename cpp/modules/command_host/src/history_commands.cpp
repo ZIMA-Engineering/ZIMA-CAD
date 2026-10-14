@@ -28,8 +28,14 @@ Json assembly_history_data(const workspace::AssemblyState& state) {
         append("sketches","sketch",value.id,value.name,value.suppressed);
     for(const auto& value:document.cuts)
         append("cuts","cut",value.definition.id,value.definition.name,value.definition.suppressed);
-    return {{"document",document.document_id},{"type","assembly"},{"items",std::move(rows)},
-        {"orders",std::move(orders)},{"revision",state.session.revision()}};
+    Json history=Json::array(),ordered=Json::array();std::map<std::string,Json> by_id;
+    for(auto& row:rows)by_id.emplace(row.at("object").get<std::string>(),std::move(row));
+    for(const auto& entry:document.complete_history_order()) {
+        history.push_back(entry.id);ordered.push_back(std::move(by_id.at(entry.id)));
+    }
+    return {{"document",document.document_id},{"type","assembly"},{"items",std::move(ordered)},
+        {"orders",std::move(orders)},{"cursor",document.effective_history_cursor()},
+        {"history_order",std::move(history)},{"revision",state.session.revision()}};
 }
 Json history_data(const workspace::PartState& state) {
     const auto& document=state.session.document();Json rows=Json::array();
@@ -68,7 +74,7 @@ void Host::register_history_commands() {
               catch(const std::exception& error) {return Result::failure("history_rejected",tr(error.what()));}
         });
     };
-    add({"history.list",tr("Read Part history or the separate Assembly history lists without calculation."),{{"document",false}},false},[this](const Json& args) {
+    add({"history.list",tr("Read document history without calculation."),{{"document",false}},false},[this](const Json& args) {
         if(const auto* state=workspace_.open_assembly(args.value("document",workspace_.active_document_id())))
             return assembly_history_data(*state);
         return history_data(part(workspace_,args));
@@ -103,10 +109,15 @@ void Host::register_history_commands() {
             auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
         });
     }
-    add({"history.cursor",tr("Set the insertion index in the flattened Part history."),{{"index",true,commands::ArgumentType::Integer},{"document",false}},true},[this](const Json& args) {
-        const auto document_id=part(workspace_,args).session.document().document_id;
+    add({"history.cursor",tr("Set the history insertion index without calculating geometry."),{{"index",true,commands::ArgumentType::Integer},{"document",false}},true},[this](const Json& args) {
         if(args["index"]<0 || args["index"].get<std::uint64_t>()>std::numeric_limits<std::size_t>::max())
             throw workspace::HistoryOperationError("invalid_arguments","The history index must be a nonnegative integer.");
+        const auto id=args.value("document",workspace_.active_document_id());
+        if(auto* state=workspace_.open_assembly(id)) {
+            const bool changed=workspace::set_assembly_history_cursor(workspace_,id,args["index"].get<std::size_t>());
+            auto data=assembly_history_data(*state);data["changed"]=changed;data["body_calculated"]=false;return data;
+        }
+        const auto document_id=part(workspace_,args).session.document().document_id;
         const bool changed=workspace::set_part_history_cursor(workspace_,document_id,args["index"].get<std::size_t>());
         auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
     });

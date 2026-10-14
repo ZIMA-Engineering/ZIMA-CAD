@@ -26,6 +26,18 @@ struct FrozenStepComponent {
     ImmutableVector<StepRequest::TopologyIdentity> topology;
 };
 
+// Ordinary modeling retains exact native face locators instead of integrating
+// every face for a later inspector. Explicit analysis can request eager values.
+class FaceMeasurementScope final {
+public:
+    explicit FaceMeasurementScope(bool eager);
+    ~FaceMeasurementScope();
+    FaceMeasurementScope(const FaceMeasurementScope&) = delete;
+    FaceMeasurementScope& operator=(const FaceMeasurementScope&) = delete;
+private:
+    bool previous_;
+};
+
 class OcctKernel final : public GeometryKernel {
 public:
     OcctKernel();
@@ -36,6 +48,8 @@ public:
     [[nodiscard]] bool has_current_calculation(const std::vector<BodyResult>& boundaries) const;
     // Integrate the already calculated solid; never rebuild geometry or references.
     void ensure_body_properties(BodyResult& body) const;
+    [[nodiscard]] std::vector<std::optional<double>> measure_face_areas(
+        const BodyResult& body, std::span<const FaceReference> references) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(

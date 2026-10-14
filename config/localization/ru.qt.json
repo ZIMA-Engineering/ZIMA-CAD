@@ -2462,5 +2462,7 @@
   "Zakázat úpravy parametrů": "Запретить редактирование параметров",
   "Ochrana úprav parametrů platí také pro podadresáře.": "Защита от редактирования параметров также действует в подкаталогах.",
   "Výchozí šablona Skeletonu": "Шаблон Skeleton по умолчанию",
-  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Выберите допустимые собственные шаблоны детали, сборки и Skeleton."
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Выберите допустимые собственные шаблоны детали, сборки и Skeleton.",
+  "Read document history without calculation.": "Прочитать историю документа без вычисления.",
+  "Set the history insertion index without calculating geometry.": "Задать позицию вставки в истории без вычисления геометрии."
 }

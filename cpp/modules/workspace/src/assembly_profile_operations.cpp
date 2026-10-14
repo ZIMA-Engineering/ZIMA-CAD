@@ -1,4 +1,5 @@
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/document/profile_targets.hpp>
 #include <algorithm>
 #include <set>
@@ -140,11 +141,15 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
         if (value.extrusion.extent_mode == document::ProfileExtentMode::TwoSides)
             prepare(value.extrusion.end_condition_reverse, value.extrusion.end_targets_reverse);
     }
-    if (mode == ProfileEditMode::TransformSketch)
+    if (mode == ProfileEditMode::TransformSketch) {
         std::erase_if(next.sketch_containers, [&](const auto& container) { return container.id == value.id; });
+        for(auto& entry:next.history_order)if(entry.id==value.id)entry.kind=assembly::AssemblyDocument::HistoryKind::Cut;
+    } else if(!existing)next.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Cut,value.id);
     assembly::AssemblyCut cut{std::move(value), std::move(targets)};
     if (existing) *next.find_cut(cut.definition.id) = std::move(cut);
     else next.cuts.push_back(std::move(cut));
+    next.synchronize_history();
+    validate_assembly_history_order(next);
     next.validate_sketch_containers();
     calculate_resolved_assembly_cuts(kernel, next);
     state->session.commit(std::move(next));

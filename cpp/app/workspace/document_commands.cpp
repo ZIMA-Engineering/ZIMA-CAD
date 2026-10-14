@@ -83,7 +83,7 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
             if(!dialog->active())return;const auto face=candidate_face(candidate);if(!face)return;
             double thickness=0;
             if(const auto* part=workspace_.open_part(document_id);part&&!part->session.calculated_boundaries().empty())
-                thickness=workspace::suggest_sheet_thickness(part->session.calculated_boundaries().back().mesh,*face);
+                thickness=workspace::suggest_sheet_thickness(workspace_,document_id,part->session.calculated_boundaries().back().mesh,*face);
             dialog->set_reference(*face,thickness);viewer_->clear_selection();
         };
         feature_reference_end_=[dialog]{dialog->end_entry();};

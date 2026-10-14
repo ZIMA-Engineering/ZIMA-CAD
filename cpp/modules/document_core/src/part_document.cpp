@@ -12799,10 +12799,12 @@ nlohmann::json PartDocument::serialized(
             boundary.kernel_shape == calculated_boundaries[boundary_index - 1].kernel_shape &&
             boundary.kernel_placements.empty() && calculated_boundaries[boundary_index - 1].kernel_placements.empty() &&
             boundary.kernel_compound_bodies.empty() && calculated_boundaries[boundary_index - 1].kernel_compound_bodies.empty();
+        const auto delta = reuses_previous_body?zima::kernel::ViewerReferenceGeometry{}:
+            reference_geometry_delta(boundary.mesh.original_references, *previous_references);
         auto serialized = reuses_previous_body
             ? nlohmann::json{{"body_source", "previous_boundary"},
                   {"source_fingerprint", boundary.source_fingerprint}}
-            : serialize_body_result(boundary);
+            : serialize_body_result(boundary,true,true,&delta);
         if (reuses_previous_body) {
             serialized_boundaries.push_back(std::move(serialized));
             previous_references = &boundary.mesh.original_references;
@@ -12818,10 +12820,6 @@ nlohmann::json PartDocument::serialized(
                 serialized["kernel_shape_source"] = "step_parameter";
             }
         }
-        const auto delta = reference_geometry_delta(
-            boundary.mesh.original_references, *previous_references);
-        serialized["original_references"] =
-            serialize_viewer_reference_geometry(delta);
         serialized["original_references_mode"] = "append";
         serialized_boundaries.push_back(std::move(serialized));
         previous_references = &boundary.mesh.original_references;
@@ -12904,13 +12902,13 @@ nlohmann::json PartDocument::serialized(
         {"appearance", serialize_appearance(appearance)},
         {"face_colors", face_colors},
         {"surface_wire_visibility", surface_wire_visibility},
-        {"history", std::move(serialized_history)},
-        {"sketches", std::move(serialized_sketches)},
-        {"constructions", std::move(serialized_constructions)},
-        {"history_order", std::move(serialized_order)},
         {"history_cursor", std::min(history_cursor, effective_order.size())},
-        {"calculated_boundaries", std::move(serialized_boundaries)},
     };
+    root["history"]=std::move(serialized_history);
+    root["sketches"]=std::move(serialized_sketches);
+    root["constructions"]=std::move(serialized_constructions);
+    root["history_order"]=std::move(serialized_order);
+    root["calculated_boundaries"]=std::move(serialized_boundaries);
     // Include default parameter mirrors in the exact definition before
     // hashing it. The INI reader exposes these persisted values unchanged.
     for(const auto& [name,value]:root.at("user_parameters").items())

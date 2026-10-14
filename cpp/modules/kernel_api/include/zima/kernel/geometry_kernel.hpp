@@ -1111,6 +1111,10 @@ struct BodyResult {
     std::map<std::string, ImmutableVector<BodyResult>> body_boundaries;
     std::map<std::string, BodySnapshot> body_inputs;
     std::map<std::string, BodySnapshot> body_outputs;
+    // Native reference operands absent from the final solid, such as a
+    // subtractive profile's remote cap. Scalar analysis reads these immutable
+    // sources; ordinary modeling does not integrate their face areas.
+    ImmutableVector<BodySnapshot> measurement_sources;
 };
 
 inline BodySnapshot::BodySnapshot() {

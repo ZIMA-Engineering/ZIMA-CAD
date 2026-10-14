@@ -210,10 +210,11 @@ QIcon application_icon() {
     return svg_icon(QStringLiteral(":/zima/branding/app-icon.svg"), false);
 }
 
-QIcon resource_tree_icon(const QString& name) {
+QIcon resource_tree_icon(const QString& name, bool surface) {
     static QHash<QString,QIcon> icons;
-    if(!icons.contains(name))icons.insert(name,QIcon(new PaletteIconEngine(name,false,true)));
-    return icons.value(name);
+    const auto key=name+QLatin1Char('|')+QString::number(surface);
+    if(!icons.contains(key))icons.insert(key,QIcon(new PaletteIconEngine(name,surface,true)));
+    return icons.value(key);
 }
 
 }  // namespace zima::app

@@ -2462,5 +2462,7 @@
   "Zakázat úpravy parametrů": "Interdire la modification des paramètres",
   "Ochrana úprav parametrů platí také pro podadresáře.": "La protection des paramètres s’applique aussi aux sous-répertoires.",
   "Výchozí šablona Skeletonu": "Modèle Skeleton par défaut",
-  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Sélectionnez des modèles natifs valides de pièce, d’assemblage et de Skeleton."
+  "Vyberte platné nativní šablony dílu, sestavy a Skeletonu.": "Sélectionnez des modèles natifs valides de pièce, d’assemblage et de Skeleton.",
+  "Read document history without calculation.": "Lire l’historique du document sans calcul.",
+  "Set the history insertion index without calculating geometry.": "Définir la position d’insertion dans l’historique sans calculer la géométrie."
 }

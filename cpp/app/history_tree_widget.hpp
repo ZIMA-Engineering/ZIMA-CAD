@@ -16,6 +16,7 @@ public:
         setIndentation(12);
     }
     std::function<void(std::size_t)> history_cursor_moved;
+    std::function<void(std::size_t)> assembly_cursor_moved;
     // Empty owner means the document-level Body/Boolean history.
     std::function<void(const QString&,std::size_t)> body_cursor_moved;
     std::function<bool(QTreeWidgetItem*)> reorder_enabled;
@@ -79,7 +80,8 @@ protected:
         }
         if (event->button() == Qt::LeftButton && item != nullptr &&
             (item->data(0, Qt::UserRole + 3).toString() == "part-insert-here" ||
-             item->data(0, Qt::UserRole + 3).toString() == "part-body-insert-here")) {
+             item->data(0, Qt::UserRole + 3).toString() == "part-body-insert-here" ||
+             item->data(0, Qt::UserRole + 3).toString() == "assembly-insert-here")) {
             cursor_item_ = indexFromItem(item);
             dragging_cursor_ = true;
             drag_started_ = false;
@@ -139,6 +141,7 @@ protected:
             auto* marker = itemFromIndex(cursor_item_);
             auto* parent = marker->parent();
             const bool document_level = marker->data(0,Qt::UserRole+3).toString() == "part-body-insert-here";
+            const bool assembly_level = marker->data(0,Qt::UserRole+3).toString() == "assembly-insert-here";
             const auto owner = marker->data(0,Qt::UserRole).toString();
             auto* under = itemAt(event->position().toPoint());
             const bool empty_space = under == nullptr;
@@ -148,12 +151,15 @@ protected:
             if (parent) for (int index = 0; index < parent->childCount(); ++index) {
                 auto* child = parent->child(index);
                 const auto role = child->data(0,Qt::UserRole+3).toString();
-                const bool entry = document_level ? role == "part-body" || role == "part-body-boolean"
+                const bool entry = assembly_level ? role == "part-occurrence" || role == "assembly-occurrence" ||
+                    role == "assembly-sketch-container" || role == "assembly-cut" || role == "assembly-construction"
+                    : document_level ? role == "part-body" || role == "part-body-boolean"
                     : role == "part-container" || role == "part-sketch" || role == "part-construction";
                 if (entry && visualItemRect(child).center().y() < event->position().toPoint().y()) ++cursor;
             }
             if (valid_parent) {
-                if ((document_level || !owner.isEmpty()) && body_cursor_moved) body_cursor_moved(owner,cursor);
+                if(assembly_level && assembly_cursor_moved)assembly_cursor_moved(cursor);
+                else if ((document_level || !owner.isEmpty()) && body_cursor_moved) body_cursor_moved(owner,cursor);
                 else if (history_cursor_moved) history_cursor_moved(cursor);
             }
         }

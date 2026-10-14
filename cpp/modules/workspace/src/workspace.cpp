@@ -979,6 +979,7 @@ std::string Workspace::insert_open_part(
         occurrence.body_color_override = style.body.color;
     }
     const std::string occurrence_id = occurrence.occurrence_id;
+    next.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Component,occurrence_id);
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
     assembly->session.commit(std::move(next));
@@ -1029,6 +1030,7 @@ std::string Workspace::insert_open_assembly(
         calculated_source);
     zima::assembly::capture_nested_mass(occurrence,calculated_source);
     const std::string occurrence_id = occurrence.occurrence_id;
+    next.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Component,occurrence_id);
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
     owner->session.commit(std::move(next));

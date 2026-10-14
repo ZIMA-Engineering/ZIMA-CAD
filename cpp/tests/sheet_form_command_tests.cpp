@@ -1,5 +1,6 @@
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
@@ -161,6 +162,7 @@ int main(){try {
     replaced.sheet_form.support=saved().find_container(feature.id)->sheet_form.support;
     check(workspace::commit_sheet_form(live,kernel,part.document_id,replaced),"Nonempty FORM_FLAT replacement failed");
     check(saved().find_container(feature.id)->placement==attachment,"FORM_FLAT replacement changed attachment");
+    const auto spatial=document::serialize_body_result(boundaries().back());
     auto flatten=document::PartDocument::create_sketch_container();flatten.feature_kind=document::FeatureKind::Unbend;
     flatten.sheet_state.all=false;flatten.sheet_state.owners={feature.id};
     check(workspace::commit_sheet_state(live,kernel,part.document_id,flatten),"FORM flatten command failed");
@@ -169,7 +171,11 @@ int main(){try {
     packets=workspace::drawing_annotation_sources(&live,part.document_id,{});
     check(symbol(packets).symbol.id==initial.symbol.id,"Flattening changed FORM_SYMBOL ancestry");
     check(workspace::step_part_document_history(live,part.document_id,false),"FORM flatten Undo failed");
-    check(boundaries().back().volume>40000.,"FORM flatten Undo did not restore the spatial skin");
+    check(document::serialize_body_result(boundaries().back())==spatial,"FORM flatten Undo changed the spatial geometry or references");
+    // Ordinary editing may defer scalar analysis. Inspect its exact retained
+    // native result explicitly rather than treating a pending volume as zero.
+    auto analyzed=boundaries().back();kernel.ensure_body_properties(analyzed);
+    check(analyzed.volume>40000.,"FORM flatten Undo did not restore the spatial skin");
     packets=workspace::drawing_annotation_sources(&live,part.document_id,{});
     auto dependent=saved();auto dependent_feature=document::PartDocument::create_sketch_container();
     dependent_feature.feature_kind=document::FeatureKind::Sketch;

@@ -249,9 +249,9 @@ std::optional<MeasurementGeometry> measure_entity(const kernel::ViewerMesh& mesh
                 out.approximate=!straight(edge.points);out.values.length=V{edge.measured_length.value_or(length),!edge.measured_length&&out.approximate};return;
             }
         if(request.kind==K::Face||request.kind==K::Plane||request.kind==K::Object){
-            std::map<std::tuple<std::string,std::string,std::string>,std::optional<double>> face_areas;
+            std::map<std::tuple<std::string,std::string,std::string>,kernel::FaceReference> face_areas;
             std::size_t previous_face=0;
-            std::optional<double>* previous_area=nullptr;
+            kernel::FaceReference* previous_area=nullptr;
             for(std::size_t i=0;i<source.triangle_references.size()&&i*3+2<source.triangles.size();++i){
                 const auto& ref=source.triangle_references[i];if(!matches(ref,request))continue;
                 if(request.kind==K::Plane&&ref.surface&&ref.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
@@ -266,7 +266,7 @@ std::optional<MeasurementGeometry> measure_entity(const kernel::ViewerMesh& mesh
                     previous_area=&face_areas[{ref.owner_id,ref.semantic_key,ref.instance_path}];
                     previous_face=i;
                 }
-                *previous_area=ref.measured_area;
+                *previous_area=ref;
                 if(!ref.surface||ref.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)out.approximate=true;
                 if(request.kind==K::Plane){
                     const auto& t=out.triangles.back();const auto normal=unit(cross(sub(t[1],t[0]),sub(t[2],t[0])));
@@ -274,7 +274,8 @@ std::optional<MeasurementGeometry> measure_entity(const kernel::ViewerMesh& mesh
                 }
             }
             if(!face_areas.empty()){
-                double sum=0;bool known=true;for(const auto& [key,area]:face_areas){if(area)sum+=*area;else known=false;}
+                double sum=0;bool known=true;for(const auto& [key,face]:face_areas){
+                    out.source_faces.push_back(face);if(face.measured_area)sum+=*face.measured_area;else known=false;}
                 if(known)out.values.area=V{sum,false};
             }
         }

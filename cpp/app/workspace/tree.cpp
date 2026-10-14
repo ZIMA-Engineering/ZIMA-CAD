@@ -475,7 +475,7 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     font.setStrikeOut(false);
     row->setFont(0, font);
     if (feature) {
-        row->setIcon(0, resource_icon(feature_icon_name(*feature),feature->is_surface_result()));
+        row->setIcon(0, resource_tree_icon(feature_icon_name(*feature),feature->is_surface_result()));
         const zima::sketcher::Sketch* sketch = nullptr;
         const zima::kernel::ViewerReferenceGeometry* calculated_references=nullptr;
         const auto find_sketch = [&](const auto& document) {
@@ -530,7 +530,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
              (container.suppressed ? tr(" [potlačeno]") : QString{})});
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
         item->setData(0, Qt::UserRole + 3, "part-container");
-        item->setIcon(0, resource_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
+        item->setIcon(0, resource_tree_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
             !container.thread.enabled ? QStringLiteral("hole") : feature_icon_name(container),container.is_surface_result()));
         const auto owned_sketch = std::find_if(document.sketches.begin(),
             document.sketches.end(), [&](const auto& sketch) {
@@ -848,7 +848,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
             item->setData(0, Qt::UserRole + 1, QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-sketch-container");
-            item->setIcon(0, resource_icon(feature_icon_name(container),container.is_surface_result()));
+            item->setIcon(0, resource_tree_icon(feature_icon_name(container),container.is_surface_result()));
             const auto& sketches = assembly->session.document().sketches;
             const auto sketch = std::ranges::find(sketches, container.id, &zima::sketcher::Sketch::owner_container_id);
             add_history_container_tree_children(item, container, parent_path,
@@ -868,7 +868,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
                 QString::fromStdString(cut.definition.id));
             item->setData(0, Qt::UserRole + 1, QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-cut");
-            item->setIcon(0, resource_icon(
+            item->setIcon(0, resource_tree_icon(
                 feature_icon_name(cut.definition)));
             const auto owned_sketch = std::find_if(
                 assembly->session.document().sketches.begin(),
@@ -913,15 +913,36 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     add_snapshot_tree_children(
         parent, assembly->session.document().occurrence_snapshot(),
         assembly_document_id, parent_path, ancestor_suppressed);
+    const auto history=assembly->session.document().complete_history_order();
+    const auto cursor=assembly->session.document().effective_history_cursor();
+    std::map<std::string,QTreeWidgetItem*> rows;
+    for(int i=0;i<parent->childCount();++i) {
+        auto* row=parent->child(i);rows.emplace(row->data(0,Qt::UserRole).toString().toStdString(),row);
+    }
+    std::vector<QTreeWidgetItem*> ordered;
+    std::size_t marker_position=0;
+    for(std::size_t i=0;i<history.size();++i)if(const auto row=rows.find(history[i].id);row!=rows.end()) {
+        parent->takeChild(parent->indexOfChild(row->second));ordered.push_back(row->second);
+        if(i<cursor)++marker_position;
+        else {
+            row->second->setForeground(0,QBrush(QColor(125,125,125)));
+            auto font=row->second->font(0);font.setItalic(true);row->second->setFont(0,font);
+        }
+    }
+    const auto first=parent->childCount();
+    for(std::size_t i=0;i<ordered.size();++i)parent->insertChild(first+static_cast<int>(i),ordered[i]);
     if (assembly_document_id == workspace_.active_document_id() &&
-        parent_path.occurrence_ids.empty()) {
-        auto* insert_here = new QTreeWidgetItem(parent, {tr("← Vložit zde")});
+        parent_path.encoded()==workspace_.active_occurrence_path()&&part_history_insertion_allowed()) {
+        auto* insert_here = new QTreeWidgetItem({tr("← Vložit zde")});
         insert_here->setData(0, Qt::UserRole + 3, "assembly-insert-here");
+        insert_here->setData(0,Qt::UserRole+1,QString::fromStdString(parent_path.encoded()));
+        parent->insertChild(first+static_cast<int>(marker_position),insert_here);
         auto font = insert_here->font(0);
         font.setBold(true);
         insert_here->setFont(0, font);
-        insert_here->setForeground(0, QBrush(QColor("#00D1FF")));
-    }    if (assembly_document_id == workspace_.active_document_id())
+        insert_here->setForeground(0, QBrush(QColor("#E53935")));
+    }
+    if (assembly_document_id == workspace_.active_document_id())
         add_pending_tree_item(parent, assembly_document_id, parent_path, true);
 
 }

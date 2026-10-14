@@ -5,6 +5,12 @@ The October 14 follow-ups are included in signed Windows
 committed-source packaging, signed-package GUI/native checks and public/update
 acceptance. The measurements below retain their original finite scope.
 
+The subsequent local [selection and requested-analysis follow-up](performance/20261014-step-selection-and-demand-analysis.md)
+preserves Tree selection/icon behavior, defers per-face area integration to an
+explicit inspector and reduces native-save allocation work. It is not part of
+the immutable `2026101401` release. Its record separates cold calculations,
+ordinary edits, exact-result checks and remaining serialization costs.
+
 For new commands and feature extensions, follow the
 [performance-by-design guide](FEATURE_PERFORMANCE_GUIDE.md). It translates the
 measured optimizations into lifecycle, ownership and verification rules.

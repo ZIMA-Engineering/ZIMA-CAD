@@ -4,6 +4,40 @@
 #include <algorithm>
 
 namespace zima::workspace {
+std::vector<assembly::AssemblyDocument::HistoryEntry> reordered_assembly_history(
+        const assembly::AssemblyDocument& document,const std::string& object,const std::string& before) {
+    const auto current=document.complete_history_order();std::vector<std::string> ids;
+    std::map<std::string,assembly::AssemblyDocument::HistoryEntry> entries;
+    for(const auto& entry:current){ids.push_back(entry.id);entries.emplace(entry.id,entry);}
+    const auto changed=reordered_history(ids,object,before);std::vector<assembly::AssemblyDocument::HistoryEntry> result;
+    for(const auto& id:changed)result.push_back(entries.at(id));return result;
+}
+void validate_assembly_history_order(const assembly::AssemblyDocument& document,
+        const std::vector<assembly::AssemblyDocument::HistoryEntry>* proposed) {
+    const auto order=proposed?*proposed:document.complete_history_order();std::map<std::string,std::size_t> positions;
+    for(std::size_t i=0;i<order.size();++i)positions.emplace(order[i].id,i);
+    auto dependencies=assembly_component_dependencies(document);
+    const auto local=part_history_dependency_graph(document.feature_document());
+    dependencies.insert(local.edges.begin(),local.edges.end());
+    for(const auto& [consumer,path,owner,key]:local.references)if(!path.empty()) {
+        const auto address=assembly::InstancePath::decode(path);
+        if(!address.occurrence_ids.empty()&&document.find_occurrence(address.occurrence_ids.front()))
+            dependencies.emplace(address.occurrence_ids.front(),consumer);
+    }
+    for(const auto& cut:document.cuts)for(const auto& target:cut.target_occurrence_ids)
+        dependencies.emplace(target,cut.definition.id);
+    for(const auto& [source,consumer]:dependencies)if(positions.contains(source)&&positions.contains(consumer)&&
+        source!=consumer&&positions.at(source)>=positions.at(consumer))
+        throw HistoryOperationError("history_dependency","The move would place a reference before its source.");
+}
+bool set_assembly_history_cursor(Workspace& live,const std::string& id,std::size_t cursor) {
+    auto* state=live.open_assembly(id);
+    if(!state)throw HistoryOperationError("unsupported_document","History operations require an open Assembly.");
+    auto next=state->session.document();next.synchronize_history();
+    if(cursor>next.history_order.size())throw HistoryOperationError("invalid_arguments","The history index is outside the document history.");
+    if(cursor==next.effective_history_cursor())return false;
+    next.history_cursor=cursor;state->session.commit(std::move(next));return true;
+}
 bool move_assembly_history(Workspace& live, const std::string& document_id,
     const kernel::OcctKernel& kernel, const std::string& object,
     const std::string& before, bool commit) {
@@ -66,8 +100,11 @@ bool move_assembly_history(Workspace& live, const std::string& document_id,
         throw HistoryOperationError("history_dependency",
             "The move would place a reference before its source.");
     if (reordered == order) return false;
+    const auto history=reordered_assembly_history(original,object,before);
+    validate_assembly_history_order(original,&history);
     if (!commit) return true;
     auto next = original;
+    next.history_order=history;
     switch (kind) {
     case Kind::Component:
         sort_history_records(next.components, reordered, [](const auto& value) { return value.occurrence_id; });

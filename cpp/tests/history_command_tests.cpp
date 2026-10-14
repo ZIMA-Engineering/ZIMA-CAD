@@ -119,7 +119,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         live.active_document_id()==active&&live.displayed_document_id()==displayed&&
         live.open_part(doc)->session.revision()==inactive_revision&&live.open_part(doc)->session.data_generation()==inactive_generation&&
         live.open_part(doc)->session.calculated_boundaries().data()==inactive_cache,"Inactive history query used or changed the active document");
-    require(host.execute_text("history.cursor 0").code=="unsupported_document","Part history mutated Assembly");
+    const auto assembly_revision=live.open_assembly(active)->session.revision();
+    const auto cursor=host.execute_text("history.cursor 0");
+    require(cursor.ok&&!cursor.data.at("changed").get<bool>()&&live.open_assembly(active)->session.revision()==assembly_revision,
+        "Unchanged empty Assembly cursor created history");
 }
 }
 int main() {

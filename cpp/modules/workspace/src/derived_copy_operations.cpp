@@ -80,7 +80,8 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
         for(const auto& component:assembly->session.document().components) {
             if(component.occurrence_id==object)break;
             ++result.boundary;
-            if(!component.suppressed)result.items.push_back({component.occurrence_id,component.name,CopySourceKind::Component,component.visible});
+            if(!component.suppressed&&(object.empty()?assembly->session.document().history_visible(component.occurrence_id):true))
+                result.items.push_back({component.occurrence_id,component.name,CopySourceKind::Component,component.visible});
         }
         return result;
     }

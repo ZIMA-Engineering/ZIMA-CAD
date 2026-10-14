@@ -348,7 +348,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             const auto direction=container.feature.symmetric?QObject::tr("Obě strany"):
                 side==0?QObject::tr("Strana 1"):QObject::tr("Strana 2");
             auto* row=new QTreeWidgetItem(parent,{name+QStringLiteral(" — ")+direction});
-            row->setIcon(0,resource_icon(rotation?"revolve":"protrusion",container.is_surface_result()));
+            row->setIcon(0,resource_tree_icon(rotation?"revolve":"protrusion",container.is_surface_result()));
             row->setData(0,Qt::UserRole,QString::fromStdString(container.id));
             row->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
             row->setData(0,Qt::UserRole+3,"feature-operation");
@@ -363,7 +363,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         ? QObject::tr("Plochy závitu")
         : QString::fromStdString(container.name);
     auto* feature = new QTreeWidgetItem(parent, {feature_label});
-    feature->setIcon(0, resource_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
+    feature->setIcon(0, resource_tree_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
             !container.thread.enabled ? QStringLiteral("hole") : feature_icon_name(container)));
     feature->setData(0, Qt::UserRole, QString::fromStdString(
         assembly_owned ? container.id : container.feature_id));

@@ -1,5 +1,22 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## STEP analysis and Assembly history follow-up (2026-10-14)
+
+The shared implementation adds requested exact face analysis, bounded exact
+Subtract-prefix references, native save allocation improvements and stable
+ordinary feature selection. Run the finite native/GUI matrices described in
+[the performance record](performance/20261014-step-selection-and-demand-analysis.md).
+Measurement must remain read-only and integrate actual native faces; deferred
+scalar properties are completed only for explicit inspection.
+
+Assembly JSON 48 / INI 36 stores one typed history and insertion cursor including
+immediate components. Use the committed regenerated start templates and native
+factory assets. Verify real Tree dragging, mixed middle insertion, cached cut
+input restoration, nested active occurrences with passive parent context,
+Undo/Redo and save/reopen, as described in
+[Assembly history](ASSEMBLY_HISTORY_CURSOR.md). Older Assembly formats have no
+migration path. Windows acceptance does not establish Linux execution.
+
 ## File Manager and preview follow-up (2026-10-12)
 
 The Windows follow-up adds combined file-name/check/preview cells, movable and
