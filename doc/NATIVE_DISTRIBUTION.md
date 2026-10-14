@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Signed Windows [2026101403](releases/2026101403.md#windows-acceptance-and-signed-publication)
+was published at `2026-10-14T18:04:36Z`. Ordinary Part Save writes once
+without a complete automatic readback; the representative 853 MB model saves
+in about 44 rather than 79 seconds. Circle endpoint entry and trimming preserve
+native contact topology, and the saved rounded rectangle accepts repeated
+edits and drags. The 288-case native matrix, dependent Extrusions, complete
+48-scenario Arc-axis GUI study, exact roundtrips, candidate/signed smoke,
+20 factory loads, eight packaged GUI workflows and public asset digests pass.
+Signed 1402 offers an installable update. Native formats, protected placement,
+precision and shared C++ remain unchanged. Opening has no demonstrated gain;
+Linux execution remains unverified.
+
 Signed Windows [2026101402](releases/2026101402.md#signed-windows-publication)
 was published at `2026-10-14T14:24:45Z`. It adds stable feature selection,
 requested exact face analysis, native-save allocation improvements and the
