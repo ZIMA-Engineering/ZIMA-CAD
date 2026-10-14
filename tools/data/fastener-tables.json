@@ -11487,6 +11487,13 @@
       "Eigenes Erläuterungsschema; keine normative Fertigungszeichnung. Zeichen beschreiben die gezeigte Bauart; nicht jeder Tabellenparameter ist eingezeichnet.",
       "Schéma explicatif propre; pas un plan de fabrication normatif. Symboles du type illustré; tous les paramètres du tableau ne sont pas dessinés.",
       "Собственная поясняющая схема; не нормативный производственный чертёж. Обозначения относятся к показанному типу; не все параметры таблицы изображены."
+    ],
+    "property_class_identifiers": [
+      "4.6, 5.6, 8.8, 10.9, 12.9",
+      "4.6, 5.6, 8.8, 10.9, 12.9",
+      "4.6, 5.6, 8.8, 10.9, 12.9",
+      "4.6, 5.6, 8.8, 10.9, 12.9",
+      "4.6, 5.6, 8.8, 10.9, 12.9"
     ]
   },
   "sources": {
@@ -12672,7 +12679,9 @@
           {
             "key": "property_class"
           },
-          "4.6, 5.6, 8.8, 10.9, 12.9"
+          {
+            "key": "property_class_identifiers"
+          }
         ]
       ],
       "notes": [],

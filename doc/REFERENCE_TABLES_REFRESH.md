@@ -78,7 +78,8 @@ checked, without claiming inspection allowances, fatigue or material design.
 Original shaft-end/spline/involute diagrams accompany appropriate tables.
 
 `fastener-tables.json` separates product grades A/B/C from property classes such
-as 8.8. Labels remove false grade C from ISO 4762 and identify full fine-thread
+as 8.8. These identifiers retain full stops in all five languages, regardless
+of ordinary decimal punctuation. Labels remove false grade C from ISO 4762 and identify full fine-thread
 hexagon screws with ISO 8676 rather than ISO 8765. Published 2026 references are
 distinguished from drafts; ISO 4034/4036/8839 withdrawal is explicit. Numerical
 source tables remain unverified against complete current standards. [B] and [F]
