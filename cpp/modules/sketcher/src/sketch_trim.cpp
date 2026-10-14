@@ -1160,6 +1160,35 @@ SketchTrimResult apply_sketch_trim(
             }
         }
     }
+    // A survivor boundary at a persisted contact must own that exact point.
+    // Coordinate snapping can otherwise choose an earlier nearby endpoint
+    // and leave the restored T/C/C on a second, coincident native point.
+    // Reuse the normal topology merge to retain all incident geometry and
+    // relations; never merge unrelated points merely because they are close.
+    for (const auto& contact : persisted_contacts) {
+        const auto mapping=result.geometry_mapping.find(contact.geometry_id);
+        if(mapping==result.geometry_mapping.end() || !next.find_point(contact.point_id))continue;
+        const auto& domains=survivor_domains.at(contact.geometry_id);
+        for(std::size_t i=0;i<mapping->second.size();++i) {
+            const auto& survivor=mapping->second[i];
+            std::array<std::string,2> endpoints;
+            if(const auto segment=std::ranges::find(next.segments,survivor,&SketchSegment::id);segment!=next.segments.end())
+                endpoints={segment->first_point_id,segment->second_point_id};
+            else if(const auto arc=std::ranges::find(next.arcs,survivor,&SketchArc::id);arc!=next.arcs.end())
+                endpoints={arc->start_point_id,arc->end_point_id};
+            else if(const auto arc=std::ranges::find(next.elliptical_arcs,survivor,&SketchEllipticalArc::id);arc!=next.elliptical_arcs.end())
+                endpoints={arc->start_point_id,arc->end_point_id};
+            else continue;
+            for(std::size_t side=0;side<2;++side) {
+                double distance=std::abs(domains[i][side]-contact.parameter);
+                if(curve_by_id.at(contact.geometry_id)->closed)distance=std::min(distance,std::abs(distance-1.));
+                if(distance>1e-8 || endpoints[side]==contact.point_id)continue;
+                const auto* endpoint=next.find_point(endpoints[side]);const auto* point=next.find_point(contact.point_id);
+                if(!endpoint || !point || std::hypot(endpoint->x-point->x,endpoint->y-point->y)>snap_tolerance)continue;
+                static_cast<void>(next.merge_points(contact.point_id,endpoints[side]));
+            }
+        }
+    }
     // A restored contact becomes pure topology when the reconstructed
     // survivor owns that exact point as an endpoint/control point. Keep the
     // one shared native point and remove only the now-redundant C equation;

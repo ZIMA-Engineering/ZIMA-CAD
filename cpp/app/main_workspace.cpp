@@ -6256,6 +6256,7 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
 
 #include "refresh_scope_ui_verification.inc"
 #include "sketch_mirror_ui_verification.inc"
+#include "sketch_circle_endpoint_ui_verification.inc"
 
 int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -9465,6 +9466,11 @@ int verify_startup_contract(
         return verify_form_edge_display_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COMMON_TANGENT_ONLY"))
         return verify_sketch_common_tangent_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CIRCLE_ENDPOINT_ONLY"))
+        return verify_sketch_circle_endpoint_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_ARC_DIMENSIONS_ONLY")) {
+        verify_form_edge_dimension_ui(application,test_directory,true);return 0;
+    }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MIRROR_ONLY"))
         return verify_sketch_mirror_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))

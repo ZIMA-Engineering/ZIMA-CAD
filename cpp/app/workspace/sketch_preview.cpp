@@ -1255,15 +1255,26 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
                     pending_curve_point_snaps_[0].first,
                     pending_curve_point_snaps_[0].second);
             }
-            // A free second click only defines the radius. Persist a separate
-            // contact point when the cursor explicitly offered a snap or C+T.
+            // A free second click only defines the radius. A native point snap
+            // or tangent at an existing endpoint reuses that exact node.
+            // Only an independent contact needs a newly created point.
             if (has_rim_contact_snap || tangent) {
                 std::array rim_position{(*position)[0], (*position)[1]};
                 if (tangent) rim_position = tangent->contact;
-                auto rim_point = zima::sketcher::Sketch::create_point(
-                    rim_position[0], rim_position[1]);
-                const auto rim_point_id = rim_point.id;
-                target.points.push_back(std::move(rim_point));
+                std::string rim_point_id;
+                if(has_rim_contact_snap && rim_snap.second==zima::sketcher::ConstraintKind::Coincident &&
+                    target.find_point(rim_snap.first))rim_point_id=rim_snap.first;
+                if(rim_point_id.empty() && tangent) {
+                    const auto line=std::ranges::find(target.segments,tangent->support_id,&zima::sketcher::SketchSegment::id);
+                    if(line!=target.segments.end())for(const auto& endpoint:{line->first_point_id,line->second_point_id}) {
+                        const auto* point=target.find_point(endpoint);
+                        if(std::hypot(point->x-rim_position[0],point->y-rim_position[1])<=1e-6){rim_point_id=endpoint;break;}
+                    }
+                }
+                if(rim_point_id.empty()) {
+                    auto rim_point=zima::sketcher::Sketch::create_point(rim_position[0],rim_position[1]);
+                    rim_point_id=rim_point.id;target.points.push_back(std::move(rim_point));
+                }
                 // Tangency is added before the two incidence relations because
                 // the incremental solver can otherwise classify it as redundant.
                 if (tangent) {
@@ -1278,7 +1289,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
                     rim_snap.second ==
                         tangent->contact_kind;
                 if (has_rim_contact_snap && !tangent_snap_already_owned) {
-                    apply_sketch_point_snap(target, rim_point_id,
+                    rim_point_id=apply_sketch_point_snap(target, rim_point_id,
                         rim_snap.first, rim_snap.second);
                 }
                 if (tangent) {

@@ -1124,6 +1124,20 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_trimmed_rectangle_arc_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_executable(zima_cpp_trimmed_rectangle_extrusion_tests tests/trimmed_rectangle_extrusion_tests.cpp)
+    target_link_libraries(zima_cpp_trimmed_rectangle_extrusion_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_trimmed_rectangle_extrusion_tests COMMAND zima_cpp_trimmed_rectangle_extrusion_tests)
+    set_tests_properties(zima_cpp_trimmed_rectangle_arc_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/trimmed-rectangle-circle.json" TIMEOUT 180)
+    add_test(NAME zima_cpp_circle_endpoint_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_circle_endpoint_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CIRCLE_ENDPOINT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME zima_cpp_trimmed_rectangle_arc_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_trimmed_rectangle_arc_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RECTANGLE_ARC_DIMENSIONS_ONLY=1;ZIMA_FORM_EDGE_SKETCH_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/trimmed-rectangle-circle.json"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_native_tangent_contact_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_test(NAME zima_cpp_native_arc_axis_tests COMMAND zima_cpp_sketcher_contract_tests)
     set_tests_properties(zima_cpp_native_arc_axis_tests PROPERTIES

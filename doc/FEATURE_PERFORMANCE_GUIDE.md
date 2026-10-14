@@ -139,5 +139,10 @@ separately from those checks. The finite large-import evidence is in the
   Verify complete candidate ordering and fresh-versus-cached results after a
   scene revision, and distinguish picker time from scene publication.
 
+- [Single-write native Part save](performance/20261014-native-save-and-trimmed-circle.md):
+  write the validated current representation once, check stream closure before
+  replacement, and keep complete model readback in development tests. Avoid
+  automatically reloading the full saved history during ordinary Save.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

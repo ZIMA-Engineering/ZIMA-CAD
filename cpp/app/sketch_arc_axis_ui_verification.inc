@@ -51,16 +51,23 @@ int verify_sketch_arc_axis_ui(QApplication& application,const std::filesystem::p
             };
             const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
             const auto pick=[&](const std::string& key) {
-                view->clear_selection();std::optional<QPointF> pos;unsigned active{};
+                view->clear_selection();std::optional<QPointF> pos;
                 for(int y=16;y<view->height()-16&&!pos;y+=3)for(int x=16;x<view->width()-16;x+=3) {
                     const auto offered=view->selection_candidates_at(QPointF(x,y));
-                    for(unsigned n=0;n<offered.size();++n)if(offered[n].owner_id==sketch.id&&offered[n].semantic_key==key){pos=QPointF(x,y);active=n;break;}
+                    for(const auto& candidate:offered)if(candidate.owner_id==sketch.id&&candidate.semantic_key==key){pos=QPointF(x,y);break;}
                     if(pos)break;
                 }
                 if(!pos)throw std::runtime_error("Native common picker candidate missing: "+key);
                 mouse(*pos,QEvent::MouseMove,Qt::NoButton);
-                for(unsigned n=0;n<active;++n){mouse(*pos,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);mouse(*pos,QEvent::MouseButtonRelease,Qt::RightButton);}
-                check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==key,"Arc axis hover/click mismatch");
+                // Clearing confirmed selection does not reset the retained
+                // hover cycle. Cycle from the actual offered candidate rather
+                // than assuming its active index starts at zero.
+                const auto offered=view->selection_candidates_at(*pos);
+                for(std::size_t n=0;n<offered.size()&&(!view->hovered_candidate()||
+                    view->hovered_candidate()->owner_id!=sketch.id||view->hovered_candidate()->semantic_key!=key);++n){
+                    mouse(*pos,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);mouse(*pos,QEvent::MouseButtonRelease,Qt::RightButton);
+                }
+                check(view->hovered_candidate()&&view->hovered_candidate()->owner_id==sketch.id&&view->hovered_candidate()->semantic_key==key,"Arc axis hover/click mismatch");
                 mouse(*pos,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(*pos,QEvent::MouseButtonRelease,Qt::LeftButton);return *pos;
             };
             window.findChild<QAction*>("sketchCoincidentAction")->trigger();flush();

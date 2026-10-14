@@ -430,7 +430,10 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 // The circle-distance equation alone is singular there and
                 // admits a tiny tangential drift outside the finite arc domain.
                 const auto a=std::ranges::find(next.arcs,circle_id,&SketchArc::id);
-                if(a!=next.arcs.end())for(const auto& id:{a->start_point_id,a->end_point_id})if(std::ranges::any_of(next.constraints,[&](const auto& support){
+                const auto segment=std::ranges::find(next.segments,line_id,&SketchSegment::id);
+                if(a!=next.arcs.end())for(const auto& id:{a->start_point_id,a->end_point_id})if(
+                    (segment!=next.segments.end() && (segment->first_point_id==id || segment->second_point_id==id)) ||
+                    std::ranges::any_of(next.constraints,[&](const auto& support){
                     return !support.suppressed&&support.kind==ConstraintKind::PointOnLine&&
                         support.first_point_id==id&&support.geometry_id==line_id;
                 })) {

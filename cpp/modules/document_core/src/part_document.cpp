@@ -1035,33 +1035,33 @@ void write_part_ini(
         cache["data"]=storage.dump();profile.phase("cache text encoding");
     }
     profile.phase("INI/cache preparation");
-    // Release the expanded history before the independent validation reload.
-    // The lossless INI/cache text now owns everything needed for writing;
-    // keeping both representations alive needlessly multiplies peak memory.
+    // The lossless INI/cache text now owns everything needed for one write.
+    // Release the expanded history before opening the output stream.
     root.clear();
     profile.phase("release serialized history");
     const auto temporary = path.string() + ".tmp";
-    {
+    bool output_opened=false;
+    try {
         std::ofstream output(temporary, std::ios::trunc);
         if (!output) throw std::runtime_error("Cannot write document: " + path.string());
+        output_opened=true;
         for (const auto& [section, values] : ini) {
             output << "[" << section << "]\n";
             for (const auto& [key, value] : values) output << key << "=" << value << "\n";
             output << "\n";
         }
+        // Closing can report a buffered write failure that was not visible
+        // before the final flush. Never replace the original after that error.
+        output.close();
         if (!output) throw std::runtime_error("Document write failed: " + path.string());
+    } catch (...) {
+        std::error_code error;
+        if(output_opened)std::filesystem::remove(temporary, error);
+        throw;
     }
     profile.phase("disk write");
     ini.clear();
     profile.phase("release encoded text");
-    try {
-        static_cast<void>(PartDocument::load(temporary));
-    } catch (...) {
-        std::error_code error;
-        std::filesystem::remove(temporary, error);
-        throw;
-    }
-    profile.phase("validation reload");
     archive_existing_file(path);
     std::filesystem::rename(temporary, path);
 }
@@ -12923,7 +12923,7 @@ void PartDocument::save(const std::filesystem::path& path,
     if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
     NativeIoProfile profile("Part save");
     auto root=serialized(calculated,copy);profile.phase("document serialization");
-    write_part_ini(std::move(root),path);profile.phase("write and validation");
+    write_part_ini(std::move(root),path);profile.phase("write and commit");
 }
 
 }  // namespace zima::document

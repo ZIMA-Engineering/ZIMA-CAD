@@ -30,6 +30,20 @@ constraints. This removes four spurious degrees of freedom in the completely
 dimensioned two-arc fixture. Fully fixed and fully dimensioned graphs cannot
 escape their constraints during dragging.
 
+## Circle creation at a native endpoint and trimming
+
+A circle rim click on an existing native point reuses that point. Its circle
+incidence adds C; tangency at the segment endpoint adds T without a redundant
+C for the segment's own point. When trimming produces an Arc boundary at an
+existing persisted contact, the surviving Arc owns that exact native point.
+The shared-endpoint tangent equation participates in later dimension editing
+and manipulation, not only the initial solve.
+
+The saved rectangle/circle profile and its two trim orders have a separate
+288-case native matrix, actual mouse creation/trim/edit checks and dependent
+Extrusion/Undo/Redo/persistence checks. See the
+[finite repair record](performance/20261014-native-save-and-trimmed-circle.md).
+
 ## Finite regression matrix
 
 `zima_cpp_native_tangent_contact_tests` covers 108 cases. Equations are checked

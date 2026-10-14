@@ -14,10 +14,26 @@
 #include <QCryptographicHash>
 #include <chrono>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/native_read_capture.hpp>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
 void verify_parameter_inspection(const fs::path& directory) {
+    {
+        const auto path=directory/"single-write.prtz";
+        auto model=document::PartDocument::create_default();
+        document::NativeReadCapture reads;
+        {document::NativeReadCapture::Scope scope(reads);model.save(path);}
+        require(reads.unchanged(),"Native save reopened its temporary output");
+        const auto original=document::PartDocument::load(path).serialized();
+        const auto temporary=fs::path(path.string()+".tmp");fs::create_directory(temporary);
+        {std::ofstream sentinel(temporary/"sentinel");sentinel<<"retain";}
+        model.name="failed-write";bool rejected=false;
+        try {model.save(path);}catch(const std::exception&){rejected=true;}
+        require(rejected&&document::PartDocument::load(path).serialized()==original&&fs::exists(temporary/"sentinel"),
+            "Failed single write replaced its original or removed an unrelated output path");
+        fs::remove(temporary/"sentinel");fs::remove(temporary);
+    }
     const auto compare=[&](const auto& full,const fs::path& path){
         const document::UserParameterData expected{full.user_parameters,full.user_parameter_order,full.user_parameter_labels,full.user_parameter_values};
         require(document::read_native_user_parameters(path)==expected,"Parameter inspection differs from full native loading");

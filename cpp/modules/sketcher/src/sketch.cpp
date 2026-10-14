@@ -3200,6 +3200,28 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     const auto on_axis=[&](const char* axis){return std::ranges::any_of(next.constraints,[&](const auto& c){return
         !c.suppressed&&c.kind==ConstraintKind::PointOnLine&&c.first_point_id==point_id&&c.geometry_id==axis;});};
     if(on_axis("sketch_axis:x")&&on_axis("sketch_axis:y"))return false;
+    // A persisted independent C+T contact and a shared Arc/line endpoint
+    // denote the same unique tangent point. Manipulate its defining endpoint
+    // before ordinary C projection can pin the contact to the old supports.
+    // Keep both persisted identities; the complete solver verifies the move.
+    const auto owns_point=[&](const auto& curves){return std::ranges::any_of(curves,[&](const auto& curve){return geometry_owns_point(*this,curve.id,point_id);});};
+    if(!owns_point(segments)&&!owns_point(circles)&&!owns_point(arcs)&&!owns_point(ellipses)&&!owns_point(elliptical_arcs)&&!owns_point(bsplines))
+    for(const auto& c:constraints) {
+        if(c.suppressed||c.kind!=ConstraintKind::Tangent||c.first_point_id!=point_id)continue;
+        for(const auto& [curve_id,line_id]:{std::pair{c.geometry_id,c.second_geometry_id},std::pair{c.second_geometry_id,c.geometry_id}}) {
+            const auto arc=std::ranges::find(arcs,curve_id,&SketchArc::id);
+            const auto line=std::ranges::find(segments,line_id,&SketchSegment::id);
+            if(arc==arcs.end()||line==segments.end()||bound_external_line_contact(*this,line_id,curve_id)!=point_id)continue;
+            for(const auto& endpoint:{arc->start_point_id,arc->end_point_id}) {
+                if(endpoint==point_id||(line->first_point_id!=endpoint&&line->second_point_id!=endpoint))continue;
+                const auto original=*point;
+                if(!next.move_point(endpoint,x,y))return false;
+                const auto* moved=next.find_point(point_id);
+                if(!moved||std::hypot(moved->x-original.x,moved->y-original.y)<1e-9)return false;
+                *this=std::move(next);return true;
+            }
+        }
+    }
     const double original_x = point->x;
     const double original_y = point->y;
     // An unlocked symmetric distance still owns equal distances to its axis.

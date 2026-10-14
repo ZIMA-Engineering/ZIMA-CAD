@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include "native_tangent_contact_study.hpp"
 #include "native_arc_axis_study.hpp"
+#include "trimmed_rectangle_arc_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -28,8 +29,11 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        if(const auto* path=std::getenv("ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC"))return run_trimmed_rectangle_arc_study(path);
         if(std::getenv("ZIMA_CPP_VERIFY_ARC_AXIS_ONLY"))return run_native_arc_axis_study();
         if(std::getenv("ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT"))return run_native_tangent_contact_study();
+        const auto rectangle_fixture=(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/trimmed-rectangle-circle.json").string();
+        run_trimmed_rectangle_arc_study(rectangle_fixture.c_str());
         run_form_sweep_profile_study();
         run_external_point_circle_segment_study();
         run_sketch_tangent_reference_studies();

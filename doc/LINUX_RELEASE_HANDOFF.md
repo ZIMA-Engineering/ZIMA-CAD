@@ -1,4 +1,21 @@
-# Linux build and distribution handoff — 2026-09-15
+# Linux build and distribution handoff â€” 2026-09-15
+
+## Single-write Save and trimmed circle follow-up (2026-10-14)
+
+The shared Part writer no longer performs a complete automatic temporary-file
+load on ordinary Save. It checks final stream closure before replacement;
+independent exact model roundtrip remains a development test. Run the metadata,
+native-document and cache contracts on Linux, including failed output opening
+without altering the previous document or an unrelated temporary directory.
+
+Circle rim entry on a native point and Trim survivor boundaries preserve that
+point's identity. Verify the 288-case rectangle/circle native study, dependent
+Extrusion/Undo/Redo/persistence study and actual endpoint/trim/dimension/drag
+GUI workflows. Established native/external contact and all 48 Arc-axis GUI
+scenarios remain required adjacent coverage. The reader format and protected
+container placement are unchanged. See the
+[finite measurement/repair record](performance/20261014-native-save-and-trimmed-circle.md).
+Windows results do not establish Linux execution or identical local timings.
 
 ## STEP analysis and Assembly history follow-up (2026-10-14)
 
@@ -188,7 +205,7 @@ On 2026-10-11 the user selected only the latest completed library definitions.
 Use `config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz` and
 `VentilationWindow.prtz`. Both persist `form_outward`; the corner additionally
 sets `form_corner_finish`, trims the actual outer Bend-radius domain and uses
-ordinary native Fillets from the FORM–Bend junction, in the order `t` then
+ordinary native Fillets from the FORMâ€“Bend junction, in the order `t` then
 `0.25t`. The former inward controls are regression fixtures under
 `cpp/tests/fixtures/form`, outside the picker. Repeat
 `zima_cpp_factory_finished_corner_tests`, `zima_cpp_factory_outward_window_tests`
@@ -289,7 +306,7 @@ The 2026-10-11 follow-up adds palette-neutral confirmed 3D Curve strokes and
 owned points, retaining brown point-entry frames. Run
 `zima_cpp_curve_presentation_ui_contract`, `zima_cpp_point_marker_colors_contract`,
 `zima_cpp_feature_axis_highlight_contract` and `zima_cpp_translations_contract`
-on Linux, including live Light → Dark → Light switching. The same neutral icon
+on Linux, including live Light â†’ Dark â†’ Light switching. The same neutral icon
 is used by 3D Curve and Surface Intersection.
 
 Dense-import reference validation now retains its entry-scoped cache instead of
@@ -345,7 +362,7 @@ Repeat complete large-import move/save/Undo/save/Redo/save/reopen, plus dependen
 solid operations and STEP export. Check all local and displayed geometry,
 properties, side flags and reference identities independently. The measured
 Windows native confirmation excludes GUI publication and saving; its roughly
-0.52–0.69 seconds is not proof of the user's 0.5-second interaction target.
+0.52â€“0.69 seconds is not proof of the user's 0.5-second interaction target.
 Leave adequate free space for the source, temporary replacement and numbered
 native-document archives when running repeated large-file persistence checks.
 
