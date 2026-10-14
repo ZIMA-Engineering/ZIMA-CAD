@@ -181,3 +181,13 @@ single-sheet A4 constraint has been removed; future consolidation should follow
 meaning and readability, while preserving every relevant source value, symbol,
 unit, applicability note and identity. Acquire only the full standards needed
 for the selections we decide to publish, rather than every related document.
+
+## Legacy media review
+
+The old hidden DOC folder contained a complete 727-page scan of a third-party
+František Drastík/MONTANEX handbook. It is not our GPL reference content and is
+excluded from the current distributed tree. Private originals of this scan and
+unreferenced legacy media remain under ignored
+`build/reference-source-evidence/retired-legacy-media/`; they are not release
+dependencies. Do not restore third-party illustrations/scans without explicit
+redistribution rights. Original public Git history is not rewritten.

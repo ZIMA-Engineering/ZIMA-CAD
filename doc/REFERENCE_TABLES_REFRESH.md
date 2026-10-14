@@ -119,7 +119,10 @@ open in other chapters even where useful explanations now exist.
 These are informative, unofficial references, not official standards or scans.
 The five-language notice excludes accuracy/suitability warranty and limits
 liability only where law permits. GPL does not authorize third-party standards
-text or artwork. Use independently authored figures and preserve provenance.
+text or artwork. Use independently authored figures and preserve provenance. A legacy 727-page
+František Drastík/MONTANEX handbook scan and unreferenced legacy raster/PDF media
+are removed from the distributed factory library. Private originals are retained
+under ignored build/reference-source-evidence/retired-legacy-media/.
 See [the acquisition and unresolved-evidence ledger](REFERENCE_STANDARDS_REVIEW.md).
 
 `generate-reference-tables.py --data tools/data/<name>-tables.json --check`
