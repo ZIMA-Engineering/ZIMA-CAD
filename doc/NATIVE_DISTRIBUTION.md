@@ -2,6 +2,17 @@
 
 ## Scope and status
 
+Signed Windows [2026101401](releases/2026101401.md#signed-windows-publication)
+was published at `2026-10-14T07:02:21Z`. It repairs STEP Feature wire return,
+owning-Body preview frames and incomplete Feature inspection, and reduces
+unnecessary datum, subtraction, native-save and selected-wire work. Exact
+representative geometry/native hashes and finite GUI/native regressions pass.
+Clean candidate/signed smoke, 20 factory loads, production trust, 13 packaged
+GUI workflows, unchanged package inventories and all three anonymous asset
+digests pass. The signed 1303 updater offers an installable update. Shared C++,
+precision, native formats and protected placement remain unchanged. Linux and
+the documented broad/near-parallel verification gaps remain separate.
+
 Signed Windows [2026101303](releases/2026101303.md#signed-windows-publication)
 was published at `2026-10-13T19:43:46Z`. It includes bounded native parameter
 reading and saved metadata mirrors, directory parameter/thumbnail sources,

@@ -1,5 +1,10 @@
 # C++ performance measurements
 
+The October 14 follow-ups are included in signed Windows
+[2026101401](releases/2026101401.md#signed-windows-publication), with fresh
+committed-source packaging, signed-package GUI/native checks and public/update
+acceptance. The measurements below retain their original finite scope.
+
 For new commands and feature extensions, follow the
 [performance-by-design guide](FEATURE_PERFORMANCE_GUIDE.md). It translates the
 measured optimizations into lifecycle, ownership and verification rules.
