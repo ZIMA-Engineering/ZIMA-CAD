@@ -413,6 +413,12 @@ that list. OK validates existing readable targets and rejects cycles or more tha
 64 nested sources; Cancel preserves metadata. The controls use the existing
 internal Properties window and all five UI languages.
 
+The directory's read-only, copyable path appears above the tabs. The source-directory
+editors show one compact text line, with keyboard and wheel scrolling for
+additional entries. Empty resolved-path labels reserve no space. The window
+opens at its natural content height; resizing keeps form rows anchored while
+the Parameters table can use additional height.
+
 Includes resolve relative to the directory containing the link. Sources are
 searched in list order, with local definitions taking precedence. Parameter
 columns include inherited definitions and match export stems to source parts;

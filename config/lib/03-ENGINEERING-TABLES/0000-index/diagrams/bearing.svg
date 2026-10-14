@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 270">
+<!-- Original ZIMA Engineering schematic; GPL-3.0-or-later. -->
+<rect width="720" height="270" fill="white"/>
+<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="3" refY="3" orient="auto-start-reverse"><path d="M0 0L6 3L0 6Z" fill="#222"/></marker></defs>
+<style>text{font:18px Arial,sans-serif;fill:#111}.o{fill:none;stroke:#222;stroke-width:2}.a{fill:none;stroke:#888;stroke-width:1;stroke-dasharray:9 4 2 4}.e{fill:none;stroke:#888;stroke-width:1}.d{fill:none;stroke:#222;stroke-width:1;marker-start:url(#arrow);marker-end:url(#arrow)}</style>
+<path class="o" d="M85 40H200V225H85Z M385 40H500V225H385Z M85 80H200 M85 185H200 M385 80H500 M385 185H500"/><circle class="o" cx="142" cy="130" r="35"/><circle class="o" cx="442" cy="130" r="35"/><path class="a" d="M40 130H545"/><path class="d" d="M45 40L45 225"/><text x="19" y="138">D</text><path class="d" d="M555 80L555 185"/><text x="573" y="138">d</text><path class="d" d="M85 255L200 255"/><text x="135" y="249">B</text>
+</svg>

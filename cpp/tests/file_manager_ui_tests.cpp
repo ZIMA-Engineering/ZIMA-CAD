@@ -43,8 +43,10 @@
 #include <QTreeView>
 #include <QTreeWidget>
 #include <QWebEngineView>
+#include <QWebEnginePage>
 
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 namespace {
@@ -137,6 +139,44 @@ void verify_native_icons_and_cleanup(QApplication& application){
     tab.navigate(templates);QTimer::singleShot(0,[&]{auto* menu=tab.findChild<QMenu*>("fileManagerSourceMenu");if(menu){menu->findChild<QAction*>("fileManagerSourceProperties")->trigger();menu->close();}});sources->customContextMenuRequested(sources->visualItemRect(sources->item(1)).center());auto* dialog=tab.findChild<QDialog*>("fileManagerDirectoryEditor");check(dialog,"Template Properties are unavailable");dialog->findChild<QCheckBox*>("fileManagerDirectoryPreventRemoval")->setChecked(false);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();check(clean->isEnabled()&&clean->toolTip().isEmpty(),"Explicitly removing template protection did not enable cleanup");
     for(auto it=names.cbegin();it!=names.cend();++it)check(QFileInfo::exists(QDir(templates).filePath(it.key())),"Changing protection removed a template or archive");
 }
+
+void verify_reference_themes(QApplication& application,const QString& relative_root,const QString& leaf,int subject_count){
+    const QString repository=QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().absoluteFilePath("../..");
+    const QString root=QDir(repository).filePath(relative_root);
+    const auto original=zima::app::ApplicationSettings::load();
+    zima::app::ApplicationSettings settings;settings.language="cs";settings.theme="light";settings.file_manager.default_view="overview";
+    zima::app::apply_application_appearance(application,settings);
+    zima::app::FileManagerTab tab(settings,root,root);tab.resize(1300,850);tab.show();application.processEvents();
+    auto* overview=tab.findChild<QListWidget*>("fileManagerOverview");
+    check(overview&&overview->count()==subject_count,"Reference root does not use the expected automatic subject overview");
+    for(int i=0;i<overview->count();++i)check(!overview->item(i)->icon().isNull(),"Units directory preview is missing");
+    tab.navigate(root+"/"+leaf);
+    auto* web=tab.findChild<QWebEngineView*>("fileManagerOverviewWeb");check(web,"Unit table did not open in the native overview");
+    bool loaded=false;QObject::connect(web,&QWebEngineView::loadFinished,&tab,[&](bool ok){loaded=ok;});
+    const auto wait=[&](const auto& ready,const char* message){QElapsedTimer timer;timer.start();while(!ready()&&timer.elapsed()<10000){application.processEvents();QThread::msleep(10);}check(ready(),message);};
+    const auto read=[&](const QString& script){
+        struct Result{bool done{};QVariant value;};auto result=std::make_shared<Result>();
+        web->page()->runJavaScript(script,[result](const QVariant& value){result->value=value;result->done=true;});
+        wait([&]{return result->done;},"Native unit table JavaScript inspection timed out");return result->value;
+    };
+    wait([&]{return loaded;},"Native unit table did not finish loading");
+    int reloads=0;QObject::connect(web,&QWebEngineView::loadStarted,&tab,[&]{++reloads;});
+    for(const auto* language:{"cs","en","de","fr","ru"}){
+        if(settings.language!=language){loaded=false;settings.language=language;tab.reload_settings(settings);wait([&]{return loaded;},"Localized native unit table did not load");}
+        check(read("document.documentElement.lang").toString()==language,"Native unit table language differs from settings");
+        const int before=reloads;
+        for(const auto* theme:{"light","dark","light"}){
+            settings.theme=theme;zima::app::apply_application_appearance(application,settings);
+            const bool dark=settings.theme=="dark";
+            wait([&]{return read("document.documentElement.dataset.zimaTheme").toString()==theme;},"Unit table did not follow the application theme");
+            const auto background=application.palette().color(QPalette::Base);
+            check(read("getComputedStyle(document.body).backgroundColor").toString()==QString("rgb(%1, %2, %3)").arg(background.red()).arg(background.green()).arg(background.blue()),"Unit table CSS did not follow the application palette");
+        }
+        check(reloads==before,"Changing unit table theme reloaded its page");
+    }
+    zima::app::apply_application_appearance(application,original);
+    std::cout<<relative_root.toStdString()<<": automatic overview, native HTML and five-language Light/Dark/Light without reload passed\n";
+}
 }
 
 int main(int argc,char** argv){
@@ -144,6 +184,9 @@ int main(int argc,char** argv){
     try{
         verify_directory_includes(application);
         verify_native_icons_and_cleanup(application);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/01-GENERAL-STANDARDS/01-UNITS","01-BASE-UNITS",7);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","06-GEARS/09-SPAN/01-C02-R001",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/01-GRADE-AB/01-M1.6-M10/01-C02-R001",6);
         const QString factory_directory=qEnvironmentVariable("ZIMA_FILE_MANAGER_VERIFY_FACTORY_LABELS");
         if(!factory_directory.isEmpty()){
             check(QFileInfo(factory_directory).isDir(),"Factory label verification directory is missing");int directories=0;
@@ -156,8 +199,8 @@ int main(int argc,char** argv){
                 }
                 ++directories;
             }
-            check(directories==312,"Factory directory label inventory differs from 312 directories");
-            std::cout<<"Native Qt reading of all 1560 factory directory labels passed\n";
+            check(directories==755,"Factory directory label inventory differs from 755 directories");
+            std::cout<<"Native Qt reading of all 3775 factory directory labels passed\n";
         }
         QTemporaryDir fixture(QDir::current().filePath("file-manager-test-XXXXXX"));check(fixture.isValid(),"Cannot create synthetic fixture");
         {

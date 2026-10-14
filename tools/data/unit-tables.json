@@ -1,0 +1,3966 @@
+{
+  "languages": [
+    "cs",
+    "en",
+    "de",
+    "fr",
+    "ru"
+  ],
+  "labels": {
+    "root": [
+      "Veličiny a jednotky",
+      "Quantities and units",
+      "Größen und Einheiten",
+      "Grandeurs et unités",
+      "Величины и единицы"
+    ],
+    "base": [
+      "Základní jednotky SI",
+      "SI base units",
+      "SI-Basiseinheiten",
+      "Unités de base du SI",
+      "Основные единицы СИ"
+    ],
+    "derived": [
+      "Vybrané odvozené jednotky",
+      "Selected derived units",
+      "Ausgewählte abgeleitete Einheiten",
+      "Unités dérivées choisies",
+      "Избранные производные единицы"
+    ],
+    "mechanics": [
+      "Geometrie a mechanika",
+      "Geometry and mechanics",
+      "Geometrie und Mechanik",
+      "Géométrie et mécanique",
+      "Геометрия и механика"
+    ],
+    "thermal": [
+      "Teplo a látkové veličiny",
+      "Thermal and substance quantities",
+      "Wärme- und Stoffgrößen",
+      "Grandeurs thermiques et de matière",
+      "Тепловые величины и количество вещества"
+    ],
+    "electric": [
+      "Elektřina a magnetismus",
+      "Electricity and magnetism",
+      "Elektrizität und Magnetismus",
+      "Électricité et magnétisme",
+      "Электричество и магнетизм"
+    ],
+    "named_mechanics": [
+      "Pojmenované jednotky – mechanika a teplo",
+      "Named units – mechanics and heat",
+      "Benannte Einheiten – Mechanik und Wärme",
+      "Unités nommées – mécanique et chaleur",
+      "Именованные единицы – механика и тепло"
+    ],
+    "named_electric": [
+      "Pojmenované jednotky – elektřina",
+      "Named units – electricity",
+      "Benannte Einheiten – Elektrizität",
+      "Unités nommées – électricité",
+      "Именованные единицы – электричество"
+    ],
+    "light": [
+      "Úhly, světlo a záření",
+      "Angles, light and radiation",
+      "Winkel, Licht und Strahlung",
+      "Angles, lumière et rayonnement",
+      "Углы, свет и излучение"
+    ],
+    "activity": [
+      "Aktivita a dávky",
+      "Activity and doses",
+      "Aktivität und Dosen",
+      "Activité et doses",
+      "Активность и дозы"
+    ],
+    "non_si": [
+      "Jednotky mimo SI",
+      "Non-SI units",
+      "Einheiten außerhalb des SI",
+      "Unités hors SI",
+      "Внесистемные единицы"
+    ],
+    "common": [
+      "Běžně používané jednotky",
+      "Commonly used units",
+      "Häufig verwendete Einheiten",
+      "Unités courantes",
+      "Широко используемые единицы"
+    ],
+    "technical": [
+      "Oborové a poměrové jednotky",
+      "Technical and ratio units",
+      "Fach- und Verhältniseinheiten",
+      "Unités techniques et de rapport",
+      "Отраслевые единицы и отношения"
+    ],
+    "astronomy": [
+      "Astronomie a geodézie",
+      "Astronomy and geodesy",
+      "Astronomie und Geodäsie",
+      "Astronomie et géodésie",
+      "Астрономия и геодезия"
+    ],
+    "prefixes": [
+      "Předpony SI",
+      "SI prefixes",
+      "SI-Präfixe",
+      "Préfixes du SI",
+      "Приставки СИ"
+    ],
+    "multiples": [
+      "Praktické násobky a díly",
+      "Practical multiples and submultiples",
+      "Praktische Vielfache und Teile",
+      "Multiples et sous-multiples pratiques",
+      "Практические кратные и дольные единицы"
+    ],
+    "imperial": [
+      "Angloamerické jednotky",
+      "Imperial and US customary units",
+      "Britische und US-Einheiten",
+      "Unités impériales et américaines",
+      "Британские и американские единицы"
+    ],
+    "length_area": [
+      "Délka a plocha",
+      "Length and area",
+      "Länge und Fläche",
+      "Longueur et aire",
+      "Длина и площадь"
+    ],
+    "volumes": [
+      "Objem – britské a americké míry",
+      "Volume – British and US measures",
+      "Volumen – britische und US-Maße",
+      "Volume – mesures britanniques et américaines",
+      "Объём – британские и американские меры"
+    ],
+    "mass_speed": [
+      "Hmotnost a rychlost",
+      "Mass and speed",
+      "Masse und Geschwindigkeit",
+      "Masse et vitesse",
+      "Масса и скорость"
+    ],
+    "other": [
+      "Další a historické jednotky",
+      "Other and historical units",
+      "Weitere und historische Einheiten",
+      "Autres unités et unités historiques",
+      "Прочие и исторические единицы"
+    ],
+    "old_length": [
+      "Starší délkové a plošné míry",
+      "Older length and area measures",
+      "Ältere Längen- und Flächenmaße",
+      "Anciennes mesures de longueur et d'aire",
+      "Старинные меры длины и площади"
+    ],
+    "old_volume": [
+      "Další objemové míry",
+      "Other volume measures",
+      "Weitere Volumenmaße",
+      "Autres mesures de volume",
+      "Прочие меры объёма"
+    ],
+    "old_mass": [
+      "Starší hmotnostní míry",
+      "Older mass measures",
+      "Ältere Massenmaße",
+      "Anciennes mesures de masse",
+      "Старинные меры массы"
+    ],
+    "quantity": [
+      "Veličina",
+      "Quantity",
+      "Größe",
+      "Grandeur",
+      "Величина"
+    ],
+    "unit_name": [
+      "Název jednotky",
+      "Unit name",
+      "Einheitenname",
+      "Nom de l'unité",
+      "Название единицы"
+    ],
+    "symbol": [
+      "Značka",
+      "Symbol",
+      "Zeichen",
+      "Symbole",
+      "Обозначение"
+    ],
+    "base_expression": [
+      "Vyjádření v základních jednotkách",
+      "Expression in base units",
+      "Darstellung in Basiseinheiten",
+      "Expression en unités de base",
+      "Выражение в основных единицах"
+    ],
+    "defining": [
+      "Určující konstanta (přesná hodnota)",
+      "Defining constant (exact value)",
+      "Definierende Konstante (exakter Wert)",
+      "Constante de définition (valeur exacte)",
+      "Определяющая константа (точное значение)"
+    ],
+    "conversion": [
+      "Vztah k SI",
+      "Relation to SI",
+      "Beziehung zum SI",
+      "Relation au SI",
+      "Связь с СИ"
+    ],
+    "examples": [
+      "Příklady zápisu",
+      "Examples of notation",
+      "Schreibbeispiele",
+      "Exemples de notation",
+      "Примеры записи"
+    ],
+    "factor": [
+      "Činitel",
+      "Factor",
+      "Faktor",
+      "Facteur",
+      "Множитель"
+    ],
+    "prefix_name": [
+      "Předpona",
+      "Prefix",
+      "Präfix",
+      "Préfixe",
+      "Приставка"
+    ],
+    "section": [
+      "Oddíl",
+      "Section",
+      "Abschnitt",
+      "Section",
+      "Раздел"
+    ],
+    "back": [
+      "Přehled kapitoly",
+      "Chapter overview",
+      "Kapitelübersicht",
+      "Sommaire du chapitre",
+      "Обзор главы"
+    ],
+    "sources": [
+      "Zdroje",
+      "Sources",
+      "Quellen",
+      "Sources",
+      "Источники"
+    ],
+    "updated": [
+      "Ověřeno 14. 10. 2026",
+      "Checked 14 Oct 2026",
+      "Geprüft am 14.10.2026",
+      "Vérifié le 14 octobre 2026",
+      "Проверено 14.10.2026"
+    ],
+    "length": [
+      "Délka",
+      "Length",
+      "Länge",
+      "Longueur",
+      "Длина"
+    ],
+    "mass": [
+      "Hmotnost",
+      "Mass",
+      "Masse",
+      "Masse",
+      "Масса"
+    ],
+    "time": [
+      "Čas",
+      "Time",
+      "Zeit",
+      "Temps",
+      "Время"
+    ],
+    "current": [
+      "Elektrický proud",
+      "Electric current",
+      "Elektrischer Strom",
+      "Courant électrique",
+      "Электрический ток"
+    ],
+    "temperature": [
+      "Termodynamická teplota",
+      "Thermodynamic temperature",
+      "Thermodynamische Temperatur",
+      "Température thermodynamique",
+      "Термодинамическая температура"
+    ],
+    "amount": [
+      "Látkové množství",
+      "Amount of substance",
+      "Stoffmenge",
+      "Quantité de matière",
+      "Количество вещества"
+    ],
+    "luminous_intensity": [
+      "Svítivost",
+      "Luminous intensity",
+      "Lichtstärke",
+      "Intensité lumineuse",
+      "Сила света"
+    ],
+    "metre": [
+      "metr",
+      "metre",
+      "Meter",
+      "mètre",
+      "метр"
+    ],
+    "kilogram": [
+      "kilogram",
+      "kilogram",
+      "Kilogramm",
+      "kilogramme",
+      "килограмм"
+    ],
+    "second": [
+      "sekunda",
+      "second",
+      "Sekunde",
+      "seconde",
+      "секунда"
+    ],
+    "ampere": [
+      "ampér",
+      "ampere",
+      "Ampere",
+      "ampère",
+      "ампер"
+    ],
+    "kelvin": [
+      "kelvin",
+      "kelvin",
+      "Kelvin",
+      "kelvin",
+      "кельвин"
+    ],
+    "mole": [
+      "mol",
+      "mole",
+      "Mol",
+      "mole",
+      "моль"
+    ],
+    "candela": [
+      "kandela",
+      "candela",
+      "Candela",
+      "candela",
+      "кандела"
+    ],
+    "area": [
+      "Plošný obsah",
+      "Area",
+      "Flächeninhalt",
+      "Aire",
+      "Площадь"
+    ],
+    "volume": [
+      "Objem",
+      "Volume",
+      "Volumen",
+      "Volume",
+      "Объём"
+    ],
+    "speed": [
+      "Rychlost",
+      "Speed",
+      "Geschwindigkeit",
+      "Vitesse",
+      "Скорость"
+    ],
+    "angular_speed": [
+      "Úhlová rychlost",
+      "Angular velocity",
+      "Winkelgeschwindigkeit",
+      "Vitesse angulaire",
+      "Угловая скорость"
+    ],
+    "acceleration": [
+      "Zrychlení",
+      "Acceleration",
+      "Beschleunigung",
+      "Accélération",
+      "Ускорение"
+    ],
+    "angular_acceleration": [
+      "Úhlové zrychlení",
+      "Angular acceleration",
+      "Winkelbeschleunigung",
+      "Accélération angulaire",
+      "Угловое ускорение"
+    ],
+    "wavenumber": [
+      "Vlnočet",
+      "Wavenumber",
+      "Wellenzahl",
+      "Nombre d'onde",
+      "Волновое число"
+    ],
+    "density": [
+      "Hustota",
+      "Density",
+      "Dichte",
+      "Masse volumique",
+      "Плотность"
+    ],
+    "specific_volume": [
+      "Měrný objem",
+      "Specific volume",
+      "Spezifisches Volumen",
+      "Volume massique",
+      "Удельный объём"
+    ],
+    "torque": [
+      "Moment síly",
+      "Torque",
+      "Drehmoment",
+      "Moment de force",
+      "Момент силы"
+    ],
+    "surface_tension": [
+      "Povrchové napětí",
+      "Surface tension",
+      "Oberflächenspannung",
+      "Tension superficielle",
+      "Поверхностное натяжение"
+    ],
+    "dynamic_viscosity": [
+      "Dynamická viskozita",
+      "Dynamic viscosity",
+      "Dynamische Viskosität",
+      "Viscosité dynamique",
+      "Динамическая вязкость"
+    ],
+    "kinematic_viscosity": [
+      "Kinematická viskozita",
+      "Kinematic viscosity",
+      "Kinematische Viskosität",
+      "Viscosité cinématique",
+      "Кинематическая вязкость"
+    ],
+    "specific_energy": [
+      "Měrná energie",
+      "Specific energy",
+      "Spezifische Energie",
+      "Énergie massique",
+      "Удельная энергия"
+    ],
+    "entropy": [
+      "Entropie",
+      "Entropy",
+      "Entropie",
+      "Entropie",
+      "Энтропия"
+    ],
+    "specific_entropy": [
+      "Měrná entropie",
+      "Specific entropy",
+      "Spezifische Entropie",
+      "Entropie massique",
+      "Удельная энтропия"
+    ],
+    "conductivity_thermal": [
+      "Tepelná vodivost",
+      "Thermal conductivity",
+      "Wärmeleitfähigkeit",
+      "Conductivité thermique",
+      "Теплопроводность"
+    ],
+    "concentration": [
+      "Látková koncentrace",
+      "Amount concentration",
+      "Stoffmengenkonzentration",
+      "Concentration en quantité de matière",
+      "Молярная концентрация"
+    ],
+    "molar_energy": [
+      "Molární energie",
+      "Molar energy",
+      "Molare Energie",
+      "Énergie molaire",
+      "Молярная энергия"
+    ],
+    "molar_entropy": [
+      "Molární entropie",
+      "Molar entropy",
+      "Molare Entropie",
+      "Entropie molaire",
+      "Молярная энтропия"
+    ],
+    "current_density": [
+      "Hustota elektrického proudu",
+      "Electric current density",
+      "Elektrische Stromdichte",
+      "Densité de courant électrique",
+      "Плотность электрического тока"
+    ],
+    "electric_field": [
+      "Intenzita elektrického pole",
+      "Electric field strength",
+      "Elektrische Feldstärke",
+      "Champ électrique",
+      "Напряжённость электрического поля"
+    ],
+    "permittivity": [
+      "Permitivita",
+      "Permittivity",
+      "Permittivität",
+      "Permittivité",
+      "Диэлектрическая проницаемость"
+    ],
+    "magnetic_field": [
+      "Intenzita magnetického pole",
+      "Magnetic field strength",
+      "Magnetische Feldstärke",
+      "Champ magnétique",
+      "Напряжённость магнитного поля"
+    ],
+    "permeability": [
+      "Permeabilita",
+      "Permeability",
+      "Permeabilität",
+      "Perméabilité",
+      "Магнитная проницаемость"
+    ],
+    "force": [
+      "Síla",
+      "Force",
+      "Kraft",
+      "Force",
+      "Сила"
+    ],
+    "pressure": [
+      "Tlak",
+      "Pressure",
+      "Druck",
+      "Pression",
+      "Давление"
+    ],
+    "stress": [
+      "Mechanické napětí",
+      "Mechanical stress",
+      "Mechanische Spannung",
+      "Contrainte mécanique",
+      "Механическое напряжение"
+    ],
+    "pressure_stress": [
+      "Tlak a mechanické napětí",
+      "Pressure and stress",
+      "Druck und Spannung",
+      "Pression et contrainte",
+      "Давление и напряжение"
+    ],
+    "energy": [
+      "Energie, práce a teplo",
+      "Energy, work and heat",
+      "Energie, Arbeit und Wärme",
+      "Énergie, travail et chaleur",
+      "Энергия, работа и теплота"
+    ],
+    "power": [
+      "Výkon a tepelný tok",
+      "Power and heat flow rate",
+      "Leistung und Wärmestrom",
+      "Puissance et flux thermique",
+      "Мощность и тепловой поток"
+    ],
+    "frequency": [
+      "Kmitočet",
+      "Frequency",
+      "Frequenz",
+      "Fréquence",
+      "Частота"
+    ],
+    "celsius": [
+      "Celsiova teplota",
+      "Celsius temperature",
+      "Celsius-Temperatur",
+      "Température Celsius",
+      "Температура Цельсия"
+    ],
+    "heat_capacity": [
+      "Tepelná kapacita",
+      "Heat capacity",
+      "Wärmekapazität",
+      "Capacité thermique",
+      "Теплоёмкость"
+    ],
+    "specific_heat": [
+      "Měrná tepelná kapacita",
+      "Specific heat capacity",
+      "Spezifische Wärmekapazität",
+      "Capacité thermique massique",
+      "Удельная теплоёмкость"
+    ],
+    "newton": [
+      "newton",
+      "newton",
+      "Newton",
+      "newton",
+      "ньютон"
+    ],
+    "pascal": [
+      "pascal",
+      "pascal",
+      "Pascal",
+      "pascal",
+      "паскаль"
+    ],
+    "joule": [
+      "joule",
+      "joule",
+      "Joule",
+      "joule",
+      "джоуль"
+    ],
+    "watt": [
+      "watt",
+      "watt",
+      "Watt",
+      "watt",
+      "ватт"
+    ],
+    "hertz": [
+      "hertz",
+      "hertz",
+      "Hertz",
+      "hertz",
+      "герц"
+    ],
+    "degree_c": [
+      "stupeň Celsia",
+      "degree Celsius",
+      "Grad Celsius",
+      "degré Celsius",
+      "градус Цельсия"
+    ],
+    "charge": [
+      "Elektrický náboj",
+      "Electric charge",
+      "Elektrische Ladung",
+      "Charge électrique",
+      "Электрический заряд"
+    ],
+    "voltage": [
+      "Elektrické napětí",
+      "Voltage",
+      "Elektrische Spannung",
+      "Tension électrique",
+      "Электрическое напряжение"
+    ],
+    "capacitance": [
+      "Elektrická kapacita",
+      "Capacitance",
+      "Elektrische Kapazität",
+      "Capacité électrique",
+      "Электрическая ёмкость"
+    ],
+    "resistance": [
+      "Elektrický odpor",
+      "Resistance",
+      "Elektrischer Widerstand",
+      "Résistance électrique",
+      "Электрическое сопротивление"
+    ],
+    "conductance": [
+      "Elektrická vodivost",
+      "Conductance",
+      "Elektrischer Leitwert",
+      "Conductance électrique",
+      "Электрическая проводимость"
+    ],
+    "magnetic_flux": [
+      "Magnetický tok",
+      "Magnetic flux",
+      "Magnetischer Fluss",
+      "Flux magnétique",
+      "Магнитный поток"
+    ],
+    "flux_density": [
+      "Magnetická indukce",
+      "Magnetic flux density",
+      "Magnetische Flussdichte",
+      "Induction magnétique",
+      "Магнитная индукция"
+    ],
+    "inductance": [
+      "Indukčnost",
+      "Inductance",
+      "Induktivität",
+      "Inductance",
+      "Индуктивность"
+    ],
+    "coulomb": [
+      "coulomb",
+      "coulomb",
+      "Coulomb",
+      "coulomb",
+      "кулон"
+    ],
+    "volt": [
+      "volt",
+      "volt",
+      "Volt",
+      "volt",
+      "вольт"
+    ],
+    "farad": [
+      "farad",
+      "farad",
+      "Farad",
+      "farad",
+      "фарад"
+    ],
+    "ohm": [
+      "ohm",
+      "ohm",
+      "Ohm",
+      "ohm",
+      "ом"
+    ],
+    "siemens": [
+      "siemens",
+      "siemens",
+      "Siemens",
+      "siemens",
+      "сименс"
+    ],
+    "weber": [
+      "weber",
+      "weber",
+      "Weber",
+      "weber",
+      "вебер"
+    ],
+    "tesla": [
+      "tesla",
+      "tesla",
+      "Tesla",
+      "tesla",
+      "тесла"
+    ],
+    "henry": [
+      "henry",
+      "henry",
+      "Henry",
+      "henry",
+      "генри"
+    ],
+    "plane_angle": [
+      "Rovinný úhel",
+      "Plane angle",
+      "Ebener Winkel",
+      "Angle plan",
+      "Плоский угол"
+    ],
+    "solid_angle": [
+      "Prostorový úhel",
+      "Solid angle",
+      "Raumwinkel",
+      "Angle solide",
+      "Телесный угол"
+    ],
+    "radiance": [
+      "Zářivost",
+      "Radiant intensity",
+      "Strahlstärke",
+      "Intensité énergétique",
+      "Сила излучения"
+    ],
+    "luminance": [
+      "Jas",
+      "Luminance",
+      "Leuchtdichte",
+      "Luminance",
+      "Яркость"
+    ],
+    "luminous_flux": [
+      "Světelný tok",
+      "Luminous flux",
+      "Lichtstrom",
+      "Flux lumineux",
+      "Световой поток"
+    ],
+    "illuminance": [
+      "Osvětlenost",
+      "Illuminance",
+      "Beleuchtungsstärke",
+      "Éclairement lumineux",
+      "Освещённость"
+    ],
+    "radian": [
+      "radián",
+      "radian",
+      "Radiant",
+      "radian",
+      "радиан"
+    ],
+    "steradian": [
+      "steradián",
+      "steradian",
+      "Steradiant",
+      "stéradian",
+      "стерадиан"
+    ],
+    "lumen": [
+      "lumen",
+      "lumen",
+      "Lumen",
+      "lumen",
+      "люмен"
+    ],
+    "lux": [
+      "lux",
+      "lux",
+      "Lux",
+      "lux",
+      "люкс"
+    ],
+    "radioactivity": [
+      "Aktivita radionuklidu",
+      "Radionuclide activity",
+      "Radionuklidaktivität",
+      "Activité d'un radionucléide",
+      "Активность радионуклида"
+    ],
+    "absorbed_dose": [
+      "Absorbovaná dávka",
+      "Absorbed dose",
+      "Energiedosis",
+      "Dose absorbée",
+      "Поглощённая доза"
+    ],
+    "dose_equivalent": [
+      "Ekvivalentní dávka",
+      "Equivalent dose",
+      "Äquivalentdosis",
+      "Dose équivalente",
+      "Эквивалентная доза"
+    ],
+    "catalytic_activity": [
+      "Katalytická aktivita",
+      "Catalytic activity",
+      "Katalytische Aktivität",
+      "Activité catalytique",
+      "Каталитическая активность"
+    ],
+    "becquerel": [
+      "becquerel",
+      "becquerel",
+      "Becquerel",
+      "becquerel",
+      "беккерель"
+    ],
+    "gray": [
+      "gray",
+      "gray",
+      "Gray",
+      "gray",
+      "грей"
+    ],
+    "sievert": [
+      "sievert",
+      "sievert",
+      "Sievert",
+      "sievert",
+      "зиверт"
+    ],
+    "katal": [
+      "katal",
+      "katal",
+      "Katal",
+      "katal",
+      "катал"
+    ],
+    "minute": [
+      "minuta",
+      "minute",
+      "Minute",
+      "minute",
+      "минута"
+    ],
+    "hour": [
+      "hodina",
+      "hour",
+      "Stunde",
+      "heure",
+      "час"
+    ],
+    "day": [
+      "den",
+      "day",
+      "Tag",
+      "jour",
+      "сутки"
+    ],
+    "degree": [
+      "úhlový stupeň",
+      "degree of angle",
+      "Winkelgrad",
+      "degré d'angle",
+      "угловой градус"
+    ],
+    "arcminute": [
+      "úhlová minuta",
+      "arcminute",
+      "Winkelminute",
+      "minute d'angle",
+      "угловая минута"
+    ],
+    "arcsecond": [
+      "úhlová vteřina",
+      "arcsecond",
+      "Winkelsekunde",
+      "seconde d'angle",
+      "угловая секунда"
+    ],
+    "hectare": [
+      "hektar",
+      "hectare",
+      "Hektar",
+      "hectare",
+      "гектар"
+    ],
+    "litre": [
+      "litr",
+      "litre",
+      "Liter",
+      "litre",
+      "литр"
+    ],
+    "tonne": [
+      "tuna",
+      "tonne",
+      "Tonne",
+      "tonne",
+      "тонна"
+    ],
+    "au": [
+      "astronomická jednotka",
+      "astronomical unit",
+      "astronomische Einheit",
+      "unité astronomique",
+      "астрономическая единица"
+    ],
+    "dalton": [
+      "dalton, atomová hmotnostní jednotka",
+      "dalton, unified atomic mass unit",
+      "Dalton, atomare Masseneinheit",
+      "dalton, unité de masse atomique unifiée",
+      "дальтон, атомная единица массы"
+    ],
+    "electronvolt": [
+      "elektronvolt",
+      "electronvolt",
+      "Elektronenvolt",
+      "électronvolt",
+      "электронвольт"
+    ],
+    "linear_density": [
+      "Délková hmotnost",
+      "Linear mass density",
+      "Längenbezogene Masse",
+      "Masse linéique",
+      "Линейная плотность"
+    ],
+    "optical_power": [
+      "Optická mohutnost",
+      "Optical power",
+      "Brechkraft",
+      "Vergence",
+      "Оптическая сила"
+    ],
+    "apparent_power": [
+      "Zdánlivý výkon",
+      "Apparent power",
+      "Scheinleistung",
+      "Puissance apparente",
+      "Полная мощность"
+    ],
+    "reactive_power": [
+      "Jalový výkon",
+      "Reactive power",
+      "Blindleistung",
+      "Puissance réactive",
+      "Реактивная мощность"
+    ],
+    "tex": [
+      "tex",
+      "tex",
+      "Tex",
+      "tex",
+      "текс"
+    ],
+    "dioptre": [
+      "dioptrie",
+      "dioptre",
+      "Dioptrie",
+      "dioptrie",
+      "диоптрия"
+    ],
+    "voltampere": [
+      "voltampér",
+      "volt-ampere",
+      "Voltampere",
+      "voltampère",
+      "вольт-ампер"
+    ],
+    "var": [
+      "var",
+      "var",
+      "Var",
+      "var",
+      "вар"
+    ],
+    "bar": [
+      "bar",
+      "bar",
+      "Bar",
+      "bar",
+      "бар"
+    ],
+    "ratio": [
+      "Poměr",
+      "Ratio",
+      "Verhältnis",
+      "Rapport",
+      "Отношение"
+    ],
+    "percent": [
+      "procento",
+      "percent",
+      "Prozent",
+      "pour cent",
+      "процент"
+    ],
+    "permille": [
+      "promile",
+      "per mille",
+      "Promille",
+      "pour mille",
+      "промилле"
+    ],
+    "ppm": [
+      "miliontina",
+      "part per million",
+      "Millionstel",
+      "partie par million",
+      "миллионная доля"
+    ],
+    "log_ratio": [
+      "Logaritmický poměr",
+      "Logarithmic ratio",
+      "Logarithmisches Verhältnis",
+      "Rapport logarithmique",
+      "Логарифмическое отношение"
+    ],
+    "bel": [
+      "bel",
+      "bel",
+      "Bel",
+      "bel",
+      "бел"
+    ],
+    "decibel": [
+      "decibel",
+      "decibel",
+      "Dezibel",
+      "décibel",
+      "децибел"
+    ],
+    "octave": [
+      "oktáva",
+      "octave",
+      "Oktave",
+      "octave",
+      "октава"
+    ],
+    "decade": [
+      "dekáda",
+      "decade",
+      "Dekade",
+      "décade",
+      "декада"
+    ],
+    "phon": [
+      "fon (hladina hlasitosti)",
+      "phon (loudness level)",
+      "Phon (Lautstärkepegel)",
+      "phone (niveau d'isosonie)",
+      "фон (уровень громкости)"
+    ],
+    "gon": [
+      "gon (grad)",
+      "gon (grad)",
+      "Gon",
+      "gon (grade)",
+      "гон (град)"
+    ],
+    "parsec": [
+      "parsek",
+      "parsec",
+      "Parsec",
+      "parsec",
+      "парсек"
+    ],
+    "light_year": [
+      "světelný rok (juliánský)",
+      "light-year (Julian)",
+      "Lichtjahr (julianisch)",
+      "année-lumière (julienne)",
+      "световой год (юлианский)"
+    ],
+    "tropical_year": [
+      "tropický rok (přibližný)",
+      "tropical year (approximate)",
+      "tropisches Jahr (ungefähr)",
+      "année tropique (approximative)",
+      "тропический год (приближённый)"
+    ],
+    "gal": [
+      "gal, miligal",
+      "gal, milligal",
+      "Gal, Milligal",
+      "gal, milligal",
+      "гал, миллигал"
+    ],
+    "inch": [
+      "palec",
+      "inch",
+      "Zoll",
+      "pouce",
+      "дюйм"
+    ],
+    "foot": [
+      "stopa (mezinárodní)",
+      "foot (international)",
+      "Fuß (international)",
+      "pied (international)",
+      "фут (международный)"
+    ],
+    "yard": [
+      "yard",
+      "yard",
+      "Yard",
+      "yard",
+      "ярд"
+    ],
+    "mile": [
+      "míle (mezinárodní)",
+      "mile (international)",
+      "Meile (international)",
+      "mille (international)",
+      "миля (международная)"
+    ],
+    "survey_foot": [
+      "americká zeměměřická stopa (historická)",
+      "US survey foot (historical)",
+      "US-Vermessungsfuß (historisch)",
+      "pied d'arpentage américain (historique)",
+      "геодезический фут США (исторический)"
+    ],
+    "survey_mile": [
+      "americká zeměměřická míle (historická)",
+      "US survey mile (historical)",
+      "US-Vermessungsmeile (historisch)",
+      "mille d'arpentage américain (historique)",
+      "геодезическая миля США (историческая)"
+    ],
+    "square_inch": [
+      "čtverečný palec",
+      "square inch",
+      "Quadratzoll",
+      "pouce carré",
+      "квадратный дюйм"
+    ],
+    "square_foot": [
+      "čtverečná stopa",
+      "square foot",
+      "Quadratfuß",
+      "pied carré",
+      "квадратный фут"
+    ],
+    "square_yard": [
+      "čtverečný yard",
+      "square yard",
+      "Quadratyard",
+      "yard carré",
+      "квадратный ярд"
+    ],
+    "square_mile": [
+      "čtverečná míle",
+      "square mile",
+      "Quadratmeile",
+      "mille carré",
+      "квадратная миля"
+    ],
+    "acre": [
+      "akr (mezinárodní)",
+      "acre (international)",
+      "Acre (international)",
+      "acre (international)",
+      "акр (международный)"
+    ],
+    "cubic_inch": [
+      "krychlový palec",
+      "cubic inch",
+      "Kubikzoll",
+      "pouce cube",
+      "кубический дюйм"
+    ],
+    "cubic_foot": [
+      "krychlová stopa",
+      "cubic foot",
+      "Kubikfuß",
+      "pied cube",
+      "кубический фут"
+    ],
+    "cubic_yard": [
+      "krychlový yard",
+      "cubic yard",
+      "Kubikyard",
+      "yard cube",
+      "кубический ярд"
+    ],
+    "gallon_uk": [
+      "galon (britský)",
+      "gallon (imperial)",
+      "Gallone (britisch)",
+      "gallon (impérial)",
+      "галлон (британский)"
+    ],
+    "gallon_us": [
+      "galon (americký, kapaliny)",
+      "gallon (US liquid)",
+      "Gallone (US-Flüssigkeit)",
+      "gallon (liquide américain)",
+      "галлон (США, жидкостный)"
+    ],
+    "pint_uk": [
+      "pinta (britská)",
+      "pint (imperial)",
+      "Pint (britisch)",
+      "pinte (impériale)",
+      "пинта (британская)"
+    ],
+    "pint_us": [
+      "pinta (americká, kapaliny)",
+      "pint (US liquid)",
+      "Pint (US-Flüssigkeit)",
+      "pinte (liquide américaine)",
+      "пинта (США, жидкостная)"
+    ],
+    "pint_dry": [
+      "pinta (americká, sypké látky)",
+      "pint (US dry)",
+      "Pint (US-Trockenmaß)",
+      "pinte (sèche américaine)",
+      "пинта (США, сыпучая)"
+    ],
+    "ounce_uk": [
+      "kapalinová unce (britská)",
+      "fluid ounce (imperial)",
+      "Flüssigunze (britisch)",
+      "once liquide (impériale)",
+      "жидкая унция (британская)"
+    ],
+    "ounce_us": [
+      "kapalinová unce (americká)",
+      "fluid ounce (US)",
+      "Flüssigunze (US)",
+      "once liquide (américaine)",
+      "жидкая унция (США)"
+    ],
+    "bushel_uk": [
+      "bušl (britský)",
+      "bushel (imperial)",
+      "Bushel (britisch)",
+      "boisseau (impérial)",
+      "бушель (британский)"
+    ],
+    "bushel_us": [
+      "bušl (americký)",
+      "bushel (US)",
+      "Bushel (US)",
+      "boisseau (américain)",
+      "бушель (США)"
+    ],
+    "barrel_oil": [
+      "barel (americký, ropa)",
+      "barrel (US petroleum)",
+      "Barrel (US-Erdöl)",
+      "baril (pétrole américain)",
+      "баррель (США, нефтяной)"
+    ],
+    "barrel_dry": [
+      "barel (americký, sypké látky)",
+      "barrel (US dry)",
+      "Barrel (US-Trockenmaß)",
+      "baril (sec américain)",
+      "баррель (США, сыпучий)"
+    ],
+    "foot_second": [
+      "stopa za sekundu",
+      "foot per second",
+      "Fuß pro Sekunde",
+      "pied par seconde",
+      "фут в секунду"
+    ],
+    "mile_hour": [
+      "míle za hodinu",
+      "mile per hour",
+      "Meile pro Stunde",
+      "mille par heure",
+      "миля в час"
+    ],
+    "foot_acc": [
+      "stopa za sekundu na druhou",
+      "foot per second squared",
+      "Fuß pro Quadratsekunde",
+      "pied par seconde carrée",
+      "фут в секунду в квадрате"
+    ],
+    "cable": [
+      "kabel (720 stop)",
+      "cable's length (720 feet)",
+      "Kabellänge (720 Fuß)",
+      "encablure (720 pieds)",
+      "кабельтов (720 футов)"
+    ],
+    "chain": [
+      "řetězec (chain)",
+      "chain",
+      "Chain",
+      "chaîne",
+      "чейн"
+    ],
+    "fathom": [
+      "sáh (fathom)",
+      "fathom",
+      "Faden (fathom)",
+      "brasse (fathom)",
+      "морская сажень"
+    ],
+    "furlong": [
+      "furlong",
+      "furlong",
+      "Furlong",
+      "furlong",
+      "фурлонг"
+    ],
+    "hand": [
+      "dlaň (hand)",
+      "hand",
+      "Hand",
+      "main (hand)",
+      "хэнд"
+    ],
+    "league": [
+      "pozemní liga (3 míle)",
+      "land league (3 miles)",
+      "Land-League (3 Meilen)",
+      "lieue terrestre (3 milles)",
+      "сухопутная лига (3 мили)"
+    ],
+    "link": [
+      "článek (link)",
+      "link",
+      "Link",
+      "maillon (link)",
+      "линк"
+    ],
+    "mil": [
+      "mil (tisícina palce)",
+      "mil (thousandth of an inch)",
+      "Mil (Tausendstel Zoll)",
+      "mil (millième de pouce)",
+      "мил (тысячная дюйма)"
+    ],
+    "nautical_mile": [
+      "námořní míle",
+      "nautical mile",
+      "Seemeile",
+      "mille marin",
+      "морская миля"
+    ],
+    "point_type": [
+      "typografický bod (DTP)",
+      "typographic point (DTP)",
+      "typografischer Punkt (DTP)",
+      "point typographique (DTP)",
+      "типографский пункт (DTP)"
+    ],
+    "rod": [
+      "prut (rod, pole, perch)",
+      "rod, pole, perch",
+      "Rod, Pole, Perch",
+      "perche (rod, pole)",
+      "род (пол, перч)"
+    ],
+    "square_build": [
+      "stavební square",
+      "construction square",
+      "Bau-Square",
+      "square de construction",
+      "строительный квадрат"
+    ],
+    "square_rod": [
+      "čtverečný prut (square rod)",
+      "square rod",
+      "Quadrat-Rod",
+      "perche carrée",
+      "квадратный род"
+    ],
+    "cord": [
+      "cord (dřevo)",
+      "cord (wood)",
+      "Cord (Holz)",
+      "corde (bois)",
+      "корд (дрова)"
+    ],
+    "cup": [
+      "šálek (americký)",
+      "cup (US)",
+      "Cup (US)",
+      "tasse (américaine)",
+      "чашка (США)"
+    ],
+    "dram": [
+      "kapalinový dram (americký)",
+      "fluid dram (US)",
+      "Flüssigdram (US)",
+      "drachme liquide (américaine)",
+      "жидкая драхма (США)"
+    ],
+    "gill": [
+      "gill (americký)",
+      "gill (US)",
+      "Gill (US)",
+      "gill (américain)",
+      "гилл (США)"
+    ],
+    "peck": [
+      "peck (americký)",
+      "peck (US)",
+      "Peck (US)",
+      "peck (américain)",
+      "пек (США)"
+    ],
+    "quart_dry": [
+      "kvart (americký, sypké látky)",
+      "quart (US dry)",
+      "Quart (US-Trockenmaß)",
+      "quart (sec américain)",
+      "кварта (США, сыпучая)"
+    ],
+    "quart_us": [
+      "kvart (americký, kapaliny)",
+      "quart (US liquid)",
+      "Quart (US-Flüssigkeit)",
+      "quart (liquide américain)",
+      "кварта (США, жидкостная)"
+    ],
+    "quart_uk": [
+      "kvart (britský)",
+      "quart (imperial)",
+      "Quart (britisch)",
+      "quart (impérial)",
+      "кварта (британская)"
+    ],
+    "water_ton": [
+      "vodní tuna (britská, historická)",
+      "water ton (imperial, historical)",
+      "Wassertonne (britisch, historisch)",
+      "tonneau d'eau (impérial, historique)",
+      "водная тонна (британская, историческая)"
+    ],
+    "tablespoon": [
+      "polévková lžíce (americká)",
+      "tablespoon (US)",
+      "Esslöffel (US)",
+      "cuillère à soupe (américaine)",
+      "столовая ложка (США)"
+    ],
+    "teaspoon": [
+      "čajová lžička (americká)",
+      "teaspoon (US)",
+      "Teelöffel (US)",
+      "cuillère à café (américaine)",
+      "чайная ложка (США)"
+    ],
+    "assay_ton": [
+      "zkušební tuna (americká)",
+      "assay ton (US)",
+      "Probiertonne (US)",
+      "tonne d'essai (américaine)",
+      "пробирная тонна (США)"
+    ],
+    "carat": [
+      "metrický karát",
+      "metric carat",
+      "metrisches Karat",
+      "carat métrique",
+      "метрический карат"
+    ],
+    "grain": [
+      "grain",
+      "grain",
+      "Gran",
+      "grain",
+      "гран"
+    ],
+    "hundredweight": [
+      "centnýř (britský, 112 liber)",
+      "hundredweight (imperial, 112 lb)",
+      "Hundredweight (britisch, 112 lb)",
+      "quintal (impérial, 112 lb)",
+      "хандредвейт (британский, 112 фунтов)"
+    ],
+    "ounce_mass": [
+      "unce (avoirdupois)",
+      "ounce (avoirdupois)",
+      "Unze (avoirdupois)",
+      "once (avoirdupois)",
+      "унция (авуардюпуа)"
+    ],
+    "ounce_troy": [
+      "trojská unce",
+      "troy ounce",
+      "Troy-Unze",
+      "once troy",
+      "тройская унция"
+    ],
+    "pennyweight": [
+      "pennyweight",
+      "pennyweight",
+      "Pennyweight",
+      "pennyweight",
+      "пеннивейт"
+    ],
+    "point_mass": [
+      "bod (setina karátu)",
+      "point (one hundredth of a carat)",
+      "Punkt (Hundertstel Karat)",
+      "point (centième de carat)",
+      "пойнт (сотая карата)"
+    ],
+    "pound": [
+      "libra (avoirdupois)",
+      "pound (avoirdupois)",
+      "Pfund (avoirdupois)",
+      "livre (avoirdupois)",
+      "фунт (авуардюпуа)"
+    ],
+    "pound_troy": [
+      "trojská libra",
+      "troy pound",
+      "Troy-Pfund",
+      "livre troy",
+      "тройский фунт"
+    ],
+    "scruple": [
+      "skrupul (lékárnický)",
+      "scruple (apothecaries)",
+      "Skrupel (Apothekergewicht)",
+      "scrupule (apothicaire)",
+      "скрупул (аптекарский)"
+    ],
+    "long_ton": [
+      "dlouhá tuna (britská)",
+      "long ton (imperial)",
+      "Long Ton (britisch)",
+      "tonne longue (impériale)",
+      "длинная тонна (британская)"
+    ],
+    "short_ton": [
+      "krátká tuna (americká)",
+      "short ton (US)",
+      "Short Ton (US)",
+      "tonne courte (américaine)",
+      "короткая тонна (США)"
+    ],
+    "base_note": [
+      "Definice SI vycházejí z pevných hodnot konstant. Tabulka je stručný přehled; úplné definice obsahuje brožura SI.",
+      "SI definitions use fixed constant values. This is a summary; the SI Brochure gives the full definitions.",
+      "Die SI-Definitionen beruhen auf festen Konstantenwerten. Diese Übersicht ersetzt nicht die vollständigen Definitionen der SI-Broschüre.",
+      "Les définitions du SI reposent sur des constantes fixées. Ce résumé renvoie à la Brochure sur le SI pour les définitions complètes.",
+      "Определения СИ основаны на фиксированных значениях констант. Это краткий обзор; полные определения приведены в Брошюре СИ."
+    ],
+    "expression_note": [
+      "Sloupec uvádí jednotku v základních jednotkách SI, nikoli značku rozměru veličiny.",
+      "The column expresses the unit in SI base units, rather than the dimensional symbol of the quantity.",
+      "Die Spalte zeigt die Einheit in SI-Basiseinheiten, nicht das Dimensionszeichen der Größe.",
+      "La colonne exprime l'unité en unités de base SI, et non le symbole de dimension de la grandeur.",
+      "Столбец содержит выражение единицы через основные единицы СИ, а не обозначение размерности величины."
+    ],
+    "angles_note": [
+      "Radián a steradián jsou odvozené jednotky SI; netvoří samostatnou skupinu „doplňkových jednotek“. Jejich značky zachovávají význam úhlu.",
+      "Radian and steradian are SI derived units; there is no separate class of supplementary units. Their symbols retain the meaning of angle.",
+      "Radiant und Steradiant sind abgeleitete SI-Einheiten, keine eigene Klasse ergänzender Einheiten. Ihre Zeichen kennzeichnen den Winkel.",
+      "Le radian et le stéradian sont des unités dérivées SI, sans classe distincte d'unités supplémentaires. Leurs symboles précisent la nature angulaire.",
+      "Радиан и стерадиан — производные единицы СИ; отдельного класса дополнительных единиц нет. Обозначения сохраняют смысл угла."
+    ],
+    "celsius_note": [
+      "T/K = t/°C + 273,15. Pro teplotní rozdíl platí 1 °C = 1 K; pro absolutní teplotu nelze vynechat posun.",
+      "T/K = t/°C + 273.15. A temperature difference of 1 °C equals 1 K; absolute temperatures require the offset.",
+      "T/K = t/°C + 273,15. Eine Temperaturdifferenz von 1 °C entspricht 1 K; absolute Temperaturen benötigen den Versatz.",
+      "T/K = t/°C + 273,15. Un écart de 1 °C vaut 1 K; une température absolue nécessite le décalage.",
+      "T/K = t/°C + 273,15. Разность температур 1 °C равна 1 K; для абсолютной температуры нужен сдвиг."
+    ],
+    "non_si_note": [
+      "Nejde o základní ani odvozené jednotky SI. Přehled uvádí jejich vztah k SI; právní a oborové použití závisí na příslušných pravidlech.",
+      "These are not SI base or derived units. The table gives their relation to SI; legal and field-specific use depends on the applicable rules.",
+      "Dies sind keine SI-Basis- oder abgeleiteten Einheiten. Die Tabelle zeigt den Bezug zum SI; rechtliche und fachliche Verwendung folgt den jeweiligen Regeln.",
+      "Ces unités ne sont ni des unités de base ni des unités dérivées SI. Leur usage légal et professionnel dépend des règles applicables.",
+      "Это не основные и не производные единицы СИ. Таблица показывает связь с СИ; допустимость применения зависит от действующих правил."
+    ],
+    "exact_note": [
+      "Znak = označuje přesný vztah, ≈ zaokrouhlení nebo měřenou hodnotu.",
+      "The sign = denotes an exact relation; ≈ denotes rounding or a measured value.",
+      "Das Zeichen = bezeichnet einen exakten Zusammenhang; ≈ bezeichnet Rundung oder einen Messwert.",
+      "Le signe = indique une relation exacte; ≈ indique un arrondi ou une valeur mesurée.",
+      "Знак = означает точное соотношение; ≈ — округление или измеренное значение."
+    ],
+    "prefix_note": [
+      "Předpony jsou dekadické a rozlišují velikost písmen. U hmotnosti se připojují ke gramu: mg, nikoli µkg. 1 cm² = 10⁻⁴ m²; 1 cm³ = 10⁻⁶ m³.",
+      "Prefixes are decimal and case-sensitive. For mass they attach to gram: mg, not µkg. 1 cm² = 10⁻⁴ m²; 1 cm³ = 10⁻⁶ m³.",
+      "Präfixe sind dezimal und unterscheiden Groß- und Kleinschreibung. Bei Masse stehen sie vor Gramm: mg, nicht µkg. 1 cm² = 10⁻⁴ m²; 1 cm³ = 10⁻⁶ m³.",
+      "Les préfixes sont décimaux et sensibles à la casse. Pour la masse, ils précèdent gramme: mg, pas µkg. 1 cm² = 10⁻⁴ m²; 1 cm³ = 10⁻⁶ m³.",
+      "Приставки десятичные и различают регистр. Для массы их присоединяют к грамму: mg, а не µkg. 1 cm² = 10⁻⁴ m²; 1 cm³ = 10⁻⁶ m³."
+    ],
+    "examples_note": [
+      "Jde o praktické příklady, nikoli závazný seznam doporučených jednotek. Volte násobek podle měřítka veličiny.",
+      "These are practical examples, not a mandatory list of recommended units. Choose the prefix to suit the magnitude.",
+      "Dies sind praktische Beispiele, keine verbindliche Liste empfohlener Einheiten. Wählen Sie das Präfix nach der Größenordnung.",
+      "Il s'agit d'exemples pratiques, pas d'une liste obligatoire d'unités recommandées. Choisissez le préfixe selon l'ordre de grandeur.",
+      "Это практические примеры, а не обязательный список рекомендуемых единиц. Приставку выбирают по порядку величины."
+    ],
+    "survey_note": [
+      "Americká zeměměřická stopa je od roku 2023 zastaralá. Je zde pro starší podklady; nezaměňujte ji s mezinárodní stopou.",
+      "The US survey foot has been obsolete since 2023. It is retained for older records; do not confuse it with the international foot.",
+      "Der US-Vermessungsfuß ist seit 2023 veraltet. Er dient älteren Unterlagen und ist vom internationalen Fuß zu unterscheiden.",
+      "Le pied d'arpentage américain est obsolète depuis 2023. Il est conservé pour les anciens documents et diffère du pied international.",
+      "Геодезический фут США устарел с 2023 года. Он приведён для старых данных и отличается от международного фута."
+    ],
+    "volume_note": [
+      "Britské, americké kapalné a americké suché míry mají odlišné hodnoty. U převodu vždy zachovejte jejich označení.",
+      "Imperial, US liquid and US dry measures differ. Always preserve their identification when converting.",
+      "Britische Maße, US-Flüssig- und US-Trockenmaße unterscheiden sich. Die Kennzeichnung muss beim Umrechnen erhalten bleiben.",
+      "Les mesures impériales, liquides américaines et sèches américaines diffèrent. Conservez leur identification lors de la conversion.",
+      "Британские меры, жидкостные и сыпучие меры США различаются. При переводе сохраняйте их обозначение."
+    ],
+    "legacy_note": [
+      "Historické a oborové míry: ověřte systém uvedený ve zdrojovém dokumentu. Délkové převody níže používají mezinárodní stopu.",
+      "Historical and field-specific measures: check the system used in the source document. Length conversions below use the international foot.",
+      "Historische und fachliche Maße: prüfen Sie das System der Quelle. Die Längenumrechnungen unten verwenden den internationalen Fuß.",
+      "Mesures historiques et spécialisées: vérifiez le système du document source. Les conversions de longueur utilisent le pied international.",
+      "Исторические и отраслевые меры: уточняйте систему исходного документа. Длины ниже переведены через международный фут."
+    ],
+    "spoons_note": [
+      "Americké lžíce jsou zde odvozeny z kapalného galonu. Metrické kuchyňské míry 5 ml a 15 ml jsou jiné definice. Vodní tuna je objemová míra.",
+      "US spoons here derive from the liquid gallon. Metric cooking measures of 5 mL and 15 mL are different definitions. The water ton measures volume.",
+      "US-Löffel leiten sich hier von der Flüssiggallone ab. Metrische Küchenmaße von 5 ml und 15 ml sind andere Definitionen. Die Wassertonne misst Volumen.",
+      "Les cuillères américaines sont ici dérivées du gallon liquide. Les mesures culinaires métriques de 5 ml et 15 ml sont différentes. Le tonneau d'eau mesure un volume.",
+      "Ложки США здесь определены через жидкостный галлон. Кухонные меры 5 мл и 15 мл имеют другие определения. Водная тонна — мера объёма."
+    ],
+    "point_note": [
+      "Typografický bod zde znamená DTP/PostScript (1/72 palce); starší typografické systémy mají jiné hodnoty. Kabel má více historických definic; zde je uvedena varianta 720 stop.",
+      "The typographic point here is DTP/PostScript (1/72 inch); older systems differ. Cable's length has several historical definitions; the 720-foot variant is shown.",
+      "Der Punkt bezeichnet hier DTP/PostScript (1/72 Zoll); ältere Systeme weichen ab. Für Kabellängen existieren mehrere historische Definitionen; hier gilt die 720-Fuß-Variante.",
+      "Le point est ici DTP/PostScript (1/72 pouce); les anciens systèmes diffèrent. L'encablure possède plusieurs définitions historiques; la variante de 720 pieds est indiquée.",
+      "Типографский пункт здесь — DTP/PostScript (1/72 дюйма); старые системы отличаются. Для кабельтова существует несколько определений; здесь вариант 720 футов."
+    ],
+    "astro_note": [
+      "Světelný rok používá juliánský rok 365,25 dne. Tropický rok není konstanta; jeho délka je zde uvedena pouze přibližně.",
+      "The light-year uses a Julian year of 365.25 days. The tropical year is not constant; its length is shown only approximately.",
+      "Das Lichtjahr verwendet das julianische Jahr mit 365,25 Tagen. Das tropische Jahr ist nicht konstant; seine Länge ist hier nur ungefähr angegeben.",
+      "L'année-lumière utilise l'année julienne de 365,25 jours. L'année tropique n'est pas constante; sa durée est donnée seulement à titre approximatif.",
+      "Световой год основан на юлианском годе 365,25 суток. Тропический год непостоянен; его длительность приведена лишь приближённо."
+    ],
+    "ratio_note": [
+      "U logaritmických hodnot uveďte druh poměru a případnou referenční hodnotu. Fon není obecný převod na dB: shoda platí pro referenční tón 1 kHz.",
+      "For logarithmic values state the kind of ratio and any reference value. Phon is not a general conversion to dB: equality applies to the 1 kHz reference tone.",
+      "Bei logarithmischen Werten sind Verhältnisart und Bezugswert anzugeben. Phon ist kein allgemeiner dB-Umrechnungsfaktor: Gleichheit gilt für den 1-kHz-Referenzton.",
+      "Précisez la nature du rapport logarithmique et sa référence. Le phone ne se convertit pas généralement en dB: l'égalité concerne le son de référence à 1 kHz.",
+      "Для логарифмических величин указывают вид отношения и опорное значение. Фон не имеет общего перевода в dB: равенство относится к опорному тону 1 kHz."
+    ],
+    "contents_note": [
+      "Vyberte tematickou tabulku. Jednotky, značky a převody jsou v každém jazyce stejné.",
+      "Choose a topic. Units, symbols and conversions are identical in every language.",
+      "Wählen Sie ein Thema. Einheiten, Zeichen und Umrechnungen sind in allen Sprachen identisch.",
+      "Choisissez un thème. Les unités, symboles et conversions sont identiques dans toutes les langues.",
+      "Выберите тему. Единицы, обозначения и переводы одинаковы во всех языках."
+    ],
+    "p0": [
+      "quetta",
+      "quetta",
+      "Quetta",
+      "quetta",
+      "кветта"
+    ],
+    "p1": [
+      "ronna",
+      "ronna",
+      "Ronna",
+      "ronna",
+      "ронна"
+    ],
+    "p2": [
+      "yotta",
+      "yotta",
+      "Yotta",
+      "yotta",
+      "иотта"
+    ],
+    "p3": [
+      "zetta",
+      "zetta",
+      "Zetta",
+      "zetta",
+      "зетта"
+    ],
+    "p4": [
+      "exa",
+      "exa",
+      "Exa",
+      "exa",
+      "экса"
+    ],
+    "p5": [
+      "peta",
+      "peta",
+      "Peta",
+      "péta",
+      "пета"
+    ],
+    "p6": [
+      "tera",
+      "tera",
+      "Tera",
+      "téra",
+      "тера"
+    ],
+    "p7": [
+      "giga",
+      "giga",
+      "Giga",
+      "giga",
+      "гига"
+    ],
+    "p8": [
+      "mega",
+      "mega",
+      "Mega",
+      "méga",
+      "мега"
+    ],
+    "p9": [
+      "kilo",
+      "kilo",
+      "Kilo",
+      "kilo",
+      "кило"
+    ],
+    "p10": [
+      "hekto",
+      "hecto",
+      "Hekto",
+      "hecto",
+      "гекто"
+    ],
+    "p11": [
+      "deka",
+      "deca",
+      "Deka",
+      "déca",
+      "дека"
+    ],
+    "p12": [
+      "quecto",
+      "quecto",
+      "Quecto",
+      "quecto",
+      "квекто"
+    ],
+    "p13": [
+      "ronto",
+      "ronto",
+      "Ronto",
+      "ronto",
+      "ронто"
+    ],
+    "p14": [
+      "yokto",
+      "yocto",
+      "Yokto",
+      "yocto",
+      "иокто"
+    ],
+    "p15": [
+      "zepto",
+      "zepto",
+      "Zepto",
+      "zepto",
+      "зепто"
+    ],
+    "p16": [
+      "atto",
+      "atto",
+      "Atto",
+      "atto",
+      "атто"
+    ],
+    "p17": [
+      "femto",
+      "femto",
+      "Femto",
+      "femto",
+      "фемто"
+    ],
+    "p18": [
+      "piko",
+      "pico",
+      "Piko",
+      "pico",
+      "пико"
+    ],
+    "p19": [
+      "nano",
+      "nano",
+      "Nano",
+      "nano",
+      "нано"
+    ],
+    "p20": [
+      "mikro",
+      "micro",
+      "Mikro",
+      "micro",
+      "микро"
+    ],
+    "p21": [
+      "mili",
+      "milli",
+      "Milli",
+      "milli",
+      "милли"
+    ],
+    "p22": [
+      "centi",
+      "centi",
+      "Zenti",
+      "centi",
+      "санти"
+    ],
+    "p23": [
+      "deci",
+      "deci",
+      "Dezi",
+      "déci",
+      "деци"
+    ],
+    "thermal_electric": [
+      "Teplo a elektřina",
+      "Heat and electricity",
+      "Wärme und Elektrizität",
+      "Chaleur et électricité",
+      "Тепло и электричество"
+    ],
+    "loudness": [
+      "Hladina hlasitosti",
+      "Loudness level",
+      "Lautstärkepegel",
+      "Niveau d'isosonie",
+      "Уровень громкости"
+    ]
+  },
+  "sources": {
+    "si": {
+      "label": "BIPM · SI Brochure, 9th edition, v4.01 (2026)",
+      "url": "https://www.bipm.org/en/web/guest/publications/si-brochure"
+    },
+    "nist": {
+      "label": "NIST · SP 811, Appendix B.8",
+      "url": "https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b8"
+    },
+    "survey": {
+      "label": "NIST · Revised unit conversion factors",
+      "url": "https://www.nist.gov/pml/us-surveyfoot/revised-unit-conversion-factors"
+    },
+    "iau": {
+      "label": "IAU · Resolution B2 (2015)",
+      "url": "https://www.iau.org/static/resolutions/IAU2015_English.pdf"
+    },
+    "usno": {
+      "label": "USNO · Leap years",
+      "url": "https://aa.usno.navy.mil/faq/leap_years"
+    },
+    "kitchen": {
+      "label": "NIST · Culinary measurement tips",
+      "url": "https://www.nist.gov/pml/owm/metric-si/metric-kitchen/metric-kitchen-culinary-measurement-tips"
+    },
+    "water": {
+      "label": "NIST · Handbook 44 (2026), Appendix B",
+      "url": "https://nvlpubs.nist.gov/nistpubs/hb/2026/NIST.HB.44-2026.pdf"
+    },
+    "postscript": {
+      "label": "Adobe · PostScript points",
+      "url": "https://helpx.adobe.com/photoshop/using/formatting-characters.html"
+    },
+    "iec": {
+      "label": "ISO · 226:2023, Acoustics",
+      "url": "https://www.iso.org/standard/83117.html"
+    }
+  },
+  "pages": [
+    {
+      "path": "",
+      "title": "root",
+      "headers": [],
+      "rows": [],
+      "notes": [
+        "contents_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "94fca23e-1489-50b3-8754-8914d71186ad"
+    },
+    {
+      "path": "01-BASE-UNITS",
+      "title": "base",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "defining"
+      ],
+      "rows": [
+        [
+          {
+            "key": "length"
+          },
+          {
+            "key": "metre"
+          },
+          "m",
+          "c = 299 792 458 m·s^-1"
+        ],
+        [
+          {
+            "key": "mass"
+          },
+          {
+            "key": "kilogram"
+          },
+          "kg",
+          "h = 6.626 070 15 × 10^-34 J·s"
+        ],
+        [
+          {
+            "key": "time"
+          },
+          {
+            "key": "second"
+          },
+          "s",
+          "Δν(Cs) = 9 192 631 770 Hz"
+        ],
+        [
+          {
+            "key": "current"
+          },
+          {
+            "key": "ampere"
+          },
+          "A",
+          "e = 1.602 176 634 × 10^-19 C"
+        ],
+        [
+          {
+            "key": "temperature"
+          },
+          {
+            "key": "kelvin"
+          },
+          "K",
+          "k = 1.380 649 × 10^-23 J·K^-1"
+        ],
+        [
+          {
+            "key": "amount"
+          },
+          {
+            "key": "mole"
+          },
+          "mol",
+          "N(A) = 6.022 140 76 × 10^23 mol^-1"
+        ],
+        [
+          {
+            "key": "luminous_intensity"
+          },
+          {
+            "key": "candela"
+          },
+          "cd",
+          "K(cd) = 683 lm·W^-1; ν = 540 × 10^12 Hz"
+        ]
+      ],
+      "notes": [
+        "base_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "7bee6eb6-d061-5b51-bcc3-a5bffcfde4c5"
+    },
+    {
+      "path": "02-DERIVED-UNITS",
+      "title": "derived",
+      "headers": [],
+      "rows": [],
+      "notes": [
+        "contents_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "0bb5e491-d09c-52c5-8c6b-a04147ccec3a"
+    },
+    {
+      "path": "02-DERIVED-UNITS/01-MECHANICS",
+      "title": "mechanics",
+      "headers": [
+        "quantity",
+        "base_expression",
+        "symbol"
+      ],
+      "rows": [
+        [
+          {
+            "key": "area"
+          },
+          "m^2",
+          "m^2"
+        ],
+        [
+          {
+            "key": "volume"
+          },
+          "m^3",
+          "m^3"
+        ],
+        [
+          {
+            "key": "speed"
+          },
+          "m·s^-1",
+          "m/s"
+        ],
+        [
+          {
+            "key": "angular_speed"
+          },
+          "s^-1",
+          "rad/s"
+        ],
+        [
+          {
+            "key": "acceleration"
+          },
+          "m·s^-2",
+          "m/s^2"
+        ],
+        [
+          {
+            "key": "angular_acceleration"
+          },
+          "s^-2",
+          "rad/s^2"
+        ],
+        [
+          {
+            "key": "wavenumber"
+          },
+          "m^-1",
+          "m^-1"
+        ],
+        [
+          {
+            "key": "density"
+          },
+          "kg·m^-3",
+          "kg/m^3"
+        ],
+        [
+          {
+            "key": "specific_volume"
+          },
+          "m^3·kg^-1",
+          "m^3/kg"
+        ],
+        [
+          {
+            "key": "torque"
+          },
+          "kg·m^2·s^-2",
+          "N·m"
+        ],
+        [
+          {
+            "key": "surface_tension"
+          },
+          "kg·s^-2",
+          "N/m"
+        ],
+        [
+          {
+            "key": "dynamic_viscosity"
+          },
+          "kg·m^-1·s^-1",
+          "Pa·s"
+        ],
+        [
+          {
+            "key": "kinematic_viscosity"
+          },
+          "m^2·s^-1",
+          "m^2/s"
+        ]
+      ],
+      "notes": [
+        "expression_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "c2fb6b5d-3b4a-5793-8a5e-691aaef1ae64"
+    },
+    {
+      "path": "02-DERIVED-UNITS/02-THERMAL",
+      "title": "thermal",
+      "headers": [
+        "quantity",
+        "base_expression",
+        "symbol"
+      ],
+      "rows": [
+        [
+          {
+            "key": "specific_energy"
+          },
+          "m^2·s^-2",
+          "J/kg"
+        ],
+        [
+          {
+            "key": "entropy"
+          },
+          "kg·m^2·s^-2·K^-1",
+          "J/K"
+        ],
+        [
+          {
+            "key": "specific_entropy"
+          },
+          "m^2·s^-2·K^-1",
+          "J/(kg·K)"
+        ],
+        [
+          {
+            "key": "conductivity_thermal"
+          },
+          "kg·m·s^-3·K^-1",
+          "W/(m·K)"
+        ],
+        [
+          {
+            "key": "concentration"
+          },
+          "mol·m^-3",
+          "mol/m^3"
+        ],
+        [
+          {
+            "key": "molar_energy"
+          },
+          "kg·m^2·s^-2·mol^-1",
+          "J/mol"
+        ],
+        [
+          {
+            "key": "molar_entropy"
+          },
+          "kg·m^2·s^-2·K^-1·mol^-1",
+          "J/(mol·K)"
+        ]
+      ],
+      "notes": [
+        "expression_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "d3668583-7a94-5acd-a89e-2801aa9cbdb3"
+    },
+    {
+      "path": "02-DERIVED-UNITS/03-ELECTROMAGNETISM",
+      "title": "electric",
+      "headers": [
+        "quantity",
+        "base_expression",
+        "symbol"
+      ],
+      "rows": [
+        [
+          {
+            "key": "current_density"
+          },
+          "A·m^-2",
+          "A/m^2"
+        ],
+        [
+          {
+            "key": "electric_field"
+          },
+          "kg·m·s^-3·A^-1",
+          "V/m"
+        ],
+        [
+          {
+            "key": "permittivity"
+          },
+          "kg^-1·m^-3·s^4·A^2",
+          "F/m"
+        ],
+        [
+          {
+            "key": "magnetic_field"
+          },
+          "A·m^-1",
+          "A/m"
+        ],
+        [
+          {
+            "key": "permeability"
+          },
+          "kg·m·s^-2·A^-2",
+          "H/m"
+        ]
+      ],
+      "notes": [
+        "expression_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "c6363015-3c4f-51ab-8440-ec4dd118558f"
+    },
+    {
+      "path": "02-DERIVED-UNITS/04-NAMED-MECHANICAL",
+      "title": "named_mechanics",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "base_expression"
+      ],
+      "rows": [
+        [
+          {
+            "key": "force"
+          },
+          {
+            "key": "newton"
+          },
+          "N",
+          "kg·m·s^-2"
+        ],
+        [
+          {
+            "key": "pressure_stress"
+          },
+          {
+            "key": "pascal"
+          },
+          "Pa",
+          "kg·m^-1·s^-2"
+        ],
+        [
+          {
+            "key": "energy"
+          },
+          {
+            "key": "joule"
+          },
+          "J",
+          "kg·m^2·s^-2"
+        ],
+        [
+          {
+            "key": "power"
+          },
+          {
+            "key": "watt"
+          },
+          "W",
+          "kg·m^2·s^-3"
+        ],
+        [
+          {
+            "key": "frequency"
+          },
+          {
+            "key": "hertz"
+          },
+          "Hz",
+          "s^-1"
+        ],
+        [
+          {
+            "key": "celsius"
+          },
+          {
+            "key": "degree_c"
+          },
+          "°C",
+          "K"
+        ]
+      ],
+      "notes": [
+        "celsius_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "7e0cff4e-78e8-5ac0-834d-0e2dd9cf408b"
+    },
+    {
+      "path": "02-DERIVED-UNITS/05-NAMED-ELECTRICAL",
+      "title": "named_electric",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "base_expression"
+      ],
+      "rows": [
+        [
+          {
+            "key": "charge"
+          },
+          {
+            "key": "coulomb"
+          },
+          "C",
+          "A·s"
+        ],
+        [
+          {
+            "key": "voltage"
+          },
+          {
+            "key": "volt"
+          },
+          "V",
+          "kg·m^2·s^-3·A^-1"
+        ],
+        [
+          {
+            "key": "capacitance"
+          },
+          {
+            "key": "farad"
+          },
+          "F",
+          "kg^-1·m^-2·s^4·A^2"
+        ],
+        [
+          {
+            "key": "resistance"
+          },
+          {
+            "key": "ohm"
+          },
+          "Ω",
+          "kg·m^2·s^-3·A^-2"
+        ],
+        [
+          {
+            "key": "conductance"
+          },
+          {
+            "key": "siemens"
+          },
+          "S",
+          "kg^-1·m^-2·s^3·A^2"
+        ],
+        [
+          {
+            "key": "magnetic_flux"
+          },
+          {
+            "key": "weber"
+          },
+          "Wb",
+          "kg·m^2·s^-2·A^-1"
+        ],
+        [
+          {
+            "key": "flux_density"
+          },
+          {
+            "key": "tesla"
+          },
+          "T",
+          "kg·s^-2·A^-1"
+        ],
+        [
+          {
+            "key": "inductance"
+          },
+          {
+            "key": "henry"
+          },
+          "H",
+          "kg·m^2·s^-2·A^-2"
+        ]
+      ],
+      "notes": [
+        "expression_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "3b178cf4-f60f-59cb-9832-d41cc35997ef"
+    },
+    {
+      "path": "02-DERIVED-UNITS/06-ANGLES-LIGHT",
+      "title": "light",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "base_expression"
+      ],
+      "rows": [
+        [
+          {
+            "key": "plane_angle"
+          },
+          {
+            "key": "radian"
+          },
+          "rad",
+          "1"
+        ],
+        [
+          {
+            "key": "solid_angle"
+          },
+          {
+            "key": "steradian"
+          },
+          "sr",
+          "1"
+        ],
+        [
+          {
+            "key": "luminous_flux"
+          },
+          {
+            "key": "lumen"
+          },
+          "lm",
+          "cd·sr"
+        ],
+        [
+          {
+            "key": "illuminance"
+          },
+          {
+            "key": "lux"
+          },
+          "lx",
+          "cd·sr·m^-2"
+        ],
+        [
+          {
+            "key": "radiance"
+          },
+          "—",
+          "W/sr",
+          "kg·m^2·s^-3"
+        ],
+        [
+          {
+            "key": "luminance"
+          },
+          "—",
+          "cd/m^2",
+          "cd·m^-2"
+        ]
+      ],
+      "notes": [
+        "angles_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "08148477-2df3-53c3-be72-620087232697"
+    },
+    {
+      "path": "02-DERIVED-UNITS/07-ACTIVITY-DOSES",
+      "title": "activity",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "base_expression"
+      ],
+      "rows": [
+        [
+          {
+            "key": "radioactivity"
+          },
+          {
+            "key": "becquerel"
+          },
+          "Bq",
+          "s^-1"
+        ],
+        [
+          {
+            "key": "absorbed_dose"
+          },
+          {
+            "key": "gray"
+          },
+          "Gy",
+          "m^2·s^-2"
+        ],
+        [
+          {
+            "key": "dose_equivalent"
+          },
+          {
+            "key": "sievert"
+          },
+          "Sv",
+          "m^2·s^-2"
+        ],
+        [
+          {
+            "key": "catalytic_activity"
+          },
+          {
+            "key": "katal"
+          },
+          "kat",
+          "mol·s^-1"
+        ]
+      ],
+      "notes": [
+        "expression_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "632063cb-0208-50a8-bf81-a528686e0aac"
+    },
+    {
+      "path": "03-NON-SI",
+      "title": "non_si",
+      "headers": [],
+      "rows": [],
+      "notes": [
+        "contents_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "9095dee5-3f5b-5360-a0a2-70fb5fb51b38"
+    },
+    {
+      "path": "03-NON-SI/01-COMMON",
+      "title": "common",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "time"
+          },
+          {
+            "key": "minute"
+          },
+          "min",
+          "1 min = 60 s"
+        ],
+        [
+          {
+            "key": "time"
+          },
+          {
+            "key": "hour"
+          },
+          "h",
+          "1 h = 3 600 s"
+        ],
+        [
+          {
+            "key": "time"
+          },
+          {
+            "key": "day"
+          },
+          "d",
+          "1 d = 86 400 s"
+        ],
+        [
+          {
+            "key": "plane_angle"
+          },
+          {
+            "key": "degree"
+          },
+          "°",
+          "1° = (π/180) rad"
+        ],
+        [
+          {
+            "key": "plane_angle"
+          },
+          {
+            "key": "arcminute"
+          },
+          "′",
+          "1′ = (π/10 800) rad"
+        ],
+        [
+          {
+            "key": "plane_angle"
+          },
+          {
+            "key": "arcsecond"
+          },
+          "″",
+          "1″ = (π/648 000) rad"
+        ],
+        [
+          {
+            "key": "area"
+          },
+          {
+            "key": "hectare"
+          },
+          "ha",
+          "1 ha = 10^4 m^2"
+        ],
+        [
+          {
+            "key": "volume"
+          },
+          {
+            "key": "litre"
+          },
+          "l, L",
+          "1 L = 1 dm^3 = 10^-3 m^3"
+        ],
+        [
+          {
+            "key": "mass"
+          },
+          {
+            "key": "tonne"
+          },
+          "t",
+          "1 t = 10^3 kg"
+        ],
+        [
+          {
+            "key": "length"
+          },
+          {
+            "key": "au"
+          },
+          "au",
+          "1 au = 149 597 870 700 m"
+        ],
+        [
+          {
+            "key": "mass"
+          },
+          {
+            "key": "dalton"
+          },
+          "Da, u",
+          "1 Da ≈ 1.660 539 068 92 × 10^-27 kg"
+        ],
+        [
+          {
+            "key": "energy"
+          },
+          {
+            "key": "electronvolt"
+          },
+          "eV",
+          "1 eV = 1.602 176 634 × 10^-19 J"
+        ]
+      ],
+      "notes": [
+        "non_si_note",
+        "exact_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "45234e8a-efd6-5750-818e-f647abbfc999"
+    },
+    {
+      "path": "03-NON-SI/02-TECHNICAL",
+      "title": "technical",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "pressure"
+          },
+          {
+            "key": "bar"
+          },
+          "bar",
+          "1 bar = 10^5 Pa"
+        ],
+        [
+          {
+            "key": "linear_density"
+          },
+          {
+            "key": "tex"
+          },
+          "tex",
+          "1 tex = 10^-6 kg/m"
+        ],
+        [
+          {
+            "key": "optical_power"
+          },
+          {
+            "key": "dioptre"
+          },
+          "—",
+          "1 m^-1"
+        ],
+        [
+          {
+            "key": "apparent_power"
+          },
+          {
+            "key": "voltampere"
+          },
+          "VA",
+          "1 VA = 1 V·A"
+        ],
+        [
+          {
+            "key": "reactive_power"
+          },
+          {
+            "key": "var"
+          },
+          "var",
+          "1 var = 1 V·A"
+        ],
+        [
+          {
+            "key": "ratio"
+          },
+          {
+            "key": "percent"
+          },
+          "%",
+          "1 % = 10^-2"
+        ],
+        [
+          {
+            "key": "ratio"
+          },
+          {
+            "key": "permille"
+          },
+          "‰",
+          "1 ‰ = 10^-3"
+        ],
+        [
+          {
+            "key": "ratio"
+          },
+          {
+            "key": "ppm"
+          },
+          "ppm",
+          "1 ppm = 10^-6"
+        ],
+        [
+          {
+            "key": "log_ratio"
+          },
+          {
+            "key": "bel"
+          },
+          "B",
+          "L(B) = log10(P/P0)"
+        ],
+        [
+          {
+            "key": "log_ratio"
+          },
+          {
+            "key": "decibel"
+          },
+          "dB",
+          "L(dB) = 10 log10(P/P0)"
+        ],
+        [
+          {
+            "key": "frequency"
+          },
+          {
+            "key": "octave"
+          },
+          "—",
+          "f2/f1 = 2"
+        ],
+        [
+          {
+            "key": "frequency"
+          },
+          {
+            "key": "decade"
+          },
+          "—",
+          "f2/f1 = 10"
+        ],
+        [
+          {
+            "key": "loudness"
+          },
+          {
+            "key": "phon"
+          },
+          "phon",
+          "—"
+        ]
+      ],
+      "notes": [
+        "ratio_note"
+      ],
+      "sources": [
+        "si",
+        "nist",
+        "iec"
+      ],
+      "id": "629d6615-956d-58d2-99df-5c8174804377"
+    },
+    {
+      "path": "03-NON-SI/03-ASTRONOMY-GEODESY",
+      "title": "astronomy",
+      "headers": [
+        "quantity",
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "plane_angle"
+          },
+          {
+            "key": "gon"
+          },
+          "gon",
+          "1 gon = (π/200) rad"
+        ],
+        [
+          {
+            "key": "length"
+          },
+          {
+            "key": "au"
+          },
+          "au",
+          "1 au = 149 597 870 700 m"
+        ],
+        [
+          {
+            "key": "length"
+          },
+          {
+            "key": "light_year"
+          },
+          "ly",
+          "1 ly = 9 460 730 472 580 800 m"
+        ],
+        [
+          {
+            "key": "length"
+          },
+          {
+            "key": "parsec"
+          },
+          "pc",
+          "1 pc = (648 000/π) au ≈ 3.085 677 581 × 10^16 m"
+        ],
+        [
+          {
+            "key": "time"
+          },
+          {
+            "key": "tropical_year"
+          },
+          "—",
+          "1 a(trop) ≈ 365.2422 d ≈ 31 556 926 s"
+        ],
+        [
+          {
+            "key": "acceleration"
+          },
+          {
+            "key": "gal"
+          },
+          "Gal, mGal",
+          "1 Gal = 10^-2 m/s^2; 1 mGal = 10^-5 m/s^2"
+        ]
+      ],
+      "notes": [
+        "astro_note",
+        "exact_note"
+      ],
+      "sources": [
+        "si",
+        "iau",
+        "usno"
+      ],
+      "id": "09ca7405-3c93-54cb-9ed6-c31f3ec1e675"
+    },
+    {
+      "path": "04-SI-PREFIXES",
+      "title": "prefixes",
+      "headers": [
+        "factor",
+        "symbol",
+        "prefix_name",
+        "factor",
+        "symbol",
+        "prefix_name"
+      ],
+      "rows": [
+        [
+          "10^30",
+          "Q",
+          {
+            "key": "p0"
+          },
+          "10^-30",
+          "q",
+          {
+            "key": "p12"
+          }
+        ],
+        [
+          "10^27",
+          "R",
+          {
+            "key": "p1"
+          },
+          "10^-27",
+          "r",
+          {
+            "key": "p13"
+          }
+        ],
+        [
+          "10^24",
+          "Y",
+          {
+            "key": "p2"
+          },
+          "10^-24",
+          "y",
+          {
+            "key": "p14"
+          }
+        ],
+        [
+          "10^21",
+          "Z",
+          {
+            "key": "p3"
+          },
+          "10^-21",
+          "z",
+          {
+            "key": "p15"
+          }
+        ],
+        [
+          "10^18",
+          "E",
+          {
+            "key": "p4"
+          },
+          "10^-18",
+          "a",
+          {
+            "key": "p16"
+          }
+        ],
+        [
+          "10^15",
+          "P",
+          {
+            "key": "p5"
+          },
+          "10^-15",
+          "f",
+          {
+            "key": "p17"
+          }
+        ],
+        [
+          "10^12",
+          "T",
+          {
+            "key": "p6"
+          },
+          "10^-12",
+          "p",
+          {
+            "key": "p18"
+          }
+        ],
+        [
+          "10^9",
+          "G",
+          {
+            "key": "p7"
+          },
+          "10^-9",
+          "n",
+          {
+            "key": "p19"
+          }
+        ],
+        [
+          "10^6",
+          "M",
+          {
+            "key": "p8"
+          },
+          "10^-6",
+          "µ",
+          {
+            "key": "p20"
+          }
+        ],
+        [
+          "10^3",
+          "k",
+          {
+            "key": "p9"
+          },
+          "10^-3",
+          "m",
+          {
+            "key": "p21"
+          }
+        ],
+        [
+          "10^2",
+          "h",
+          {
+            "key": "p10"
+          },
+          "10^-2",
+          "c",
+          {
+            "key": "p22"
+          }
+        ],
+        [
+          "10^1",
+          "da",
+          {
+            "key": "p11"
+          },
+          "10^-1",
+          "d",
+          {
+            "key": "p23"
+          }
+        ]
+      ],
+      "notes": [
+        "prefix_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "efc9fe69-eb69-5a9c-82b3-076531c6d511"
+    },
+    {
+      "path": "05-PRACTICAL-MULTIPLES",
+      "title": "multiples",
+      "headers": [],
+      "rows": [],
+      "notes": [
+        "contents_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "1d89d592-8d13-5fea-8e47-a9beee06276d"
+    },
+    {
+      "path": "05-PRACTICAL-MULTIPLES/01-MECHANICAL",
+      "title": "mechanics",
+      "headers": [
+        "quantity",
+        "examples"
+      ],
+      "rows": [
+        [
+          {
+            "key": "length"
+          },
+          "km, cm, mm, µm, nm"
+        ],
+        [
+          {
+            "key": "mass"
+          },
+          "Mg, g, mg, µg, ng"
+        ],
+        [
+          {
+            "key": "time"
+          },
+          "ks, ms, µs, ns"
+        ],
+        [
+          {
+            "key": "plane_angle"
+          },
+          "mrad, µrad"
+        ],
+        [
+          {
+            "key": "area"
+          },
+          "km^2, dm^2, cm^2, mm^2"
+        ],
+        [
+          {
+            "key": "volume"
+          },
+          "dm^3, cm^3, mm^3"
+        ],
+        [
+          {
+            "key": "density"
+          },
+          "Mg/m^3, kg/dm^3, g/cm^3"
+        ],
+        [
+          {
+            "key": "force"
+          },
+          "MN, kN, mN, µN"
+        ],
+        [
+          {
+            "key": "pressure"
+          },
+          "GPa, MPa, kPa, mPa, µPa"
+        ],
+        [
+          {
+            "key": "stress"
+          },
+          "GPa, MPa, kPa"
+        ],
+        [
+          {
+            "key": "dynamic_viscosity"
+          },
+          "mPa·s"
+        ],
+        [
+          {
+            "key": "kinematic_viscosity"
+          },
+          "mm^2/s"
+        ],
+        [
+          {
+            "key": "torque"
+          },
+          "MN·m, kN·m, mN·m, µN·m"
+        ],
+        [
+          {
+            "key": "surface_tension"
+          },
+          "mN/m"
+        ]
+      ],
+      "notes": [
+        "examples_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "a3baec7c-f347-5a6f-800f-46578db1dd35"
+    },
+    {
+      "path": "05-PRACTICAL-MULTIPLES/02-THERMAL-ELECTRICAL",
+      "title": "thermal_electric",
+      "headers": [
+        "quantity",
+        "examples"
+      ],
+      "rows": [
+        [
+          {
+            "key": "current"
+          },
+          "kA, mA, µA, nA, pA"
+        ],
+        [
+          {
+            "key": "temperature"
+          },
+          "MK, kK, mK, µK"
+        ],
+        [
+          {
+            "key": "frequency"
+          },
+          "THz, GHz, MHz, kHz, pHz"
+        ],
+        [
+          {
+            "key": "energy"
+          },
+          "TJ, GJ, MJ, kJ, mJ"
+        ],
+        [
+          {
+            "key": "power"
+          },
+          "TW, GW, MW, kW, mW, µW"
+        ],
+        [
+          {
+            "key": "heat_capacity"
+          },
+          "kJ/K"
+        ],
+        [
+          {
+            "key": "specific_heat"
+          },
+          "kJ/(kg·K)"
+        ],
+        [
+          {
+            "key": "voltage"
+          },
+          "MV, kV, mV, µV, nV"
+        ],
+        [
+          {
+            "key": "resistance"
+          },
+          "TΩ, GΩ, MΩ, kΩ, mΩ, µΩ"
+        ],
+        [
+          {
+            "key": "conductance"
+          },
+          "kS, mS, µS"
+        ]
+      ],
+      "notes": [
+        "examples_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "64a9c061-132a-5dc0-97fb-cbb624f211af"
+    },
+    {
+      "path": "06-IMPERIAL-US",
+      "title": "imperial",
+      "headers": [],
+      "rows": [],
+      "notes": [
+        "contents_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "a2c4f4b5-765d-56d0-8b66-641068714a9d"
+    },
+    {
+      "path": "06-IMPERIAL-US/01-LENGTH-AREA",
+      "title": "length_area",
+      "headers": [
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "inch"
+          },
+          "in",
+          "1 in = 25.4 mm"
+        ],
+        [
+          {
+            "key": "foot"
+          },
+          "ft",
+          "1 ft = 12 in = 0.3048 m"
+        ],
+        [
+          {
+            "key": "yard"
+          },
+          "yd",
+          "1 yd = 3 ft = 0.9144 m"
+        ],
+        [
+          {
+            "key": "mile"
+          },
+          "mi",
+          "1 mi = 5 280 ft = 1 609.344 m"
+        ],
+        [
+          {
+            "key": "survey_foot"
+          },
+          "ft (US survey)",
+          "1 ft (US survey) = (1 200/3 937) m ≈ 0.304 800 609 6 m"
+        ],
+        [
+          {
+            "key": "survey_mile"
+          },
+          "mi (US survey)",
+          "1 mi (US survey) = (6 336 000/3 937) m ≈ 1 609.347 219 m"
+        ],
+        [
+          {
+            "key": "square_inch"
+          },
+          "in^2",
+          "1 in^2 = 645.16 mm^2"
+        ],
+        [
+          {
+            "key": "square_foot"
+          },
+          "ft^2",
+          "1 ft^2 = 0.092 903 04 m^2"
+        ],
+        [
+          {
+            "key": "square_yard"
+          },
+          "yd^2",
+          "1 yd^2 = 0.836 127 36 m^2"
+        ],
+        [
+          {
+            "key": "square_mile"
+          },
+          "mi^2",
+          "1 mi^2 = 2.589 988 110 336 km^2"
+        ],
+        [
+          {
+            "key": "acre"
+          },
+          "ac",
+          "1 ac = 4 840 yd^2 = 4 046.856 422 4 m^2"
+        ]
+      ],
+      "notes": [
+        "survey_note",
+        "exact_note"
+      ],
+      "sources": [
+        "survey",
+        "nist"
+      ],
+      "id": "3792ccf0-fe60-5766-9e6b-7e8ea29724fb"
+    },
+    {
+      "path": "06-IMPERIAL-US/02-VOLUME",
+      "title": "volumes",
+      "headers": [
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "cubic_inch"
+          },
+          "in^3",
+          "1 in^3 = 16.387 064 cm^3"
+        ],
+        [
+          {
+            "key": "cubic_foot"
+          },
+          "ft^3",
+          "1 ft^3 = 28.316 846 592 L"
+        ],
+        [
+          {
+            "key": "cubic_yard"
+          },
+          "yd^3",
+          "1 yd^3 = 0.764 554 857 984 m^3"
+        ],
+        [
+          {
+            "key": "gallon_uk"
+          },
+          "gal (UK)",
+          "1 gal (UK) = 4.546 09 L"
+        ],
+        [
+          {
+            "key": "gallon_us"
+          },
+          "gal (US liq)",
+          "1 gal (US liq) = 3.785 411 784 L"
+        ],
+        [
+          {
+            "key": "pint_uk"
+          },
+          "pt (UK)",
+          "1 pt (UK) = 0.568 261 25 L"
+        ],
+        [
+          {
+            "key": "pint_us"
+          },
+          "pt (US liq)",
+          "1 pt (US liq) = 0.473 176 473 L"
+        ],
+        [
+          {
+            "key": "pint_dry"
+          },
+          "pt (US dry)",
+          "1 pt (US dry) = 0.550 610 471 357 5 L"
+        ],
+        [
+          {
+            "key": "ounce_uk"
+          },
+          "fl oz (UK)",
+          "1 fl oz (UK) = 28.413 062 5 mL"
+        ],
+        [
+          {
+            "key": "ounce_us"
+          },
+          "fl oz (US)",
+          "1 fl oz (US) = 29.573 529 562 5 mL"
+        ],
+        [
+          {
+            "key": "bushel_uk"
+          },
+          "bu (UK)",
+          "1 bu (UK) = 36.368 72 L"
+        ],
+        [
+          {
+            "key": "bushel_us"
+          },
+          "bu (US)",
+          "1 bu (US) = 35.239 070 166 88 L"
+        ],
+        [
+          {
+            "key": "barrel_oil"
+          },
+          "bbl (US oil)",
+          "1 bbl (US oil) = 42 gal (US liq) = 158.987 294 928 L"
+        ],
+        [
+          {
+            "key": "barrel_dry"
+          },
+          "bbl (US dry)",
+          "1 bbl (US dry) = 7 056 in^3 = 115.627 123 584 L"
+        ]
+      ],
+      "notes": [
+        "volume_note",
+        "exact_note"
+      ],
+      "sources": [
+        "nist"
+      ],
+      "id": "ab9a0f1a-4e82-5507-92be-6d9fd8d72056"
+    },
+    {
+      "path": "06-IMPERIAL-US/03-MASS-SPEED",
+      "title": "mass_speed",
+      "headers": [
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "pound"
+          },
+          "lb",
+          "1 lb = 0.453 592 37 kg"
+        ],
+        [
+          {
+            "key": "ounce_mass"
+          },
+          "oz",
+          "1 oz = (1/16) lb = 28.349 523 125 g"
+        ],
+        [
+          {
+            "key": "long_ton"
+          },
+          "long ton",
+          "1 long ton = 2 240 lb = 1 016.046 908 8 kg"
+        ],
+        [
+          {
+            "key": "short_ton"
+          },
+          "short ton",
+          "1 short ton = 2 000 lb = 907.184 74 kg"
+        ],
+        [
+          {
+            "key": "foot_second"
+          },
+          "ft/s",
+          "1 ft/s = 0.3048 m/s"
+        ],
+        [
+          {
+            "key": "mile_hour"
+          },
+          "mi/h",
+          "1 mi/h = 1.609 344 km/h = 0.447 04 m/s"
+        ],
+        [
+          {
+            "key": "foot_acc"
+          },
+          "ft/s^2",
+          "1 ft/s^2 = 0.3048 m/s^2"
+        ]
+      ],
+      "notes": [
+        "exact_note"
+      ],
+      "sources": [
+        "nist"
+      ],
+      "id": "e2183e5c-7671-5bbb-ba5e-f2569f797207"
+    },
+    {
+      "path": "07-HISTORICAL-SPECIAL",
+      "title": "other",
+      "headers": [],
+      "rows": [],
+      "notes": [
+        "contents_note"
+      ],
+      "sources": [
+        "si"
+      ],
+      "id": "897e890e-149c-572d-a9d5-610fbb5afed2"
+    },
+    {
+      "path": "07-HISTORICAL-SPECIAL/01-LENGTH-AREA",
+      "title": "old_length",
+      "headers": [
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "cable"
+          },
+          "—",
+          "1 cable = 720 ft = 219.456 m"
+        ],
+        [
+          {
+            "key": "chain"
+          },
+          "ch",
+          "1 ch = 66 ft = 20.1168 m"
+        ],
+        [
+          {
+            "key": "fathom"
+          },
+          "ftm",
+          "1 ftm = 6 ft = 1.8288 m"
+        ],
+        [
+          {
+            "key": "furlong"
+          },
+          "fur",
+          "1 fur = 660 ft = 201.168 m"
+        ],
+        [
+          {
+            "key": "hand"
+          },
+          "hand",
+          "1 hand = 4 in = 101.6 mm"
+        ],
+        [
+          {
+            "key": "league"
+          },
+          "league",
+          "1 league = 3 mi = 4.828 032 km"
+        ],
+        [
+          {
+            "key": "link"
+          },
+          "li",
+          "1 li = 0.66 ft = 0.201 168 m"
+        ],
+        [
+          {
+            "key": "mil"
+          },
+          "mil",
+          "1 mil = 0.001 in = 25.4 µm"
+        ],
+        [
+          {
+            "key": "nautical_mile"
+          },
+          "—",
+          "1 nmi = 1 852 m"
+        ],
+        [
+          {
+            "key": "point_type"
+          },
+          "pt (DTP)",
+          "1 pt (DTP) = (1/72) in ≈ 0.352 777 778 mm"
+        ],
+        [
+          {
+            "key": "rod"
+          },
+          "rd",
+          "1 rd = 16.5 ft = 5.0292 m"
+        ],
+        [
+          {
+            "key": "square_build"
+          },
+          "square",
+          "1 square = 100 ft^2 = 9.290 304 m^2"
+        ],
+        [
+          {
+            "key": "square_rod"
+          },
+          "rd^2",
+          "1 rd^2 = 25.292 852 64 m^2"
+        ]
+      ],
+      "notes": [
+        "legacy_note",
+        "point_note"
+      ],
+      "sources": [
+        "survey",
+        "nist",
+        "postscript"
+      ],
+      "id": "aea625dc-d1bc-5f6d-af23-e617bfb95791"
+    },
+    {
+      "path": "07-HISTORICAL-SPECIAL/02-VOLUME",
+      "title": "old_volume",
+      "headers": [
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "cord"
+          },
+          "cord",
+          "1 cord = 128 ft^3 = 3.624 556 363 776 m^3"
+        ],
+        [
+          {
+            "key": "cup"
+          },
+          "cup (US)",
+          "1 cup (US) = 8 fl oz (US) = 236.588 236 5 mL"
+        ],
+        [
+          {
+            "key": "dram"
+          },
+          "fl dr (US)",
+          "1 fl dr (US) = (1/8) fl oz (US) ≈ 3.696 691 195 mL"
+        ],
+        [
+          {
+            "key": "gill"
+          },
+          "gi (US)",
+          "1 gi (US) = 4 fl oz (US) = 118.294 118 25 mL"
+        ],
+        [
+          {
+            "key": "peck"
+          },
+          "pk (US)",
+          "1 pk (US) = (1/4) bu (US) = 8.809 767 541 72 L"
+        ],
+        [
+          {
+            "key": "quart_dry"
+          },
+          "qt (US dry)",
+          "1 qt (US dry) = 2 pt (US dry) = 1.101 220 942 715 L"
+        ],
+        [
+          {
+            "key": "quart_us"
+          },
+          "qt (US liq)",
+          "1 qt (US liq) = (1/4) gal (US liq) = 0.946 352 946 L"
+        ],
+        [
+          {
+            "key": "quart_uk"
+          },
+          "qt (UK)",
+          "1 qt (UK) = (1/4) gal (UK) = 1.136 522 5 L"
+        ],
+        [
+          {
+            "key": "water_ton"
+          },
+          "water ton (UK)",
+          "1 water ton (UK) = 224 gal (UK) = 1 018.324 16 L"
+        ],
+        [
+          {
+            "key": "tablespoon"
+          },
+          "tbsp (US)",
+          "1 tbsp (US) = (1/2) fl oz (US) ≈ 14.786 764 78 mL"
+        ],
+        [
+          {
+            "key": "teaspoon"
+          },
+          "tsp (US)",
+          "1 tsp (US) = (1/6) fl oz (US) ≈ 4.928 921 594 mL"
+        ]
+      ],
+      "notes": [
+        "spoons_note",
+        "exact_note"
+      ],
+      "sources": [
+        "nist",
+        "kitchen",
+        "water"
+      ],
+      "id": "9db57cc7-43fd-5946-a5df-8133f775f764"
+    },
+    {
+      "path": "07-HISTORICAL-SPECIAL/03-MASS",
+      "title": "old_mass",
+      "headers": [
+        "unit_name",
+        "symbol",
+        "conversion"
+      ],
+      "rows": [
+        [
+          {
+            "key": "assay_ton"
+          },
+          "AT (US)",
+          "1 AT (US) ≈ 29.166 667 g"
+        ],
+        [
+          {
+            "key": "carat"
+          },
+          "ct",
+          "1 ct = 200 mg"
+        ],
+        [
+          {
+            "key": "grain"
+          },
+          "gr",
+          "1 gr = 64.798 91 mg"
+        ],
+        [
+          {
+            "key": "hundredweight"
+          },
+          "cwt (UK)",
+          "1 cwt (UK) = 112 lb = 50.802 345 44 kg"
+        ],
+        [
+          {
+            "key": "ounce_mass"
+          },
+          "oz",
+          "1 oz = 28.349 523 125 g"
+        ],
+        [
+          {
+            "key": "ounce_troy"
+          },
+          "oz t",
+          "1 oz t = 480 gr = 31.103 476 8 g"
+        ],
+        [
+          {
+            "key": "pennyweight"
+          },
+          "dwt",
+          "1 dwt = 24 gr = 1.555 173 84 g"
+        ],
+        [
+          {
+            "key": "point_mass"
+          },
+          "point",
+          "1 point = (1/100) ct = 2 mg"
+        ],
+        [
+          {
+            "key": "pound"
+          },
+          "lb",
+          "1 lb = 7 000 gr = 453.592 37 g"
+        ],
+        [
+          {
+            "key": "pound_troy"
+          },
+          "lb t",
+          "1 lb t = 5 760 gr = 373.241 721 6 g"
+        ],
+        [
+          {
+            "key": "scruple"
+          },
+          "s ap",
+          "1 s ap = 20 gr = 1.295 978 2 g"
+        ],
+        [
+          {
+            "key": "long_ton"
+          },
+          "long ton",
+          "1 long ton = 2 240 lb = 1 016.046 908 8 kg"
+        ],
+        [
+          {
+            "key": "tonne"
+          },
+          "t",
+          "1 t = 1 000 kg"
+        ],
+        [
+          {
+            "key": "short_ton"
+          },
+          "short ton",
+          "1 short ton = 2 000 lb = 907.184 74 kg"
+        ]
+      ],
+      "notes": [
+        "legacy_note",
+        "exact_note"
+      ],
+      "sources": [
+        "nist"
+      ],
+      "id": "e4250c7b-8c1b-5bba-86fa-1998aaa96301"
+    }
+  ]
+}

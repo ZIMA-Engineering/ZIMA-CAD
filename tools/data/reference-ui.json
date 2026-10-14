@@ -1,0 +1,18 @@
+{
+  "languages": [
+    "cs",
+    "en",
+    "de",
+    "fr",
+    "ru"
+  ],
+  "labels": {
+    "reference_notice": [
+      "Informativní technické tabulky ZIMA Engineering, nikoli oficiální znění norem. Poskytováno bez záruky správnosti nebo vhodnosti a s vyloučením odpovědnosti v rozsahu povoleném zákonem. Pro konkrétní použití ověřte platné požadavky a vhodnost údajů.",
+      "Informative technical tables by ZIMA Engineering, not official standards text. Provided without warranty of accuracy or suitability and with liability excluded to the extent permitted by law. Verify applicable requirements and suitability for the intended use.",
+      "Informative technische Tabellen von ZIMA Engineering, kein offizieller Normtext. Ohne Gewähr für Richtigkeit oder Eignung und unter Ausschluss der Haftung im gesetzlich zulässigen Umfang. Prüfen Sie die geltenden Anforderungen und die Eignung für den vorgesehenen Einsatz.",
+      "Tables techniques informatives de ZIMA Engineering, et non textes officiels de normes. Fournies sans garantie d'exactitude ou d'adéquation, avec exclusion de responsabilité dans la mesure permise par la loi. Vérifiez les exigences applicables et l'adéquation à l'usage prévu.",
+      "Информационные технические таблицы ZIMA Engineering, а не официальные тексты стандартов. Предоставляются без гарантии точности или пригодности и с исключением ответственности в пределах, допускаемых законом. Проверяйте действующие требования и пригодность данных для предполагаемого применения."
+    ]
+  }
+}

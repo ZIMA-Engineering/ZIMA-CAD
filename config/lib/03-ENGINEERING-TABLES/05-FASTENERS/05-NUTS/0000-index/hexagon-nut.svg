@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<!-- Original ZIMA Engineering schematic; GPL-3.0-or-later. -->
+<rect width="700" height="260" fill="white"/>
+<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="3" refY="3" orient="auto-start-reverse"><path d="M0 0L6 3L0 6Z" fill="#222"/></marker></defs>
+<style>text{font:17px Arial,sans-serif;fill:#111}.outline{fill:none;stroke:#222;stroke-width:2}.axis{fill:none;stroke:#777;stroke-width:1;stroke-dasharray:8 4 2 4}.dim{fill:none;stroke:#222;stroke-width:1;marker-start:url(#arrow);marker-end:url(#arrow)}.ext{fill:none;stroke:#999;stroke-width:1}</style>
+
+<g id="ideal-hexagon" data-s="142.028166220648" data-e="164"><polygon class="outline" points="257.000000,125.000000 216.000000,196.014083 134.000000,196.014083 93.000000,125.000000 134.000000,53.985917 216.000000,53.985917"/>
+<circle class="outline" cx="175" cy="125" r="37"/><circle class="outline" cx="175" cy="125" r="32"/>
+<path class="axis" d="M65 125H285 M175 15V235"/>
+<path class="dim" d="M295 53.985917V196.014083 M93 231H257"/>
+<path class="ext" d="M216 53.985917H305 M216 196.014083H305 M93 125V238 M257 125V238"/>
+<text x="307" y="130">s</text><text x="171" y="255">e</text>
+<path class="outline" d="M435 62H505L517 74V176L505 188H435L423 176V74Z M423 105H517 M423 145H517"/>
+<path class="axis" d="M395 125H550"/><path class="ext" d="M423 176V235 M517 176V235"/>
+<path class="dim" d="M423 224H517"/><text x="467" y="250">m</text><text x="468" y="118">d</text></g>
+
+</svg>

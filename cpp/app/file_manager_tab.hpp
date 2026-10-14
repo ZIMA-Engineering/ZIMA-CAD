@@ -53,6 +53,9 @@ public:
     void reload_settings(const ApplicationSettings& settings);
     void navigate(const QString& path, bool track_history = true);
 
+protected:
+    void changeEvent(QEvent* event) override;
+
 private:
     struct SourcePage {
         FileManagerSource source;
@@ -101,6 +104,7 @@ private:
     void refresh_directory();
     void refresh_overview_header();
     void refresh_overview();
+    void sync_overview_theme();
     void refresh_files();
     void apply_file_filters();
     void update_actions();

@@ -1,0 +1,5609 @@
+{
+  "root": "config/lib/03-ENGINEERING-TABLES/01-GENERAL-STANDARDS",
+  "languages": [
+    "cs",
+    "en",
+    "de",
+    "fr",
+    "ru"
+  ],
+  "labels": {
+    "section": [
+      "Oddíl",
+      "Section",
+      "Abschnitt",
+      "Section",
+      "Раздел"
+    ],
+    "back": [
+      "Přehled kapitoly",
+      "Chapter overview",
+      "Kapitelübersicht",
+      "Sommaire du chapitre",
+      "Обзор главы"
+    ],
+    "sources": [
+      "Zdroje",
+      "Sources",
+      "Quellen",
+      "Sources",
+      "Источники"
+    ],
+    "updated": [
+      "Ověřeno 14. 10. 2026",
+      "Checked 14 Oct 2026",
+      "Geprüft am 14.10.2026",
+      "Vérifié le 14 octobre 2026",
+      "Проверено 14.10.2026"
+    ],
+    "general": [
+      "Obecné normy",
+      "General standards",
+      "Allgemeine Normen",
+      "Normes générales",
+      "Общие стандарты"
+    ],
+    "preferred_numbers": [
+      "Řady vyvolených čísel",
+      "Preferred number series",
+      "Vorzugszahlenreihen",
+      "Séries de nombres normaux",
+      "Ряды предпочтительных чисел"
+    ],
+    "preferred_sizes": [
+      "Normální délkové a úhlové rozměry",
+      "Preferred linear and angular dimensions",
+      "Bevorzugte Längen- und Winkelmaße",
+      "Dimensions linéaires et angulaires préférentielles",
+      "Предпочтительные линейные и угловые размеры"
+    ],
+    "slopes": [
+      "Sklony a jehlanovitosti",
+      "Slopes and wedge tapers",
+      "Neigungen und Keilverjüngungen",
+      "Pentes et conicités des coins",
+      "Уклоны и клиновые конусности"
+    ],
+    "tapers": [
+      "Kuželovitosti",
+      "Conical tapers",
+      "Kegelverjüngungen",
+      "Conicités",
+      "Конусности"
+    ],
+    "inch_mm": [
+      "Převod palců na milimetry",
+      "Inch to millimetre conversion",
+      "Zoll-Millimeter-Umrechnung",
+      "Conversion pouces-millimètres",
+      "Перевод дюймов в миллиметры"
+    ],
+    "sheets": [
+      "Formáty a měřítka",
+      "Sheet sizes and scales",
+      "Blattformate und Maßstäbe",
+      "Formats et échelles",
+      "Форматы листов и масштабы"
+    ],
+    "slope_angles1": [
+      "Sklony – první řada úhlů",
+      "Slopes – first angle series",
+      "Neigungen – erste Winkelreihe",
+      "Pentes – première série d'angles",
+      "Уклоны — первый ряд углов"
+    ],
+    "slope_angles2": [
+      "Sklony – druhá řada úhlů",
+      "Slopes – second angle series",
+      "Neigungen – zweite Winkelreihe",
+      "Pentes – deuxième série d'angles",
+      "Уклоны — второй ряд углов"
+    ],
+    "slope_ratios": [
+      "Sklony zadané poměrem",
+      "Slopes specified by ratio",
+      "Neigungen als Verhältnis",
+      "Pentes données par un rapport",
+      "Уклоны, заданные отношением"
+    ],
+    "special_slopes": [
+      "Sklony pro zvláštní účely",
+      "Slopes for special purposes",
+      "Neigungen für besondere Zwecke",
+      "Pentes pour usages particuliers",
+      "Уклоны специального назначения"
+    ],
+    "taper_ratios1": [
+      "Kuželovitosti – první řada",
+      "Conical tapers – first series",
+      "Kegelverjüngungen – erste Reihe",
+      "Conicités – première série",
+      "Конусности — первый ряд"
+    ],
+    "taper_ratios2": [
+      "Kuželovitosti – druhá řada",
+      "Conical tapers – second series",
+      "Kegelverjüngungen – zweite Reihe",
+      "Conicités – deuxième série",
+      "Конусности — второй ряд"
+    ],
+    "taper_angles": [
+      "Kuželovitosti zadané úhlem",
+      "Conical tapers specified by angle",
+      "Kegelverjüngungen als Winkel",
+      "Conicités données par un angle",
+      "Конусности, заданные углом"
+    ],
+    "morse": [
+      "Kužele Morse",
+      "Morse tapers",
+      "Morsekegel",
+      "Cônes Morse",
+      "Конусы Морзе"
+    ],
+    "jacobs": [
+      "Kužele Jacobs a Brown & Sharpe",
+      "Jacobs and Brown & Sharpe tapers",
+      "Jacobs- und Brown-&-Sharpe-Kegel",
+      "Cônes Jacobs et Brown & Sharpe",
+      "Конусы Jacobs и Brown & Sharpe"
+    ],
+    "applications": [
+      "Příklady použití kuželů",
+      "Examples of taper applications",
+      "Anwendungsbeispiele für Kegel",
+      "Exemples d'utilisation des cônes",
+      "Примеры применения конусов"
+    ],
+    "iso_sheets": [
+      "Základní formáty ISO A",
+      "Basic ISO A sizes",
+      "Grundformate ISO A",
+      "Formats de base ISO A",
+      "Основные форматы ISO A"
+    ],
+    "elongated_sheets": [
+      "Prodloužené formáty",
+      "Elongated sheet sizes",
+      "Verlängerte Formate",
+      "Formats allongés",
+      "Удлинённые форматы"
+    ],
+    "extra_sheets": [
+      "Zvlášť prodloužené formáty (historické)",
+      "Extra-elongated sizes (historical)",
+      "Besonders verlängerte Formate (historisch)",
+      "Formats très allongés (historiques)",
+      "Особо удлинённые форматы (исторические)"
+    ],
+    "ansi_sheets": [
+      "Americké formáty A až E",
+      "US sizes A to E",
+      "US-Formate A bis E",
+      "Formats américains A à E",
+      "Американские форматы A–E"
+    ],
+    "value": [
+      "Hodnota",
+      "Value",
+      "Wert",
+      "Valeur",
+      "Значение"
+    ],
+    "values": [
+      "Hodnoty",
+      "Values",
+      "Werte",
+      "Valeurs",
+      "Значения"
+    ],
+    "fraction": [
+      "Zlomek",
+      "Fraction",
+      "Bruch",
+      "Fraction",
+      "Дробь"
+    ],
+    "order": [
+      "Pořadí",
+      "Index",
+      "Index",
+      "Indice",
+      "Номер"
+    ],
+    "slope_s": [
+      "Sklon S",
+      "Slope S",
+      "Neigung S",
+      "Pente S",
+      "Уклон S"
+    ],
+    "wedge_c": [
+      "Jehlanovitost C",
+      "Wedge taper C",
+      "Keilverjüngung C",
+      "Conicité du coin C",
+      "Клиновая конусность C"
+    ],
+    "taper_c": [
+      "Kuželovitost C",
+      "Conical taper C",
+      "Kegelverjüngung C",
+      "Conicité C",
+      "Конусность C"
+    ],
+    "angle_beta": [
+      "Úhel β",
+      "Angle β",
+      "Winkel β",
+      "Angle β",
+      "Угол β"
+    ],
+    "angle_full": [
+      "Vrcholový úhel 2α",
+      "Included angle 2α",
+      "Kegelwinkel 2α",
+      "Angle au sommet 2α",
+      "Угол конуса 2α"
+    ],
+    "angle_half": [
+      "Poloviční úhel α",
+      "Half-angle α",
+      "Halber Kegelwinkel α",
+      "Demi-angle α",
+      "Полуугол α"
+    ],
+    "designation": [
+      "Označení",
+      "Designation",
+      "Bezeichnung",
+      "Désignation",
+      "Обозначение"
+    ],
+    "large_diameter": [
+      "Velký průměr D (mm)",
+      "Large diameter D (mm)",
+      "Großer Durchmesser D (mm)",
+      "Grand diamètre D (mm)",
+      "Большой диаметр D (mm)"
+    ],
+    "use": [
+      "Použití",
+      "Application",
+      "Anwendung",
+      "Utilisation",
+      "Применение"
+    ],
+    "dimension_mm": [
+      "Rozměry (mm)",
+      "Dimensions (mm)",
+      "Abmessungen (mm)",
+      "Dimensions (mm)",
+      "Размеры (mm)"
+    ],
+    "dimension_in": [
+      "Rozměry (in)",
+      "Dimensions (in)",
+      "Abmessungen (in)",
+      "Dimensions (in)",
+      "Размеры (in)"
+    ],
+    "category": [
+      "Kategorie",
+      "Category",
+      "Kategorie",
+      "Catégorie",
+      "Категория"
+    ],
+    "enlargement": [
+      "Zvětšení",
+      "Enlargement",
+      "Vergrößerung",
+      "Agrandissement",
+      "Увеличение"
+    ],
+    "full_size": [
+      "Skutečná velikost",
+      "Full size",
+      "Natürliche Größe",
+      "Grandeur réelle",
+      "Натуральная величина"
+    ],
+    "reduction": [
+      "Zmenšení",
+      "Reduction",
+      "Verkleinerung",
+      "Réduction",
+      "Уменьшение"
+    ],
+    "weld_v": [
+      "Příprava ploch pro V-svar (historický příklad)",
+      "V-weld preparation (historical example)",
+      "V-Nahtvorbereitung (historisches Beispiel)",
+      "Préparation d'une soudure en V (exemple historique)",
+      "Подготовка V-образного шва (исторический пример)"
+    ],
+    "prismatic": [
+      "Prizmatické podložky a podpěry (historický příklad)",
+      "Prismatic blocks and supports (historical example)",
+      "Prismenunterlagen und Stützen (historisches Beispiel)",
+      "Cales et supports prismatiques (exemple historique)",
+      "Призматические подкладки и опоры (исторический пример)"
+    ],
+    "use3": [
+      "Upevnění pístů a křižáků; vřetena brusek",
+      "Piston and crosshead mounting; grinding spindles",
+      "Befestigung von Kolben und Kreuzköpfen; Schleifspindeln",
+      "Fixation de pistons et de crosses; broches de rectifieuses",
+      "Крепление поршней и крейцкопфов; шпиндели шлифовальных станков"
+    ],
+    "use333": [
+      "Historická uložení kolejových vozidel a frézovacích hlav",
+      "Historical railway and milling-head mountings",
+      "Historische Befestigungen an Schienenfahrzeugen und Fräsköpfen",
+      "Montages historiques ferroviaires et de têtes de fraisage",
+      "Исторические соединения железнодорожной техники и фрезерных головок"
+    ],
+    "use7124": [
+      "Strmé kužele vřeten, nástrojů, trnů a redukčních pouzder",
+      "Steep tapers for spindles, tools, arbors and sleeves",
+      "Steilkegel für Spindeln, Werkzeuge, Dorne und Hülsen",
+      "Cônes raides pour broches, outils, mandrins et douilles",
+      "Крутые конусы шпинделей, инструментов, оправок и втулок"
+    ],
+    "use4": [
+      "Přední konce vřeten soustruhů",
+      "Lathe spindle noses",
+      "Spindelnasen von Drehmaschinen",
+      "Nez de broches de tours",
+      "Передние концы шпинделей токарных станков"
+    ],
+    "use5": [
+      "Brusná vřetena a třecí spojky",
+      "Grinding spindles and friction clutches",
+      "Schleifspindeln und Reibungskupplungen",
+      "Broches de rectifieuses et embrayages à friction",
+      "Шлифовальные шпиндели и фрикционные муфты"
+    ],
+    "use7": [
+      "Kolové šrouby (historický příklad)",
+      "Wheel bolts (historical example)",
+      "Radschrauben (historisches Beispiel)",
+      "Boulons de roue (exemple historique)",
+      "Колёсные болты (исторический пример)"
+    ],
+    "use10": [
+      "Konce hřídelů, čepy řízení, ložisková a rozpínací pouzdra",
+      "Shaft ends, steering pins, bearing and expanding sleeves",
+      "Wellenenden, Lenkzapfen, Lager- und Spreizhülsen",
+      "Extrémités d'arbres, pivots de direction, douilles de palier et expansibles",
+      "Концы валов, пальцы рулевого управления, подшипниковые и разжимные втулки"
+    ],
+    "renard_note": [
+      "Řady obsahují konvenčně zaokrouhlené hodnoty, nikoli přesné členy geometrické posloupnosti. Další dekády získáte násobením nebo dělením mocninami 10.",
+      "Series contain conventionally rounded values, not exact geometric-sequence terms. Other decades are obtained by multiplying or dividing by powers of 10.",
+      "Die Reihen enthalten vereinbarte gerundete Werte, keine exakten Glieder einer geometrischen Folge. Weitere Dekaden entstehen durch Multiplikation oder Division mit Zehnerpotenzen.",
+      "Les séries contiennent des valeurs arrondies conventionnelles, et non les termes exacts d'une suite géométrique. Les autres décades s'obtiennent par des puissances de 10.",
+      "Ряды содержат условно округлённые значения, а не точные члены геометрической прогрессии. Другие декады получают умножением или делением на степени 10."
+    ],
+    "theoretical_note": [
+      "Teoretický člen je 10^(k/n). Zobrazené desetinné hodnoty jsou přibližné; označení „přesná čísla“ z původní tabulky bylo nesprávné.",
+      "The theoretical term is 10^(k/n). Displayed decimals are approximate; the original heading “exact numbers” was incorrect.",
+      "Das theoretische Glied ist 10^(k/n). Die angezeigten Dezimalwerte sind Näherungen; die ursprüngliche Überschrift „exakte Zahlen“ war falsch.",
+      "Le terme théorique est 10^(k/n). Les décimales affichées sont approximatives; l'ancien titre «nombres exacts» était incorrect.",
+      "Теоретический член равен 10^(k/n). Показанные десятичные значения приближённые; прежний заголовок «точные числа» был неверным."
+    ],
+    "r160_note": [
+      "R160 je zachovaná doplňková řada z původních tabulek, nikoli jedna ze základních řad ISO 3. Přednost mají řady R5, R10, R20 a R40.",
+      "R160 is retained from the original supplementary tables, not one of the ISO 3 basic series. Prefer R5, R10, R20 and R40.",
+      "R160 stammt aus den ursprünglichen Ergänzungstabellen und ist keine Grundreihe nach ISO 3. R5, R10, R20 und R40 sind vorzuziehen.",
+      "R160 provient des anciennes tables complémentaires et n'est pas une série de base ISO 3. Préférez R5, R10, R20 et R40.",
+      "R160 сохранён из исходных дополнительных таблиц и не является основным рядом ISO 3. Предпочтительны R5, R10, R20 и R40."
+    ],
+    "ra_note": [
+      "Hodnoty Ra jsou historický přehled z ČSN 01 0202:1988. Současným mezinárodním základem pro volbu vyvolených čísel jsou ISO 3 a ISO 497; řady Ra nejsou automaticky totožné s řadami R.",
+      "Ra values are a historical summary from ČSN 01 0202:1988. ISO 3 and ISO 497 provide the international basis for choosing preferred numbers; Ra series are not automatically identical to R series.",
+      "Ra-Werte sind eine historische Übersicht aus ČSN 01 0202:1988. ISO 3 und ISO 497 bilden die internationale Grundlage für Vorzugszahlen; Ra- und R-Reihen sind nicht automatisch identisch.",
+      "Les valeurs Ra résument historiquement ČSN 01 0202:1988. ISO 3 et ISO 497 constituent la base internationale du choix des nombres normaux; les séries Ra et R ne sont pas automatiquement identiques.",
+      "Значения Ra — историческая сводка ČSN 01 0202:1988. Международная основа выбора предпочтительных чисел — ISO 3 и ISO 497; ряды Ra не обязательно совпадают с рядами R."
+    ],
+    "slope_note": [
+      "S = (H − h)/L = tan β; C = (T − t)/L = 2 tan(β/2). Úhel β u jehlanovitosti je celý úhel mezi dvěma plochami. Sklon S je zde uveden jen pro kladný konečný sklon β < 90°.",
+      "S = (H − h)/L = tan β; C = (T − t)/L = 2 tan(β/2). For wedge taper β is the full angle between the two faces. S is shown only for positive finite slopes β < 90°.",
+      "S = (H − h)/L = tan β; C = (T − t)/L = 2 tan(β/2). Bei der Keilverjüngung ist β der volle Winkel zwischen den Flächen. S gilt hier nur für positive endliche Neigungen β < 90°.",
+      "S = (H − h)/L = tan β; C = (T − t)/L = 2 tan(β/2). Pour la conicité du coin, β est l'angle total entre les faces. S est indiqué pour les pentes positives finies β < 90°.",
+      "S = (H − h)/L = tan β; C = (T − t)/L = 2 tan(β/2). Для клиновой конусности β — полный угол между гранями. S приведён только для положительных конечных уклонов β < 90°."
+    ],
+    "calculated_note": [
+      "Úhly a poměry jsou vypočtené a zaokrouhlené; nejsou to výrobní tolerance. Aktuální návaznost: ISO 2538-1:2014 (namísto starého ISO 2538:1974).",
+      "Angles and ratios are calculated and rounded; they are not manufacturing tolerances. Current reference: ISO 2538-1:2014, replacing the old ISO 2538:1974 reference.",
+      "Winkel und Verhältnisse sind berechnet und gerundet, keine Fertigungstoleranzen. Aktueller Bezug: ISO 2538-1:2014 statt der alten Referenz ISO 2538:1974.",
+      "Angles et rapports sont calculés et arrondis, sans représenter des tolérances de fabrication. Référence actuelle: ISO 2538-1:2014 au lieu de l'ancien ISO 2538:1974.",
+      "Углы и отношения вычислены и округлены; это не производственные допуски. Актуальная ссылка: ISO 2538-1:2014 вместо прежней ISO 2538:1974."
+    ],
+    "taper_note": [
+      "C = (D − d)/L = 2 tan α. Vrcholový úhel je 2α, nikoli α. U zápisu 1:n platí α = arctan(1/(2n)). Uvedené hodnoty úhlů jsou vypočtené, zaokrouhlené.",
+      "C = (D − d)/L = 2 tan α. The included angle is 2α, not α. For 1:n, α = arctan(1/(2n)). Listed angles are calculated and rounded.",
+      "C = (D − d)/L = 2 tan α. Der volle Kegelwinkel ist 2α, nicht α. Für 1:n gilt α = arctan(1/(2n)). Die Winkel sind berechnet und gerundet.",
+      "C = (D − d)/L = 2 tan α. L'angle au sommet est 2α, pas α. Pour 1:n, α = arctan(1/(2n)). Les angles sont calculés et arrondis.",
+      "C = (D − d)/L = 2 tan α. Полный угол конуса — 2α, а не α. Для 1:n, α = arctan(1/(2n)). Углы вычислены и округлены."
+    ],
+    "catalogue_note": [
+      "Poměry jsou přibližné katalogové hodnoty; úhly jsou z nich přepočtené. Přehled nenahrazuje rozměrový výkres, toleranci ani zvolenou variantu stopky.",
+      "Ratios are approximate catalogue values; angles are calculated from them. The overview does not replace the dimensional drawing, tolerance or chosen shank variant.",
+      "Verhältnisse sind ungefähre Katalogwerte; die Winkel werden daraus berechnet. Die Übersicht ersetzt weder Maßzeichnung noch Toleranz oder gewählte Schaftvariante.",
+      "Les rapports sont des valeurs approximatives de catalogue; les angles en sont calculés. Ce résumé ne remplace ni plan coté, ni tolérance, ni variante de queue choisie.",
+      "Отношения — приближённые каталожные значения; углы вычислены по ним. Обзор не заменяет размерный чертёж, допуски и выбранный вариант хвостовика."
+    ],
+    "usage_note": [
+      "Příklady jsou historické konstrukční použití, nikoli obecný předpis pro nové provedení. Strmý kužel má poměr 7:24 (totéž co 3,5:12).",
+      "These are historical design applications, not a general prescription for a new design. The steep taper ratio is 7:24 (equivalent to 3.5:12).",
+      "Dies sind historische Konstruktionsbeispiele, keine allgemeine Vorgabe für neue Ausführungen. Der Steilkegel hat das Verhältnis 7:24 (gleich 3,5:12).",
+      "Ces exemples historiques ne prescrivent pas les nouvelles conceptions. La conicité du cône raide est 7:24 (équivalente à 3,5:12).",
+      "Это исторические примеры, а не общее предписание для новых конструкций. Крутой конус имеет отношение 7:24 (то же, что 3,5:12)."
+    ],
+    "inch_note": [
+      "1 in = 25,4 mm přesně. Všechny hodnoty této tabulky jsou vypočtené z tohoto vztahu, nikoli přepsané z původní tabulky.",
+      "1 in = 25.4 mm exactly. All values are calculated from this relation, rather than transcribed from the original table.",
+      "1 in = 25,4 mm exakt. Alle Werte werden aus diesem Zusammenhang berechnet, nicht aus der alten Tabelle abgeschrieben.",
+      "1 in = 25,4 mm exactement. Toutes les valeurs sont calculées à partir de cette relation, sans recopier l'ancienne table.",
+      "1 in = 25,4 mm точно. Все значения вычислены из этого соотношения, а не переписаны из старой таблицы."
+    ],
+    "sheet_note": [
+      "Rozměry základních listů ISO A jsou v milimetrech. Pro uspořádání technického výkresu použijte ISO 5457:1999 včetně změny Amd 1:2010.",
+      "Basic ISO A sheet dimensions are in millimetres. For technical drawing layout use ISO 5457:1999 including Amd 1:2010.",
+      "Grundformate ISO A sind in Millimetern angegeben. Für technische Zeichnungen gilt ISO 5457:1999 einschließlich Amd 1:2010.",
+      "Les dimensions des formats ISO A sont en millimètres. Pour la mise en page technique, utilisez ISO 5457:1999 avec Amd 1:2010.",
+      "Основные форматы ISO A приведены в миллиметрах. Для оформления технического чертежа применяют ISO 5457:1999 с Amd 1:2010."
+    ],
+    "elongated_note": [
+      "Prodloužené listy vycházejí ze základních formátů ISO A. Přehled zachovává původní rozměry; aktuální pravidla výběru a uspořádání stanovuje ISO 5457 včetně změny z roku 2010.",
+      "Elongated sheets derive from ISO A sizes. Original dimensions are retained; current selection and layout rules are given by ISO 5457 including the 2010 amendment.",
+      "Verlängerte Blätter beruhen auf ISO-A-Formaten. Die bisherigen Maße bleiben erhalten; aktuelle Auswahl- und Layoutregeln enthält ISO 5457 mit Änderung von 2010.",
+      "Les feuilles allongées dérivent des formats ISO A. Les dimensions originales sont conservées; les règles actuelles figurent dans ISO 5457 avec l'amendement de 2010.",
+      "Удлинённые листы основаны на ISO A. Исходные размеры сохранены; актуальные правила выбора и оформления даны в ISO 5457 с поправкой 2010 года."
+    ],
+    "historical_sheet_note": [
+      "Jde o historický seznam zvlášť prodloužených formátů z původních tabulek, ne o prohlášení jejich shody s aktuálním ISO 5457.",
+      "This is the original historical list of extra-elongated sheets, not a claim of compliance with current ISO 5457.",
+      "Dies ist die ursprüngliche historische Liste besonders verlängerter Formate, keine Aussage zur Konformität mit der aktuellen ISO 5457.",
+      "Cette liste historique de formats très allongés ne constitue pas une déclaration de conformité à l'ISO 5457 actuelle.",
+      "Это исторический перечень особо удлинённых форматов, а не утверждение соответствия действующему ISO 5457."
+    ],
+    "ansi_note": [
+      "Americké formáty A až E nejsou ekvivalentem formátů ISO A. Milimetrové hodnoty zde jsou přesné převody palců, nikoli celé zaokrouhlené milimetry.",
+      "US sizes A to E are not equivalents of ISO A sizes. Millimetre values here are exact inch conversions, not rounded whole millimetres.",
+      "US-Formate A bis E sind keine ISO-A-Äquivalente. Die Millimeterwerte sind exakte Zollumrechnungen, keine gerundeten ganzen Millimeter.",
+      "Les formats américains A à E ne sont pas équivalents aux formats ISO A. Les valeurs en millimètres sont des conversions exactes, non des arrondis entiers.",
+      "Американские форматы A–E не эквивалентны ISO A. Значения в миллиметрах — точный перевод дюймов, без округления до целого миллиметра."
+    ],
+    "scale_note": [
+      "Měřítko je poměr délky na výkresu ke skutečné délce. Příklad: 1:5 znamená pětinové zobrazení, 5:1 pětinásobné zvětšení.",
+      "Scale is the ratio of drawing length to actual length. For example, 1:5 is one fifth of actual size; 5:1 is fivefold enlargement.",
+      "Der Maßstab ist das Verhältnis der Zeichnungslänge zur realen Länge. 1:5 bedeutet ein Fünftel, 5:1 eine fünffache Vergrößerung.",
+      "L'échelle est le rapport de la longueur dessinée à la longueur réelle. 1:5 indique un cinquième; 5:1 indique un agrandissement cinq fois.",
+      "Масштаб — отношение длины на чертеже к действительной длине. 1:5 означает одну пятую размера, 5:1 — пятикратное увеличение."
+    ],
+    "title_02-NUMBERS_01-R5": [
+      "R5 · 1–6",
+      "R5 · 1–6",
+      "R5 · 1–6",
+      "R5 · 1–6",
+      "R5 · 1–6"
+    ],
+    "title_02-NUMBERS_02-R10": [
+      "R10 · 1–11",
+      "R10 · 1–11",
+      "R10 · 1–11",
+      "R10 · 1–11",
+      "R10 · 1–11"
+    ],
+    "title_02-NUMBERS_03-R20": [
+      "R20 · 1–21",
+      "R20 · 1–21",
+      "R20 · 1–21",
+      "R20 · 1–21",
+      "R20 · 1–21"
+    ],
+    "title_02-NUMBERS_04-R40": [
+      "R40 · 1–41",
+      "R40 · 1–41",
+      "R40 · 1–41",
+      "R40 · 1–41",
+      "R40 · 1–41"
+    ],
+    "title_02-NUMBERS_05-R80-01": [
+      "Doplňková řada R80",
+      "Supplementary series R80",
+      "Ergänzungsreihe R80",
+      "Série complémentaire R80",
+      "Дополнительный ряд R80"
+    ],
+    "title_02-NUMBERS_05-R80-02": [
+      "Doplňková řada R80 · 42–81",
+      "Supplementary series R80 · 42–81",
+      "Ergänzungsreihe R80 · 42–81",
+      "Série complémentaire R80 · 42–81",
+      "Дополнительный ряд R80 · 42–81"
+    ],
+    "title_02-NUMBERS_06-R160-01": [
+      "Historická doplňková řada R160",
+      "Historical supplementary series R160",
+      "Historische Ergänzungsreihe R160",
+      "Série complémentaire historique R160",
+      "Исторический дополнительный ряд R160"
+    ],
+    "title_02-NUMBERS_06-R160-02": [
+      "Historická doplňková řada R160 · 42–82",
+      "Historical supplementary series R160 · 42–82",
+      "Historische Ergänzungsreihe R160 · 42–82",
+      "Série complémentaire historique R160 · 42–82",
+      "Исторический дополнительный ряд R160 · 42–82"
+    ],
+    "title_02-NUMBERS_06-R160-03": [
+      "Historická doplňková řada R160 · 83–123",
+      "Historical supplementary series R160 · 83–123",
+      "Historische Ergänzungsreihe R160 · 83–123",
+      "Série complémentaire historique R160 · 83–123",
+      "Исторический дополнительный ряд R160 · 83–123"
+    ],
+    "title_02-NUMBERS_06-R160-04": [
+      "Historická doplňková řada R160 · 124–161",
+      "Historical supplementary series R160 · 124–161",
+      "Historische Ergänzungsreihe R160 · 124–161",
+      "Série complémentaire historique R160 · 124–161",
+      "Исторический дополнительный ряд R160 · 124–161"
+    ],
+    "title_02-NUMBERS_07-THEORETICAL-R40": [
+      "Teoretické hodnoty · 1–41",
+      "Theoretical values · 1–41",
+      "Theoretische Werte · 1–41",
+      "Valeurs théoriques · 1–41",
+      "Теоретические значения · 1–41"
+    ],
+    "title_03-SIZES_01-RA5-01": [
+      "Délkové rozměry Ra5 · 1–36",
+      "Linear dimensions Ra5 · 1–36",
+      "Längenmaße Ra5 · 1–36",
+      "Dimensions linéaires Ra5 · 1–36",
+      "Линейные размеры Ra5 · 1–36"
+    ],
+    "title_03-SIZES_02-RA10-01": [
+      "Délkové rozměry Ra10 · 1–71",
+      "Linear dimensions Ra10 · 1–71",
+      "Längenmaße Ra10 · 1–71",
+      "Dimensions linéaires Ra10 · 1–71",
+      "Линейные размеры Ra10 · 1–71"
+    ],
+    "title_03-SIZES_03-RA20-01": [
+      "Délkové rozměry Ra20",
+      "Linear dimensions Ra20",
+      "Längenmaße Ra20",
+      "Dimensions linéaires Ra20",
+      "Линейные размеры Ra20"
+    ],
+    "title_03-SIZES_03-RA20-02": [
+      "Délkové rozměry Ra20 · 81–141",
+      "Linear dimensions Ra20 · 81–141",
+      "Längenmaße Ra20 · 81–141",
+      "Dimensions linéaires Ra20 · 81–141",
+      "Линейные размеры Ra20 · 81–141"
+    ],
+    "title_03-SIZES_04-RA40-01": [
+      "Délkové rozměry Ra40",
+      "Linear dimensions Ra40",
+      "Längenmaße Ra40",
+      "Dimensions linéaires Ra40",
+      "Линейные размеры Ra40"
+    ],
+    "title_03-SIZES_04-RA40-02": [
+      "Délkové rozměry Ra40 · 81–160",
+      "Linear dimensions Ra40 · 81–160",
+      "Längenmaße Ra40 · 81–160",
+      "Dimensions linéaires Ra40 · 81–160",
+      "Линейные размеры Ra40 · 81–160"
+    ],
+    "title_03-SIZES_04-RA40-03": [
+      "Délkové rozměry Ra40 · 161–240",
+      "Linear dimensions Ra40 · 161–240",
+      "Längenmaße Ra40 · 161–240",
+      "Dimensions linéaires Ra40 · 161–240",
+      "Линейные размеры Ra40 · 161–240"
+    ],
+    "title_03-SIZES_04-RA40-04": [
+      "Délkové rozměry Ra40 · 241–281",
+      "Linear dimensions Ra40 · 241–281",
+      "Längenmaße Ra40 · 241–281",
+      "Dimensions linéaires Ra40 · 241–281",
+      "Линейные размеры Ra40 · 241–281"
+    ],
+    "title_03-SIZES_05-ADDITIONAL-01": [
+      "Doplňkové délkové rozměry",
+      "Supplementary linear dimensions",
+      "Zusätzliche Längenmaße",
+      "Dimensions linéaires complémentaires",
+      "Дополнительные линейные размеры"
+    ],
+    "title_03-SIZES_05-ADDITIONAL-02": [
+      "Doplňkové délkové rozměry · 81–160",
+      "Supplementary linear dimensions · 81–160",
+      "Zusätzliche Längenmaße · 81–160",
+      "Dimensions linéaires complémentaires · 81–160",
+      "Дополнительные линейные размеры · 81–160"
+    ],
+    "title_03-SIZES_05-ADDITIONAL-03": [
+      "Doplňkové délkové rozměry · 161–178",
+      "Supplementary linear dimensions · 161–178",
+      "Zusätzliche Längenmaße · 161–178",
+      "Dimensions linéaires complémentaires · 161–178",
+      "Дополнительные линейные размеры · 161–178"
+    ],
+    "title_03-SIZES_06-SMALL-DIMENSIONS": [
+      "Doplňkové délkové rozměry · 1–9",
+      "Supplementary linear dimensions · 1–9",
+      "Zusätzliche Längenmaße · 1–9",
+      "Dimensions linéaires complémentaires · 1–9",
+      "Дополнительные линейные размеры · 1–9"
+    ],
+    "title_03-SIZES_07-ANGLES-01": [
+      "Normální úhly · 1–8",
+      "Preferred angles · 1–8",
+      "Bevorzugte Winkel · 1–8",
+      "Angles préférentiels · 1–8",
+      "Предпочтительные углы · 1–8"
+    ],
+    "title_03-SIZES_07-ANGLES-02": [
+      "Normální úhly · 1–11",
+      "Preferred angles · 1–11",
+      "Bevorzugte Winkel · 1–11",
+      "Angles préférentiels · 1–11",
+      "Предпочтительные углы · 1–11"
+    ],
+    "title_03-SIZES_07-ANGLES-03": [
+      "Normální úhly · 1–24",
+      "Preferred angles · 1–24",
+      "Bevorzugte Winkel · 1–24",
+      "Angles préférentiels · 1–24",
+      "Предпочтительные углы · 1–24"
+    ],
+    "title_06-INCH-MM_01-INTEGER-000-099": [
+      "Celé palce",
+      "Whole inches",
+      "Ganze Zoll",
+      "Pouces entiers",
+      "Целые дюймы"
+    ],
+    "in": [
+      "in",
+      "in",
+      "in",
+      "in",
+      "in"
+    ],
+    "0": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "1": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "1"
+    ],
+    "2": [
+      "2",
+      "2",
+      "2",
+      "2",
+      "2"
+    ],
+    "3": [
+      "3",
+      "3",
+      "3",
+      "3",
+      "3"
+    ],
+    "4": [
+      "4",
+      "4",
+      "4",
+      "4",
+      "4"
+    ],
+    "5": [
+      "5",
+      "5",
+      "5",
+      "5",
+      "5"
+    ],
+    "6": [
+      "6",
+      "6",
+      "6",
+      "6",
+      "6"
+    ],
+    "7": [
+      "7",
+      "7",
+      "7",
+      "7",
+      "7"
+    ],
+    "8": [
+      "8",
+      "8",
+      "8",
+      "8",
+      "8"
+    ],
+    "9": [
+      "9",
+      "9",
+      "9",
+      "9",
+      "9"
+    ],
+    "title_06-INCH-MM_01-INTEGER-100-199": [
+      "Celé palce · 100–199 in",
+      "Whole inches · 100–199 in",
+      "Ganze Zoll · 100–199 in",
+      "Pouces entiers · 100–199 in",
+      "Целые дюймы · 100–199 in"
+    ],
+    "title_06-INCH-MM_01-INTEGER-200-299": [
+      "Celé palce · 200–299 in",
+      "Whole inches · 200–299 in",
+      "Ganze Zoll · 200–299 in",
+      "Pouces entiers · 200–299 in",
+      "Целые дюймы · 200–299 in"
+    ],
+    "title_06-INCH-MM_01-INTEGER-300-329": [
+      "Celé palce · 300–329 in",
+      "Whole inches · 300–329 in",
+      "Ganze Zoll · 300–329 in",
+      "Pouces entiers · 300–329 in",
+      "Целые дюймы · 300–329 in"
+    ],
+    "fraction_0": [
+      "Zlomky palce",
+      "Fractions of an inch",
+      "Zollbruchteile",
+      "Fractions de pouce",
+      "Доли дюйма"
+    ],
+    "mm": [
+      "mm",
+      "mm",
+      "mm",
+      "mm",
+      "mm"
+    ],
+    "fraction_1": [
+      "Zlomky palce · 33/64–64/64",
+      "Fractions of an inch · 33/64–64/64",
+      "Zollbruchteile · 33/64–64/64",
+      "Fractions de pouce · 33/64–64/64",
+      "Доли дюйма · 33/64–64/64"
+    ],
+    "own_schematic": [
+      "Vlastní orientační schéma; není normovým výrobním výkresem. Značky odpovídají uvedenému typu, ne všechny údaje tabulky jsou ve schématu zakreslené.",
+      "Own explanatory schematic; not a standard manufacturing drawing. Symbols describe the illustrated type; not every table parameter is drawn.",
+      "Eigenes Erläuterungsschema; keine normative Fertigungszeichnung. Zeichen beschreiben die gezeigte Bauart; nicht jeder Tabellenparameter ist eingezeichnet.",
+      "Schéma explicatif propre; pas un plan de fabrication normatif. Symboles du type illustré; tous les paramètres du tableau ne sont pas dessinés.",
+      "Собственная поясняющая схема; не нормативный производственный чертёж. Обозначения относятся к показанному типу; не все параметры таблицы изображены."
+    ]
+  },
+  "sources": {
+    "iso3": {
+      "label": "ISO 3:1973",
+      "url": "https://www.iso.org/standard/3564.html"
+    },
+    "iso497": {
+      "label": "ISO 497:1973",
+      "url": "https://www.iso.org/standard/4548.html"
+    },
+    "iso2538": {
+      "label": "ISO 2538-1:2014",
+      "url": "https://www.iso.org/standard/54836.html"
+    },
+    "iso1119": {
+      "label": "ISO 1119:2011",
+      "url": "https://www.iso.org/standard/54835.html"
+    },
+    "iso296": {
+      "label": "ISO 296:1991",
+      "url": "https://www.iso.org/standard/4224.html"
+    },
+    "jacobs": {
+      "label": "Jacobs · Technical information",
+      "url": "https://www.jacobschuck.com/tech-support/"
+    },
+    "iso5457": {
+      "label": "ISO 5457:1999 + Amd 1:2010",
+      "url": "https://www.iso.org/standard/29017.html"
+    },
+    "iso216": {
+      "label": "ISO 216:2007",
+      "url": "https://www.iso.org/standard/36631.html"
+    },
+    "iso5455": {
+      "label": "ISO 5455:1979",
+      "url": "https://www.iso.org/standard/11500.html"
+    },
+    "asme": {
+      "label": "ASME Y14.1-2020",
+      "url": "https://webstore.ansi.org/standards/asme/ASMEY142020"
+    },
+    "nist": {
+      "label": "NIST · Revised unit conversion factors",
+      "url": "https://www.nist.gov/pml/us-surveyfoot/revised-unit-conversion-factors"
+    }
+  },
+  "pages": [
+    {
+      "path": "",
+      "title": "general",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "164281a3-0da9-5aea-ab4b-045ad1027077"
+    },
+    {
+      "path": "02-NUMBERS",
+      "title": "preferred_numbers",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "50473cb3-266c-5865-9b08-4acc60cf1d9c"
+    },
+    {
+      "path": "02-NUMBERS/01-R5",
+      "title": "title_02-NUMBERS_01-R5",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.0",
+          "4",
+          "4.0"
+        ],
+        [
+          "2",
+          "1.6",
+          "5",
+          "6.3"
+        ],
+        [
+          "3",
+          "2.5",
+          "6",
+          "10.00"
+        ]
+      ],
+      "notes": [
+        "renard_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "02-NUMBERS/02-R10",
+      "title": "title_02-NUMBERS_02-R10",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.00",
+          "7",
+          "4.00"
+        ],
+        [
+          "2",
+          "1.25",
+          "8",
+          "5.00"
+        ],
+        [
+          "3",
+          "1.60",
+          "9",
+          "6.30"
+        ],
+        [
+          "4",
+          "2.00",
+          "10",
+          "8.00"
+        ],
+        [
+          "5",
+          "2.50",
+          "11",
+          "10.00"
+        ],
+        [
+          "6",
+          "3.15",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "renard_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "02-NUMBERS/03-R20",
+      "title": "title_02-NUMBERS_03-R20",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.00",
+          "12",
+          "3.55"
+        ],
+        [
+          "2",
+          "1.12",
+          "13",
+          "4.00"
+        ],
+        [
+          "3",
+          "1.25",
+          "14",
+          "4.50"
+        ],
+        [
+          "4",
+          "1.40",
+          "15",
+          "5.00"
+        ],
+        [
+          "5",
+          "1.60",
+          "16",
+          "5.60"
+        ],
+        [
+          "6",
+          "1.80",
+          "17",
+          "6.30"
+        ],
+        [
+          "7",
+          "2.00",
+          "18",
+          "7.10"
+        ],
+        [
+          "8",
+          "2.24",
+          "19",
+          "8.00"
+        ],
+        [
+          "9",
+          "2.50",
+          "20",
+          "9.00"
+        ],
+        [
+          "10",
+          "2.80",
+          "21",
+          "10.00"
+        ],
+        [
+          "11",
+          "3.15",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "renard_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "02-NUMBERS/04-R40",
+      "title": "title_02-NUMBERS_04-R40",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.00",
+          "12",
+          "1.90",
+          "23",
+          "3.55",
+          "34",
+          "6.70"
+        ],
+        [
+          "2",
+          "1.06",
+          "13",
+          "2.00",
+          "24",
+          "3.75",
+          "35",
+          "7.10"
+        ],
+        [
+          "3",
+          "1.12",
+          "14",
+          "2.12",
+          "25",
+          "4.00",
+          "36",
+          "7.50"
+        ],
+        [
+          "4",
+          "1.18",
+          "15",
+          "2.24",
+          "26",
+          "4.25",
+          "37",
+          "8.00"
+        ],
+        [
+          "5",
+          "1.25",
+          "16",
+          "2.36",
+          "27",
+          "4.50",
+          "38",
+          "8.50"
+        ],
+        [
+          "6",
+          "1.32",
+          "17",
+          "2.50",
+          "28",
+          "4.75",
+          "39",
+          "9.00"
+        ],
+        [
+          "7",
+          "1.40",
+          "18",
+          "2.65",
+          "29",
+          "5.00",
+          "40",
+          "9.50"
+        ],
+        [
+          "8",
+          "1.50",
+          "19",
+          "2.80",
+          "30",
+          "5.30",
+          "41",
+          "10.00"
+        ],
+        [
+          "9",
+          "1.60",
+          "20",
+          "3.00",
+          "31",
+          "5.60",
+          "—",
+          "—"
+        ],
+        [
+          "10",
+          "1.70",
+          "21",
+          "3.15",
+          "32",
+          "6.00",
+          "—",
+          "—"
+        ],
+        [
+          "11",
+          "1.80",
+          "22",
+          "3.35",
+          "33",
+          "6.30",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "renard_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "02-NUMBERS/05-R80-01",
+      "title": "title_02-NUMBERS_05-R80-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.00",
+          "12",
+          "1.36",
+          "23",
+          "1.90",
+          "34",
+          "2.58"
+        ],
+        [
+          "2",
+          "1.03",
+          "13",
+          "1.40",
+          "24",
+          "1.95",
+          "35",
+          "2.65"
+        ],
+        [
+          "3",
+          "1.06",
+          "14",
+          "1.45",
+          "25",
+          "2.00",
+          "36",
+          "2.72"
+        ],
+        [
+          "4",
+          "1.09",
+          "15",
+          "1.50",
+          "26",
+          "2.06",
+          "37",
+          "2.80"
+        ],
+        [
+          "5",
+          "1.12",
+          "16",
+          "1.55",
+          "27",
+          "2.12",
+          "38",
+          "2.90"
+        ],
+        [
+          "6",
+          "1.15",
+          "17",
+          "1.60",
+          "28",
+          "2.18",
+          "39",
+          "3.00"
+        ],
+        [
+          "7",
+          "1.18",
+          "18",
+          "1.65",
+          "29",
+          "2.24",
+          "40",
+          "3.07"
+        ],
+        [
+          "8",
+          "1.22",
+          "19",
+          "1.70",
+          "30",
+          "2.30",
+          "41",
+          "3.15"
+        ],
+        [
+          "9",
+          "1.25",
+          "20",
+          "1.75",
+          "31",
+          "2.36",
+          "—",
+          "—"
+        ],
+        [
+          "10",
+          "1.28",
+          "21",
+          "1.80",
+          "32",
+          "2.43",
+          "—",
+          "—"
+        ],
+        [
+          "11",
+          "1.32",
+          "22",
+          "1.85",
+          "33",
+          "2.50",
+          "—",
+          "—"
+        ],
+        [
+          "42",
+          "3.25",
+          "52",
+          "4.37",
+          "62",
+          "5.80",
+          "72",
+          "7.75"
+        ],
+        [
+          "43",
+          "3.35",
+          "53",
+          "4.50",
+          "63",
+          "6.00",
+          "73",
+          "8.00"
+        ],
+        [
+          "44",
+          "3.45",
+          "54",
+          "4.62",
+          "64",
+          "6.15",
+          "74",
+          "8.25"
+        ],
+        [
+          "45",
+          "3.55",
+          "55",
+          "4.75",
+          "65",
+          "6.30",
+          "75",
+          "8.50"
+        ],
+        [
+          "46",
+          "3.65",
+          "56",
+          "4.87",
+          "66",
+          "6.50",
+          "76",
+          "8.75"
+        ],
+        [
+          "47",
+          "3.75",
+          "57",
+          "5.00",
+          "67",
+          "6.70",
+          "77",
+          "9.00"
+        ],
+        [
+          "48",
+          "3.87",
+          "58",
+          "5.15",
+          "68",
+          "6.90",
+          "78",
+          "9.25"
+        ],
+        [
+          "49",
+          "4.00",
+          "59",
+          "5.30",
+          "69",
+          "7.10",
+          "79",
+          "9.50"
+        ],
+        [
+          "50",
+          "4.12",
+          "60",
+          "5.45",
+          "70",
+          "7.30",
+          "80",
+          "9.75"
+        ],
+        [
+          "51",
+          "4.25",
+          "61",
+          "5.60",
+          "71",
+          "7.50",
+          "81",
+          "10.00"
+        ]
+      ],
+      "notes": [
+        "renard_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "02-NUMBERS/06-R160-01",
+      "title": "title_02-NUMBERS_06-R160-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.000",
+          "12",
+          "1.165",
+          "23",
+          "1.360",
+          "34",
+          "1.625"
+        ],
+        [
+          "2",
+          "1.015",
+          "13",
+          "1.180",
+          "24",
+          "1.380",
+          "35",
+          "1.650"
+        ],
+        [
+          "3",
+          "1.030",
+          "14",
+          "1.190",
+          "25",
+          "1.400",
+          "36",
+          "1.675"
+        ],
+        [
+          "4",
+          "1.045",
+          "15",
+          "1.220",
+          "26",
+          "1.425",
+          "37",
+          "1.700"
+        ],
+        [
+          "5",
+          "1.060",
+          "16",
+          "1.230",
+          "27",
+          "1.450",
+          "38",
+          "1.725"
+        ],
+        [
+          "6",
+          "1.075",
+          "17",
+          "1.250",
+          "28",
+          "1.475",
+          "39",
+          "1.750"
+        ],
+        [
+          "7",
+          "1.090",
+          "18",
+          "1.265",
+          "29",
+          "1.500",
+          "40",
+          "1.775"
+        ],
+        [
+          "8",
+          "1.105",
+          "19",
+          "1.280",
+          "30",
+          "1.525",
+          "41",
+          "1.800"
+        ],
+        [
+          "9",
+          "1.120",
+          "20",
+          "1.300",
+          "31",
+          "1.550",
+          "—",
+          "—"
+        ],
+        [
+          "10",
+          "1.135",
+          "21",
+          "1.320",
+          "32",
+          "1.575",
+          "—",
+          "—"
+        ],
+        [
+          "11",
+          "1.150",
+          "22",
+          "1.340",
+          "33",
+          "1.600",
+          "—",
+          "—"
+        ],
+        [
+          "42",
+          "1.825",
+          "53",
+          "2.120",
+          "64",
+          "2.465",
+          "75",
+          "2.900"
+        ],
+        [
+          "43",
+          "1.850",
+          "54",
+          "2.150",
+          "65",
+          "2.500",
+          "76",
+          "2.950"
+        ],
+        [
+          "44",
+          "1.875",
+          "55",
+          "2.180",
+          "66",
+          "2.540",
+          "77",
+          "3.000"
+        ],
+        [
+          "45",
+          "1.900",
+          "56",
+          "2.210",
+          "67",
+          "2.580",
+          "78",
+          "3.035"
+        ],
+        [
+          "46",
+          "1.925",
+          "57",
+          "2.240",
+          "68",
+          "2.615",
+          "79",
+          "3.070"
+        ],
+        [
+          "47",
+          "1.950",
+          "58",
+          "2.270",
+          "69",
+          "2.650",
+          "80",
+          "3.110"
+        ],
+        [
+          "48",
+          "1.975",
+          "59",
+          "2.300",
+          "70",
+          "2.685",
+          "81",
+          "3.150"
+        ],
+        [
+          "49",
+          "2.000",
+          "60",
+          "2.330",
+          "71",
+          "2.720",
+          "82",
+          "3.200"
+        ],
+        [
+          "50",
+          "2.030",
+          "61",
+          "2.360",
+          "72",
+          "2.760",
+          "—",
+          "—"
+        ],
+        [
+          "51",
+          "2.060",
+          "62",
+          "2.395",
+          "73",
+          "2.800",
+          "—",
+          "—"
+        ],
+        [
+          "52",
+          "2.090",
+          "63",
+          "2.430",
+          "74",
+          "2.850",
+          "—",
+          "—"
+        ],
+        [
+          "83",
+          "3.250",
+          "94",
+          "3.810",
+          "105",
+          "4.500",
+          "116",
+          "5.225"
+        ],
+        [
+          "84",
+          "3.300",
+          "95",
+          "3.870",
+          "106",
+          "4.560",
+          "117",
+          "5.300"
+        ],
+        [
+          "85",
+          "3.350",
+          "96",
+          "3.935",
+          "107",
+          "4.620",
+          "118",
+          "5.375"
+        ],
+        [
+          "86",
+          "3.400",
+          "97",
+          "4.000",
+          "108",
+          "4.685",
+          "119",
+          "5.450"
+        ],
+        [
+          "87",
+          "3.450",
+          "98",
+          "4.060",
+          "109",
+          "4.750",
+          "120",
+          "5.525"
+        ],
+        [
+          "88",
+          "3.500",
+          "99",
+          "4.120",
+          "110",
+          "4.815",
+          "121",
+          "5.600"
+        ],
+        [
+          "89",
+          "3.550",
+          "100",
+          "4.185",
+          "111",
+          "4.870",
+          "122",
+          "5.700"
+        ],
+        [
+          "90",
+          "3.600",
+          "101",
+          "4.250",
+          "112",
+          "4.930",
+          "123",
+          "5.800"
+        ],
+        [
+          "91",
+          "3.650",
+          "102",
+          "4.315",
+          "113",
+          "5.000",
+          "—",
+          "—"
+        ],
+        [
+          "92",
+          "3.700",
+          "103",
+          "4.370",
+          "114",
+          "5.075",
+          "—",
+          "—"
+        ],
+        [
+          "93",
+          "3.750",
+          "104",
+          "4.440",
+          "115",
+          "5.150",
+          "—",
+          "—"
+        ],
+        [
+          "124",
+          "5.900",
+          "134",
+          "6.800",
+          "144",
+          "7.875",
+          "154",
+          "9.125"
+        ],
+        [
+          "125",
+          "6.000",
+          "135",
+          "6.900",
+          "145",
+          "8.000",
+          "155",
+          "9.250"
+        ],
+        [
+          "126",
+          "6.075",
+          "136",
+          "7.000",
+          "146",
+          "8.125",
+          "156",
+          "9.375"
+        ],
+        [
+          "127",
+          "6.150",
+          "137",
+          "7.100",
+          "147",
+          "8.250",
+          "157",
+          "9.500"
+        ],
+        [
+          "128",
+          "6.225",
+          "138",
+          "7.200",
+          "148",
+          "8.375",
+          "158",
+          "9.625"
+        ],
+        [
+          "129",
+          "6.300",
+          "139",
+          "7.300",
+          "149",
+          "8.500",
+          "159",
+          "9.750"
+        ],
+        [
+          "130",
+          "6.400",
+          "140",
+          "7.400",
+          "150",
+          "8.625",
+          "160",
+          "9.875"
+        ],
+        [
+          "131",
+          "6.500",
+          "141",
+          "7.500",
+          "151",
+          "8.750",
+          "161",
+          "10.000"
+        ],
+        [
+          "132",
+          "6.600",
+          "142",
+          "7.625",
+          "152",
+          "8.875",
+          "—",
+          "—"
+        ],
+        [
+          "133",
+          "6.700",
+          "143",
+          "7.750",
+          "153",
+          "9.000",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "r160_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "02-NUMBERS/07-THEORETICAL-R40",
+      "title": "title_02-NUMBERS_07-THEORETICAL-R40",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.000000",
+          "12",
+          "1.883649",
+          "23",
+          "3.548134",
+          "34",
+          "6.683439"
+        ],
+        [
+          "2",
+          "1.059254",
+          "13",
+          "1.995262",
+          "24",
+          "3.758374",
+          "35",
+          "7.079458"
+        ],
+        [
+          "3",
+          "1.122018",
+          "14",
+          "2.113489",
+          "25",
+          "3.981072",
+          "36",
+          "7.498942"
+        ],
+        [
+          "4",
+          "1.188502",
+          "15",
+          "2.238721",
+          "26",
+          "4.216965",
+          "37",
+          "7.943282"
+        ],
+        [
+          "5",
+          "1.258925",
+          "16",
+          "2.371374",
+          "27",
+          "4.466836",
+          "38",
+          "8.413951"
+        ],
+        [
+          "6",
+          "1.333521",
+          "17",
+          "2.511886",
+          "28",
+          "4.731513",
+          "39",
+          "8.912509"
+        ],
+        [
+          "7",
+          "1.412538",
+          "18",
+          "2.660725",
+          "29",
+          "5.011872",
+          "40",
+          "9.440609"
+        ],
+        [
+          "8",
+          "1.496236",
+          "19",
+          "2.818383",
+          "30",
+          "5.308844",
+          "41",
+          "10.000000"
+        ],
+        [
+          "9",
+          "1.584893",
+          "20",
+          "2.985383",
+          "31",
+          "5.623413",
+          "—",
+          "—"
+        ],
+        [
+          "10",
+          "1.678804",
+          "21",
+          "3.162278",
+          "32",
+          "5.956621",
+          "—",
+          "—"
+        ],
+        [
+          "11",
+          "1.778279",
+          "22",
+          "3.349654",
+          "33",
+          "6.309573",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "theoretical_note"
+      ],
+      "sources": [
+        "iso3"
+      ]
+    },
+    {
+      "path": "03-SIZES",
+      "title": "preferred_sizes",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "8c2882a7-e9a5-5d23-a5f9-a261e2194154"
+    },
+    {
+      "path": "03-SIZES/01-RA5-01",
+      "title": "title_03-SIZES_01-RA5-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0.010",
+          "7",
+          "0.160",
+          "13",
+          "2.5",
+          "19",
+          "40",
+          "25",
+          "630",
+          "31",
+          "10000"
+        ],
+        [
+          "2",
+          "0.016",
+          "8",
+          "0.250",
+          "14",
+          "4.0",
+          "20",
+          "63",
+          "26",
+          "1000",
+          "32",
+          "16000"
+        ],
+        [
+          "3",
+          "0.025",
+          "9",
+          "0.400",
+          "15",
+          "6.3",
+          "21",
+          "100",
+          "27",
+          "1600",
+          "33",
+          "25000"
+        ],
+        [
+          "4",
+          "0.040",
+          "10",
+          "0.630",
+          "16",
+          "10",
+          "22",
+          "160",
+          "28",
+          "2500",
+          "34",
+          "40000"
+        ],
+        [
+          "5",
+          "0.0630",
+          "11",
+          "1.0",
+          "17",
+          "16",
+          "23",
+          "250",
+          "29",
+          "4000",
+          "35",
+          "63000"
+        ],
+        [
+          "6",
+          "0.100",
+          "12",
+          "1.6",
+          "18",
+          "25",
+          "24",
+          "400",
+          "30",
+          "6300",
+          "36",
+          "100000"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso3",
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/02-RA10-01",
+      "title": "title_03-SIZES_02-RA10-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0.010",
+          "13",
+          "0.160",
+          "25",
+          "2.5",
+          "37",
+          "40",
+          "49",
+          "630",
+          "61",
+          "10000"
+        ],
+        [
+          "2",
+          "0.012",
+          "14",
+          "0.200",
+          "26",
+          "3.2",
+          "38",
+          "50",
+          "50",
+          "800",
+          "62",
+          "12500"
+        ],
+        [
+          "3",
+          "0.016",
+          "15",
+          "0.250",
+          "27",
+          "4.0",
+          "39",
+          "63",
+          "51",
+          "1000",
+          "63",
+          "16000"
+        ],
+        [
+          "4",
+          "0.020",
+          "16",
+          "0.320",
+          "28",
+          "5.0",
+          "40",
+          "80",
+          "52",
+          "1250",
+          "64",
+          "20000"
+        ],
+        [
+          "5",
+          "0.025",
+          "17",
+          "0.400",
+          "29",
+          "6.3",
+          "41",
+          "100",
+          "53",
+          "1600",
+          "65",
+          "25000"
+        ],
+        [
+          "6",
+          "0.032",
+          "18",
+          "0.500",
+          "30",
+          "8.0",
+          "42",
+          "125",
+          "54",
+          "2000",
+          "66",
+          "31500"
+        ],
+        [
+          "7",
+          "0.040",
+          "19",
+          "0.630",
+          "31",
+          "10",
+          "43",
+          "160",
+          "55",
+          "2500",
+          "67",
+          "40000"
+        ],
+        [
+          "8",
+          "0.050",
+          "20",
+          "0.800",
+          "32",
+          "12",
+          "44",
+          "200",
+          "56",
+          "3150",
+          "68",
+          "50000"
+        ],
+        [
+          "9",
+          "0.063",
+          "21",
+          "1.0",
+          "33",
+          "16",
+          "45",
+          "250",
+          "57",
+          "4000",
+          "69",
+          "63000"
+        ],
+        [
+          "10",
+          "0.080",
+          "22",
+          "1.2",
+          "34",
+          "20",
+          "46",
+          "320",
+          "58",
+          "5000",
+          "70",
+          "80000"
+        ],
+        [
+          "11",
+          "0.100",
+          "23",
+          "1.6",
+          "35",
+          "25",
+          "47",
+          "400",
+          "59",
+          "6300",
+          "71",
+          "100000"
+        ],
+        [
+          "12",
+          "0.120",
+          "24",
+          "2.0",
+          "36",
+          "32",
+          "48",
+          "500",
+          "60",
+          "8000",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso3",
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/03-RA20-01",
+      "title": "title_03-SIZES_03-RA20-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0.010",
+          "15",
+          "0.050",
+          "29",
+          "0.250",
+          "43",
+          "1.2",
+          "57",
+          "6.3",
+          "71",
+          "32"
+        ],
+        [
+          "2",
+          "0.011",
+          "16",
+          "0.056",
+          "30",
+          "0.280",
+          "44",
+          "1.4",
+          "58",
+          "7.1",
+          "72",
+          "36"
+        ],
+        [
+          "3",
+          "0.012",
+          "17",
+          "0.063",
+          "31",
+          "0.320",
+          "45",
+          "1.6",
+          "59",
+          "8.0",
+          "73",
+          "40"
+        ],
+        [
+          "4",
+          "0.014",
+          "18",
+          "0.071",
+          "32",
+          "0.360",
+          "46",
+          "1.8",
+          "60",
+          "9.0",
+          "74",
+          "45"
+        ],
+        [
+          "5",
+          "0.016",
+          "19",
+          "0.080",
+          "33",
+          "0.400",
+          "47",
+          "2.0",
+          "61",
+          "10",
+          "75",
+          "50"
+        ],
+        [
+          "6",
+          "0.018",
+          "20",
+          "0.090",
+          "34",
+          "0.450",
+          "48",
+          "2.2",
+          "62",
+          "11",
+          "76",
+          "56"
+        ],
+        [
+          "7",
+          "0.020",
+          "21",
+          "0.100",
+          "35",
+          "0.500",
+          "49",
+          "2.5",
+          "63",
+          "12",
+          "77",
+          "63"
+        ],
+        [
+          "8",
+          "0.022",
+          "22",
+          "0.110",
+          "36",
+          "0.560",
+          "50",
+          "2.8",
+          "64",
+          "14",
+          "78",
+          "71"
+        ],
+        [
+          "9",
+          "0.025",
+          "23",
+          "0.120",
+          "37",
+          "0.630",
+          "51",
+          "3.2",
+          "65",
+          "16",
+          "79",
+          "80"
+        ],
+        [
+          "10",
+          "0.028",
+          "24",
+          "0.140",
+          "38",
+          "0.710",
+          "52",
+          "3.6",
+          "66",
+          "18",
+          "80",
+          "90"
+        ],
+        [
+          "11",
+          "0.032",
+          "25",
+          "0.160",
+          "39",
+          "0.800",
+          "53",
+          "4.0",
+          "67",
+          "20",
+          "—",
+          "—"
+        ],
+        [
+          "12",
+          "0.036",
+          "26",
+          "0.180",
+          "40",
+          "0.900",
+          "54",
+          "4.5",
+          "68",
+          "22",
+          "—",
+          "—"
+        ],
+        [
+          "13",
+          "0.040",
+          "27",
+          "0.200",
+          "41",
+          "1.0",
+          "55",
+          "5.0",
+          "69",
+          "25",
+          "—",
+          "—"
+        ],
+        [
+          "14",
+          "0.045",
+          "28",
+          "0.220",
+          "42",
+          "1.1",
+          "56",
+          "5.6",
+          "70",
+          "28",
+          "—",
+          "—"
+        ],
+        [
+          "81",
+          "100",
+          "92",
+          "360",
+          "103",
+          "1250",
+          "114",
+          "4500",
+          "125",
+          "16000",
+          "136",
+          "56000"
+        ],
+        [
+          "82",
+          "110",
+          "93",
+          "400",
+          "104",
+          "1400",
+          "115",
+          "5000",
+          "126",
+          "18000",
+          "137",
+          "63000"
+        ],
+        [
+          "83",
+          "125",
+          "94",
+          "450",
+          "105",
+          "1600",
+          "116",
+          "5600",
+          "127",
+          "20000",
+          "138",
+          "71000"
+        ],
+        [
+          "84",
+          "140",
+          "95",
+          "500",
+          "106",
+          "1800",
+          "117",
+          "6300",
+          "128",
+          "22400",
+          "139",
+          "80000"
+        ],
+        [
+          "85",
+          "160",
+          "96",
+          "560",
+          "107",
+          "2000",
+          "118",
+          "7100",
+          "129",
+          "25000",
+          "140",
+          "90000"
+        ],
+        [
+          "86",
+          "180",
+          "97",
+          "630",
+          "108",
+          "2240",
+          "119",
+          "8000",
+          "130",
+          "28000",
+          "141",
+          "100000"
+        ],
+        [
+          "87",
+          "200",
+          "98",
+          "710",
+          "109",
+          "2500",
+          "120",
+          "9000",
+          "131",
+          "31500",
+          "—",
+          "—"
+        ],
+        [
+          "88",
+          "220",
+          "99",
+          "800",
+          "110",
+          "2800",
+          "121",
+          "10000",
+          "132",
+          "35500",
+          "—",
+          "—"
+        ],
+        [
+          "89",
+          "250",
+          "100",
+          "900",
+          "111",
+          "3150",
+          "122",
+          "11200",
+          "133",
+          "40000",
+          "—",
+          "—"
+        ],
+        [
+          "90",
+          "280",
+          "101",
+          "1000",
+          "112",
+          "3550",
+          "123",
+          "12500",
+          "134",
+          "45000",
+          "—",
+          "—"
+        ],
+        [
+          "91",
+          "320",
+          "102",
+          "1120",
+          "113",
+          "4000",
+          "124",
+          "14000",
+          "135",
+          "50000",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso3",
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/04-RA40-01",
+      "title": "title_03-SIZES_04-RA40-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0.010",
+          "15",
+          "0.022",
+          "29",
+          "0.050",
+          "43",
+          "0.110",
+          "57",
+          "0.250",
+          "71",
+          "0.560"
+        ],
+        [
+          "2",
+          "0.0105",
+          "16",
+          "0.024",
+          "30",
+          "0.053",
+          "44",
+          "0.115",
+          "58",
+          "0.260",
+          "72",
+          "0.600"
+        ],
+        [
+          "3",
+          "0.0110",
+          "17",
+          "0.025",
+          "31",
+          "0.056",
+          "45",
+          "0.120",
+          "59",
+          "0.280",
+          "73",
+          "0.630"
+        ],
+        [
+          "4",
+          "0.0115",
+          "18",
+          "0.026",
+          "32",
+          "0.060",
+          "46",
+          "0.130",
+          "60",
+          "0.300",
+          "74",
+          "0.670"
+        ],
+        [
+          "5",
+          "0.012",
+          "19",
+          "0.028",
+          "33",
+          "0.063",
+          "47",
+          "0.140",
+          "61",
+          "0.320",
+          "75",
+          "0.710"
+        ],
+        [
+          "6",
+          "0.013",
+          "20",
+          "0.030",
+          "34",
+          "0.067",
+          "48",
+          "0.150",
+          "62",
+          "0.340",
+          "76",
+          "0.750"
+        ],
+        [
+          "7",
+          "0.014",
+          "21",
+          "0.032",
+          "35",
+          "0.071",
+          "49",
+          "0.160",
+          "63",
+          "0.360",
+          "77",
+          "0.80"
+        ],
+        [
+          "8",
+          "0.015",
+          "22",
+          "0.034",
+          "36",
+          "0.075",
+          "50",
+          "0.170",
+          "64",
+          "0.380",
+          "78",
+          "0.850"
+        ],
+        [
+          "9",
+          "0.016",
+          "23",
+          "0.036",
+          "37",
+          "0.080",
+          "51",
+          "0.180",
+          "65",
+          "0.400",
+          "79",
+          "0.900"
+        ],
+        [
+          "10",
+          "0.017",
+          "24",
+          "0.038",
+          "38",
+          "0.085",
+          "52",
+          "0.190",
+          "66",
+          "0.420",
+          "80",
+          "0.950"
+        ],
+        [
+          "11",
+          "0.018",
+          "25",
+          "0.040",
+          "39",
+          "0.090",
+          "53",
+          "0.200",
+          "67",
+          "0.450",
+          "—",
+          "—"
+        ],
+        [
+          "12",
+          "0.019",
+          "26",
+          "0.042",
+          "40",
+          "0.095",
+          "54",
+          "0.210",
+          "68",
+          "0.480",
+          "—",
+          "—"
+        ],
+        [
+          "13",
+          "0.020",
+          "27",
+          "0.045",
+          "41",
+          "0.100",
+          "55",
+          "0.220",
+          "69",
+          "0.500",
+          "—",
+          "—"
+        ],
+        [
+          "14",
+          "0.021",
+          "28",
+          "0.048",
+          "42",
+          "0.105",
+          "56",
+          "0.240",
+          "70",
+          "0.530",
+          "—",
+          "—"
+        ],
+        [
+          "81",
+          "1.00",
+          "95",
+          "2.20",
+          "109",
+          "5.00",
+          "123",
+          "11.0",
+          "137",
+          "25.0",
+          "151",
+          "56.0"
+        ],
+        [
+          "82",
+          "1.05",
+          "96",
+          "2.40",
+          "110",
+          "5.30",
+          "124",
+          "11.5",
+          "138",
+          "26.0",
+          "152",
+          "60.0"
+        ],
+        [
+          "83",
+          "1.10",
+          "97",
+          "2.50",
+          "111",
+          "5.60",
+          "125",
+          "12.0",
+          "139",
+          "28.0",
+          "153",
+          "63.0"
+        ],
+        [
+          "84",
+          "1.15",
+          "98",
+          "2.60",
+          "112",
+          "6.00",
+          "126",
+          "13.0",
+          "140",
+          "30.0",
+          "154",
+          "67.0"
+        ],
+        [
+          "85",
+          "1.20",
+          "99",
+          "2.80",
+          "113",
+          "6.30",
+          "127",
+          "14.0",
+          "141",
+          "32.0",
+          "155",
+          "71.0"
+        ],
+        [
+          "86",
+          "1.30",
+          "100",
+          "3.00",
+          "114",
+          "6.70",
+          "128",
+          "15.0",
+          "142",
+          "34.0",
+          "156",
+          "75.0"
+        ],
+        [
+          "87",
+          "1.40",
+          "101",
+          "3.20",
+          "115",
+          "7.10",
+          "129",
+          "16.0",
+          "143",
+          "36.0",
+          "157",
+          "80.0"
+        ],
+        [
+          "88",
+          "1.50",
+          "102",
+          "3.40",
+          "116",
+          "7.50",
+          "130",
+          "17.0",
+          "144",
+          "38.0",
+          "158",
+          "85.0"
+        ],
+        [
+          "89",
+          "1.60",
+          "103",
+          "3.60",
+          "117",
+          "8.00",
+          "131",
+          "18.0",
+          "145",
+          "40.0",
+          "159",
+          "90.0"
+        ],
+        [
+          "90",
+          "1.70",
+          "104",
+          "3.80",
+          "118",
+          "8.50",
+          "132",
+          "19.0",
+          "146",
+          "42.0",
+          "160",
+          "95.0"
+        ],
+        [
+          "91",
+          "1.80",
+          "105",
+          "4.00",
+          "119",
+          "9.00",
+          "133",
+          "20.0",
+          "147",
+          "45.0",
+          "—",
+          "—"
+        ],
+        [
+          "92",
+          "1.90",
+          "106",
+          "4.20",
+          "120",
+          "9.50",
+          "134",
+          "21.0",
+          "148",
+          "48.0",
+          "—",
+          "—"
+        ],
+        [
+          "93",
+          "2.00",
+          "107",
+          "4.50",
+          "121",
+          "10.0",
+          "135",
+          "22.0",
+          "149",
+          "50.0",
+          "—",
+          "—"
+        ],
+        [
+          "94",
+          "2.10",
+          "108",
+          "4.80",
+          "122",
+          "10.5",
+          "136",
+          "24.0",
+          "150",
+          "53.0",
+          "—",
+          "—"
+        ],
+        [
+          "161",
+          "100",
+          "175",
+          "220",
+          "189",
+          "500",
+          "203",
+          "1120",
+          "217",
+          "2500",
+          "231",
+          "5600"
+        ],
+        [
+          "162",
+          "105",
+          "176",
+          "240",
+          "190",
+          "530",
+          "204",
+          "1180",
+          "218",
+          "2650",
+          "232",
+          "6000"
+        ],
+        [
+          "163",
+          "110",
+          "177",
+          "250",
+          "191",
+          "560",
+          "205",
+          "1250",
+          "219",
+          "2800",
+          "233",
+          "6300"
+        ],
+        [
+          "164",
+          "120",
+          "178",
+          "260",
+          "192",
+          "600",
+          "206",
+          "1320",
+          "220",
+          "3000",
+          "234",
+          "6700"
+        ],
+        [
+          "165",
+          "125",
+          "179",
+          "280",
+          "193",
+          "630",
+          "207",
+          "1400",
+          "221",
+          "3150",
+          "235",
+          "7100"
+        ],
+        [
+          "166",
+          "130",
+          "180",
+          "300",
+          "194",
+          "670",
+          "208",
+          "1500",
+          "222",
+          "3350",
+          "236",
+          "7500"
+        ],
+        [
+          "167",
+          "140",
+          "181",
+          "320",
+          "195",
+          "710",
+          "209",
+          "1600",
+          "223",
+          "3550",
+          "237",
+          "8000"
+        ],
+        [
+          "168",
+          "150",
+          "182",
+          "340",
+          "196",
+          "750",
+          "210",
+          "1700",
+          "224",
+          "3750",
+          "238",
+          "8500"
+        ],
+        [
+          "169",
+          "160",
+          "183",
+          "360",
+          "197",
+          "800",
+          "211",
+          "1800",
+          "225",
+          "4000",
+          "239",
+          "9000"
+        ],
+        [
+          "170",
+          "170",
+          "184",
+          "380",
+          "198",
+          "850",
+          "212",
+          "1900",
+          "226",
+          "4250",
+          "240",
+          "9500"
+        ],
+        [
+          "171",
+          "180",
+          "185",
+          "400",
+          "199",
+          "900",
+          "213",
+          "2000",
+          "227",
+          "4500",
+          "—",
+          "—"
+        ],
+        [
+          "172",
+          "190",
+          "186",
+          "420",
+          "200",
+          "950",
+          "214",
+          "2120",
+          "228",
+          "4750",
+          "—",
+          "—"
+        ],
+        [
+          "173",
+          "200",
+          "187",
+          "450",
+          "201",
+          "1000",
+          "215",
+          "2240",
+          "229",
+          "5000",
+          "—",
+          "—"
+        ],
+        [
+          "174",
+          "210",
+          "188",
+          "480",
+          "202",
+          "1060",
+          "216",
+          "2360",
+          "230",
+          "5300",
+          "—",
+          "—"
+        ],
+        [
+          "241",
+          "10000",
+          "248",
+          "15000",
+          "255",
+          "22400",
+          "262",
+          "33500",
+          "269",
+          "50000",
+          "276",
+          "75000"
+        ],
+        [
+          "242",
+          "10600",
+          "249",
+          "16000",
+          "256",
+          "23600",
+          "263",
+          "35500",
+          "270",
+          "53000",
+          "277",
+          "80000"
+        ],
+        [
+          "243",
+          "11200",
+          "250",
+          "17000",
+          "257",
+          "25000",
+          "264",
+          "37500",
+          "271",
+          "56000",
+          "278",
+          "85000"
+        ],
+        [
+          "244",
+          "11800",
+          "251",
+          "18000",
+          "258",
+          "26500",
+          "265",
+          "40000",
+          "272",
+          "60000",
+          "279",
+          "90000"
+        ],
+        [
+          "245",
+          "12500",
+          "252",
+          "19000",
+          "259",
+          "28000",
+          "266",
+          "42500",
+          "273",
+          "63000",
+          "280",
+          "95000"
+        ],
+        [
+          "246",
+          "13200",
+          "253",
+          "20000",
+          "260",
+          "30000",
+          "267",
+          "45000",
+          "274",
+          "67000",
+          "281",
+          "100000"
+        ],
+        [
+          "247",
+          "14000",
+          "254",
+          "21200",
+          "261",
+          "31500",
+          "268",
+          "47500",
+          "275",
+          "71000",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso3",
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/05-ADDITIONAL-01",
+      "title": "title_03-SIZES_05-ADDITIONAL-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "1.25",
+          "15",
+          "3.30",
+          "29",
+          "7.30",
+          "43",
+          "16.5",
+          "57",
+          "41.0",
+          "71",
+          "92.0"
+        ],
+        [
+          "2",
+          "1.35",
+          "16",
+          "3.50",
+          "30",
+          "7.80",
+          "44",
+          "17.5",
+          "58",
+          "44.0",
+          "72",
+          "98.0"
+        ],
+        [
+          "3",
+          "1.45",
+          "17",
+          "3.70",
+          "31",
+          "8.20",
+          "45",
+          "18.5",
+          "59",
+          "46.0",
+          "73",
+          "102"
+        ],
+        [
+          "4",
+          "1.55",
+          "18",
+          "3.90",
+          "32",
+          "8.80",
+          "46",
+          "19.5",
+          "60",
+          "49.0",
+          "74",
+          "108"
+        ],
+        [
+          "5",
+          "1.65",
+          "19",
+          "4.10",
+          "33",
+          "9.20",
+          "47",
+          "20.5",
+          "61",
+          "52.0",
+          "75",
+          "112"
+        ],
+        [
+          "6",
+          "1.75",
+          "20",
+          "4.40",
+          "34",
+          "9.80",
+          "48",
+          "21.5",
+          "62",
+          "55.0",
+          "76",
+          "115"
+        ],
+        [
+          "7",
+          "1.85",
+          "21",
+          "4.60",
+          "35",
+          "10.2",
+          "49",
+          "23.0",
+          "63",
+          "58.0",
+          "77",
+          "118"
+        ],
+        [
+          "8",
+          "1.95",
+          "22",
+          "4.90",
+          "36",
+          "10.8",
+          "50",
+          "27.0",
+          "64",
+          "62.0",
+          "78",
+          "135"
+        ],
+        [
+          "9",
+          "2.05",
+          "23",
+          "5.20",
+          "37",
+          "11.2",
+          "51",
+          "29.0",
+          "65",
+          "65.0",
+          "79",
+          "330"
+        ],
+        [
+          "10",
+          "2.15",
+          "24",
+          "5.50",
+          "38",
+          "11.8",
+          "52",
+          "31.0",
+          "66",
+          "70.0",
+          "80",
+          "350"
+        ],
+        [
+          "11",
+          "2.30",
+          "25",
+          "5.80",
+          "39",
+          "12.5",
+          "53",
+          "33.0",
+          "67",
+          "73.0",
+          "—",
+          "—"
+        ],
+        [
+          "12",
+          "2.70",
+          "26",
+          "6.20",
+          "40",
+          "13.5",
+          "54",
+          "35.0",
+          "68",
+          "78.0",
+          "—",
+          "—"
+        ],
+        [
+          "13",
+          "2.90",
+          "27",
+          "6.50",
+          "41",
+          "14.5",
+          "55",
+          "37.0",
+          "69",
+          "82.0",
+          "—",
+          "—"
+        ],
+        [
+          "14",
+          "3.10",
+          "28",
+          "7.00",
+          "42",
+          "15.5",
+          "56",
+          "39.0",
+          "70",
+          "88.0",
+          "—",
+          "—"
+        ],
+        [
+          "81",
+          "370",
+          "95",
+          "825",
+          "109",
+          "1850",
+          "123",
+          "4120",
+          "137",
+          "9250",
+          "151",
+          "20600"
+        ],
+        [
+          "82",
+          "390",
+          "96",
+          "875",
+          "110",
+          "1950",
+          "124",
+          "4370",
+          "138",
+          "9750",
+          "152",
+          "21800"
+        ],
+        [
+          "83",
+          "410",
+          "97",
+          "925",
+          "111",
+          "2060",
+          "125",
+          "4620",
+          "139",
+          "10300",
+          "153",
+          "23000"
+        ],
+        [
+          "84",
+          "440",
+          "98",
+          "975",
+          "112",
+          "2180",
+          "126",
+          "4870",
+          "140",
+          "10900",
+          "154",
+          "24300"
+        ],
+        [
+          "85",
+          "460",
+          "99",
+          "1030",
+          "113",
+          "2300",
+          "127",
+          "5150",
+          "141",
+          "11500",
+          "155",
+          "25800"
+        ],
+        [
+          "86",
+          "490",
+          "100",
+          "1090",
+          "114",
+          "2430",
+          "128",
+          "5450",
+          "142",
+          "12200",
+          "156",
+          "27200"
+        ],
+        [
+          "87",
+          "515",
+          "101",
+          "1150",
+          "115",
+          "2580",
+          "129",
+          "5800",
+          "143",
+          "12800",
+          "157",
+          "29000"
+        ],
+        [
+          "88",
+          "545",
+          "102",
+          "1220",
+          "116",
+          "2720",
+          "130",
+          "6150",
+          "144",
+          "13600",
+          "158",
+          "30700"
+        ],
+        [
+          "89",
+          "580",
+          "103",
+          "1280",
+          "117",
+          "2900",
+          "131",
+          "6500",
+          "145",
+          "14500",
+          "159",
+          "32500"
+        ],
+        [
+          "90",
+          "615",
+          "104",
+          "1360",
+          "118",
+          "3070",
+          "132",
+          "6900",
+          "146",
+          "15500",
+          "160",
+          "34500"
+        ],
+        [
+          "91",
+          "650",
+          "105",
+          "1450",
+          "119",
+          "3250",
+          "133",
+          "7300",
+          "147",
+          "16500",
+          "—",
+          "—"
+        ],
+        [
+          "92",
+          "690",
+          "106",
+          "1550",
+          "120",
+          "3450",
+          "134",
+          "7750",
+          "148",
+          "17500",
+          "—",
+          "—"
+        ],
+        [
+          "93",
+          "730",
+          "107",
+          "1650",
+          "121",
+          "3650",
+          "135",
+          "8250",
+          "149",
+          "18500",
+          "—",
+          "—"
+        ],
+        [
+          "94",
+          "775",
+          "108",
+          "1750",
+          "122",
+          "3870",
+          "136",
+          "8750",
+          "150",
+          "19500",
+          "—",
+          "—"
+        ],
+        [
+          "161",
+          "36500",
+          "164",
+          "43700",
+          "167",
+          "51500",
+          "170",
+          "61500",
+          "173",
+          "73000",
+          "176",
+          "87500"
+        ],
+        [
+          "162",
+          "38700",
+          "165",
+          "46200",
+          "168",
+          "54500",
+          "171",
+          "65000",
+          "174",
+          "77500",
+          "177",
+          "92500"
+        ],
+        [
+          "163",
+          "41200",
+          "166",
+          "48700",
+          "169",
+          "58000",
+          "172",
+          "69000",
+          "175",
+          "82500",
+          "178",
+          "97500"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/06-SMALL-DIMENSIONS",
+      "title": "title_03-SIZES_06-SMALL-DIMENSIONS",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0.001",
+          "6",
+          "0.006"
+        ],
+        [
+          "2",
+          "0.002",
+          "7",
+          "0.007"
+        ],
+        [
+          "3",
+          "0.003",
+          "8",
+          "0.008"
+        ],
+        [
+          "4",
+          "0.004",
+          "9",
+          "0.009"
+        ],
+        [
+          "5",
+          "0.005",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/07-ANGLES-01",
+      "title": "title_03-SIZES_07-ANGLES-01",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "5°",
+          "5",
+          "45°"
+        ],
+        [
+          "2",
+          "15°",
+          "6",
+          "60°"
+        ],
+        [
+          "3",
+          "20°",
+          "7",
+          "90°"
+        ],
+        [
+          "4",
+          "30°",
+          "8",
+          "120°"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/07-ANGLES-02",
+      "title": "title_03-SIZES_07-ANGLES-02",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0°30′",
+          "7",
+          "7°"
+        ],
+        [
+          "2",
+          "1°",
+          "8",
+          "8°"
+        ],
+        [
+          "3",
+          "2°",
+          "9",
+          "10°"
+        ],
+        [
+          "4",
+          "3°",
+          "10",
+          "40°"
+        ],
+        [
+          "5",
+          "4°",
+          "11",
+          "75°"
+        ],
+        [
+          "6",
+          "6°",
+          "—",
+          "—"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso497"
+      ]
+    },
+    {
+      "path": "03-SIZES/07-ANGLES-03",
+      "title": "title_03-SIZES_07-ANGLES-03",
+      "headers": [
+        "order",
+        "value",
+        "order",
+        "value"
+      ],
+      "rows": [
+        [
+          "1",
+          "0°15′",
+          "13",
+          "65°"
+        ],
+        [
+          "2",
+          "0°45′",
+          "14",
+          "70°"
+        ],
+        [
+          "3",
+          "1°30′",
+          "15",
+          "80°"
+        ],
+        [
+          "4",
+          "2°30′",
+          "16",
+          "85°"
+        ],
+        [
+          "5",
+          "9°",
+          "17",
+          "100°"
+        ],
+        [
+          "6",
+          "12°",
+          "18",
+          "110°"
+        ],
+        [
+          "7",
+          "18°",
+          "19",
+          "135°"
+        ],
+        [
+          "8",
+          "22°",
+          "20",
+          "150°"
+        ],
+        [
+          "9",
+          "25°",
+          "21",
+          "165°"
+        ],
+        [
+          "10",
+          "35°",
+          "22",
+          "180°"
+        ],
+        [
+          "11",
+          "50°",
+          "23",
+          "270°"
+        ],
+        [
+          "12",
+          "55°",
+          "24",
+          "360°"
+        ]
+      ],
+      "notes": [
+        "ra_note"
+      ],
+      "sources": [
+        "iso497"
+      ]
+    },
+    {
+      "path": "04-SLOPES",
+      "title": "slopes",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "91a5c4af-a26b-5c1d-bd27-5fca4095ef14"
+    },
+    {
+      "path": "04-SLOPES/01-ANGLE-SERIES",
+      "title": "slope_angles1",
+      "headers": [
+        "angle_beta",
+        "slope_s",
+        "wedge_c"
+      ],
+      "rows": [
+        [
+          "5° 0′ 0.0″",
+          "1:11.430052",
+          "1:11.451883"
+        ],
+        [
+          "15° 0′ 0.0″",
+          "1:3.732051",
+          "1:3.797877"
+        ],
+        [
+          "20° 0′ 0.0″",
+          "1:2.747477",
+          "1:2.835641"
+        ],
+        [
+          "30° 0′ 0.0″",
+          "1:1.732051",
+          "1:1.866025"
+        ],
+        [
+          "45° 0′ 0.0″",
+          "1:1.000000",
+          "1:1.207107"
+        ],
+        [
+          "60° 0′ 0.0″",
+          "1:0.577350",
+          "1:0.866025"
+        ],
+        [
+          "90° 0′ 0.0″",
+          "—",
+          "1:0.500000"
+        ],
+        [
+          "120° 0′ 0.0″",
+          "—",
+          "1:0.288675"
+        ],
+        [
+          "0° 30′ 0.0″",
+          "1:114.588650",
+          "1:114.590832"
+        ],
+        [
+          "1° 0′ 0.0″",
+          "1:57.289962",
+          "1:57.294325"
+        ],
+        [
+          "2° 0′ 0.0″",
+          "1:28.636253",
+          "1:28.644981"
+        ],
+        [
+          "3° 0′ 0.0″",
+          "1:19.081137",
+          "1:19.094230"
+        ],
+        [
+          "4° 0′ 0.0″",
+          "1:14.300666",
+          "1:14.318127"
+        ],
+        [
+          "6° 0′ 0.0″",
+          "1:9.514364",
+          "1:9.540568"
+        ],
+        [
+          "7° 0′ 0.0″",
+          "1:8.144346",
+          "1:8.174928"
+        ],
+        [
+          "8° 0′ 0.0″",
+          "1:7.115370",
+          "1:7.150333"
+        ],
+        [
+          "10° 0′ 0.0″",
+          "1:5.671282",
+          "1:5.715026"
+        ],
+        [
+          "40° 0′ 0.0″",
+          "1:1.191754",
+          "1:1.373739"
+        ],
+        [
+          "75° 0′ 0.0″",
+          "1:0.267949",
+          "1:0.651613"
+        ]
+      ],
+      "notes": [
+        "slope_note",
+        "calculated_note"
+      ],
+      "sources": [
+        "iso2538"
+      ],
+      "diagram": "slope"
+    },
+    {
+      "path": "04-SLOPES/03-RATIOS",
+      "title": "slope_ratios",
+      "headers": [
+        "slope_s",
+        "angle_beta"
+      ],
+      "rows": [
+        [
+          "1:500",
+          "0° 6′ 52.5″"
+        ],
+        [
+          "1:200",
+          "0° 17′ 11.3″"
+        ],
+        [
+          "1:100",
+          "0° 34′ 22.6″"
+        ],
+        [
+          "1:50",
+          "1° 8′ 44.7″"
+        ],
+        [
+          "1:20",
+          "2° 51′ 44.7″"
+        ],
+        [
+          "1:10",
+          "5° 42′ 38.1″"
+        ]
+      ],
+      "notes": [
+        "slope_note",
+        "calculated_note"
+      ],
+      "sources": [
+        "iso2538"
+      ],
+      "diagram": "slope"
+    },
+    {
+      "path": "04-SLOPES/04-SPECIAL-USES",
+      "title": "special_slopes",
+      "headers": [
+        "angle_beta",
+        "use"
+      ],
+      "rows": [
+        [
+          "108°",
+          {
+            "key": "weld_v"
+          }
+        ],
+        [
+          "50°",
+          {
+            "key": "prismatic"
+          }
+        ]
+      ],
+      "notes": [
+        "usage_note"
+      ],
+      "sources": [
+        "iso2538"
+      ],
+      "diagram": "slope"
+    },
+    {
+      "path": "05-TAPERS",
+      "title": "tapers",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "dc8394e4-9457-5791-a586-78c39c0cce30"
+    },
+    {
+      "path": "05-TAPERS/01-RATIO-SERIES",
+      "title": "taper_ratios1",
+      "headers": [
+        "taper_c",
+        "angle_full",
+        "angle_half"
+      ],
+      "rows": [
+        [
+          "1:3",
+          "18° 55′ 28.7″",
+          "9° 27′ 44.4″"
+        ],
+        [
+          "1:5",
+          "11° 25′ 16.3″",
+          "5° 42′ 38.1″"
+        ],
+        [
+          "1:10",
+          "5° 43′ 29.3″",
+          "2° 51′ 44.7″"
+        ],
+        [
+          "1:20",
+          "2° 51′ 51.1″",
+          "1° 25′ 55.5″"
+        ],
+        [
+          "1:50",
+          "1° 8′ 45.2″",
+          "0° 34′ 22.6″"
+        ],
+        [
+          "1:100",
+          "0° 34′ 22.6″",
+          "0° 17′ 11.3″"
+        ],
+        [
+          "1:200",
+          "0° 17′ 11.3″",
+          "0° 8′ 35.7″"
+        ],
+        [
+          "1:500",
+          "0° 6′ 52.5″",
+          "0° 3′ 26.3″"
+        ],
+        [
+          "1:4",
+          "14° 15′ 0.1″",
+          "7° 7′ 30.1″"
+        ],
+        [
+          "1:6",
+          "9° 31′ 38.2″",
+          "4° 45′ 49.1″"
+        ],
+        [
+          "1:7",
+          "8° 10′ 16.4″",
+          "4° 5′ 8.2″"
+        ],
+        [
+          "1:8",
+          "7° 9′ 9.6″",
+          "3° 34′ 34.8″"
+        ],
+        [
+          "1:12",
+          "4° 46′ 18.8″",
+          "2° 23′ 9.4″"
+        ],
+        [
+          "1:15",
+          "3° 49′ 5.9″",
+          "1° 54′ 32.9″"
+        ],
+        [
+          "1:30",
+          "1° 54′ 34.9″",
+          "0° 57′ 17.4″"
+        ]
+      ],
+      "notes": [
+        "taper_note"
+      ],
+      "sources": [
+        "iso1119"
+      ],
+      "diagram": "taper"
+    },
+    {
+      "path": "05-TAPERS/03-ANGLES",
+      "title": "taper_angles",
+      "headers": [
+        "angle_full",
+        "angle_half",
+        "taper_c"
+      ],
+      "rows": [
+        [
+          "120° 0′ 0.0″",
+          "60° 0′ 0.0″",
+          "1:0.288675"
+        ],
+        [
+          "90° 0′ 0.0″",
+          "45° 0′ 0.0″",
+          "1:0.500000"
+        ],
+        [
+          "75° 0′ 0.0″",
+          "37° 30′ 0.0″",
+          "1:0.651613"
+        ],
+        [
+          "60° 0′ 0.0″",
+          "30° 0′ 0.0″",
+          "1:0.866025"
+        ],
+        [
+          "45° 0′ 0.0″",
+          "22° 30′ 0.0″",
+          "1:1.207107"
+        ],
+        [
+          "30° 0′ 0.0″",
+          "15° 0′ 0.0″",
+          "1:1.866025"
+        ]
+      ],
+      "notes": [
+        "taper_note"
+      ],
+      "sources": [
+        "iso1119"
+      ],
+      "diagram": "taper"
+    },
+    {
+      "path": "05-TAPERS/04-MORSE",
+      "title": "morse",
+      "headers": [
+        "designation",
+        "taper_c",
+        "angle_full",
+        "large_diameter"
+      ],
+      "rows": [
+        [
+          "Morse 0",
+          "1:19.212",
+          "2° 58′ 53.8″",
+          "9.045"
+        ],
+        [
+          "Morse 1",
+          "1:20.047",
+          "2° 51′ 26.9″",
+          "12.065"
+        ],
+        [
+          "Morse 2",
+          "1:20.020",
+          "2° 51′ 40.8″",
+          "17.780"
+        ],
+        [
+          "Morse 3",
+          "1:19.922",
+          "2° 52′ 31.4″",
+          "23.825"
+        ],
+        [
+          "Morse 4",
+          "1:19.254",
+          "2° 58′ 30.4″",
+          "31.267"
+        ],
+        [
+          "Morse 5",
+          "1:19.002",
+          "3° 0′ 52.4″",
+          "44.399"
+        ],
+        [
+          "Morse 6",
+          "1:19.180",
+          "2° 59′ 11.7″",
+          "63.348"
+        ]
+      ],
+      "notes": [
+        "catalogue_note"
+      ],
+      "sources": [
+        "iso296"
+      ],
+      "diagram": "taper"
+    },
+    {
+      "path": "05-TAPERS/05-JACOBS-BROWN-SHARPE",
+      "title": "jacobs",
+      "headers": [
+        "designation",
+        "taper_c",
+        "angle_full"
+      ],
+      "rows": [
+        [
+          "Jacobs 0",
+          "1:20.288",
+          "2° 49′ 24.8″"
+        ],
+        [
+          "Jacobs 1",
+          "1:12.972",
+          "4° 24′ 52.9″"
+        ],
+        [
+          "Jacobs 2",
+          "1:12.262",
+          "4° 40′ 12.2″"
+        ],
+        [
+          "Jacobs 3",
+          "1:18.779",
+          "3° 3′ 1.2″"
+        ],
+        [
+          "Jacobs 6",
+          "1:19.264",
+          "2° 58′ 24.9″"
+        ],
+        [
+          "Jacobs 33",
+          "1:15.748",
+          "3° 38′ 13.4″"
+        ],
+        [
+          "Brown & Sharpe",
+          "1:23.904",
+          "2° 23′ 47.6″"
+        ]
+      ],
+      "notes": [
+        "catalogue_note"
+      ],
+      "sources": [
+        "jacobs"
+      ],
+      "diagram": "taper"
+    },
+    {
+      "path": "05-TAPERS/06-APPLICATIONS",
+      "title": "applications",
+      "headers": [
+        "taper_c",
+        "use"
+      ],
+      "rows": [
+        [
+          "1:3",
+          {
+            "key": "use3"
+          }
+        ],
+        [
+          "1:3.333",
+          {
+            "key": "use333"
+          }
+        ],
+        [
+          "7:24",
+          {
+            "key": "use7124"
+          }
+        ],
+        [
+          "1:4",
+          {
+            "key": "use4"
+          }
+        ],
+        [
+          "1:5",
+          {
+            "key": "use5"
+          }
+        ],
+        [
+          "1:7",
+          {
+            "key": "use7"
+          }
+        ],
+        [
+          "1:10",
+          {
+            "key": "use10"
+          }
+        ]
+      ],
+      "notes": [
+        "usage_note"
+      ],
+      "sources": [
+        "iso1119"
+      ],
+      "diagram": "taper"
+    },
+    {
+      "path": "06-INCH-MM",
+      "title": "inch_mm",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "1f28cb22-836d-56e3-bb3e-65b41370b60d"
+    },
+    {
+      "path": "06-INCH-MM/01-INTEGER-000-099",
+      "title": "title_06-INCH-MM_01-INTEGER-000-099",
+      "headers": [
+        "in",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "rows": [
+        [
+          "0",
+          "0.0",
+          "25.4",
+          "50.8",
+          "76.2",
+          "101.6",
+          "127.0",
+          "152.4",
+          "177.8",
+          "203.2",
+          "228.6"
+        ],
+        [
+          "10",
+          "254.0",
+          "279.4",
+          "304.8",
+          "330.2",
+          "355.6",
+          "381.0",
+          "406.4",
+          "431.8",
+          "457.2",
+          "482.6"
+        ],
+        [
+          "20",
+          "508.0",
+          "533.4",
+          "558.8",
+          "584.2",
+          "609.6",
+          "635.0",
+          "660.4",
+          "685.8",
+          "711.2",
+          "736.6"
+        ],
+        [
+          "30",
+          "762.0",
+          "787.4",
+          "812.8",
+          "838.2",
+          "863.6",
+          "889.0",
+          "914.4",
+          "939.8",
+          "965.2",
+          "990.6"
+        ],
+        [
+          "40",
+          "1016.0",
+          "1041.4",
+          "1066.8",
+          "1092.2",
+          "1117.6",
+          "1143.0",
+          "1168.4",
+          "1193.8",
+          "1219.2",
+          "1244.6"
+        ],
+        [
+          "50",
+          "1270.0",
+          "1295.4",
+          "1320.8",
+          "1346.2",
+          "1371.6",
+          "1397.0",
+          "1422.4",
+          "1447.8",
+          "1473.2",
+          "1498.6"
+        ],
+        [
+          "60",
+          "1524.0",
+          "1549.4",
+          "1574.8",
+          "1600.2",
+          "1625.6",
+          "1651.0",
+          "1676.4",
+          "1701.8",
+          "1727.2",
+          "1752.6"
+        ],
+        [
+          "70",
+          "1778.0",
+          "1803.4",
+          "1828.8",
+          "1854.2",
+          "1879.6",
+          "1905.0",
+          "1930.4",
+          "1955.8",
+          "1981.2",
+          "2006.6"
+        ],
+        [
+          "80",
+          "2032.0",
+          "2057.4",
+          "2082.8",
+          "2108.2",
+          "2133.6",
+          "2159.0",
+          "2184.4",
+          "2209.8",
+          "2235.2",
+          "2260.6"
+        ],
+        [
+          "90",
+          "2286.0",
+          "2311.4",
+          "2336.8",
+          "2362.2",
+          "2387.6",
+          "2413.0",
+          "2438.4",
+          "2463.8",
+          "2489.2",
+          "2514.6"
+        ],
+        [
+          "100",
+          "2540.0",
+          "2565.4",
+          "2590.8",
+          "2616.2",
+          "2641.6",
+          "2667.0",
+          "2692.4",
+          "2717.8",
+          "2743.2",
+          "2768.6"
+        ],
+        [
+          "110",
+          "2794.0",
+          "2819.4",
+          "2844.8",
+          "2870.2",
+          "2895.6",
+          "2921.0",
+          "2946.4",
+          "2971.8",
+          "2997.2",
+          "3022.6"
+        ],
+        [
+          "120",
+          "3048.0",
+          "3073.4",
+          "3098.8",
+          "3124.2",
+          "3149.6",
+          "3175.0",
+          "3200.4",
+          "3225.8",
+          "3251.2",
+          "3276.6"
+        ],
+        [
+          "130",
+          "3302.0",
+          "3327.4",
+          "3352.8",
+          "3378.2",
+          "3403.6",
+          "3429.0",
+          "3454.4",
+          "3479.8",
+          "3505.2",
+          "3530.6"
+        ],
+        [
+          "140",
+          "3556.0",
+          "3581.4",
+          "3606.8",
+          "3632.2",
+          "3657.6",
+          "3683.0",
+          "3708.4",
+          "3733.8",
+          "3759.2",
+          "3784.6"
+        ],
+        [
+          "150",
+          "3810.0",
+          "3835.4",
+          "3860.8",
+          "3886.2",
+          "3911.6",
+          "3937.0",
+          "3962.4",
+          "3987.8",
+          "4013.2",
+          "4038.6"
+        ],
+        [
+          "160",
+          "4064.0",
+          "4089.4",
+          "4114.8",
+          "4140.2",
+          "4165.6",
+          "4191.0",
+          "4216.4",
+          "4241.8",
+          "4267.2",
+          "4292.6"
+        ],
+        [
+          "170",
+          "4318.0",
+          "4343.4",
+          "4368.8",
+          "4394.2",
+          "4419.6",
+          "4445.0",
+          "4470.4",
+          "4495.8",
+          "4521.2",
+          "4546.6"
+        ],
+        [
+          "180",
+          "4572.0",
+          "4597.4",
+          "4622.8",
+          "4648.2",
+          "4673.6",
+          "4699.0",
+          "4724.4",
+          "4749.8",
+          "4775.2",
+          "4800.6"
+        ],
+        [
+          "190",
+          "4826.0",
+          "4851.4",
+          "4876.8",
+          "4902.2",
+          "4927.6",
+          "4953.0",
+          "4978.4",
+          "5003.8",
+          "5029.2",
+          "5054.6"
+        ],
+        [
+          "200",
+          "5080.0",
+          "5105.4",
+          "5130.8",
+          "5156.2",
+          "5181.6",
+          "5207.0",
+          "5232.4",
+          "5257.8",
+          "5283.2",
+          "5308.6"
+        ],
+        [
+          "210",
+          "5334.0",
+          "5359.4",
+          "5384.8",
+          "5410.2",
+          "5435.6",
+          "5461.0",
+          "5486.4",
+          "5511.8",
+          "5537.2",
+          "5562.6"
+        ],
+        [
+          "220",
+          "5588.0",
+          "5613.4",
+          "5638.8",
+          "5664.2",
+          "5689.6",
+          "5715.0",
+          "5740.4",
+          "5765.8",
+          "5791.2",
+          "5816.6"
+        ],
+        [
+          "230",
+          "5842.0",
+          "5867.4",
+          "5892.8",
+          "5918.2",
+          "5943.6",
+          "5969.0",
+          "5994.4",
+          "6019.8",
+          "6045.2",
+          "6070.6"
+        ],
+        [
+          "240",
+          "6096.0",
+          "6121.4",
+          "6146.8",
+          "6172.2",
+          "6197.6",
+          "6223.0",
+          "6248.4",
+          "6273.8",
+          "6299.2",
+          "6324.6"
+        ],
+        [
+          "250",
+          "6350.0",
+          "6375.4",
+          "6400.8",
+          "6426.2",
+          "6451.6",
+          "6477.0",
+          "6502.4",
+          "6527.8",
+          "6553.2",
+          "6578.6"
+        ],
+        [
+          "260",
+          "6604.0",
+          "6629.4",
+          "6654.8",
+          "6680.2",
+          "6705.6",
+          "6731.0",
+          "6756.4",
+          "6781.8",
+          "6807.2",
+          "6832.6"
+        ],
+        [
+          "270",
+          "6858.0",
+          "6883.4",
+          "6908.8",
+          "6934.2",
+          "6959.6",
+          "6985.0",
+          "7010.4",
+          "7035.8",
+          "7061.2",
+          "7086.6"
+        ],
+        [
+          "280",
+          "7112.0",
+          "7137.4",
+          "7162.8",
+          "7188.2",
+          "7213.6",
+          "7239.0",
+          "7264.4",
+          "7289.8",
+          "7315.2",
+          "7340.6"
+        ],
+        [
+          "290",
+          "7366.0",
+          "7391.4",
+          "7416.8",
+          "7442.2",
+          "7467.6",
+          "7493.0",
+          "7518.4",
+          "7543.8",
+          "7569.2",
+          "7594.6"
+        ],
+        [
+          "300",
+          "7620.0",
+          "7645.4",
+          "7670.8",
+          "7696.2",
+          "7721.6",
+          "7747.0",
+          "7772.4",
+          "7797.8",
+          "7823.2",
+          "7848.6"
+        ],
+        [
+          "310",
+          "7874.0",
+          "7899.4",
+          "7924.8",
+          "7950.2",
+          "7975.6",
+          "8001.0",
+          "8026.4",
+          "8051.8",
+          "8077.2",
+          "8102.6"
+        ],
+        [
+          "320",
+          "8128.0",
+          "8153.4",
+          "8178.8",
+          "8204.2",
+          "8229.6",
+          "8255.0",
+          "8280.4",
+          "8305.8",
+          "8331.2",
+          "8356.6"
+        ]
+      ],
+      "notes": [
+        "inch_note"
+      ],
+      "sources": [
+        "nist"
+      ]
+    },
+    {
+      "path": "06-INCH-MM/02-FRACTIONS-01",
+      "title": "fraction_0",
+      "headers": [
+        "fraction",
+        "in",
+        "mm",
+        "fraction",
+        "in",
+        "mm"
+      ],
+      "rows": [
+        [
+          "1/64",
+          "0.015625",
+          "0.3968750",
+          "17/64",
+          "0.265625",
+          "6.7468750"
+        ],
+        [
+          "1/32",
+          "0.03125",
+          "0.793750",
+          "9/32",
+          "0.28125",
+          "7.143750"
+        ],
+        [
+          "3/64",
+          "0.046875",
+          "1.1906250",
+          "19/64",
+          "0.296875",
+          "7.5406250"
+        ],
+        [
+          "1/16",
+          "0.0625",
+          "1.58750",
+          "5/16",
+          "0.3125",
+          "7.93750"
+        ],
+        [
+          "5/64",
+          "0.078125",
+          "1.9843750",
+          "21/64",
+          "0.328125",
+          "8.3343750"
+        ],
+        [
+          "3/32",
+          "0.09375",
+          "2.381250",
+          "11/32",
+          "0.34375",
+          "8.731250"
+        ],
+        [
+          "7/64",
+          "0.109375",
+          "2.7781250",
+          "23/64",
+          "0.359375",
+          "9.1281250"
+        ],
+        [
+          "1/8",
+          "0.125",
+          "3.1750",
+          "3/8",
+          "0.375",
+          "9.5250"
+        ],
+        [
+          "9/64",
+          "0.140625",
+          "3.5718750",
+          "25/64",
+          "0.390625",
+          "9.9218750"
+        ],
+        [
+          "5/32",
+          "0.15625",
+          "3.968750",
+          "13/32",
+          "0.40625",
+          "10.318750"
+        ],
+        [
+          "11/64",
+          "0.171875",
+          "4.3656250",
+          "27/64",
+          "0.421875",
+          "10.7156250"
+        ],
+        [
+          "3/16",
+          "0.1875",
+          "4.76250",
+          "7/16",
+          "0.4375",
+          "11.11250"
+        ],
+        [
+          "13/64",
+          "0.203125",
+          "5.1593750",
+          "29/64",
+          "0.453125",
+          "11.5093750"
+        ],
+        [
+          "7/32",
+          "0.21875",
+          "5.556250",
+          "15/32",
+          "0.46875",
+          "11.906250"
+        ],
+        [
+          "15/64",
+          "0.234375",
+          "5.9531250",
+          "31/64",
+          "0.484375",
+          "12.3031250"
+        ],
+        [
+          "1/4",
+          "0.25",
+          "6.350",
+          "1/2",
+          "0.5",
+          "12.70"
+        ],
+        [
+          "33/64",
+          "0.515625",
+          "13.0968750",
+          "49/64",
+          "0.765625",
+          "19.4468750"
+        ],
+        [
+          "17/32",
+          "0.53125",
+          "13.493750",
+          "25/32",
+          "0.78125",
+          "19.843750"
+        ],
+        [
+          "35/64",
+          "0.546875",
+          "13.8906250",
+          "51/64",
+          "0.796875",
+          "20.2406250"
+        ],
+        [
+          "9/16",
+          "0.5625",
+          "14.28750",
+          "13/16",
+          "0.8125",
+          "20.63750"
+        ],
+        [
+          "37/64",
+          "0.578125",
+          "14.6843750",
+          "53/64",
+          "0.828125",
+          "21.0343750"
+        ],
+        [
+          "19/32",
+          "0.59375",
+          "15.081250",
+          "27/32",
+          "0.84375",
+          "21.431250"
+        ],
+        [
+          "39/64",
+          "0.609375",
+          "15.4781250",
+          "55/64",
+          "0.859375",
+          "21.8281250"
+        ],
+        [
+          "5/8",
+          "0.625",
+          "15.8750",
+          "7/8",
+          "0.875",
+          "22.2250"
+        ],
+        [
+          "41/64",
+          "0.640625",
+          "16.2718750",
+          "57/64",
+          "0.890625",
+          "22.6218750"
+        ],
+        [
+          "21/32",
+          "0.65625",
+          "16.668750",
+          "29/32",
+          "0.90625",
+          "23.018750"
+        ],
+        [
+          "43/64",
+          "0.671875",
+          "17.0656250",
+          "59/64",
+          "0.921875",
+          "23.4156250"
+        ],
+        [
+          "11/16",
+          "0.6875",
+          "17.46250",
+          "15/16",
+          "0.9375",
+          "23.81250"
+        ],
+        [
+          "45/64",
+          "0.703125",
+          "17.8593750",
+          "61/64",
+          "0.953125",
+          "24.2093750"
+        ],
+        [
+          "23/32",
+          "0.71875",
+          "18.256250",
+          "31/32",
+          "0.96875",
+          "24.606250"
+        ],
+        [
+          "47/64",
+          "0.734375",
+          "18.6531250",
+          "63/64",
+          "0.984375",
+          "25.0031250"
+        ],
+        [
+          "3/4",
+          "0.75",
+          "19.050",
+          "1",
+          "1",
+          "25.4"
+        ]
+      ],
+      "notes": [
+        "inch_note"
+      ],
+      "sources": [
+        "nist"
+      ]
+    },
+    {
+      "path": "07-SHEETS",
+      "title": "sheets",
+      "headers": [],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "id": "55a6c2d7-d1c1-58ef-9166-4720484a3b56"
+    },
+    {
+      "path": "07-SHEETS/01-ISO-A",
+      "title": "iso_sheets",
+      "headers": [
+        "designation",
+        "dimension_mm"
+      ],
+      "rows": [
+        [
+          "A0",
+          "841 × 1189"
+        ],
+        [
+          "A1",
+          "594 × 841"
+        ],
+        [
+          "A2",
+          "420 × 594"
+        ],
+        [
+          "A3",
+          "297 × 420"
+        ],
+        [
+          "A4",
+          "210 × 297"
+        ]
+      ],
+      "notes": [
+        "sheet_note"
+      ],
+      "sources": [
+        "iso5457",
+        "iso216"
+      ]
+    },
+    {
+      "path": "07-SHEETS/02-ELONGATED",
+      "title": "elongated_sheets",
+      "headers": [
+        "designation",
+        "dimension_mm"
+      ],
+      "rows": [
+        [
+          "A3×3",
+          "420 × 891"
+        ],
+        [
+          "A3×4",
+          "420 × 1189"
+        ],
+        [
+          "A4×3",
+          "297 × 630"
+        ],
+        [
+          "A4×4",
+          "297 × 841"
+        ],
+        [
+          "A4×5",
+          "297 × 1051"
+        ]
+      ],
+      "notes": [
+        "elongated_note"
+      ],
+      "sources": [
+        "iso5457"
+      ]
+    },
+    {
+      "path": "07-SHEETS/03-EXTRA-ELONGATED",
+      "title": "extra_sheets",
+      "headers": [
+        "designation",
+        "dimension_mm"
+      ],
+      "rows": [
+        [
+          "A0×2",
+          "1189 × 1682"
+        ],
+        [
+          "A0×3",
+          "1189 × 2523"
+        ],
+        [
+          "A1×3",
+          "841 × 1783"
+        ],
+        [
+          "A1×4",
+          "841 × 2378"
+        ],
+        [
+          "A2×3",
+          "594 × 1261"
+        ],
+        [
+          "A2×4",
+          "594 × 1682"
+        ],
+        [
+          "A2×5",
+          "594 × 2102"
+        ],
+        [
+          "A3×5",
+          "420 × 1486"
+        ],
+        [
+          "A3×6",
+          "420 × 1783"
+        ],
+        [
+          "A3×7",
+          "420 × 2080"
+        ],
+        [
+          "A4×6",
+          "297 × 1261"
+        ],
+        [
+          "A4×7",
+          "297 × 1471"
+        ],
+        [
+          "A4×8",
+          "297 × 1682"
+        ],
+        [
+          "A4×9",
+          "297 × 1892"
+        ]
+      ],
+      "notes": [
+        "historical_sheet_note"
+      ],
+      "sources": [
+        "iso5457"
+      ]
+    },
+    {
+      "path": "07-SHEETS/04-US-A-E",
+      "title": "ansi_sheets",
+      "headers": [
+        "designation",
+        "dimension_in",
+        "dimension_mm"
+      ],
+      "rows": [
+        [
+          "A",
+          "8.5 × 11",
+          "215.90 × 279.4"
+        ],
+        [
+          "B",
+          "11 × 17",
+          "279.4 × 431.8"
+        ],
+        [
+          "C",
+          "17 × 22",
+          "431.8 × 558.8"
+        ],
+        [
+          "D",
+          "22 × 34",
+          "558.8 × 863.6"
+        ],
+        [
+          "E",
+          "34 × 44",
+          "863.6 × 1117.6"
+        ]
+      ],
+      "notes": [
+        "ansi_note"
+      ],
+      "sources": [
+        "asme",
+        "nist"
+      ]
+    },
+    {
+      "path": "07-SHEETS/05-ENLARGEMENT",
+      "title": "enlargement",
+      "headers": [
+        "category",
+        "values"
+      ],
+      "rows": [
+        [
+          {
+            "key": "enlargement"
+          },
+          "50:1 · 20:1 · 10:1 · 5:1 · 2:1"
+        ]
+      ],
+      "notes": [
+        "scale_note"
+      ],
+      "sources": [
+        "iso5455"
+      ]
+    },
+    {
+      "path": "07-SHEETS/06-FULL-SIZE",
+      "title": "full_size",
+      "headers": [
+        "category",
+        "values"
+      ],
+      "rows": [
+        [
+          {
+            "key": "full_size"
+          },
+          "1:1"
+        ]
+      ],
+      "notes": [
+        "scale_note"
+      ],
+      "sources": [
+        "iso5455"
+      ]
+    },
+    {
+      "path": "07-SHEETS/07-REDUCTION",
+      "title": "reduction",
+      "headers": [
+        "category",
+        "values"
+      ],
+      "rows": [
+        [
+          {
+            "key": "reduction"
+          },
+          "1:2 · 1:5 · 1:10 · 1:20 · 1:50 · 1:100 · 1:200 · 1:500 · 1:1000 · 1:2000 · 1:5000 · 1:10000"
+        ]
+      ],
+      "notes": [
+        "scale_note"
+      ],
+      "sources": [
+        "iso5455"
+      ]
+    }
+  ]
+}

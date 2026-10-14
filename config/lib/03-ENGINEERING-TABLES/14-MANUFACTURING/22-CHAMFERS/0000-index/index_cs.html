@@ -1,81 +1,22 @@
-<html>
-  <head>
-  <meta http-equiv="content-type" content="text/html; charset=UTF-8" >
-  <meta name="description" lang="cs" content="Software ZIMA-CAD-Parts" />
-		<meta name="keywords" lang="cs" content="ZIMA-Engineering" />
-		<meta name="resource-type" content="document" />
-		<meta name="copyright" content="2011 Vladimír Zima, http://www.zima-engineering.cz/" />
-		<meta name="author" content="Vladimir Zima" />
-		<meta name="designer" content="Vladimír Zima, http://www.zima-engineering.cz/" />
-		<meta name="robots" content="ALL,FOLLOW" />
-		<meta http-equiv="reply-to" content="" />
-		<meta http-equiv="content-language" content="" />
-		<meta http-equiv="cache-control" content="public" />
-	<title></title>
-	<style>         
-		body { font-family:Verdana; }        
-		#hlavicka { display:inline-block;  width:100%; }
-		#logo { float:right; height:40px; }
-	 	#nadpis { font: bold 30px Verdana; padding:5px; }
-		.cleaner{ clear: both; }
-   </style>     
-		<script>
-		document.addEventListener('DOMContentLoaded', function() {
-			
-			function $(id) {return document.getElementById(id);	}
-			
-			$('nadpis').innerHTML = 'ahoj'
-			
-			function load (file, funct, par) { // standartní funkce na http request na pozadí
-				var xhr = new XMLHttpRequest();
-				xhr.overrideMimeType("text/plain");
-				xhr.onreadystatechange = function() { if (xhr.readyState == 4){ funct(xhr.responseText, par, xhr.status ) } }
-				xhr.open("GET", file); xhr.send();
-			}
-
-			function parse(text) { // dostane od funkce nahoře text toho souboru
-				text.split('\n').forEach(function(line,i){ // jede cyklus pro každou řádku
-					if (res = line.match(/^Label\\cs=(.*)/)) {
-						$('nadpis').innerHTML = res[1]
-						document.title = res[1]
-					}
-				});
-			}
-
-			function find_img(i, name) { 
-				const suffix = ['jpg', 'jpeg', 'png', 'gif'];
-				for (var j in suffix){
-					load_img (i, name+'.'+suffix[j]);
-				}
-				
-			}
-			
-			var images = document.getElementsByTagName('img') // jede cyklus pro každý obrázek
-			for(var i=0; i<images.length; i++){ 
-				if (images[i].dataset['name'] !== undefined) find_img(i, images[i].dataset['name'])
-			}
-			
-			function load_img (i,name) { load(name, paste_img, {i,name}) }
-			
-			function paste_img(text, par, status) {
-				if (text.length == 0) return
-				if (text.search("</html>") > 0) return
-				images[par['i']].src = par['name'] 
-			}
-
-			load('metadata.ini', parse)
-
-		}, false);
-		</script>
-
-  </head>
-  <body>
-
-		<div id='hlavicka'>
-			<a href='http://zima-engineering.cz'><img id='logo' src="ZIMA-Engineering.png"></a>  
-			<div id='nadpis'></div>
-    </div><br class="cleaner"> 
-    <img data-name="01"> <br>
-    
-  </body>
-</html>
+<!doctype html>
+<html lang="cs">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Úkosy · ZIMA-CAD</title>
+<link rel="stylesheet" href="../../../0000-index/css/reference-tables.css"></head><body>
+<main>
+<nav aria-label="Jazyky"><a lang="cs" hreflang="cs" href="index_cs.html" aria-current="page">CS</a> <a lang="en" hreflang="en" href="index_en.html">EN</a> <a lang="de" hreflang="de" href="index_de.html">DE</a> <a lang="fr" hreflang="fr" href="index_fr.html">FR</a> <a lang="ru" hreflang="ru" href="index_ru.html">RU</a></nav>
+<h1>Úkosy</h1>
+<figure class="reference-figure"><img src="../../../0000-index/diagrams/chamfer.svg" alt="Vlastní orientační schéma; ne normový výrobní výkres. Ne všechny parametry tabulky jsou zakreslené."><figcaption>Vlastní orientační schéma; ne normový výrobní výkres. Ne všechny parametry tabulky jsou zakreslené.</figcaption></figure>
+<div class="table-scroll"><table>
+<caption>Úkosy</caption>
+<thead><tr><th scope="col">Položka</th><th scope="col">Hodnota / vztah</th><th scope="col">Význam</th></tr></thead><tbody>
+<tr><th scope="row">Vodorovné sražení</th><td class="formula">a = b/tan α</td><td>α je úhel mezi šikmou a vodorovnou hranou</td></tr>
+<tr><th scope="row">Svislé sražení</th><td class="formula">b = a·tan α</td><td>0° &lt; α &lt;90°</td></tr>
+<tr><th scope="row">Sražení 45°</th><td class="formula">a = b</td><td>Zápis a×45° vyjadřuje délku přilehlé strany, ne šikmé hrany</td></tr>
+</tbody></table></div>
+<aside><p>Základní technické vztahy; nejde o kompletní normový návrh.</p></aside>
+<footer>Zdroje: <br>Kontrola zpracování 15. 10. 2026 · ZIMA Engineering
+<p>Informativní technické tabulky ZIMA Engineering, nikoli oficiální znění norem. Poskytováno bez záruky správnosti nebo vhodnosti a s vyloučením odpovědnosti v rozsahu povoleném zákonem. Pro konkrétní použití ověřte platné požadavky a vhodnost údajů. <span>GPL-3.0-or-later</span></p></footer>
+</main></body></html>

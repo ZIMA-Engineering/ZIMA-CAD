@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<!-- Original ZIMA Engineering schematic; GPL-3.0-or-later. -->
+<rect width="700" height="260" fill="white"/>
+<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="3" refY="3" orient="auto-start-reverse"><path d="M0 0L6 3L0 6Z" fill="#222"/></marker></defs>
+<style>text{font:17px Arial,sans-serif;fill:#111}.outline{fill:none;stroke:#222;stroke-width:2}.axis{fill:none;stroke:#777;stroke-width:1;stroke-dasharray:8 4 2 4}.dim{fill:none;stroke:#222;stroke-width:1;marker-start:url(#arrow);marker-end:url(#arrow)}.ext{fill:none;stroke:#999;stroke-width:1}</style>
+
+<g id="plain-washer" data-d1="66" data-d2="180"><circle class="outline" cx="175" cy="125" r="90"/>
+<circle class="outline" cx="175" cy="125" r="33"/><path class="axis" d="M65 125H285 M175 15V235"/>
+<path class="dim" d="M142 125H208 M85 230H265"/><path class="ext" d="M85 125V238 M265 125V238"/>
+<text x="162" y="114">d₁</text><text x="164" y="255">d₂</text>
+<path class="outline" d="M413 110H593V140H413Z M470 110V140 M536 110V140"/>
+<path class="axis" d="M503 85V168"/><path class="ext" d="M593 110H640 M593 140H640"/>
+<path class="dim" d="M628 110V140"/><text x="645" y="132">h</text></g>
+
+</svg>
