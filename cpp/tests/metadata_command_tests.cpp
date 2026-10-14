@@ -2,6 +2,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/pattern_dimensions.hpp>
@@ -466,5 +467,6 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
 #include "native_io_performance_probe.inc"
 int main(int argc,char** argv){try{
 if(argc==3&&std::string_view(argv[1])=="--native-io-performance")return benchmark_native_io(fs::absolute(fs::u8path(argv[2])));
+if(argc==3&&std::string_view(argv[1])=="--native-last-operation-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])));
 if(argc==4&&std::string_view(argv[1])=="--compare-native-properties")return compare_native_properties(fs::u8path(argv[2]),fs::u8path(argv[3]));
 kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify_failed_sheet_settings(kernel,dir);verify(kernel,dir);verify_parameter_inspection(dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

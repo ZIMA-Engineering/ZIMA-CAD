@@ -856,6 +856,18 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_import_plane_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1;ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY=1;ZIMA_VERIFY_IMPORT_PLANE_VISIBILITY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_import_feature_frame_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory=Projects/test/import-feature-frame)
+    set_tests_properties(zima_cpp_import_feature_frame_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1;ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY=1;ZIMA_VERIFY_IMPORT_PLANE_VISIBILITY=1;ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW=1;ZIMA_VERIFY_IMPORT_BODY_FRAME=1;ZIMA_VERIFY_IMPORT_MULTIPLE_REFERENCES=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE
+        FIXTURES_SETUP zima_imported_datum_source)
+    add_test(NAME zima_cpp_import_empty_feature_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory=Projects/test/import-empty-feature)
+    set_tests_properties(zima_cpp_import_empty_feature_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1;ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY=1;ZIMA_VERIFY_IMPORT_PLANE_VISIBILITY=1;ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW=1;ZIMA_VERIFY_IMPORT_MULTIPLE_REFERENCES=1;ZIMA_VERIFY_IMPORT_EMPTY_FEATURE_OK=1;ZIMA_VERIFY_IMPORTED_BODY_FILE=${CMAKE_SOURCE_DIR}/../Projects/test/import-feature-frame/imported-body-preview.prtz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE
+        FIXTURES_REQUIRED zima_imported_datum_source)
     set_tests_properties(zima_cpp_body_preview_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_UI_ONLY=1;ZIMA_VERIFY_BODY_PREVIEW_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
@@ -1447,6 +1459,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_construction_removal_tests COMMAND zima_cpp_construction_removal_tests)
     add_executable(zima_cpp_construction_command_tests tests/construction_command_tests.cpp)
     target_link_libraries(zima_cpp_construction_command_tests PRIVATE zima_command_host)
+    target_include_directories(zima_cpp_construction_command_tests PRIVATE modules/viewer/include)
     add_test(NAME zima_cpp_construction_command_tests COMMAND zima_cpp_construction_command_tests)
     set_tests_properties(zima_cpp_construction_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
@@ -1604,6 +1617,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_profile_sketch_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_profile_command_tests tests/profile_command_tests.cpp)
     target_link_libraries(zima_cpp_profile_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_imported_datum_command_contract COMMAND zima_cpp_profile_command_tests
+        --imported-datums "${CMAKE_SOURCE_DIR}/../Projects/test/import-feature-frame/imported-body-preview.prtz")
+    set_tests_properties(zima_cpp_imported_datum_command_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180
+        FIXTURES_REQUIRED zima_imported_datum_source)
     add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
     set_tests_properties(zima_cpp_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
@@ -1707,6 +1725,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_prototype_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_feature_modeling_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_modeling_wire_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_MODELING_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_import_drawn_feature_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_import_drawn_feature_wire_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1;ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY=1;ZIMA_VERIFY_IMPORT_PLANE_VISIBILITY=1;ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW=1;ZIMA_VERIFY_IMPORT_BODY_FRAME=1;ZIMA_VERIFY_IMPORT_DRAWN_FEATURE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_roles_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_roles_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SKETCH_ROLES_ONLY=1"

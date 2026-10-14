@@ -2,6 +2,8 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <chrono>
 #include <iostream>
 #include <numbers>
 #include <cmath>
@@ -44,6 +46,86 @@ struct Fixture {
     }
     double volume(){require(!part().session.calculated_boundaries().empty(),"Missing calculated body");return part().session.calculated_boundaries().back().volume;}
 };
+void imported_datums(const fs::path& path,const fs::path& directory,bool large_probe=false) {
+    using document::FeatureType;
+    for(const auto [type,profile]:std::array<std::pair<FeatureType,int>,6>{{
+            {FeatureType::Point,0},{FeatureType::Axis,0},{FeatureType::Plane,0},
+            {FeatureType::Sketch,0},{FeatureType::Sketch,1},{FeatureType::Sketch,2}}}) {
+        if(large_probe && !(profile==0&&(type==FeatureType::Point||type==FeatureType::Sketch)))continue;
+        kernel::OcctKernel cold;
+        Fixture f(cold,directory);
+        std::vector<kernel::BodyResult> saved;
+        auto native=document::PartDocument::load(path,&saved);
+        const auto imported=std::ranges::find_if(native.history,[](const auto& value){return value.feature_kind==document::FeatureKind::ImportedStep;});
+        require(imported!=native.history.end()&&!saved.empty(),"Datum fixture has no imported native body");
+        const auto* owner=native.body_owner_for_object(imported->id);
+        require(owner,"Imported fixture has no Body owner");const auto body_id=owner->scope.id;
+        auto graph=native.body_history;graph.activate(body_id);native.set_body_history(std::move(graph));
+        const auto before=saved.back().body_boundaries.at(body_id).back();
+        const auto document_id=native.document_id;
+        f.live.add_part(std::move(native),std::move(saved));f.live.activate(document_id);
+        auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
+        if(profile) {
+            static_cast<void>(sketch.add_rectangle(0,0,10,5));
+            if(profile==1)sketch.segments.erase(sketch.segments.begin()+1,sketch.segments.end());
+        }
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.feature.type=type;feature.placement.x=2;feature.placement.y=3;feature.placement.z=4;
+        sketch.owner_container_id=feature.id;
+        const auto started=std::chrono::steady_clock::now();
+        workspace::commit_profile(f.live,cold,document_id,feature,workspace::ProfileEditMode::Create,sketch);
+        std::cout<<"Cold imported datum type="<<int(type)<<" profile="<<profile<<" OK_ms="
+            <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+        const auto& after=f.part().session.calculated_boundaries().back().body_boundaries.at(body_id).back();
+        require(after.volume==before.volume&&after.surface_area==before.surface_area&&after.kernel_shape==before.kernel_shape&&
+            after.mesh.vertices==before.mesh.vertices&&after.mesh.triangles==before.mesh.triangles&&
+            after.physical_properties_current==before.physical_properties_current,"Datum recalculated or changed imported material");
+        auto normalized=after;normalized.mesh=before.mesh;normalized.source_fingerprint=before.source_fingerprint;
+        normalized.calculation_provenance=before.calculation_provenance;
+        require(document::serialize_body_result(normalized)==document::serialize_body_result(before),"Datum changed imported physical properties or native topology");
+        const auto revision=f.part().session.revision();const auto* cache=f.part().session.calculated_boundaries().data();
+        const auto committed=*f.doc().find_container(feature.id);
+        const auto owned=*std::ranges::find(f.doc().sketches,sketch.id,&sketcher::Sketch::id);
+        workspace::commit_profile(f.live,cold,document_id,committed,workspace::ProfileEditMode::Replace,owned);
+        require(f.part().session.revision()==revision&&f.part().session.calculated_boundaries().data()==cache,"Unchanged datum OK calculated or created Undo");
+        f.run("undo");require(!f.doc().find_container(feature.id),"Datum Undo retained its definition");f.run("redo");
+        if(large_probe)continue;
+        const auto output=directory/("datum-"+std::to_string(int(type))+"-"+std::to_string(profile)+".prtz");
+        f.doc().save(output,f.part().session.calculated_boundaries());
+        std::vector<kernel::BodyResult> reopened_cache;const auto reopened=document::PartDocument::load(output,&reopened_cache);
+        require(reopened.find_container(feature.id)&&*reopened.find_container(feature.id)==committed&&
+            reopened_cache.back().body_boundaries.at(body_id).back().volume==before.volume,"Datum native reopening lost definition or imported body");
+        if(type==FeatureType::Plane) {
+            auto profile_sketch=sketcher::Sketch::create_default();profile_sketch.plane_auto=false;
+            static_cast<void>(profile_sketch.add_rectangle(1,1,4,3));
+            auto material=document::PartDocument::create_feature_container(profile_sketch.id);
+            material.feature.sides[0].length=5;profile_sketch.owner_container_id=material.id;
+            workspace::commit_profile(f.live,cold,document_id,material,workspace::ProfileEditMode::Create,profile_sketch);
+            const auto& incremental=f.part().session.calculated_boundaries().back().body_boundaries.at(body_id).back();
+            kernel::OcctKernel fresh;
+            const auto rebuilt=fresh.evaluate_history(f.doc().kernel_operations());
+            const auto& expected=rebuilt.back().body_boundaries.at(body_id).back();
+            require(document::serialize_body_result(incremental)==document::serialize_body_result(expected),
+                "Material operation after a cold datum reused incomplete OCCT ancestry");
+        }
+    }
+    kernel::OcctKernel cold;Fixture f(cold,directory);
+    f.run("open",{{"path",path.generic_string()}});
+    const auto expected=document::serialize_body_result(f.part().session.calculated_boundaries().back());
+    for(const auto* kind:{"point","axis","plane","curve3d"}) {
+        Json arguments={{"kind",kind},{"name",kind}};
+        if(std::string_view(kind)=="curve3d")arguments["points"]=Json::array({
+            {{"values",{{"x",0}}}},{{"values",{{"x",10}}}},{{"values",{{"x",10},{"y",10},{"z",5}}}}});
+        const auto started=std::chrono::steady_clock::now();const auto made=f.run("construction.create",arguments);
+        std::cout<<"Imported construction kind="<<kind<<" OK_ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+        require(document::serialize_body_result(f.part().session.calculated_boundaries().back())==expected,
+            "Independent construction recalculated imported body");
+        const auto revision=f.part().session.revision();
+        f.run("construction.set",{{"construction",made.at("construction")},{"name",kind}});
+        require(f.part().session.revision()==revision,"Unchanged construction OK created Undo");
+        f.run("undo");f.run("redo");
+    }
+}
 void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const bool revolve:{false,true}) {
         Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name",revolve?"surface-cli-revolve":"surface-cli-extrude"}});
@@ -580,8 +662,10 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     require(rejected&&f.doc().serialized()==before,"A failed edit of working geometry bypassed its established atomic rejection");
 }
 }
-int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
+    require(fs::create_directory(directory),"Cannot create fixture directory");
+    if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
+    kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     directed_rotation_targets(kernel,directory);
     retained_definitions(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;

@@ -1,6 +1,7 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include "construction_query_test_support.hpp"
+#include "../app/component_reference_kind.hpp"
 #include <zima/document/file_path.hpp>
 #include <iostream>
 #include <cmath>

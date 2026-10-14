@@ -22,7 +22,14 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             const auto step=directory/"preview-source.step";kernel.export_step(product,step.string());
             auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},step);
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_PLANE_VISIBILITY")){
-                auto graph=imported.document.body_history;const auto active=graph.active_body_id();static_cast<void>(graph.create_body("Following empty Body"));graph.activate(active);imported.document.set_body_history(std::move(graph));
+                auto graph=imported.document.body_history;const auto active=graph.active_body_id();
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_BODY_FRAME")) {
+                    auto body=*graph.find(active);
+                    body.scope.placement=document::body_origin_attachment(imported.document.document_id,
+                        document::Placement{100,-200,300,20,-30,40});
+                    graph.update_body(std::move(body));
+                }
+                static_cast<void>(graph.create_body("Following empty Body"));graph.activate(active);imported.document.set_body_history(std::move(graph));
                 imported.calculated=kernel.evaluate_history(imported.document.kernel_operations());
             }
             imported.document.save(path,imported.calculated);std::filesystem::remove(step);
@@ -34,6 +41,11 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
         const auto import_id=found->id;
         const auto* owner=original.body_owner_for_object(found->id);check(owner,"Import is outside its Body");
         const auto body_id=owner->scope.id;
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW")) {
+            const auto translation=owner->scope.translation(),rotation=owner->scope.rotation_degrees();
+            std::cout<<"Imported Body translation=["<<translation.x<<','<<translation.y<<','<<translation.z
+                <<"] rotation=["<<rotation.x<<','<<rotation.y<<','<<rotation.z<<"]"<<std::endl;
+        }
         const auto branch=calculated.back().body_boundaries.find(body_id);
         check(branch!=calculated.back().body_boundaries.end()&&!branch->second.empty(),"Import lacks local calculated packet");
         auto local=std::move(branch->second.back().mesh);
@@ -94,6 +106,27 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             view->clear_selection();view->set_camera_state(camera);flush();
             return 0;
         }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_STORED_FEATURE")) {
+            const auto target=std::ranges::find_if(original.history|std::views::reverse,[](const auto& feature){return feature.feature_kind==document::FeatureKind::Feature&&feature.feature.type==document::FeatureType::Modeling;});
+            check(target!=original.history.rend(),"Import has no stored modeling Feature");
+            check(activate_test_body(application,window,body_id),"Cannot activate stored Feature Body");flush();
+            const auto state=window.execute_console_command("documents").data;
+            QTreeWidgetItem* row{};auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="part-container"&&(*it)->data(0,Qt::UserRole).toString().toStdString()==target->id){row=*it;break;}
+            check(row,"Stored Feature has no Tree row");window.show_tree_item_properties(row);flush();
+            auto* editor=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+            check(editor&&editor->isVisible(),"Stored Feature Properties did not open");
+            kernel::ViewerMesh expected;expected.edges=original.body_document(body_id).feature_preview_edges(*target);
+            expected=original.place_body_mesh(std::move(expected),body_id);
+            check(!expected.edges.empty()&&view->transient_edges().size()==expected.edges.size(),"Stored Feature has no complete wire preview");
+            for(std::size_t i=0;i<expected.edges.size();++i) {
+                const auto& a=view->transient_edges()[i].points;const auto& b=expected.edges[i].points;
+                check(a.size()==b.size(),"Stored Feature wire changed sampling");
+                for(std::size_t j=0;j<a.size();++j)check(std::hypot(std::hypot(a[j].x-b[j].x,a[j].y-b[j].y),a[j].z-b[j].z)<1e-7,"Stored Feature wire left its persisted Body frame");
+            }
+            std::cout<<"Stored Feature "<<target->name<<" wire_edges="<<expected.edges.size()<<" Properties and Body frame passed"<<std::endl;
+            editor->reject();flush();check(window.execute_console_command("documents").data==state,"Stored Feature Cancel changed its document");return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY")) {
             qputenv("ZIMA_CPP_VERIFY_GPU_UPLOAD","1");view->setProperty("forceMeshUpload",true);view->repaint();flush();
             if(!qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORTED_BODY_FILE")) {
@@ -115,7 +148,8 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 return nullptr;
             };
             const auto open=[&] {
-                auto* action=window.findChild<QAction*>("extrusionAction");
+                auto* action=window.findChild<QAction*>(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW")
+                    ? "featurePrototypeAction" : "extrusionAction");
                 check(action&&action->isEnabled(),"Extrusion is unavailable in imported Body");action->trigger();flush();
                 check(feature_dialog(),"Extrusion over import did not open");
                 check(view->mesh().triangles.size()>=source_triangle_indices,"Extrusion hid imported context");
@@ -128,11 +162,59 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 std::optional<QPointF> hit;viewer::ViewerCandidate offered;std::size_t offered_index{};
                 for(int y=16;y<view->height()&&!hit;y+=16)for(int x=16;x<view->width()&&!hit;x+=16){const auto candidates=view->selection_candidates_at({double(x),double(y)});const auto face=std::ranges::find_if(candidates,[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::Face&&candidate.owner_id==import_id;});if(face!=candidates.end()){hit=QPointF(x,y);offered=*face;offered_index=static_cast<std::size_t>(face-candidates.begin());}}
                 check(hit.has_value(),"No imported face can be entered for Extrusion");
+                std::optional<kernel::Vec3> clicked_scene_point;
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW")) {
+                    const auto ray=view->ray_at(*hit);check(ray.has_value(),"First STEP reference has no View ray");
+                    clicked_scene_point=app::confirmed_face_hit(view->candidate_face_triangles(offered),ray->first,ray->second);
+                    check(clicked_scene_point.has_value(),"First STEP reference has no hit on the offered face");
+                }
                 QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);flush();
                 for(std::size_t index=0;index<offered_index;++index){QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::RightButton,Qt::RightButton,Qt::NoModifier);QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::RightButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();}
                 check(view->offered_candidate()==offered,"Extrusion did not offer the exact imported face");
                 QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
                 const auto pending=feature_dialog()->pending_value();check(!pending.placement.references.empty()&&pending.placement.references.front().owner_id==offered.owner_id,"Extrusion lost the clicked source identity");
+                const auto verify_placement_dimensions=[&] {
+                    const auto value=feature_dialog()->pending_value();
+                    const auto dimensions=document::container_placement_dimensions(value.id,value.placement,local.original_references);
+                    const auto rotation=owner->scope.rotation_degrees(),translation=owner->scope.translation();
+                    const auto point=[&](kernel::Vec3 p) {
+                        // Independent Rz * Ry * Rx, including nonidentity Body rotations.
+                        constexpr double radians=std::numbers::pi/180.;
+                        const auto rotate=[](double& a,double& b,double angle){const auto first=a;a=first*std::cos(angle)-b*std::sin(angle);b=first*std::sin(angle)+b*std::cos(angle);};
+                        rotate(p.y,p.z,rotation.x*radians);rotate(p.z,p.x,rotation.y*radians);rotate(p.x,p.y,rotation.z*radians);
+                        return kernel::Vec3{p.x+translation.x,p.y+translation.y,p.z+translation.z};
+                    };
+                    const auto close=[](kernel::Vec3 a,kernel::Vec3 b){return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)<1e-7;};
+                    std::size_t checked{};
+                    for(const auto& expected:dimensions) {
+                        if(std::abs(expected.value)<=1e-12)continue;
+                        const auto actual=std::ranges::find(view->mesh().dimensions,expected.reference,&kernel::ViewerDimension::reference);
+                        check(actual!=view->mesh().dimensions.end(),"Placement dimension disappeared from the first-reference preview");
+                        viewer::ViewerCandidate dimension_candidate;dimension_candidate.kind=viewer::CandidateKind::Dimension;
+                        dimension_candidate.geometry_index=static_cast<std::size_t>(actual-view->mesh().dimensions.begin());
+                        const auto source=view->dimension_source(dimension_candidate);
+                        check(source.has_value(),"Placement dimension has no authored display source");
+                        if(std::abs(actual->value-expected.value)>1e-7||!close(actual->witness_second,point(expected.witness_second))) {
+                            const auto second=point(expected.witness_second);
+                            std::cerr<<"Placement dimension "<<expected.reference.semantic_key<<" value="<<actual->value<<" expected="<<expected.value
+                                <<" witness=["<<actual->witness_second.x<<','<<actual->witness_second.y<<','<<actual->witness_second.z
+                                <<"] expected=["<<second.x<<','<<second.y<<','<<second.z<<"]"<<std::endl;
+                        }
+                        // The viewer may arrange annotation lines around model
+                        // bounds. Its witnesses and pre-layout source must use
+                        // the same Body frame as the selected support.
+                        check(std::abs(actual->value-expected.value)<1e-7&&close(actual->witness_first,point(expected.witness_first))&&
+                            close(actual->witness_second,point(expected.witness_second))&&close(source->line_first,point(expected.line_first))&&
+                            close(source->line_second,point(expected.line_second)),"Placement dimension uses a different Body frame from its selected reference");
+                        ++checked;
+                    }
+                    if(std::ranges::count_if(value.placement.references,[](const auto& reference){return !reference.orientation_only;})==1)
+                        check(checked>0,"Translated import fixture did not exercise visible placement dimensions");
+                };
+                verify_placement_dimensions();
+                std::cout<<"First reference placement=["<<pending.placement.x<<','<<pending.placement.y<<','<<pending.placement.z<<"] extent handles="<<view->extent_manipulators().size()<<std::endl;
+                for(const auto& handle:view->extent_manipulators())
+                    std::cout<<"Extent origin=["<<handle.origin.x<<','<<handle.origin.y<<','<<handle.origin.z<<"] direction=["<<handle.direction.x<<','<<handle.direction.y<<','<<handle.direction.z<<"] length="<<handle.length<<std::endl;
                 const auto capture=qEnvironmentVariable("ZIMA_VERIFY_IMPORT_PLANE_CAPTURE");if(!capture.isEmpty()){view->repaint();flush();check(window.grab().save(capture),"Cannot capture imported Extrusion plane");}
                 const auto plane=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==pending.feature_id&&edge.reference.semantic_key=="border";});
                 if(plane==view->mesh().edges.end()){
@@ -144,6 +226,18 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 check(plane!=view->mesh().edges.end()&&plane->points.size()==5,"Extrusion work plane has no visible border carrier");
                 const auto plane_reference=plane->reference;
                 const auto initial_border=plane->points;
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW")) {
+                    const kernel::Vec3 center{(initial_border[0].x+initial_border[2].x)/2,
+                        (initial_border[0].y+initial_border[2].y)/2,(initial_border[0].z+initial_border[2].z)/2};
+                    check(!view->extent_manipulators().empty(),"First STEP support lost its extent handle");
+                    for(const auto& handle:view->extent_manipulators())
+                        check(std::hypot(std::hypot(handle.origin.x-center.x,handle.origin.y-center.y),
+                            handle.origin.z-center.z)<1e-7,"First STEP extent is displaced from its resolved work plane");
+                    const auto& handle=view->extent_manipulators().front();
+                    check(std::hypot(std::hypot(handle.origin.x-clicked_scene_point->x,
+                        handle.origin.y-clicked_scene_point->y),handle.origin.z-clicked_scene_point->z)<1e-5,
+                        "First STEP extent does not follow the actual clicked View point");
+                }
                 const auto& geometry=view->mesh().original_references;
                 const auto source_plane=std::ranges::find_if(geometry.triangle_references,[&](const auto& value){return value.owner_id==offered.owner_id&&value.semantic_key==offered.semantic_key&&value.instance_path==offered.instance_path;});
                 check(source_plane!=geometry.triangle_references.end(),"Clicked imported face has no persisted source geometry");
@@ -166,11 +260,161 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 const kernel::Vec3 u{initial_border[1].x-initial_border[0].x,initial_border[1].y-initial_border[0].y,initial_border[1].z-initial_border[0].z},v{initial_border[2].x-initial_border[1].x,initial_border[2].y-initial_border[1].y,initial_border[2].z-initial_border[1].z};
                 const auto orientation=(u.y*v.z-u.z*v.y)*normal.x+(u.z*v.x-u.x*v.z)*normal.y+(u.x*v.y-u.y*v.x)*normal.z;const auto offset_sign=orientation<0?-1.:1.;
                 for(const double offset:{0.,3.,-2.,0.}){
-                    feature_dialog()->set_profile_offset_and_forward_length(offset,10);flush();const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference==plane_reference;});check(border!=view->mesh().edges.end()&&border->points.size()==5,"Successive offset edits lost the work plane identity");
+                    if(pending.feature_kind==document::FeatureKind::Feature)
+                        check(feature_dialog()->set_inline_parameter_value("profile_offset",offset),"Feature profile offset is not editable");
+                    else feature_dialog()->set_profile_offset_and_forward_length(offset,10);
+                    flush();const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference==plane_reference;});check(border!=view->mesh().edges.end()&&border->points.size()==5,"Successive offset edits lost the work plane identity");
+                    verify_placement_dimensions();
                     for(const auto& point:border->points){const auto distance=(point.x-equation_origin.x)*normal.x+(point.y-equation_origin.y)*normal.y+(point.z-equation_origin.z)*normal.z;check(std::abs(distance-offset_sign*offset)<1e-7,"Work plane border does not satisfy its independent signed source equation");}
+                    if(pending.feature_kind==document::FeatureKind::Feature) {
+                        const auto& points=border->points;
+                        const kernel::Vec3 center{(points[0].x+points[2].x)/2,
+                            (points[0].y+points[2].y)/2,(points[0].z+points[2].z)/2};
+                        for(const auto& handle:view->extent_manipulators())
+                            check(std::hypot(std::hypot(handle.origin.x-center.x,handle.origin.y-center.y),
+                                handle.origin.z-center.z)<1e-7,"Successive offset edits displaced the extent handle");
+                    }
                     check(window.execute_console_command("documents").data==state,"Transient plane edit changed the document");
                 }
+                if(pending.feature_kind==document::FeatureKind::Feature) {
+                    const auto revision=view->base_mesh_revision();
+                    for(const double length:{25.,75.,50.}) {
+                        check(feature_dialog()->set_inline_parameter_value("side0_length",length),"Feature length is not editable");flush();
+                        check(view->extent_manipulators().size()==1&&view->extent_manipulators().front().length==length,
+                            "Successive length edits did not update the placed extent");
+                        check(view->base_mesh_revision()==revision&&window.execute_console_command("documents").data==state,
+                            "Length-only preview republished the base mesh or changed the document");
+                    }
+                }
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_MULTIPLE_REFERENCES")) {
+                    for(std::size_t row=1;row<3;++row) {
+                        const auto value=feature_dialog()->pending_value();
+                        std::optional<document::ConstructionReference> next;
+                        for(const auto& face:local.original_references.triangle_references) {
+                            if(face.owner_id!=import_id||!face.surface||face.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
+                            document::ConstructionReference reference;reference.owner_id=face.owner_id;reference.semantic_key=face.semantic_key;
+                            reference.supports_offset=true;
+                            if(std::ranges::any_of(value.placement.references,[&](const auto& existing){return existing.owner_id==reference.owner_id&&existing.semantic_key==reference.semantic_key;}))continue;
+                            bool well_conditioned=true;
+                            std::vector<kernel::Vec3> normals;
+                            for(const auto& existing:value.placement.references) {
+                                if(existing.orientation_only)continue;
+                                const auto support=std::ranges::find_if(local.original_references.triangle_references,[&](const auto& candidate){return candidate.owner_id==existing.owner_id&&candidate.semantic_key==existing.semantic_key;});
+                                if(support==local.original_references.triangle_references.end()||!support->surface)continue;
+                                normals.push_back(support->surface->axis);
+                                const auto a=support->surface->axis,b=face.surface->axis;
+                                if(std::abs(a.x*b.x+a.y*b.y+a.z*b.z)>.9)well_conditioned=false;
+                            }
+                            if(normals.size()>=2) {
+                                const auto a=normals[0],b=normals[1],c=face.surface->axis;
+                                if(std::abs((a.y*b.z-a.z*b.y)*c.x+(a.z*b.x-a.x*b.z)*c.y+(a.x*b.y-a.y*b.x)*c.z)<.1)well_conditioned=false;
+                            }
+                            if(!well_conditioned)continue;
+                            auto proposed=value.placement.references;proposed.push_back(reference);
+                            const kernel::Vec3 origin{value.placement.x,value.placement.y,value.placement.z};
+                            if(document::point_constraint_remaining_dof(proposed,local.original_references,origin)!=2-int(row))continue;
+                            reference.measured_offset=document::measure_placement_reference_offset(reference,local.original_references,origin);
+                            next=std::move(reference);break;
+                        }
+                        check(next.has_value(),"Import has no independent next planar reference");
+                        check(feature_dialog()->set_reference(row,*next,QString::fromStdString(next->semantic_key)),"Cannot enter another independent STEP face");flush();
+                        verify_placement_dimensions();
+                        for(const double offset:{0.,3.,-2.,0.}) {
+                            check(feature_dialog()->set_inline_parameter_value("placement:reference_offset:"+std::to_string(row),offset),"Reference offset is not editable");flush();
+                            verify_placement_dimensions();
+                            const auto resolved=feature_dialog()->pending_value();
+                            const auto& reference=resolved.placement.references.at(row);
+                            const auto face=std::ranges::find_if(local.original_references.triangle_references,[&](const auto& candidate){return candidate.owner_id==reference.owner_id&&candidate.semantic_key==reference.semantic_key;});
+                            check(face!=local.original_references.triangle_references.end()&&face->surface,"Reference lost its original STEP plane");
+                            const auto& surface=*face->surface;const auto p=kernel::Vec3{resolved.placement.x,resolved.placement.y,resolved.placement.z};
+                            const auto distance=(p.x-surface.origin.x)*surface.axis.x+(p.y-surface.origin.y)*surface.axis.y+(p.z-surface.origin.z)*surface.axis.z;
+                            check(std::abs(std::abs(distance)-std::abs(offset))<1e-7,"Reference offset disagrees with its independent source plane equation");
+                            check(window.execute_console_command("documents").data==state,"Additional reference preview changed the document");
+                        }
+                    }
+                }
                 std::cout<<"Imported Extrusion plane reference="<<offered.semantic_key<<" border=";for(const auto& point:initial_border)std::cout<<'['<<point.x<<','<<point.y<<','<<point.z<<']';std::cout<<std::endl;
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_DRAWN_FEATURE")) {
+                    const auto draft=feature_dialog()->pending_value();
+                    const auto border=std::ranges::find_if(view->mesh().edges,[&](const auto& edge){return edge.reference==plane_reference;});
+                    check(border!=view->mesh().edges.end(),"Drawn Feature lost its work plane");
+                    const auto points=border->points;
+                    sketcher::Sketch plane=sketcher::Sketch::create_default();
+                    plane.plane_reference_owner_id="independent-view-plane";
+                    plane.resolved_origin={(points[0].x+points[2].x)/2,(points[0].y+points[2].y)/2,(points[0].z+points[2].z)/2};
+                    const auto unit=[](kernel::Vec3 p){const auto n=std::hypot(std::hypot(p.x,p.y),p.z);return kernel::Vec3{p.x/n,p.y/n,p.z/n};};
+                    plane.resolved_x_axis=unit({points[1].x-points[0].x,points[1].y-points[0].y,points[1].z-points[0].z});
+                    plane.resolved_y_axis=unit({points[2].x-points[1].x,points[2].y-points[1].y,points[2].z-points[1].z});
+                    const auto x=plane.resolved_x_axis,y=plane.resolved_y_axis;
+                    plane.resolved_normal={x.y*y.z-x.z*y.y,x.z*y.x-x.x*y.z,x.x*y.y-x.y*y.x};
+                    feature_dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
+                    check(!feature_dialog(),"Imported Feature did not enter Sketcher");
+                    QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();
+                    const auto click=[&](QPointF p) {
+                        for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                            QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                            QApplication::sendEvent(view,&event);flush();
+                        }
+                    };
+                    const QPointF first_click(view->width()*.45,view->height()*.45),second_click=first_click+QPointF(95,65);
+                    std::array<kernel::Vec3,2> corners;
+                    for(int i=0;i<2;++i) {
+                        const auto ray=view->ray_at(i?second_click:first_click);check(ray.has_value(),"Imported Sketch has no View ray");
+                        const auto p=plane.intersect_ray(ray->first,ray->second);check(p.has_value(),"Imported Sketch ray misses its plane");
+                        corners[i]=plane.world_point((*p)[0],(*p)[1]);
+                    }
+                    window.findChild<QAction*>("sketchRectangleAction")->trigger();flush();click(first_click);click(second_click);
+                    std::vector<kernel::Vec3> authored;
+                    for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==draft.feature.sketch_id&&edge.reference.semantic_key.starts_with("segment:"))
+                        authored.insert(authored.end(),edge.points.begin(),edge.points.end());
+                    check(authored.size()>=8,"Imported Sketcher did not expose its drawn rectangle");
+                    for(const auto p:authored)check(std::abs((p.x-plane.resolved_origin.x)*plane.resolved_normal.x+(p.y-plane.resolved_origin.y)*plane.resolved_normal.y+(p.z-plane.resolved_origin.z)*plane.resolved_normal.z)<1e-5,"Drawn Sketch left the independent STEP support plane");
+                    window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                    check(feature_dialog()&&feature_dialog()->pending_value().id==draft.id,"Imported Sketch did not return to its pending Feature");
+                    check(view->transient_edges().size()==16,"Imported Feature lost its drawn rectangle wire");
+                    // Snapping can legitimately move the raw ray intersection.
+                    // Compare with the actual authored Sketcher points instead.
+                    for(const auto corner:authored)check(std::ranges::any_of(view->transient_edges(),[&](const auto& edge){return std::ranges::any_of(edge.points,[&](const auto& p){return std::hypot(std::hypot(p.x-corner.x,p.y-corner.y),p.z-corner.z)<1e-5;});}),"Imported wire left the authored Sketch plane");
+                    for(const double length:{25.,75.,50.}) {
+                        feature_dialog()->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(length);flush();
+                        check(view->transient_edges().size()==16,"Length editing lost imported profile wire");
+                        double maximum=0;
+                        for(const auto& edge:view->transient_edges())for(const auto p:edge.points)maximum=std::max(maximum,std::abs((p.x-plane.resolved_origin.x)*plane.resolved_normal.x+(p.y-plane.resolved_origin.y)*plane.resolved_normal.y+(p.z-plane.resolved_origin.z)*plane.resolved_normal.z));
+                        check(std::abs(maximum-length)<1e-5,"Imported wire length does not match its independent work-plane equation");
+                    }
+                    feature_dialog()->reject();flush();check(window.execute_console_command("documents").data==state,"Imported draft Cancel committed a transaction");
+                    std::cout<<"Imported drawn profile wire, repeated lengths and Cancel passed"<<std::endl;return 0;
+                }
+                if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_EMPTY_FEATURE_OK")) {
+                    QElapsedTimer timer;timer.start();
+                    feature_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                    std::cout<<"Empty Feature OK ms="<<timer.nsecsElapsed()/1e6
+                        <<" dialog_open="<<(feature_dialog()!=nullptr)<<std::endl;
+                    if(feature_dialog()) {
+                        check(window.execute_console_command("documents").data==state,"Rejected empty Feature changed the document");
+                        feature_dialog()->reject();flush();return 0;
+                    }
+                    run("save");
+                    std::vector<kernel::BodyResult> saved_bodies;
+                    const auto saved=document::PartDocument::load(path,&saved_bodies);
+                    check(saved.find_container(pending.id),"Accepted empty Feature was not persisted");
+                    std::cout<<"Empty Feature saved; errors="<<(saved_bodies.empty()?0:saved_bodies.back().calculation_errors.size())<<std::endl;
+                    run("close");
+                    check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot reopen saved empty Feature");flush();
+                    QTreeWidgetItem* row{};
+                    {
+                        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+                        for(QTreeWidgetItemIterator it(tree);*it;++it)
+                            if((*it)->data(0,Qt::UserRole+3)=="part-container" &&
+                                (*it)->data(0,Qt::UserRole).toString().toStdString()==pending.id) {row=*it;break;}
+                    }
+                    check(row,"Saved empty Feature has no Tree row");
+                    std::cout<<"Opening saved empty Feature Properties"<<std::endl;
+                    window.show_tree_item_properties(row);flush();
+                    check(feature_dialog(),"Saved empty Feature Properties did not open");
+                    feature_dialog()->reject();flush();return 0;
+                }
                 feature_dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();check(view->camera_state()==camera&&window.execute_console_command("documents").data==state,"Plane inspection changed document or camera");return 0;
             }
             const auto packet=[&] {

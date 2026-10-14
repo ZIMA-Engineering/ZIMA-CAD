@@ -607,6 +607,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
         const auto& sketch_id = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.sketch_id : extrusion ? preview.extrusion.sketch_id
                                           : preview.revolution.sketch_id;
+        // A newly authored profile belongs to the pending container, which is
+        // deliberately absent from the committed Body history. body_document()
+        // excludes it with the other unregistered objects; restore this exact
+        // command draft after extracting the local Body, before resolving it.
+        if(property_owned_sketch_draft_ && property_owned_sketch_draft_->id==sketch_id) {
+            const auto draft=std::ranges::find(preview_document.sketches,sketch_id,&zima::sketcher::Sketch::id);
+            if(draft==preview_document.sketches.end())preview_document.sketches.push_back(*property_owned_sketch_draft_);
+            else *draft=*property_owned_sketch_draft_;
+        }
         auto sketch = std::find_if(preview_document.sketches.begin(),
             preview_document.sketches.end(), [&](const auto& value) {
                 return value.id == sketch_id;
@@ -1302,7 +1311,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // Extrusion/Revolution below merge
         // this with their own transient-edge preview into one callback.
         if (feature_kind != zima::document::FeatureKind::Extrusion &&
-            feature_kind != zima::document::FeatureKind::Revolution) {
+            feature_kind != zima::document::FeatureKind::Revolution &&
+            feature_kind != zima::document::FeatureKind::Feature) {
             dialog->set_preview_callback(placement_preview);
         }
     }
@@ -1437,6 +1447,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         else dialog->set_preview_callback(std::move(callback));
     };
     if (feature_kind == zima::document::FeatureKind::Feature) {
+        if(part) {
+            const auto& document=part->session.document();
+            const auto* body=document.body_owner_for_object(initial.id);
+            if(!body)body=document.body_history.find(document.body_history.active_body_id());
+            // Feature cues are Body-local, just like the owned Sketch and
+            // work-plane carrier. Install their presentation mapping before
+            // the first synchronous preview, without publishing another scene.
+            sketch_properties_body_id_=body?body->scope.id:std::string{};
+            const auto frame=container_dimension_frame(body?body->scope.placement:zima::document::Placement{});
+            const auto top_id=workspace_.displayed_document_id();
+            const auto path=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+            viewer_->set_transient_point_transform([this,frame,top_id,path](const auto& point) {
+                const auto placed=frame.point(point);
+                return path.occurrence_ids.empty()?placed:workspace_.occurrence_point_to_scene(top_id,path,placed);
+            });
+        }
         const auto assembly_input=std::make_shared<std::optional<zima::kernel::ViewerMesh>>();
         dialog->set_preview_callback([this,owner_id,placement_preview,prepare_owned_profile_preview,extent_drag_baseline,
                 update_owned_profile_context_preview,publish_profile_preview_scene,assembly_input,assembly_cut_index](const auto& pending) {
@@ -1484,6 +1510,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 publish_profile_preview_scene(&document,preview);
             } catch(const std::exception& error) {
+                if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
+                    std::fprintf(stderr,"Feature preview failed: %s\n",error.what());
                 viewer_->set_transient_edges({});publish_profile_preview_scene(nullptr,preview);
                 state_->setText(tr(error.what()));
             }
@@ -2035,7 +2063,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_preview_callback(std::move(deferred_profile_preview));
     profile_phase("preview setup");
     connect(dialog, &QObject::destroyed, this, [this, dialog_container_id,profile_command,
-            sheet_cut_context=feature_kind==zima::document::FeatureKind::Extrusion&&initial.extrusion.sheet_cut] {
+            body_preview_context=(feature_kind==zima::document::FeatureKind::Extrusion&&initial.extrusion.sheet_cut)||
+                (feature_kind==zima::document::FeatureKind::Feature&&part!=nullptr)] {
         QElapsedTimer closing_timer;closing_timer.start();
         // SKETCH is a transition into the profile sub-editor, not the end of
         // the container edit session. Keep the rollback input alive while
@@ -2070,7 +2099,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             property_owned_sketch_draft_.reset();
             property_owned_feature_draft_.reset();
         }
-        if(sheet_cut_context)sketch_properties_body_id_.clear();
+        if(body_preview_context)sketch_properties_body_id_.clear();
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();

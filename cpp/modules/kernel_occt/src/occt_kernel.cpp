@@ -5395,16 +5395,15 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
 std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
     const TopoDS_Face& face, const gp_Pnt& edge_point,
     const gp_Vec& edge_tangent,
-    double probe_distance, double tolerance) {
-    TopLoc_Location location;
-    const Handle(Geom_Surface) surface = BRep_Tool::Surface(face, location);
+    double probe_distance, double tolerance,
+    GeomAPI_ProjectPointOnSurf& projection,
+    const Handle(Geom_Surface)& surface,const TopLoc_Location& location) {
     if (surface.IsNull() || edge_tangent.SquareMagnitude() <= 1.0e-18) {
         return std::nullopt;
     }
     const gp_Trsf inverse = location.Transformation().Inverted();
     auto local_edge_point = edge_point.Transformed(inverse);
-    GeomAPI_ProjectPointOnSurf projection(
-        local_edge_point, surface, std::max(1.0e-9, tolerance));
+    projection.Perform(local_edge_point);
     if (!projection.IsDone() || projection.NbPoints() == 0) {
         return std::nullopt;
     }
@@ -5432,14 +5431,13 @@ std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
     const auto is_inside = [&](const gp_Vec& direction) {
         auto test = edge_point.Translated(direction * probe_distance);
         test.Transform(inverse);
-        GeomAPI_ProjectPointOnSurf projected(
-            test, surface, std::max(1.0e-9, tolerance));
-        if (!projected.IsDone() || projected.NbPoints() == 0 ||
-            projected.LowerDistance() > probe_distance * 0.25 + tolerance) {
+        projection.Perform(test);
+        if (!projection.IsDone() || projection.NbPoints() == 0 ||
+            projection.LowerDistance() > probe_distance * 0.25 + tolerance) {
             return false;
         }
         double test_u{}, test_v{};
-        projected.LowerDistanceParameters(test_u, test_v);
+        projection.LowerDistanceParameters(test_u, test_v);
         BRepClass_FaceClassifier classifier(
             face, gp_Pnt2d(test_u, test_v), std::max(1.0e-9, tolerance));
         return classifier.State() == TopAbs_IN ||
@@ -5491,6 +5489,16 @@ std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
     const double probe = std::clamp(
         std::max(tolerance * 25.0, edge_length * 1.0e-4),
         edge_length * 1.0e-6, edge_length * 0.02);
+    TopLoc_Location location;
+    const Handle(Geom_Surface) surface=BRep_Tool::Surface(face,location);
+    if(surface.IsNull())return {};
+    double umin{},umax{},vmin{},vmax{};surface->Bounds(umin,umax,vmin,vmax);
+    // OCCT's many-point API retains only surface preparation. Perform() runs
+    // the same extrema search for each original edge/probe point, with the
+    // same domain, tolerance and ordering. Avoid rebuilding the spline search
+    // data three times per sample; keep this reuse local to one edge/face.
+    GeomAPI_ProjectPointOnSurf projection;
+    projection.Init(surface,umin,umax,vmin,vmax,std::max(1.0e-9,tolerance*10.0));
     std::vector<std::optional<Vec3>> sampled;
     sampled.reserve(parameters.size());
     for (const double parameter : parameters) {
@@ -5498,7 +5506,7 @@ std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
         gp_Vec tangent;
         curve.D1(parameter, point, tangent);
         sampled.push_back(inward_face_direction(
-            edge, face, point, tangent, probe, tolerance * 10.0));
+            edge, face, point, tangent, probe, tolerance * 10.0,projection,surface,location));
     }
     if (std::none_of(sampled.begin(), sampled.end(),
             [](const auto& value) { return value.has_value(); })) return {};
@@ -5604,7 +5612,7 @@ void store_volume_integrals(BodyResult& result,const GProp_GProps& properties) {
 // span handling and tolerance as VolumePropertiesGK. Only the independent
 // calculations run concurrently; reduction retains the original face order.
 double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties,
-        const char* failure="FORM could not create a valid sheet.") {
+        const char* failure="FORM could not create a valid sheet.",bool split_step_curves=false) {
     gp_XYZ sum(0,0,0);unsigned count=0;
     for(TopExp_Explorer it(shape,TopAbs_VERTEX);it.More();it.Next(),++count)
         sum+=BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).XYZ();
@@ -5615,24 +5623,63 @@ double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties,
         const auto face=TopoDS::Face(it.Current());
         if(face.Orientation()==TopAbs_FORWARD||face.Orientation()==TopAbs_REVERSED)faces.push_back(face);
     }
-    const auto workers=std::min<std::size_t>({4,std::max(1u,std::thread::hardware_concurrency()),faces.size()});
+    struct Task {std::size_t face;TopoDS_Face domain;};
+    std::vector<Task> tasks;std::vector<std::size_t> offsets;offsets.reserve(faces.size()+1);
+    BRep_Builder builder;std::size_t split_faces=0;
+    for(std::size_t index=0;index<faces.size();++index) {
+        offsets.push_back(tasks.size());
+        // Long extrusion trims can dominate one face worker. Each boundary
+        // curve is independent in VinertGK (its curve tolerance does not depend
+        // on the number of curves). Keep the real face for all surface bounds,
+        // pcurves, orientation and integration; only restrict the domain iterator.
+        std::vector<TopoDS_Edge> edges;bool complex_trim=false;
+        if(split_step_curves&&BRepAdaptor_Surface(faces[index]).GetType()==GeomAbs_SurfaceOfExtrusion) {
+            BRepGProp_Face surface(faces[index],true);
+            for(BRepGProp_Domain domain(faces[index]);domain.More();domain.Next()) {
+                if(!surface.Load(domain.Value())) {edges.clear();complex_trim=false;break;}
+                edges.push_back(domain.Value());complex_trim|=surface.LIntSubs()>64;
+            }
+        }
+        if(complex_trim&&edges.size()>1) {
+            ++split_faces;
+            for(const auto& edge:edges) {
+                TopoDS_Wire wire;builder.MakeWire(wire);builder.Add(wire,edge);
+                TopoDS_Face domain;builder.MakeFace(domain);builder.Add(domain,wire);
+                tasks.push_back({index,domain});
+            }
+        } else tasks.push_back({index,{}});
+    }
+    offsets.push_back(tasks.size());
+    const auto workers=std::min<std::size_t>({4,std::max(1u,std::thread::hardware_concurrency()),tasks.size()});
     if(workers<2)return BRepGProp::VolumePropertiesGK(shape,properties,1e-12,false,true);
-    std::vector<GProp_GProps> pieces(faces.size());std::vector<double> errors(faces.size());
+    if(std::getenv("ZIMA_CPP_CALC_PROFILE"))std::fprintf(stderr,
+        "Kernel GK scheduling faces=%zu tasks=%zu split_faces=%zu workers=%zu\n",
+        faces.size(),tasks.size(),split_faces,workers);
+    std::vector<GProp_GProps> pieces(tasks.size());std::vector<double> errors(tasks.size());
     std::atomic_size_t cursor{0};std::vector<std::future<void>> jobs;
     for(std::size_t worker=0;worker<workers;++worker)jobs.push_back(std::async(std::launch::async,[&] {
-        for(auto index=cursor.fetch_add(1);index<faces.size();index=cursor.fetch_add(1)) {
-            BRepGProp_Face face(faces[index],true);BRepGProp_Domain domain(faces[index]);
+        for(auto index=cursor.fetch_add(1);index<tasks.size();index=cursor.fetch_add(1)) {
+            const auto& source=faces[tasks[index].face];
+            BRepGProp_Face face(source,true);
+            BRepGProp_Domain domain(tasks[index].domain.IsNull()?source:tasks[index].domain);
             BRepGProp_VinertGK contribution;contribution.SetLocation(location);
-            errors[index]=faces[index].NbChildren()==0?contribution.Perform(face,1e-12,false,false):
+            errors[index]=source.NbChildren()==0?contribution.Perform(face,1e-12,false,false):
                 contribution.Perform(face,domain,1e-12,false,false);
             pieces[index]=contribution;
         }
     }));
     for(auto& job:jobs)job.get();
     properties=GProp_GProps{};double error=0.;
-    for(std::size_t index=0;index<pieces.size();++index) {
-        if(!std::isfinite(errors[index])||errors[index]<0.)throw std::runtime_error(failure);
-        properties.Add(pieces[index]);error+=errors[index];
+    for(std::size_t face=0;face<faces.size();++face) {
+        GProp_GProps contribution(location);double face_error=0.;
+        for(auto index=offsets[face];index<offsets[face+1];++index) {
+            if(!std::isfinite(errors[index])||errors[index]<0.)throw std::runtime_error(failure);
+            contribution.Add(pieces[index]);face_error+=errors[index];
+        }
+        // Preserve both levels of the original ordered addition: curves within
+        // their face, then faces within the shape. Do not flatten that reduction.
+        properties.Add(offsets[face+1]-offsets[face]==1?pieces[offsets[face]]:contribution);
+        error+=face_error;
     }
     return error;
 }
@@ -5732,9 +5779,9 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
         GProp_GProps volume_only;
         const auto volume_start=profile_calc?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         const auto volume_error=parallel_properties?corner_form_volume(volume_shape,volume_only,
-                imported_step?"OCCT rational volume integration failed":"FORM could not create a valid sheet."):
+                imported_step?"OCCT rational volume integration failed":"FORM could not create a valid sheet.",imported_step):
             imported_step&&volume_shape.NbChildren()>0?corner_form_volume(volume_shape,volume_only,
-                "OCCT rational volume integration failed"):
+                "OCCT rational volume integration failed",true):
             BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
         if(profile_calc)volume_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-volume_start).count();
         if(!std::isfinite(volume_error)||volume_error<0)throw std::runtime_error("OCCT rational volume integration failed");
@@ -7527,6 +7574,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     const std::vector<BodyResult>& previous_boundaries,HistoryContext& context) const {
     context.original_faces.reset();
     context.source_solids.clear();
+    // Native input validation already knows these definitions cannot produce
+    // an operand. Error recovery locates their history boundary separately;
+    // do not rebuild an unchanged imported body before reporting that error.
+    for (const auto& operation : operations)
+        if (!operation.suppressed && !operation.input_error.empty())
+            throw std::runtime_error(operation.input_error);
     const bool retain_original_edges=std::ranges::any_of(operations,[](const auto& operation){
         if(!operation.suppressed&&(std::holds_alternative<SurfaceIntersectionRequest>(operation.primitive)||std::holds_alternative<SurfaceTrimRequest>(operation.primitive)))return true;
         const auto* surface=std::get_if<BoundarySurfaceRequest>(&operation.primitive);
@@ -7768,12 +7821,32 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         const bool reusable_prefix_has_live_ancestry = reusable_prefix > 0 &&
             live_cache_->boundaries.contains(
                 previous_boundaries[reusable_prefix - 1].source_fingerprint);
+        const bool cold_reference_tail = reusable_prefix > 0 &&
+            !reusable_prefix_has_live_ancestry && !context.require_original_faces &&
+            !retain_original_edges && context.requested_solids.empty() &&
+            context.dependency_key.empty() &&
+            std::ranges::all_of(operations.begin(),
+                operations.begin() + static_cast<std::ptrdiff_t>(reusable_prefix),
+                [](const auto& operation) {
+                    const auto* group = std::get_if<FeatureGroupRequest>(&operation.primitive);
+                    return !operation.feature_copy &&
+                        (std::holds_alternative<StepRequest>(operation.primitive) ||
+                         (group && group->children.empty() && group->allow_empty));
+                }) &&
+            std::ranges::all_of(operations.begin() + static_cast<std::ptrdiff_t>(reusable_prefix),
+                operations.end(), [](const auto& operation) {
+                    const auto* group = std::get_if<FeatureGroupRequest>(&operation.primitive);
+                    return !operation.suppressed && !operation.feature_copy &&
+                        !operation.replaces_body && group && group->children.empty() &&
+                        (group->allow_empty || !group->reference_profiles.empty());
+                });
         // A persisted B-Rep is enough to reproduce geometry, but not to map
         // its runtime OCCT faces back to persisted ZIMA source identities.
-        // Any explicitly requested calculation after a cold load therefore
+        // An explicitly requested material calculation after a cold load
         // rebuilds the history once; unchanged display/open paths still reuse
-        // the saved Body without invoking OCCT at all.
-        if (reusable_prefix > 0 && !reusable_prefix_has_live_ancestry) {
+        // the saved Body without invoking OCCT at all. A reference-only tail
+        // can retain that packet without exposing fabricated live ancestry.
+        if (reusable_prefix > 0 && !reusable_prefix_has_live_ancestry && !cold_reference_tail) {
             reusable_prefix = 0;
         }
         if(retain_original_edges&&reusable_prefix>0&&
@@ -7800,7 +7873,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 previous_boundaries[reusable_prefix - 1];
             const auto cached = live_cache_->boundaries.find(
                 prefix_boundary.source_fingerprint);
-            if (cached == live_cache_->boundaries.end()) {
+            if (cold_reference_tail) {
+                // Datums consume persisted ZIMA geometry, never live material
+                // faces. Keep the exact saved body and leave OCCT ancestry cold
+                // so a later Boolean still rebuilds its real source history.
+            } else if (cached == live_cache_->boundaries.end()) {
                 result_shape = read_kernel_shape(prefix_boundary);
             } else {
                 result_shape = cached->second.shape;
@@ -10697,7 +10774,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     surface.shape = trim.Shape();
                 }
             }
-            if (standalone_import_result) {
+            if (reference_only && !boundaries.empty()) {
+                auto retained = boundaries.back();
+                if (persist_boundary_shape && retained.kernel_shape.empty() && !result_shape.IsNull())
+                    retained.kernel_shape = serialize_kernel_shape(result_shape);
+                boundaries.push_back(std::move(retained));
+            } else if (standalone_import_result) {
                 boundaries.push_back(std::move(*standalone_import_result));
             } else if(result_shape.IsNull()) {
                 boundaries.emplace_back();
@@ -10718,8 +10800,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
             boundaries.back().source_fingerprint =
                 fingerprint(operations, boundaries.size());
-            remember_live_boundary(boundaries.back().source_fingerprint,
-                result_shape, owned_topology);
+            if (!cold_reference_tail)
+                remember_live_boundary(boundaries.back().source_fingerprint,
+                    result_shape, owned_topology);
         }
         if (!boundaries.empty()) {
             std::set<std::string> subtract_owner_ids;

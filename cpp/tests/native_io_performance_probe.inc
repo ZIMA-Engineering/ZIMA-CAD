@@ -36,3 +36,22 @@ int benchmark_native_io(const std::filesystem::path& source) {
     std::cout<<"Native IO verified input_bytes="<<fs::file_size(input)<<" saved_bytes="<<fs::file_size(output)<<" load_ms="<<load_ms<<" save_ms="<<save_ms<<" reopen_ms="<<reopen_ms<<std::endl;
     require(fs::canonical(directory).parent_path()==parent,"Unsafe native IO probe cleanup");fs::remove_all(directory);return 0;
 }
+
+int benchmark_native_last_operation(const std::filesystem::path& source) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> previous;
+    auto model=document::PartDocument::load(source,&previous);
+    require(previous.size()>1,"Last-operation probe needs calculated preceding history");
+    const auto definition=model.serialized().dump();
+    previous.pop_back();kernel::OcctKernel kernel;
+    const auto start=std::chrono::steady_clock::now();
+    const auto calculated=workspace::calculate_part_with_resolved_references(kernel,model,&previous);
+    const auto ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+    require(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Last operation failed");
+    require(model.serialized().dump()==definition,"Last-operation calculation changed persisted definition or side choices");
+    const auto& branch=calculated.back().body_boundaries.at(model.body_history.active_body_id()).back();
+    const auto packet=document::serialize_body_result(branch).dump();
+    const auto hash=QCryptographicHash::hash(QByteArrayView(packet.data(),packet.size()),QCryptographicHash::Sha256);
+    std::cout<<"Native last operation ms="<<ms<<" packet="<<hash.toHex().constData()<<std::endl;
+    return 0;
+}

@@ -5,6 +5,20 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepLib.hxx>
+#include <BRepGProp_Face.hxx>
+#include <BRepGProp_Domain.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <TopoDS.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <GCE2d_MakeSegment.hxx>
 #include <BRepBuilderAPI_NurbsConvert.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
@@ -29,12 +43,71 @@ void near(double actual,double expected,std::source_location where=std::source_l
         throw std::runtime_error(detail.str());
     }
 }
+TopoDS_Shape long_trim_extrusion(int intervals,bool perturbed) {
+    NCollection_Array1<gp_Pnt> poles(1,3);poles(1)={0,0,0};poles(2)={.5,0,.5};poles(3)={1,0,0};
+    NCollection_Array1<double> ends(1,2);ends(1)=0;ends(2)=1;
+    NCollection_Array1<int> end_mult(1,2);end_mult(1)=end_mult(2)=3;
+    occ::handle<Geom_Curve> basis=new Geom_BSplineCurve(poles,ends,end_mult,2);
+    occ::handle<Geom_Surface> surface=new Geom_SurfaceOfLinearExtrusion(basis,gp_Dir(0,1,0));
+    const gp_Pnt2d corners[]={{0,0},{1,0},{1,1},{0,1},{0,0}};
+    BRepBuilderAPI_MakeWire wire;
+    for(int edge=0;edge<4;++edge) {
+        occ::handle<Geom2d_Curve> curve=GCE2d_MakeSegment(corners[edge],corners[edge+1]).Value();
+        if(edge==0||edge==2) {
+            NCollection_Array1<gp_Pnt2d> points(1,intervals+1);
+            NCollection_Array1<double> knots(1,intervals+1);
+            NCollection_Array1<int> mult(1,intervals+1);
+            for(int i=1;i<=intervals+1;++i) {
+                const double t=double(i-1)/intervals;
+                const double noise=perturbed&&i>1&&i<intervals+1?1e-9*std::sin(7*t):0.;
+                points(i)={edge==0?t:1-t,(edge==0?0.:1.)+noise};knots(i)=t;
+                mult(i)=i==1||i==intervals+1?2:1;
+            }
+            curve=new Geom2d_BSplineCurve(points,knots,mult,1);
+        }
+        auto boundary=BRepBuilderAPI_MakeEdge(curve,surface).Edge();
+        BRepLib::BuildCurve3d(boundary);wire.Add(boundary);
+    }
+    auto face=BRepBuilderAPI_MakeFace(surface,wire.Wire(),true).Face();
+    auto solid=BRepPrimAPI_MakePrism(face,gp_Vec(0,0,2)).Shape();
+    require(BRepCheck_Analyzer(solid).IsValid(),"Long-trim extrusion fixture is invalid");return solid;
+}
 }
 int main(){try {
     using namespace zima;
     const auto folder=std::filesystem::temp_directory_path()/("zima-parallel-step-"+document::PartDocument::create_default().document_id);
     std::filesystem::create_directory(folder);
     kernel::OcctKernel kernel;
+    for(int intervals:{64,65})for(bool perturbed:{false,true})for(bool moved:{false,true}) {
+        auto shape=long_trim_extrusion(intervals,perturbed);
+        if(moved) {gp_Trsf transform;transform.SetRotation(gp_Ax1(gp_Pnt(0,0,0),gp_Dir(1,2,3)),.47);transform.SetTranslationPart(gp_Vec(61,-23,17));shape=shape.Moved(TopLoc_Location(transform));}
+        const auto path=folder/"long-trim.step";STEPControl_Writer writer;
+        require(writer.Transfer(shape,STEPControl_AsIs)==IFSelect_RetDone&&writer.Write(path.string().c_str())==IFSelect_RetDone,"Long-trim STEP write failed");
+        const auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},path);
+        const auto& result=imported.calculated.back();const auto frozen=kernel::read_calculated_body_shape(result);
+        int complex_faces=0;
+        for(TopExp_Explorer it(frozen,TopAbs_FACE);it.More();it.Next()) {
+            BRepGProp_Face surface(TopoDS::Face(it.Current()),true);
+            if(BRepAdaptor_Surface(TopoDS::Face(it.Current())).GetType()!=GeomAbs_SurfaceOfExtrusion)continue;
+            for(BRepGProp_Domain domain(TopoDS::Face(it.Current()));domain.More();domain.Next())
+                if(surface.Load(domain.Value())&&surface.LIntSubs()>64) {++complex_faces;break;}
+        }
+        require((intervals==65)==(complex_faces>0),"Long-trim STEP does not exercise the intended scheduling boundary");
+        TopoDS_Compound solid;BRep_Builder builder;builder.MakeCompound(solid);
+        for(TopExp_Explorer it(frozen,TopAbs_SOLID);it.More();it.Next())builder.Add(solid,it.Current());
+        GProp_GProps sequential;const auto error=BRepGProp::VolumePropertiesGK(solid,sequential,1e-12,false,true);
+        require(std::isfinite(error)&&error>=0,"Long-trim serial GK integration failed");
+        require(result.volume==sequential.Mass(),"Long-trim scheduling changed the exact serial volume");near(result.volume,2.);
+        GProp_GProps tensor;BRepGProp::VolumeProperties(solid,tensor,1e-12);
+        const auto center=tensor.CentreOfMass();const auto matrix=tensor.MatrixOfInertia();
+        require(result.volume_integrals.has_value()&&result.volume_integrals->centroid==kernel::Vec3{center.X(),center.Y(),center.Z()},"Long-trim scheduling changed the exact centroid");
+        for(int i=0;i<3;++i)for(int j=0;j<3;++j)require(result.volume_integrals->inertia[3*i+j]==matrix.Value(i+1,j+1),"Long-trim scheduling changed the exact inertia");
+        const auto native=folder/"long-trim.prtz";imported.document.save(native,imported.calculated);
+        std::vector<kernel::BodyResult> reopened;const auto restored=document::PartDocument::load(native,&reopened);
+        require(restored.serialized()==imported.document.serialized()&&reopened.size()==imported.calculated.size(),"Long-trim native reopen changed its definition");
+        for(std::size_t index=0;index<reopened.size();++index)require(document::serialize_body_result(reopened[index]).dump()==document::serialize_body_result(imported.calculated[index]).dump(),"Long-trim native reopen changed geometry, properties, references or sides");
+        std::cout<<"long-trim intervals="<<intervals<<" perturbed="<<perturbed<<" moved="<<moved<<" complex_faces="<<complex_faces<<" exact serial properties and persistence passed\n";
+    }
     for(bool torus:{false,true})for(bool moved:{false,true}) {
         TopoDS_Shape shape=torus?BRepPrimAPI_MakeTorus(20,5).Shape():BRepPrimAPI_MakeCylinder(5,20).Shape();
         shape=BRepBuilderAPI_NurbsConvert(shape,true).Shape();

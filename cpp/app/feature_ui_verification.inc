@@ -557,8 +557,10 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
 // Exercises the public action, embedded Sketcher and one real native commit.
 static void verify_feature_modeling(QApplication& application, AssemblyWorkspaceWindow& window,
                                    const std::filesystem::path& directory) {
+    std::filesystem::create_directories(directory);
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_MODELING_ONLY")){window.resize(1366,850);window.show();flush();}
     const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
         const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
         if(!result.ok)throw std::runtime_error(result.message);
@@ -597,6 +599,19 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     check(dialog(),"Feature Sketcher did not return to the same properties");
     check(dialog()->pending_value().id==pending.id && dialog()->pending_value().feature.sides[0].length==10,
         "Feature Sketcher return changed identity or pending length");
+    std::cout<<"New Feature rectangle wire edges="<<view->transient_edges().size()<<std::endl;
+    check(!view->transient_edges().empty(),"New Feature lost its rectangle extrusion wire after Sketcher return");
+    const auto wire_count=view->transient_edges().size();
+    const auto preview_revision=run("documents").data;
+    for(const double length:{17.,6.,10.}) {
+        dialog()->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(length);flush();
+        check(dialog()->pending_value().feature.sides[0].length==length,"Feature preview length is not editable");
+        check(view->transient_edges().size()==wire_count,"Successive length edits lost the pending profile wire");
+        double minimum=std::numeric_limits<double>::max(),maximum=std::numeric_limits<double>::lowest();
+        for(const auto& edge:view->transient_edges())for(const auto& point:edge.points){minimum=std::min(minimum,point.z);maximum=std::max(maximum,point.z);}
+        check(std::abs(minimum)<1e-7&&std::abs(maximum-length)<1e-7,"Pending wire does not satisfy the extrusion length");
+        check(run("documents").data==preview_revision,"Wire preview changed the committed document");
+    }
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     check(!dialog(),"Feature OK failed to create a solid from the drawn rectangle");
     run("save");

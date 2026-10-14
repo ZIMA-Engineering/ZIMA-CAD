@@ -454,8 +454,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     : zima::document::container_placement_dimensions(
                         container->id, container->placement,
                         placement_reference_geometry);
-                if (!parameter_dimension_preview_) {
-                    if (const auto* body = document.body_owner_for_object(container->id)) {
+                {
+                    const auto* body = document.body_owner_for_object(container->id);
+                    if (!body && parameter_dimension_preview_)
+                        body = document.body_history.find(sketch_properties_body_id_.empty()
+                            ? document.body_history.active_body_id() : sketch_properties_body_id_);
+                    if (body) {
                         zima::kernel::ViewerMesh display;
                         display.dimensions = std::move(placement_dimensions);
                         placement_dimensions = document.place_body_mesh(

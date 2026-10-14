@@ -2284,6 +2284,10 @@ void MeshView::set_extent_manipulators(
     update();
 }
 
+const std::vector<ExtentManipulator>& MeshView::extent_manipulators() const {
+    return impl_->extent_manipulators;
+}
+
 void MeshView::set_operation_direction_indicator(
         std::optional<OperationDirectionIndicator> indicator) {
     set_operation_direction_indicators(indicator
@@ -5296,13 +5300,14 @@ if (impl_->show_origins) {
         // Confirmed wires and dimension inspection use one screen-space
         // presentation, including portions inside the solid. Picking still
         // consumes the unchanged common candidate stream.
-        painter.save();painter.setPen(Qt::NoPen);painter.setBrush(interaction::selected);
+        painter.save();painter.setPen(QPen(interaction::selected,interaction::selected_wire_width,
+            Qt::SolidLine,Qt::FlatCap));painter.setBrush(Qt::NoBrush);
         std::size_t selected_wire_segments=0;
+        std::vector<QLineF> selected_wire_lines;
         const auto draw_selected_wire = [&](const zima::kernel::ViewerEdge& edge) {
             for (std::size_t i = 1; i < edge.points.size(); ++i) {
-                const auto polygon=reference_segment_polygon(project(edge.points[i - 1]),
-                    project(edge.points[i]),interaction::selected_wire_width);
-                if(!polygon.isEmpty()){painter.drawConvexPolygon(polygon);++selected_wire_segments;}
+                const QLineF line(project(edge.points[i-1]),project(edge.points[i]));
+                if(line.length()>1e-6){selected_wire_lines.push_back(line);++selected_wire_segments;}
             }
         };
         paint_phase("base annotation layer");
@@ -5331,6 +5336,8 @@ if (impl_->show_origins) {
                 draw_selected_wire(edge);
         }
         }
+        if(!selected_wire_lines.empty())painter.drawLines(selected_wire_lines.data(),
+            static_cast<int>(selected_wire_lines.size()));
         painter.restore();
         paint_phase("confirmed display wire");
         if(profile_paint)std::fprintf(stderr,"View selected wire segments=%zu paint_state_pairs=1\n",selected_wire_segments);

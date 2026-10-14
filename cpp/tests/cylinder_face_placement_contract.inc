@@ -40,7 +40,10 @@ void cylinder_face_placement_verify(const kernel::OcctKernel& kernel, fs::path d
     // not necessarily on its display triangle. Classify the actual picker
     // identity before passing the row to the native placement equations.
     app::ComponentReferenceKindIndex kinds;
-    const auto scene=group.build_scene();
+    auto scene=group.build_scene();
+    // Exercise the metadata-free display packet explicitly. Current scenes
+    // may also carry analytic data; the index must not depend on that copy.
+    for(auto& displayed:scene.triangle_references)displayed.surface.reset();
     kinds.rebuild(scene.original_references);
     for(const auto& reference:{moving,fixed}) {
         const auto visible=std::ranges::find_if(scene.triangle_references,[&](const auto& value) {

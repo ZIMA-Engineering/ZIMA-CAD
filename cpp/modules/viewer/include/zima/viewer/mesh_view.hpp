@@ -257,6 +257,7 @@ public:
         bool snapped = false, std::string relation_label = {});
     void set_extent_manipulator(std::optional<ExtentManipulator> manipulator);
     void set_extent_manipulators(std::vector<ExtentManipulator> manipulators);
+    [[nodiscard]] const std::vector<ExtentManipulator>& extent_manipulators() const;
     void set_operation_direction_indicator(
         std::optional<OperationDirectionIndicator> indicator);
     void set_operation_direction_indicators(

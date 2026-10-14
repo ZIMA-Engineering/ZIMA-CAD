@@ -51,6 +51,10 @@ int main() {
             {"instance_path","occurrence-"+std::to_string(i)},
             {"placement",i*10.0},{"calculated_source",packet}});
         const auto packed=zima::document::pack_cache_storage(original);
+        auto owned=original;
+        const auto consumed=zima::document::pack_cache_storage(std::move(owned));
+        require(owned.is_null(),"Consuming cache retained its original tree");
+        require(consumed.dump()==packed.dump(),"Consuming cache changed stored bytes or block order");
         require(packed.dump()==copying_pack(original).dump(),"Cache allocation optimization changed stored bytes or block order");
         // Round-trip the actual on-disk representation, not only in-memory JSON.
         const auto restored=zima::document::unpack_cache_storage(json::parse(packed.dump()));
@@ -80,8 +84,37 @@ int main() {
             {"boundaries",json::array({std::string(253,'a'),std::string(254,'a'),std::string(255,'a')})}};
         for(int depth=0;depth<24;++depth)nested={{"child",std::move(nested)},{"empty",json::array()}};
         const auto nested_packed=zima::document::pack_cache_storage(nested);
+        auto owned_nested=nested;
+        require(zima::document::pack_cache_storage(std::move(owned_nested)).dump()==nested_packed.dump(),"Consuming nested cache changed thresholds or signed zero");
         require(nested_packed.dump()==copying_pack(nested).dump(),"Nested/threshold cache bytes changed");
         require(zima::document::unpack_cache_storage(nested_packed).dump()==nested.dump(),"Nested cache changed signed zero or Unicode");
+        auto large_strings=json::array();
+        for(int i=0;i<600;++i)large_strings.push_back(std::string(4096,'x')+std::to_string(i)+"\n\"\\\xc3\xa1");
+        const auto distinct=large_strings;
+        for(const auto& value:distinct)large_strings.push_back(value);
+        const auto strings_packed=zima::document::pack_cache_storage(large_strings);
+        auto owned_strings=large_strings;
+        require(zima::document::pack_cache_storage(std::move(owned_strings)).dump()==strings_packed.dump(),"Consuming string cache lost pool lifetime or block identity");
+        require(strings_packed.dump()==copying_pack(large_strings).dump(),"Large-string indexing changed cache bytes after pool growth");
+        require(zima::document::unpack_cache_storage(strings_packed).dump()==large_strings.dump(),"Large-string pool views lost data");
+        bool invalid_rejected=false;
+        try {static_cast<void>(zima::document::pack_cache_storage(json(std::string(5000,'x')+char(0xff))));}
+        catch(const json::type_error&){invalid_rejected=true;}
+        require(invalid_rejected,"Large-string pooling skipped UTF-8 validation");
+        const auto rejects_pack=[](const json& value) {
+            bool copied_rejected=false,consumed_rejected=false;
+            try {static_cast<void>(zima::document::pack_cache_storage(value));}
+            catch(const std::exception&){copied_rejected=true;}
+            auto owned_value=value;
+            try {static_cast<void>(zima::document::pack_cache_storage(std::move(owned_value)));}
+            catch(const std::exception&){consumed_rejected=true;}
+            return copied_rejected&&consumed_rejected;
+        };
+        require(rejects_pack(json{{"$zima_cache",0}}),"Cache writer accepted a reserved reference key");
+        require(rejects_pack(json(std::string(5000,'x')+char(0xff))),"Cache writers disagree on invalid UTF-8");
+        json deep=nullptr;
+        for(int depth=0;depth<258;++depth)deep=json::array({std::move(deep)});
+        require(rejects_pack(deep),"Cache writers disagree on the nesting limit");
         std::cout<<"Shared cache contracts passed; bytes "<<original.dump().size()
                  <<" -> "<<packed.dump().size()<<'\n';
         return 0;

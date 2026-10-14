@@ -10,6 +10,25 @@ source, signed-package workflows and public/update acceptance. Measurements
 below remain scoped local results; the remaining G92K1 precise volume-integration
 latency and documented GUI/Linux verification gaps remain open.
 
+The local Windows 2026-10-14
+[STEP scheduling follow-up](performance/20261014-step-gk-face-investigation.md)
+reduces the measured G92K1 backend import from 692.0 to 520.6 seconds, with exact
+saved properties and complete native-packet equivalence. It preserves OCCT,
+precision and native references; the import still takes several minutes.
+The GUI/CLI build includes the working-tree change. Linux execution and a new
+published release are not claimed by this local result.
+
+The [last STEP-backed Extrusion and native-save follow-up](performance/20261014-step-last-extrusion-and-save.md)
+restores the pending Sketch wire, reduces the measured last subtraction from
+96.1 to 53.3 seconds with an identical complete Body packet, and releases
+unnecessary serialized/cache copies before full save validation. The first
+verified native save sample decreased from 114.8 to 85.1 seconds; substantial
+large-file serialization and validation costs remain. A repeat measured 95.5
+seconds with the same exact native data. A subsequent exclusively owned JSON
+allocation reuse reduced the measured save further to 63.4–74.4 seconds in two
+verified runs, retaining the exact native data and full validation. The linked record separates these
+successive implementations and their measurements.
+
 ## Deferred user observations (2026-10-13)
 
 The user authorized implementation on 2026-10-13 in this order: foreign-model

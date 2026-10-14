@@ -391,6 +391,10 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
 }
 #include "history_deletion_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_MODELING_ONLY")) {
+        try {verify_feature_modeling(application,window,directory);std::cout<<"Feature modeling and pending profile wire passed\n";return 0;}
+        catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_FORM_ONLY"))return verify_corner_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_FORM_ONLY"))return verify_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXES_ONLY")) {

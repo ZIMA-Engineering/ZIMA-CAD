@@ -165,6 +165,26 @@ void check_changed_source(kernel::OcctKernel& kernel,const std::filesystem::path
 int main(int argc,char** argv) {
     try {
         kernel::OcctKernel kernel;
+        if(argc==3&&std::string_view(argv[1])=="--recalculate-native-equivalence") {
+            std::vector<kernel::BodyResult> stored;
+            const auto native=document::PartDocument::load(std::filesystem::u8path(argv[2]),&stored);
+            require(!stored.empty(),"Native equivalence probe has no saved boundaries");
+            const auto digest=[](const kernel::BodyResult& result) {
+                const auto text=document::serialize_body_result(result).dump();
+                return QCryptographicHash::hash(QByteArrayView(text.data(),static_cast<qsizetype>(text.size())),QCryptographicHash::Sha256);
+            };
+            std::vector<QByteArray> expected;for(const auto& body:stored)expected.push_back(digest(body));
+            const auto started=std::chrono::steady_clock::now();
+            const auto calculated=kernel.evaluate_history(native.kernel_operations());
+            std::cout<<"Fresh native history calculation ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+            require(calculated.size()==stored.size(),"Recalculation changed the native boundary count");
+            for(std::size_t index=0;index<calculated.size();++index) {
+                const auto actual=digest(calculated[index]);
+                std::cout<<"Boundary "<<index<<" stored="<<expected[index].toHex().constData()<<" recalculated="<<actual.toHex().constData()<<std::endl;
+                require(actual==expected[index],"Recalculation changed the complete geometry/properties/reference packet");
+            }
+            std::cout<<"Complete native packets match after fresh calculation\n";return 0;
+        }
         if(argc==4&&std::string_view(argv[1])=="--import-native-performance") {
             const auto started=std::chrono::steady_clock::now();
             auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},std::filesystem::absolute(std::filesystem::u8path(argv[2])));

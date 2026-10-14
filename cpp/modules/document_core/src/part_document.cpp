@@ -825,7 +825,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
 }
 
 void write_part_ini(
-    const nlohmann::json& root, const std::filesystem::path& path) {
+    nlohmann::json root, const std::filesystem::path& path) {
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
@@ -1031,10 +1031,15 @@ void write_part_ini(
         auto& cache=ini["CachedBodies"];
         cache["encoding"]="zima-shared-body-results-v1";
         cache["definition_fingerprint"]=root.at("calculation_definition_fingerprint").get<std::string>();
-        auto storage=pack_cache_storage(root.at("calculated_boundaries"));profile.phase("cache packing");
+        auto storage=pack_cache_storage(std::move(root.at("calculated_boundaries")));profile.phase("cache packing");
         cache["data"]=storage.dump();profile.phase("cache text encoding");
     }
     profile.phase("INI/cache preparation");
+    // Release the expanded history before the independent validation reload.
+    // The lossless INI/cache text now owns everything needed for writing;
+    // keeping both representations alive needlessly multiplies peak memory.
+    root.clear();
+    profile.phase("release serialized history");
     const auto temporary = path.string() + ".tmp";
     {
         std::ofstream output(temporary, std::ios::trunc);
@@ -1047,6 +1052,8 @@ void write_part_ini(
         if (!output) throw std::runtime_error("Document write failed: " + path.string());
     }
     profile.phase("disk write");
+    ini.clear();
+    profile.phase("release encoded text");
     try {
         static_cast<void>(PartDocument::load(temporary));
     } catch (...) {
@@ -12918,7 +12925,7 @@ void PartDocument::save(const std::filesystem::path& path,
     if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
     NativeIoProfile profile("Part save");
     auto root=serialized(calculated,copy);profile.phase("document serialization");
-    write_part_ini(root,path);profile.phase("write and validation");
+    write_part_ini(std::move(root),path);profile.phase("write and validation");
 }
 
 }  // namespace zima::document

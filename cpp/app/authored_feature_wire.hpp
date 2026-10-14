@@ -18,6 +18,7 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     const kernel::ViewerMesh empty;
     const auto& bounds=input?input->mesh:empty;
     using document::FeatureKind;
+    try {
     if(feature->feature_kind==FeatureKind::Feature)
         wire.edges=doc.feature_preview_edges(*feature,bounds);
     else if(feature->feature_kind==FeatureKind::Extrusion)
@@ -32,6 +33,12 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
             wire=feature->feature_kind==FeatureKind::Bend
                 ?document::bend_preview(*feature,*sketch,document::sheet_metal_defaults(doc))
                 :document::flat_preview(*feature,*sketch,document::sheet_metal_defaults(doc));
+    }
+    } catch (const std::exception&) {
+        // Failed definitions remain inspectable and repairable. Their current
+        // profile may have no tool wire; retain the persisted contribution
+        // below without calculating or changing the failed history entry.
+        wire.edges.clear();
     }
     if(!wire.edges.empty()) {
         if(const auto* body=doc.body_owner_for_object(owner))wire=doc.place_body_mesh(std::move(wire),body->scope.id);

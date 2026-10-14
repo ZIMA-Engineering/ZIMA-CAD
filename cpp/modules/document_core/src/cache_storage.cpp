@@ -3,6 +3,9 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace zima::document {
 namespace {
@@ -14,14 +17,22 @@ constexpr std::size_t maximum_depth = 256;
 class Writer {
 public:
     Json values = Json::array();
-    Json encode(const Json& source, std::size_t depth = 0) {
+    template<class Source>
+    Json encode(Source&& source, std::size_t depth = 0) {
         if (depth > maximum_depth) throw std::runtime_error("Cache nesting is too deep");
         if (source.is_object() && source.contains(reference_key))
             throw std::runtime_error("Reserved cache reference key in source data");
         // Build children directly: copying a whole subtree here would copy it
         // again at every nested level before replacing each copied child.
         Json encoded;
-        if (source.is_object()) {
+        if constexpr(!std::is_lvalue_reference_v<Source>) {
+            // A save owns this transient JSON tree. Reuse its allocations and
+            // move pooled blocks out of it as we traverse, instead of building
+            // a second complete tree and later destroying the first one.
+            encoded=std::move(source);
+            if(encoded.is_structured())for(auto& child:encoded)
+                child=encode(std::move(child),depth+1);
+        } else if (source.is_object()) {
             encoded = Json::object();
             for (auto it = source.begin(); it != source.end(); ++it)
                 encoded[it.key()] = encode(it.value(), depth + 1);
@@ -36,6 +47,21 @@ public:
         if (!encoded.is_structured() && !encoded.is_string()) return encoded;
         auto key = encoded.dump();
         if (key.size() < minimum_block_size) return encoded;
+        if(encoded.is_string() && encoded.get_ref<const Json::string_t&>().size()>=4096) {
+            // Large archives/binary packets are already owned by the pool.
+            // Index their immutable bytes there, rather than retaining another
+            // full escaped copy as a hash-table key. dump() above still checks
+            // encoding and applies the same pooling threshold as before.
+            const auto& bytes=encoded.get_ref<const Json::string_t&>();
+            if(const auto found=string_indices.find(bytes);found!=string_indices.end())
+                return Json{{reference_key,found->second}};
+            const auto index=values.size();
+            values.push_back(std::move(encoded));
+            // Moving a json (including array growth) retains its separately
+            // allocated string. These views live only as long as this Writer.
+            string_indices.emplace(values.back().get_ref<const Json::string_t&>(),index);
+            return Json{{reference_key,index}};
+        }
         const auto found = indices.find(key);
         if (found != indices.end()) return Json{{reference_key, found->second}};
         const auto index = values.size();
@@ -45,6 +71,7 @@ public:
     }
 private:
     std::unordered_map<std::string, std::size_t> indices;
+    std::unordered_map<std::string_view, std::size_t> string_indices;
 };
 
 Json decode(const Json& source, const Json& values, std::size_t limit,
@@ -79,6 +106,13 @@ nlohmann::json pack_cache_storage(const nlohmann::json& value) {
     auto root = writer.encode(value);
     return {{"format", "zima-shared-cache-v1"}, {"root", std::move(root)},
             {"values", std::move(writer.values)}};
+}
+
+nlohmann::json pack_cache_storage(nlohmann::json&& value) {
+    Writer writer;
+    auto root=writer.encode(std::move(value));
+    return {{"format","zima-shared-cache-v1"},{"root",std::move(root)},
+            {"values",std::move(writer.values)}};
 }
 
 nlohmann::json unpack_cache_storage(const nlohmann::json& storage) {
