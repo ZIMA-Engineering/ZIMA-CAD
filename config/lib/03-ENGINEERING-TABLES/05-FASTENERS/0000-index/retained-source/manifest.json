@@ -1,0 +1,384 @@
+{
+  "files": [
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/01-M1.6-M10/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/01-M1.6-M10/0000-index/index-parts_cs.html",
+      "file": "d6cfa28241cc34ce95fad45976b22529.html",
+      "sha256": "d6cfa28241cc34ce95fad45976b22529c993720badb6b0337b3d7bd85796bf90"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/01-M1.6-M10/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/02-M12-M33/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/02-M12-M33/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/03-M36-M64/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB/03-M36-M64/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/index-parts_cs.html",
+      "file": "921405f30929663f2b48f74bcf907c24.html",
+      "sha256": "921405f30929663f2b48f74bcf907c24f5269903fab6b2636ba2761ea385668c"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/tab1.tiff",
+      "file": "249f910b65e0710a5f3fcccbc33a38c2.tiff",
+      "sha256": "249f910b65e0710a5f3fcccbc33a38c27f270fec77a54acda2042502229d684e"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/tab1.txt",
+      "file": "209028b6032376cc529a1d17515ca46e.txt",
+      "sha256": "209028b6032376cc529a1d17515ca46e6fcf1e22bf1ba98903d275d33b8e7490"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/tab2.tif",
+      "file": "20109d38f063ee992b1717db3645a7fa.tif",
+      "sha256": "20109d38f063ee992b1717db3645a7fa15fd24f25f1c207f7daf5f060ba4a61b"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/01-M5-M27/0000-index/tab2.txt",
+      "file": "2aec10258d8dcc84d9ef75b2ba0366f4.txt",
+      "sha256": "2aec10258d8dcc84d9ef75b2ba0366f43f59163c6df361de588e351d84ffe431"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/index-parts_cs.html",
+      "file": "921405f30929663f2b48f74bcf907c24.html",
+      "sha256": "921405f30929663f2b48f74bcf907c24f5269903fab6b2636ba2761ea385668c"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/tab1.tiff",
+      "file": "7efaecf211f2682b21263c6ff809344b.tiff",
+      "sha256": "7efaecf211f2682b21263c6ff809344be06fd12ac7bead85a5effa112344e6f8"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/tab1.txt",
+      "file": "e3b246d10ed872e9f8f44d69d5fb56f4.txt",
+      "sha256": "e3b246d10ed872e9f8f44d69d5fb56f4fcdc4a0bfd6f283f5c52ac307911355d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/tab2.tif",
+      "file": "130f60d315e2c712b248e02aa378e3ad.tif",
+      "sha256": "130f60d315e2c712b248e02aa378e3ad764f1eece965360b6274650df555eee1"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C/02-M30-M64/0000-index/tab2.txt",
+      "file": "f2b28298073a552e1707b2310c92d454.txt",
+      "sha256": "f2b28298073a552e1707b2310c92d454cbc36da701b4567a83d08662309567bc"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-M1.6-M10/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-M1.6-M10/0000-index/index-parts_cs.html",
+      "file": "0024cd62e4d8ec675f68d7fd02b5daa6.html",
+      "sha256": "0024cd62e4d8ec675f68d7fd02b5daa69e380999aaf0bd2b79d41fa7e83da834"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-M1.6-M10/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-M1.6-M10/0000-index/tab1.tif",
+      "file": "1a7b30f582056c3b1fa2fa7e6b2c7f15.tif",
+      "sha256": "1a7b30f582056c3b1fa2fa7e6b2c7f15f37eed1a299abde41027196c8ae49159"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-M1.6-M10/0000-index/tab1.txt",
+      "file": "176cd4dc99d0301463ea0f029a7fe001.txt",
+      "sha256": "176cd4dc99d0301463ea0f029a7fe0011cb3c93196ada1e040aa446c2de49f6b"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/02-M12-M33/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/02-M12-M33/0000-index/index-parts_cs.html",
+      "file": "0024cd62e4d8ec675f68d7fd02b5daa6.html",
+      "sha256": "0024cd62e4d8ec675f68d7fd02b5daa69e380999aaf0bd2b79d41fa7e83da834"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/02-M12-M33/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/02-M12-M33/0000-index/tab1.tif",
+      "file": "ec371123d0d84ccae61facd4d0b78ecc.tif",
+      "sha256": "ec371123d0d84ccae61facd4d0b78ecc8d534fac94926255ca88cfb2a165d290"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/02-M12-M33/0000-index/tab1.txt",
+      "file": "95a8e944fb398473a3ceef563a025bc1.txt",
+      "sha256": "95a8e944fb398473a3ceef563a025bc19cc8ffd025fefedac887650a88b909fe"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/03-M36-M64/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/03-M36-M64/0000-index/index-parts_cs.html",
+      "file": "0024cd62e4d8ec675f68d7fd02b5daa6.html",
+      "sha256": "0024cd62e4d8ec675f68d7fd02b5daa69e380999aaf0bd2b79d41fa7e83da834"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB/03-M36-M64/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/04-FULL-C/01-M5-M27/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/04-FULL-C/01-M5-M27/0000-index/style.css",
+      "file": "be0e37d4162a7f5e4a17ba789c69f66d.css",
+      "sha256": "be0e37d4162a7f5e4a17ba789c69f66db063bf4845b5a1426b5e1b47bfcea7ec"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/04-FULL-C/02-M30-M64/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/04-FULL-C/02-M30-M64/0000-index/style.css",
+      "file": "be0e37d4162a7f5e4a17ba789c69f66d.css",
+      "sha256": "be0e37d4162a7f5e4a17ba789c69f66db063bf4845b5a1426b5e1b47bfcea7ec"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/01-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/01-SIZES/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/01-SIZES/0000-index/t1.tiff",
+      "file": "fcddb0b5928d74ce22580cab3091190d.tiff",
+      "sha256": "fcddb0b5928d74ce22580cab3091190d0ac3c05209ef1865cb0569b0c45f2858"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/01-SIZES/0000-index/t1.txt",
+      "file": "027cfc4835595abc53529d8c4cb9e994.txt",
+      "sha256": "027cfc4835595abc53529d8c4cb9e994dbb4a730f265cfdb3d5407c684517dd2"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/02-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/02-SIZES/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/02-SIZES/0000-index/t1.tiff",
+      "file": "564182e605a2dd756b4ec18dcc3de811.tiff",
+      "sha256": "564182e605a2dd756b4ec18dcc3de811bc35f9270c3c160e1677908bdc28cacf"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/02-SIZES/0000-index/t1.txt",
+      "file": "688787fbb991b11b4e767d01c6da762e.txt",
+      "sha256": "688787fbb991b11b4e767d01c6da762e35a9aa8fdf3b2e74bf44d658f04c3067"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/03-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/03-SIZES/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/04-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/04-SIZES/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/01-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/01-SIZES/0000-index/index-parts_cs.html",
+      "file": "921405f30929663f2b48f74bcf907c24.html",
+      "sha256": "921405f30929663f2b48f74bcf907c24f5269903fab6b2636ba2761ea385668c"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/01-SIZES/0000-index/style.css",
+      "file": "d3d4ee3bfae233b93003e2ab8ed43b3e.css",
+      "sha256": "d3d4ee3bfae233b93003e2ab8ed43b3e78e306d470b400f98350875feb5e776d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/02-SIZES/0000-index/style.css",
+      "file": "167e5d1ba7e40e0400feadfc98ca2469.css",
+      "sha256": "167e5d1ba7e40e0400feadfc98ca2469944aa765337c012367284a65ba166b7f"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/02-SIZES-02/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/02-SIZES-02/0000-index/index-parts_cs.html",
+      "file": "921405f30929663f2b48f74bcf907c24.html",
+      "sha256": "921405f30929663f2b48f74bcf907c24f5269903fab6b2636ba2761ea385668c"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/02-SIZES-02/0000-index/style.css",
+      "file": "4a3cd3cee0183114bd99857ebf9a8755.css",
+      "sha256": "4a3cd3cee0183114bd99857ebf9a8755b91272c39c36f0c00a348ef072d298e0"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/03-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/03-SIZES/0000-index/index-parts_cs.html",
+      "file": "921405f30929663f2b48f74bcf907c24.html",
+      "sha256": "921405f30929663f2b48f74bcf907c24f5269903fab6b2636ba2761ea385668c"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/03-SIZES/0000-index/style.css",
+      "file": "34fd7a3382b9d2ecc627faa8d7790c8f.css",
+      "sha256": "34fd7a3382b9d2ecc627faa8d7790c8f5d558ccc3316427f026721a726bedd4a"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/04-SIZES/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/04-SIZES/0000-index/index-parts_cs.html",
+      "file": "921405f30929663f2b48f74bcf907c24.html",
+      "sha256": "921405f30929663f2b48f74bcf907c24f5269903fab6b2636ba2761ea385668c"
+    },
+    {
+      "original_path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE/04-SIZES/0000-index/style.css",
+      "file": "34fd7a3382b9d2ecc627faa8d7790c8f.css",
+      "sha256": "34fd7a3382b9d2ecc627faa8d7790c8f5d558ccc3316427f026721a726bedd4a"
+    },
+    {
+      "original_path": "04-SCREWS/03-STUDS/01-M3-M16/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/03-STUDS/01-M3-M16/0000-index/style.css",
+      "file": "e67b70363616913e7c3eb70ed646cc94.css",
+      "sha256": "e67b70363616913e7c3eb70ed646cc94bf6abec047272f5ab11dd70d3d8adbef"
+    },
+    {
+      "original_path": "04-SCREWS/03-STUDS/02-M16-M30/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/03-STUDS/02-M16-M30/0000-index/style.css",
+      "file": "e67b70363616913e7c3eb70ed646cc94.css",
+      "sha256": "e67b70363616913e7c3eb70ed646cc94bf6abec047272f5ab11dd70d3d8adbef"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/01-M1.6-M12/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/01-M1.6-M12/0000-index/style.css",
+      "file": "3faf3946ca298a98edaa6bf2e46462b9.css",
+      "sha256": "3faf3946ca298a98edaa6bf2e46462b9763a9922895994a1a98d3957760ba89f"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/02-M14-M64/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/02-M14-M64/0000-index/style.css",
+      "file": "e67b70363616913e7c3eb70ed646cc94.css",
+      "sha256": "e67b70363616913e7c3eb70ed646cc94bf6abec047272f5ab11dd70d3d8adbef"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/03-M1.6-M20/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/03-M1.6-M20/0000-index/style.css",
+      "file": "e67b70363616913e7c3eb70ed646cc94.css",
+      "sha256": "e67b70363616913e7c3eb70ed646cc94bf6abec047272f5ab11dd70d3d8adbef"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/04-M24-M64/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/04-M24-M64/0000-index/style.css",
+      "file": "e67b70363616913e7c3eb70ed646cc94.css",
+      "sha256": "e67b70363616913e7c3eb70ed646cc94bf6abec047272f5ab11dd70d3d8adbef"
+    },
+    {
+      "original_path": "04-SCREWS/06-PAN-HEAD/02-TAPPING-02/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    }
+  ]
+}

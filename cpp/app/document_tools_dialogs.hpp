@@ -22,6 +22,9 @@ class QTableWidget;
 class QTabWidget;
 class QPushButton;
 class QLabel;
+class QFileSystemModel;
+class QTreeView;
+class QListWidget;
 
 namespace zima::app {
 class RelationTextEditor;
@@ -160,6 +163,10 @@ class MaterialDialog final : public zima::ui::PropertiesSubWindow {
 public:
     MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
                    const ApplicationSettings& settings, QWidget* parent);
+    MaterialDialog(const QString& initial_path,
+                   std::function<bool(const QString&,bool)> writable,
+                   std::function<void()> changed,
+                   const ApplicationSettings& settings, QWidget* parent);
 protected:
     bool submit() override;
 private:
@@ -167,6 +174,22 @@ private:
                  const QString& unit = {}, const QString& description = {});
     void load_library();
     void populate();
+    DocumentToolData read_material_table() const;
+    QString material_table_signature() const;
+    bool abandon_library_edits();
+    void browse_material_directory(const QString&);
+    void open_library_material(const QString&);
+    void save_library_material(const DocumentToolData&,const QString&,bool copy);
+    void new_library_material();
+    bool library_mode_{};
+    QString library_directory_,library_path_,library_signature_;
+    QByteArray library_bytes_;
+    QFileSystemModel* library_model_{};
+    QTreeView* library_tree_{};
+    QListWidget* library_files_{};
+    QLabel* library_label_{};
+    std::function<bool(const QString&,bool)> library_writable_;
+    std::function<void()> library_changed_;
     DocumentToolData data_;
     ToolDataAccepted accepted_;
     ApplicationSettings settings_;

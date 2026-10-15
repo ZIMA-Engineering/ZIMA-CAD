@@ -300,6 +300,7 @@ void AssemblyWorkspaceWindow::open_document() {
 
 bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     if(section_dialog_)return false;
+    if(path.endsWith(".matz",Qt::CaseInsensitive)){manage_materials(path);return true;}
     const std::filesystem::path opened_path = std::filesystem::u8path(path.toStdString());
     begin_status_operation(tr("Otevírám %1…").arg(
         QString::fromStdString(zima::document::path_to_utf8(opened_path.filename()))));

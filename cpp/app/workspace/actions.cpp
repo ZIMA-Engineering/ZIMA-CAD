@@ -382,6 +382,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     material_action_->setObjectName("materialAction");
     material_action_->setIcon(resource_icon("material"));
     connect(material_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_material);
+    auto* material_manager=tools->addAction(resource_icon("material"),tr("Material manager"));material_manager->setObjectName("materialManagerAction");
+    connect(material_manager,&QAction::triggered,this,[this]{manage_materials();});
     parameters_action_ = tools->addAction(
         t("menu.tools.parameters", "Parametry..."));
     parameters_action_->setObjectName("documentParametersAction");

@@ -96,9 +96,9 @@ class Fasteners(unittest.TestCase):
         self.assertEqual(self.data['sources']['iso4014_2022']['label'], 'ISO 4014:2022')
         self.assertIn('Product grade', self.data['labels']['product_grade'][1])
         self.assertIn('Property class', self.data['labels']['property_class'][1])
-        grades = next(p for p in self.data['pages'] if p['path'] == '03-MECHANIC/00-GRADES')
+        grades = next(p for p in self.data['pages'] if p['path'] == '03-MECHANIC')
         requirements = generator.load_data(ROOT / 'tools/data/remaining-tables.json')
-        context = next(p for p in requirements['pages'] if p['path'] == '06-FASTENER-REQUIREMENTS/01-CONTEXT')
+        context = next(p for p in requirements['pages'] if p['path'] == '06-FASTENER-REQUIREMENTS')
         for language in generator.LANGUAGES:
             # Unlike measured decimals, standardized class identifiers retain
             # their full stop in every display language.
@@ -107,7 +107,7 @@ class Fasteners(unittest.TestCase):
             self.assertIn('A2 ≠ 8.8', generator.render(requirements, context, language))
             self.assertNotIn('8,8', generator.render(requirements, context, language))
         for family in ['01-GRADE-AB', '03-FULL-AB', '05-FINE-AB', '06-FULL-FINE']:
-            context = next(p for p in self.data['pages'] if p['path'] == '04-SCREWS/01-HEX-HEAD/' + family + '/00-CONTEXT')
+            context = next(block for p in self.data['pages'] for block in generator.table_blocks(p) if block.get('source_path') == '04-SCREWS/01-HEX-HEAD/' + family + '/00-CONTEXT')
             self.assertIn([{'key': 'product_grade'}, 'A/B'], context['rows'])
         for page in self.data['pages']:
             if page['path'].startswith('04-SCREWS/04-CAP-HEAD/01-SOCKET'):

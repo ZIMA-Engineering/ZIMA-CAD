@@ -57,6 +57,7 @@
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include "material_manager_contract.hpp"
 
 namespace {
 void check(bool condition, const char* message) {
@@ -818,11 +819,20 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(app::standard_view_label("front")==settings.qt_translations.value("Front – XZ"),"Normal and Drawing view labels differ after language change");
         for(const auto* key:{"Ohyb","Create or edit a Bend.","Koncová rovina","Odstranit pohled","Zářezy na koncích ohybů","Osy ohybů pouze na koncích","Odlehčit oba rohy na obdélníkovém konci","Výroba"})check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"Transition/view label is untranslated");
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
+        verify_material_manager(application,parent,settings);
+        for(const auto* key:{"File filters","Filters…","Use global filters","Global filters: %1","Hidden names and patterns","Global file filters","One name or wildcard pattern per line. Matches files and folders, without case sensitivity."})
+            check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"File-filter text is untranslated");
     }
     auto settings = load("en");
     settings.stacked_tolerances=true;QString settings_error;
     check(settings.save(&settings_error),"Cannot persist global tolerance layout");
     check(load("en").stacked_tolerances,"Global tolerance layout did not survive reload");
+    settings.file_manager.hidden_patterns={QStringLiteral("0000-index"),QStringLiteral("*.TMP"),QStringLiteral("výpočet?.txt")};
+    check(settings.save(&settings_error),"Cannot persist global file filters");
+    check(load("en").file_manager.hidden_patterns==settings.file_manager.hidden_patterns,"Global file filters did not survive reload");
+    settings.file_manager.hidden_patterns.clear();
+    check(settings.save(&settings_error),"Cannot persist empty global file filters");
+    check(load("en").file_manager.hidden_patterns.isEmpty(),"Empty global file filters restored factory exclusions");
     app::apply_application_font(application,settings);
     check(application.property("zimaStackedTolerances").toBool(),"Global tolerance layout did not reach viewers");
     settings.stacked_tolerances=false;app::apply_application_font(application,settings);

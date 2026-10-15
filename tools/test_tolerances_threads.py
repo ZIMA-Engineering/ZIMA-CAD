@@ -23,7 +23,7 @@ def rows_for(data, prefix):
             continue
         for offset, row in enumerate(page['rows']):
             # Separate tables within one original topic retain different prefixes.
-            index = (page['path'].rsplit('/', 1)[-1].split('-', 1)[0], page['source_rows'][0] + offset)
+            index = (page.get('source_path',page['path']).rsplit('/', 1)[-1].split('-', 1)[0], page['source_rows'][0] + offset)
             assembled = result.setdefault(index, {})
             for column, cell in zip(page['source_columns'], row):
                 if column in assembled:
@@ -62,7 +62,8 @@ class ReferenceChapters(unittest.TestCase):
     def test_engagement_ranges_and_duplicate_source(self):
         first = rows_for(self.thread, '06-TRAPEZOID/03-ENGAGE')
         second = rows_for(self.thread, '06-TRAPEZOID/03-ENGAGE-02')
-        self.assertEqual(first, second)
+        self.assertFalse(second)
+        self.assertFalse(any(p['path'].startswith('06-TRAPEZOID/03-ENGAGE-02') for p in self.thread['pages']))
         self.assertEqual(len(first), 16)
         for row in first:
             a, b, pitch, lower, upper, long = [Decimal(s.replace(',', '.')) for s in row]
@@ -138,6 +139,12 @@ class ReferenceChapters(unittest.TestCase):
             dx, dy = points[2][0] - points[1][0], points[2][1] - points[1][1]
             self.assertAlmostEqual(2 * math.degrees(math.atan2(dx, dy)), angle, places=5)
             self.assertAlmostEqual(points[4][0] - points[0][0], 260, places=5)
+        for angle in [55,60]:
+            svg=diagram.angle_profile(angle)
+            self.assertEqual((diagram.ROOT/'0000-index/diagrams'/f'thread-angle-{angle}.svg').read_text(encoding='utf-8'),svg)
+            points=[[float(s) for s in pair.split(',')] for pair in re.search(r'<polyline points="([^"]+)"',svg)[1].split()]
+            self.assertAlmostEqual(points[2][0]-points[0][0],240,places=5)
+            self.assertAlmostEqual(2*math.degrees(math.atan((points[1][0]-points[0][0])/(points[1][1]-points[0][1]))),angle,places=5)
 
 
 if __name__ == '__main__':

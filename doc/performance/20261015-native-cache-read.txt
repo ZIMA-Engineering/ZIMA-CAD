@@ -1,0 +1,80 @@
+Native cache read allocation optimization — 2026-10-15
+
+Scope
+Shared Windows/Linux C++ cache decoder; no native format, geometry, placement,
+precision, identity, or localization changes. Repeated pooled blocks are expanded
+once. The final consumer receives their allocations by move. Earlier consumers
+receive independent JSON values. Part reading consumes its exclusively owned
+parsed storage; Assembly reading already supplies a temporary.
+
+The reader checks reachable reference order, reference shape and the complete
+expanded-tree depth before moving data. Memoized subtree heights prevent a later,
+deeper use from bypassing the nesting limit. Existing Part definition fingerprints,
+history and topology-reference validation remain enabled. This change does not
+defer history loading or introduce a second document representation.
+
+Measurement
+Windows, MSVC Release, native OCCT 8.0.0, same machine and read-only user fixture:
+build/02-user-20261014-050420.prtz (499,764,705 bytes).
+Baseline source: 9d93ffa24032d59ba23a5f3c0e1aee8566fbfefc plus the preceding
+selection-rendering change and the diagnostic --load-part benchmark mode.
+No kernel calculation, save, scene upload or GUI paint is included.
+Filesystem caches were not flushed; these are local warm/uncontrolled-cache
+observations, not cold-start guarantees. One baseline and two changed samples:
+
+                              Before       After 1      After 2
+Cache expansion, ms          5875.519       3196.250     3322.756
+Complete Part load, ms      19676.739      16859.931    15057.170
+
+Expansion decreased by 43–46%; complete load by 14–23% in these samples.
+The changed implementation still fully loads persisted history. Parse, validation
+and destruction costs remain; totals must not be attributed solely to expansion.
+Both history fingerprints, boundary count, volumes, vertex/triangle/edge counts
+and archive byte counts matched. Exact expanded JSON (including signed zero and
+Unicode) is independently compared against the former recursive traversal in
+cache_storage_contract_tests; this is stronger than comparing numeric values.
+
+Reproduce with ZIMA_CPP_PROFILE_NATIVE_IO=1 and:
+build/cpp-windows-release/zima_cpp_performance_benchmark.exe --load-part PATH.prtz
+Detailed local logs: build/load-optimization-before.log,
+build/load-optimization-after.log, build/load-optimization-after-repeat.log.
+
+Verification
+Eight contracts passed: cache storage, history recovery, multibody,
+Assembly, document-session transactions, translations, ordinary feature-selection
+GUI and treatment-selection GUI. Cache tests cover repeated parents/descendants,
+independent mutable outputs, moved/read-only input, exact signed-zero/Unicode
+round-trips, reference corruption, cycles and expanded nesting limits.
+Existing persistence/session contracts cover small-fixture save/reopen and edits
+with Undo/Redo. The large user fixture was read and compared, not regenerated or
+edited. Linux execution and large-fixture subsequent editing remain unverified.
+
+No user-visible text was added or changed. The translation contract passed.
+
+Consistency-check experiment
+The same read-only 499,764,705-byte fixture was loaded six times in alternating
+enabled/disabled order. A temporary benchmark-only environment switch bypassed
+the exact definition fingerprint comparison and the final topology-owner/key
+and original-reference index validation. Runtime fingerprints were still rebound.
+Parsing, cache DAG validation, typed deserialization and embedded geometry/format
+checks were retained. This does not measure disabling every defensive check.
+
+Trial   Definition check ms   Topology check ms   Full load on ms   Full load off ms
+1                 302.610              30.108          15534.920          14054.630
+2                 311.612              25.678          13087.050          13307.366
+3                 336.085              22.834          15348.476          14369.217
+
+Direct measured consistency cost: 332.718–358.919 ms, approximately 2–3% of
+complete load time here. Full-load variation is larger than the measured check
+cost; the difference between total medians is not a reliable causal speedup.
+All six outputs retained identical boundary fingerprints, volumes, mesh counts
+and archive byte counts. No source document was saved or regenerated.
+
+The user elected to retain enabled consistency checks. The temporary switch and
+timers were removed from source; the normal core library, benchmark and five
+native contracts were rebuilt. Cache, history recovery, multibody, Assembly and
+document-session transaction contracts passed with a workspace-local TEMP.
+The GUI executable was not changed by the experiment (relinking was blocked by
+the running application); it retains the previously tested standard behavior.
+Detailed logs: build/consistency-cost-{on,off}-{1,2,3}.log and
+build/consistency-production-restore-{build,tests}.log. Linux was not measured.

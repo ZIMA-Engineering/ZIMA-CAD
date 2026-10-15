@@ -1,13 +1,34 @@
 """Whole-library source preservation, localization and logical-layout checks."""
-import importlib.util,json,math,re,unittest
+import hashlib,importlib.util,json,math,re,unittest
 from collections import Counter
 from pathlib import Path
+from lxml import html
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('references',ROOT/'tools/generate-reference-tables.py')
 generator=importlib.util.module_from_spec(spec);spec.loader.exec_module(generator)
 
 
 class LogicalReferences(unittest.TestCase):
+    def test_retired_source_evidence_and_archive_paths(self):
+        retained=0
+        for name in ['shaft','fastener']:
+            data=generator.load_data(ROOT/f'tools/data/{name}-tables.json')
+            folder=ROOT/data['root']/'0000-index/retained-source'
+            manifest=json.loads((folder/'manifest.json').read_text(encoding='utf-8'))
+            originals=set()
+            for record in manifest['files']:
+                self.assertNotIn(record['original_path'],originals)
+                originals.add(record['original_path'])
+                source=folder/record['file']
+                self.assertEqual(source.parent,folder)
+                self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),record['sha256'])
+                retained+=1
+            for path in folder.rglob('*'):
+                if path.is_file():
+                    member='ZIMA-CAD/source/2026101505/'+path.relative_to(ROOT).as_posix()
+                    self.assertLessEqual(len(member.encode('utf-16-le'))//2,180)
+        self.assertEqual(retained,80)
+
     def test_remaining_original_data_is_not_silently_repaired(self):
         data=generator.load_data(ROOT/'tools/data/remaining-tables.json')
         original=json.loads((ROOT/'tools/data/remaining-source-tables.json').read_text(encoding='utf-8'))
@@ -52,11 +73,13 @@ class LogicalReferences(unittest.TestCase):
                         self.assertEqual(len(data['labels'][key]),5)
                 for lang in data['languages']:
                     text=generator.render(data,topic,lang)
-                    self.assertEqual(text.count('<tbody>'),len(list(generator.table_blocks(topic))))
+                    document=html.fromstring(text)
+                    screen_tables=document.xpath('//table[not(ancestor::div[contains(concat(" ",normalize-space(@class)," ")," print-only ")])]')
+                    self.assertEqual(len(screen_tables),len(list(generator.table_blocks(topic))))
                     self.assertIn(f'<html lang="{lang}">',text)
                     for figure in topic.get('figures',[]):
                         self.assertLess(text.index('<figure'),text.index('<table>'))
-        self.assertEqual(pages,459)
+        self.assertEqual(pages,287)
         self.assertGreater(sections,pages)
 
     def test_analytical_examples_and_unit_factors(self):

@@ -1,0 +1,24 @@
+{
+  "files": [
+    {
+      "original_path": "03-FINE/02-INVOLUTE-02/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "03-FINE/02-INVOLUTE-02/0000-index/tabulka.csv",
+      "file": "4fc901e0c25389978c4e96f6347cde16.csv",
+      "sha256": "4fc901e0c25389978c4e96f6347cde16b80b915d0045e14d4614bf6dbd8ca275"
+    },
+    {
+      "original_path": "06-GEARS/07-CHORDAL-02/0000-index/assets/tables-style-general.css",
+      "file": "b7c58edfe5475b615d8b37561a463668.css",
+      "sha256": "b7c58edfe5475b615d8b37561a46366868d1bbfe2248059db1efcb2b3090b84d"
+    },
+    {
+      "original_path": "06-GEARS/07-CHORDAL-02/0000-index/tabulka.csv",
+      "file": "5cbaa22be3d2a4b93d163f61e52fa683.csv",
+      "sha256": "5cbaa22be3d2a4b93d163f61e52fa683b3f9120204b59bdae3a9f10685d28eb9"
+    }
+  ]
+}

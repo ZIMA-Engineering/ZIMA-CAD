@@ -150,7 +150,7 @@ class ShaftTables(unittest.TestCase):
         for page in self.data['pages']:
             if page.get('source_table','').startswith(('06-GEARS/12-PROFILE', '06-GEARS/13-PITCH', '06-GEARS/14-FLANKS')):
                 bounds = page['rows'][0][0] + '–' + page['rows'][-1][1] + ' mm'
-                for title in self.data['labels'][page['title']]:
+                for title in self.data['labels'][page.get('heading',page['title'])]:
                     self.assertEqual(title.split(' · ')[1], bounds)
 
     def test_language_files_metadata_and_assets(self):

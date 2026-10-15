@@ -4,8 +4,9 @@
 
 On 2026-10-15 the user expanded this work to the complete library and withdrew
 the one-sheet A4 limit. Group by technical content, with vertical scrolling and
-paginated portrait A4 output. Wide matrices use consecutive column groups on the
-**same HTML page**, retaining their identifying columns. Do not create additional
+paginated portrait A4 output. Wide matrices scroll horizontally on the **same HTML page**, retaining their
+identifying column. Printing splits them into readable column panels with that
+column repeated in every panel. Do not create additional
 tree folders merely to fit a page or shrink text to illegible sizes.
 
 Original explanatory schematics precede applicable dimension/geometry tables.
@@ -29,18 +30,31 @@ remain complete in HTML. Groups use real descendants, never unrelated previews.
 | Dataset | Logical references | Localized HTML files |
 | --- | ---: | ---: |
 | Quantities and units | 20 | 100 |
-| Other General standards | 33 | 165 |
-| Tolerances | 73 | 365 |
-| Threads | 41 | 205 |
-| Shafts, splines and gears | 55 | 275 |
-| Bolts, screws, nuts and washers | 182 | 910 |
-| Remaining chapters | 55 | 275 |
-| **Total** | **459** | **2,295** |
+| Other General standards | 19 | 95 |
+| Tolerances | 54 | 270 |
+| Threads | 32 | 160 |
+| Shafts, splines and gears | 35 | 175 |
+| Bolts, screws, nuts and washers | 73 | 365 |
+| Remaining chapters | 54 | 270 |
+| **Total** | **287** | **1,435** |
 
-The tree has **755 directories / 3,775 localized labels**. Consolidation removed
-1,350 artificial fragment directories from the previous one-sheet arrangement.
-Original topic identities remain. Unreleased generated fragment identities need
-not survive consolidation. Further semantic merging is a planned user review.
+The tree has **337 directories / 1,685 localized labels**. This follow-up removes
+418 redundant navigation directories from the 755-directory published tree.
+Related dimensional ranges share a document; useful technical topic groups
+remain. All numerical source values, evidence references and review limits are
+retained. Category logo-text SVGs follow the existing Symbols visual style.
+
+From shafts through the remaining chapters, 235 source row/column slices are
+reassembled while conserving 44,033 distinct source cells. Original extra
+HTML, CSV, SVG, TIFF, TXT and stylesheet source evidence from retired branches
+is preserved byte-for-byte under each affected chapter's
+`0000-index/retained-source/`. A manifest maps original paths and SHA-256 hashes
+to short content-addressed names, keeping portable archive paths within budget.
+These are provenance files, not extra tree nodes.
+Table headers and identifying columns remain visible while scrolling. Shared
+thread schematics are included in each relevant topic rather than requiring a
+separate schematic-only folder. Standards acquisition and unresolved numerical
+issues remain in the review ledger.
 
 ## Technical content and its limits
 
@@ -136,12 +150,13 @@ count, width and dark contrast, and creates previews/paginated A4 PDFs.
 selectable text and printable bounds. Inspect representative continuation pages
 and figures visually. PDFs below `build/` are evidence, not product dependencies.
 
-All 38 independent Python checks pass, covering equations, source-cell
-preservation, logical sections, localization, generated output and review status.
-The native Windows File Manager suite passes ordinary behavior, compact directory
-properties, five-language Light/Dark/Light without reload and all 3,775 native
-Qt labels. The translation contract passes. All 2,295 localized references and 4,308 physical A4 sheets pass render/print checks.
-Windows release acceptance is recorded with the release.
+The independent Python checks cover equations, source-cell preservation,
+logical sections, localization, generated output and review status. Windows
+File Manager checks cover ordinary behavior, directory properties, live
+five-language Light/Dark/Light and all 1,685 native Qt labels. Rendering and
+printing checks cover all 1,435 localized references, including sticky headers,
+first-column retention and horizontal print panels. The dated release record
+states the final checks, physical page count and Windows package acceptance.
 
 Shared C++, native formats, OCCT 8.0.0 and protected modeling contracts are
 unchanged by this library work. Linux execution requires its own host and is

@@ -18,6 +18,13 @@ can select their variant from the owning Drawing sheet's projection method.
 The library directory is configurable under Global Settings / Paths / Symbols
 (`Paths/Symbols`, default `symbols` relative to the configuration).
 
+Every current factory `.symz` has a File Manager preview in its directory's
+`0000-index/thumbnails/<filename>.symz.png`. Regenerate these disposable images
+with `tools/generate-symbol-thumbnails.py` after building
+`zima_symbol_catalog_tool`; `--check` verifies coverage. Rendering uses the
+native default variant and authored colors, fits its complete geometry into a
+640×480 image, and never saves or modifies the source definition.
+
 Definition authoring and model-surface attachment remain separate development
 steps. See `doc/SYMBOLS_DESIGN.md` for implemented scope and pending work.
 

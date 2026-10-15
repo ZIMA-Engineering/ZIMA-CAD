@@ -23,6 +23,7 @@
 #include <zima/document/file_path.hpp>
 #include <zima/document/component_source.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/material_library.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>

@@ -285,6 +285,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     if (!thumbnail_ok) result.file_manager.thumbnail_size = 144;
     result.file_manager.thumbnail_size = std::clamp(result.file_manager.thumbnail_size, 64, 256);
     result.file_manager.show_hidden = value("FileManager/ShowHidden", "false").toLower() == "true";
+    for(auto it=layers.rbegin();it!=layers.rend();++it)if((*it)->contains("FileManager/HiddenPatterns")){result.file_manager.hidden_patterns=(*it)->value("FileManager/HiddenPatterns").toStringList();break;}
     return result;
 }
 
@@ -421,6 +422,7 @@ bool ApplicationSettings::save(QString* error) const {
         {"FileManager/DefaultView",file_manager.default_view},
         {"FileManager/ThumbnailSize",file_manager.thumbnail_size},
         {"FileManager/ShowHidden",file_manager.show_hidden},
+        {"FileManager/HiddenPatterns",file_manager.hidden_patterns},
         {"Application/UseISOFont", use_iso_application_font},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
         {"DocumentNames/Uppercase", document_naming.uppercase},

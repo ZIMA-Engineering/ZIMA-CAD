@@ -26,6 +26,37 @@ json copying_pack(const json& source) {
     CopyingWriter writer;auto root=writer.encode(source);
     return {{"format","zima-shared-cache-v1"},{"root",std::move(root)},{"values",std::move(writer.values)}};
 }
+// Independent expanded-tree oracle, including reference order and depth checks.
+json recursive_decode(const json& source,const json& values,std::size_t limit,std::size_t depth=0) {
+    if(depth>256)throw std::runtime_error("depth");
+    if(source.is_object()&&source.contains("$zima_cache")) {
+        const auto& id=source.at("$zima_cache");
+        if(source.size()!=1||!id.is_number_unsigned()||id.get<std::size_t>()>=limit)
+            throw std::runtime_error("reference");
+        const auto index=id.get<std::size_t>();
+        return recursive_decode(values.at(index),values,index,depth+1);
+    }
+    auto result=source;
+    if(result.is_structured())for(auto& child:result)child=recursive_decode(child,values,limit,depth+1);
+    return result;
+}
+void check_readers(const json& storage) {
+    bool expected_rejected=false;
+    json expected;
+    try {expected=recursive_decode(storage.at("root"),storage.at("values"),storage.at("values").size());}
+    catch(const std::exception&){expected_rejected=true;}
+    for(bool consume:{false,true}) {
+        auto input=storage;
+        bool rejected=false;
+        json actual;
+        try {actual=consume?zima::document::unpack_cache_storage(std::move(input)):
+                           zima::document::unpack_cache_storage(input);}
+        catch(const std::exception&){rejected=true;}
+        require(rejected==expected_rejected,"Cache readers disagree on malformed or deep data");
+        if(!rejected)require(actual.dump()==expected.dump(),"Cache reader changed exact expanded data");
+        if(!consume)require(input.dump()==storage.dump(),"Read-only cache decoding changed its input");
+    }
+}
 int main() {
     try {
         zima::kernel::BodyResult body;
@@ -115,6 +146,39 @@ int main() {
         json deep=nullptr;
         for(int depth=0;depth<258;++depth)deep=json::array({std::move(deep)});
         require(rejects_pack(deep),"Cache writers disagree on the nesting limit");
+        for(const auto* fixture:{&packed,&nested_packed,&strings_packed})check_readers(*fixture);
+        // Repeated parents and descendants, including a root/child shared leaf.
+        json shared={{"format","zima-shared-cache-v1"},
+            {"values",json::array({json::array({-0.0,0.0,"side:left","side:right"}),
+                json::array({json{{"$zima_cache",std::size_t(0)}},json{{"$zima_cache",std::size_t(0)}}})})},
+            {"root",json::array({json{{"$zima_cache",std::size_t(1)}},json{{"$zima_cache",std::size_t(1)}},
+                json{{"$zima_cache",std::size_t(0)}}})}};
+        check_readers(shared);
+        for(int depth:{251,252,253,254,255,256,257}) {
+            auto at_depth=shared;
+            for(int i=0;i<depth;++i)at_depth["root"]=json::array({std::move(at_depth["root"])});
+            check_readers(at_depth);
+        }
+        for(int depth:{255,256,257}) {
+            json plain=-0.0;
+            for(int i=0;i<depth;++i)plain=json::array({std::move(plain)});
+            check_readers(json{{"format","zima-shared-cache-v1"},{"values",json::array()},{"root",std::move(plain)}});
+        }
+        auto independent=zima::document::unpack_cache_storage(shared);
+        independent[0][0][0]=7;
+        require(independent[1][0][0].dump()=="-0.0"&&independent[2][0].dump()=="-0.0",
+            "Editing one expanded reference changed another consumer");
+        for(const auto& reference:{json(-1),json(0.0),json(std::size_t(999))}) {
+            auto invalid=shared;invalid["root"]={{"$zima_cache",reference}};check_readers(invalid);
+        }
+        auto cycle=shared;cycle["values"][0]={{"$zima_cache",std::size_t(0)}};check_readers(cycle);
+        auto extra=shared;extra["root"]={{"$zima_cache",std::size_t(0)},{"extra",1}};check_readers(extra);
+        // A previously decoded block reached deeper must still enforce depth.
+        auto deeper=shared;
+        json deep_reference={{"$zima_cache",std::size_t(0)}};
+        for(int i=0;i<256;++i)deep_reference=json::array({std::move(deep_reference)});
+        deeper["root"]=json::array({json{{"$zima_cache",std::size_t(0)}},std::move(deep_reference)});
+        check_readers(deeper);
         std::cout<<"Shared cache contracts passed; bytes "<<original.dump().size()
                  <<" -> "<<packed.dump().size()<<'\n';
         return 0;

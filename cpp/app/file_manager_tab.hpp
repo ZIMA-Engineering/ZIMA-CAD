@@ -21,9 +21,13 @@ class QWebEngineView;
 
 namespace zima::app {
 
+bool file_manager_can_write(const ApplicationSettings&,const QString& working,
+                            const QString& directory,bool parameter_edit=false);
+
 struct FileManagerNativeParameters {
     QStringList order;
     QMap<QString,QString> values;
+    QMap<QString,QString> units;
     QMap<QString,QMap<QString,QString>> labels;
     QMap<QString,QMap<QString,QString>> localized_values;
     QString error;
@@ -51,6 +55,7 @@ public:
     void set_working_directory(const QString& path);
     void set_working_directory_action(QAction* action);
     void reload_settings(const ApplicationSettings& settings);
+    void refresh_materials();
     void navigate(const QString& path, bool track_history = true);
 
 protected:
@@ -97,6 +102,15 @@ private:
     QPushButton* move_{};
     QPushButton* remove_{};
     QToolButton* filter_versions_{};
+    QToolButton* filters_{};
+    void edit_filters();
+    QMap<QString,QToolButton*> type_filters_;
+    QPushButton* new_directory_{};
+    QMap<QString,QVariant> file_filter_policy_;
+    std::function<bool(const QString&)> file_filter_matches_;
+    void refresh_type_filters();
+    void save_type_filters();
+    void create_directory();
 
     void build_ui();
     void rebuild_sources();

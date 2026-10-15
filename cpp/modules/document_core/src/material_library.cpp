@@ -53,4 +53,27 @@ MaterialData load_material_library(const std::filesystem::path& path) {
     }
     validate_material(result);return result;
 }
+std::string serialize_material_library(const MaterialData& data) {
+    validate_material(data);
+    const auto name=data.properties.find("MATERIAL_NAME");
+    if(name==data.properties.end()||name->second.empty())
+        throw std::invalid_argument("The material library requires a name and a Properties section.");
+    const auto line=[](const std::string& key,const std::string& value) {
+        if(value.find_first_of("\r\n")!=std::string::npos||trim(value)!=value)
+            throw std::invalid_argument("Invalid native material library line.");
+        return key+" = "+value+"\n";
+    };
+    std::string result="[Material]\n"+line("Name",name->second)+"\n[Properties]\n";
+    for(const auto& [key,value]:data.properties)if(key!="MATERIAL_NAME")result+=line(key,value);
+    result+="\n[PropertyUnits]\n";
+    for(const auto& [key,value]:data.units)result+=line(key,value);
+    result+="\n[ParameterDescriptions]\n";
+    for(const auto& [key,languages]:data.descriptions)
+        for(const auto& [language,value]:languages)
+            result+=line(key+(language.empty()?std::string{}:"\\"+language),value);
+    if(result.size()>16*1024*1024)throw std::invalid_argument("The material library must contain 1 byte to 16 MiB.");
+    try {static_cast<void>(nlohmann::json(result).dump());}
+    catch(const nlohmann::json::exception&){throw std::invalid_argument("The material library must be valid UTF-8 text without null characters.");}
+    return result;
+}
 }

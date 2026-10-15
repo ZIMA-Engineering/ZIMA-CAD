@@ -9,6 +9,17 @@
 #include "file_dialog.hpp"
 #include "table_entry.hpp"
 #include "resource_icon.hpp"
+#include "path_name_dialog.hpp"
+#include <QFileSystemModel>
+#include <QSortFilterProxyModel>
+#include <QTreeView>
+#include <QListWidget>
+#include <QSplitter>
+#include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QApplication>
+#include <QItemSelectionModel>
 
 #include <zima/document/relations.hpp>
 #include <zima/document/engineering_metadata.hpp>
@@ -798,9 +809,11 @@ MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); content_layout()->addWidget(table_, 1);
     populate();
     new TableEntryRows(table_,[this]{add_row();});
+    connect(table_,&QTableWidget::itemChanged,this,[this](QTableWidgetItem* item){if(!library_mode_||item->column()!=1)return;if(auto* combo=qobject_cast<QComboBox*>(table_->cellWidget(item->row(),3))){const auto unit=combo->currentText();combo->clear();for(const auto& choice:zima::document::material_unit_choices(item->text().toStdString()))combo->addItem(QString::fromStdString(choice));combo->setEnabled(combo->count()>1||!combo->itemText(0).isEmpty());if(combo->findText(unit)>=0)combo->setCurrentText(unit);}});
 }
 
 void MaterialDialog::populate() {
+    QSignalBlocker block(table_);
     table_->setRowCount(0);
     for (const auto& [key, value] : data_.physical_parameters) {
         const auto unit = data_.physical_parameter_units.find(key);
@@ -822,7 +835,7 @@ void MaterialDialog::add_row(const QString& name, const QString& value, const QS
     if(combo->count()==1 && combo->itemText(0).isEmpty())combo->setEnabled(false);
     combo->setCurrentText(unit); table_->setCellWidget(row, 3, combo);
     auto* description_item = new QTableWidgetItem(description);
-    description_item->setFlags(description_item->flags() & ~Qt::ItemIsEditable);
+    if(!library_mode_)description_item->setFlags(description_item->flags() & ~Qt::ItemIsEditable);
     table_->setItem(row, 4, description_item);
 }
 
@@ -836,21 +849,362 @@ void MaterialDialog::load_library() {
     }catch(const std::exception& error){QMessageBox::warning(this,windowTitle(),tr(error.what()));}
 }
 
-bool MaterialDialog::submit() {
-    auto next=data_;next.physical_parameters.clear();next.physical_parameter_units.clear();
-    try {
-        for(int row=0;row<table_->rowCount();++row) {
-            if(!table_row_has_text(table_,row))continue;
-            const auto key=table_->item(row,1)?table_->item(row,1)->text().trimmed().toStdString():"";
-            const auto value=table_->item(row,2)?table_->item(row,2)->text().toStdString():"";
-            if(!next.physical_parameters.emplace(key,value).second)throw std::invalid_argument("Material property names must be unique.");
-            if(auto* combo=qobject_cast<QComboBox*>(table_->cellWidget(row,3));combo && !combo->currentText().isEmpty())next.physical_parameter_units[key]=combo->currentText().toStdString();
-            if(table_->item(row,4) && !table_->item(row,4)->text().isEmpty())next.descriptions[key][settings_.language.toStdString()]=table_->item(row,4)->text().toStdString();
-        }
-        std::erase_if(next.descriptions,[&](const auto& entry){return !next.physical_parameters.contains(entry.first);});
-        zima::document::validate_material({next.physical_parameters,next.physical_parameter_units,next.descriptions});
-        accepted_(next);data_=std::move(next);return true;
-    }catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
+DocumentToolData MaterialDialog::read_material_table() const {
+  auto next = data_;
+  next.physical_parameters.clear();
+  next.physical_parameter_units.clear();
+  try {
+    for (int row = 0; row < table_->rowCount(); ++row) {
+      if (!table_row_has_text(table_, row))
+        continue;
+      const auto key =
+          table_->item(row, 1)
+              ? table_->item(row, 1)->text().trimmed().toStdString()
+              : "";
+      const auto value = table_->item(row, 2)
+                             ? table_->item(row, 2)->text().toStdString()
+                             : "";
+      if (!next.physical_parameters.emplace(key, value).second)
+        throw std::invalid_argument("Material property names must be unique.");
+      if (auto *combo = qobject_cast<QComboBox *>(table_->cellWidget(row, 3));
+          combo && !combo->currentText().isEmpty())
+        next.physical_parameter_units[key] = combo->currentText().toStdString();
+      if (table_->item(row, 4)) {
+        const auto language = settings_.language.toStdString();
+        const auto description = table_->item(row, 4)->text().toStdString();
+        const auto existing = next.descriptions.find(key);
+        if (!description.empty() ||
+            (library_mode_ && existing != next.descriptions.end() &&
+             existing->second.contains(language)))
+          next.descriptions[key][language] = description;
+      }
+    }
+    std::erase_if(next.descriptions, [&](const auto &entry) {
+      return !next.physical_parameters.contains(entry.first);
+    });
+    zima::document::validate_material({next.physical_parameters,
+                                       next.physical_parameter_units,
+                                       next.descriptions});
+    return next;
+  } catch (const std::exception &error) {
+    throw std::runtime_error(tr(error.what()).toStdString());
+  }
 }
 
-}  // namespace zima::app
+bool MaterialDialog::submit() {
+  if (library_mode_ && QApplication::focusWidget() && table_->isAncestorOf(QApplication::focusWidget()))
+    table_->setFocus();
+  if (library_mode_ && material_table_signature() == library_signature_)
+    return true;
+  auto next = read_material_table();
+  if (library_mode_) {
+    if (library_path_.isEmpty())
+      throw std::runtime_error(
+          tr("Use Save As to name the new material.").toStdString());
+    save_library_material(next, library_path_, false);
+  } else
+    accepted_(next);
+  data_ = std::move(next);
+  return true;
+}
+
+QString MaterialDialog::material_table_signature() const {
+  QJsonArray rows;
+  for (int row = 0; row < table_->rowCount(); ++row) {
+    if (!table_row_has_text(table_, row))
+      continue;
+    QJsonArray values;
+    for (int column : {1, 2, 4})
+      values.append(table_->item(row, column)
+                        ? table_->item(row, column)->text()
+                        : QString{});
+    auto *unit = qobject_cast<QComboBox *>(table_->cellWidget(row, 3));
+    values.append(unit ? unit->currentText() : QString{});
+    rows.append(values);
+  }
+  return QString::fromUtf8(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+}
+
+MaterialDialog::MaterialDialog(
+    const QString &initial_path,
+    std::function<bool(const QString &, bool)> writable,
+    std::function<void()> changed, const ApplicationSettings &settings,
+    QWidget *parent)
+    : MaterialDialog(DocumentToolData{}, ToolDataAccepted{}, settings, parent) {
+  library_mode_ = true;
+  library_writable_ = std::move(writable);
+  library_changed_ = std::move(changed);
+  setObjectName("materialLibraryDialog");
+  set_internal_title(tr("Material manager"));
+  auto *old_top = content_layout()->takeAt(0);
+  if (old_top->layout()) {
+    while (auto *item = old_top->layout()->takeAt(0)) {
+      delete item->widget();
+      delete item;
+    }
+  }
+  delete old_top;
+  content_layout()->removeWidget(table_);
+  const auto save_as_callback=[this] {
+
+    try {
+      const auto next = read_material_table();
+      const QString directory = choose_directory(
+          this, tr("Save As…"), library_directory_, settings_.translations);
+      if (directory.isEmpty())
+        return;
+      if (!library_writable_(directory, false)) {
+        QMessageBox::warning(this, windowTitle(),
+                             tr("The destination is read-only or protected."));
+        return;
+      }
+      auto *dialog = new PathNameDialog(
+          tr("Save As…"), QFileInfo(library_path_).fileName(),
+          [this, next, directory](const QString &name) {
+            const QString path = QDir(directory).filePath(
+                name.endsWith(".matz", Qt::CaseInsensitive) ? name
+                                                            : name + ".matz");
+            if (QFileInfo::exists(path))
+              throw std::runtime_error(
+                  tr("A file with this name already exists.").toStdString());
+            save_library_material(next, path, true);
+            if(library_tree_)browse_material_directory(directory);
+            open_library_material(path);
+          },
+          parentWidget());
+      dialog->setAttribute(Qt::WA_DeleteOnClose);
+      connect(this, &QObject::destroyed, dialog, &QWidget::close);
+      dialog->show();
+    } catch (const std::exception &error) {
+      QMessageBox::warning(this, windowTitle(), tr(error.what()));
+    }
+  };
+  if(QFileInfo(initial_path).isFile()) {
+    setObjectName("materialPropertiesDialog");
+    set_internal_title(tr("Material properties"));
+    library_label_=new QLabel(this);
+    library_label_->setObjectName("materialLibraryPath");
+    library_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    library_label_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
+    content_layout()->addWidget(library_label_);
+    content_layout()->addWidget(table_,1);
+    auto* save_as=buttons()->addButton(tr("Save As…"),QDialogButtonBox::ActionRole);
+    save_as->setObjectName("materialLibrarySaveAs");
+    connect(save_as,&QPushButton::clicked,this,save_as_callback);
+    open_library_material(QFileInfo(initial_path).absoluteFilePath());
+    return;
+  }
+  auto *split = new QSplitter(Qt::Horizontal, this);
+  library_tree_ = new QTreeView(split);
+  library_tree_->setObjectName("materialLibraryTree");
+  library_tree_->setMinimumWidth(180);
+  library_tree_->setHeaderHidden(true);
+  library_model_ = new QFileSystemModel(library_tree_);
+  library_model_->setFilter(QDir::Dirs | QDir::NoDotAndDotDot |
+                            QDir::NoSymLinks);
+  auto* directories=new QSortFilterProxyModel(library_tree_);
+  directories->setSourceModel(library_model_);
+  directories->setFilterRole(QFileSystemModel::FileNameRole);
+  directories->setFilterRegularExpression(QRegularExpression(
+      QStringLiteral("^(?!0000-index\\z)"),QRegularExpression::CaseInsensitiveOption));
+  library_tree_->setModel(directories);
+  for (int col = 1; col < library_model_->columnCount(); ++col)
+    library_tree_->hideColumn(col);
+  auto *right = new QWidget(split);
+  auto *layout = new QVBoxLayout(right);
+  layout->setContentsMargins(0, 0, 0, 0);
+  auto *operations = new QHBoxLayout;
+  const auto action = [&](const QString &text, const char *name) {
+    auto *button = new QPushButton(text, right);
+    button->setObjectName(name);
+    operations->addWidget(button);
+    return button;
+  };
+  auto *folder = action(tr("New folder…"), "materialLibraryNewFolder");
+  auto *material = action(tr("New material"), "materialLibraryNew");
+  auto *save_as = action(tr("Save As…"), "materialLibrarySaveAs");
+  operations->addStretch();
+  layout->addLayout(operations);
+  library_label_ = new QLabel(right);
+  library_label_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
+  library_label_->setObjectName("materialLibraryPath");
+  library_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  layout->addWidget(library_label_);
+  auto *vertical = new QSplitter(Qt::Vertical, right);
+  library_files_ = new QListWidget(vertical);
+  library_files_->setObjectName("materialLibraryFiles");
+  vertical->addWidget(table_);
+  vertical->setStretchFactor(0, 1);
+  vertical->setStretchFactor(1, 3);
+  layout->addWidget(vertical, 1);
+  split->addWidget(right);
+  split->setSizes({240, 820});
+  split->setStretchFactor(1, 1);
+  content_layout()->addWidget(split, 1);
+  QString root = settings.resolved_paths.value("Materials");
+  const QFileInfo initial(initial_path);
+  const QString directory =
+      initial.isDir() ? initial.absoluteFilePath() : initial.absolutePath();
+  if (root.isEmpty() || !QDir(root).exists() ||
+      (!initial_path.isEmpty() &&
+       (QDir(root).relativeFilePath(directory)==".."||QDir(root).relativeFilePath(directory).startsWith("../"))))
+    root = directory;
+  if (root.isEmpty())
+    root = QDir::currentPath();
+  library_model_->setRootPath(root);
+  library_tree_->setRootIndex(directories->mapFromSource(library_model_->index(root)));
+  library_signature_ = material_table_signature();
+  browse_material_directory(directory.isEmpty() ? root : directory);
+  if (initial.isFile())
+    open_library_material(initial.absoluteFilePath());
+  connect(library_tree_->selectionModel(), &QItemSelectionModel::currentChanged, this,
+          [this,directories](const QModelIndex &index,const QModelIndex&) {
+            if(!index.isValid())return;
+            const QString path = library_model_->filePath(directories->mapToSource(index));
+            if (path == library_directory_)
+              return;
+            if (!abandon_library_edits()) {
+              library_tree_->setCurrentIndex(
+                  directories->mapFromSource(library_model_->index(library_directory_)));
+              return;
+            }
+            browse_material_directory(path);
+          });
+  connect(library_files_, &QListWidget::currentItemChanged, this,
+          [this](QListWidgetItem *item,QListWidgetItem*) {
+            if(!item)return;
+            const QString path = item->data(Qt::UserRole).toString();
+            if (path != library_path_ && abandon_library_edits())
+              open_library_material(path);
+            for (int row = 0; row < library_files_->count(); ++row)
+              if (library_files_->item(row)->data(Qt::UserRole).toString() ==
+                  library_path_)
+                library_files_->setCurrentRow(row);
+          });
+  connect(material, &QPushButton::clicked, this, [this] {
+    if (abandon_library_edits())
+      new_library_material();
+  });
+  connect(folder, &QPushButton::clicked, this, [this] {
+    const QString directory = library_directory_;
+    if (!library_writable_(directory, false)) {
+      QMessageBox::warning(this, windowTitle(),
+                           tr("The destination is read-only or protected."));
+      return;
+    }
+    auto *dialog = new PathNameDialog(
+        tr("New folder…"), {},
+        [this, directory](const QString &name) {
+          if (!library_writable_(directory, false) ||
+              QFileInfo::exists(QDir(directory).filePath(name)) ||
+              !QDir(directory).mkdir(name))
+            throw std::runtime_error(
+                tr("The folder cannot be created.").toStdString());
+          if (library_changed_)
+            library_changed_();
+        },
+        parentWidget());
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(this, &QObject::destroyed, dialog, &QWidget::close);
+    dialog->show();
+  });
+  connect(save_as, &QPushButton::clicked, this, save_as_callback);
+}
+
+
+bool MaterialDialog::abandon_library_edits() {
+  return material_table_signature() == library_signature_ ||
+         QMessageBox::question(this, windowTitle(),
+                               tr("Discard unsaved material changes?"),
+                               QMessageBox::Discard | QMessageBox::Cancel,
+                               QMessageBox::Cancel) == QMessageBox::Discard;
+}
+void MaterialDialog::browse_material_directory(const QString &directory) {
+  library_directory_ = directory;
+  const auto* directories=static_cast<QSortFilterProxyModel*>(library_tree_->model());
+  library_tree_->setCurrentIndex(directories->mapFromSource(library_model_->index(directory)));
+  library_files_->clear();
+  findChild<QPushButton *>("materialLibraryNewFolder")
+      ->setEnabled(library_writable_(directory, false));
+  for (const auto &info :
+       QDir(directory).entryInfoList(QDir::Files, QDir::Name))
+    if (info.suffix().compare("matz", Qt::CaseInsensitive) == 0) {
+      auto *item = new QListWidgetItem(resource_icon("material"),
+                                       info.fileName(), library_files_);
+      item->setData(Qt::UserRole, info.absoluteFilePath());
+    }
+  data_ = {};
+  library_path_.clear();
+  library_bytes_.clear();
+  populate();
+  library_signature_ = material_table_signature();
+  library_label_->setText(QDir::toNativeSeparators(directory));
+}
+void MaterialDialog::open_library_material(const QString &path) {
+  try {
+    const auto loaded = zima::document::load_material_library(
+        std::filesystem::u8path(path.toStdString()));
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+      throw std::runtime_error(file.errorString().toStdString());
+    library_bytes_ = file.readAll();
+    data_.physical_parameters = loaded.properties;
+    data_.physical_parameter_units = loaded.units;
+    data_.descriptions = loaded.descriptions;
+    library_path_ = path;
+    library_directory_=QFileInfo(path).absolutePath();
+    populate();
+    library_signature_ = material_table_signature();
+    library_label_->setText(QDir::toNativeSeparators(path));
+    for (int row = 0; library_files_&&row < library_files_->count(); ++row)
+      if (library_files_->item(row)->data(Qt::UserRole).toString() == path)
+        library_files_->setCurrentRow(row);
+  } catch (const std::exception &error) {
+    QMessageBox::warning(this, windowTitle(), tr(error.what()));
+  }
+}
+void MaterialDialog::save_library_material(const DocumentToolData &data,
+                                           const QString &path, bool copy) {
+  const QString directory = QFileInfo(path).absolutePath();
+  if (!library_writable_(directory, !copy))
+    throw std::runtime_error(
+        tr("The destination is read-only or protected.").toStdString());
+  const auto serialized = zima::document::serialize_material_library(
+      {data.physical_parameters, data.physical_parameter_units,
+       data.descriptions});
+  if (!copy) {
+    QFile original(path);
+    if (!original.open(QIODevice::ReadOnly) ||
+        original.readAll() != library_bytes_)
+      throw std::runtime_error(
+          tr("The material changed on disk. Reopen it before saving.")
+              .toStdString());
+  } else if (QFileInfo::exists(path))
+    throw std::runtime_error(
+        tr("A file with this name already exists.").toStdString());
+  QSaveFile output(path);
+  output.setDirectWriteFallback(false);
+  if (!output.open(QIODevice::WriteOnly) ||
+      output.write(serialized.data(), static_cast<qint64>(serialized.size())) !=
+          static_cast<qint64>(serialized.size()) ||
+      !output.commit())
+    throw std::runtime_error(output.errorString().toStdString());
+  library_bytes_ =
+      QByteArray(serialized.data(), static_cast<qsizetype>(serialized.size()));
+  library_signature_ = material_table_signature();
+  if (library_changed_)
+    library_changed_();
+}
+void MaterialDialog::new_library_material() {
+  data_ = {};
+  data_.physical_parameters["MATERIAL_NAME"] = tr("New material").toStdString();
+  library_path_.clear();
+  library_bytes_.clear();
+  populate();
+  library_signature_.clear();
+  library_files_->clearSelection();
+  library_files_->setCurrentItem(nullptr);
+  library_label_->setText(tr("New material"));
+}
+
+} // namespace zima::app

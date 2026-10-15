@@ -19,7 +19,12 @@ async function main() {
   const failures = [], results = [], errors = [];
   await context.route(/^https?:/, route => route.abort());
   try {
-    const topics = data.pages.filter(topic => topic.rows.length);
+    const topicOption = process.argv.indexOf('--topic');
+    const prefixOption = process.argv.indexOf('--topic-prefix');
+    const topics = data.pages.filter(topic => topic.rows.length &&
+      (topicOption < 0 || topic.path === process.argv[topicOption + 1]) &&
+      (prefixOption < 0 || topic.path.startsWith(process.argv[prefixOption + 1])));
+    if (!topics.length) throw Error('No reference topics selected');
     let next = 0;
     const worker = async () => {
       const page = await context.newPage();
@@ -37,15 +42,38 @@ async function main() {
           const table = document.querySelector('.table-scroll');
           return { height: Math.ceil(main.height), width: document.documentElement.scrollWidth,
             tableWidth: table?.scrollWidth || 0, tableAvailable: table?.clientWidth || 0,
-            language: document.documentElement.lang, rows: document.querySelectorAll('tbody tr').length };
+            language: document.documentElement.lang, rows: [...document.querySelectorAll('tbody tr')].filter(row => !row.closest('.print-only')).length };
         });
         // References may scroll vertically. Width and readable content still
         // have to fit; thumbnails show the schematic and beginning of the table.
-        if (metrics.width > 1100 || metrics.tableWidth > metrics.tableAvailable)
+        if (metrics.width > 1100 || (!topic.freeze_header && metrics.tableWidth > metrics.tableAvailable))
           failures.push({ topic: topic.path, language, ...metrics });
         const expectedRows = topic.rows.length + (topic.sections || []).reduce((n, block) => n + block.rows.length, 0);
         if (metrics.language !== language || metrics.rows !== expectedRows)
           throw Error(`Rendered content mismatch: ${topic.path}/${language}`);
+        if (topic.freeze_header) {
+          const frozen = await page.evaluate(() => [...document.querySelectorAll('.table-scroll--frozen')].map(region => {
+            const originalWidth = region.style.width;
+            region.style.width = '240px';
+            const header = region.querySelector('thead th');
+            const first = region.querySelector('tbody th');
+            const headerTop = header.getBoundingClientRect().top;
+            const firstLeft = first.getBoundingClientRect().left;
+            region.scrollTop = 220; region.scrollLeft = 160;
+            const result = { scrollTop: region.scrollTop, scrollLeft: region.scrollLeft,
+              needsVerticalScroll: region.scrollHeight > region.clientHeight,
+              needsHorizontalScroll: region.scrollWidth > region.clientWidth,
+              headerShift: header.getBoundingClientRect().top - headerTop,
+              columnShift: first.getBoundingClientRect().left - firstLeft };
+            region.scrollTop = 0; region.scrollLeft = 0;
+            region.style.width = originalWidth;
+            return result;
+          }));
+          if (frozen.some(item => (item.needsVerticalScroll && item.scrollTop <= 0) || (item.needsHorizontalScroll && item.scrollLeft <= 0) ||
+            Math.abs(item.headerShift) > 1 || Math.abs(item.columnShift) > 1))
+            throw Error(`Frozen reference headers moved: ${JSON.stringify(frozen)}`);
+          metrics.frozen = frozen;
+        }
         const bounds = await page.locator('main').boundingBox();
         const image = await page.screenshot({ type: 'jpeg', quality: 85,
           clip: { x: bounds.x, y: bounds.y, width: bounds.width, height: Math.min(bounds.height, 760) } });
@@ -80,6 +108,7 @@ async function main() {
       // Some source categories intentionally await a reliable source. They
       // retain native navigation; do not fabricate a preview from another topic.
       if (!descendant) continue;
+      if ((topicOption >= 0 || prefixOption >= 0) && !topics.includes(descendant)) continue;
       const folder = path.join(root, topic.path, '0000-index');
       for (const language of [...data.languages, '']) {
         const name = language ? `01_${language}.jpg` : '01.jpg';

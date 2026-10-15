@@ -1,4 +1,5 @@
 #include "global_settings_dialog.hpp"
+#include <QPlainTextEdit>
 #include "desktop_integration.hpp"
 #include "file_dialog.hpp"
 #include "updatespage.h"
@@ -356,6 +357,8 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     file_manager_form->addRow(tr("Výchozí zobrazení"),file_manager_default_view_);
     file_manager_form->addRow(tr("Velikost náhledů"),file_manager_thumbnail_size_);
     file_manager_form->addRow(file_manager_show_hidden_);
+    file_manager_hidden_patterns_=new QPlainTextEdit(settings_.file_manager.hidden_patterns.join('\n'),file_manager_page_);file_manager_hidden_patterns_->setObjectName("fileManagerGlobalFilters");file_manager_hidden_patterns_->setMaximumHeight(100);file_manager_hidden_patterns_->setToolTip(tr("One name or wildcard pattern per line. Matches files and folders, without case sensitivity."));
+    file_manager_form->addRow(tr("Global file filters"),file_manager_hidden_patterns_);
     file_manager_layout->addLayout(file_manager_form);
     sections_->addTab(file_manager_page_,tr("Správce souborů"));
     updates_ = new UpdatesPage([this](bool rollback) {
@@ -463,6 +466,7 @@ bool GlobalSettingsDialog::submit() {
     settings_.file_manager.default_view=file_manager_default_view_->currentData().toString();
     settings_.file_manager.thumbnail_size=file_manager_thumbnail_size_->value();
     settings_.file_manager.show_hidden=file_manager_show_hidden_->isChecked();
+    settings_.file_manager.hidden_patterns.clear();for(const auto& pattern:file_manager_hidden_patterns_->toPlainText().split('\n'))if(!pattern.trimmed().isEmpty())settings_.file_manager.hidden_patterns<<pattern.trimmed();
     settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
     settings_.drawing_view_style=drawing_view_style_->currentData().toString();
     settings_.drawing_pdf_directory=drawing_pdf_directory_->text().trimmed();

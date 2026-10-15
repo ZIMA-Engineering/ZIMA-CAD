@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 #include <algorithm>
+#include <vector>
 
 namespace zima::document {
 namespace {
@@ -81,31 +82,60 @@ private:
     std::unordered_map<std::string_view, std::size_t> string_indices;
 };
 
-Json decode(const Json& source, const Json& values, std::size_t limit,
-            std::size_t depth = 0) {
-    if (depth > maximum_depth) throw std::runtime_error("Cache nesting is too deep");
-    if (source.is_object() && source.contains(reference_key)) {
-        const auto& id = source.at(reference_key);
-        if (source.size() != 1 || !id.is_number_unsigned())
-            throw std::runtime_error("Invalid cache reference");
-        const auto index = id.get<std::size_t>();
-        // Only backward references are legal. Reject dangling references and
-        // cycles before recursively expanding any geometry packet.
-        if (index >= limit) throw std::runtime_error("Invalid cache reference order");
-        return decode(values.at(index), values, index, depth + 1);
+class Reader {
+public:
+    explicit Reader(Json& values) : values_(values), uses_(values.size()),
+        heights_(values.size(), unknown_height), expanded_(values.size()) {}
+
+    Json read(Json& root) {
+        // Validate the reachable DAG before consuming it. Track subtree height,
+        // so reuse cannot bypass the original expanded-tree nesting limit.
+        inspect(root, values_.size(), 0);
+        return consume(root);
     }
-    Json result;
-    if (source.is_object()) {
-        result = Json::object();
-        for (auto it = source.begin(); it != source.end(); ++it)
-            result[it.key()] = decode(it.value(), values, limit, depth + 1);
-    } else if (source.is_array()) {
-        result = Json::array();
-        result.get_ref<Json::array_t&>().reserve(source.size());
-        for (const auto& child : source) result.push_back(decode(child, values, limit, depth + 1));
-    } else result = source;
-    return result;
-}
+private:
+    static constexpr std::size_t unknown_height=maximum_depth+1;
+    Json& values_;
+    std::vector<std::size_t> uses_, heights_;
+    std::vector<bool> expanded_;
+
+    std::size_t inspect(const Json& source, std::size_t limit, std::size_t depth) {
+        if(depth>maximum_depth)throw std::runtime_error("Cache nesting is too deep");
+        std::size_t height=0;
+        if(source.is_object()&&source.contains(reference_key)) {
+            const auto& id=source.at(reference_key);
+            if(source.size()!=1||!id.is_number_unsigned())throw std::runtime_error("Invalid cache reference");
+            const auto index=id.get<std::size_t>();
+            if(index>=limit)throw std::runtime_error("Invalid cache reference order");
+            ++uses_[index];
+            if(heights_[index]==unknown_height)
+                heights_[index]=inspect(values_.at(index),index,depth+1);
+            height=1+heights_[index];
+        } else if(source.is_structured()) {
+            for(const auto& child:source)
+                height=std::max(height,1+inspect(child,limit,depth+1));
+        }
+        if(height>maximum_depth-depth)throw std::runtime_error("Cache nesting is too deep");
+        return height;
+    }
+
+    Json consume(Json& source) {
+        if(source.is_object()&&source.contains(reference_key)) {
+            const auto index=source.at(reference_key).get<std::size_t>();
+            auto& value=values_.at(index);
+            if(!expanded_[index]) {
+                value=consume(value);
+                expanded_[index]=true;
+            }
+            // Decode a pooled block once. Retain it while another block needs
+            // it, then transfer its allocations to its final consumer.
+            if(--uses_[index]==0)return std::move(value);
+            return value;
+        }
+        if(source.is_structured())for(auto& child:source)child=consume(child);
+        return std::move(source);
+    }
+};
 }
 
 nlohmann::json pack_cache_storage(const nlohmann::json& value) {
@@ -129,10 +159,15 @@ nlohmann::json pack_cache_storage(nlohmann::json&& value) {
 }
 
 nlohmann::json unpack_cache_storage(const nlohmann::json& storage) {
+    auto owned=storage;
+    return unpack_cache_storage(std::move(owned));
+}
+
+nlohmann::json unpack_cache_storage(nlohmann::json&& storage) {
     if (!storage.is_object() || storage.value("format", "") != "zima-shared-cache-v1" ||
         !storage.contains("values") || !storage.at("values").is_array())
         throw std::runtime_error("Unsupported shared cache format");
-    const auto& values = storage.at("values");
-    return decode(storage.at("root"), values, values.size());
+    Reader reader(storage.at("values"));
+    return reader.read(storage.at("root"));
 }
 }

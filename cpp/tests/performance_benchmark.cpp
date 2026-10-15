@@ -333,6 +333,21 @@ std::size_t mobility_component_count(const zima::sketcher::Sketch& sketch) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if(argc==3&&std::string_view(argv[1])=="--load-part") {
+        try {
+            const auto start=Clock::now();
+            std::vector<zima::kernel::BodyResult> boundaries;
+            const auto document=zima::document::PartDocument::load(std::filesystem::u8path(argv[2]),&boundaries);
+            const auto elapsed=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
+            std::cout<<std::setprecision(17)<<"load_ms="<<elapsed<<" history="<<document.history.size()
+                     <<" boundaries="<<boundaries.size()<<'\n';
+            for(const auto& body:boundaries)
+                std::cout<<"boundary "<<body.source_fingerprint<<" volume="<<body.volume
+                         <<" vertices="<<body.mesh.vertices.size()<<" triangles="<<body.mesh.triangles.size()
+                         <<" edges="<<body.mesh.edges.size()<<" archive_bytes="<<body.kernel_shape.get().size()<<'\n';
+            return 0;
+        } catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    }
     if(argc==4&&std::string_view(argv[1])=="--packet-part") {
         try {
             std::ifstream input(std::filesystem::u8path(argv[2]),std::ios::binary);nlohmann::json packet;input>>packet;

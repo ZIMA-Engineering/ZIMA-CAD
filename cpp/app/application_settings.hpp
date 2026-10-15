@@ -4,6 +4,7 @@
 #include <QVector>
 #include <zima/document/sweep_precision.hpp>
 #include <QString>
+#include <QStringList>
 #include "../common/document_naming.hpp"
 #include "../browser/preferences.hpp"
 
@@ -29,6 +30,7 @@ struct FileManagerPreferences {
     QString default_view{QStringLiteral("files")};
     int thumbnail_size{144};
     bool show_hidden{};
+    QStringList hidden_patterns{QStringLiteral("0000-index")};
 };
 
 struct StartupContext {

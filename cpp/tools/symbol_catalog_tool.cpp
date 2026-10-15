@@ -11,6 +11,7 @@
 #include <iostream>
 #include <set>
 #include <cmath>
+#include <limits>
 using namespace zima;
 namespace {
 sketcher::Sketch sketch(const std::string& id){auto s=sketcher::Sketch::create_default();s.id=id;s.name=id;return s;}
@@ -282,6 +283,24 @@ int main(int argc,char** argv) {
             std::filesystem::create_directories(path.parent_path());const auto definition=manual_bend_note();definition.save(path);
             if(symbols::Definition::load(path).serialized()!=definition.serialized())throw std::runtime_error("Bend-note library roundtrip differs");
             std::cout<<"Manual bend-note library created with editable text in all five languages\n";return 0;
+        }
+        if(argc==4&&std::string(argv[1])=="--thumbnail") {
+            const auto font_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/fonts/osifont-lgpl3fe.ttf";
+            QFontDatabase::addApplicationFont(QString::fromStdString(font_path.generic_string()));
+            const auto definition=symbols::Definition::load(std::filesystem::u8path(argv[2]));
+            sketcher::SymbolInstance value;value.id="thumbnail";value.definition=definition.serialized();value.variant=definition.default_variant;
+            const auto mesh=symbols::instance_mesh(value);
+            double min_x=std::numeric_limits<double>::infinity(),min_y=min_x,max_x=-min_x,max_y=-min_x;
+            for(const auto& edge:mesh.edges)for(const auto& point:edge.points){min_x=std::min(min_x,point.x);min_y=std::min(min_y,point.y);max_x=std::max(max_x,point.x);max_y=std::max(max_y,point.y);}
+            if(!std::isfinite(min_x))throw std::runtime_error("Cannot render an empty symbol preview");
+            QImage image(640,480,QImage::Format_ARGB32_Premultiplied);image.fill(QColor("#303840"));
+            QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
+            const double scale=std::min(592/std::max(1e-6,max_x-min_x),432/std::max(1e-6,max_y-min_y));
+            painter.translate(320,240);painter.scale(scale,-scale);painter.translate(-(min_x+max_x)/2,-(min_y+max_y)/2);
+            std::map<QRgb,QPainterPath> fills;
+            for(const auto& edge:mesh.edges){QPolygonF points;for(const auto& point:edge.points)points<<QPointF(point.x,point.y);const QColor color(QString::fromStdString(edge.color));painter.setPen(QPen(color,2.2/scale));if(edge.filled_text)fills[color.rgba()].addPolygon(points);else painter.drawPolyline(points);}
+            for(const auto& [color,path]:fills)painter.fillPath(path,QColor::fromRgba(color));
+            painter.end();if(!image.save(QString::fromUtf8(argv[3])))throw std::runtime_error("Cannot save symbol preview");return 0;
         }
         if(argc==4&&std::string(argv[1])=="--preview") {
             const auto font_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/fonts/osifont-lgpl3fe.ttf";

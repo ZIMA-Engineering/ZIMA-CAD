@@ -5300,7 +5300,7 @@ if (impl_->show_origins) {
         // Confirmed wires and dimension inspection use one screen-space
         // presentation, including portions inside the solid. Picking still
         // consumes the unchanged common candidate stream.
-        painter.save();painter.setPen(QPen(interaction::selected,interaction::selected_wire_width,
+        painter.save();painter.setPen(QPen(interaction::selected,1.5,
             Qt::SolidLine,Qt::FlatCap));painter.setBrush(Qt::NoBrush);
         std::size_t selected_wire_segments=0;
         std::vector<QLineF> selected_wire_lines;
@@ -5313,28 +5313,14 @@ if (impl_->show_origins) {
         paint_phase("base annotation layer");
         for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
-        const auto* original_wire = original_container_wire(impl_->confirmed_candidate);
-        if(impl_->confirmed_candidate || !component_edges.empty() || !impl_->feature_selected_edge_indices.empty() ||
-                !impl_->feature_selected_edges.empty() || !impl_->edge_treatment_selection_edges.empty() || treatment_wire) {
-        for (std::size_t index = 0; index < impl_->mesh.edges.size(); ++index) {
-            const auto& edge = impl_->mesh.edges[index];
-            // The Sketch pass already paints confirmed wires with their
-            // original dash pattern and infinite/finite extent.
-            if (sketch_geometry_visible && is_sketch_wire_edge(edge) &&
-                (edge.construction || edge.dash_dot) && !edge.filled_text) continue;
-            const auto key = edge_key(edge.reference);
-            const bool candidate_match = impl_->confirmed_candidate &&
-                original_wire == nullptr && treatment_wire == nullptr &&
-                candidate_recolors_wire_edge(*impl_->confirmed_candidate, edge);
-            const bool reference_selected = component_edges.contains(index) ||
-                impl_->feature_selected_edge_indices.contains(index) ||
-                impl_->feature_selected_edges.contains(key) ||
-                impl_->edge_treatment_selection_edges.contains(key) ||
-                (treatment_wire && std::find(treatment_wire->begin(),
-                    treatment_wire->end(), index) != treatment_wire->end());
-            if (candidate_match || reference_selected)
-                draw_selected_wire(edge);
-        }
+        // Display-mesh selection is already recolored by draw_lines(). Do not
+        // project and repaint it as a second, thicker screen-space wire.
+        // Edge-treatment boundaries have a separate semantic wire, so retain
+        // that presentation just as for hover and original-reference inspection.
+        if (treatment_wire) {
+            for (const auto index : *treatment_wire)
+                if (index < impl_->mesh.edges.size())
+                    draw_selected_wire(impl_->mesh.edges[index]);
         }
         if(!selected_wire_lines.empty())painter.drawLines(selected_wire_lines.data(),
             static_cast<int>(selected_wire_lines.size()));
@@ -5344,11 +5330,12 @@ if (impl_->show_origins) {
         for (const auto& edge : confirmed_component_wire())
             for (std::size_t i=1;i<edge.points.size();++i)
                 draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),
-                    interaction::selected,interaction::selected_wire_width);
+                    interaction::selected,1.5);
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? interaction::selected : interaction::hover;
-            const double wire_width = impl_->confirmed_candidate ? interaction::selected_wire_width : 1.5;
+            const double wire_width = sketch_geometry_visible && impl_->confirmed_candidate
+                ? interaction::selected_wire_width : 1.5;
             std::set<std::string> selected_sketch_owners;
             if(highlighted->kind==CandidateKind::Container)for(const auto& edge:impl_->mesh.edges) {
                 const auto& key=edge.reference.semantic_key;

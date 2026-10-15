@@ -13,13 +13,24 @@ void verify(const fs::path& directory) {
         const auto data=document::load_material_library(entry.path());
         require(!data.properties.at("MATERIAL_NAME").empty() && data.properties.contains("MASS_DENSITY"),"Bundled material lost its name or density");
         require(data.descriptions.at("MASS_DENSITY").at("cs")=="Hustota","Bundled Czech description was lost");++count;
+        const auto roundtrip=directory/"roundtrip.matz";
+        write(roundtrip,document::serialize_material_library(data));
+        require(document::load_material_library(roundtrip)==data,"Material serialization changed properties, units or descriptions");
     }
-    require(count>=62,"Bundled material coverage incomplete");
+    require(count==49,"Bundled material coverage incomplete");
     const auto unicode=directory/fs::path(u8"Český materiál.MATZ");
     const std::string material="[Material]\r\nName = Český materiál\r\n[Properties]\r\nMASS_DENSITY = 2700\r\nCONDITION = A=B;C # literal\r\n[PropertyUnits]\r\nMASS_DENSITY = kg/m^3\r\n[ParameterDescriptions]\r\nMASS_DENSITY\\cs = Hustota\r\nMASS_DENSITY\\en = Mass density\r\n";
     write(unicode,std::string("\xef\xbb\xbf")+material);
     const auto data=document::load_material_library(unicode);
     require(data.properties.at("MATERIAL_NAME")=="Český materiál" && data.properties.at("CONDITION")=="A=B;C # literal" && data.descriptions.at("MASS_DENSITY").at("en")=="Mass density","Unicode, literal text or language maps were changed");
+    write(unicode,document::serialize_material_library(data));
+    require(document::load_material_library(unicode)==data,"Material serialization lost Unicode or literal text");
+    auto edited=data;edited.properties["MASS_DENSITY"]="2800";edited.properties["MATERIAL_NAME"]="Edited material";
+    write(unicode,document::serialize_material_library(edited));
+    require(document::load_material_library(unicode)==edited,"Material property edit did not round-trip");
+    edited.properties["MASS_DENSITY"]="-1";bool invalid_edit=false;
+    try{static_cast<void>(document::serialize_material_library(edited));}catch(const std::exception&){invalid_edit=true;}
+    require(invalid_edit&&document::load_material_library(unicode).properties.at("MASS_DENSITY")=="2800","Invalid edit changed the saved material");
     const auto rejected=[&](const std::string& input) {
         write(unicode,input);bool failed=false;try{static_cast<void>(document::load_material_library(unicode));}catch(const std::exception&){failed=true;}require(failed,"Invalid material library accepted");
     };

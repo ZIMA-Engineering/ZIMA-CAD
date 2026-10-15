@@ -139,10 +139,26 @@ def render(data, page, language):
                          + '" alt="' + tr(figure['caption']) + '"><figcaption>' + tr(figure['caption']) + '</figcaption></figure>')
         if page.get('diagram'):
             parts.append(diagram(page['diagram']))
-        for block in table_blocks(page):
+        screen_blocks = list(table_blocks(page))
+        split_print = any(len(block['headers']) > 7 for block in screen_blocks)
+        output_blocks = [(block, False) for block in screen_blocks]
+        if split_print:
+            for block in screen_blocks:
+                columns = len(block['headers'])
+                for start in range(1, columns, 6) if columns > 7 else [1]:
+                    indexes = [0, *range(start, min(columns, start + 6))] if columns > 7 else list(range(columns))
+                    output_blocks.append(({**block, 'headers': [block['headers'][i] for i in indexes],
+                                           'rows': [[row[i] for i in indexes] for row in block['rows']]}, True))
+        for block, print_copy in output_blocks:
+            if split_print:
+                parts.append('<div class="print-only">' if print_copy else '<div class="screen-only">')
             if block.get('heading'):
                 parts.append('<h2>'+tr(block['heading'])+'</h2>')
-            parts += ['<div class="table-scroll"><table>', f'<caption>{tr(page["title"])}</caption>',
+            if block is not page and block.get('review') and block['review'] != page.get('review'):
+                parts.append('<p class="review-status">' + tr(block['review']) + '</p>')
+            frozen = ' table-scroll--frozen' if page.get('freeze_header') and not print_copy else ''
+            focus = f' tabindex="0" role="region" aria-label="{tr(block.get("heading", page["title"]))}"' if frozen else ''
+            parts += [f'<div class="table-scroll{frozen}"{focus}><table>', f'<caption>{tr(page["title"])}</caption>',
                       '<thead><tr>' + ''.join(f'<th scope="col">{tr(key)}</th>' for key in block["headers"]) + '</tr></thead><tbody>']
             for row in block["rows"]:
                 cells = []
@@ -157,16 +173,23 @@ def render(data, page, language):
                     cells.append(f'<{tag}>{value}</{ending}>')
                 parts.append('<tr>' + ''.join(cells) + '</tr>')
             parts += ['</tbody></table></div>']
-    else:
-        parts.append('<ul class="topics">')
-        for child in data["pages"]:
-            if child is page or not child["path"]:
+            if split_print:
+                parts.append('</div>')
+    def child_navigation(parent):
+        links = []
+        for child in data['pages']:
+            if not child['path'] or str(Path(child['path']).parent).replace('\\', '/') != (parent or '.'):
                 continue
-            parent = str(Path(child["path"]).parent).replace('\\', '/')
-            if parent == (page["path"] or '.'):
-                href = '../' + Path(child["path"]).name + f'/0000-index/index_{language}.html'
-                parts.append(f'<li><a href="{href}">{tr(child["title"])}</a></li>')
-        parts.append('</ul>')
+            if child['rows']:
+                href = os.path.relpath(root / child['path'] / '0000-index' / f'index_{language}.html',
+                                       root / page['path'] / '0000-index').replace('\\', '/')
+                links.append(f'<li><a href="{html.escape(href, quote=True)}">{tr(child["title"])}</a></li>')
+            else:
+                descendants = child_navigation(child['path'])
+                if descendants:
+                    links.append(f'<li><span>{tr(child["title"])}</span>{descendants}</li>')
+        return '<ul class="topics">' + ''.join(links) + '</ul>' if links else ''
+    parts.append(child_navigation(page['path']))
     parts += ['<aside>' + ''.join(f'<p>{tr(key)}</p>' for key in page["notes"]) + '</aside>']
     links = [f'<a href="{html.escape(data["sources"][key]["url"], quote=True)}">'
              + html.escape(data["sources"][key]["label"]) + '</a>' for key in page["sources"]]

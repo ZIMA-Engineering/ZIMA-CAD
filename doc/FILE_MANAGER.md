@@ -342,14 +342,44 @@ under `Parts/<stem>/name/<language>` and the `zima-cad` provider under `Files`.
 Files reads the native value for the active language; editing a localized value
 updates that language while preserving the shared value and other translations.
 Shared-only parameters retain their ordinary shared-value editing behavior.
-The same native parameter path supports `.prtz`, `.asmz`, `.frmz`, `.tblz` and
-`.symz`. This adds no required sidecar and performs no model regeneration.
+The same native parameter path supports `.prtz`, `.asmz`, `.frmz`, `.tblz`,
+`.symz` and material libraries (`.matz`). This adds no required sidecar and
+performs no model regeneration.
 The title block keeps all five embedded SVG logos; the redundant loose import
 SVG and two explicitly unwanted FR backup files were recycled.
 
 The icon after the working-directory field binds the same QAction as File → Set working directory (F12), including its icon, enabled state and shared localized directory chooser.
 
 Parameter cache validity includes the revision of any authoritative open native document in addition to file modification time and size. Unsaved metadata edits therefore appear without reloading closed files or recalculating geometry.
+
+### Material library parameters
+
+File Manager reads `.matz` with the shared native material reader. The material
+name and physical properties appear as parameter columns. Existing material
+descriptions supply cs/en/de/fr/ru column labels; units appear in the header
+when the files sharing a column use the same unit. Cell tooltips retain each
+file's unit, including mixed-unit directories. Raw numeric values are preserved;
+this view does not silently convert material units.
+
+Writable directories publish the ordered columns and localized labels into
+`0000-index/metadata.ini`: `Directory/Parameters`, `Parameters/<key>/Label/<language>`,
+`Parts/<stem>/<key>`, `Parts/<stem>/<key>/Unit` and the existing `Files` provider
+records. The `.matz` file remains authoritative. The index is a derived mirror,
+not a required source of material properties.
+
+Editing a material cell validates the complete pending material, writes the
+existing native UTF-8 representation atomically, then refreshes the mirror.
+Unchanged values do not rewrite the material. Invalid values leave the file
+unchanged. Saving preserves property strings, units and all descriptions;
+the material file's layout is serialized into canonical sections. Directory and
+source edit protection continue to apply. Already assigned Part and Assembly
+materials are self-contained and do not change when a library entry is edited.
+
+The File Manager GUI contract checks all five languages, native values and units,
+the metadata mirror, a real delegate edit, unchanged input and invalid density.
+The material-library contract round-trips every one of the 49 tracked factory
+materials, as well as Unicode and literal text. This feature does not add a
+standalone material-library editor or New/Save As commands.
 
 Unsaved native values appear in the UI but are not published into the persistent file metadata mirror. The cache key includes the saved/dirty state; mirroring resumes after a successful native save. Directory-property changes refresh inherited protection and factory-source labels in the current view immediately.
 
@@ -449,12 +479,85 @@ properties window was visually inspected. Linux runtime verification remains
 outstanding. Details and timings are in the
 [performance follow-up](performance/20261013-file-manager-followup.md).
 
-## Planned engineering-table revision
+## File type filters and folder creation
 
-On 2026-10-13, the user selected revision of the imported engineering tables as
-the next stage after the current performance work. Review and redesign the
-table content and HTML presentation under `config/lib/03-ENGINEERING-TABLES`,
-retaining usable File Manager navigation, localization and independent local
-page resources. This records the intended next stage only; revision has not
-started. Preserve the original engineering-table source and agree on concrete
-changes before applying them across the library.
+The native type buttons next to Versions independently show or hide Part,
+Assembly, Drawing, material, frame, title-block and symbol files. Filtering
+combines with the existing per-column text filters without reloading native
+documents. Column filter editors follow horizontal scrolling, section resizing
+and reordering. The header context menu can hide the Type column; this choice
+is stored with the existing local column layout.
+Type buttons and extension values in the Type column use lowercase. Checked
+type and Versions buttons use the shared azure command-button state.
+
+Filters, next to Versions, edits `0000-index/filters.ini`. Its `[Filters]`
+`Hide` list contains exact names or wildcard patterns (`*` and `?`), matched
+against complete file and folder names without case sensitivity. This is the
+current ZIMA-Parts local filter convention. Rules apply to that directory only;
+ancestor filter files and obsolete `files.ini` visibility groups are not read.
+Unknown `filters.ini` settings and existing `files.ini` files are preserved.
+
+Settings > File Manager > Global file filters supplies defaults. The factory
+list contains `0000-index`; File Manager has no special hard-coded exclusion
+for that name. The local Use global filters option (`Filters/InheritGlobal`,
+default true) combines these defaults with local rules. Turn it off to define
+an independent local list, including making `0000-index` visible. The separate
+Materials Manager tree continues to omit its internal metadata directories.
+One pattern per line is used in both editors; empty lists are supported.
+
+Native buttons atomically update local `Filters/Hide` extension rules. Enabling
+a type hidden by an exact global extension rule copies the effective rules
+locally and disables global inheritance, retaining the other exclusions.
+`Filters/ShowZimaVersions` persists Versions. Pattern expressions are compiled
+once per refresh. Read-only or content-protected directories permit transient
+native-button changes without writing policy; their local rule editor is
+read-only. Parameter-edit protection alone does not block filter configuration.
+
+Versions, Filters, type buttons, New Folder, thumbnail size and the remaining
+file actions share one row. The size slider follows New Folder. Native type
+and Versions buttons have icons; active states are azure. All current factory
+symbol definitions have geometry-based PNG previews in their local thumbnail
+metadata directories; `tools/generate-symbol-thumbnails.py` regenerates and
+checks these without modifying native definitions.
+
+New Folder creates one immediate child using the shared internal name editor.
+Invalid, reserved or existing names are rejected. Source read-only status and
+inherited content protection block creation, including a repeated check on OK.
+Parameter-edit protection alone does not block adding a folder. Existing deletion
+and move protection continues to apply to both files and directories.
+
+## Material library manager
+
+Opening a `.matz` file opens Material Properties, containing only its parameter
+table, OK, Cancel and Save As. It does not construct a folder tree or enumerate
+other materials. Tools > Material Manager retains its folder tree, material
+list, New Folder, New Material and Save As. Both modes reuse the same internal
+Material dialog, property table, validation and atomic saving implementation as
+document material editing. They keep document assignment separate: changing a library file does
+not modify materials already stored in existing Part or Assembly documents.
+The material folder tree excludes `0000-index` metadata directories at every
+depth, including folders added while the manager is open.
+
+OK validates and atomically saves pending edits to the selected library file;
+unchanged OK performs no write. Cancel discards pending edits. Selecting another
+file, folder or New Material asks before discarding pending table changes.
+Save As chooses a writable destination and a new `.matz` name, saves a copy and
+reopens it in the same editor. Existing destination files are rejected. New
+Material starts a pending material that is named through Save As. Explicitly
+saved copies and folders remain after Cancel.
+
+Library edits preserve units and descriptions in other languages, use native
+material validation, respect source read-only and parameter-edit protection,
+and reject saving over a file changed externally since it was opened. Creating
+files and folders respects content protection. The dialog uses the existing
+shared properties-window confirmation and layout mechanisms, including middle
+double-click confirmation over its owning view. New controls and errors are
+localized in all five languages. Windows GUI regression checks cover these
+paths; Linux desktop execution still requires verification on Linux.
+
+## Engineering-table revision context
+
+The revision selected on 2026-10-13 subsequently consolidated preferred numbers,
+normal sizes, tolerances and thread tables, corrected redundant navigation and
+added category logos. Generated pages retain all five languages and independent
+local resources. The original engineering-table source remains preserved.

@@ -11,6 +11,11 @@ with the GPL distribution. Do not redistribute their text, scans or artwork.
 Language selection does not select a different country's standard. A national
 adoption is useful only when its exact ISO edition and corrections are confirmed.
 
+The 2026-10-15 navigation consolidation changes document grouping only. The
+287 logical references preserve their source cells, review status and unresolved
+contradictions. It does not close any acquisition item below. See the
+[refresh record](REFERENCE_TABLES_REFRESH.md) for the current inventory.
+
 ## Tolerances and metric threads
 
 | Reference | Required review |

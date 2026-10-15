@@ -7,6 +7,9 @@
 #include "thumbnail_image.hpp"
 #include "resource_icon.hpp"
 #include "native_file_icon.hpp"
+#include "path_name_dialog.hpp"
+#include "file_manager_filters.hpp"
+#include "tool_button_style.hpp"
 
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -63,6 +66,7 @@
 #include <QTableWidget>
 #include <QToolBar>
 #include <QToolButton>
+#include <QScrollBar>
 #include <QTreeView>
 #include <QTreeWidget>
 #include <QUrl>
@@ -138,6 +142,8 @@ public:
         connect(this,&QHeaderView::sectionResized,this,[this]{layout_fields();});
         connect(this,&QHeaderView::sectionMoved,this,[this]{layout_fields();});
         connect(this,&QHeaderView::geometriesChanged,this,[this]{layout_fields();});
+        if(auto* view=qobject_cast<QAbstractItemView*>(parent))
+            connect(view->horizontalScrollBar(),&QScrollBar::valueChanged,this,[this]{layout_fields();});
     }
     std::function<void()> filters_changed;
     void configure(const QStringList& headers){
@@ -161,8 +167,8 @@ private:
 
 class DirectoryTreeFilter final : public QSortFilterProxyModel {
 public:
-    DirectoryTreeFilter(QString language,QObject* parent)
-        :QSortFilterProxyModel(parent),language_(std::move(language)){}
+    DirectoryTreeFilter(QString language,QStringList global_filters,QObject* parent)
+        :QSortFilterProxyModel(parent),language_(std::move(language)),global_filters_(std::move(global_filters)){}
     QVariant data(const QModelIndex& index,int role=Qt::DisplayRole)const override{
         if(index.column()==0){
             const auto* files=qobject_cast<QFileSystemModel*>(sourceModel());
@@ -183,7 +189,7 @@ public:
         }
         return QSortFilterProxyModel::data(index,role);
     }
-    void clear_label_cache(){labels_.clear();branding_.clear();invalidate();}
+    void clear_label_cache(){labels_.clear();branding_.clear();filters_.clear();invalidate();}
 protected:
     bool lessThan(const QModelIndex& left,const QModelIndex& right)const override {
         const auto* files=qobject_cast<QFileSystemModel*>(sourceModel());
@@ -193,11 +199,13 @@ protected:
     bool filterAcceptsRow(int row,const QModelIndex& parent)const override {
         const auto* files=qobject_cast<QFileSystemModel*>(sourceModel());
         if(!files)return QSortFilterProxyModel::filterAcceptsRow(row,parent);
-        return files->fileName(files->index(row,0,parent)).compare(
-            QStringLiteral("0000-index"),Qt::CaseInsensitive)!=0;
+        const QString directory=files->filePath(parent);auto filter=filters_.constFind(directory);if(filter==filters_.cend())filter=filters_.insert(directory,directory_file_filter(directory,global_filters_));
+        return (*filter)(files->fileName(files->index(row,0,parent)));
     }
 private:
     QString language_;
+    QStringList global_filters_;
+    mutable QHash<QString,std::function<bool(const QString&)>> filters_;
     mutable QHash<QString,QString> labels_;
     mutable QHash<QString,DirectoryBranding> branding_;
 };
@@ -374,13 +382,13 @@ QString logical_file_id(const QFileInfo& info) {
     const QRegularExpression proe(QStringLiteral(R"(^(.+)\.(?:prt|asm|drw)\.\d+$)"),QRegularExpression::CaseInsensitiveOption);
     const auto match=proe.match(name);if(match.hasMatch())return match.captured(1);
     const QString suffix=info.suffix().toLower();
-    if(QStringList{"prtz","asmz","drwz","frmz","tblz","symz"}.contains(suffix))return info.completeBaseName();
+    if(QStringList{"prtz","asmz","drwz","frmz","tblz","symz","matz"}.contains(suffix))return info.completeBaseName();
     return name;
 }
 
 bool is_version_file(const QFileInfo& info) {
-    return QRegularExpression(QStringLiteral(R"(\.(?:prt|asm|drw|prtz|asmz|drwz|frmz|tblz|symz)\.\d+$)"),
-        QRegularExpression::CaseInsensitiveOption).match(info.fileName()).hasMatch();
+    static const QRegularExpression version(QStringLiteral(R"(\.(?:prt|asm|drw|prtz|asmz|drwz|frmz|tblz|symz)\.\d+$)"),QRegularExpression::CaseInsensitiveOption);
+    return version.match(info.fileName()).hasMatch();
 }
 
 bool copy_path(const QString& source, const QString& destination_directory, QString* error) {
@@ -416,25 +424,98 @@ bool atomic_metadata_update(const QString& path, const QMap<QString,QVariant>& v
 
 struct ProjectValues {QString number,title,customer,description,preview,logo;};
 
+class FileFiltersDialog final : public zima::ui::PropertiesSubWindow {
+public:
+  FileFiltersDialog(const QString &directory,
+                    const QMap<QString, QVariant> &policy,
+                    const QStringList &global, bool writable, QWidget *parent)
+      : PropertiesSubWindow(QObject::tr("File filters"), parent) {
+    setObjectName("fileManagerFiltersDialog");
+    setProperty("expandBottomTable", true);
+    auto *path = new QLabel(QDir::toNativeSeparators(directory), this);
+    path->setWordWrap(true);
+    content_layout()->addWidget(path);
+    inherit_ = new QCheckBox(QObject::tr("Use global filters"), this);
+    inherit_->setObjectName("fileManagerInheritGlobalFilters");
+    inherit_->setChecked(policy.value("Filters/InheritGlobal", true).toBool());
+    inherit_->setEnabled(writable);
+    content_layout()->addWidget(inherit_);
+    auto *inherited = new QLabel(
+        QObject::tr("Global filters: %1").arg(global.join(", ")), this);
+    inherited->setWordWrap(true);
+    content_layout()->addWidget(inherited);
+    auto *label = new QLabel(QObject::tr("Hidden names and patterns"), this);
+    content_layout()->addWidget(label);
+    patterns_ = new QPlainTextEdit(
+        file_pattern_list(policy.value("Filters/Hide")).join('\n'), this);
+    patterns_->setObjectName("fileManagerHiddenPatterns");
+    patterns_->setReadOnly(!writable);
+    patterns_->setToolTip(
+        QObject::tr("One name or wildcard pattern per line. Matches files and "
+                    "folders, without case sensitivity."));
+    content_layout()->addWidget(patterns_, 1);
+    label->setBuddy(patterns_);
+    buttons()->button(QDialogButtonBox::Ok)->setEnabled(writable);
+    set_initial_size({650, 450});
+  }
+  std::function<void(QStringList, bool)> saved;
+
+protected:
+  bool submit() override {
+    QStringList hidden;
+    for (const auto &pattern : patterns_->toPlainText().split('\n'))
+      if (!pattern.trimmed().isEmpty() && !hidden.contains(pattern.trimmed()))
+        hidden << pattern.trimmed();
+    if (saved)
+      saved(hidden, inherit_->isChecked());
+    return true;
+  }
+
+private:
+  QCheckBox *inherit_{};
+  QPlainTextEdit *patterns_{};
+};
+
 class ProjectEditor final : public zima::ui::PropertiesSubWindow {
 public:
-    ProjectEditor(ProjectValues values,const QString& directory,const ApplicationSettings& settings,QWidget* parent)
-        :PropertiesSubWindow(QObject::tr("Projektový přehled"),parent),values_(std::move(values)),directory_(directory),settings_(settings){
-        setObjectName("fileManagerProjectEditor");
-        auto* form=new QFormLayout;number_=new QLineEdit(values_.number,this);title_=new QLineEdit(values_.title,this);
-        customer_=new QLineEdit(values_.customer,this);description_=new QPlainTextEdit(values_.description,this);description_->setMaximumHeight(100);
-        preview_=new QLineEdit(values_.preview,this);logo_=new QLineEdit(values_.logo,this);
-        const auto image_row=[&](QLineEdit* edit){auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);layout->addWidget(edit,1);
-            auto* browse=new QPushButton(QObject::tr("Procházet…"),row);layout->addWidget(browse);connect(browse,&QPushButton::clicked,this,[this,edit]{
+  ProjectEditor(ProjectValues values, const QString &directory,
+                const ApplicationSettings &settings, QWidget *parent)
+      : PropertiesSubWindow(QObject::tr("Projektový přehled"), parent),
+        values_(std::move(values)), directory_(directory), settings_(settings) {
+    setObjectName("fileManagerProjectEditor");
+    auto *form = new QFormLayout;
+    number_ = new QLineEdit(values_.number, this);
+    title_ = new QLineEdit(values_.title, this);
+    customer_ = new QLineEdit(values_.customer, this);
+    description_ = new QPlainTextEdit(values_.description, this);
+    description_->setMaximumHeight(100);
+    preview_ = new QLineEdit(values_.preview, this);
+    logo_ = new QLineEdit(values_.logo, this);
+    const auto image_row = [&](QLineEdit *edit) {
+      auto *row = new QWidget(this);
+      auto *layout = new QHBoxLayout(row);
+      layout->setContentsMargins(0, 0, 0, 0);
+      layout->addWidget(edit, 1);
+      auto *browse = new QPushButton(QObject::tr("Procházet…"), row);
+      layout->addWidget(browse);
+      connect(browse, &QPushButton::clicked, this,
+              [this, edit] {
                 const QString path=open_file(this,QObject::tr("Vybrat obrázek"),directory_,QObject::tr("Obrázky (*.svg *.png *.jpg *.jpeg *.webp)"),settings_.translations);
-                if(!path.isEmpty())edit->setText(path);
-            });return row;};
-        form->addRow(QObject::tr("Číslo projektu"),number_);form->addRow(QObject::tr("Název projektu"),title_);
-        form->addRow(QObject::tr("Zákazník"),customer_);form->addRow(QObject::tr("Popis"),description_);
-        form->addRow(QObject::tr("Hlavní obrázek"),image_row(preview_));form->addRow(QObject::tr("Logo projektu"),image_row(logo_));
-        content_layout()->addLayout(form);set_initial_size({680,0});
-    }
-    ProjectValues result()const{return values_;}
+                if(!path.isEmpty())
+                  edit->setText(path);
+              });
+      return row;
+    };
+    form->addRow(QObject::tr("Číslo projektu"), number_);
+    form->addRow(QObject::tr("Název projektu"), title_);
+    form->addRow(QObject::tr("Zákazník"), customer_);
+    form->addRow(QObject::tr("Popis"), description_);
+    form->addRow(QObject::tr("Hlavní obrázek"), image_row(preview_));
+    form->addRow(QObject::tr("Logo projektu"), image_row(logo_));
+    content_layout()->addLayout(form);
+    set_initial_size({680, 0});
+  }
+  ProjectValues result() const { return values_; }
 protected:
     bool submit()override{
         if(title_->text().trimmed().isEmpty()){QMessageBox::warning(this,QObject::tr("Projektový přehled"),QObject::tr("Zadejte název projektu."));return false;}
@@ -719,6 +800,14 @@ public:
 
 } // namespace
 
+bool file_manager_can_write(const ApplicationSettings& settings,const QString& working,const QString& directory,bool parameter_edit){
+    const QString path=QFileInfo(directory).canonicalFilePath();if(path.isEmpty())return false;
+    qsizetype length=-1;bool read_only=true;
+    const auto consider=[&](const QString& root,bool locked){const QString canonical=QFileInfo(root).canonicalFilePath();if(!canonical.isEmpty()&&path_belongs_to(path,canonical)&&canonical.size()>length){length=canonical.size();read_only=locked;}};
+    consider(working,false);for(const auto& source:settings.file_manager.sources)if(source.enabled)consider(source.resolved_path,source.read_only);
+    return !read_only&&(parameter_edit?!directory_prevents_parameter_edit(path):ancestor_removal_lock(path).isEmpty());
+}
+
 FileManagerTab::FileManagerTab(const ApplicationSettings& settings,const QString& working_directory,
                                const QString& initial_path,QWidget* parent)
     :QWidget(parent),settings_(settings),working_directory_(clean_path(working_directory)){
@@ -765,9 +854,13 @@ void FileManagerTab::build_ui(){
     static_cast<ColumnFilterHeader*>(files_->header())->filters_changed=[this]{apply_file_filters();};
     connect(files_,&QTreeWidget::itemDoubleClicked,this,[this](QTreeWidgetItem* item,int column){if(column==0)open_entry(item->data(0,Qt::UserRole).toString());});
     auto* include_status=new QLabel(files_page);include_status->setObjectName("fileManagerIncludeStatus");include_status->setTextFormat(Qt::PlainText);include_status->setWordWrap(true);include_status->hide();files_layout->addWidget(include_status);files_layout->addWidget(files_,1);
-    auto* actions=new QHBoxLayout;filter_versions_=new QToolButton(files_page);filter_versions_->setText(tr("Verze"));filter_versions_->setCheckable(true);filter_versions_->setObjectName("fileManagerFilterVersions");actions->addWidget(filter_versions_);connect(filter_versions_,&QToolButton::toggled,this,[this]{refresh_overview();refresh_files();});
-    actions->addStretch();const auto operation=[&](const QString& text,const char* name){auto* button=new QPushButton(text,files_page);button->setObjectName(name);actions->addWidget(button);return button;};
-    auto* thumbnail_size=new QSlider(Qt::Horizontal,files_page);thumbnail_size->setObjectName("fileManagerThumbnailSize");thumbnail_size->setRange(48,192);thumbnail_size->setFixedWidth(300);thumbnail_size->setToolTip(tr("Velikost náhledů"));thumbnail_size->setAccessibleName(tr("Velikost náhledů"));actions->insertWidget(1,thumbnail_size);
+    auto* actions=new QHBoxLayout;filter_versions_=new QToolButton(files_page);filter_versions_->setText(tr("Verze"));filter_versions_->setCheckable(true);filter_versions_->setStyleSheet(command_button_style());filter_versions_->setIcon(resource_icon("restore"));filter_versions_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);filter_versions_->setObjectName("fileManagerFilterVersions");actions->addWidget(filter_versions_);connect(filter_versions_,&QToolButton::toggled,this,[this]{save_type_filters();refresh_overview();refresh_files();});
+    filters_=new QToolButton(files_page);filters_->setObjectName("fileManagerFilters");filters_->setText(tr("Filters…"));filters_->setIcon(resource_icon("filter"));filters_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);filters_->setCheckable(true);filters_->setStyleSheet(command_button_style());actions->addWidget(filters_);connect(filters_,&QToolButton::clicked,this,&FileManagerTab::edit_filters);
+    for(const auto* extension:{"prtz","asmz","drwz","matz","frmz","tblz","symz"}){const QString type=QString::fromLatin1(extension);auto* button=new QToolButton(files_page);button->setText(type);button->setStyleSheet(command_button_style());button->setIcon(type=="matz"?resource_icon("material"):native_file_icon(QFileInfo("file."+type)));button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);button->setObjectName("fileManagerType_"+type);button->setCheckable(true);button->setChecked(true);type_filters_.insert(type,button);actions->addWidget(button);connect(button,&QToolButton::toggled,this,[this]{save_type_filters();apply_file_filters();});}
+    files_->header()->setContextMenuPolicy(Qt::CustomContextMenu);connect(files_->header(),&QWidget::customContextMenuRequested,this,[this](const QPoint& point){QMenu menu(this);auto* type=menu.addAction(tr("Show Type column"));type->setCheckable(true);type->setChecked(!files_->isColumnHidden(2));connect(type,&QAction::toggled,this,[this](bool visible){files_->setColumnHidden(2,!visible);save_column_layout();});menu.exec(files_->header()->mapToGlobal(point));});
+    new_directory_=new QPushButton(tr("New folder…"),files_page);new_directory_->setObjectName("fileManagerNewDirectory");new_directory_->setIcon(resource_icon("web-folder"));actions->addWidget(new_directory_);connect(new_directory_,&QPushButton::clicked,this,&FileManagerTab::create_directory);
+    const auto operation=[&](const QString& text,const char* name){auto* button=new QPushButton(text,files_page);button->setObjectName(name);actions->addWidget(button);return button;};
+    auto* thumbnail_size=new QSlider(Qt::Horizontal,files_page);thumbnail_size->setObjectName("fileManagerThumbnailSize");thumbnail_size->setRange(48,192);thumbnail_size->setMinimumWidth(80);thumbnail_size->setMaximumWidth(300);thumbnail_size->setToolTip(tr("Velikost náhledů"));thumbnail_size->setAccessibleName(tr("Velikost náhledů"));actions->addWidget(thumbnail_size,1);
     int initial_size=96;if(!column_settings_path(settings_).isEmpty()){QSettings layout(column_settings_path(settings_),QSettings::IniFormat);initial_size=layout.value("Thumbnails/ColumnSize",std::max(96,layout.value("Thumbnails/Size",96).toInt())).toInt();}thumbnail_size->setValue(initial_size);files_->setIconSize({thumbnail_size->value(),thumbnail_size->value()});
     connect(thumbnail_size,&QSlider::valueChanged,this,[this](int size){files_->setIconSize({size,size});files_->setColumnWidth(file_preview_column,size+4);if(!column_settings_path(settings_).isEmpty()){QSettings layout(column_settings_path(settings_),QSettings::IniFormat);layout.setValue("Thumbnails/ColumnSize",size);}});
     clean_=operation(tr("Vyčistit"),"fileManagerClean");clean_->setIcon(resource_icon("clean"));
@@ -807,7 +900,7 @@ void FileManagerTab::rebuild_sources(){
         auto* model=new QFileSystemModel(tree);QDir::Filters model_filters=QDir::Dirs|QDir::NoDotAndDotDot;
         if(settings_.file_manager.show_hidden)model_filters|=QDir::Hidden|QDir::System;
         model->setFilter(model_filters);
-        model->setRootPath(source.resolved_path);auto* proxy=new DirectoryTreeFilter(settings_.language,tree);proxy->setSourceModel(model);proxy->sort(0,Qt::AscendingOrder);tree->setModel(proxy);tree->setRootIndex(proxy->mapFromSource(model->index(source.resolved_path)));
+        model->setRootPath(source.resolved_path);auto* proxy=new DirectoryTreeFilter(settings_.language,settings_.file_manager.hidden_patterns,tree);proxy->setSourceModel(model);proxy->sort(0,Qt::AscendingOrder);tree->setModel(proxy);tree->setRootIndex(proxy->mapFromSource(model->index(source.resolved_path)));
         for(int column=1;column<proxy->columnCount();++column)tree->hideColumn(column);
         const int index=source_stack_->addWidget(tree);auto* item=new QListWidgetItem(source.name,source_list_);item->setData(Qt::UserRole,index);sources_.push_back({source,model,proxy,tree});
         connect(tree,&QTreeView::clicked,this,[this,model,proxy](const QModelIndex& selected){const QFileInfo info=model->fileInfo(proxy->mapToSource(selected));if(info.isDir())navigate(info.absoluteFilePath());});
@@ -840,7 +933,7 @@ void FileManagerTab::navigate(const QString& requested,bool track_history){
 }
 
 void FileManagerTab::refresh_directory(){
-    refresh_overview();refresh_files();update_actions();
+    refresh_type_filters();refresh_overview();refresh_files();update_actions();
     const QString label=directory_label(current_directory_,settings_.language);if(title_changed)title_changed(tr("Soubory – %1").arg(label));
 }
 
@@ -895,7 +988,7 @@ void FileManagerTab::refresh_overview(){
     if(automatic){
         QDir directory(current_directory_);auto filters=QDir::Dirs|QDir::NoDotAndDotDot;if(settings_.file_manager.show_hidden)filters|=QDir::Hidden|QDir::System;
         for(const auto& info:directory.entryInfoList(filters,QDir::Name|QDir::IgnoreCase)){
-            if(info.fileName().compare("0000-index",Qt::CaseInsensitive)==0)continue;
+            if(file_filter_matches_&&!file_filter_matches_(info.fileName()))continue;
             const QString label=directory_label(info.absoluteFilePath(),settings_.language);
             auto* item=new QListWidgetItem(entry_icon(info,current_directory_,thumbnail,settings_.language),label,overview_);item->setData(Qt::UserRole,info.absoluteFilePath());item->setData(Qt::AccessibleTextRole,label);item->setToolTip(label+QLatin1Char('\n')+info.absoluteFilePath());
         }
@@ -916,7 +1009,7 @@ void FileManagerTab::refresh_files(){
     auto entries=directory.entryInfoList(filters,QDir::DirsFirst|QDir::Name|QDir::IgnoreCase);if(!metadata.value("Directory/SubdirectoriesAsParts",true).toBool())entries.erase(std::remove_if(entries.begin(),entries.end(),[](const QFileInfo& info){return info.isDir();}),entries.end());
     QMap<QString,FileManagerNativeParameters> native_parameters;
     const auto read_native=[this](const QFileInfo& info){const QString stamp=info.lastModified().toUTC().toString(Qt::ISODateWithMs)+QLatin1Char(':')+QString::number(info.size())+(native_parameters_revision_requested?QLatin1Char(':')+native_parameters_revision_requested(info.absoluteFilePath()):QString{});auto cached=native_parameter_cache_.constFind(info.absoluteFilePath());if(cached!=native_parameter_cache_.cend()&&cached->first==stamp)return cached->second;auto data=native_parameters_requested(info.absoluteFilePath());if(data.error.isEmpty())native_parameter_cache_.insert(info.absoluteFilePath(),{stamp,data});return data;};
-    const auto native_file=[](const QFileInfo& info){return info.isFile()&&QStringList{"prtz","asmz","frmz","tblz","symz"}.contains(info.suffix().toLower());};
+    const auto native_file=[](const QFileInfo& info){return info.isFile()&&QStringList{"prtz","asmz","frmz","tblz","symz","matz"}.contains(info.suffix().toLower());};
     if(native_parameters_requested)for(const auto& info:entries){if(!native_file(info))continue;auto data=read_native(info);if(!data.error.isEmpty())continue;for(const auto& parameter:data.order)if(!parameters.contains(parameter))parameters.push_back(parameter);for(auto it=data.values.cbegin();it!=data.values.cend();++it)if(!parameters.contains(it.key()))parameters.push_back(it.key());native_parameters.insert(info.absoluteFilePath(),std::move(data));}
     QSet<QString> stems;for(const auto& info:entries)if(info.isFile())stems.insert(info.completeBaseName());
     for(int source_index=1;source_index<parameter_sources.directories.size();++source_index){
@@ -938,7 +1031,13 @@ void FileManagerTab::refresh_files(){
     }
     const auto inherited_value=[&](const QString& key)->QString{return inherited_metadata.value(key).toStringList().join(", ");};
     QStringList headers{tr("Název souboru"),tr("Náhled"),tr("Typ"),tr("Velikost"),tr("Změněno")};
-    for(const auto& parameter:parameters){const auto key=QStringLiteral("Parameters/%1/Label").arg(parameter);QString label=translated_value(metadata,key,settings_.language);if(label.isEmpty())label=inherited_value(key+QLatin1Char('/')+settings_.language);if(label.isEmpty())label=inherited_value(key);if(label.isEmpty())for(auto it=native_parameters.cbegin();it!=native_parameters.cend();++it){const auto labels=it->labels.value(parameter);label=labels.value(settings_.language,labels.value(QString{}));if(!label.isEmpty())break;}headers<<(label.isEmpty()?parameter:label);}files_->setColumnCount(headers.size());files_->setHeaderLabels(headers);static_cast<ColumnFilterHeader*>(files_->header())->configure(headers);
+    const auto parameter_unit_suffix=[&](const QString& parameter){
+        QSet<QString> units;
+        for(const auto& data:native_parameters)if(data.values.contains(parameter))units.insert(data.units.value(parameter));
+        if(units.size()==1&&!units.constBegin()->isEmpty()&&*units.constBegin()!="1")return QStringLiteral(" [%1]").arg(*units.constBegin());
+        return QString{};
+    };
+    for(const auto& parameter:parameters){const auto key=QStringLiteral("Parameters/%1/Label").arg(parameter);QString label=translated_value(metadata,key,settings_.language);if(label.isEmpty())label=inherited_value(key+QLatin1Char('/')+settings_.language);if(label.isEmpty())label=inherited_value(key);if(label.isEmpty())for(auto it=native_parameters.cbegin();it!=native_parameters.cend();++it){const auto labels=it->labels.value(parameter);label=labels.value(settings_.language,labels.value(QString{}));if(!label.isEmpty())break;}headers<<((label.isEmpty()?parameter:label)+parameter_unit_suffix(parameter));}files_->setColumnCount(headers.size());files_->setHeaderLabels(headers);static_cast<ColumnFilterHeader*>(files_->header())->configure(headers);
     for(int p=0;p<parameters.size();++p)files_->headerItem()->setData(file_parameter_first_column+p,Qt::UserRole,parameters[p]);
     files_->header()->setSectionResizeMode(QHeaderView::Interactive);
     const bool editable=!current_source_read_only()&&!directory_prevents_parameter_edit(current_directory_);
@@ -949,8 +1048,8 @@ void FileManagerTab::refresh_files(){
     if(editable&&(version>=3||saved_native))mirror_updates.insert("Directory/Parameters",mirrored_parameters.join(','));
     if(editable&&saved_native){mirror_updates.insert("Directory/Version",3);if(!metadata.contains("Directory/Kind"))mirror_updates.insert("Directory/Kind","directory");if(!metadata.contains("Directory/Id"))mirror_updates.insert("Directory/Id",QUuid::createUuid().toString(QUuid::WithoutBraces));}
     for(const auto& info:entries){
-        if(info.fileName().compare("0000-index",Qt::CaseInsensitive)==0||(!filter_versions_->isChecked()&&is_version_file(info)))continue;
-        auto* item=new FileEntryItem(files_);item->setData(0,Qt::UserRole+3,info.isDir());item->setData(0,Qt::UserRole,info.absoluteFilePath());item->setData(0,Qt::UserRole+1,logical_file_id(info));item->setCheckState(0,Qt::Unchecked);const QString thumbnail=entry_thumbnail(info,current_directory_,settings_.language,&metadata,&thumbnail_sources.directories);item->setData(0,Qt::UserRole+4,thumbnail);const auto type_icon=native_file_icon(info);item->setIcon(0,type_icon.isNull()?QFileIconProvider().icon(info):type_icon);item->setIcon(file_preview_column,compact_preview_icon(thumbnail));item->setText(0,info.isDir()?directory_label(info.absoluteFilePath(),settings_.language):info.fileName());item->setText(2,info.isDir()?tr("Adresář"):info.suffix().toUpper());item->setText(3,info.isDir()?QString{}:QLocale().formattedDataSize(info.size()));item->setText(4,QLocale().toString(info.lastModified(),QLocale::ShortFormat));
+        if((info.isDir()&&file_filter_matches_&&!file_filter_matches_(info.fileName()))||(!filter_versions_->isChecked()&&is_version_file(info)))continue;
+        auto* item=new FileEntryItem(files_);item->setData(0,Qt::UserRole+3,info.isDir());item->setData(0,Qt::UserRole,info.absoluteFilePath());item->setData(0,Qt::UserRole+1,logical_file_id(info));item->setCheckState(0,Qt::Unchecked);const QString thumbnail=entry_thumbnail(info,current_directory_,settings_.language,&metadata,&thumbnail_sources.directories);item->setData(0,Qt::UserRole+4,thumbnail);const auto type_icon=native_file_icon(info);item->setIcon(0,type_icon.isNull()?QFileIconProvider().icon(info):type_icon);item->setIcon(file_preview_column,compact_preview_icon(thumbnail));item->setText(0,info.isDir()?directory_label(info.absoluteFilePath(),settings_.language):info.fileName());item->setText(2,info.isDir()?tr("Adresář"):info.suffix().toLower());item->setText(3,info.isDir()?QString{}:QLocale().formattedDataSize(info.size()));item->setText(4,QLocale().toString(info.lastModified(),QLocale::ShortFormat));
         const QString id=logical_file_id(info);const auto native=native_parameters.constFind(info.absoluteFilePath());item->setData(0,Qt::UserRole+2,native==native_parameters.cend()?QStringLiteral("metadata"):QStringLiteral("zima-cad"));
         metadata.beginGroup("Parts");for(int p=0;p<parameters.size();++p){
             const QString parameter=parameters[p],key=id+QLatin1Char('/')+parameter;QString value;bool localized=false;
@@ -973,57 +1072,254 @@ void FileManagerTab::refresh_files(){
                     }
                 }
             }
-            item->setText(file_parameter_first_column+p,value);item->setData(file_parameter_first_column+p,Qt::UserRole+5,localized);if(editable&&(version>=3||native!=native_parameters.cend()||parameter_sources.directories.size()>1))item->setFlags(item->flags()|Qt::ItemIsEditable);
+            item->setText(file_parameter_first_column+p,value);if(native!=native_parameters.cend())item->setToolTip(file_parameter_first_column+p,value+QLatin1Char(' ')+native->units.value(parameter));item->setData(file_parameter_first_column+p,Qt::UserRole+5,localized);if(editable&&(version>=3||native!=native_parameters.cend()||parameter_sources.directories.size()>1))item->setFlags(item->flags()|Qt::ItemIsEditable);
             if(native!=native_parameters.cend()&&editable&&!native->unsaved){
-                const QString mirror=QStringLiteral("Parts/%1/%2").arg(id,parameter);if(native->values.contains(parameter))mirror_updates.insert(mirror,native->values.value(parameter));
+                const QString mirror=QStringLiteral("Parts/%1/%2").arg(id,parameter);if(native->units.contains(parameter))mirror_updates.insert(mirror+QStringLiteral("/Unit"),native->units.value(parameter));if(native->values.contains(parameter))mirror_updates.insert(mirror,native->values.value(parameter));
                 const auto variants=native->localized_values.value(parameter);for(auto it=variants.cbegin();it!=variants.cend();++it)mirror_updates.insert(it.key().isEmpty()?mirror:mirror+QLatin1Char('/')+it.key(),it.value());
                 const auto labels=native->labels.value(parameter);for(auto it=labels.cbegin();it!=labels.cend();++it){const QString label_key=QStringLiteral("Parameters/%1/Label").arg(parameter)+(it.key().isEmpty()?QString{}:QLatin1Char('/')+it.key());if(!existing_labels.contains(label_key))mirror_updates.insert(label_key,it.value());}
             }
         }metadata.endGroup();
         if(native!=native_parameters.cend()&&editable&&!native->unsaved){mirror_updates.insert(QStringLiteral("Files/%1/Provider").arg(id),"zima-cad");mirror_updates.insert(QStringLiteral("Files/%1/Path").arg(id),info.fileName());mirror_updates.insert(QStringLiteral("Files/%1/ModifiedUtc").arg(id),info.lastModified().toUTC().toString(Qt::ISODateWithMs));}
     }
-    if(!mirror_updates.isEmpty()){QString error;if(!atomic_metadata_update(metadata_path(current_directory_),mirror_updates,&error)&&isVisible())QMessageBox::warning(this,tr("Správce souborů"),error);}
-    restore_column_layout();refreshing_files_=false;apply_file_filters();
+    if (!mirror_updates.isEmpty()) {
+      QString error;
+      if (!atomic_metadata_update(metadata_path(current_directory_),
+                                  mirror_updates, &error) &&
+          isVisible())
+        QMessageBox::warning(this, tr("Správce souborů"), error);
+    }
+    restore_column_layout();
+    refreshing_files_ = false;
+    apply_file_filters();
 }
 
-void FileManagerTab::apply_file_filters(){
-    if(!files_)return;const auto* header=static_cast<ColumnFilterHeader*>(files_->header());
-    for(int row=0;row<files_->topLevelItemCount();++row){auto* item=files_->topLevelItem(row);bool visible=true;for(int column=0;column<files_->columnCount();++column){const QString filter=header->filter(column).trimmed();if(!filter.isEmpty()&&!item->text(column).contains(filter,Qt::CaseInsensitive)){visible=false;break;}}item->setHidden(!visible);}
+void FileManagerTab::apply_file_filters() {
+  if (!files_)
+    return;
+  const auto *header = static_cast<ColumnFilterHeader *>(files_->header());
+  for (int row = 0; row < files_->topLevelItemCount(); ++row) {
+    auto *item = files_->topLevelItem(row);
+    const QFileInfo info(item->data(0, Qt::UserRole).toString());
+    QString suffix = info.suffix().toLower(), name = info.fileName();
+    if (is_version_file(info)) {
+      name = info.completeBaseName();
+      suffix = QFileInfo(name).suffix().toLower();
+    }
+    bool visible = (!file_filter_matches_ || file_filter_matches_(info.fileName())) &&
+        (item->data(0, Qt::UserRole + 3).toBool() || !type_filters_.contains(suffix) || type_filters_.value(suffix)->isChecked());
+    for (int column = 0; visible && column < files_->columnCount(); ++column) {
+      const QString filter = header->filter(column).trimmed();
+      if (!filter.isEmpty() &&
+          !item->text(column).contains(filter, Qt::CaseInsensitive)) {
+        visible = false;
+        break;
+      }
+    }
+    item->setHidden(!visible);
+  }
 }
 
-void FileManagerTab::update_actions(){const auto protection=ancestor_removal_lock(current_directory_);const bool writable=!current_source_read_only()&&protection.isEmpty();move_->setEnabled(writable);remove_->setEnabled(writable);clean_->setEnabled(writable);clean_->setToolTip(protection.isEmpty()?QString{}:tr("Čištění je zakázané ochranou obsahu ve Vlastnostech adresáře."));copy_->setEnabled(true);}
-void FileManagerTab::save_parameter(const QModelIndex& index){
-    if(refreshing_files_||index.column()<file_parameter_first_column)return;if(current_source_read_only()||directory_prevents_parameter_edit(current_directory_)){refresh_files();return;}auto* item=files_->itemFromIndex(index);auto* header=files_->headerItem();if(!item||!header)return;
-    const QString parameter=header->data(index.column(),Qt::UserRole).toString(),id=item->data(0,Qt::UserRole+1).toString();if(parameter.isEmpty()||id.isEmpty())return;
-    if(item->data(0,Qt::UserRole+2).toString()=="zima-cad"){
-        if(!native_parameter_edit_requested){if(isVisible())QMessageBox::warning(this,tr("Správce souborů"),tr("Nativní parametry nyní nelze upravit."));refresh_files();return;}
-        const QString native_error=native_parameter_edit_requested(item->data(0,Qt::UserRole).toString(),parameter,item->text(index.column()));
-        if(!native_error.isEmpty()){if(isVisible())QMessageBox::critical(this,tr("Uložení selhalo"),native_error);refresh_files();return;}
-        native_parameter_cache_.remove(item->data(0,Qt::UserRole).toString());
-    }
-    QSettings existing(metadata_path(current_directory_),QSettings::IniFormat);
-    QString value_key=QStringLiteral("Parts/%1/%2").arg(id,parameter);if(item->data(index.column(),Qt::UserRole+5).toBool())value_key+=QLatin1Char('/')+settings_.language;
-    QMap<QString,QVariant> update{{value_key,item->text(index.column())}};
-    if(existing.value("Directory/Version",2).toInt()<3){
-        QStringList parameters;for(int column=file_parameter_first_column;column<files_->columnCount();++column){const QString key=header->data(column,Qt::UserRole).toString();if(!key.isEmpty())parameters.push_back(key);}
-        update.insert("Directory/Version",3);update.insert("Directory/Kind",existing.value("Directory/Kind","directory"));
-        update.insert("Directory/Id",existing.value("Directory/Id",QUuid::createUuid().toString(QUuid::WithoutBraces)));
-        update.insert("Directory/Parameters",parameters.join(','));
-    }
-    if(item->data(0,Qt::UserRole+2).toString()=="zima-cad"){
-        const QString file_path=item->data(0,Qt::UserRole).toString();
-        update.insert(QStringLiteral("Files/%1/Provider").arg(id),"zima-cad");
-        update.insert(QStringLiteral("Files/%1/Path").arg(id),QFileInfo(file_path).fileName());
-        update.insert(QStringLiteral("Files/%1/ModifiedUtc").arg(id),QFileInfo(file_path).lastModified().toUTC().toString(Qt::ISODateWithMs));
-    }
+void FileManagerTab::refresh_type_filters() {
+  file_filter_policy_ = local_file_filters(current_directory_);
+  file_filter_matches_ = compile_file_filters(effective_file_filters(
+      file_filter_policy_, settings_.file_manager.hidden_patterns));
+  for (auto it = type_filters_.cbegin(); it != type_filters_.cend(); ++it) {
+    QSignalBlocker block(it.value());
+    it.value()->setChecked(file_filter_matches_("file." + it.key()));
+  }
+  filters_->setChecked(
+      !effective_file_filters(file_filter_policy_,
+                              settings_.file_manager.hidden_patterns)
+           .isEmpty());
+  QSignalBlocker block(filter_versions_);
+  filter_versions_->setChecked(
+      file_filter_policy_.value("Filters/ShowZimaVersions", false).toBool());
+}
+void FileManagerTab::save_type_filters() {
+  auto hidden = file_pattern_list(file_filter_policy_.value("Filters/Hide"));
+  bool inherit =
+      file_filter_policy_.value("Filters/InheritGlobal", true).toBool();
+  if (inherit)
+    for (auto it = type_filters_.cbegin(); it != type_filters_.cend(); ++it)
+      if (it.value()->isChecked() &&
+          settings_.file_manager.hidden_patterns.contains(
+              "*." + it.key(), Qt::CaseInsensitive)) {
+        hidden = effective_file_filters(file_filter_policy_,
+                                        settings_.file_manager.hidden_patterns);
+        inherit = false;
+        break;
+      }
+  for (auto it = type_filters_.cbegin(); it != type_filters_.cend(); ++it) {
+    const QString pattern = "*." + it.key();
+    hidden.removeIf([&](const QString &value) {
+      return value.compare(pattern, Qt::CaseInsensitive) == 0;
+    });
+    if (!it.value()->isChecked())
+      hidden << pattern;
+  }
+  file_filter_policy_["Filters/Hide"] = hidden;
+  file_filter_policy_["Filters/InheritGlobal"] = inherit;
+  file_filter_policy_["Filters/ShowZimaVersions"] =
+      filter_versions_->isChecked();
+  file_filter_matches_ = compile_file_filters(effective_file_filters(
+      file_filter_policy_, settings_.file_manager.hidden_patterns));
+  filters_->setChecked(
+      !effective_file_filters(file_filter_policy_,
+                              settings_.file_manager.hidden_patterns)
+           .isEmpty());
+  if (file_manager_can_write(settings_, working_directory_,
+                             current_directory_)) {
     QString error;
-    if(atomic_metadata_update(metadata_path(current_directory_),update,&error)){apply_file_filters();return;}
-    if(isVisible())QMessageBox::critical(this,tr("Uložení selhalo"),error);else qWarning().noquote()<<error;refresh_files();
+    if (!atomic_metadata_update(file_filters_path(current_directory_),
+                                file_filter_policy_, &error))
+      QMessageBox::warning(this, tr("Uložení selhalo"), error);
+  }
+}
+
+void FileManagerTab::edit_filters() {
+  filters_->setChecked(
+      !effective_file_filters(file_filter_policy_,
+                              settings_.file_manager.hidden_patterns)
+           .isEmpty());
+  const QString directory = current_directory_;
+  auto *dialog = new FileFiltersDialog(
+      directory, file_filter_policy_, settings_.file_manager.hidden_patterns,
+      !current_source_read_only() && ancestor_removal_lock(directory).isEmpty(),
+      window());
+  dialog->saved = [this, directory](QStringList hidden, bool inherit) {
+    if (!file_manager_can_write(settings_, working_directory_, directory))
+      throw std::runtime_error(
+          tr("The destination is read-only or protected.").toStdString());
+    QString error;
+    if (!atomic_metadata_update(
+            file_filters_path(directory),
+            {{"Filters/Hide", hidden}, {"Filters/InheritGlobal", inherit}},
+            &error))
+      throw std::runtime_error(error.toStdString());
+    for (auto &source : sources_)
+      static_cast<DirectoryTreeFilter *>(source.proxy)->clear_label_cache();
+    if (current_directory_ == directory)
+      refresh_directory();
+  };
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->show();
+}
+
+void FileManagerTab::update_actions() {
+  const auto protection = ancestor_removal_lock(current_directory_);
+  const bool writable = !current_source_read_only() && protection.isEmpty();
+  new_directory_->setEnabled(writable);
+  move_->setEnabled(writable);
+  remove_->setEnabled(writable);
+  clean_->setEnabled(writable);
+  clean_->setToolTip(protection.isEmpty()
+                         ? QString{}
+                         : tr("Čištění je zakázané ochranou obsahu ve "
+                              "Vlastnostech adresáře."));
+  copy_->setEnabled(true);
+}
+void FileManagerTab::create_directory() {
+  if (!file_manager_can_write(settings_, working_directory_,
+                              current_directory_))
+    return;
+  const QString directory = current_directory_;
+  auto *dialog = new PathNameDialog(
+      tr("New folder…"), {},
+      [this, directory](const QString &name) {
+        if (!file_manager_can_write(settings_, working_directory_, directory) ||
+            QFileInfo::exists(QDir(directory).filePath(name)) ||
+            !QDir(directory).mkdir(name))
+          throw std::runtime_error(
+              tr("The folder cannot be created.").toStdString());
+        if (current_directory_ == directory)
+          refresh_directory();
+      },
+      window());
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->show();
+}
+void FileManagerTab::save_parameter(const QModelIndex &index) {
+  if (refreshing_files_ || index.column() < file_parameter_first_column)
+    return;
+  if (current_source_read_only() ||
+      directory_prevents_parameter_edit(current_directory_)) {
+    refresh_files();
+    return;
+  }
+  auto *item = files_->itemFromIndex(index);
+  auto *header = files_->headerItem();
+  if (!item || !header)
+    return;
+  const QString parameter =
+                    header->data(index.column(), Qt::UserRole).toString(),
+                id = item->data(0, Qt::UserRole + 1).toString();
+  if (parameter.isEmpty() || id.isEmpty())
+    return;
+  if (item->data(0, Qt::UserRole + 2).toString() == "zima-cad") {
+    if (!native_parameter_edit_requested) {
+      if (isVisible())
+        QMessageBox::warning(this, tr("Správce souborů"),
+                             tr("Nativní parametry nyní nelze upravit."));
+      refresh_files();
+      return;
+    }
+    const QString native_error =
+        native_parameter_edit_requested(item->data(0, Qt::UserRole).toString(),
+                                        parameter, item->text(index.column()));
+    if (!native_error.isEmpty()) {
+      if (isVisible())
+        QMessageBox::critical(this, tr("Uložení selhalo"), native_error);
+      refresh_files();
+      return;
+    }
+    native_parameter_cache_.remove(item->data(0, Qt::UserRole).toString());
+  }
+  QSettings existing(metadata_path(current_directory_), QSettings::IniFormat);
+  QString value_key = QStringLiteral("Parts/%1/%2").arg(id, parameter);
+  if (item->data(index.column(), Qt::UserRole + 5).toBool())
+    value_key += QLatin1Char('/') + settings_.language;
+  QMap<QString, QVariant> update{{value_key, item->text(index.column())}};
+  if (existing.value("Directory/Version", 2).toInt() < 3) {
+    QStringList parameters;
+    for (int column = file_parameter_first_column;
+         column < files_->columnCount(); ++column) {
+      const QString key = header->data(column, Qt::UserRole).toString();
+      if (!key.isEmpty())
+        parameters.push_back(key);
+    }
+    update.insert("Directory/Version", 3);
+    update.insert("Directory/Kind",
+                  existing.value("Directory/Kind", "directory"));
+    update.insert("Directory/Id",
+                  existing.value("Directory/Id", QUuid::createUuid().toString(
+                                                     QUuid::WithoutBraces)));
+    update.insert("Directory/Parameters", parameters.join(','));
+  }
+  if (item->data(0, Qt::UserRole + 2).toString() == "zima-cad") {
+    const QString file_path = item->data(0, Qt::UserRole).toString();
+    update.insert(QStringLiteral("Files/%1/Provider").arg(id), "zima-cad");
+    update.insert(QStringLiteral("Files/%1/Path").arg(id),
+                  QFileInfo(file_path).fileName());
+    update.insert(QStringLiteral("Files/%1/ModifiedUtc").arg(id),
+                  QFileInfo(file_path).lastModified().toUTC().toString(
+                      Qt::ISODateWithMs));
+  }
+  QString error;
+  if (atomic_metadata_update(metadata_path(current_directory_), update,
+                             &error)) {
+    apply_file_filters();
+    return;
+  }
+  if (isVisible())
+    QMessageBox::critical(this, tr("Uložení selhalo"), error);
+  else
+    qWarning().noquote() << error;
+  refresh_files();
 }
 bool FileManagerTab::current_source_read_only()const{const int index=source_index_for(current_directory_);return index<0||sources_.at(index).source.read_only;}
 QString FileManagerTab::current_source_label()const{const int index=source_index_for(current_directory_);return index<0?QString{}:sources_.at(index).source.name;}
 
-void FileManagerTab::open_entry(const QString& path){const QFileInfo info(path);if(info.isDir()){navigate(path);return;}const QString suffix=info.suffix().toLower();if(QStringList{"prtz","asmz","drwz","frmz","tblz","symz"}.contains(suffix)&&open_file_requested){open_file_requested(path);return;}QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
+void FileManagerTab::open_entry(const QString& path){const QFileInfo info(path);if(info.isDir()){navigate(path);return;}const QString suffix=info.suffix().toLower();if(QStringList{"prtz","asmz","drwz","frmz","tblz","symz","matz"}.contains(suffix)&&open_file_requested){open_file_requested(path);return;}QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
 
 void FileManagerTab::show_source_menu(const QPoint& point){
     auto* item=source_list_->itemAt(point);if(!item)return;const int index=source_list_->row(item);if(index<0||index>=sources_.size())return;
@@ -1053,6 +1349,10 @@ void FileManagerTab::edit_project(const QString& directory,bool create){
 }
 
 FileManagerTab::~FileManagerTab(){save_column_layout();}
+void FileManagerTab::refresh_materials(){
+    for(auto it=native_parameter_cache_.begin();it!=native_parameter_cache_.end();)if(QFileInfo(it.key()).suffix().compare("matz",Qt::CaseInsensitive)==0)it=native_parameter_cache_.erase(it);else ++it;
+    refresh_overview();refresh_files();update_actions();
+}
 
 namespace {
 QString column_id(QTreeWidget* table,int column){
@@ -1069,10 +1369,13 @@ void FileManagerTab::save_column_layout(){
     if(!files_||files_->columnCount()<4||refreshing_files_)return;const QString path=column_settings_path(settings_);if(path.isEmpty())return;
     QSettings settings(path,QSettings::IniFormat);QStringList order;
     for(int visual=0;visual<files_->columnCount();++visual){const int logical=files_->header()->logicalIndex(visual);const QString id=column_id(files_,logical);order<<id;settings.setValue("Widths/"+id,files_->columnWidth(logical));}
-    settings.setValue("Table/Order",order);settings.sync();
+    settings.setValue("Table/Order",order);
+    settings.setValue("Table/HideType",files_->isColumnHidden(2));
+    settings.sync();
 }
 void FileManagerTab::restore_column_layout(){
     QSettings settings(column_settings_path(settings_),QSettings::IniFormat);
+    files_->setColumnHidden(2,settings.value("Table/HideType",false).toBool());
     QStringList order=settings_.base_config_path.isEmpty()?QStringList{}:settings.value("Table/Order").toStringList();
     if(!order.isEmpty()&&!order.contains("preview"))order.insert(std::max<qsizetype>(0,order.indexOf("file")+1),"preview");
     for(int column=0;column<files_->columnCount();++column){files_->resizeColumnToContents(column);const int initial=std::clamp(files_->columnWidth(column),column==0?180:95,column==0?360:240);files_->setColumnWidth(column,settings.value("Widths/"+column_id(files_,column),initial).toInt());}

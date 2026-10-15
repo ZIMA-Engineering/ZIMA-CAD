@@ -3,11 +3,14 @@
 #include "thumbnail_image.hpp"
 #include "file_manager_includes.hpp"
 #include "native_file_icon.hpp"
+#include "directory_metadata.hpp"
 
 #include <QAction>
 #include <QPersistentModelIndex>
 #include <QHeaderView>
 #include <QSlider>
+#include <QScrollBar>
+#include <QSortFilterProxyModel>
 #include <QMouseEvent>
 #include <QHelpEvent>
 #include <QToolTip>
@@ -24,6 +27,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileSystemModel>
 #include <QPlainTextEdit>
 #include <QListWidget>
 #include <QLineEdit>
@@ -48,6 +52,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <filesystem>
 
 namespace {
 class ItemGeometryProbe final : public QStyledItemDelegate {
@@ -59,6 +64,38 @@ public:
 };
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 void touch(const QString& path){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot create synthetic file");file.write("synthetic");}
+void verify_symbol_thumbnails(QApplication& application){
+    const auto root=QString::fromStdString((std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/symbols").generic_string());
+    zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";zima::app::FileManagerTab manager(settings,root);int checked=0;
+    QDirIterator symbols(root,{"*.symz"},QDir::Files,QDirIterator::Subdirectories);while(symbols.hasNext()){const auto file=symbols.next();manager.navigate(QFileInfo(file).absolutePath());application.processEvents();auto* table=manager.findChild<QTreeWidget*>("fileManagerFiles");bool found=false;for(int row=0;row<table->topLevelItemCount();++row){auto* item=table->topLevelItem(row);if(item->data(0,Qt::UserRole).toString()!=file)continue;const auto preview=item->data(0,Qt::UserRole+4).toString();check(preview==zima::app::document_thumbnail_path(file)&&QImage(preview).size()==QSize(640,480)&&!item->icon(zima::app::file_preview_column).isNull(),"Factory symbol has no discoverable native thumbnail");found=true;}check(found,"Factory symbol is missing from File Manager");++checked;}check(checked==10,"Current factory symbol thumbnail coverage changed");
+}
+void verify_file_controls(QApplication& application){
+    QTemporaryDir fixture;check(fixture.isValid(),"Cannot create file controls fixture");const QString root=fixture.path(),child=fixture.filePath("child");QDir().mkpath(child+"/0000-index");QDir().mkpath(root+"/0000-index");
+    {QSettings legacy(root+"/0000-index/files.ini",QSettings::IniFormat);legacy.setValue("files/groups","zima-cad");legacy.setValue("group/zima-cad/patterns","*.prtz");legacy.setValue("group/zima-cad/disabledPatterns","*.prtz");legacy.setValue("custom/keep","authored");legacy.sync();QSettings parent(root+"/0000-index/filters.ini",QSettings::IniFormat);parent.setValue("Filters/Hide",QStringList{"*.matz"});parent.sync();QSettings local(child+"/0000-index/filters.ini",QSettings::IniFormat);local.setValue("Filters/Hide",QStringList{"*.asmz","*.txt"});local.setValue("custom/keep","local");local.sync();}
+    for(const auto* name:{"Part.prtz","Assembly.asmz","Material.matz","Note.txt"})touch(QDir(child).filePath(name));
+    zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";settings.local_config_path=root+"/local.ini";
+    zima::app::FileManagerTab manager(settings,root,child);manager.resize(1100,700);manager.show();application.processEvents();auto* table=manager.findChild<QTreeWidget*>("fileManagerFiles");
+    int native_reads=0;manager.native_parameters_requested=[&](const QString&){++native_reads;return zima::app::FileManagerNativeParameters{};};manager.navigate(child);const int reads_before_filter=native_reads;
+    const auto visible=[&](const QString& name){for(int row=0;row<table->topLevelItemCount();++row)if(table->topLevelItem(row)->text(0)==name)return !table->topLevelItem(row)->isHidden();return false;};
+    auto* assembly=manager.findChild<QToolButton*>("fileManagerType_asmz");auto* material=manager.findChild<QToolButton*>("fileManagerType_matz");check(assembly&&!assembly->isChecked()&&!visible("Assembly.asmz")&&!visible("Note.txt")&&visible("Part.prtz")&&visible("Material.matz"),"Local exclusion patterns or ignored legacy policy were applied incorrectly");
+    for(const auto* extension:{"prtz","asmz","drwz","matz","frmz","tblz","symz"}){auto* button=manager.findChild<QToolButton*>(QStringLiteral("fileManagerType_%1").arg(extension));check(button&&button->text()==extension&&!button->icon().isNull()&&button->toolButtonStyle()==Qt::ToolButtonTextBesideIcon,"Type toggle lost lowercase extension or its native icon");}
+    auto* versions=manager.findChild<QToolButton*>("fileManagerFilterVersions");check(versions&&!versions->icon().isNull(),"Versions toggle has no icon");
+    const auto check_azure=[&](QToolButton* button){application.processEvents();const auto capture=button->grab().toImage();int azure=0;for(int y=1;y<capture.height()-1;++y)for(int x=1;x<capture.width()-1;++x)if(capture.pixelColor(x,y)==QColor("#00D1FF"))++azure;check(button->isChecked()?azure>20:azure==0,"File filter checked state is not visibly azure");};
+    check_azure(assembly);check_azure(material);
+    assembly->click();material->click();check(visible("Assembly.asmz")&&!visible("Material.matz")&&visible("Part.prtz"),"Independent file type toggles failed");check(native_reads==reads_before_filter,"File type toggles reloaded native documents");
+    check_azure(assembly);check_azure(material);versions->click();check_azure(versions);versions->click();check_azure(versions);for(int row=0;row<table->topLevelItemCount();++row)if(!table->topLevelItem(row)->data(0,Qt::UserRole+3).toBool())check(table->topLevelItem(row)->text(2)==QFileInfo(table->topLevelItem(row)->text(0)).suffix().toLower(),"Type column does not match lowercase filter labels");
+    manager.navigate(root);manager.navigate(child);check(assembly->isChecked()&&!material->isChecked(),"File type choices did not survive navigation");QSettings policy(child+"/0000-index/filters.ini",QSettings::IniFormat);check(policy.value("Filters/Hide").toStringList().contains("*.matz")&&policy.value("custom/keep")=="local","Native file filter was not saved to filters.ini or dropped unknown settings");QSettings inherited(root+"/0000-index/files.ini",QSettings::IniFormat);check(inherited.value("custom/keep")=="authored"&&inherited.value("group/zima-cad/disabledPatterns")=="*.prtz","Child filters modified their parent policy");
+    QTimer::singleShot(0,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget);menu&&menu->isVisible()){menu->actions().front()->trigger();menu->close();}});table->header()->customContextMenuRequested(QPoint(20,10));check(table->isColumnHidden(2),"Type column cannot be hidden");manager.navigate(child);check(table->isColumnHidden(2),"Type column visibility did not survive refresh");
+    auto* filters=manager.findChild<QToolButton*>("fileManagerFilters");check(filters&&!filters->icon().isNull(),"File Filters button or icon is missing");filters->click();auto* editor=manager.findChild<QDialog*>("fileManagerFiltersDialog");check(editor,"File filters editor did not open");editor->findChild<QPlainTextEdit*>("fileManagerHiddenPatterns")->setPlainText("*.prtz");editor->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);check(visible("Part.prtz"),"Filter Cancel changed visibility");
+    filters->click();editor=manager.findChild<QDialog*>("fileManagerFiltersDialog");editor->findChild<QCheckBox*>("fileManagerInheritGlobalFilters")->setChecked(false);editor->findChild<QPlainTextEdit*>("fileManagerHiddenPatterns")->setPlainText("Note.txt");editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();check(visible("0000-index")&&visible("Material.matz")&&!visible("Note.txt"),"Local filters could not override the global metadata-folder exclusion");
+    auto* directory_tree=manager.findChild<QTreeView*>("fileManagerSourceTree_working");auto* directory_proxy=qobject_cast<QSortFilterProxyModel*>(directory_tree->model());auto* directory_model=qobject_cast<QFileSystemModel*>(directory_proxy->sourceModel());check(directory_proxy->mapFromSource(directory_model->index(child+"/0000-index")).isValid(),"Metadata folder remains hard-coded hidden in the directory tree");
+    settings.file_manager.hidden_patterns={"0000-index","*.matz"};manager.reload_settings(settings);check(visible("Material.matz"),"Local opt-out did not preserve visibility after changing global filters");filters->click();editor=manager.findChild<QDialog*>("fileManagerFiltersDialog");editor->findChild<QCheckBox*>("fileManagerInheritGlobalFilters")->setChecked(true);editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);check(!visible("0000-index")&&!visible("Material.matz"),"Global filters were not reapplied after enabling inheritance");
+    auto* create=manager.findChild<QPushButton*>("fileManagerNewDirectory");check(create&&create->isEnabled(),"Writable folder creation is disabled");
+    {QSettings metadata(child+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/PreventParameterEdit",true);metadata.sync();}manager.navigate(child);check(create->isEnabled(),"Parameter protection incorrectly blocks folder creation");create->click();auto* naming=manager.findChild<QDialog*>("pathNameDialog");check(naming,"Folder naming dialog did not open");auto* name=naming->findChild<QLineEdit*>("pathName");name->setText("..");naming->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();check(naming->isVisible(),"Invalid folder name was accepted");name->setText("Created");naming->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();check(QDir(child+"/Created").exists(),"New folder was not created");QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    {QSettings metadata(child+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/PreventRemoval",true);metadata.sync();}manager.navigate(child);check(!create->isEnabled(),"Content protection did not block folder creation");
+    {QSettings metadata(child+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/PreventRemoval",false);metadata.sync();}
+    settings.file_manager.sources.push_back({"protected","Protected",child,child,true,true,false});manager.reload_settings(settings);check(!create->isEnabled(),"Read-only source permits folder creation");
+}
 template<class Predicate> bool wait_until(Predicate predicate,int timeout_ms=3000){QElapsedTimer timer;timer.start();while(timer.elapsed()<timeout_ms){QApplication::processEvents();if(predicate())return true;QThread::msleep(10);}return predicate();}
 void verify_directory_includes(QApplication& application){
     QTemporaryDir fixture;check(fixture.isValid(),"Cannot create include fixture");
@@ -182,11 +219,13 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);
     try{
+        verify_file_controls(application);
+        verify_symbol_thumbnails(application);
         verify_directory_includes(application);
         verify_native_icons_and_cleanup(application);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/01-GENERAL-STANDARDS/01-UNITS","01-BASE-UNITS",7);
-        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","06-GEARS/09-SPAN/01-C02-R001",6);
-        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/01-GRADE-AB/01-M1.6-M10/01-C02-R001",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","06-GEARS/09-SPAN",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/01-GRADE-AB",6);
         const QString factory_directory=qEnvironmentVariable("ZIMA_FILE_MANAGER_VERIFY_FACTORY_LABELS");
         if(!factory_directory.isEmpty()){
             check(QFileInfo(factory_directory).isDir(),"Factory label verification directory is missing");int directories=0;
@@ -199,8 +238,8 @@ int main(int argc,char** argv){
                 }
                 ++directories;
             }
-            check(directories==755,"Factory directory label inventory differs from 755 directories");
-            std::cout<<"Native Qt reading of all 3775 factory directory labels passed\n";
+            check(directories==337,"Factory directory label inventory differs from 337 directories");
+            std::cout<<"Native Qt reading of all 1685 factory directory labels passed\n";
         }
         QTemporaryDir fixture(QDir::current().filePath("file-manager-test-XXXXXX"));check(fixture.isValid(),"Cannot create synthetic fixture");
         {
@@ -320,6 +359,13 @@ int main(int argc,char** argv){
         check(!views->tabIcon(0).isNull()&&!views->tabIcon(1).isNull(),"Overview and Files icons are missing");
         check(files->columnWidth(0)<=360&&files->header()->sectionsMovable(),"Filename column stretches or cannot be reordered");
         files->header()->moveSection(0,2);application.processEvents();check(name_filter->x()==files->header()->sectionViewportPosition(0)+2,"Filter did not move with its column");files->header()->moveSection(2,0);
+        views->setCurrentIndex(1);application.processEvents();
+        const int previous_width=files->columnWidth(7);files->setColumnWidth(7,1600);application.processEvents();
+        auto* horizontal=files->horizontalScrollBar();check(horizontal->maximum()>0,"Wide file table did not expose horizontal scrolling");
+        const auto check_filter_alignment=[&]{application.processEvents();for(int column=0;column<files->columnCount();++column){auto* filter=first.findChild<QLineEdit*>(QStringLiteral("fileManagerColumnFilter_%1").arg(column));if(filter)check(filter->x()==files->header()->sectionViewportPosition(column)+2,"Filter did not scroll with its column");}};
+        for(const int position:{horizontal->maximum()/2,horizontal->maximum(),0,horizontal->maximum()/3}){horizontal->setValue(position);check_filter_alignment();}
+        files->header()->moveSection(0,2);check_filter_alignment();files->setColumnWidth(2,files->columnWidth(2)+20);check_filter_alignment();files->header()->moveSection(2,0);check_filter_alignment();
+        files->setColumnWidth(7,previous_width);horizontal->setValue(0);check_filter_alignment();
         files->clearSelection();auto* a=files->topLevelItem(0);auto* b=files->topLevelItem(1);auto* c=files->topLevelItem(2);a->setSelected(true);b->setSelected(true);a->setCheckState(0,Qt::Checked);check(b->checkState(0)==Qt::Checked&&c->checkState(0)==Qt::Unchecked,"Checking selected rows affected the wrong group");a->setCheckState(0,Qt::Unchecked);check(b->checkState(0)==Qt::Unchecked,"Unchecking selected rows did not propagate");files->clearSelection();
         views->setCurrentIndex(1);application.processEvents();files->clearSelection();a->setSelected(true);b->setSelected(true);
         QStyleOptionViewItem checkbox;checkbox.rect=files->visualItemRect(a);checkbox.features=QStyleOptionViewItem::HasCheckIndicator|QStyleOptionViewItem::HasDecoration|QStyleOptionViewItem::HasDisplay;checkbox.checkState=a->checkState(0);checkbox.icon=a->icon(0);checkbox.decorationSize=files->iconSize();checkbox.text=a->text(0);
@@ -368,7 +414,7 @@ int main(int argc,char** argv){
         for(int row=0;row<files->topLevelItemCount();++row){const auto index=files->indexFromItem(files->topLevelItem(row),zima::app::file_preview_column);if(qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).isNull())continue;check(geometry.geometry(files,index).thumbnail.center().x()==preview_point.x(),"Preview images do not share one vertical line");}
         QStyleOptionViewItem preview_option;check(!files->itemDelegate()->createEditor(files,preview_option,preview_index),"Preview cell created a parameter editor");
         const auto name_geometry=geometry.geometry(files,files->indexFromItem(preview_row,0));const auto type_icon=files->style()->subElementRect(QStyle::SE_ItemViewItemDecoration,&name_geometry.content,files);const auto filename=files->style()->subElementRect(QStyle::SE_ItemViewItemText,&name_geometry.content,files);check(type_icon.right()<filename.left()&&filename.right()<preview_geometry.thumbnail.left(),"Type icon, filename and thumbnail are not in their independent visual order");
-        check(first.findChild<QSlider*>("fileManagerThumbnailSize")->width()==300,"Thumbnail slider did not gain finer pointer control");
+        {auto* slider=first.findChild<QSlider*>("fileManagerThumbnailSize");auto* create=first.findChild<QPushButton*>("fileManagerNewDirectory");auto* clean=first.findChild<QPushButton*>("fileManagerClean");check(slider->width()>=80&&slider->width()<=300&&slider->geometry().center().y()==create->geometry().center().y()&&slider->geometry().center().y()==clean->geometry().center().y()&&slider->x()>create->x()&&slider->x()<clean->x(),"Thumbnail size control must share the compact action row next to New Folder");}
         QHelpEvent help(QEvent::ToolTip,preview_point,files->viewport()->mapToGlobal(preview_point));QApplication::sendEvent(files->viewport(),&help);check(wait_until([]{return QToolTip::isVisible()&&QToolTip::text().contains("data:image/png;base64,");},1500),"Hover did not show the enlarged thumbnail after native tooltip animation");QToolTip::hideText();opened_file.clear();QMouseEvent double_click(QEvent::MouseButtonDblClick,preview_point,files->viewport()->mapToGlobal(preview_point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&double_click);application.processEvents();auto* inspector=first.findChild<QDialog*>("fileManagerImagePreview");check(inspector&&opened_file.isEmpty(),"Thumbnail double-click opened the CAD file instead of its image inspector");inspector->reject();application.processEvents();views->setCurrentIndex(0);
 
         {QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",true);metadata.sync();}QDir().mkpath(project+"/ZZZ-directory");first.navigate(project);for(const auto order:{Qt::AscendingOrder,Qt::DescendingOrder}){files->sortByColumn(0,order);check(files->topLevelItem(0)->data(0,Qt::UserRole+3).toBool(),"Directory group mixed with files");}QDir(project+"/ZZZ-directory").removeRecursively();{QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",false);metadata.sync();}first.navigate(project);

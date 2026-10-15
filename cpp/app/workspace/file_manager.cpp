@@ -5,6 +5,7 @@
 #include <zima/document/file_path.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/document/material_library.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -13,6 +14,16 @@
 
 namespace zima::app {
 using workspace_detail::run_background_task;
+
+void AssemblyWorkspaceWindow::manage_materials(const QString& initial_path){
+    if(properties_dialog_){properties_dialog_->raise();return;}
+    const QString working=QString::fromStdString(document::path_to_utf8(working_directory_));
+    auto* dialog=new MaterialDialog(initial_path.isEmpty()?application_settings_.resolved_paths.value("Materials"):initial_path,
+        [this,working](const QString& directory,bool parameters){return file_manager_can_write(application_settings_,working,directory,parameters);},
+        [this]{for(const auto& [id,page]:file_manager_tabs_)page->refresh_materials();},application_settings_,this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;
+    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;});dialog->show();
+}
 namespace {
 std::filesystem::path native_path(const QString& path){
 #ifdef Q_OS_WIN
@@ -151,6 +162,27 @@ FileManagerNativeParameters AssemblyWorkspaceWindow::file_manager_native_paramet
             },state);if(found)return *found;
         }
         const QString suffix=QFileInfo(path).suffix().toLower();
+        if(suffix=="matz") {
+            const auto material=document::load_material_library(requested);
+            for(const auto& [property,value]:material.properties) {
+                const auto key=QString::fromStdString(property);
+                if(property=="MATERIAL_NAME")result.order.prepend(key);else result.order.push_back(key);
+                result.values.insert(key,QString::fromStdString(value));
+                const auto descriptions=material.descriptions.find(property);
+                const auto unit=material.units.find(property);
+                if(unit!=material.units.end())result.units.insert(key,QString::fromStdString(unit->second));
+                for(const auto* language:{"cs","en","de","fr","ru"}) {
+                    std::string label=property;
+                    if(descriptions!=material.descriptions.end()) {
+                        auto found=descriptions->second.find(language);
+                        if(found==descriptions->second.end())found=descriptions->second.find("");
+                        if(found!=descriptions->second.end()&&!found->second.empty())label=found->second;
+                    }
+                    result.labels[key].insert(language,QString::fromStdString(label));
+                }
+            }
+            return result;
+        }
         if(QStringList{"prtz","asmz","frmz","tblz","symz"}.contains(suffix)){
             const auto data=document::read_native_user_parameters(requested);
             struct ParameterInspection {
@@ -180,10 +212,25 @@ QString AssemblyWorkspaceWindow::edit_file_manager_native_parameter(const QStrin
             refresh_tabs();return {};
         }
         const QString suffix=QFileInfo(path).suffix().toLower();
+        if(suffix=="matz") {
+            auto material=document::load_material_library(requested);
+            const auto property=material.properties.find(parameter.toStdString());
+            if(property==material.properties.end())return tr("Tento typ souboru nemá upravitelné nativní parametry.");
+            const auto next=value.toStdString();
+            if(property->second==next)return {};
+            property->second=next;
+            const auto content=document::serialize_material_library(material);
+            QSaveFile file(path);file.setDirectWriteFallback(false);
+            if(!file.open(QIODevice::WriteOnly)||file.write(content.data(),static_cast<qint64>(content.size()))!=static_cast<qint64>(content.size())||!file.commit())return file.errorString();
+            return {};
+        }
         if(QStringList{"prtz","frmz","tblz","symz"}.contains(suffix)){std::vector<kernel::BodyResult> calculated;auto document=document::PartDocument::load(requested,&calculated);set_parameter(document,parameter,value,application_settings_.language);document.save(requested,calculated);return {};}
         if(suffix=="asmz"){auto document=assembly::AssemblyDocument::load(requested,{},false);set_parameter(document,parameter,value,application_settings_.language);document.save(requested);return {};}
         return tr("Tento typ souboru nemá upravitelné nativní parametry.");
-    }catch(const std::exception& error){return QString::fromUtf8(error.what());}
+    }catch(const std::exception& error){
+        if(QFileInfo(path).suffix().compare("matz",Qt::CaseInsensitive)==0)return QObject::tr(error.what());
+        return QString::fromUtf8(error.what());
+    }
 }
 
 } // namespace zima::app

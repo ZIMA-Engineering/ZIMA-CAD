@@ -12,6 +12,7 @@ class QComboBox;
 class QCheckBox;
 class QDoubleSpinBox;
 class QLineEdit;
+class QPlainTextEdit;
 class QTableWidget;
 class QTabWidget;
 class QSpinBox;
@@ -59,6 +60,7 @@ private:
     QComboBox* file_manager_default_view_{};
     QSpinBox* file_manager_thumbnail_size_{};
     QCheckBox* file_manager_show_hidden_{};
+    QPlainTextEdit* file_manager_hidden_patterns_{};
     QLineEdit* browser_home_{};
     QCheckBox* browser_start_{};
     QCheckBox* browser_download_{};

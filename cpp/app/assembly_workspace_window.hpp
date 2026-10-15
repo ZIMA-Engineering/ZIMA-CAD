@@ -758,6 +758,7 @@ private:
     void edit_document_parameters();
     void edit_parameters_for_document(std::string document_id);
     void edit_material();
+    void manage_materials(const QString& initial_path = {});
     void edit_relations();
     void edit_family_table();
     void edit_family_table_for_document(std::string document_id);

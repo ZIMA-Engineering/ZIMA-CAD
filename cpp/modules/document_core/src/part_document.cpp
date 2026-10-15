@@ -817,7 +817,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         profile.phase("definition decode");
         if (!data.empty()) {
             auto storage=nlohmann::json::parse(data);profile.phase("cache JSON parse");
-            root["calculated_boundaries"] = unpack_cache_storage(storage);profile.phase("cache expansion");
+            root["calculated_boundaries"] = unpack_cache_storage(std::move(storage));profile.phase("cache expansion");
         }
         root["calculation_definition_fingerprint"] = ini_required(ini, "CachedBodies", "definition_fingerprint");
     }
