@@ -1,5 +1,15 @@
 # Application updates
 
+Signed Windows [2026101504](releases/2026101504.md#windows-acceptance)
+was published at `2026-10-15T00:21:35Z`. Committed-source candidate/signed
+native smoke, 20 factory loads, production bootstrap trust, six packaged GUI
+checks and complete source/runtime inventory checks pass. Uploaded digests and
+all three anonymous public downloads match the accepted signed assets. The
+trusted signed 2026101403 helper offers 2026101504 as installable without
+installing it during verification; its launcher/configuration remain unchanged.
+The development BAT launches the rebuilt local 1504 product. The linked record
+describes the engineering-library review limits and separate Linux gap.
+
 Signed Windows [2026101402](releases/2026101402.md#signed-windows-publication)
 was published at `2026-10-14T14:24:45Z`. It adds stable feature selection,
 requested exact face analysis, native-save allocation improvements and the

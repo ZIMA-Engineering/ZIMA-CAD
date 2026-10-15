@@ -2,6 +2,19 @@
 
 ## Scope and status
 
+Signed Windows [2026101504](releases/2026101504.md#windows-acceptance)
+was published at `2026-10-15T00:21:35Z`. It consolidates the engineering
+references into 459 logical topics in five languages, with original schematics,
+localized previews and multi-sheet A4 printing. File Manager properties are
+compact; reference pages follow live Light/Dark changes. All 2,295 localized
+references / 4,308 print sheets, 38 independent data checks, the native
+translation contract and File Manager checks pass. Fresh candidate/signed
+smoke, 20 native factory loads, six packaged GUI checks, all 8,158 committed
+config comparisons and anonymous asset downloads pass. Signed 1403 offers an
+installable update. Retired third-party scans are excluded; unresolved numerical
+standards remain in the review ledger. Native formats and shared C++ remain
+unchanged; Linux execution remains unverified.
+
 Signed Windows [2026101403](releases/2026101403.md#windows-acceptance-and-signed-publication)
 was published at `2026-10-14T18:04:36Z`. Ordinary Part Save writes once
 without a complete automatic readback; the representative 853 MB model saves
