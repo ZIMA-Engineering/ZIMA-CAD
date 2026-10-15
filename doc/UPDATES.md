@@ -1,5 +1,16 @@
 # Application updates
 
+Signed Windows [2026101505](releases/2026101505.md#windows-package-acceptance)
+was published at `2026-10-15T13:42:23Z` from source commit
+`b78a9735aa7dc7430faa9a3a8fb419394b63f8af`. Candidate/signed native smoke,
+20 factory native loads, bootstrap trust, six packaged GUI scenarios and the
+complete committed-source inventory checks pass. All three public downloads
+match the accepted signed bytes. The trusted 2026101504 helper offers 1505 as
+installable without changing its launcher/configuration or installing the update.
+The local development BAT keeps its current C++ build. The linked record covers
+materials, configurable filters, reference-table grouping and finite verification;
+Linux execution remains a separate host requirement.
+
 Signed Windows [2026101504](releases/2026101504.md#windows-acceptance)
 was published at `2026-10-15T00:21:35Z`. Committed-source candidate/signed
 native smoke, 20 factory loads, production bootstrap trust, six packaged GUI

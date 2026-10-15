@@ -2,6 +2,19 @@
 
 ## Scope and status
 
+Signed Windows [2026101505](releases/2026101505.md#windows-package-acceptance)
+was published at `2026-10-15T13:42:23Z`. It adds local/global File Manager filters,
+individual Material Properties, library material/folder editing, azure type
+buttons, symbol previews and consolidated references with frozen headers.
+The 287 references retain source values and review limits. Native cache expansion
+avoids repeated work while keeping consistency checks enabled. Eight focused
+native/GUI suites, 36 source/layout checks, all 1,435 localized references and
+3,977 print sheets, six signed-package GUI checks, candidate/signed native smoke,
+20 factory loads, production trust and exact committed configuration comparisons
+pass. Public asset bytes match; signed 1504 offers the update without installing
+it during verification. Development keeps `zima-cad.bat`. Shared C++, native
+formats and protected placement remain unchanged; Linux execution is unverified.
+
 Signed Windows [2026101504](releases/2026101504.md#windows-acceptance)
 was published at `2026-10-15T00:21:35Z`. It consolidates the engineering
 references into 459 logical topics in five languages, with original schematics,
