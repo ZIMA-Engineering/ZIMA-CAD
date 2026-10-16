@@ -705,6 +705,24 @@ int main() {
                     sketch_origin_priority.front().semantic_key ==
                         "external_point:sketch_origin",
                 "Sketch origin point did not take stable priority over its axes");
+        for (bool vertical : {false, true}) for (bool construction : {false, true}) {
+            zima::kernel::ViewerMesh overlap;
+            overlap.axes.push_back({{0,0,0},vertical?zima::kernel::Vec3{0,1,0}:zima::kernel::Vec3{1,0,0},
+                100,{"sketch",vertical?"sketch_axis:y":"sketch_axis:x"}});
+            const zima::kernel::Vec3 first=vertical?zima::kernel::Vec3{0,10,0}:zima::kernel::Vec3{10,0,0};
+            const zima::kernel::Vec3 last=vertical?zima::kernel::Vec3{0,30,0}:zima::kernel::Vec3{30,0,0};
+            overlap.edges.push_back({{first,last},{"sketch","segment:authored"},construction});
+            overlap.points.push_back({last,{"sketch","point:end"}});
+            const auto middle=vertical?zima::kernel::Vec3{0,17,-10}:zima::kernel::Vec3{17,0,-10};
+            auto hits=zima::viewer::ordered_viewer_candidates(overlap,middle,{0,0,1},.01);
+            require(!hits.empty()&&hits.front().kind==zima::viewer::CandidateKind::SketchSegment,
+                "Built-in Sketch axis hides an authored segment");
+            require(std::ranges::any_of(hits,[](const auto& hit){return hit.kind==zima::viewer::CandidateKind::SketchAxis;}),
+                "Overlapping Sketch axis disappeared from RMB cycling");
+            hits=zima::viewer::ordered_viewer_candidates(overlap,{last.x,last.y,-10},{0,0,1},.01);
+            require(!hits.empty()&&hits.front().kind==zima::viewer::CandidateKind::SketchPoint,
+                "Built-in Sketch axis hides a native endpoint");
+        }
         mesh.dimensions.push_back({
             {-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0},
             {-1.0, 1.0, 5.0}, {1.0, 1.0, 5.0}, 2.0,

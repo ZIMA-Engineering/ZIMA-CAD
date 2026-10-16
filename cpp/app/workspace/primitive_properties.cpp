@@ -1434,7 +1434,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             tree_->setProperty("commandSelectionActive", true);
             viewer_->clear_selection();
             apply_extrusion_target_selection_contract();
-            state_->setText(tr("Vyberte cílovou rovinnou plochu ve view."));
+            state_->setText(dialog->allows_point_end_target()?tr("Vyberte bod předchozí skici, rovinu nebo původní plochu."):tr("Vyberte cílovou rovinnou plochu ve view."));
         });
         dialog->set_extrusion_target_cancel([this] {
             if (extrusion_target_dialog_ != nullptr)

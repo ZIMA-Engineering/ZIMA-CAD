@@ -14,6 +14,7 @@ inline int sketch_point_pick_priority(const viewer::ViewerCandidate& candidate) 
     return 1;
 }
 inline int sketch_placement_pick_priority(const viewer::ViewerCandidate& candidate) {
+    if (candidate.kind == viewer::CandidateKind::SketchAxis) return 3;
     if (candidate.semantic_key.starts_with("sketch_intersection:")) return -1;
     if (candidate.semantic_key.starts_with("sketch_midpoint:")) return 1;
     // A native segment must not hide its own midpoint. External contact C/CC

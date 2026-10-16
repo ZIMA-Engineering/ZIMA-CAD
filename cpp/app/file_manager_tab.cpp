@@ -1010,7 +1010,7 @@ void FileManagerTab::refresh_files(){
     QMap<QString,FileManagerNativeParameters> native_parameters;
     const auto read_native=[this](const QFileInfo& info){const QString stamp=info.lastModified().toUTC().toString(Qt::ISODateWithMs)+QLatin1Char(':')+QString::number(info.size())+(native_parameters_revision_requested?QLatin1Char(':')+native_parameters_revision_requested(info.absoluteFilePath()):QString{});auto cached=native_parameter_cache_.constFind(info.absoluteFilePath());if(cached!=native_parameter_cache_.cend()&&cached->first==stamp)return cached->second;auto data=native_parameters_requested(info.absoluteFilePath());if(data.error.isEmpty())native_parameter_cache_.insert(info.absoluteFilePath(),{stamp,data});return data;};
     const auto native_file=[](const QFileInfo& info){return info.isFile()&&QStringList{"prtz","asmz","frmz","tblz","symz","matz"}.contains(info.suffix().toLower());};
-    if(native_parameters_requested)for(const auto& info:entries){if(!native_file(info))continue;auto data=read_native(info);if(!data.error.isEmpty())continue;for(const auto& parameter:data.order)if(!parameters.contains(parameter))parameters.push_back(parameter);for(auto it=data.values.cbegin();it!=data.values.cend();++it)if(!parameters.contains(it.key()))parameters.push_back(it.key());native_parameters.insert(info.absoluteFilePath(),std::move(data));}
+    if(native_parameters_requested)for(const auto& info:entries){if(!native_file(info))continue;auto data=read_native(info);if(!data.error.isEmpty())continue;native_parameters.insert(info.absoluteFilePath(),std::move(data));}
     QSet<QString> stems;for(const auto& info:entries)if(info.isFile())stems.insert(info.completeBaseName());
     for(int source_index=1;source_index<parameter_sources.directories.size();++source_index){
         const auto& source=parameter_sources.directories[source_index];QSettings included(metadata_path(source),QSettings::IniFormat);QMap<QString,QVariant> values;
@@ -1018,7 +1018,6 @@ void FileManagerTab::refresh_files(){
         for(const auto& parameter:metadata_parameter_ids(included))if(!parameter.trimmed().isEmpty()&&!parameters.contains(parameter))parameters.push_back(parameter);
         if(native_parameters_requested)for(const auto& info:QDir(source).entryInfoList(QDir::Files,QDir::Name)){
             if(!native_file(info)||!stems.contains(info.completeBaseName()))continue;const auto data=read_native(info);if(!data.error.isEmpty())continue;
-            for(const auto& parameter:data.order)if(!parameters.contains(parameter))parameters.push_back(parameter);
             const auto prefix=QStringLiteral("Parts/%1/").arg(logical_file_id(info));
             // Native data is authoritative over the source's saved mirror,
             // including empty values and unsaved values of open documents.
@@ -1042,11 +1041,9 @@ void FileManagerTab::refresh_files(){
     files_->header()->setSectionResizeMode(QHeaderView::Interactive);
     const bool editable=!current_source_read_only()&&!directory_prevents_parameter_edit(current_directory_);
     QSet<QString> existing_labels;for(const auto& parameter:parameters)for(const auto& language:{QString{},QStringLiteral("cs"),QStringLiteral("en"),QStringLiteral("de"),QStringLiteral("fr"),QStringLiteral("ru")}){const QString key=QStringLiteral("Parameters/%1/Label").arg(parameter)+(language.isEmpty()?QString{}:QLatin1Char('/')+language);if(metadata.contains(key))existing_labels.insert(key);}
-    QStringList mirrored_parameters=metadata_parameter_ids(metadata);bool saved_native=false;
-    for(const auto& data:native_parameters)if(!data.unsaved){saved_native=true;for(const auto& parameter:data.order)if(!mirrored_parameters.contains(parameter))mirrored_parameters.push_back(parameter);for(auto it=data.values.cbegin();it!=data.values.cend();++it)if(!mirrored_parameters.contains(it.key()))mirrored_parameters.push_back(it.key());}
+    const bool saved_native=std::ranges::any_of(native_parameters,[](const auto& data){return !data.unsaved;});
     QMap<QString,QVariant> mirror_updates;
-    if(editable&&(version>=3||saved_native))mirror_updates.insert("Directory/Parameters",mirrored_parameters.join(','));
-    if(editable&&saved_native){mirror_updates.insert("Directory/Version",3);if(!metadata.contains("Directory/Kind"))mirror_updates.insert("Directory/Kind","directory");if(!metadata.contains("Directory/Id"))mirror_updates.insert("Directory/Id",QUuid::createUuid().toString(QUuid::WithoutBraces));}
+    if(editable&&saved_native&&!parameters.isEmpty()){mirror_updates.insert("Directory/Version",3);if(!metadata.contains("Directory/Kind"))mirror_updates.insert("Directory/Kind","directory");if(!metadata.contains("Directory/Id"))mirror_updates.insert("Directory/Id",QUuid::createUuid().toString(QUuid::WithoutBraces));}
     for(const auto& info:entries){
         if((info.isDir()&&file_filter_matches_&&!file_filter_matches_(info.fileName()))||(!filter_versions_->isChecked()&&is_version_file(info)))continue;
         auto* item=new FileEntryItem(files_);item->setData(0,Qt::UserRole+3,info.isDir());item->setData(0,Qt::UserRole,info.absoluteFilePath());item->setData(0,Qt::UserRole+1,logical_file_id(info));item->setCheckState(0,Qt::Unchecked);const QString thumbnail=entry_thumbnail(info,current_directory_,settings_.language,&metadata,&thumbnail_sources.directories);item->setData(0,Qt::UserRole+4,thumbnail);const auto type_icon=native_file_icon(info);item->setIcon(0,type_icon.isNull()?QFileIconProvider().icon(info):type_icon);item->setIcon(file_preview_column,compact_preview_icon(thumbnail));item->setText(0,info.isDir()?directory_label(info.absoluteFilePath(),settings_.language):info.fileName());item->setText(2,info.isDir()?tr("Adresář"):info.suffix().toLower());item->setText(3,info.isDir()?QString{}:QLocale().formattedDataSize(info.size()));item->setText(4,QLocale().toString(info.lastModified(),QLocale::ShortFormat));
@@ -1079,7 +1076,7 @@ void FileManagerTab::refresh_files(){
                 const auto labels=native->labels.value(parameter);for(auto it=labels.cbegin();it!=labels.cend();++it){const QString label_key=QStringLiteral("Parameters/%1/Label").arg(parameter)+(it.key().isEmpty()?QString{}:QLatin1Char('/')+it.key());if(!existing_labels.contains(label_key))mirror_updates.insert(label_key,it.value());}
             }
         }metadata.endGroup();
-        if(native!=native_parameters.cend()&&editable&&!native->unsaved){mirror_updates.insert(QStringLiteral("Files/%1/Provider").arg(id),"zima-cad");mirror_updates.insert(QStringLiteral("Files/%1/Path").arg(id),info.fileName());mirror_updates.insert(QStringLiteral("Files/%1/ModifiedUtc").arg(id),info.lastModified().toUTC().toString(Qt::ISODateWithMs));}
+        if(native!=native_parameters.cend()&&editable&&!native->unsaved&&!parameters.isEmpty()){mirror_updates.insert(QStringLiteral("Files/%1/Provider").arg(id),"zima-cad");mirror_updates.insert(QStringLiteral("Files/%1/Path").arg(id),info.fileName());mirror_updates.insert(QStringLiteral("Files/%1/ModifiedUtc").arg(id),info.lastModified().toUTC().toString(Qt::ISODateWithMs));}
     }
     if (!mirror_updates.isEmpty()) {
       QString error;

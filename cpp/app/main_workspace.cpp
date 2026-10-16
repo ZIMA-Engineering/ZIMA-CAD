@@ -1,4 +1,4 @@
-#include "sketch_tangent_test_equations.hpp"
+﻿#include "sketch_tangent_test_equations.hpp"
 #include "../tests/preview_refresh_probe.hpp"
 #include "surface_wire_visibility.hpp"
 #include <QCryptographicHash>
@@ -6012,11 +6012,11 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
         // Both C cases put the proposed new segment midpoint near the X axis.
         if(verify_polyline_snapped_tangent_ui(application,directory)!=0)return 1;
         // The final case removes endpoint contact while retaining that M offer.
-        for(int kind:{0,1,2,3}) {
+        for(int kind:{0,1,2,3,4,5,6,7}) {
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             const auto support=kind==1?sketch.add_circle(15,4,20):sketch.add_segment(kind==3?-27:-40,kind==2?35:20,kind==3?53:40,kind==2?35:20);
-            const auto start=sketch.add_point(7,-19.5);
+            const auto start=sketch.add_point(kind>=4?0:7,kind>=4?0:-19.5);
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Endpoint priority");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             const auto path=directory/("endpoint-priority-"+std::to_string(kind)+".prtz");part.save(path);
@@ -6035,6 +6035,66 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
             const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
             const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
             const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            if(kind>=4) {
+                const bool vertical=kind%2!=0,construction=kind>=6;
+                const std::string axis=vertical?"sketch_axis:y":"sketch_axis:x";
+                auto* command=window.findChild<QAction*>(construction?"sketchConstructionAction":"sketchSegmentAction");
+                check(command&&command->isEnabled(),"Axis-overlap drawing command unavailable");command->trigger();flush();
+                click(screen(0,0));const auto end=screen(vertical?0:32,vertical?32:0);
+                mouse(end,QEvent::MouseMove,Qt::NoButton);
+                check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==axis,"Axis endpoint C was not offered");
+                click(end);
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&window,&escape);flush();
+                const auto middle=screen(vertical?0:12,vertical?12:0);
+                mouse(middle,QEvent::MouseMove,Qt::NoButton);
+                check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchSegment,
+                    "Axis hides the newly drawn segment");
+                const auto saved_palette=application.palette();
+                for(bool dark:{false,true,false}) {
+                auto palette=saved_palette;palette.setColor(QPalette::Window,dark?QColor(32,32,32):QColor(245,245,245));
+                palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);palette.setColor(QPalette::Text,dark?Qt::white:Qt::black);
+                application.setPalette(palette);flush();
+                const auto image=view->grabFramebuffer();const double ratio=image.devicePixelRatio();int azure{};
+                for(int y=qRound(middle.y()*ratio)-3;y<=qRound(middle.y()*ratio)+3;++y)
+                    for(int x=qRound(middle.x()*ratio)-3;x<=qRound(middle.x()*ratio)+3;++x)
+                        if(image.valid(x,y)){const auto color=image.pixelColor(x,y);if(color.red()<110&&color.green()>170&&color.blue()>170)++azure;}
+                check(azure>2,"Origin axis paints over the hovered Sketch wire");
+                }
+                application.setPalette(saved_palette);flush();
+                mouse(end,QEvent::MouseMove,Qt::NoButton);
+                check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchPoint,
+                    "Axis hides the newly drawn endpoint");
+                const auto endpoint_key=view->hovered_candidate()->semantic_key;
+                const auto endpoint_position=[&] {
+                    const auto p=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==sketch.id&&p.reference.semantic_key==endpoint_key;});
+                    check(p!=view->mesh().points.end(),"Axis drag lost endpoint identity");
+                    check(std::abs(vertical?p->position.x:p->position.y)<1e-7,"Dragged endpoint escaped axis C");return p->position;
+                };
+                for(int i=0;i<3;++i) {
+                    const auto before=endpoint_position();const auto at=screen(before.x,before.y);
+                    const auto to=screen(vertical?1.5:before.x+3,vertical?before.y+3:1.5);
+                    mouse(at,QEvent::MouseMove,Qt::NoButton);mouse(at,QEvent::MouseButtonPress,Qt::LeftButton);
+                    QMouseEvent drag(QEvent::MouseMove,to,QPointF(view->mapToGlobal(to.toPoint())),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&drag);flush();mouse(to,QEvent::MouseButtonRelease,Qt::LeftButton);
+                    const auto after=endpoint_position();check(std::hypot(after.x-before.x,after.y-before.y)>1e-4,"Free axis endpoint did not move");
+                    window.findChild<QAction*>("undoAction")->trigger();flush();const auto undone=endpoint_position();
+                    check(std::hypot(undone.x-before.x,undone.y-before.y)<1e-7,"Axis drag Undo changed geometry");
+                    window.findChild<QAction*>("redoAction")->trigger();flush();const auto redone=endpoint_position();
+                    check(std::hypot(redone.x-after.x,redone.y-after.y)<1e-7,"Axis drag Redo changed geometry");
+                }
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();app::SketchPropertiesDialog* properties{};
+                for(auto* dialog:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(dialog);p&&p->isVisible())properties=p;
+                check(properties,"Axis-overlap test did not return to Properties");const auto result=properties->pending_value().first;
+                const auto& line=result.segments.back();const auto* endpoint=result.find_point(line.second_point_id);
+                check(line.construction==construction,"Axis overlap changed construction state");
+                check(endpoint&&std::abs(vertical?endpoint->x:endpoint->y)<1e-7,"Axis endpoint C equation failed");
+                check(std::ranges::any_of(result.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::PointOnLine&&c.first_point_id==line.second_point_id&&c.geometry_id==axis;}),"Axis endpoint C was not committed");
+                check(std::ranges::none_of(result.constraints,[](const auto& c){return c.kind==sketcher::ConstraintKind::MidpointOnLine;}),"Collinear line from Origin acquired M");
+                properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto reopened=document::PartDocument::load(path);
+                check(reopened.sketches.front().serialized()==result.serialized(),"Axis-overlap Sketch changed during save/reopen");
+                continue;
+            }
             if(kind==3) {
                 const auto sample=screen(20,20);
                 click(sample);
@@ -6083,25 +6143,54 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
 }
 
 #include "sketch_keypoint_contact_ui_verification.inc"
+#include "form_arcs_ui_verification.inc"
+#include "form_point_end_ui_verification.inc"
 int verify_sketch_coincident_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        for(const bool x_axis:{true,false})for(int order:{0,1,2}) {
+        for(int support_kind:{0,1,2,3})for(const bool x_axis:{true,false})for(int order:{0,1,2}) {
+            // Native curve-first C is outside the existing command contract;
+            // native point-to-point merging below exercises both input orders.
+            if((support_kind==1||support_kind==2)&&order==1)continue;
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_DOCUMENT_ONLY")&&support_kind!=3)continue;
+            if(support_kind==3&&(x_axis||qEnvironmentVariableIsEmpty("ZIMA_VERIFY_SKETCH_COINCIDENT_DOCUMENT")))continue;
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
-            static_cast<void>(sketch.add_segment(12,8,20,15));const auto point=sketch.segments.front().first_point_id;
+            static_cast<void>(sketch.add_segment(12,8,20,15));auto point=sketch.segments.front().first_point_id;
+            auto support = support_kind>=2 ? sketch.add_circle(0,0,30)
+                : support_kind==1 ? sketch.add_segment(x_axis?-35:0,x_axis?0:-35,x_axis?35:0,x_axis?0:35)
+                : std::string{};
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
-            const auto body=graph.create_body("Coincident test");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
-            const auto path=directory/(std::string("coincident-")+(x_axis?"x-":"y-")+std::to_string(order)+".prtz");part.save(path);
+            auto body=graph.create_body("Coincident test");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            if(support_kind==3) {
+                part=document::PartDocument::load(std::filesystem::u8path(qEnvironmentVariable("ZIMA_VERIFY_SKETCH_COINCIDENT_DOCUMENT").toStdString()));
+                sketch=part.sketches.front();feature=*part.find_container(sketch.owner_container_id);
+                for(const auto& c:sketch.constraints)if(c.kind==sketcher::ConstraintKind::PointOnCircle)support=c.first_point_id;
+                static_cast<void>(sketch.add_segment(-10,0,23,0));point=sketch.segments.back().second_point_id;
+                static_cast<void>(sketch.add_point_on_line_constraint(point,"sketch_axis:x"));
+                part.sketches.front()=sketch;
+                body=part.body_history.owner(feature.id)->scope.id;
+            }
+            const auto path=directory/(std::string("coincident-")+std::to_string(support_kind)+(x_axis?"x-":"y-")+std::to_string(order)+".prtz");part.save(path);
             app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
             check(window.open_document_path(QString::fromStdString(path.string())),"Coincident fixture failed to open");flush();
+            auto* activation_tree=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator i(activation_tree);*i;++i)
+                if((*i)->data(0,Qt::UserRole+3)=="part-body")(*i)->setExpanded(false);
             check(activate_test_body(application,window,body),"Cannot activate Coincident fixture Body");flush();
+            for(QTreeWidgetItemIterator i(activation_tree);*i;++i)
+                if((*i)->data(0,Qt::UserRole+3)=="part-body")
+                    check(!(*i)->isExpanded(),"Body activation expanded a previously collapsed Body");
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
             check(row,"Coincident Sketch row missing");window.show_tree_item_properties(row);flush();
-            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            // An owned Extrusion Sketch enters its editor through the Tree action itself.
+            if(support_kind!=3) {
+                auto* open_sketch=window.findChild<QPushButton*>("sketchOpenButton");
+                check(open_sketch,"Coincident fixture has no Sketch editor button");open_sketch->click();flush();
+            }
             QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Coincident View missing");
             const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
@@ -6117,22 +6206,47 @@ int verify_sketch_coincident_ui(QApplication& application,const std::filesystem:
                 mouse(*position,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*position,QEvent::MouseButtonRelease,Qt::LeftButton);
             };
             auto* action=window.findChild<QAction*>("sketchCoincidentAction");check(action&&action->isEnabled(),"Coincident command unavailable");
-            const std::string axis=x_axis?"sketch_axis:x":"sketch_axis:y",point_key="point:"+point;
+            const std::string axis=support_kind==3?"point:"+support:support_kind==2?"circle:"+support:support_kind==1?"segment:"+support:x_axis?"sketch_axis:x":"sketch_axis:y",point_key="point:"+point;
             if(order==2)pick(point_key); // A preselected endpoint is also valid input.
             action->trigger();flush();
             if(order==0){pick(point_key);pick(axis);}
             else if(order==1){pick(axis);pick(point_key);}
             else pick(axis);
-            const auto moved=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==sketch.id&&p.reference.semantic_key==point_key;});
-            check(moved!=view->mesh().points.end()&&std::abs(x_axis?moved->position.y:moved->position.x)<1e-7,"Coincident did not move the endpoint onto the axis");
+            const auto survivor=support_kind==3&&order==1?support:point;
+            const auto survivor_key="point:"+survivor;
+            const auto moved=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==sketch.id&&p.reference.semantic_key==survivor_key;});
+            check(moved!=view->mesh().points.end(),"Coincident lost its native endpoint");
+            if(support_kind==3) {
+                const auto center_key="point:"+sketch.circles.front().center_point_id;
+                const auto center=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==sketch.id&&p.reference.semantic_key==center_key;});
+                check(center!=view->mesh().points.end()&&std::abs(std::hypot(moved->position.x-center->position.x,moved->position.y-center->position.y,moved->position.z-center->position.z)-sketch.circles.front().radius)<1e-7,"FORM GUI C equation failed");
+                check(std::ranges::any_of(view->mesh().constraint_markers,[&](const auto& m){return m.reference.owner_id==sketch.id&&m.label=="C"&&std::ranges::find(m.participant_semantic_keys,survivor_key)!=m.participant_semantic_keys.end();}),"FORM GUI did not publish endpoint C");
+            }
+            if(support_kind==0)check(std::abs(x_axis?moved->position.y:moved->position.x)<1e-7,"Coincident did not move the endpoint onto the axis");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
-            for(auto* d:window.findChildren<QDialog*>())if(auto* properties=dynamic_cast<app::SketchPropertiesDialog*>(d);properties&&properties->isVisible())properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            if(support_kind==3){QEventLoop settle;QTimer::singleShot(150,&settle,&QEventLoop::quit);settle.exec();flush();}
+            for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()&&(dynamic_cast<app::SketchPropertiesDialog*>(d)||
+                (support_kind==3&&dynamic_cast<app::PrimitivePropertiesDialog*>(d)))) {
+                    d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+                }flush();
+            if(support_kind==3){QEventLoop settle;QTimer::singleShot(150,&settle,&QEventLoop::quit);settle.exec();flush();
+                if(auto* error=window.findChild<QLabel*>("featureValidationError");error&&error->isVisible()&&!error->text().isEmpty())
+                    throw std::runtime_error("FORM endpoint C is valid, but feature OK rejected the resulting model: "+error->text().toStdString());}
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-            const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
-            check(result.constraints.size()==1&&result.constraints.front().kind==sketcher::ConstraintKind::PointOnLine&&result.constraints.front().first_point_id==point&&result.constraints.front().geometry_id==axis,"Coincident axis relation did not persist");
-            check(std::abs(x_axis?result.find_point(point)->y:result.find_point(point)->x)<1e-7,"Saved endpoint left its axis");
+            const auto saved=document::PartDocument::load(path);const auto& result=*std::ranges::find(saved.sketches,sketch.id,&sketcher::Sketch::id);
+            check((support_kind==3||result.constraints.size()==sketch.constraints.size()+1)&&std::ranges::any_of(result.constraints,[&](const auto& c){return c.kind==(support_kind>=2?sketcher::ConstraintKind::PointOnCircle:sketcher::ConstraintKind::PointOnLine)&&c.first_point_id==survivor&&c.geometry_id==(support_kind==3?sketch.circles.front().id:support_kind==0?axis:support);}),"Coincident support relation did not persist");
+            const auto* endpoint=result.find_point(survivor);
+            if(support_kind==3)check(result.points.size()+1==sketch.points.size()&&result.segments.back().second_point_id==survivor&&std::abs(endpoint->x-15)<1e-7&&std::abs(endpoint->y)<1e-7,"FORM endpoint merge identity or position failed");
+            if(support_kind==0)check(std::abs(x_axis?endpoint->y:endpoint->x)<1e-7,"Saved endpoint left its axis");
+            else if(support_kind>=2) {
+                const auto& circle=result.circles.front();const auto* center=result.find_point(circle.center_point_id);
+                check(std::abs(std::hypot(endpoint->x-center->x,endpoint->y-center->y)-circle.radius)<1e-7,"Saved endpoint left its circle");
+            } else {
+                const auto& segment=result.segments.back();const auto* a=result.find_point(segment.first_point_id);const auto* b=result.find_point(segment.second_point_id);
+                check(std::abs((endpoint->x-a->x)*(b->y-a->y)-(endpoint->y-a->y)*(b->x-a->x))<1e-7,"Saved endpoint left its segment");
+            }
         }
-        std::cout<<"Sketch C supports point/axis, axis/point and preselected endpoints on both axes\n";return 0;
+        std::cout<<"Sketch C: axes, axis-overlapping segments, circles and native point merges with saved equations passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
@@ -9457,6 +9571,10 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY")) return verify_rectangle_external_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SLOT_ONLY")) return verify_sketch_slot_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYSTEM_SETUP_ONLY")) return verify_system_setup_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_POINT_END_DOCUMENT")) return verify_form_point_end_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SOURCE_MOTION_DOCUMENT")) return verify_form_source_motion_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_DIMENSIONS_DOCUMENT")) return verify_form_dimensions_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_ARCS_DOCUMENT")) return verify_form_arcs_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY")) return verify_sketch_keypoint_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);

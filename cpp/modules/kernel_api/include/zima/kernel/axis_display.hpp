@@ -21,6 +21,8 @@ inline std::string axis_endpoint_parent_key(std::string_view key) {
     return {};
 }
 inline std::optional<std::array<Vec3,2>> axis_curve_overhang(const ViewerEdge& edge) {
+    // Auxiliary Sketch geometry keeps its exact extent; only axes have tails.
+    if (edge.construction && !edge.dash_dot) return {};
     if (edge.infinite || edge.points.size()<2) return {};
     const auto a=edge.points.front(),b=edge.points.back();
     double extent2=1.;

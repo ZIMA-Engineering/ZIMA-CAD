@@ -207,7 +207,12 @@ void verify_corner_axis(const document::PartDocument& part,const document::Histo
 }
 #include "planar_solid_form_experiment.inc"
 #include "corner_outward_form_experiment.inc"
+#include "dimpled_hole_form_verification.inc"
 int main(int argc,char** argv){try {
+    if(argc==4&&std::string_view(argv[1])=="--prepare-dimpled-hole")return prepare_dimpled_hole(argv[2],argv[3]);
+    if(argc==3&&std::string_view(argv[1])=="--verify-dimpled-hole")return verify_library_form(argv[2],true);
+    if(argc==4&&std::string_view(argv[1])=="--prepare-bridge-lance")return prepare_bridge_lance(argv[2],argv[3]);
+    if(argc==3&&std::string_view(argv[1])=="--verify-bridge-lance")return verify_library_form(argv[2],false);
     if(argc==4&&std::string_view(argv[1])=="--prepare-corner-solid-cut")
         return prepare_corner_solid_cut(argv[2],argv[3]);
     if(argc==4&&std::string_view(argv[1])=="--order-form-bodies") {

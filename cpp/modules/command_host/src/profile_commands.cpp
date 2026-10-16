@@ -151,9 +151,9 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
                 for(const auto& [name,v]:item.items())if((name!="owner"&&name!="key"&&name!="instance_path"&&name!="kind"&&name!="label") || !v.is_string())
                     throw Error("invalid_arguments","Target reference fields must be supported text fields.");
                 const auto kind=item.value("kind",std::string("face"));
-                if(kind!="face"&&kind!="plane")throw Error("invalid_reference","Extrusion end references require a plane or an original face.");
+                if(kind!="face"&&kind!="plane"&&kind!="point")throw Error("invalid_reference","Extrusion end references require a point, a plane or an original face.");
                 document::ExtrusionParameters::EndTarget target;
-                target.kind=document::EndTargetKind::Face;
+                target.kind=kind=="point"?document::EndTargetKind::Point:document::EndTargetKind::Face;
                 target.reference={item.at("owner").get<std::string>(),item.at("key").get<std::string>(),item.value("instance_path",std::string{})};
                 target.label=item.value("label",target.reference.owner_id+" / "+target.reference.semantic_key);
                 document::validate_native_metadata_text(target.label);targets.push_back(std::move(target));

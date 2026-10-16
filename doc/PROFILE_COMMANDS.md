@@ -291,3 +291,14 @@ Checks cover volumes for all four combinations, open-profile errors, batch bound
 unchanged history on failure/no-op, exact-occurrence original references and native
 saving after Undo/Redo. Logs: `build/profile-sketch-batch-integration-build.log`,
 `build/profile-sketch-batch-integration-tests.log`, `build/profile-sketch-batch-gui-tests.log`.
+
+## Extrusion limit from an earlier Sketch point
+
+Set `end_forward` or `end_reverse` to `up_to` and pass one target with
+`kind: "point"`, the preceding Sketch owner ID and `key: "point:<point-ID>"`.
+The current point defines a stop plane perpendicular to extrusion; its source
+identity survives subsequent point edits and native save/reopen. The source must
+precede the consuming profile. Symmetric extrusion mirrors its primary limit.
+This also applies to the generalized modeling Feature; Revolution keeps its
+existing plane/face limit contract. In Properties, selecting Up to automatically
+arms reference entry.

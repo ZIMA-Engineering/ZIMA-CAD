@@ -20,6 +20,7 @@
 #include <QStyleOptionViewItem>
 #include <QApplication>
 #include <QCheckBox>
+#include <QCursor>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -80,7 +81,8 @@ void verify_file_controls(QApplication& application){
     auto* assembly=manager.findChild<QToolButton*>("fileManagerType_asmz");auto* material=manager.findChild<QToolButton*>("fileManagerType_matz");check(assembly&&!assembly->isChecked()&&!visible("Assembly.asmz")&&!visible("Note.txt")&&visible("Part.prtz")&&visible("Material.matz"),"Local exclusion patterns or ignored legacy policy were applied incorrectly");
     for(const auto* extension:{"prtz","asmz","drwz","matz","frmz","tblz","symz"}){auto* button=manager.findChild<QToolButton*>(QStringLiteral("fileManagerType_%1").arg(extension));check(button&&button->text()==extension&&!button->icon().isNull()&&button->toolButtonStyle()==Qt::ToolButtonTextBesideIcon,"Type toggle lost lowercase extension or its native icon");}
     auto* versions=manager.findChild<QToolButton*>("fileManagerFilterVersions");check(versions&&!versions->icon().isNull(),"Versions toggle has no icon");
-    const auto check_azure=[&](QToolButton* button){application.processEvents();const auto capture=button->grab().toImage();int azure=0;for(int y=1;y<capture.height()-1;++y)for(int x=1;x<capture.width()-1;++x)if(capture.pixelColor(x,y)==QColor("#00D1FF"))++azure;check(button->isChecked()?azure>20:azure==0,"File filter checked state is not visibly azure");};
+    // Native icons may contain a few azure pixels; test the filled background.
+    const auto check_azure=[&](QToolButton* button){QCursor::setPos(manager.mapToGlobal(QPoint(manager.width()+20,manager.height()+20)));application.processEvents();const auto capture=button->grab().toImage();int azure=0;for(int y=1;y<capture.height()-1;++y)for(int x=1;x<capture.width()-1;++x)if(capture.pixelColor(x,y)==QColor("#00D1FF"))++azure;check(button->isChecked()==(azure>20),"File filter checked state is not visibly azure");};
     check_azure(assembly);check_azure(material);
     assembly->click();material->click();check(visible("Assembly.asmz")&&!visible("Material.matz")&&visible("Part.prtz"),"Independent file type toggles failed");check(native_reads==reads_before_filter,"File type toggles reloaded native documents");
     check_azure(assembly);check_azure(material);versions->click();check_azure(versions);versions->click();check_azure(versions);for(int row=0;row<table->topLevelItemCount();++row)if(!table->topLevelItem(row)->data(0,Qt::UserRole+3).toBool())check(table->topLevelItem(row)->text(2)==QFileInfo(table->topLevelItem(row)->text(0)).suffix().toLower(),"Type column does not match lowercase filter labels");
@@ -217,7 +219,7 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 }
 
 int main(int argc,char** argv){
-    QApplication application(argc,argv);
+    QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
         verify_file_controls(application);
         verify_symbol_thumbnails(application);
@@ -283,6 +285,7 @@ int main(int argc,char** argv){
         }
         {QSettings metadata(html_index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Version",3);metadata.setValue("Directory/Kind","directory");metadata.setValue("Directory/Id","synthetic-html");metadata.setValue("Directory/Label/cs","HTML tabulka");metadata.setValue("Directory/LogoMode","logo");metadata.setValue("Directory/Logo","logo.svg");metadata.sync();}
         {QFile metadata(index+"/metadata.ini");check(metadata.open(QIODevice::ReadOnly),"Cannot read parameter-list fixture");QByteArray text=metadata.readAll();metadata.close();check(text.contains("Parameters=\"material,note\""),"Scalar parameter fixture differs from Qt INI serialization");text.replace("Parameters=\"material,note\"","Parameters=material, note");check(metadata.open(QIODevice::WriteOnly|QIODevice::Truncate),"Cannot write native INI parameter list");metadata.write(text);}
+        {QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Parameters","material,note,native_length");metadata.sync();}
         check(QDir().mkpath(project+"/SUBDIR/0000-index"),"Cannot create child preview fixture");
         {QImage preview(100,60,QImage::Format_RGB32);preview.fill(Qt::red);check(preview.save(project+"/SUBDIR/0000-index/01_cs.png"),"Cannot write localized preview");preview.fill(Qt::blue);check(preview.save(project+"/SUBDIR/0000-index/logo.png"),"Cannot write child branding");}
 
@@ -291,7 +294,7 @@ int main(int argc,char** argv){
         settings.file_manager.sources.push_back({"read-only","Knihovna jen pro čtení",read_only,read_only,true,true,false});
         zima::app::FileManagerTab first(settings,working,project);first.resize(1100,700);first.show();application.processEvents();QString native_edit,opened_file;
         first.open_file_requested=[&](const QString& path){opened_file=path;};
-        first.native_parameters_requested=[](const QString& path){zima::app::FileManagerNativeParameters data;if(path.endsWith(".prtz",Qt::CaseInsensitive)){data.order={"native_length"};data.values.insert("native_length","125");data.labels["native_length"].insert("cs","Nativní délka");}return data;};
+        first.native_parameters_requested=[](const QString& path){zima::app::FileManagerNativeParameters data;if(path.endsWith(".prtz",Qt::CaseInsensitive)){data.order={"native_length","hidden_native"};data.values.insert("hidden_native","999");data.values.insert("native_length","125");data.labels["native_length"].insert("cs","Nativní délka");}return data;};
         first.native_parameter_edit_requested=[&](const QString& path,const QString& parameter,const QString& value){native_edit=QFileInfo(path).fileName()+QLatin1Char(':')+parameter+QLatin1Char('=')+value;return QString{};};
         first.navigate(working);first.navigate(project);
         auto* sources=first.findChild<QListWidget*>("fileManagerSources");auto* source_trees=first.findChild<QStackedWidget*>("fileManagerSourceTrees");auto* views=first.findChild<QTabWidget*>("fileManagerViews");
@@ -425,7 +428,11 @@ int main(int argc,char** argv){
         zima::app::FileManagerTab second(files_settings,working,working);check(second.findChild<QTabWidget*>("fileManagerViews")->currentIndex()==1,"Initial Files preference was ignored");second.navigate(source);
         check(first.current_directory()==QDir::cleanPath(project)&&second.current_directory()==QDir::cleanPath(source),"File Manager tabs do not keep independent navigation state");
         first.navigate(working);check(views->count()==2&&views->isTabVisible(0)&&overview_title->text()=="working"&&overview_details->isHidden(),"Directory overview retained stale project information");
-        check(files->columnCount()==6&&files->topLevelItemCount()==1,"Native parameters were not exposed without metadata");
+        check(files->columnCount()==5&&files->topLevelItemCount()==1,"Native data added an unconfigured column");
+        check(!QFileInfo::exists(working+"/0000-index/metadata.ini"),"Browsing native data created a column definition");
+        first.navigate(project);first.navigate(working);check(files->columnCount()==5,"Refresh rediscovered unconfigured columns");
+        QDir().mkpath(working+"/0000-index");{QSettings metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Parameters","native_length");metadata.sync();}
+        first.navigate(project);first.navigate(working);check(files->columnCount()==6,"Configured native column was not displayed");
         const auto native_cell=files->indexFromItem(files->topLevelItem(0),5);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,native_cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Native parameter was not editable without metadata");line->setText("175");files->itemDelegate()->setModelData(editor,files->model(),native_cell);delete editor;
         QSettings created(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(created.value("Directory/Version").toInt()==3&&created.value("Directory/Kind").toString()=="directory","Editing a native parameter did not initialize metadata v3");
         check(created.value("Parts/PANEL/native_length").toString()=="175"&&created.value("Files/PANEL/Provider").toString()=="zima-cad","New metadata did not mirror the native edit");
@@ -449,7 +456,7 @@ int main(int argc,char** argv){
         QString protected_before;{QSettings metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);protected_before=metadata.value("Parts/PANEL/native_length").toString();metadata.setValue("Directory/PreventParameterEdit",true);metadata.sync();}
         first.navigate(working);QTreeWidgetItem* locked_native{};for(int row=0;row<files->topLevelItemCount();++row)if(files->topLevelItem(row)->text(0)=="PANEL.prtz")locked_native=files->topLevelItem(row);check(locked_native&&!(locked_native->flags()&Qt::ItemIsEditable),"Parameter protection did not lock native cells");
         const auto locked_cell=files->indexFromItem(locked_native,5);check(!files->itemDelegate()->createEditor(files,option,locked_cell),"Protected cell created an editor");native_edit.clear();QLineEdit blocked_editor;blocked_editor.setText("999");files->itemDelegate()->setModelData(&blocked_editor,files->model(),locked_cell);check(native_edit.isEmpty(),"Protected delegate called the native edit callback");QSettings locked_metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(locked_metadata.value("Parts/PANEL/native_length").toString()==protected_before,"Protected delegate changed persisted parameters");
-        const QString inherited_parameters=working+"/params-child";QDir().mkpath(inherited_parameters);{QFile child(inherited_parameters+"/PANEL.prtz");check(child.open(QIODevice::WriteOnly),"Cannot create inherited parameter fixture");child.write("synthetic-native-fixture");}first.navigate(inherited_parameters);check(files->topLevelItemCount()==1&&!(files->topLevelItem(0)->flags()&Qt::ItemIsEditable),"Parameter protection was not inherited by a child directory");
+        const QString inherited_parameters=working+"/params-child";QDir().mkpath(inherited_parameters+"/0000-index");{QSettings metadata(inherited_parameters+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/Parameters","native_length");metadata.sync();}{QFile child(inherited_parameters+"/PANEL.prtz");check(child.open(QIODevice::WriteOnly),"Cannot create inherited parameter fixture");child.write("synthetic-native-fixture");}first.navigate(inherited_parameters);check(files->topLevelItemCount()==1&&!(files->topLevelItem(0)->flags()&Qt::ItemIsEditable),"Parameter protection was not inherited by a child directory");
         first.navigate(working);bool parameter_properties=false;QTimer::singleShot(0,[&]{auto* menu=first.findChild<QMenu*>("fileManagerSourceMenu");if(!menu)return;auto* action=menu->findChild<QAction*>("fileManagerSourceProperties");parameter_properties=action;if(action)action->trigger();menu->close();});sources->customContextMenuRequested(sources->visualItemRect(sources->item(0)).center());check(parameter_properties,"Working directory properties are unavailable");directory_editor=first.findChild<QDialog*>("fileManagerDirectoryEditor");auto* parameter_protection=directory_editor?directory_editor->findChild<QCheckBox*>("fileManagerDirectoryPreventParameterEdit"):nullptr;check(parameter_protection&&parameter_protection->isChecked(),"Directory properties did not expose stored parameter protection");parameter_protection->setChecked(false);directory_editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();first.navigate(inherited_parameters);check(files->topLevelItem(0)->flags()&Qt::ItemIsEditable,"Removing parameter protection did not restore child editing");first.navigate(working);
         first.set_working_directory(source);check(working_field->text()==QDir::toNativeSeparators(source)&&second.current_directory()==QDir::cleanPath(source),"Updating the working-directory field changed another tab navigation");first.set_working_directory(working);
         const QString preferences=fixture.filePath("preferences");QDir().mkpath(preferences);

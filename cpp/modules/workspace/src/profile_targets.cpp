@@ -6,9 +6,24 @@ namespace zima::workspace {
 document::ExtrusionParameters::EndTarget resolve_profile_end_target(
     const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated,
     const std::string& frame_owner,const document::ExtrusionParameters::EndTarget& requested) {
-    if(!requested.reference.valid() || !requested.reference.instance_path.empty() || requested.kind==document::EndTargetKind::Point)
+    if(!requested.reference.valid() || !requested.reference.instance_path.empty())
         throw ProfileOperationError("invalid_reference","The extrusion target must belong to this Part.");
     kernel::ViewerReferenceGeometry selected;
+    if(requested.kind==document::EndTargetKind::Point) {
+        const auto collect_points=[&](const kernel::ViewerReferenceGeometry& source) {
+            if(!selected.points.empty())return;
+            for(const auto& point:source.points)if(point.reference.owner_id==requested.reference.owner_id&&
+                point.reference.semantic_key==requested.reference.semantic_key&&point.reference.instance_path==requested.reference.instance_path)selected.points.push_back(point);
+        };
+        collect_points(part.sketch_placement_reference_geometry(frame_owner));
+        if(!calculated.empty())collect_points(calculated.back().mesh.original_references);
+        collect_points(part.origin_viewer_mesh().original_references);collect_points(part.body_origin_reference_geometry());
+        collect_points(part.history_origin_reference_geometry_before(frame_owner));collect_points(part.construction_viewer_mesh().original_references);
+        selected=part.construction_reference_geometry_for(frame_owner,std::move(selected));
+        const auto result=document::resolve_profile_target(requested,selected);
+        if(!result)throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
+        return *result;
+    }
     const auto collect=[&](const kernel::ViewerReferenceGeometry& source) {
         if(!selected.triangle_references.empty())return;
         for(std::size_t i=0;i<source.triangle_references.size();++i) {
@@ -34,7 +49,7 @@ document::ExtrusionParameters::EndTarget resolve_profile_end_target(
 document::ExtrusionParameters::EndTarget prepare_profile_end_target(
     const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated,
     const document::HistoryContainer& feature,const document::ExtrusionParameters::EndTarget& requested) {
-    if((feature.feature_kind!=document::FeatureKind::Extrusion && feature.feature_kind!=document::FeatureKind::Feature) || requested.kind==document::EndTargetKind::Point)
+    if(feature.feature_kind!=document::FeatureKind::Extrusion && feature.feature_kind!=document::FeatureKind::Feature)
         throw ProfileOperationError("invalid_reference","Extrusion end references require a plane or an original face.");
     if(!requested.reference.valid() || !requested.reference.instance_path.empty())
         throw ProfileOperationError("invalid_reference","The extrusion target must belong to this Part.");

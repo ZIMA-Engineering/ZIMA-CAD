@@ -536,7 +536,7 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
     auto symbol_mesh=part.place_body_mesh(symbol->evaluated_profile_sketch().viewer_mesh(),definition.bodies[3]);
     const auto source_z=kernel::sheet_material::cross(result.source_x,result.source_normal);
     for(auto edge:symbol_mesh.edges) {
-        if(edge.construction)continue;
+        if(edge.construction&&!edge.dash_dot)continue;
         const auto local_point=[&](kernel::Vec3 point) {
             const auto delta=kernel::sheet_material::sub(point,result.source_origin);
             return kernel::Vec3{kernel::sheet_material::dot(delta,result.source_x),

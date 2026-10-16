@@ -16,6 +16,7 @@ struct SketchTrimPiece {
     double end{};
     std::vector<std::array<double, 2>> points;
     bool closed{};
+    bool includes_base_axes{};
 
     bool operator==(const SketchTrimPiece&) const = default;
 };

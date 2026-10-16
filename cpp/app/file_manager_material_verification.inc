@@ -3,6 +3,7 @@ static void verify_file_manager_materials(QApplication& application,zima::app::F
     const QString folder=QDir(directory).filePath("materials");check(QDir().mkpath(folder),"Cannot isolate material fixtures");
     const QString path=QDir(folder).filePath("S235JR.matz");
     check(QFile::copy(QDir::current().filePath("config/materials/01_steels/structural/S235JR.matz"),path),"Cannot copy material fixture");
+    QDir().mkpath(QDir(folder).filePath("0000-index"));{QSettings metadata(QDir(folder).filePath("0000-index/metadata.ini"),QSettings::IniFormat);metadata.setValue("Directory/Parameters","MATERIAL_NAME,MASS_DENSITY");metadata.sync();}
     const auto native_path=std::filesystem::u8path(path.toStdString());
     const auto original=zima::document::load_material_library(native_path);
     int density_column=-1;

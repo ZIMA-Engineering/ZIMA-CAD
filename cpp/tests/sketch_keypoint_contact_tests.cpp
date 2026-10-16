@@ -1,8 +1,10 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
+#include "circle_endpoint_merge_study.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 #include <numbers>
 #include <stdexcept>
 using namespace zima::sketcher;
@@ -64,6 +66,154 @@ struct Fixture {
 };
 }
 int main(){try {
+    if(const auto* path=std::getenv("ZIMA_FORM_ARC_DIAGNOSTIC")) {
+        std::ifstream input(path);const std::string data{std::istreambuf_iterator<char>(input),{}};
+        const auto original=Sketch::from_serialized(data);
+        if(std::getenv("ZIMA_FORM_REFERENCE_MOTION")) {
+            int cases=0;
+            for(bool reference:{false,true})for(bool locked:{false,true}) {
+                auto s=original;for(auto d:std::vector(s.dimensions)){d.driving=!reference;d.locked=locked&&!reference;s.apply_dimension(d);}
+                const auto ref=s.external_references.front();
+                for(double x:{17.5,16.,18.,15.}) {
+                    zima::kernel::ViewerReferenceGeometry source;zima::kernel::ViewerPoint p;
+                    p.reference={ref.source_owner_id,ref.source_semantic_key,ref.source_instance_path};p.position=s.world_point(x,0);source.points.push_back(p);
+                    const auto immutable=source.points;
+                    static_cast<void>(s.refresh_external_references(ref.source_document_id,source));
+                    check(source.points.size()==immutable.size()&&source.points.front().reference==immutable.front().reference&&source.points.front().position.x==immutable.front().position.x&&source.points.front().position.y==immutable.front().position.y&&source.points.front().position.z==immutable.front().position.z,"FORM refresh mutated source geometry");
+                    check(!s.external_references.front().broken&&std::abs(s.external_references.front().cached_points.front()[0]-x)<1e-7,"FORM reference cache did not follow source");
+                    const auto k=std::ranges::find_if(s.constraints,[&](const auto& c){return c.kind==ConstraintKind::PointReference&&c.second_point_id==ref.id;});check(k!=s.constraints.end(),"FORM refresh lost K identity");
+                    const auto* contact=s.find_point(k->first_point_id);check(std::hypot(contact->x-x,contact->y)<1e-6,"FORM native endpoint did not follow external point");
+                    const auto equations=[&] {
+                        const auto r=s.solve();check(r.status!=SolveStatus::Conflicting&&r.status!=SolveStatus::Invalid&&r.maximum_residual<1e-6,"FORM refreshed constraints conflict");
+                        for(const auto& a:s.arcs)for(const auto& id:{a.start_point_id,a.end_point_id}){const auto* p=s.find_point(id);const auto* c=s.find_point(a.center_point_id);check(std::abs(std::hypot(p->x-c->x,p->y-c->y)-a.radius)<1e-6,"FORM refresh detached arc endpoint");}
+                        for(const auto& d:s.dimensions)if(d.driving){const auto* p=s.find_point(d.first_point_id);check(std::abs((d.kind==DimensionKind::DistanceSymmetric?2*std::abs(p->x):std::abs(p->y))-d.value)<1e-6,"FORM refresh changed driving dimension");}
+                    };
+                    equations();if(!reference)for(auto d:std::vector(s.dimensions)){d.value+=.05;s.apply_dimension(d);equations();}
+                    const auto* center=s.find_point(s.arcs.front().center_point_id);const auto before=s.serialized();
+                    if(!s.move_point(center->id,center->x,center->y-.1))check(s.serialized()==before,"Rejected refreshed FORM drag changed Sketch");
+                    equations();s=Sketch::from_serialized(s.serialized());equations();++cases;
+                }
+            }
+            auto frozen=original;for(const auto& p:std::vector(frozen.points))frozen.set_point_fixed(p.id,true);
+            const auto before=frozen.serialized();const auto ref=frozen.external_references.front();zima::kernel::ViewerReferenceGeometry source;zima::kernel::ViewerPoint p;
+            p.reference={ref.source_owner_id,ref.source_semantic_key,ref.source_instance_path};p.position=frozen.world_point(17.5,0);source.points.push_back(p);
+            bool rejected=false;try{static_cast<void>(frozen.refresh_external_references(ref.source_document_id,source));}catch(const std::exception&){rejected=true;}
+            check(rejected&&frozen.serialized()==before,"Impossible FORM reference refresh was not atomic");
+            std::cout<<"FORM source motion: "<<cases<<" successive refresh/dimension/drag/reopen cases and fixed rejection passed\n";return 0;
+        }
+        if(std::getenv("ZIMA_FORM_DIMENSION_DIAGNOSTIC")) {
+            const auto verify=[&](Sketch& s) {
+                const auto r=s.solve();check(r.status!=SolveStatus::Conflicting&&r.status!=SolveStatus::Invalid&&r.maximum_residual<1e-6,"FORM dimension equations failed");
+                for(const auto& arc:s.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+                    const auto* p=s.find_point(id);const auto* c=s.find_point(arc.center_point_id);
+                    check(std::abs(std::hypot(p->x-c->x,p->y-c->y)-arc.radius)<1e-6,"FORM dimension detached arc endpoint");
+                }
+                for(const auto& d:s.dimensions)if(d.driving) {
+                    const auto* p=s.find_point(d.first_point_id);
+                    check(std::abs((d.kind==DimensionKind::DistanceSymmetric?2*std::abs(p->x):std::abs(p->y))-d.value)<1e-6,"FORM dimension measured value differs");
+                }
+                check(s.external_references==original.external_references,"FORM dimension changed read-only source");
+            };
+            int cases=0;
+            for(int support=0;support<3;++support)for(bool locked:{false,true})for(bool reference:{false,true}) {
+                auto s=original;
+                if(support)static_cast<void>(s.add_segment_pair_constraint(support==1?"sketch_axis:y":s.segments.back().id,s.segments.front().id,ConstraintKind::Perpendicular));
+                for(auto d:std::vector(s.dimensions)){d.driving=!reference;d.locked=locked&&!reference;s.apply_dimension(d);}verify(s);
+                for(int step=0;step<3;++step) {
+                    if(!reference)for(auto d:std::vector(s.dimensions)) {d.value+=step==1?-.2:.3;if(step==1)s.apply_dimension(d);else check(s.set_dimension_value(d.id,dimension_display_value(d)),"FORM displayed dimension value edit rejected");verify(s);}
+                    const auto point=s.arcs.front().center_point_id;const auto* p=s.find_point(point);const auto before=s.serialized();
+                    const auto y=p->y;const bool moved=s.move_point(point,p->x,p->y-.1);
+                    if(!moved)check(s.serialized()==before,"Rejected FORM dimension drag changed Sketch");
+                    else check(std::abs(s.find_point(point)->y-y)>1e-7,"Accepted FORM drag did not move");
+                    verify(s);s=Sketch::from_serialized(s.serialized());verify(s);
+                }
+                ++cases;
+            }
+            std::cout<<"FORM dimension repeated edit/drag/serialization matrix: "<<cases<<" passed\n";
+            {
+                auto frozen=original;
+                for(const auto& p:std::vector(frozen.points))frozen.set_point_fixed(p.id,true);
+                verify(frozen);const auto before=frozen.serialized();const auto* center=frozen.find_point(frozen.arcs.front().center_point_id);
+                check(!frozen.move_point(center->id,center->x+1,center->y-1)&&frozen.serialized()==before,"Fully constrained FORM geometry escaped on drag");
+            }
+            auto solved=original;const auto initial=solved.solve();std::cout<<"INITIAL status="<<int(initial.status)<<" residual="<<initial.maximum_residual<<'\n';
+            for(const auto& axis:{std::string("sketch_axis:x"),std::string("sketch_axis:y"),original.segments.back().id}) {
+                auto s=original;try{static_cast<void>(s.add_segment_pair_constraint(axis,s.segments.front().id,ConstraintKind::Perpendicular));check(axis!="sketch_axis:x","FORM contradictory perpendicular accepted");std::cout<<"PERP "<<axis<<" OK\n";}catch(const std::exception& e){check(axis=="sketch_axis:x"&&s.serialized()==original.serialized(),"FORM valid perpendicular rejected or rejection mutated Sketch");std::cout<<"PERP "<<axis<<" REJECTED "<<e.what()<<'\n';}
+            }
+            for(const auto& d:original.dimensions)for(double value:{0.,2.,5.,7.,10.,12.}) {
+                auto s=original;auto changed=d;changed.value=value;try{s.apply_dimension(changed);const auto r=s.solve();std::cout<<"DIM "<<d.id<<" value="<<value<<" OK residual="<<r.maximum_residual<<'\n';}catch(const std::exception& e){std::cout<<"DIM "<<d.id<<" value="<<value<<" REJECTED "<<e.what()<<'\n';}
+            }
+            return 0;
+        }
+        const auto attempt=[&](const std::string& label,auto operation){auto s=original;try{operation(s);const auto solved=s.solve();std::cout<<label<<": status="<<int(solved.status)<<" residual="<<solved.maximum_residual<<'\n';}catch(const std::exception& e){check(s.serialized()==original.serialized(),"Rejected FORM relation mutated document");std::cout<<label<<": REJECTED "<<e.what()<<'\n';}};
+        for(int i=0;i<2;++i)for(const std::string axis:{"sketch_axis:x","sketch_axis:y"})for(bool reverse:{false,true})
+            attempt("T arc="+std::to_string(i)+" axis="+axis+" reverse="+std::to_string(reverse),[&](auto& s){static_cast<void>(s.add_tangent_constraint(reverse?axis:s.arcs[i].id,reverse?s.arcs[i].id:axis));});
+        for(int i=0;i<2;++i)for(bool start:{false,true})for(bool reverse:{false,true})
+            attempt("C arc="+std::to_string(i)+" start="+std::to_string(start)+" reverse="+std::to_string(reverse),[&](auto& s){const auto endpoint=start?s.arcs[i].start_point_id:s.arcs[i].end_point_id;const auto line=s.segments.front().second_point_id;static_cast<void>(s.merge_points(reverse?endpoint:line,reverse?line:endpoint));});
+        for(bool reverse:{false,true})attempt("Equal reverse="+std::to_string(reverse),[&](auto& s){static_cast<void>(s.add_equal_radius_constraint(s.arcs[reverse?1:0].id,s.arcs[reverse?0:1].id));});
+        for(int kind=0;kind<3;++kind)for(bool reverse:{false,true}) {
+            auto s=original;const auto references=s.external_references;
+            if(kind==0)static_cast<void>(s.merge_points(reverse?s.arcs.back().start_point_id:s.segments.front().second_point_id,reverse?s.segments.front().second_point_id:s.arcs.back().start_point_id));
+            if(kind==1)static_cast<void>(s.add_tangent_constraint(reverse?"sketch_axis:x":s.arcs.front().id,reverse?s.arcs.front().id:"sketch_axis:x"));
+            if(kind==2)static_cast<void>(s.add_equal_radius_constraint(s.arcs[reverse?1:0].id,s.arcs[reverse?0:1].id));
+            const auto equations=[&] {
+                const auto solved=s.solve();check(solved.status!=SolveStatus::Invalid&&solved.status!=SolveStatus::Conflicting&&solved.maximum_residual<1e-6,"FORM arc relation does not solve");
+                for(const auto& arc:s.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+                    const auto* p=s.find_point(id);const auto* c=s.find_point(arc.center_point_id);
+                    check(std::abs(std::hypot(p->x-c->x,p->y-c->y)-arc.radius)<1e-6,"FORM arc endpoint escaped circle equation");
+                }
+                if(kind==0)check(s.segments.front().second_point_id==s.arcs.back().start_point_id,"FORM C does not share native point");
+                if(kind==1){const auto* p=s.find_point(s.arcs.front().start_point_id);const auto* c=s.find_point(s.arcs.front().center_point_id);check(std::abs(p->y)<1e-6&&std::abs(p->x-c->x)<1e-6,"FORM T is not horizontal at its endpoint");}
+                if(kind==2)check(std::abs(s.arcs.front().radius-s.arcs.back().radius)<1e-6,"FORM equal radii diverged");
+                const auto* origin=s.find_point(s.segments.front().first_point_id);
+                const auto* axis_end=s.find_point(s.segments.front().second_point_id);
+                check(std::hypot(origin->x,origin->y)<1e-7&&std::abs(axis_end->x)<1e-7,"FORM construction axis escaped its Origin incidence");
+                if(kind!=0){const auto* before=original.find_point(original.segments.front().second_point_id);check(std::abs(axis_end->y-before->y)<1e-7,"Unconnected FORM construction axis moved during arc edit");}
+                check(s.external_references==references,"FORM edit changed read-only external source packet");
+            };
+            equations();{
+                auto plain=s;const auto* center=plain.find_point(plain.arcs.front().center_point_id);
+                const auto x=center->x,y=center->y;const auto id=center->id;
+                const bool moved=plain.move_point(id,x+(kind==1?.02:0.),y-.4);
+                check(moved,"Undimensioned FORM center rejected its permitted drag");
+                if(kind==1)check(std::abs(plain.find_point(id)->x-x)<1e-7,"Axis tangent center escaped its anchored parallel coordinate");
+                std::cout<<"FORM undimensioned drag kind="<<kind<<" reverse="<<reverse<<" moved="<<moved<<" from="<<x<<","<<y<<" to="<<plain.find_point(id)->x<<","<<plain.find_point(id)->y<<'\n';
+            }
+            auto d=s.create_arc_radius_dimension(s.arcs.front().id);s.apply_dimension(d);
+            const double radius=s.arcs.front().radius;
+            for(double factor:{1.02,.98,1.}) {check(s.set_dimension_value(d.id,radius*factor),"FORM arc relation rejected radius edit");equations();}
+            for(int i=0;i<3;++i){const auto* c=s.find_point(s.arcs.front().center_point_id);const auto before=s.serialized();const bool moved=s.move_point(c->id,c->x,c->y-.1);if(!moved)check(s.serialized()==before,"FORM rejected drag mutated document");equations();std::cout<<"FORM drag kind="<<kind<<" reverse="<<reverse<<" moved="<<moved<<'\n';}
+            s=Sketch::from_serialized(s.serialized());equations();
+        }
+        std::cout<<"FORM C/T/equality: both selection orders, independent equations, repeated dimension edits and drag attempts, read-only external packet and reopen passed\n";
+        return 0;
+    }
+    verify_circle_endpoint_merge_study();
+    unsigned trim_axis_cases{}, nontrimmable_auxiliary_cases{};
+    for(int quarter=0;quarter<4;++quarter)for(bool diameter:{false,true})for(bool locked:{false,true})for(int role:{0,1,2}) {
+        auto s=Sketch::create_default();const auto circle=s.add_circle(0,0,15);
+        s.set_point_fixed(s.circles.front().center_point_id,true);
+        if(role==1)s.set_geometry_construction(circle,true);
+        if(role==2)s.set_geometry_centerline(circle,true);
+        const auto topology=sketch_trim_topology(s);
+        if(role!=0){check(topology.empty(),"Auxiliary/axis circle unexpectedly entered the trim command");++nontrimmable_auxiliary_cases;continue;}
+        check(topology.size()==4,"Circle axis trim topology did not expose four quarters");
+        static_cast<void>(apply_sketch_trim(s,{topology[quarter]}));
+        s.set_point_fixed(s.arcs.front().center_point_id,true);
+        auto d=diameter?s.create_arc_diameter_dimension(s.arcs.front().id):s.create_arc_radius_dimension(s.arcs.front().id);d.locked=locked;s.apply_dimension(d);
+        const auto equations=[&] {
+            const auto solved=s.solve();check(solved.status!=SolveStatus::Conflicting&&solved.status!=SolveStatus::Invalid&&solved.maximum_residual<1e-6,"Axis-trimmed arc does not solve");
+            for(const auto& arc:s.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+                const auto* p=s.find_point(id);const auto* center=s.find_point(arc.center_point_id);
+                check(std::abs(std::hypot(p->x-center->x,p->y-center->y)-arc.radius)<1e-6,"Trim endpoint escaped retained arc");
+                check(std::ranges::any_of(s.constraints,[&](const auto& c){return c.kind==ConstraintKind::PointOnLine&&c.first_point_id==id&&((c.geometry_id=="sketch_axis:x"&&std::abs(p->y)<1e-7)||(c.geometry_id=="sketch_axis:y"&&std::abs(p->x)<1e-7));}),"Axis trim endpoint lacks its persisted C");
+            }
+        };
+        equations();for(double r:{14.,16.,15.}){check(s.set_dimension_value(d.id,diameter?2*r:r),"Axis-trimmed arc rejected radius/diameter edit");equations();}
+        for(int i=0;i<3;++i){const auto before=s.serialized();const auto* p=s.find_point(s.arcs.front().start_point_id);const auto id=p->id;const double x=p->x,y=p->y;const bool moved=s.move_point(id,x*1.01,y*1.01);if(locked)check(s.serialized()==before,"Locked axis trim endpoint escaped by dragging");else check(moved&&std::hypot(s.find_point(id)->x-x,s.find_point(id)->y-y)>1e-5,"Unlocked axis trim endpoint did not move");equations();}
+        s=Sketch::from_serialized(s.serialized());equations();++trim_axis_cases;
+    }
+    std::cout<<"Axis trim matrix: "<<trim_axis_cases<<" ordinary circle quadrants/R/D/lock cases, persisted endpoint C, edits/drags and reopen passed; "<<nontrimmable_auxiliary_cases<<" auxiliary/axis cases correctly excluded from trimming\n";
     unsigned cases{},existing_limitations{};
     for(int kind=0;kind<4;++kind)for(int q=0;q<4;++q) {
         if((kind==1||kind==3)&&q==0)continue; // Outside the intentionally open arc interval.

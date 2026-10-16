@@ -293,7 +293,10 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         if(id=="sketch_origin")return std::array{0.,0.};
         const auto* p=next.find_point(id);if(p)return std::array{p->x,p->y};
         const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
-        if(ref!=next.external_references.end()&&!ref->broken&&ref->cached_points.size()==1)return ref->cached_points.front();
+        // Match the ordinary PointReference equations: a persisted point cache
+        // remains read-only while its source is unavailable. Seeding must not
+        // silently drop that equation or change the reference's broken state.
+        if(ref!=next.external_references.end()&&is_external_point_kind(ref->kind)&&ref->cached_points.size()==1)return ref->cached_points.front();
         return {};
     };
     const auto line=[&](const std::string& id)->std::optional<std::array<double,4>> {
@@ -479,10 +482,18 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 if(!support||!driven)return {};
                 const double signed_distance=(*support)[2]*((*driven)[1]-(*support)[1])-(*support)[3]*((*driven)[0]-(*support)[0]);
                 r.push_back(signed_distance-static_cast<double>(d.solution_side)*d.value);
-            } else if(d.kind==DimensionKind::DistancePointLine) {
+            } else if(d.kind==DimensionKind::DistancePointLine || d.kind==DimensionKind::DistanceSymmetric) {
                 const auto p=point(d.first_point_id);const auto support=line(d.geometry_id);if(!p||!support)return {};
                 const double signed_distance=(*support)[2]*((*p)[1]-(*support)[1])-(*support)[3]*((*p)[0]-(*support)[0]);
-                r.push_back(signed_distance-static_cast<double>(d.solution_side)*d.value);
+                const double target=d.kind==DimensionKind::DistanceSymmetric?d.value*.5:d.value;
+                r.push_back(d.kind==DimensionKind::DistanceSymmetric
+                    ?std::abs(signed_distance)-target
+                    :signed_distance-static_cast<double>(d.solution_side)*target);
+                if(d.kind==DimensionKind::DistanceSymmetric&&!d.second_point_id.empty()) {
+                    const auto second=point(d.second_point_id);if(!second)return {};
+                    const double distance=(*support)[2]*((*second)[1]-(*support)[1])-(*support)[3]*((*second)[0]-(*support)[0]);
+                    r.push_back(std::abs(distance)-target);
+                }
             } else if(d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 const double x=(*b)[0]-(*a)[0],y=(*b)[1]-(*a)[1];

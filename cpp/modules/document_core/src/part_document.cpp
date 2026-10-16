@@ -144,7 +144,7 @@ std::string calculation_definition_fingerprint(const nlohmann::json& root) {
 }
 
 ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument&,
-    const HistoryContainer&,const ExtrusionParameters::EndTarget&,bool external_snapshot);
+    const HistoryContainer&,const ExtrusionParameters::EndTarget&,bool external_snapshot,bool allow_point=false);
 
 // The opening depth is the axis/target-plane intersection, not the axial
 // projection of an arbitrary picked corner on an inclined face.
@@ -6807,8 +6807,11 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         forward_target->fallback_normal=parameters.target_plane_normal;forward_target->fallback_triangles=parameters.target_surface_triangles;
     }
     if(!legacy_definition) {
-        if(forward_condition==EndCondition::UpTo && forward_target && profile_target_is_datum(forward_target->reference))forward_target=resolved_extrusion_end_target(*this,container,*forward_target,!forward_target->reference.instance_path.empty());
-        if(parameters.extent_mode==ProfileExtentMode::TwoSides && reverse_condition==EndCondition::UpTo && reverse_target && profile_target_is_datum(reverse_target->reference))reverse_target=resolved_extrusion_end_target(*this,container,*reverse_target,!reverse_target->reference.instance_path.empty());
+        if(forward_condition==EndCondition::UpTo && forward_target && (forward_target->kind==EndTargetKind::Point||profile_target_is_datum(forward_target->reference)))forward_target=resolved_extrusion_end_target(*this,container,*forward_target,!forward_target->reference.instance_path.empty(),true);
+        if(parameters.extent_mode==ProfileExtentMode::TwoSides && reverse_condition==EndCondition::UpTo && reverse_target && (reverse_target->kind==EndTargetKind::Point||profile_target_is_datum(reverse_target->reference)))reverse_target=resolved_extrusion_end_target(*this,container,*reverse_target,!reverse_target->reference.instance_path.empty(),true);
+    }
+    for(auto* target:{&forward_target,&reverse_target})if(*target&&(*target)->kind==EndTargetKind::Point) {
+        (*target)->kind=EndTargetKind::Plane;(*target)->fallback_normal=unit;
     }
     if(parameters.extent_mode==ProfileExtentMode::Symmetric && forward_condition==EndCondition::UpTo && forward_target) {
         reverse_target=forward_target;const auto base=evaluated_profile.world_point(0,0);
@@ -9318,9 +9321,20 @@ std::optional<std::size_t> PartDocument::history_index(
 
 namespace {
 ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument& part,
-    const HistoryContainer& container,const ExtrusionParameters::EndTarget& target,bool external_snapshot) {
-    if(target.kind==EndTargetKind::Point)throw std::runtime_error("Extrusion end references require a plane or an original face.");
+    const HistoryContainer& container,const ExtrusionParameters::EndTarget& target,bool external_snapshot,bool allow_point) {
+    if(target.kind==EndTargetKind::Point&&!allow_point)throw std::runtime_error("Extrusion end references require a plane or an original face.");
     if(!target.reference.valid())throw std::runtime_error("Extrusion end reference is missing.");
+    if(target.kind==EndTargetKind::Point) {
+        auto geometry=part.sketch_placement_reference_geometry(container.id);
+        append_reference_geometry(geometry,part.origin_viewer_mesh().original_references);
+        append_reference_geometry(geometry,part.body_origin_reference_geometry());
+        append_reference_geometry(geometry,part.history_origin_reference_geometry_before(container.id));
+        append_reference_geometry(geometry,part.construction_viewer_mesh().original_references);
+        geometry=part.construction_reference_geometry_for(container.id,std::move(geometry));
+        const auto resolved=resolve_profile_target(target,geometry);
+        if(!resolved)throw std::runtime_error("Extrusion end reference is missing.");
+        return *resolved;
+    }
     if(!profile_target_is_datum(target.reference) || (external_snapshot && !target.reference.instance_path.empty()))return target;
     auto geometry=part.origin_viewer_mesh().original_references;
     append_reference_geometry(geometry,part.body_origin_reference_geometry());
@@ -9992,16 +10006,16 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     } else if(!inactive&&settings.extrusion_extent==EndCondition::UpTo) {
                         request.mirror_forward_limit=p.symmetric&&side==1;
                         if(settings.targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
-                        const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),allow_persisted_external_target);
-                        request.extent=target.kind==EndTargetKind::Plane?zima::kernel::ExtrusionRequest::Extent::UpToPlane:zima::kernel::ExtrusionRequest::Extent::UpToSurface;
+                        const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),allow_persisted_external_target,true);
+                        request.extent=target.kind!=EndTargetKind::Face?zima::kernel::ExtrusionRequest::Extent::UpToPlane:zima::kernel::ExtrusionRequest::Extent::UpToSurface;
                         request.target_face=target.reference;
-                        request.target_is_datum=target.kind==EndTargetKind::Plane&&
-                            (profile_target_is_datum(target.reference)||(allow_persisted_external_target&&!target.reference.instance_path.empty()));
+                        request.target_is_datum=target.kind==EndTargetKind::Point||(target.kind==EndTargetKind::Plane&&
+                            (profile_target_is_datum(target.reference)||(allow_persisted_external_target&&!target.reference.instance_path.empty())));
                         if(allow_persisted_external_target)request.target_face.instance_path.clear();
                         if(!request.target_is_datum&&!allow_persisted_external_target&&
                            std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==target.reference.owner_id;}))
                             throw std::runtime_error("Extrusion target must belong to prior history or a datum plane");
-                        request.target_plane_origin=target.fallback_origin;request.target_plane_normal=target.fallback_normal;
+                        request.target_plane_origin=target.fallback_origin;request.target_plane_normal=target.kind==EndTargetKind::Point?request.direction:target.fallback_normal;
                         request.target_surface_triangles=target.fallback_triangles;
                     }
                     auto prepared=prepare(std::move(request),side);
@@ -10052,7 +10066,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 parameters.extent == ExtrusionExtent::UpToPlane;
             extrusion.extent = condition == EndCondition::UpTo &&
                     (legacy_plane || (!parameters.end_targets_forward.empty() &&
-                     parameters.end_targets_forward.front().kind == EndTargetKind::Plane))
+                     parameters.end_targets_forward.front().kind != EndTargetKind::Face))
                 ? zima::kernel::ExtrusionRequest::Extent::UpToPlane
                 : condition == EndCondition::UpTo
                     ? zima::kernel::ExtrusionRequest::Extent::UpToSurface
@@ -10069,7 +10083,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             const ExtrusionParameters::EndTarget* target = parameters.end_targets_forward.empty()?nullptr:&parameters.end_targets_forward.front();
             if(condition==EndCondition::UpTo && !legacy_definition) {
                 if(parameters.end_targets_forward.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
-                resolved_forward=resolved_extrusion_end_target(*this,container,*target,allow_persisted_external_target);
+                resolved_forward=resolved_extrusion_end_target(*this,container,*target,allow_persisted_external_target,true);
                 target=&*resolved_forward;
             }
             extrusion.target_face = legacy_definition ? parameters.target_face
@@ -10077,8 +10091,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if (allow_persisted_external_target) {
                 extrusion.target_face.instance_path.clear();
             }
-            extrusion.target_is_datum = legacy_plane || (target && target->kind==EndTargetKind::Plane &&
-                (profile_target_is_datum(target->reference) || (allow_persisted_external_target && !target->reference.instance_path.empty())));
+            extrusion.target_is_datum = legacy_plane || (target && (target->kind==EndTargetKind::Point || (target->kind==EndTargetKind::Plane &&
+                (profile_target_is_datum(target->reference) || (allow_persisted_external_target && !target->reference.instance_path.empty())))));
             if (condition == EndCondition::UpTo && (target || legacy_definition) &&
                 !extrusion.target_is_datum &&
                 !allow_persisted_external_target &&
@@ -10094,19 +10108,19 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 extrusion.target_surface_triangles = parameters.target_surface_triangles;
             } else if (target) {
                 extrusion.target_plane_origin = target->fallback_origin;
-                extrusion.target_plane_normal = target->fallback_normal;
+                extrusion.target_plane_normal = target->kind==EndTargetKind::Point?extrusion.direction:target->fallback_normal;
                 extrusion.target_surface_triangles = target->fallback_triangles;
             }
             if(reverse_condition==EndCondition::UpTo && parameters.extent_mode==ProfileExtentMode::TwoSides) {
                 if(parameters.end_targets_reverse.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
-                const auto reverse_target=resolved_extrusion_end_target(*this,container,parameters.end_targets_reverse.front(),allow_persisted_external_target);
+                const auto reverse_target=resolved_extrusion_end_target(*this,container,parameters.end_targets_reverse.front(),allow_persisted_external_target,true);
                 zima::kernel::ExtrusionLimit limit;
-                limit.planar=reverse_target.kind==EndTargetKind::Plane;limit.reference=reverse_target.reference;
-                limit.datum=limit.planar && (profile_target_is_datum(limit.reference) || (allow_persisted_external_target && !limit.reference.instance_path.empty()));
+                limit.planar=reverse_target.kind!=EndTargetKind::Face;limit.reference=reverse_target.reference;
+                limit.datum=reverse_target.kind==EndTargetKind::Point || (limit.planar && (profile_target_is_datum(limit.reference) || (allow_persisted_external_target && !limit.reference.instance_path.empty())));
                 if(allow_persisted_external_target)limit.reference.instance_path.clear();
                 if(!limit.datum && !allow_persisted_external_target && std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==limit.reference.owner_id;}))
                     throw std::runtime_error("Extrusion target must belong to prior history or a datum plane");
-                limit.origin=reverse_target.fallback_origin;limit.normal=reverse_target.fallback_normal;limit.triangles=reverse_target.fallback_triangles;
+                limit.origin=reverse_target.fallback_origin;limit.normal=reverse_target.kind==EndTargetKind::Point?extrusion.direction:reverse_target.fallback_normal;limit.triangles=reverse_target.fallback_triangles;
                 extrusion.reverse_limit=std::move(limit);
             }
             // An owned Sketch is resolved into the owning container's absolute

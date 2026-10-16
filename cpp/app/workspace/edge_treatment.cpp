@@ -649,16 +649,17 @@ bool AssemblyWorkspaceWindow::finish_drill_point_face_selection() {
 
 void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
     if (extrusion_target_dialog_ == nullptr || viewer_ == nullptr) return;
-    viewer_->set_selection_contract({
-        zima::viewer::CandidateKind::Face,
-        zima::viewer::CandidateKind::Plane});
     const auto* part =
         workspace_.open_part(workspace_.active_document_id());
+    const bool points=part&&!extrusion_target_assembly_cut_&&extrusion_target_dialog_->allows_point_end_target();
+    std::vector<zima::viewer::CandidateKind> kinds{zima::viewer::CandidateKind::Face,zima::viewer::CandidateKind::Plane};
+    if(points)kinds.push_back(zima::viewer::CandidateKind::SketchPoint);
+    viewer_->set_selection_contract(std::move(kinds));
     const auto expected_path = part == nullptr
         ? std::optional<std::string>{}
         : resolve_active_occurrence(part->session.document().document_id);
     viewer_->set_candidate_filter(
-        [this,path = expected_path.value_or(std::string{}),
+        [this,points,path = expected_path.value_or(std::string{}),
          assembly_cut = extrusion_target_assembly_cut_](
             const auto& candidate) {
             bool owned_path = candidate.instance_path == path;
@@ -670,6 +671,7 @@ void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
             }
             const bool target_kind =
                 candidate.kind == zima::viewer::CandidateKind::Face ||
+                (points&&candidate.kind==zima::viewer::CandidateKind::SketchPoint) ||
                 (candidate.kind == zima::viewer::CandidateKind::Plane &&
                  (candidate.semantic_key == "plane" || candidate.semantic_key.starts_with("origin:plane:")));
             // A visible Body fragment is intentionally offered as Display,
@@ -690,6 +692,9 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     const bool construction_plane =
         candidate.kind == zima::viewer::CandidateKind::Plane &&
         (candidate.semantic_key == "plane" || candidate.semantic_key.starts_with("origin:plane:"));
+    const bool point=!extrusion_target_assembly_cut_&&extrusion_target_dialog_&&extrusion_target_dialog_->allows_point_end_target()&&
+        workspace_.open_part(workspace_.active_document_id())&&
+        candidate.kind==zima::viewer::CandidateKind::SketchPoint;
     // Confirmation must consume the exact candidate already offered by the
     // common Viewer list. Visible result fragments are Display packets, but
     // carry the persisted source-face owner/semantic identity and are valid
@@ -698,10 +703,12 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     const bool stable_target =
         placement_reference_candidate_has_stable_geometry(candidate);
     if (extrusion_target_dialog_ == nullptr ||
-        (!solid_face && !construction_plane) ||
+        (!solid_face && !construction_plane && !point) ||
         !stable_target ||
         candidate.owner_id.empty() || candidate.semantic_key.empty()) {
-        state_->setText(tr("Vyberte rovinnou plochu nebo konstrukční rovinu Partu."));
+        state_->setText(extrusion_target_dialog_&&extrusion_target_dialog_->allows_point_end_target()
+            ?tr("Vyberte bod předchozí skici, rovinu nebo původní plochu.")
+            :tr("Vyberte rovinnou plochu nebo konstrukční rovinu Partu."));
         return;
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -731,18 +738,20 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             const auto& native=part->session.document();const auto pending=extrusion_target_dialog_->pending_value();
             const auto frame=native.body_owner_for_object(pending.id)?pending.id:native.body_history.active_body_id();
             zima::document::ExtrusionParameters::EndTarget requested;
+            if(point)requested.kind=zima::document::EndTargetKind::Point;
             requested.label=candidate.semantic_key;
             requested.reference={candidate.owner_id,candidate.semantic_key,{}}; // Exact active occurrence was validated above; the Part stores its local identity.
             if(const auto* feature=native.find_container(candidate.owner_id))requested.label=feature->name+" / "+tr("Plocha").toStdString();
+            if(point)for(const auto& sketch:native.sketches)if(sketch.id==candidate.owner_id)requested.label=sketch.name+" / "+tr("Bod").toStdString();
             for(const auto& object:native.constructions)if(object.entity_id==candidate.owner_id || object.id==candidate.owner_id)requested.label=object.name;
             const auto target=zima::workspace::resolve_profile_end_target(native,part->session.calculated_boundaries(),frame,requested);
-            if(target.kind==zima::document::EndTargetKind::Plane)
-                extrusion_target_dialog_->set_extrusion_target(target.reference,target.fallback_origin,target.fallback_normal,target.label);
+            if(target.kind!=zima::document::EndTargetKind::Face)
+                extrusion_target_dialog_->set_extrusion_target(target.reference,target.fallback_origin,target.fallback_normal,target.label,target.kind);
             else {
                 if(extrusion_target_dialog_->requires_planar_end_target())throw std::runtime_error("Pro zakončení závitu vyberte rovinu nebo rovinnou plochu.");
                 extrusion_target_dialog_->set_extrusion_surface_target(target.reference,target.fallback_triangles,target.label);
             }
-            finish_extrusion_target_selection();state_->setText(tr("Cílová plocha vytažení byla nastavena."));
+            finish_extrusion_target_selection();state_->setText(tr("Cíl vytažení byl nastaven."));
         }catch(const std::exception& error){state_->setText(tr(error.what()));}
         return;
     }

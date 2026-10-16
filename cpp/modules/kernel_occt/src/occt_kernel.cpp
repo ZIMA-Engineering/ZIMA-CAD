@@ -4745,7 +4745,7 @@ std::vector<OwnedFace> shell_result_faces(
     return result;
 }
 
-// A spherical seam and its collapsed pole edges are OCCT parameterization,
+// Smooth spherical/toroidal seams and collapsed sphere poles are parameterization,
 // not boundaries between ZIMA faces. A seam endpoint shared with a real rim
 // remains real topology. This classification only runs during Shell calculation.
 TopTools_IndexedMapOfShape shell_parameterization_artifacts(const TopoDS_Shape& shape) {
@@ -4759,10 +4759,11 @@ TopTools_IndexedMapOfShape shell_parameterization_artifacts(const TopoDS_Shape& 
         for(TopTools_ListIteratorOfListOfShape it(edge_faces.FindFromIndex(i));it.More();it.Next())adjacent.Add(it.Value());
         if(adjacent.Extent()!=1)continue;
         const auto face=TopoDS::Face(adjacent.FindKey(1));
-        // Restrict this rule to smooth spherical parameterization. In
-        // particular, a cone apex may be an intentional source vertex.
-        if(BRepAdaptor_Surface(face).GetType()==GeomAbs_Sphere&&
-            (BRep_Tool::Degenerated(edge)||BRep_Tool::IsClosed(edge,face)))artifacts.Add(edge);
+        // Smooth toroidal seams have the same non-boundary role. Do not
+        // classify cone apices or degenerate toroidal edges as artifacts.
+        const auto type=BRepAdaptor_Surface(face).GetType();
+        if((type==GeomAbs_Sphere&&BRep_Tool::Degenerated(edge))||
+            ((type==GeomAbs_Sphere||type==GeomAbs_Torus)&&BRep_Tool::IsClosed(edge,face)))artifacts.Add(edge);
     }
     for(int i=1;i<=vertex_edges.Extent();++i) {
         bool only_artifacts=!vertex_edges.FindFromIndex(i).IsEmpty();

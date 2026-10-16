@@ -1,5 +1,6 @@
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
+#include <zima/kernel/stable_id.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -675,7 +676,7 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
         for (const auto& interval : intervals) {
             if (interval[1] - interval[0] <= 1.0e-7) continue;
             pieces.push_back({curve.geometry_id, interval[0], interval[1],
-                sample_interval(curve, interval[0], interval[1]), curve.closed});
+                sample_interval(curve, interval[0], interval[1]), curve.closed, include_base_axes});
         }
     }
     return pieces;
@@ -1199,6 +1200,28 @@ SketchTrimResult apply_sketch_trim(
             geometry_owns_point(
                 next, constraint.geometry_id, constraint.first_point_id);
     });
+    // Base axes participate in trim topology. A newly cut endpoint at an
+    // axis intersection must retain that incidence after reconstruction.
+    for(const auto& [source,survivors]:result.geometry_mapping)for(const auto& id:survivors) {
+        if(std::ranges::none_of(removed,[&](const auto& piece){return piece.geometry_id==source&&piece.includes_base_axes;}))continue;
+        std::vector<std::string> endpoints;
+        if(const auto s=std::ranges::find(next.segments,id,&SketchSegment::id);s!=next.segments.end())
+            endpoints={s->first_point_id,s->second_point_id};
+        if(const auto a=std::ranges::find(next.arcs,id,&SketchArc::id);a!=next.arcs.end())
+            endpoints={a->start_point_id,a->end_point_id};
+        for(const auto& point:endpoints) {
+            if(geometry_owns_point(sketch,source,point))continue;
+            for(const std::string axis:{"sketch_axis:x","sketch_axis:y"}) {
+                const auto* p=next.find_point(point);
+                if(std::abs(axis=="sketch_axis:x"?p->y:p->x)>snap_tolerance)continue;
+                if(std::ranges::any_of(next.constraints,[&](const auto& c){return !c.suppressed&&
+                    c.kind==ConstraintKind::PointOnLine&&c.first_point_id==point&&c.geometry_id==axis;}))continue;
+                SketchConstraint incidence;incidence.id=kernel::make_stable_id();
+                incidence.kind=ConstraintKind::PointOnLine;incidence.first_point_id=point;incidence.geometry_id=axis;
+                next.constraints.push_back(std::move(incidence));
+            }
+        }
+    }
     next.validate();
     sketch = std::move(next);
     return result;

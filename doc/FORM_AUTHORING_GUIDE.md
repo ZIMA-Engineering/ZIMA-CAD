@@ -53,3 +53,18 @@ adopting a different source requires explicit Replace definition.
 See [Sheet Form design](SHEET_FORM_DESIGN.md),
 [the experiment](performance/20261009-planar-solid-form-experiment.md) and
 [model export](EXPORT_COMMANDS.md). IGES does not preserve native Form roles/history.
+
+## Dimpled Hole and Bridge Lance
+
+`DimpledHole.prtz` preserves the authored spatial revolution and Ø7.4 mm flat
+precut. Its two concentric manufacturing circles are construction centerlines.
+`BridgeLance.prtz` preserves the tangent arch and rectangular cut footprint;
+its FORM_FLAT Body is intentionally empty. Both are independent library copies
+with ordinary Body ownership; the working FORM-KOULE and FORM-UCHO files are
+not overwritten during factory preparation.
+
+An Extrusion Up to target may be an existing point in a preceding Sketch.
+Its current position defines the stop plane perpendicular to extrusion. A
+symmetric extrusion mirrors this limit about its profile plane. Changing the
+ending to Up to automatically activates reference entry. This point support
+belongs to extrusion; rotation retains its existing plane/face target contract.

@@ -355,14 +355,15 @@ Parameter cache validity includes the revision of any authoritative open native 
 ### Material library parameters
 
 File Manager reads `.matz` with the shared native material reader. The material
-name and physical properties appear as parameter columns. Existing material
+name and physical properties supply values for the parameter columns explicitly
+configured by directory metadata. Existing material
 descriptions supply cs/en/de/fr/ru column labels; units appear in the header
 when the files sharing a column use the same unit. Cell tooltips retain each
 file's unit, including mixed-unit directories. Raw numeric values are preserved;
 this view does not silently convert material units.
 
-Writable directories publish the ordered columns and localized labels into
-`0000-index/metadata.ini`: `Directory/Parameters`, `Parameters/<key>/Label/<language>`,
+Writable directories mirror configured values and localized labels into
+`0000-index/metadata.ini`: `Parameters/<key>/Label/<language>`,
 `Parts/<stem>/<key>`, `Parts/<stem>/<key>/Unit` and the existing `Files` provider
 records. The `.matz` file remains authoritative. The index is a derived mirror,
 not a required source of material properties.
@@ -463,10 +464,10 @@ of parameter sources. Missing/cyclic links produce a visible Files status and
 retain usable local content. Existing version-2 include metadata is readable;
 an explicit local parameter override uses the existing version-3 writer.
 
-Saved native documents continue to publish their ordered parameter list, shared
-and localized values, labels and `zima-cad` provider into writable, unprotected
-directory metadata, even though inspection now avoids loading geometry. This
-also initializes a discoverable version-3 metadata mirror in a new directory.
+Saved native documents publish shared and localized values, labels and the
+`zima-cad` provider for configured columns into writable, unprotected directory
+metadata, even though inspection avoids loading geometry. Browsing does not
+initialize a parameter list or add unconfigured columns.
 Unsaved values remain transient until native saving. Included source directories
 are read-only consumers for this traversal; browsing an include never writes
 their mirrors. Other programs can read the saved metadata without loading CAD.
@@ -561,3 +562,20 @@ The revision selected on 2026-10-13 subsequently consolidated preferred numbers,
 normal sizes, tolerances and thread tables, corrected redundant navigation and
 added category logos. Generated pages retain all five languages and independent
 local resources. The original engineering-table source remains preserved.
+
+## Metadata owns the displayed parameter columns
+
+The five fixed columns (filename, preview, type, size and modification time)
+remain available. Additional columns and their order come exclusively from
+`Directory/Parameters` in `0000-index/metadata.ini`, including explicitly linked
+`Directory/IncludeParameters` sources. Native documents supply the current values,
+units and localized labels for those configured columns; discovering another
+native parameter does not create a column or rewrite the configured list.
+Refreshing or reopening a tab preserves this distinction. An absent or empty
+parameter list gives only the fixed columns unless an included metadata source
+explicitly configures parameters. Directory Properties edits the list explicitly.
+
+Existing factory directories have explicit lists preserving the previously
+displayed native parameters, including material properties. Saved value mirrors
+continue to update for configured parameters without changing document ownership,
+read-only protection or the authority of open unsaved documents.

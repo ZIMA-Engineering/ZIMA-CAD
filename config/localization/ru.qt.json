@@ -1,4 +1,7 @@
 {
+  "Extrusion end references require a point, a plane or an original face.": "Для окончания выдавливания требуется точка, плоскость или исходная грань.",
+  "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Выберите точку предыдущего эскиза, плоскость или исходную грань.",
+  "Cíl vytažení byl nastaven.": "Цель окончания выдавливания задана.",
   "Model export supports STEP, IGES, STL and DXF.": "Экспорт модели поддерживает STEP, IGES, STL и DXF.",
   "IGES export failed": "Не удалось экспортировать IGES",
   "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",

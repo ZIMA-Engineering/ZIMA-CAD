@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <ranges>
+#include <set>
+#include <tuple>
 
 namespace zima::workspace {
 
@@ -117,6 +119,21 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     }
     append_reference_geometry(source,
         document.construction_viewer_mesh().original_references);
+    // Standalone Sketches do not necessarily contribute a calculated Body.
+    // Their authored points and curves still remain valid preceding sources.
+    const auto sketches = document.sketch_placement_reference_geometry();
+    const auto append_missing = [](auto& target, const auto& values) {
+        std::set<std::tuple<std::string,std::string,std::string>> identities;
+        const auto identity=[](const auto& value) {
+            return std::tuple{value.reference.owner_id,value.reference.semantic_key,value.reference.instance_path};
+        };
+        for(const auto& value:target)identities.insert(identity(value));
+        for (const auto& value : values)
+            if (identities.insert(identity(value)).second) target.push_back(value);
+    };
+    append_missing(source.points, sketches.points);
+    append_missing(source.edges, sketches.edges);
+    append_missing(source.axes, sketches.axes);
     for(const auto& feature:document.history)if(feature.feature_kind==zima::document::FeatureKind::GeneralSurface&&!feature.suppressed) {
         auto mesh=zima::document::general_surface_definition_mesh(feature);
         if(const auto* body=document.body_owner_for_object(feature.id))mesh=document.place_body_mesh(std::move(mesh),body->scope.id);

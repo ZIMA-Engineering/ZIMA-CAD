@@ -1,4 +1,7 @@
 {
+  "Extrusion end references require a point, a plane or an original face.": "Zakončení vytažení vyžaduje bod, rovinu nebo původní plochu.",
+  "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Vyberte bod předchozí skici, rovinu nebo původní plochu.",
+  "Cíl vytažení byl nastaven.": "Cíl vytažení byl nastaven.",
   "Model export supports STEP, IGES, STL and DXF.": "Export modelu podporuje STEP, IGES, STL a DXF.",
   "IGES export failed": "Export IGES selhal",
   "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",

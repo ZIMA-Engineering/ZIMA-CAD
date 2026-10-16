@@ -24,7 +24,39 @@ void benchmark_selection_wire(QApplication& application,QWidget& parent) {
     std::cout<<"selection-wire 400 edges, 800x600, framebuffer median_ms="<<samples[samples.size()/2]<<" p90_ms="<<samples[72]<<'\n';
 }
 
+void verify_auxiliary_geometry_colors(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    viewer::MeshView view(&parent);view.setGeometry(0,0,500,360);
+    auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;view.set_camera_state(camera);
+    const auto point_palette=view.palette();const QPointF center(250,180);
+    view.show();view.raise();QCursor::setPos(parent.mapToGlobal(QPoint(700,500)));application.processEvents();
+    for(const bool dark:{false,true}) {
+        auto palette=point_palette;
+        palette.setColor(QPalette::Window,dark?QColor("#202020"):QColor("#FFFFFF"));
+        palette.setColor(QPalette::WindowText,dark?QColor("#EEEEEE"):QColor("#202020"));
+        view.setPalette(palette);
+        kernel::ViewerMesh styled;
+        styled.edges.push_back({{{-2,0,0},{2,0,0}},{"styled-sketch","segment:aux",{}},true,true});
+        view.set_active_sketch_owner("styled-sketch");view.set_mesh(styled);
+        view.set_selection_contract({});view.clear_selection();application.processEvents();
+        auto frame=view.grabFramebuffer();
+        const double pixels=1/view.world_tolerance_for_pixels(1);
+        int purple{};for(int x=-int(2*pixels)+3;x<int(2*pixels)-3;++x)
+            purple+=framebuffer_contains_color_near(frame,view.size(),center+QPointF(x,0),QColor("#8066C2"),2);
+        require(purple>10,"Auxiliary Sketch wire is not blue-violet");
+        require(!framebuffer_contains_color_near(frame,view.size(),center+QPointF(2.5*pixels,0),QColor("#8066C2"),2),
+            "Auxiliary Sketch wire extends beyond its endpoint");
+        styled.edges.front().dash_dot=true;view.set_mesh(styled);application.processEvents();frame=view.grabFramebuffer();
+        int brown{};for(int x=-int(2*pixels);x<int(2*pixels);++x)
+            brown+=framebuffer_contains_color_near(frame,view.size(),center+QPointF(x,0),QColor("#AD6E2E"),2);
+        require(brown>10,"Construction axis lost its brown color");
+    }
+    view.set_active_sketch_owner({});view.setPalette(point_palette);
+}
+
 void verify_interaction_colors(QApplication& application,QWidget& parent) {
+    verify_auxiliary_geometry_colors(application,parent);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_AUXILIARY_ONLY"))return;
     using namespace zima;
     {
         const auto saved=application.palette();
@@ -235,6 +267,7 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
             "Surface construction point lost its ordinary axis color");
     }
     view.setPalette(point_palette);view.set_transient_model_points({});
+
     kernel::ViewerEdge edge{{{-1,0,0},{1,0,0}},{"feature","preview:end",{}}};
     view.set_transient_edges({edge});application.processEvents();
     const auto solid=view.grabFramebuffer();

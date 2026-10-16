@@ -81,7 +81,9 @@ public:
         QWidget* parent);
     void set_extrusion_target(
         zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
-        zima::kernel::Vec3 normal, std::string label = {});
+        zima::kernel::Vec3 normal, std::string label = {},
+        zima::document::EndTargetKind kind = zima::document::EndTargetKind::Plane);
+    [[nodiscard]] bool allows_point_end_target() const;
     void set_extrusion_surface_target(
         zima::kernel::FaceReference reference,
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});

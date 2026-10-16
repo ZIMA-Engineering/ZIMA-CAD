@@ -1126,7 +1126,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         case CandidateKind::SketchPoint: return -1;
         case CandidateKind::Vertex: return 0;
         case CandidateKind::Axis: return 1;
-        case CandidateKind::SketchAxis: return 1;
+        // Authored Sketch geometry owns overlaps with the built-in axes.
+        // Keep the axes available in the same list for explicit RMB cycling.
+        case CandidateKind::SketchAxis: return 3;
         case CandidateKind::SketchSegment: return 2;
         case CandidateKind::Edge: return 2;
         case CandidateKind::Plane: return 3;

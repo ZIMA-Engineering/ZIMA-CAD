@@ -509,6 +509,7 @@ void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     f.run("extrusion.set",{{"container",cut.at("container")},{"extent","two_sides"},{"end_reverse","through_all"}});near(f.volume(),960);
     f.run("undo");near(f.volume(),980);f.run("redo");near(f.volume(),960);
 }
+#include "profile_point_end_verification.inc"
 void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-targets"}});
     const auto upper=f.run("construction.create",{{"kind","plane"},{"name","Upper"},{"base_plane","xy"},{"offset_mm",7}});
@@ -666,6 +667,7 @@ int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_direct
     require(fs::create_directory(directory),"Cannot create fixture directory");
     if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
     kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    point_end_targets(kernel,directory);
     directed_rotation_targets(kernel,directory);
     retained_definitions(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;

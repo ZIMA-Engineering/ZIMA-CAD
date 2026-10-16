@@ -156,7 +156,11 @@ void repeated_mixed_state_centerlines(const kernel::OcctKernel& kernel) {
     for(std::size_t i=1;i<part.history.size();++i)
         check(suppressed.find_container(part.history[i].id)->suppressed,"State suppression omitted a later dependent state");
     check(workspace::set_part_history_suppressed(live,document_id,kernel,last_state,false),"Repeated state restoration did not change history");
-    check(live.open_part(document_id)->session.document().serialized()==part.serialized(),
+    auto restored_definition=live.open_part(document_id)->session.document().serialized(),authored_definition=part.serialized();
+    // A committed transaction refreshes this derived calculation-cache stamp.
+    // Compare authored history independently, as in native IO verification.
+    restored_definition.erase("calculation_definition_fingerprint");authored_definition.erase("calculation_definition_fingerprint");
+    check(restored_definition==authored_definition,
         "Final state restoration did not restore every earlier prerequisite state");
 }
 void disconnected_twist(const kernel::OcctKernel& kernel) {
@@ -294,6 +298,10 @@ void axis_display_contract(const kernel::OcctKernel& kernel) {
     kernel::ViewerEdge line;line.points={{0,0,0},{10,0,0}};
     auto ends=kernel::axis_curve_overhang(line);check(ends.has_value(),"Straight construction line has no overhang");
     near((*ends)[0],{-1,0,0});near((*ends)[1],{11,0,0});near(line.points.front(),{0,0,0});
+    line.construction=true;
+    check(!kernel::axis_curve_overhang(line),"Auxiliary geometry received axis overhang");
+    line.dash_dot=true;
+    check(kernel::axis_curve_overhang(line).has_value(),"Sketch centerline lost axis overhang");
     line.infinite=true;check(!kernel::axis_curve_overhang(line),"Infinite axis received artificial ends");
     kernel::RevolutionRequest turn;turn.axis_direction={0,0,1};turn.angle_degrees=90;
     turn.centerlines.origin_enabled=true;turn.centerlines.origin={10,0,0};turn.centerlines.origin_id="origin";

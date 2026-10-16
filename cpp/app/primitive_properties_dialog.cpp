@@ -784,6 +784,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         });
         for(std::size_t side=0;side<2;++side) {
             auto* target=feature_panel_->target_control(side);
+            target->setPlaceholderText(initial.feature.sides[side].operation==zima::document::FeatureSideOperation::Extrusion?tr("Vyberte bod předchozí skici, rovinu nebo původní plochu."):tr("Reference"));
             (side==0?forward_end_target_:reverse_end_target_)=target;
             target->installEventFilter(this);
             const auto& targets=initial.feature.sides[side].targets;
@@ -797,6 +798,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 [this,key](bool){toggle_extrusion_target_highlight(key);});
             (side==0?forward_end_targets_button_:reverse_end_targets_button_)=eye;
             feature_panel_->target_layout(side)->addWidget(eye);
+            auto* end=feature_panel_->findChild<QComboBox*>(QString("featureSideEnd%1").arg(side));
+            connect(end,&QComboBox::currentIndexChanged,this,[this,side,key](int) {
+                const auto value=feature_panel_->parameters();const auto& ending=value.sides[side];
+                const bool up_to=(ending.operation==zima::document::FeatureSideOperation::Extrusion&&ending.extrusion_extent==zima::document::EndCondition::UpTo)||
+                    (ending.operation==zima::document::FeatureSideOperation::Revolution&&ending.rotation_extent==zima::document::FeatureRotationExtent::UpTo);
+                if(up_to&&feature_panel_->target_control(side)->isEnabled())request_extrusion_target(key);
+                else if((side==0&&forward_end_target_pick_active_)||(side==1&&reverse_end_target_pick_active_)) {
+                    finish_extrusion_target_entry();if(extrusion_target_cancel_)extrusion_target_cancel_();
+                }
+            });
         }
         feature_panel_->on_swap([this]{
             const bool picking=forward_end_target_pick_active_||reverse_end_target_pick_active_;
@@ -1086,7 +1097,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             target->setObjectName(side == std::string_view("forward")
                 ? "extrusionForwardEndTarget" : "extrusionReverseEndTarget");
             target->setReadOnly(true);
-            target->setPlaceholderText(tr("Vyberte rovinu nebo původní plochu…"));
+            target->setPlaceholderText(tr("Vyberte bod předchozí skici, rovinu nebo původní plochu."));
             if (!targets.empty()) target->setText(QString::fromStdString(targets.front().label));
             target->installEventFilter(this);
             target->setContextMenuPolicy(Qt::ActionsContextMenu);
@@ -1907,9 +1918,9 @@ const std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitiveProp
 
 void PrimitivePropertiesDialog::set_extrusion_target(
     zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
-    zima::kernel::Vec3 normal, std::string label) {
+    zima::kernel::Vec3 normal, std::string label,zima::document::EndTargetKind kind) {
     zima::document::ExtrusionParameters::EndTarget target;
-    target.kind = zima::document::EndTargetKind::Plane;
+    target.kind = kind;
     target.reference = std::move(reference);
     target.label = label.empty()
         ? target.reference.owner_id + " / " + target.reference.semantic_key
@@ -2120,6 +2131,13 @@ void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
 void PrimitivePropertiesDialog::set_extrusion_target_request(
     std::function<void()> callback) {
     extrusion_target_request_ = std::move(callback);
+}
+
+bool PrimitivePropertiesDialog::allows_point_end_target() const {
+    const auto pending=values();
+    if(pending.feature_kind==zima::document::FeatureKind::Extrusion)return true;
+    return pending.feature_kind==zima::document::FeatureKind::Feature&&pending.feature.type==zima::document::FeatureType::Modeling&&
+        pending.feature.sides[active_end_target_side_=="reverse"?1:0].operation==zima::document::FeatureSideOperation::Extrusion;
 }
 
 void PrimitivePropertiesDialog::set_profile_pick_request(
@@ -2488,7 +2506,7 @@ bool PrimitivePropertiesDialog::submit() {
                  zima::document::ProfileExtentMode::TwoSides &&
              missing_target(result.extrusion.end_condition_reverse,
                             result.extrusion.end_targets_reverse))) {
-            error_->setText(tr("Vyberte cílovou rovinu nebo původní plochu."));
+            error_->setText(tr("Vyberte bod předchozí skici, rovinu nebo původní plochu."));
             return false;
         }
         if (result.combine_mode != zima::document::CombineMode::Subtract &&

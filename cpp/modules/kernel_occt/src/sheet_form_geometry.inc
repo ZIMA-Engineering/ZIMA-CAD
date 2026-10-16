@@ -180,6 +180,17 @@ PrimitiveData read_surface(const BodyResult& snapshot,bool solid=false) {
     };
     restore(snapshot.kernel_faces,TopAbs_FACE,result.faces);restore(snapshot.kernel_edges,TopAbs_EDGE,result.edges);
     restore(snapshot.kernel_vertices,TopAbs_VERTEX,result.vertices);
+    // Full revolutions may own closed circular rims without native endpoints.
+    // Thickening needs their real rim vertices. Derive missing identities from
+    // the persisted incident edges during calculation, preserving every source
+    // binding and excluding parameterization-only vertices.
+    if(!result.faces.empty()) {
+        const auto completed=complete_edge_treatment_vertices(result.shape,result.edges,result.vertices,{},
+            result.faces.front().reference.owner_id,"surface:vertex");
+        const auto artifacts=shell_parameterization_artifacts(result.shape);
+        for(const auto& vertex:completed)if(!artifacts.Contains(vertex.shape)&&
+            std::ranges::none_of(result.vertices,[&](const auto& existing){return existing.shape.IsSame(vertex.shape);}))result.vertices.push_back(vertex);
+    }
     require_complete_unique_shell_topology(result.shape,TopAbs_FACE,result.faces,"faces");
     require_complete_unique_shell_topology(result.shape,TopAbs_EDGE,result.edges,"edges");
     require_complete_unique_shell_topology(result.shape,TopAbs_VERTEX,result.vertices,"vertices");

@@ -82,7 +82,7 @@ int main(){try {
     for(const auto& entry:std::filesystem::directory_iterator(library.parent_path()))
         if(entry.path().extension()==".prtz")offered.push_back(entry.path().filename().string());
     std::ranges::sort(offered);
-    check(offered==std::vector<std::string>{"CornerGusset90.prtz","VentilationWindow.prtz"},"Factory picker must offer only the two completed definitions");
+    check(offered==std::vector<std::string>{"BridgeLance.prtz","CornerGusset90.prtz","DimpledHole.prtz","VentilationWindow.prtz"},"Factory picker must offer the four completed definitions");
     {
         const auto path=std::filesystem::absolute("build/form-diagnostic")/("FormDirection-"+zima::kernel::make_stable_id()+".prtz");
         std::filesystem::create_directories(path.parent_path());

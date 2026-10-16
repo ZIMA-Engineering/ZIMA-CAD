@@ -17,6 +17,17 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    {
+        auto document=document::PartDocument::create_default();
+        auto source=sketcher::Sketch::create_default();static_cast<void>(source.add_circle(0,0,15));
+        document.sketches.push_back(source);
+        const auto geometry=workspace::sketch_external_reference_source_geometry(document,{});
+        for(const auto& point:source.points)
+            require(std::ranges::count_if(geometry.points,[&](const auto& p){return p.reference.owner_id==source.id&&p.reference.semantic_key=="point:"+point.id;})==1,"Standalone Sketch point missing or duplicated in regeneration sources");
+        kernel::BodyResult calculated;calculated.mesh.original_references=geometry;
+        const auto combined=workspace::sketch_external_reference_source_geometry(document,{calculated});
+        require(combined.points.size()==geometry.points.size()&&combined.edges.size()==geometry.edges.size(),"Calculated Sketch sources were duplicated during reference refresh");
+    }
     for(bool import_first:{false,true})for(bool reverse:{false,true}) {
         auto outline=sketcher::Sketch::create_default();
         auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
@@ -426,4 +437,55 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");const auto loaded=assembly::AssemblyDocument::load(directory/"references.asmz");require(loaded.sketches.back().external_references.size()==2,"Assembly lost repeated reference occurrences");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-sketch-refs-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Original Sketch references, exact rational projection, trim/offset refresh, detach, atomicity and nested occurrences passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;
+if(const auto* file=std::getenv("ZIMA_FORM_SOURCE_MOTION_DOCUMENT")) {
+    std::vector<kernel::BodyResult> bodies;auto part=document::PartDocument::load(file,&bodies);
+    workspace::Workspace live;live.add_part(part,bodies,fs::path(file));auto* state=live.open_part(part.document_id);
+    const auto dependent=std::ranges::find_if(part.sketches,[](const auto& s){return !s.external_references.empty();})->id;
+    const auto verify=[&] {
+        const auto& document=state->session.document();const auto& s=*std::ranges::find(document.sketches,dependent,&sketcher::Sketch::id);const auto& ref=s.external_references.front();
+        const auto& source=*std::ranges::find(document.sketches,ref.source_owner_id,&sketcher::Sketch::id);
+        const auto* point=source.find_point(ref.source_semantic_key.substr(6));const auto expected=s.local_point(source.world_point(point->x,point->y));
+        require(!ref.broken&&std::hypot(ref.cached_points.front()[0]-expected[0],ref.cached_points.front()[1]-expected[1])<1e-6,"FORM regenerated cache is stale");
+        const auto k=std::ranges::find_if(s.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::PointReference&&c.second_point_id==ref.id;});const auto* contact=s.find_point(k->first_point_id);
+        require(std::hypot(contact->x-expected[0],contact->y-expected[1])<1e-6,"FORM regenerated native endpoint is stale");
+        for(const auto& body:state->session.calculated_boundaries())require(body.calculation_errors.empty(),"FORM source motion left a failed feature");
+        auto checked=s;const auto result=checked.solve();require(result.status!=sketcher::SolveStatus::Conflicting&&result.maximum_residual<1e-6,"FORM regenerated equations fail");
+        for(const auto& d:s.dimensions)if(d.driving){const auto* p=s.find_point(d.first_point_id);require(std::abs((d.kind==sketcher::DimensionKind::DistanceSymmetric?2*std::abs(p->x):std::abs(p->y))-d.value)<1e-6,"FORM regeneration changed authored dimension");}
+    };
+    static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id));verify();
+    state->session.document().save("build/FORM-KOULE-source-motion-repaired.prtz",state->session.calculated_boundaries());
+    for(double diameter:{32.,36.,35.}) {
+        auto next=state->session.document();require(next.sketches.front().set_dimension_value(next.sketches.front().dimensions.front().id,diameter),"FORM source diameter edit failed");state->session.commit(std::move(next),state->session.calculated_boundaries());
+        static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id));verify();
+        require(state->session.undo(),"FORM source refresh Undo unavailable");require(state->session.redo(),"FORM source refresh Redo unavailable");verify();
+    }
+    std::cout<<"FORM document source movement, repeated regeneration, dimension preservation and Undo/Redo passed\n";return 0;
+}
+if(const auto* file=std::getenv("ZIMA_FORM_REFERENCE_DIAGNOSTIC")) {
+    std::vector<kernel::BodyResult> bodies;auto part=document::PartDocument::load(file,&bodies);
+    workspace::Workspace live;live.add_part(part,bodies,fs::path(file));
+    auto sketch=part.sketches.back();
+    const auto owners=workspace::sketch_external_reference_source_owners(part,sketch.id);
+    for(const auto& ref:sketch.external_references)std::cout<<"REF source="<<ref.source_owner_id<<" allowed="<<owners.contains(ref.source_owner_id)<<" broken="<<ref.broken<<'\n';
+    std::cout<<"SNAPSHOT changed="<<workspace::refresh_sketch_reference_snapshot(live,part.document_id,sketch)<<'\n';
+    for(const auto& ref:sketch.external_references)std::cout<<"REF after refresh broken="<<ref.broken<<'\n';
+    const auto result=workspace::regenerate_part(live,kernel,part.document_id);
+    const auto* current=live.open_part(part.document_id);
+    for(const auto& ref:current->session.document().sketches.back().external_references)require(!ref.broken,"Regeneration lost existing standalone Sketch source point");
+    for(const auto& body:current->session.calculated_boundaries())require(body.calculation_errors.empty(),"FORM Revolution calculation failed");
+    require(current->session.document().sketches.back().points==part.sketches.back().points,"Reference repair changed authored Sketch geometry");
+    std::cout<<"REGENERATE refs_changed="<<result.references_changed<<'\n';
+    for(const auto& ref:current->session.document().sketches.back().external_references)std::cout<<"REF after regenerate broken="<<ref.broken<<'\n';
+    for(const auto& body:current->session.calculated_boundaries())for(const auto& [id,error]:body.calculation_errors)std::cout<<"CALC ERROR "<<id<<": "<<error<<'\n';
+    auto& session=live.open_part(part.document_id)->session;
+    require(session.undo()&&session.document().sketches.back().external_references.front().broken,"Reference repair Undo failed");
+    require(session.redo()&&!session.document().sketches.back().external_references.front().broken,"Reference repair Redo failed");
+    current->session.document().save("build/FORM-KOULE-reference-regenerated.prtz",current->session.calculated_boundaries());
+    const auto reopened=document::PartDocument::load("build/FORM-KOULE-reference-regenerated.prtz");
+    require(reopened.sketches.back().serialized()==current->session.document().sketches.back().serialized(),"Repaired FORM references did not survive save/reopen");
+    static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id));
+    for(const auto& ref:live.open_part(part.document_id)->session.document().sketches.back().external_references)require(!ref.broken,"Repeated regeneration broke FORM source point");
+    return 0;
+}
+const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-sketch-refs-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Original Sketch references, exact rational projection, trim/offset refresh, detach, atomicity and nested occurrences passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

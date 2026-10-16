@@ -1203,6 +1203,14 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             const double squared = direction[0] * direction[0] +
                 direction[1] * direction[1];
             if (squared <= 1.0e-18) return;
+            // With the start already on an unbounded axis, M describes a whole
+            // collinear segment. Let the common picker offer endpoint C instead.
+            // A finite segment can still own a useful M between two outer ends.
+            const double start_distance = std::abs(
+                ((*pending_segment_start_)[0] - first[0]) * direction[1] -
+                ((*pending_segment_start_)[1] - first[1]) * direction[0]) /
+                std::sqrt(squared);
+            if (!finite && start_distance <= 1.0e-9) return;
             const std::array cursor_midpoint{
                 ((*pending_segment_start_)[0] + position[0]) * 0.5,
                 ((*pending_segment_start_)[1] + position[1]) * 0.5};

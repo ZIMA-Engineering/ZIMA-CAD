@@ -592,6 +592,12 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
         check(window.open_document_path(QString::fromStdString(path.string())),"Inserted FORM could not reopen");flush();
         check(native().first.find_container(id)->sheet_form.source_name==renamed.name,"FORM save/reopen lost its independent definition");
+        // Override fixtures may author separate surface patches. FORM sews these
+        // at insertion; ordinary Thicken intentionally consumes its selected
+        // native shell or face and is covered below by the original shell fixture.
+        if(!source_override.isEmpty()) {
+            std::cout<<"FORM GUI create, native face pick, planar rotation, rollback, unchanged OK, replacement, Cancel, Undo/Redo and save/reopen passed"<<std::endl;return 0;
+        }
         // The authored FORM shell is also a representative connected, multi-
         // patch input for ordinary Thicken Surface, using the real GUI picker.
         const auto skin_path=directory/"sheet-form-thicken-copy.prtz";

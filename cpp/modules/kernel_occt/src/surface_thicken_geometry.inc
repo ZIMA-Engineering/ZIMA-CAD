@@ -144,6 +144,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
         result.faces.push_back({result_faces.FindKey(result_faces.FindIndex(cap_end)),{owner,key("cap:end",face.reference),{}}});
     }
     struct Rim {TopoDS_Shape start,end;EdgeReference parent;};
+    profile("cap ancestry");
     struct Endpoint {TopoDS_Shape start,end;VertexReference parent;};
     std::vector<Rim> rims;std::vector<Endpoint> endpoints;
     const auto artifacts=shell_parameterization_artifacts(source);
@@ -155,6 +156,7 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
         result.edges.push_back({a,{owner,key("rim:start",edge.reference),{}}});
         result.edges.push_back({b,{owner,key("rim:end",edge.reference),{}}});
     }
+    profile("rim ancestry");
     for(const auto& vertex:input_vertices)if(source_vertices.Contains(vertex.shape)&&!artifacts.Contains(vertex.shape)) {
         const auto a=start_shape(vertex.shape),b=generated(thick,a,TopAbs_VERTEX);
         if(!result_vertices.Contains(a)||!result_vertices.Contains(b))throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
@@ -163,17 +165,25 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
         result.vertices.push_back({a,{owner,key("point:start",vertex.reference),{}}});
         result.vertices.push_back({b,{owner,key("point:end",vertex.reference),{}}});
     }
+    profile("vertex ancestry");
     for(int i=1;i<=result_faces.Extent();++i) {
         const auto& face=result_faces.FindKey(i);if(caps.Contains(face))continue;
         TopTools_IndexedMapOfShape edges;TopExp::MapShapes(face,TopAbs_EDGE,edges);
         std::optional<EdgeReference> parent;
+        std::set<std::string> parents;
         for(const auto& rim:rims)if(edges.Contains(rim.start)&&edges.Contains(rim.end)) {
-            if(parent&&*parent!=rim.parent)throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
-            parent=rim.parent;
+            if(!parent)parent=rim.parent;
+            parents.insert(encoded_topology_reference(rim.parent));
         }
         if(!parent)throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
-        result.faces.push_back({face,{owner,key("wall",*parent),{}}});
+        // OCCT can join coplanar closing walls across tangent source curves.
+        // Keep every exact incident rim parent, retaining the established
+        // single-parent identity whenever no merge occurred.
+        const auto identity=parents.size()==1?key("wall",*parent):
+            "thicken:wall:from:"+encoded_topology_ancestry(parents)+":parents:"+encoded_topology_reference_set(parents);
+        result.faces.push_back({face,{owner,identity,{}}});
     }
+    profile("wall ancestry");
     const auto result_artifacts=shell_parameterization_artifacts(solid);
     for(int i=1;i<=result_edges.Extent();++i) {
         const auto& edge=result_edges.FindKey(i);
