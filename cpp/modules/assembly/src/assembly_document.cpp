@@ -943,8 +943,25 @@ void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSn
         return entry->second;
     };
     using Identity=std::tuple<std::string,std::string,std::string>;
-    std::map<Identity,std::shared_ptr<const kernel::SurfaceGeometry>> transformed;
+    std::map<Identity,std::shared_ptr<const kernel::SurfaceGeometry>> transformed,contours;
     const auto face=[&](kernel::FaceReference& reference) {
+        if(reference.contour_surface) {
+            const auto& placements=chain(reference.instance_path);
+            if(!placements.empty()) {
+                auto [entry,inserted]=contours.try_emplace(Identity{reference.owner_id,reference.semantic_key,reference.instance_path});
+                if(inserted) {
+                    auto surface=*reference.contour_surface;
+                    if(to_packet)for(auto p=placements.rbegin();p!=placements.rend();++p) {
+                        surface.origin=transform_point(surface.origin,*p);surface.axis=transform_direction(surface.axis,*p);surface.radial=transform_direction(surface.radial,*p);
+                    }else for(const auto& p:placements) {
+                        const auto rotation=placement_rotation(p);surface.origin=unrotate(rotation,subtract(surface.origin,{p.x,p.y,p.z}));
+                        surface.axis=unrotate(rotation,surface.axis);surface.radial=unrotate(rotation,surface.radial);
+                    }
+                    entry->second=std::make_shared<const kernel::SurfaceGeometry>(std::move(surface));
+                }
+                reference.contour_surface=entry->second;
+            }
+        }
         if(!reference.surface)return;
         const auto& placements=chain(reference.instance_path);if(placements.empty())return;
         auto [entry,inserted]=transformed.try_emplace(Identity{reference.owner_id,reference.semantic_key,reference.instance_path});
@@ -965,7 +982,7 @@ void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSn
     for(auto& reference:mesh.triangle_references)face(reference);
     if(adjacent_faces)for(auto& edge:mesh.edges)for(auto& reference:edge.edge_treatment_side_references)face(reference);
     // Display and original packets may have distinct material-side metadata.
-    transformed.clear();
+    transformed.clear();contours.clear();
     for(auto& reference:mesh.original_references.triangle_references)face(reference);
     if(adjacent_faces)for(auto& edge:mesh.original_references.edges)for(auto& reference:edge.edge_treatment_side_references)face(reference);
 }

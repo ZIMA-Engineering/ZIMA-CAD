@@ -32,11 +32,20 @@ void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
         copy.point=frame.point(axis.point);copy.direction=frame.direction(axis.direction);target.axes.push_back(std::move(copy));
     }
     std::map<std::uint32_t,std::uint32_t> vertices;
-    std::map<std::tuple<std::string,std::string,std::string>,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces;
+    std::map<std::tuple<std::string,std::string,std::string>,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces,contours;
     for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
         const auto& face=source.triangle_references[triangle];if(!matches(OriginalReferenceKind::Face,face))continue;
         if(triangle*3+2>=source.triangles.size())throw ReferenceQueryError("invalid_reference_geometry","The persisted reference geometry is incomplete.");
         auto copy=face;copy.instance_path=frame.path(face.instance_path);
+        if(face.contour_surface) {
+            auto [entry,inserted]=contours.try_emplace(std::make_tuple(face.owner_id,face.semantic_key,face.instance_path));
+            if(inserted) {
+                auto surface=*face.contour_surface;surface.origin=frame.surface_point(face.instance_path,surface.origin);
+                surface.axis=frame.surface_direction(face.instance_path,surface.axis);surface.radial=frame.surface_direction(face.instance_path,surface.radial);
+                entry->second=std::make_shared<const kernel::SurfaceGeometry>(std::move(surface));
+            }
+            copy.contour_surface=entry->second;
+        }
         if(face.surface) {
             auto [entry,inserted]=surfaces.try_emplace(std::make_tuple(face.owner_id,face.semantic_key,face.instance_path));
             if(inserted) {

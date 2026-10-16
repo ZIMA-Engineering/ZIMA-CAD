@@ -394,7 +394,9 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
 }
 #include "history_deletion_ui_verification.inc"
 #include "assembly_history_cursor_ui_verification.inc"
+#include "bolt_sketch_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BOLT_SKETCH_ONLY"))return verify_bolt_sketch_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_HISTORY_CURSOR_ONLY")) {
         verify_assembly_history_cursor(application,window,directory);return 0;
     }

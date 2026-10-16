@@ -4,8 +4,11 @@
 * { box-sizing:border-box; }
 body { margin:0; background:var(--paper); color:var(--text);
   font:15px/1.3 "Segoe UI",Arial,sans-serif; }
-main { max-width:1120px; margin:auto; padding:16px 20px; }
-nav { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:6px 16px; font-size:13px; margin-bottom:14px; }
+main { width:100%; margin:0; padding:16px 20px; }
+.reference-header { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:10px 24px; margin-bottom:14px; }
+nav { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:6px 16px; font-size:13px; }
+.reference-brand { display:block; padding:3px 6px; background:white; }
+.reference-brand img { display:block; width:215px; max-width:100%; height:auto; }
 a { color:var(--link); text-underline-offset:3px; }
 a:hover { text-decoration-thickness:2px; }
 a:focus-visible { outline:2px solid var(--link); outline-offset:3px; }
@@ -23,7 +26,7 @@ h2 { font-size:18px; line-height:1.25; margin:18px 0 8px; }
 .table-scroll--frozen thead th:first-child { left:0; z-index:3; }
 table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
 caption { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-th, td { border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:middle; }
+th, td { border:1px solid var(--line); padding:6px 12px; text-align:left; vertical-align:middle; }
 thead th { background:var(--head); font-weight:600; }
 tbody th { font-weight:500; }
 tbody tr:nth-child(even) { background:var(--stripe); }
@@ -32,9 +35,9 @@ tbody tr:nth-child(even) { background:var(--stripe); }
 .reference-profile { margin:0 0 12px; }
 .reference-profile summary { cursor:pointer; color:var(--link); }
 .formula { white-space:nowrap; font-family:"Segoe UI",Arial,sans-serif; font-style:normal; }
-.reference-diagram { display:block; width:220px; height:130px; margin:0 auto 10px; }
-.reference-figure { margin:8px 0 14px; text-align:center; font-size:13px; }
-.reference-figure img { display:block; max-width:100%; max-height:270px; margin:0 auto 6px; background:white; }
+.reference-diagram { display:block; width:220px; height:130px; margin:0 0 10px; }
+.reference-figure { margin:8px 0 14px; text-align:left; font-size:13px; }
+.reference-figure img { display:block; max-width:min(100%,720px); max-height:25vh; width:auto; height:auto; margin:0 0 6px; background:white; object-fit:contain; object-position:left; }
 sup { font-size:.74em; line-height:0; }
 sub { font-size:.74em; line-height:0; }
 .review-status { padding:8px 10px; border:2px solid var(--line); background:var(--head); font-size:13px; margin:0 0 12px; }
@@ -65,9 +68,10 @@ footer p { margin:5px 0 0; }
     --line:#999; --head:#eee; --stripe:#fafafa; --link:#000; }
   @page { size:A4 portrait; margin:12mm; }
   body { font-size:10pt; } main { max-width:none; padding:0; }
-  nav { display:none; } h1 { font-size:16pt; margin-bottom:10px; }
+  .reference-header { display:none; } h1 { font-size:16pt; margin-bottom:10px; }
   h1, h2, .reference-figure { break-after:avoid; }
   h2 { font-size:12pt; }
+  .reference-figure img { max-width:100%; max-height:60mm; }
   th, td { padding:4px 6px; } thead { display:table-header-group; }
   tr { break-inside:avoid; } .table-scroll { overflow:visible; }
   .screen-only, .topics { display:none; }

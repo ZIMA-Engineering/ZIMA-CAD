@@ -15,6 +15,25 @@ manufacturing profile. Material/property references need no decorative image.
 Group folders use File Manager's automatic overview, without authored HTML menus.
 
 All authored pages support CS, EN, DE, FR and RU, together at the upper right.
+All active reference pages use the full available window width and left-aligned
+content and figures. The shared header keeps the language links and original
+ZIMA-Engineering logo on the right. `tools/data/reference-ui.json` owns the
+optional `branding` record: its `logo` is a repository-relative local asset;
+`url` is the standalone HTML click target. An empty URL retains the logo without
+a hyperlink; `branding: null` omits it. In the native File Manager, the existing
+Settings > File Manager > Company website field (`FileManager/CompanyWebsite`)
+controls the logo's actual link without regenerating HTML. Clearing that setting
+retains the logo without a link. Only HTTP/HTTPS company addresses are used;
+settings are serialized safely into the existing page-presentation script.
+The default target is the existing company website.
+No network asset is loaded while displaying a table. Cell padding provides more
+horizontal space, and narrow windows retain their existing table scroll regions.
+Printing hides this navigation header and retains the independent A4 layout.
+Reference images keep their aspect ratio and occupy at most one quarter of the
+window height, with a 720-pixel width cap. Print figures are capped at 60 mm high.
+The screw illustration retains only the main side view and explanatory detail
+profiles; final dimension presentation will follow the user's edited native Drawing.
+
 Language changes prose and decimal punctuation, not values or the standards
 system. Prefer ISO where its scope actually fits. A national adoption or
 interchangeable replacement requires evidence; language does not select one.
@@ -38,8 +57,9 @@ remain complete in HTML. Groups use real descendants, never unrelated previews.
 | Remaining chapters | 54 | 270 |
 | **Total** | **281** | **1,405** |
 
-The tree has **332 directories / 1,660 localized labels**. These follow-ups remove
-423 redundant navigation directories from the 755-directory published tree.
+The tree has **333 directories / 1,665 localized labels**, including the native
+ISO 4017 model directory. The earlier consolidation removed 423 redundant
+navigation directories from the 755-directory published tree.
 Related dimensional ranges share a document; useful technical topic groups
 remain. All numerical source values, evidence references and review limits are
 retained. Category logo-text SVGs follow the existing Symbols visual style.
@@ -196,3 +216,23 @@ the change and committed-source package.
 ## Continuous shaft reference tables (2026-10-16)
 
 Solid-shaft torsion now combines its two source blocks into one 30-row table. Fine-spline accuracy combines its two blocks into one 26-row table. Both use fixed headers and a scrolling body in all five languages. Columns are aligned by their original header identity; an em dash marks an absent source field. No engineering values are invented or discarded. Independent cell-by-cell tests, browser scrolling, full print output and native File Manager checks passed.
+
+## Fastener follow-up (2026-10-16)
+
+Bolt load capacity joins all three source blocks into one 61-row, 13-column
+table. Distinct historical pitch/diameter combinations remain separate. The two
+inconsistent historical 5S columns retain their values and explicit source labels;
+they are not certified permissible loads. Counterbore/hole dimensions join three
+blocks and transpose to 32 bolt-size rows and 20 parameter columns. The original
+project figure is restored from ZIMA-Parts.
+
+The six main hexagon-head bolt/screw families combine their dimensional ranges
+with thread sizes down the left and parameter symbols across the top. Length
+availability tables remain independently readable on the same page. Differing
+historical rows are retained rather than silently overwritten. The ISO 4017 M4
+head-height correction, 2.5 to 2.8 mm, is explicitly recorded with its catalog
+source in `reviewed_numeric_corrections`; original source evidence is unchanged.
+
+Product-grade A/B/C labels are distinct from property classes such as 8.8.
+[The native fastener library](FASTENER_LIBRARY.md) documents the four verified
+editable models, material, Relations, source Drawing and native thumbnails.

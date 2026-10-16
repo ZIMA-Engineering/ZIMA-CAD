@@ -1,5 +1,17 @@
 # Unicode paths in native file commands
 
+## Model annotations in independent Drawing copies
+
+Save As rebinds model-annotation document identities to the copied primary Part
+or Assembly, preserving their authored visibility and local layout. Axes and
+transferred dimensions therefore continue to resolve against the copy. Annotations
+belonging to an independent secondary source retain their original ownership.
+The operation preserves source documents and the active editing context.
+
+The October 16 contour investigation also found and repaired stale annotation
+ownership in the working bolt Drawing. This was an explicit file repair; opening
+documents does not guess replacement owners for unresolved references.
+
 ## Repaired GUI/CLI difference
 
 On Windows, the narrow `std::filesystem::path` constructor accepts system-encoded

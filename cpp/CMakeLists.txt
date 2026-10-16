@@ -1412,6 +1412,12 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketch_dimension_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_dimension_command_tests COMMAND zima_cpp_sketch_dimension_command_tests)
     set_tests_properties(zima_cpp_sketch_dimension_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bolt-sketch-ui-contract")
+    add_test(NAME zima_cpp_bolt_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/bolt-sketch-ui-contract")
+    set_tests_properties(zima_cpp_bolt_sketch_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_BOLT_SKETCH_ONLY=1;ZIMA_BOLT_SOURCE=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-MODELS/HHS-ISO4017-M3x20.prtz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_sketch_relation_command_tests tests/sketch_relation_command_tests.cpp)
     target_link_libraries(zima_cpp_sketch_relation_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_relation_command_tests COMMAND zima_cpp_sketch_relation_command_tests)
@@ -1923,6 +1929,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_show_erase_ui_contract COMMAND zima-cad-drawing-harness --verify-show-erase)
     set_tests_properties(zima_cpp_show_erase_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_measurement_dimension_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    add_test(NAME zima_cpp_drawing_surface_contour_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    set_tests_properties(zima_cpp_drawing_surface_contour_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-MODELS/0000-index/HHS-ISO4017-REFERENCE.drwz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_balloon_ui_contract COMMAND zima-cad-drawing-harness --verify-balloons)
     set_tests_properties(zima_cpp_drawing_balloon_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_measurement_dimension_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

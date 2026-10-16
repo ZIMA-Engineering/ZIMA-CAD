@@ -140,6 +140,13 @@ std::vector<std::filesystem::path> Workspace::save_copy(
             }
         }
         for (auto& sheet:drawing.sheets) for (auto& view:sheet.views) {
+            for(auto& annotation:view.model_annotations)if(annotation.source.document_id==document_id) {
+                annotation.source.document_id=new_id;
+                rebind_origin(annotation.source);
+                if(annotation.model_dimension) {
+                    rebind_origin(annotation.model_dimension->reference);
+                }
+            }
             auto measuring=*view.measurement_geometry;
             for(auto& curve:measuring.curves)rebind_origin(curve.source);
             for(auto& point:measuring.points)rebind_origin(point.source);

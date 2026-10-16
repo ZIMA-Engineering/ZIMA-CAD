@@ -55,6 +55,9 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     // than duplicating them on each result triangle and adjacent edge face.
     using FaceKey=std::tuple<std::string,std::string,std::string>;
     const auto face_key=[](const auto& ref){return FaceKey{ref.owner_id,ref.semantic_key,ref.instance_path};};
+    std::set<FaceKey> profile_surfaces;
+    for(const auto& edge:source_edges)if(edge.reference.semantic_key.starts_with("drawing-contour:"))
+        for(const auto& face:edge.edge_treatment_side_references)profile_surfaces.insert(face_key(face));
     std::map<FaceKey,const zima::kernel::SurfaceGeometry*> surfaces;
     for(const auto& ref:mesh.original_references.triangle_references)if(ref.surface)surfaces.try_emplace(face_key(ref),&*ref.surface);
     for(const auto& ref:mesh.triangle_references)if(ref.surface)surfaces.try_emplace(face_key(ref),&*ref.surface);
@@ -91,7 +94,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};std::array<unsigned,3> indices;unsigned rim_sides{};std::array<double,3> clip_tolerances{};};
     std::vector<Triangle> triangles;
     using Key=std::tuple<long long,long long,long long>;
-    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true};};
+    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true},analytic_profile{true};};
     std::map<std::tuple<Key,Key,Owner>,Boundary> boundaries;
     std::map<std::tuple<FaceKey,Key,Key>,unsigned> face_edge_counts;
     const auto key=[&](const auto& p){return Key{std::llround(p.x/epsilon),std::llround(p.y/epsilon),std::llround(p.z/epsilon)};};
@@ -131,6 +134,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             auto ka=key(pa),kb=key(pb);if(kb<ka){std::swap(ka,kb);std::swap(pa,pb);}
             if(ref)++face_edge_counts[{face_key(*ref),ka,kb}];
             auto& edge=boundaries[{ka,kb,thread?owner(*ref):Owner{}}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
+            edge.analytic_profile&=ref&&profile_surfaces.contains(face_key(*ref));
             // A cylinder/cone viewed along its analytic axis has no visible
             // generator. An unmatched mesh seam near a cone apex is not a
             // physical silhouette; its real rims are explicit viewer edges.
@@ -287,6 +291,11 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             const double ymin=std::min(a.p.y,b.p.y)-roundoff,ymax=std::max(a.p.y,b.p.y)+roundoff;
             for(const auto triangle_index:nearby) {
                 const auto& triangle=triangles[triangle_index];
+                // Exact, monotone rotational profiles are the support's
+                // silhouette. Its own tessellation may protrude across that
+                // curve; only other faces may hide this certified contour.
+                if(source.semantic_key.starts_with("drawing-contour:")&&boundary&&triangle.source&&
+                    std::ranges::any_of(boundary->edge_treatment_side_references,[&](const auto& face){return face==*triangle.source;}))continue;
                 if(xmax<triangle.xmin||xmin>triangle.xmax||ymax<triangle.ymin||ymin>triangle.ymax)continue;
                 if(const auto interval=rim_intervals.empty()?std::optional<std::pair<double,double>>{}:rim_intervals[triangle_index];interval&&parameters) {
                     const auto [lo,hi]=std::minmax((*parameters)[segment-1],(*parameters)[segment]);
@@ -401,7 +410,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             for(int part=0;part<16;++part)subdivide(subdivide,part/16.,(part+1)/16.,at(part/16.),at((part+1)/16.),at((part+.5)/16.),0);
             if(!edge.points.empty()&&distance(refined.back(),edge.points.front())<distance(refined.front(),edge.points.front())){std::reverse(refined.begin(),refined.end());std::reverse(parameters.begin(),parameters.end());}
             append(refined,edge.reference,false,thread?false:tangent_boundary(edge),thread,false,&edge,&parameters);
-        }else append(edge.points,edge.reference,false,thread?false:tangent_boundary(edge),thread);
+        }else append(edge.points,edge.reference,false,thread?false:tangent_boundary(edge),thread,false,&edge);
     }
     for(const auto& ring:end_rings) {
         std::vector<zima::kernel::Vec3> arc;
@@ -414,7 +423,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         }
         append(arc,ring.source,false,false,true,true);
     }
-    if(silhouettes)for(const auto& [key,edge]:boundaries)if(!edge.axial_surface&&((edge.front&&edge.back)||edge.count==1)) {
+    if(silhouettes)for(const auto& [key,edge]:boundaries)if(!edge.axial_surface&&!edge.analytic_profile&&((edge.front&&edge.back)||edge.count==1)) {
         zima::kernel::EdgeReference reference;
         if(edge.thread)for(const auto& original:source_edges)
             if(is_thread(original.reference)&&owner(original.reference)==std::get<2>(key)&&

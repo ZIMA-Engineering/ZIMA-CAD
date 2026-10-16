@@ -15,7 +15,11 @@ async function main() {
   const index = process.argv.indexOf('--browser');
   const browser = await chromium.launch({ headless: true,
     ...(index >= 0 ? { executablePath: process.argv[index + 1] } : {}) });
-  const context = await browser.newContext({ viewport: { width: 1100, height: 760 }, colorScheme: 'light' });
+  const wideOption = process.argv.indexOf('--viewport-width');
+  const viewportWidth = wideOption < 0 ? 1100 : Number(process.argv[wideOption + 1]);
+  if (!Number.isInteger(viewportWidth) || viewportWidth < 320 || viewportWidth > 3840) throw Error('Invalid viewport width');
+  const checkOnly = process.argv.includes('--check-only');
+  const context = await browser.newContext({ viewport: { width: viewportWidth, height: 760 }, colorScheme: 'light' });
   const failures = [], results = [], errors = [];
   await context.route(/^https?:/, route => route.abort());
   try {
@@ -43,13 +47,25 @@ async function main() {
           const table = document.querySelector('.table-scroll');
           return { height: Math.ceil(main.height), width: document.documentElement.scrollWidth,
             tableWidth: table?.scrollWidth || 0, tableAvailable: table?.clientWidth || 0,
+            mainLeft: main.left, mainWidth: main.width,
+            brandRight: document.querySelector('.reference-brand')?.getBoundingClientRect().right,
+            imagesLoaded: [...document.images].every(image => image.complete && image.naturalWidth > 0),
+            figures: [...document.querySelectorAll('.reference-figure img')].map(image => {
+              const box=image.getBoundingClientRect();
+              return {height:box.height,left:box.left,width:box.width,ratio:image.naturalWidth/image.naturalHeight};
+            }),
             language: document.documentElement.lang, rows: [...document.querySelectorAll('tbody tr')].filter(row => !row.closest('.print-only')).length };
         });
         // References may scroll vertically. Width and readable content still
         // have to fit; thumbnails show the schematic and beginning of the table.
-        if (metrics.width > 1100 || (!topic.freeze_header && metrics.tableWidth > metrics.tableAvailable))
+        if (metrics.width > viewportWidth || (!topic.freeze_header && metrics.tableWidth > metrics.tableAvailable) ||
+            Math.abs(metrics.mainLeft) > 1 || Math.abs(metrics.mainWidth - viewportWidth) > 1 || !metrics.imagesLoaded ||
+            (metrics.brandRight !== undefined && Math.abs(metrics.brandRight - (viewportWidth - (viewportWidth <= 700 ? 12 : 20))) > 1))
           failures.push({ topic: topic.path, language, ...metrics });
-        const expectedRows = topic.rows.length + (topic.sections || []).reduce((n, block) => n + block.rows.length, 0);
+        if (metrics.figures.some(figure => figure.height > 191 || Math.abs(figure.left - (viewportWidth <= 700 ? 12 : 20)) > 1 ||
+            (figure.height > 0 && Math.abs(figure.width / figure.height - figure.ratio) > .02)))
+          throw Error(`Reference figure exceeded its quarter-window limit or changed aspect: ${topic.path}/${language}`);
+        const expectedRows = topic.display_row_count ?? (topic.rows.length + (topic.sections || []).reduce((n, block) => n + block.rows.length, 0));
         if (metrics.language !== language || metrics.rows !== expectedRows)
           throw Error(`Rendered content mismatch: ${topic.path}/${language}`);
         if (topic.freeze_header) {
@@ -75,6 +91,7 @@ async function main() {
             throw Error(`Frozen reference headers moved: ${JSON.stringify(frozen)}`);
           metrics.frozen = frozen;
         }
+        if (!checkOnly) {
         const bounds = await page.locator('main').boundingBox();
         const image = await page.screenshot({ type: 'jpeg', quality: 85,
           clip: { x: bounds.x, y: bounds.y, width: bounds.width, height: Math.min(bounds.height, 760) } });
@@ -82,6 +99,7 @@ async function main() {
         if (language === 'cs') await fs.writeFile(path.join(folder, '01.jpg'), image);
         const pdfPath = path.join(evidence, (topic.path || 'root').replaceAll('/', '_') + `_${language}.pdf`);
         await page.pdf({ path: pdfPath, format: 'A4', preferCSSPageSize: true, printBackground: true });
+        }
         await page.emulateMedia({ colorScheme: 'dark' });
         const contrast = await page.evaluate(() => {
           const rgb = value => value.match(/\d+/g).slice(0, 3).map(Number);
@@ -92,7 +110,7 @@ async function main() {
           return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
         });
         if (contrast < 4.5) throw Error(`Insufficient dark contrast: ${topic.path}/${language}`);
-        if (language === 'cs' && ['', '01-BASE-UNITS', '04-SI-PREFIXES', '06-IMPERIAL-US/02-VOLUME'].includes(topic.path))
+        if (!checkOnly && language === 'cs' && ['', '01-BASE-UNITS', '04-SI-PREFIXES', '06-IMPERIAL-US/02-VOLUME'].includes(topic.path))
           await page.screenshot({ path: path.join(evidence, (topic.path || 'root').replaceAll('/', '_') + '-dark.png'), fullPage: true });
         await page.emulateMedia({ colorScheme: 'light' });
         results.push({ topic: topic.path, language, ...metrics, darkContrast: contrast });
@@ -103,7 +121,7 @@ async function main() {
     // Independent page/media state; bounded concurrency avoids serial browser waits.
     await Promise.all(Array.from({ length: Math.min(3, topics.length) }, worker));
     // Group folders use a real descendant table as their preview, without HTML landing pages.
-    for (const topic of data.pages.filter(topic => !topic.rows.length)) {
+    for (const topic of data.pages.filter(topic => !checkOnly && !topic.rows.length)) {
       const descendant = data.pages.find(child => child.rows.length &&
         (!topic.path || child.path.startsWith(topic.path + '/')));
       // Some source categories intentionally await a reliable source. They
@@ -116,8 +134,8 @@ async function main() {
         await fs.copyFile(path.join(root, descendant.path, '0000-index', name), path.join(folder, name));
       }
     }
-    const report = { viewport: '1100 x 760 CSS pixels', results, failures, errors };
-    await fs.writeFile(path.join(evidence, 'layout.json'), JSON.stringify(report, null, 2) + '\n');
+    const report = { viewport: `${viewportWidth} x 760 CSS pixels`, results, failures, errors };
+    await fs.writeFile(path.join(evidence, checkOnly ? `layout-${viewportWidth}.json` : 'layout.json'), JSON.stringify(report, null, 2) + '\n');
     console.log(JSON.stringify({ pages: results.length, failures, errors }));
     if (failures.length || errors.length) process.exitCode = 1;
   } finally { await browser.close(); }

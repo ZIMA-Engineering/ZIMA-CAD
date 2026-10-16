@@ -160,6 +160,29 @@ on screen is insufficient for R/⌀. Geometry, references including occurrence p
 style and segment placements are saved in the current Drawing format. Old
 experimental manual dimensions are not migrated.
 
+### Associative surface contours
+
+The side-view meridians of complete circular Fillets and complete conical
+Chamfers are selectable drawing curves. Their references retain the source face,
+the occurrence path and an explicit view-local contour side. They support manual
+radius dimensions on circular meridians and point/line/angular measurements on
+straight conical generators. Changing the source radius or shaft length updates
+the curve without replacing that reference.
+
+Exact torus support and its trimmed parameter domain are captured during explicit
+native calculation in the face's `contour_surface` packet. This field is separate
+from modeling placement supports. Projection, picking and annotation dragging do
+not invoke OCCT. Older calculated source data must be explicitly regenerated to
+capture the new packet; factory assets ship with refreshed native data.
+
+A radial arrow remains on the actual trimmed arc, including when the leader
+continues through the centre to the opposite side. Presentation changes never
+extend the measured arc to its full supporting circle. Unsupported oblique or
+nonrectangular torus contours are not offered as circular radius references.
+
+See the [finite contour verification record](verification/20261016-drawing-surface-contours.md)
+for the tested geometry, interaction matrix and remaining limits.
+
 ## Radius based on the koty.bmp sketch
 
 Shared Sketcher/Part/Assembly/Drawing rendering has three modes. While holding a

@@ -12,7 +12,9 @@ bool same_number(double a,double b) {return std::bit_cast<std::uint64_t>(a)==std
 bool same_vector(kernel::Vec3 a,kernel::Vec3 b) {return same_number(a.x,b.x)&&same_number(a.y,b.y)&&same_number(a.z,b.z);}
 bool same_surface(const kernel::SurfaceGeometry& a,const kernel::SurfaceGeometry& b) {
     return a.kind==b.kind&&a.reversed==b.reversed&&same_vector(a.origin,b.origin)&&same_vector(a.axis,b.axis)&&same_vector(a.radial,b.radial)&&
-        same_number(a.radius,b.radius)&&same_number(a.semi_angle,b.semi_angle)&&same_number(a.axial_min,b.axial_min)&&same_number(a.axial_max,b.axial_max);
+        same_number(a.radius,b.radius)&&same_number(a.semi_angle,b.semi_angle)&&same_number(a.axial_min,b.axial_min)&&same_number(a.axial_max,b.axial_max)&&
+        same_number(a.minor_radius,b.minor_radius)&&same_number(a.u_min,b.u_min)&&same_number(a.u_max,b.u_max)&&
+        same_number(a.v_min,b.v_min)&&same_number(a.v_max,b.v_max)&&a.complete_profile==b.complete_profile;
 }
 bool same_spline(const kernel::BSplineGeometry& a,const kernel::BSplineGeometry& b) {
     return a.degree==b.degree&&std::ranges::equal(a.poles,b.poles,same_vector)&&
@@ -21,7 +23,8 @@ bool same_spline(const kernel::BSplineGeometry& a,const kernel::BSplineGeometry&
 bool same_face(const kernel::FaceReference& a,const kernel::FaceReference& b) {
     return a==b&&a.display_owner_id==b.display_owner_id&&a.measured_area==b.measured_area&&
         a.surface_result==b.surface_result&&a.sheet_role==b.sheet_role&&a.sheet_thickness==b.sheet_thickness&&a.sheet_owner==b.sheet_owner&&
-        ((!a.surface&&!b.surface)||(a.surface&&b.surface&&same_surface(*a.surface,*b.surface)));
+        ((!a.surface&&!b.surface)||(a.surface&&b.surface&&same_surface(*a.surface,*b.surface)))&&
+        ((!a.contour_surface&&!b.contour_surface)||(a.contour_surface&&b.contour_surface&&same_surface(*a.contour_surface,*b.contour_surface)));
 }
 bool same_edge(const kernel::ViewerEdge& a,const kernel::ViewerEdge& b) {
     return std::ranges::equal(a.points,b.points,same_vector)&&a.reference==b.reference&&a.reference.display_owner_id==b.reference.display_owner_id&&
@@ -214,13 +217,14 @@ void DrawingProjection::project(drawing::DrawingView& view,Options options) {
     }else{
         view.output_source.reset();
         const auto& c=view.camera;
+        const auto profiles=drawing::drawing_profile_mesh(source.mesh,c);
         const std::array key{c.horizontal.x,c.horizontal.y,c.horizontal.z,c.vertical.x,c.vertical.y,c.vertical.z,c.depth.x,c.depth.y,c.depth.z};
         auto found=cached.cameras.find(key);
         if(found==cached.cameras.end()) {
-            found=cached.cameras.emplace(key,std::make_pair(drawing::project_edges(source.mesh,c),drawing::project_triangles(source.mesh,c))).first;
+            found=cached.cameras.emplace(key,std::make_pair(drawing::project_edges(profiles,c),drawing::project_triangles(profiles,c))).first;
             ++impl_->calculated_cameras;
         }
-        drawing::capture_measurement_geometry(view,source.mesh);
+        drawing::capture_measurement_geometry(view,profiles);
         view.projected_edges=found->second.first;
         view.projected_triangles=found->second.second;
     }

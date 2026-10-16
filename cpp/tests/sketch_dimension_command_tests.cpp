@@ -3,6 +3,7 @@
 #include <cmath>
 #include <zima/document/relations.hpp>
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 using namespace zima;
 using commands::Json;
@@ -232,9 +233,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(loaded_assembly.sketches.back().dimensions.front().id==assembly_dimension.get<std::string>() && loaded_assembly.dimension_layouts==assembly->session.document().dimension_layouts,"Assembly dimension native persistence failed");
 }
 }
+#include "sketch_supported_angle_matrix.inc"
 int main() {
     try {kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto directory=parent/("zima-sketch-dimensions-"+document::PartDocument::create_default().document_id);
-        fs::create_directory(directory);verify(kernel,directory);require(directory.parent_path()==parent,"Unsafe cleanup");fs::remove_all(directory);
+        fs::create_directory(directory);verify_supported_angle_matrix();verify(kernel,directory);require(directory.parent_path()==parent,"Unsafe cleanup");fs::remove_all(directory);
         std::cout<<"Sketch dimension factories, value policies, labels, atomicity, Undo, persistence and explicit solid regeneration passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

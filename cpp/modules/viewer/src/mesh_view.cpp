@@ -4662,6 +4662,8 @@ if (impl_->show_origins) {
         };
         if (!impl_->active_sketch_owner_id.empty() && axes_visible) draw_axes();
         if (sketch_geometry_visible) {
+            // Native Sketch strokes cover coincident read-only reference wires.
+            for (const bool reference_pass : {true, false})
             for (const auto& edge : impl_->mesh.edges) {
                 if (!is_sketch_wire_edge(edge)) continue;
                 if(!(edge.reference.semantic_key.starts_with("symbol:")?impl_->show_symbols:impl_->show_sketches))continue;
@@ -4672,6 +4674,7 @@ if (impl_->show_origins) {
                     edge.reference.semantic_key.starts_with("external_axis:");
                 const bool external_face = edge.reference.semantic_key.starts_with(
                     "external_face:");
+                if ((external || external_face) != reference_pass) continue;
                 const QColor text_color = edge.reference.semantic_key.ends_with(":red") ? QColor(255,0,0)
                     : edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)

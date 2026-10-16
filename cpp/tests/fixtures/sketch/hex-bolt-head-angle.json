@@ -1,0 +1,316 @@
+{
+  "arcs": [],
+  "bsplines": [],
+  "circles": [],
+  "constraints": [
+    {
+      "first": "01a14429e3207acba34fc9c038cdcce4",
+      "geometry": "01a14429e3207acba34fc9c038cdcce2",
+      "id": "01a14429e3207acba34fc9c038cdcce7",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdcce4",
+      "geometry": "01a14429e3207acba34fc9c038cdcce3",
+      "id": "01a14429e3207acba34fc9c038cdcce8",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdcce5",
+      "geometry": "sketch_axis:x",
+      "id": "01a14429e3207acba34fc9c038cdcce9",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdccea",
+      "geometry": "01a14429e3207acba34fc9c038cdcce2",
+      "id": "01a14429e3207acba34fc9c038cdccec",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "",
+      "geometry": "01a14429e3207acba34fc9c038cdcce2",
+      "id": "01a14429e3207acba34fc9c038cdcced",
+      "kind": "perpendicular",
+      "second": "",
+      "second_geometry": "01a14429e3207acba34fc9c038cdcceb",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdccf4",
+      "geometry": "sketch_axis:x",
+      "id": "01a14429e3207acba34fc9c038cdccf7",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdccf4",
+      "geometry": "sketch_axis:y",
+      "id": "01a14429e3207acba34fc9c038cdccf8",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdccf5",
+      "geometry": "sketch_axis:y",
+      "id": "01a14429e3207acba34fc9c038cdccf9",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a14429e3207acba34fc9c038cdccf5",
+      "geometry": "01a14429e3207acba34fc9c038cdcce2",
+      "id": "01a14429e3207acba34fc9c038cdccfa",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    }
+  ],
+  "corner_radii": [],
+  "curve_supports": [],
+  "curve_trims": [],
+  "dimension_layouts": [
+    {
+      "along": 0.0,
+      "envelope": null,
+      "hide_center": false,
+      "key": "dimension:01a14429e3207acba34fc9c038cdccf3",
+      "line": 0.0,
+      "outward": 0.0,
+      "owner": "01a14429e3207acba34fc9c038cdccd3",
+      "plane": 0,
+      "radius_rotation": 0.0,
+      "reverse": false
+    }
+  ],
+  "dimensions": [
+    {
+      "angle_presentation_reversed": false,
+      "angle_sector": 0,
+      "annotation_decimals": 3,
+      "display_text_override": "",
+      "driving": true,
+      "first": "",
+      "geometry": "01a14429e3207acba34fc9c038cdcce6",
+      "id": "01a14429e3207acba34fc9c038cdccf3",
+      "keep_trailing_zeros": false,
+      "kind": "angle_between",
+      "locked": false,
+      "lower_tolerance": "",
+      "placement": [
+        4.557375547073548,
+        -1.5728083437016664
+      ],
+      "prefix": "",
+      "second": "",
+      "second_geometry": "01a14429e3207acba34fc9c038cdccee",
+      "single_tolerance": "",
+      "solution_side": 1,
+      "suffix": "",
+      "suppressed": false,
+      "symmetric_tolerance": "",
+      "third_geometry": "",
+      "tolerance_mode": "",
+      "upper_tolerance": "",
+      "value": -31.448517985468552,
+      "value_unit": ""
+    }
+  ],
+  "ellipses": [],
+  "elliptical_arcs": [],
+  "external_references": [
+    {
+      "body_edge": false,
+      "broken": false,
+      "cached_paths": [],
+      "cached_points": [
+        [
+          1.0,
+          -2.0
+        ],
+        [
+          -1.0,
+          -2.0
+        ]
+      ],
+      "context_assembly_document_id": "",
+      "context_instance_path": "",
+      "exact_spline": null,
+      "id": "01a14429e3207acba34fc9c038cdcce2",
+      "infinite": true,
+      "kind": "face",
+      "source_document_id": "01a14429e3207acba34fc9c038cdcc55",
+      "source_instance_path": "",
+      "source_owner_id": "01a14429e3207acba34fc9c038cdcc90",
+      "source_semantic_key": "start:from:302:feature-side:32:01a14429e3207acba34fc9c038cdcc91:start:243:profile-region:segment-loop:32:01a14429e3207acba34fc9c038cdcca2:32:01a14429e3207acba34fc9c038cdcca3:32:01a14429e3207acba34fc9c038cdcca4:32:01a14429e3207acba34fc9c038cdcca5:32:01a14429e3207acba34fc9c038cdcca6:32:01a14429e3207acba34fc9c038cdcca7"
+    },
+    {
+      "body_edge": false,
+      "broken": false,
+      "cached_paths": [],
+      "cached_points": [
+        [
+          2.749997371983845,
+          1.0
+        ],
+        [
+          2.749997371983845,
+          -1.0
+        ]
+      ],
+      "context_assembly_document_id": "",
+      "context_instance_path": "",
+      "exact_spline": null,
+      "id": "01a14429e3207acba34fc9c038cdcce3",
+      "infinite": true,
+      "kind": "face",
+      "source_document_id": "01a14429e3207acba34fc9c038cdcc55",
+      "source_instance_path": "",
+      "source_owner_id": "01a14429e3207acba34fc9c038cdcc90",
+      "source_semantic_key": "generated:feature-side:32:01a14429e3207acba34fc9c038cdcc91:start:32:01a14429e3207acba34fc9c038cdcca3"
+    }
+  ],
+  "format": "zima-cad-cpp-sketch",
+  "id": "01a14429e3207acba34fc9c038cdccd3",
+  "import_blocks": [],
+  "name": "Skica",
+  "offsets": [],
+  "owner_container_id": "01a14429e3207acba34fc9c038cdccd4",
+  "plane": "yz",
+  "plane_auto": false,
+  "plane_offset": 0.0,
+  "plane_reference_owner_id": "",
+  "points": [
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a14429e3207acba34fc9c038cdcce4",
+      "visible_in_3d": true,
+      "x": 2.749997371983845,
+      "y": -2.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a14429e3207acba34fc9c038cdcce5",
+      "visible_in_3d": true,
+      "x": 6.020292941602861,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a14429e3207acba34fc9c038cdccea",
+      "visible_in_3d": true,
+      "x": 6.020292941602861,
+      "y": -2.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a14429e3207acba34fc9c038cdccf4",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a14429e3207acba34fc9c038cdccf5",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": -2.0
+    }
+  ],
+  "resolved_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "resolved_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "resolved_x_axis": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "resolved_y_axis": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "segments": [
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a14429e3207acba34fc9c038cdcce4",
+      "id": "01a14429e3207acba34fc9c038cdcce6",
+      "second": "01a14429e3207acba34fc9c038cdcce5",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a14429e3207acba34fc9c038cdcce5",
+      "id": "01a14429e3207acba34fc9c038cdcceb",
+      "second": "01a14429e3207acba34fc9c038cdccea",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a14429e3207acba34fc9c038cdcce4",
+      "id": "01a14429e3207acba34fc9c038cdccee",
+      "second": "01a14429e3207acba34fc9c038cdccea",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": true,
+      "construction": true,
+      "first": "01a14429e3207acba34fc9c038cdccf4",
+      "id": "01a14429e3207acba34fc9c038cdccf6",
+      "second": "01a14429e3207acba34fc9c038cdccf5",
+      "visible_in_3d": true
+    }
+  ],
+  "suppressed": false,
+  "symbols": [],
+  "texts": [],
+  "version": 35
+}

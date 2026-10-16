@@ -1,15 +1,49 @@
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/kernel/scale_geometry.hpp>
+#include <zima/kernel/pattern_geometry.hpp>
 #include <iostream>
 #include <cmath>
 #include <bit>
 #include <array>
 #include <cstdint>
+#include <numbers>
 using namespace zima;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-10)throw std::runtime_error("Incorrect original reference coordinate");}
 void near(kernel::Vec3 actual,kernel::Vec3 expected){near(actual.x,expected.x);near(actual.y,expected.y);near(actual.z,expected.z);}
+void verify_contour_transforms() {
+    auto support=std::make_shared<kernel::SurfaceGeometry>();support->kind=kernel::SurfaceGeometry::Kind::Torus;
+    support->origin={2,3,4};support->radius=5;support->minor_radius=.1;
+    support->u_max=2*std::numbers::pi;support->v_min=std::numbers::pi;support->v_max=1.5*std::numbers::pi;support->complete_profile=true;
+    const auto original=*support;
+    kernel::ViewerMesh mesh;mesh.vertices={{0,0,0},{1,0,0},{0,1,0}};mesh.triangles={0,1,2};
+    kernel::FaceReference face{"source","round",""};face.contour_surface=support;mesh.triangle_references={face};
+    mesh.original_references.vertices=mesh.vertices;mesh.original_references.triangles=mesh.triangles;mesh.original_references.triangle_references={face};
+    workspace::ReferenceFrame frame;frame.point=[](auto p){return kernel::Vec3{10-p.y,20+p.x,30+p.z};};
+    frame.direction=[](auto p){return kernel::Vec3{-p.y,p.x,p.z};};
+    frame.surface_point=[&](const auto&,auto p){return frame.point(p);};frame.surface_direction=[&](const auto&,auto p){return frame.direction(p);};
+    kernel::ViewerReferenceGeometry placed;
+    workspace::append_original_reference_geometry(placed,mesh.original_references,frame,[](auto,const auto&,const auto&,const auto&){return true;});
+    require(placed.triangle_references.front().contour_surface&&!placed.triangle_references.front().surface,"Contour transform enabled an unsupported placement surface");
+    near(placed.triangle_references.front().contour_surface->origin,{7,22,34});
+    const auto scaled=kernel::scaled_body_mesh(mesh,3,{},"scaled");
+    near(scaled.original_references.triangle_references.front().contour_surface->radius,15);
+    near(scaled.original_references.triangle_references.front().contour_surface->minor_radius,.3);
+    near(scaled.original_references.triangle_references.front().contour_surface->v_min,support->v_min);
+    const auto mirrored=kernel::mirrored_viewer_mesh(mesh,{{},{1,0,0}},"mirror");
+    near(mirrored.original_references.triangle_references.front().contour_surface->origin,{-2,3,4});
+    near(mirrored.original_references.triangle_references.front().contour_surface->u_min,-support->u_max);
+    kernel::PatternRequest pattern;pattern.circular=true;
+    const auto patterned=kernel::pattern_copy_mesh(mesh,pattern,1,"pattern");
+    near(patterned.original_references.triangle_references.front().contour_surface->origin,{-3,2,4});
+    auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
+    const auto id=graph.create_body("Contour transform");auto body=*graph.find(id);body.scope.placement.x=7;body.scope.placement.rotation_z=90;graph.update_body(body);part.set_body_history(std::move(graph));
+    const auto body_mesh=part.place_body_mesh(mesh,id);
+    near(body_mesh.original_references.triangle_references.front().contour_surface->origin,{4,2,4});
+    require(*support==original,"Contour transformation changed its read-only source");
+}
 void verify_body_surface_reuse() {
     auto part=document::PartDocument::create_default();
     document::BodyHistoryGraph initial_graph;
@@ -158,4 +192,4 @@ void verify() {
     require(rejected,"Malformed persisted triangle index was accepted");
 }
 }
-int main(){try{verify();verify_assembly_placement_frame();verify_body_surface_reuse();std::cout<<"Original identity, sparse geometry, rational poles, source face frames and invalid packets passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(){try{verify();verify_assembly_placement_frame();verify_body_surface_reuse();verify_contour_transforms();std::cout<<"Original identity, sparse geometry, rational poles, source face frames and invalid packets passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

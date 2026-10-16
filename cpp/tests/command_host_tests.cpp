@@ -50,7 +50,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
     };
     Host host(live,kernel,directory,options);current=&host;
     const auto catalog=run(host,"help").data;
-    require(catalog.size()==320,"Command catalog changed");
+    require(catalog.size()==330,"Command catalog changed");
     for(const auto* name:{"save_as","body.suppress","body.link","body.scale","document.relations.get","document.relations.set"})
         require(std::count_if(catalog.begin(),catalog.end(),[&](const auto& command){return command.at("name")==name;})==1,
             "Command catalog lost or duplicated a registered command");
@@ -157,16 +157,27 @@ void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& 
     auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=id;
     drawing.source_path=folder/"original.prtz";const auto drawing_id=drawing.document_id;
     drawing::DrawingView view;view.id="source-view";view.name="Front";view.source_document_id=id;view.source_path=drawing.source_path;
+    drawing::ModelAnnotation axis;axis.kind=drawing::ModelAnnotationKind::Axis;axis.source={id,box.get<std::string>(),"axis:primary",""};axis.visible=true;
+    axis.model_axis=std::array<kernel::Vec3,2>{{{0,0,0},{10,0,0}}};axis.curves={{{0,0},{10,0}}};view.model_annotations.push_back(axis);
+    auto other_axis=axis;other_axis.source.document_id=owner;view.model_annotations.push_back(other_axis);
     drawing.sheets.front().views.push_back(view);
     drawing::BomRow bom;bom.name="Original";bom.source_document_id=id;bom.source_path=drawing.source_path;
     drawing.sheets.front().bom_rows.push_back(bom);
     live.add_drawing(drawing,folder/"original.drwz");
+    require(host.execute({{"command","close"},{"arguments",{{"document",drawing_id}}}}).code=="unsaved_changes",
+        "Unwritten drawing closed without saving");
     const auto original_revision=live.open_part(id)->session.revision();
+    const auto original_path=live.open_part(id)->path;
+    const bool original_dirty=live.open_part(id)->session.is_dirty();
     const auto copied=run(host,"save_as copy.prtz");
     require(copied.data.at("paths").size()==2,"Save As lost companion drawing");
     std::vector<kernel::BodyResult> copied_cache;
     const auto copy=document::PartDocument::load(folder/"copy.prtz",&copied_cache);
     const auto companion=drawing::DrawingDocument::load(folder/"copy.drwz");
+    require(companion.sheets.front().views.front().model_annotations[0].source.document_id==copy.document_id&&
+        companion.sheets.front().views.front().model_annotations[0].visible&&
+        companion.sheets.front().views.front().model_annotations[1].source.document_id==owner,
+        "Model Save Copy lost axis ownership/visibility or rebound an independent source");
     require(copy.document_id!=id && companion.document_id!=drawing_id && companion.source_document_id==copy.document_id &&
         std::abs(copied_cache.back().volume-9000)<1e-6,"Independent copy identity, geometry or drawing link incorrect");
     require(companion.source_path==folder/"copy.prtz" && companion.sheets.front().views.front().source_path==folder/"copy.prtz" &&
@@ -176,11 +187,15 @@ void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& 
     const auto reverse=request(host,"save_as",{{"document",drawing_id},{"path","reverse.drwz"}});
     const auto reverse_model=document::PartDocument::load(folder/"reverse.prtz",&copied_cache);
     const auto reverse_drawing=drawing::DrawingDocument::load(folder/"reverse.drwz");
+    require(reverse_drawing.sheets.front().views.front().model_annotations[0].source.document_id==reverse_model.document_id&&
+        reverse_drawing.sheets.front().views.front().model_annotations[0].visible&&
+        reverse_drawing.sheets.front().views.front().model_annotations[1].source.document_id==owner,
+        "Drawing Save Copy lost axis ownership/visibility or rebound an independent source");
     require(reverse.data.at("paths").size()==2&&reverse_model.document_id!=id&&
         reverse_drawing.source_document_id==reverse_model.document_id&&
         reverse_drawing.sheets.front().bom_rows.front().source_document_id==reverse_model.document_id&&
         std::abs(copied_cache.back().volume-9000)<1e-6&&live.active_document_id()==drawing_id&&
-        live.open_part(id)->session.revision()==original_revision,
+        live.open_part(id)->session.revision()==original_revision&&live.open_part(id)->session.is_dirty()==original_dirty&&live.open_part(id)->path==original_path,
         "CLI Drawing Save Copy lost its owner, unsaved geometry, BOM or original context");
     request(host,"activate",{{"document",id}});
     auto group=live.open_assembly(owner)->session.document();
@@ -189,22 +204,27 @@ void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& 
     request(host,"activate",{{"document",owner}});run(host,"save");
     const auto group_saved=assembly::AssemblyDocument::load(folder/"owner.asmz");
     require(group_saved.components.front().source_path==folder/"original.prtz","Assembly Unicode source path did not roundtrip");
+    const auto owner_copy_revision=live.open_part(id)->session.revision();
+    const bool owner_copy_dirty=live.open_part(id)->session.is_dirty();
     run(host,"save_as owner-copy.asmz");
     const auto group_copy=assembly::AssemblyDocument::load(folder/"owner-copy.asmz");
     require(group_copy.document_id!=owner && group_copy.components.front().source_document_id==id &&
         group_copy.components.front().source_path==folder/"original.prtz","Assembly copy changed component source identity/path");
     request(host,"activate",{{"document",id}});
-    require(live.active_document_id()==id && live.open_part(id)->session.revision()==original_revision &&
-        live.open_part(id)->session.is_dirty() && live.open_part(id)->path==folder/"original.prtz","Save As altered original document");
+    require(live.active_document_id()==id && live.open_part(id)->session.revision()==owner_copy_revision &&
+        live.open_part(id)->session.is_dirty()==owner_copy_dirty && live.open_part(id)->path==original_path,"Save As altered original document");
     require(!host.execute_text("save_as copy.prtz").ok && document::PartDocument::load(folder/"copy.prtz").document_id==copy.document_id,"Save As overwrote an existing file");
     require(!host.execute_text("save_as wrong.asmz").ok && !fs::exists(folder/"wrong.asmz"),"Save As accepted wrong native type");
+    // The explicit Assembly Save above saves its dependencies. Create a new
+    // pending edit rather than assuming the earlier Part edit remains dirty.
+    auto pending_part=live.open_part(id)->session.document();pending_part.name="Pending model";
+    live.open_part(id)->session.commit(std::move(pending_part),live.open_part(id)->session.calculated_boundaries());
     require(host.execute_text("close").code=="unsaved_changes" && live.size()==3,"Dirty model was discarded");
     require(host.execute({{"command","close"},{"arguments",{{"discard",1}}}}).code=="invalid_arguments" && live.size()==3,"Non-boolean discard was accepted");
     request(host,"close",{{"document",owner},{"discard",true}});
     require(live.active_document_id()==id && live.displayed_document_id()==id,"Closing another tab switched documents");
     run(host,"save");run(host,"close");
     require(live.active_document_id()==drawing_id && live.displayed_document_id()==drawing_id,"Closing current tab did not select survivor");
-    require(host.execute_text("close").code=="unsaved_changes","Unwritten drawing closed without saving");
     run(host,"save");auto edited=live.open_drawing(drawing_id)->document();edited.name="Changed sheet";
     live.open_drawing(drawing_id)->commit(edited);
     const auto info=run(host,"documents").data.front();

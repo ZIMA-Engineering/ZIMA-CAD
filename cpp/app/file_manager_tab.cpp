@@ -32,6 +32,8 @@
 #include <QGroupBox>
 #include <QHash>
 #include <QImageReader>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QPixmapCache>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -962,6 +964,12 @@ void FileManagerTab::sync_overview_theme(){
         std::pair{"head",QPalette::Button},std::pair{"stripe",QPalette::AlternateBase},std::pair{"link",QPalette::Link}})
         source+=QStringLiteral("document.documentElement.style.setProperty('--zima-%1','%2');")
             .arg(QString::fromLatin1(entry.first),colors.color(entry.second).name(QColor::HexRgb));
+    const auto website=QUrl::fromUserInput(settings_.file_manager.company_website.trimmed());
+    const bool linked=!settings_.file_manager.company_website.trimmed().isEmpty()&&
+        website.isValid()&&(website.scheme()=="https"||website.scheme()=="http");
+    const auto link=QJsonDocument(QJsonArray{linked?website.toString(QUrl::FullyEncoded):QString{}}).toJson(QJsonDocument::Compact);
+    source+=QStringLiteral("{const website=%1[0];document.querySelectorAll('a.reference-brand').forEach(a=>{if(website)a.setAttribute('href',website);else a.removeAttribute('href');});}")
+        .arg(QString::fromUtf8(link));
     auto& scripts=overview_web_->page()->scripts();
     const QString name=QStringLiteral("zima-file-manager-theme");
     for(const auto& old:scripts.find(name))scripts.remove(old);
@@ -1405,6 +1413,6 @@ void FileManagerTab::set_working_directory_action(QAction* action){choose_workin
 
 void FileManagerTab::set_working_directory(const QString& path){working_directory_=clean_path(path);if(!sources_.isEmpty()){sources_[0].source.path=working_directory_;sources_[0].source.resolved_path=working_directory_;sources_[0].model->setRootPath(working_directory_);sources_[0].tree->setRootIndex(sources_[0].proxy->mapFromSource(sources_[0].model->index(working_directory_)));source_list_->item(0)->setToolTip(QDir::toNativeSeparators(working_directory_));}const QString target=source_index_for(current_directory_)<0?working_directory_:current_directory_;history_.clear();history_index_=-1;navigate(target);}
 
-void FileManagerTab::reload_settings(const ApplicationSettings& settings){const QString current=current_directory_;settings_=settings;rebuild_sources();history_.clear();history_index_=-1;navigate(source_index_for(current)>=0?current:working_directory_);}
+void FileManagerTab::reload_settings(const ApplicationSettings& settings){const QString current=current_directory_;settings_=settings;sync_overview_theme();rebuild_sources();history_.clear();history_index_=-1;navigate(source_index_for(current)>=0?current:working_directory_);}
 
 } // namespace zima::app

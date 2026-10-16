@@ -35,7 +35,8 @@ int verify_form_dimension_edits(const std::filesystem::path& input) {
             check(workspace::set_sheet_form_dimension(live,kernel,part.document_id,owner,key,value),"FORM dimension edit did not commit");
         }catch(const std::exception& error) {
             check(state->session.document().serialized()==before,"Rejected FORM dimension changed the document");
-            std::cout<<"FORM dimension rejected "<<key<<": "<<error.what()<<std::endl;++rejected;continue;
+            std::cout<<"FORM dimension rejected "<<key<<": "<<error.what()<<std::endl;
+            ++rejected;continue;
         }
         const auto changed=state->session.document().serialized();valid(state->session.calculated_boundaries().back());
         const auto* current=state->session.document().find_container(owner);

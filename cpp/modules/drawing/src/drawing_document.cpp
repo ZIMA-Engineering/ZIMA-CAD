@@ -414,7 +414,7 @@ void prepare_interactive_view(DrawingView& view,std::shared_ptr<const kernel::Vi
     view.output_source=std::move(source);
     std::optional<kernel::ViewerMesh> filtered;
     if(kernel::has_surface_results(*view.output_source)){filtered=*view.output_source;kernel::hide_surface_results(*filtered);}
-    const auto& mesh=filtered?*filtered:*view.output_source;
+    const auto mesh=drawing_profile_mesh(filtered?*filtered:*view.output_source,view.camera);
     capture_measurement_geometry(view,mesh);
     view.projected_edges=detail::project_drawing_edges(mesh,view.camera,true,false,true);
     view.projected_triangles=project_triangles(mesh,view.camera);
@@ -432,8 +432,9 @@ void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& sou
     }
     const auto& source=filtered?*filtered:source_mesh;
     if(view.section_id.empty()){
-        capture_measurement_geometry(view,source);
-        view.projected_edges=project_edges(source,view.camera);view.projected_triangles=project_triangles(source,view.camera);return;
+        const auto profiles=drawing_profile_mesh(source,view.camera);
+        capture_measurement_geometry(view,profiles);
+        view.projected_edges=project_edges(profiles,view.camera);view.projected_triangles=project_triangles(profiles,view.camera);return;
     }
     if(!view.section_snapshot || view.section_snapshot->id!=view.section_id)throw std::runtime_error("Zdrojový řez není dostupný. Vyberte platný řez.");
     auto section=*view.section_snapshot;

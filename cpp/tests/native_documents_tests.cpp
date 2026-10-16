@@ -1,6 +1,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/native_documents.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/document/document_copy_json.hpp>
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
@@ -15,6 +16,19 @@ std::string bytes(const std::filesystem::path& path){std::ifstream in(path,std::
 int main(){
     using namespace zima;using namespace zima::workspace;namespace fs=std::filesystem;
     try {
+        {
+            nlohmann::json copied={{"document_id","source"},{"links",nlohmann::json::array({
+                {{"source_path","external-reference:curve-id"}},
+                {{"source_path","external.prtz"}},
+                {{"source_path","old.prtz"},{"source_document_id","source"}}
+            })}};
+            const auto source_directory=fs::absolute("build/copy-source");
+            const auto target=fs::absolute("build/copy-target/copied.prtz");
+            document::remap_document_identity(copied,"source","copy",{},source_directory,target);
+            require(copied["links"][0]["source_path"]=="external-reference:curve-id","Document copy rebased an internal Sketch link as a file");
+            require(copied["links"][1]["source_path"]==document::path_to_utf8(source_directory/"external.prtz"),"Document copy lost an external file path");
+            require(copied["links"][2]["source_path"]==document::path_to_utf8(target)&&copied["links"][2]["source_document_id"]=="copy","Document copy lost a self reference");
+        }
         const auto template_root=fs::absolute("config/templates");
         const NativeTemplateSettings settings{template_root,"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Těleso 1"};
         const auto part_template_bytes=bytes(template_root/settings.part_template);

@@ -32,7 +32,7 @@ struct Vec3 {
 // Exact analytic data captured during explicit body calculation. These are
 // measurements of the persisted source face, never topology identity.
 struct SurfaceGeometry {
-    enum class Kind { Plane, Cylinder, Cone };
+    enum class Kind { Plane, Cylinder, Cone, Torus };
     Kind kind{Kind::Plane};
     Vec3 origin;
     Vec3 axis{0,0,1};
@@ -42,6 +42,11 @@ struct SurfaceGeometry {
     double axial_min{};
     double axial_max{};
     bool reversed{};
+    // Exact periodic-surface bounds; radians, not axial distances. Used by
+    // drawing contours, independently of the tessellation density.
+    double minor_radius{};
+    double u_min{}, u_max{}, v_min{}, v_max{};
+    bool complete_profile{};
     bool operator==(const SurfaceGeometry&) const = default;
 };
 
@@ -65,6 +70,10 @@ struct FaceReference {
     // owner_id/semantic_key remain the persisted topology identity used by
     // references and commands.
     std::string display_owner_id;
+
+    // Exact drawing contour support. It does not opt an unsupported surface
+    // into container placement, symbols or other modeling commands.
+    std::shared_ptr<const SurfaceGeometry> contour_surface;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();

@@ -11,6 +11,7 @@ inline nlohmann::json serialize_output_source(const kernel::ViewerMesh& mesh) {
     auto packet=document::serialize_body_result(body,false);
     const auto face=[](nlohmann::json& value,const kernel::FaceReference& ref){
         value["projection_surface"]=ref.surface?document::serialize_surface_geometry(*ref.surface):nlohmann::json(nullptr);
+        if(ref.contour_surface)value["contour_surface"]=document::serialize_surface_geometry(*ref.contour_surface);
         value["projection_area"]=ref.measured_area?nlohmann::json(*ref.measured_area):nlohmann::json(nullptr);
         value["projection_surface_result"]=ref.surface_result;
     };
@@ -27,6 +28,7 @@ inline kernel::ViewerMesh load_output_source(const nlohmann::json& packet) {
     auto mesh=document::load_body_result(packet).mesh;
     const auto face=[](const nlohmann::json& value,kernel::FaceReference& ref){
         if(!value.at("projection_surface").is_null())ref.surface=std::make_shared<const kernel::SurfaceGeometry>(document::load_surface_geometry(value.at("projection_surface")));
+        if(value.contains("contour_surface"))ref.contour_surface=std::make_shared<const kernel::SurfaceGeometry>(document::load_surface_geometry(value.at("contour_surface")));
         if(!value.at("projection_area").is_null())ref.measured_area=value.at("projection_area").get<double>();
         ref.surface_result=value.at("projection_surface_result");
     };

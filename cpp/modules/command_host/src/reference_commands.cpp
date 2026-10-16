@@ -34,11 +34,16 @@ std::uint64_t revision(const workspace::Workspace& live,const std::string& id) {
 }
 Json surface(const kernel::SurfaceGeometry& source,const Frame& frame,const std::string& local) {
     using Kind=kernel::SurfaceGeometry::Kind;
-    return {{"kind",source.kind==Kind::Plane?"plane":source.kind==Kind::Cylinder?"cylinder":"cone"},
+    Json result={{"kind",source.kind==Kind::Plane?"plane":source.kind==Kind::Cylinder?"cylinder":source.kind==Kind::Cone?"cone":"torus"},
         {"origin",vec(frame.surface_point(local,source.origin))},{"axis",vec(frame.surface_direction(local,source.axis))},
         {"radial",vec(frame.surface_direction(local,source.radial))},{"radius_mm",source.radius},
         {"semi_angle_radians",source.semi_angle},{"axial_min_mm",source.axial_min},
         {"axial_max_mm",source.axial_max},{"reversed",source.reversed}};
+    if(source.kind==Kind::Torus) {
+        result["minor_radius_mm"]=source.minor_radius;result["u_min_radians"]=source.u_min;result["u_max_radians"]=source.u_max;
+        result["v_min_radians"]=source.v_min;result["v_max_radians"]=source.v_max;result["complete_profile"]=source.complete_profile;
+    }
+    return result;
 }
 Json details(const Geometry& geometry,const Frame& frame,const Key& wanted,std::size_t limit) {
     const auto& kind=std::get<0>(wanted);Json result=identity(wanted);std::size_t count=0;bool found=false;
@@ -48,7 +53,7 @@ Json details(const Geometry& geometry,const Frame& frame,const Key& wanted,std::
         Json triangles=Json::array();
         for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
             const auto& ref=geometry.triangle_references[i];if(key("face",ref,frame)!=wanted)continue;
-            if(!found) {result["surface"]=ref.surface?surface(*ref.surface,frame,ref.instance_path):Json(nullptr);result["area_mm2"]=ref.measured_area?Json(*ref.measured_area):Json(nullptr);found=true;}
+            if(!found) {result["surface"]=ref.surface?surface(*ref.surface,frame,ref.instance_path):Json(nullptr);if(ref.contour_surface)result["contour_surface"]=surface(*ref.contour_surface,frame,ref.instance_path);result["area_mm2"]=ref.measured_area?Json(*ref.measured_area):Json(nullptr);found=true;}
             ++count;if(count>limit)continue;
             if(i*3+2>=geometry.triangles.size())throw workspace::ReferenceQueryError("invalid_reference_geometry","The persisted reference geometry is incomplete.");
             Json triangle=Json::array();for(std::size_t j=0;j<3;++j) {

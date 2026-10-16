@@ -932,3 +932,38 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
   image files before removing redundant import assets. Keep every Family and
   language variant's embedded image intact.
 - This requirement was reaffirmed by the user on 2026-10-12.
+
+## Fastener library filenames (mandatory)
+
+- Name authored native fastener library files in English using
+  `<type>-ISO<number>-<size>.prtz`, for example
+  `HHB-ISO4014-M12x45.prtz`.
+- Use `HHB` for Hexagon Head Bolt and `HHS` for Hexagon Head Screw.
+  In the discussed ISO families, these identify the partial-thread and
+  full-thread variants respectively; do not infer a universal bolt/screw
+  distinction from thread length alone.
+- For these metric bolts and screws, write the nominal thread designation
+  followed by the nominal length in millimetres, using a lowercase ASCII `x`:
+  `M12x45`. Preserve the native `.prtz` extension. The agreed counterpart
+  example is `HHS-ISO4017-M12x45.prtz`.
+- Keep the standard number in the filename. Product grades A/B/C and property
+  classes such as 8.8 are separate attributes; do not conflate them.
+- This convention was agreed with the user on 2026-10-16. It applies to new
+  authored library files; it does not authorize renaming existing user files.
+
+## Unique engineering library model filenames (mandatory)
+
+- Every authored native model in the engineering tables library must have a
+  unique filename across the entire engineering tables library, not merely
+  inside its immediate directory. Check uniqueness case-insensitively so that
+  directory placement or letter case cannot hide a collision on Windows.
+- Include the identifying type, standard and default size where applicable,
+  following the fastener convention above. The filename records the library
+  model's initial dimensions, including its default length.
+- The user copies library models into an Assembly, adjusts them and renames
+  them through their established workflow. Do not introduce automatic filename
+  changes or a replacement naming workflow. Derived descriptive parameters,
+  such as `stock`, must follow the actual model dimensions through Relations.
+- This rule concerns model filenames; directory infrastructure retains its
+  established `metadata.ini` and localized HTML index filenames.
+- This requirement was explicitly agreed with the user on 2026-10-16.

@@ -65,6 +65,15 @@ class Fasteners(unittest.TestCase):
             # count remain stable; repeated hierarchical headings are collapsed.
             body = original[len(original) - len(table['rows']):]
             before = Counter(numeric_cell(c) for row in body for c in row if numeric_cell(c) is not None)
+            for correction in self.data.get('reviewed_numeric_corrections', []):
+                if correction['source_table'] != name:
+                    continue
+                row,column=correction['row'],correction['column']
+                self.assertEqual(numeric_cell(body[row][column]),numeric_cell(correction['before']))
+                self.assertEqual(table['rows'][row][column],correction['after'])
+                self.assertTrue(correction['source'].startswith('https://www.fabory.com/'))
+                before[numeric_cell(correction['before'])]-=1
+                before[numeric_cell(correction['after'])]+=1
             after = Counter(numeric_cell(c) for row in table['rows'] for c in row if numeric_cell(c) is not None)
             self.assertEqual(before, after, name)
             checked += sum(before.values())
@@ -158,6 +167,88 @@ class Fasteners(unittest.TestCase):
         for topic, source in self.original.items():
             path = (topic + '/' if topic != '.' else '') + '0000-index/' + source['file']
             self.assertEqual(source['sha256'], self.data['original_source_sha256'][path])
+
+
+class MergedFastenerReferences(unittest.TestCase):
+    def test_shared_branding_can_be_linked_unlinked_or_omitted(self):
+        from lxml import html
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        page=next(p for p in data['pages'] if p['path']=='01-CAPACITY')
+        for language in data['languages']:
+            document=html.fromstring(generator.render(data,page,language))
+            self.assertEqual(document.xpath('//header/a[@class="reference-brand"]/@href'),['https://zima-engineering.cz/'])
+            self.assertEqual(document.xpath('//header/nav/a/@lang'),data['languages'])
+        unlinked={**data,'branding':{**data['branding'],'url':''}}
+        self.assertEqual(len(html.fromstring(generator.render(unlinked,page,'en')).xpath('//header/span[@class="reference-brand"]/img')),1)
+        omitted={**data,'branding':None}
+        self.assertFalse(html.fromstring(generator.render(omitted,page,'en')).xpath('//header//img'))
+
+    def test_thread_rows_preserve_every_dimension_and_length_table(self):
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        pages=[page for page in data['pages'] if page.get('thread_dimension_rows')]
+        self.assertEqual(len(pages),6)
+        for page in pages:
+            blocks=generator.screen_table_blocks(page)
+            combined=blocks[1]
+            self.assertEqual(combined['headers'][0],'symbol_d')
+            self.assertEqual(sum(len(block['rows']) for block in blocks),page['display_row_count'])
+            for source in page['sections']:
+                if source['headers'][0]!='parameter':
+                    self.assertIn(source,blocks)
+                    continue
+                positions=[];occurrences={}
+                for row in source['rows']:
+                    name=row[0] if isinstance(row[0],dict) else {'literal':row[0]}
+                    candidates=[i for i,header in enumerate(combined['headers']) if header==name]
+                    token=json.dumps(name,sort_keys=True)
+                    occurrence=occurrences.get(token,0);occurrences[token]=occurrence+1
+                    positions.append(candidates[occurrence])
+                for column,thread in enumerate(source['headers'][1:],1):
+                    expected=[row[column] for row in source['rows']]
+                    self.assertTrue(any(row[0]=={'key':thread} and [row[i] for i in positions]==expected for row in combined['rows']), (page['path'],thread))
+
+    def test_original_cells_survive_join_and_transpose(self):
+        from lxml import html
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        for path in ['01-CAPACITY','02-HOLES']:
+            page=next(p for p in data['pages'] if p['path']==path)
+            for language in data['languages']:
+                index=data['languages'].index(language)
+                doc=html.fromstring(generator.render(data,page,language))
+                tables=doc.xpath('//div[contains(@class,"table-scroll--frozen")]/table')
+                self.assertEqual(len(tables),1)
+                rows=[[c.text_content() for c in row] for row in tables[0].xpath('./tbody/tr')]
+                headers=[c.text_content() for c in tables[0].xpath('./thead/tr/th')]
+                self.assertEqual(len(rows),page['display_row_count'])
+                def text(value):
+                    if isinstance(value,dict):return data['labels'][value['key']][index]
+                    return html.fromstring('<span>'+generator.mathematical(value,language)+'</span>').text_content()
+                def equal(a,b):
+                    if a==b:return True
+                    if numeric_cell(a) is None or numeric_cell(b) is None:return False
+                    try:return Decimal(numeric_cell(a))==Decimal(numeric_cell(b))
+                    except ArithmeticError:return numeric_cell(a)==numeric_cell(b)
+                for block in generator.table_blocks(page):
+                    if path=='02-HOLES':
+                        for column,key in enumerate(block['headers'][1:],1):
+                            actual=next(r for r in rows if r[0]==data['labels'][key][index])
+                            for source in block['rows']:
+                                self.assertTrue(equal(actual[headers.index(text(source[0]))],text(source[column])))
+                    else:
+                        columns=[headers.index(data['labels'][key][index]) for key in block['headers']]
+                        for source in block['rows']:
+                            self.assertTrue(any(all(equal(row[col],text(value)) for col,value in zip(columns,source)) for row in rows),(language,source))
+    def test_original_counterbore_drawing_is_embedded_locally(self):
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        page=next(p for p in data['pages'] if p['path']=='02-HOLES')
+        self.assertEqual(page['figures'][0]['path'],'01.png')
+        self.assertTrue((ROOT/data['root']/page['path']/'0000-index/01.png').is_file())
+        import base64
+        import xml.etree.ElementTree as ET
+        figures=ROOT/'config/lib/03-ENGINEERING-TABLES/0000-index/diagrams'
+        image=ET.parse(figures/'hex-screw-reference.svg').getroot().find('.//{http://www.w3.org/2000/svg}image')
+        self.assertTrue(image.attrib['href'].startswith('data:image/png;base64,'))
+        self.assertEqual(base64.b64decode(image.attrib['href'].split(',',1)[1]),(figures/'hex-screw-native.png').read_bytes())
 
 
 if __name__ == '__main__':

@@ -326,6 +326,88 @@ std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(Measuremen
     return value;
 }
 
+kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const ProjectionCamera& camera) {
+    auto result=mesh;
+    std::set<std::tuple<std::string,std::string,std::string>> seen;
+    using FaceKey=std::tuple<std::string,std::string,std::string>;
+    std::map<FaceKey,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces;
+    std::map<FaceKey,std::vector<const kernel::ViewerEdge*>> boundaries;
+    const auto face_key=[](const auto& face){return FaceKey{face.owner_id,face.semantic_key,face.instance_path};};
+    for(const auto& face:mesh.original_references.triangle_references)if(face.surface)surfaces.try_emplace(face_key(face),face.surface);
+    for(const auto& face:mesh.triangle_references)if(face.surface)surfaces[face_key(face)]=face.surface;
+    for(const auto& face:mesh.original_references.triangle_references)if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
+    for(const auto& face:mesh.triangle_references)if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
+    for(const auto& edge:mesh.edges)if(!edge.parameter_seam)
+        for(const auto& face:edge.edge_treatment_side_references)boundaries[face_key(face)].push_back(&edge);
+    for(const auto& face:mesh.triangle_references) {
+        const kernel::EdgeReference reference{face.owner_id,face.semantic_key,face.instance_path};
+        if(!reference.valid()||!seen.insert(key(reference)).second)continue;
+        const auto analytic=surfaces.find(face_key(face));
+        if(analytic==surfaces.end())continue;
+        const auto& surface=*analytic->second;
+        const bool torus=surface.kind==kernel::SurfaceGeometry::Kind::Torus;
+        if(!torus&&surface.kind!=kernel::SurfaceGeometry::Kind::Cone)continue;
+        // Meridian contours are circular only when the rotational axis lies
+        // in the drawing plane. Oblique silhouettes need a different conic.
+        if(std::abs(kernel::dimension_dot(surface.axis,camera.depth))>1e-9)continue;
+        if(torus&&(!surface.complete_profile||surface.radius<=surface.minor_radius||
+            std::floor((surface.v_min+pi/2+1e-9)/pi)!=std::floor((surface.v_max+pi/2-1e-9)/pi)))continue;
+        if(!torus) {
+            // Only a complete cone band bounded by its two exact circular
+            // rims is rectangular in parameter space. Reject cut/holed bands.
+            std::set<decltype(key(reference))> seen_edges;unsigned rings=0;bool complete=true;
+            for(const auto* pointer:boundaries[face_key(face)]) {
+                const auto& edge=*pointer;
+                if(!edge.reference.valid()){complete=false;continue;}
+                if(!seen_edges.insert(key(edge.reference)).second)continue;
+                const auto circle=circle_geometry(edge.points);
+                if(!circle||kernel::dimension_dot(kernel::dimension_sub(edge.points.front(),edge.points.back()),kernel::dimension_sub(edge.points.front(),edge.points.back()))>1e-14||
+                    std::abs(kernel::dimension_dot(circle->normal,surface.axis))<1-1e-9)complete=false;
+                if(circle) {
+                    const auto delta=kernel::dimension_sub(circle->center,surface.origin);
+                    const double axial=kernel::dimension_dot(delta,surface.axis);
+                    const auto off=kernel::dimension_sub(delta,kernel::dimension_scale(surface.axis,axial));
+                    if(kernel::dimension_dot(off,off)>1e-14||std::abs(circle->radius-surface.radius-axial*std::tan(surface.semi_angle))>1e-7||
+                        std::min(std::abs(axial-surface.axial_min),std::abs(axial-surface.axial_max))>1e-7)complete=false;
+                }
+                ++rings;
+            }
+            if(!complete||rings!=2)continue;
+        }
+        const auto transverse=kernel::dimension_unit(kernel::dimension_cross(surface.axis,camera.depth));
+        for(const int side:{1,-1}) {
+            const auto radial=kernel::dimension_scale(transverse,side);
+            kernel::ViewerEdge edge;
+            edge.reference={face.owner_id,"drawing-contour:"+std::to_string(face.semantic_key.size())+":"+face.semantic_key+":side:"+std::to_string(side),face.instance_path};
+            edge.edge_treatment_side_references={face};
+            if(torus) {
+                const auto center=kernel::dimension_add(surface.origin,kernel::dimension_scale(radial,surface.radius));
+                const auto at=[&](double t,double weight=1.) {
+                    return kernel::dimension_add(center,kernel::dimension_scale(kernel::dimension_add(
+                        kernel::dimension_scale(radial,std::cos(t)),kernel::dimension_scale(surface.axis,std::sin(t))),surface.minor_radius/weight));
+                };
+                const auto span=surface.v_max-surface.v_min;
+                const int pieces=std::max(1,static_cast<int>(std::ceil(span/(pi/2))));
+                kernel::BSplineGeometry spline;spline.degree=2;spline.knots={0,0,0};
+                spline.poles.push_back(at(surface.v_min));spline.weights.push_back(1);
+                for(int i=0;i<pieces;++i) {
+                    const double start=surface.v_min+span*i/pieces,end=surface.v_min+span*(i+1)/pieces,weight=std::cos((end-start)/2);
+                    spline.poles.push_back(at((start+end)/2,weight));spline.weights.push_back(weight);
+                    spline.poles.push_back(at(end));spline.weights.push_back(1);
+                    if(i+1<pieces){spline.knots.push_back(i+1);spline.knots.push_back(i+1);}
+                }
+                spline.knots.insert(spline.knots.end(),3,pieces);spline.validate();edge.exact_spline=spline;
+                const int samples=std::max(8,static_cast<int>(std::ceil(span*64/pi)));
+                for(int i=0;i<=samples;++i)edge.points.push_back(at(surface.v_min+span*i/samples));
+            }else for(const auto station:{surface.axial_min,surface.axial_max})
+                edge.points.push_back(kernel::dimension_add(kernel::dimension_add(surface.origin,kernel::dimension_scale(surface.axis,station)),
+                    kernel::dimension_scale(radial,surface.radius+station*std::tan(surface.semi_angle))));
+            result.edges.push_back(std::move(edge));
+        }
+    }
+    return result;
+}
+
 void capture_measurement_geometry(DrawingView &view, const kernel::ViewerMesh &mesh) {
     MeasurementGeometry data;
     std::set<std::tuple<std::string, std::string, std::string>> seen;
@@ -1019,6 +1101,25 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
             kernel::dimension_add(value.witness_first, {direction.x * (radius + 8 / view.scale),
                                                         direction.y * (radius + 8 / view.scale), 0});
         value = kernel::layout_dimension(value, {}, d.segments[0].layout);
+        if(d.kind==DrawingDimensionKind::Radius&& !on_arc(*curve,{value.witness_second.x,value.witness_second.y})) {
+            // A radial leader may pass through the centre to reach an arc on
+            // the opposite side. Never attach it to the untrimmed circle.
+            const Point2 center=*curve->center;
+            const Point2 wanted{value.witness_second.x,value.witness_second.y};
+            auto rim=sub(mul(center,2),wanted);
+            if(!on_arc(*curve,rim)) {
+                const auto first=point_at(*curve,0),last=point_at(*curve,1);
+                rim=length(sub(first,wanted))<=length(sub(last,wanted))?first:last;
+            }
+            value.witness_second={rim.x,rim.y,0};value.line_second=value.witness_second;
+            const auto before=unit(sub(wanted,center)),after=unit(sub(rim,center));
+            const double distance=dot(sub({value.label_position->x,value.label_position->y},center),after);
+            auto layout=d.segments[0].layout;
+            layout.radius_rotation_degrees+=std::atan2(cross(before,after),dot(before,after))*180/pi;
+            layout.text_along=distance-radius-8/view.scale;layout.text_outward=0;
+            result.normalized_radius_layout=layout;
+            value.label_position=kernel::Vec3{center.x+after.x*distance,center.y+after.y*distance,0};
+        }
         if(thread&&original!=view.measurement_geometry->curves.end()&&original->thread) {
             value.display_text_override=original->thread->text;value.value=original->thread->nominal_diameter;
         }
@@ -1154,6 +1255,7 @@ void refresh_drawing_dimension(const DrawingView &view, DrawingDimension &d) {
     const auto result = evaluate_drawing_dimension(view, d);
     if (result.state != MeasurementState::Resolved)
         return;
+    if(result.normalized_radius_layout)d.segments.front().layout=*result.normalized_radius_layout;
     for (std::size_t i = 0; i < d.segments.size(); ++i) {
         d.segments[i].last_presentation = result.presentations[i];
         d.segments[i].last_angular_leaders=i<result.angular_leaders.size()&&result.angular_leaders[i];

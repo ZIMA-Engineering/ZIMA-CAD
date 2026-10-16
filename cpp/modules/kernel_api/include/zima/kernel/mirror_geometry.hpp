@@ -46,9 +46,13 @@ inline ViewerMesh mirrored_viewer_mesh(ViewerMesh mesh,MirrorPlane plane,const s
     const auto vector=[&](Vec3& p){p=mirrored_vector(p,plane);};
     const auto reference=[&](auto& ref){if(owner.empty()||!ref.valid())return;
         if(ref.semantic_key!="container:display")ref.semantic_key=mirror_source_key(ref.owner_id,ref.semantic_key);ref.owner_id=owner;ref.instance_path.clear();};
-    const auto face=[&](FaceReference& ref){reference(ref);if(!ref.surface)return;
-        auto surface=std::make_shared<SurfaceGeometry>(*ref.surface);point(surface->origin);vector(surface->axis);vector(surface->radial);
-        ref.surface=std::move(surface);};
+    const auto face=[&](FaceReference& ref){reference(ref);
+        for(auto* target:{&ref.surface,&ref.contour_surface})if(*target) {
+            auto surface=std::make_shared<SurfaceGeometry>(**target);point(surface->origin);vector(surface->axis);vector(surface->radial);
+            // Reflection reverses the surface frame's angular handedness.
+            if(surface->kind==SurfaceGeometry::Kind::Torus){const auto start=surface->u_min;surface->u_min=-surface->u_max;surface->u_max=-start;}
+            *target=std::move(surface);
+        }};
     const auto geometry=[&](auto& value){
         for(auto& p:value.vertices)point(p);
         for(std::size_t i=0;i+2<value.triangles.size();i+=3)std::swap(value.triangles[i+1],value.triangles[i+2]);

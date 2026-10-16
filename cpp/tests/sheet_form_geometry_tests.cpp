@@ -1,5 +1,6 @@
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/sheet_form_dimensions.hpp>
+#include <zima/document/feature_sketches.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/placement_orientation.hpp>
@@ -211,6 +212,41 @@ void verify_corner_axis(const document::PartDocument& part,const document::Histo
 #include "corner_outward_form_experiment.inc"
 #include "dimpled_hole_form_verification.inc"
 int main(int argc,char** argv){try {
+    if(argc==5&&std::string_view(argv[1])=="--replace-form-definition") {
+        std::vector<kernel::BodyResult> cache;auto part=document::PartDocument::load(argv[2],&cache);
+        const auto found=std::ranges::find(part.history,document::FeatureKind::SheetForm,&document::HistoryContainer::feature_kind);
+        check(found!=part.history.end(),"No FORM in replacement fixture");auto feature=*found;
+        const auto source=document::copy_sheet_form_definition(document::read_sheet_form_definition(argv[3]));
+        feature.sheet_form.definition=source.definition;feature.sheet_form.surface=source.surface;
+        feature.sheet_form.bodies=source.bodies;feature.sheet_form.cut_sketch=source.cut_sketch;
+        feature.sheet_form.flat_sketch=source.flat_sketch;feature.sheet_form.symbol_sketch=source.symbol_sketch;
+        workspace::Workspace live;live.add_part(part,cache);live.activate(part.document_id);kernel::OcctKernel kernel;
+        check(workspace::commit_sheet_form(live,kernel,part.document_id,std::move(feature)),"Replacement did not commit");
+        const auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
+        state->session.document().save(argv[4],state->session.calculated_boundaries());return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])=="--rebuild-factory-ventilation-links") {
+        auto source=document::read_sheet_form_definition(argv[2]);auto part=source.part;unsigned repaired=0;
+        const auto repair=[&](sketcher::Sketch& sketch) {
+            for(auto& block:sketch.import_blocks) {
+                const auto marker=block.source_path.rfind("/external-reference:");
+                if(marker==std::string::npos)continue;
+                const auto link=block.source_path.substr(marker+1),id=link.substr(19);
+                check(std::ranges::any_of(sketch.external_references,[&](const auto& ref){return ref.id==id&&!ref.broken;}),"Factory link has no authored reference");
+                block.source_path=link;++repaired;
+            }
+        };
+        for(auto& sketch:part.sketches)repair(sketch);
+        for(auto& feature:part.history)document::visit_feature_sketches(feature,[&](auto& bytes,std::size_t){auto sketch=sketcher::Sketch::from_serialized(bytes);repair(sketch);bytes=sketch.serialized();});
+        check(repaired==2,"Expected exactly two damaged factory curve links");
+        kernel::OcctKernel kernel;workspace::PartCalculationPolicy policy;policy.reject_errors=true;policy.refresh_physical_properties=true;
+        const auto result=workspace::calculate_part_with_resolved_references(kernel,part,nullptr,policy);
+        check(result.back().calculation_errors.empty(),"Factory recalculation failed");near(result.back().surface_area,source.calculated->back().surface_area,1e-5);
+        check(document::sheet_form_definition(part,result).bodies==source.bodies,"Factory role identities changed");
+        part.save(argv[3],result);const auto reopened=document::read_sheet_form_definition(argv[3]);
+        check(reopened.bodies==source.bodies,"Rebuilt factory role identity changed on reopen");
+        std::cout<<"Rebuilt and reopened factory curve links: "<<repaired<<std::endl;return 0;
+    }
     if(argc==3&&std::string_view(argv[1])=="--verify-form-dimensions")return verify_form_dimension_edits(argv[2]);
     if(argc==4&&std::string_view(argv[1])=="--prepare-outward-planar")return prepare_outward_planar(argv[2],argv[3]);
     if(argc==4&&std::string_view(argv[1])=="--prepare-dimpled-hole")return prepare_dimpled_hole(argv[2],argv[3]);
@@ -1154,7 +1190,7 @@ int main(int argc,char** argv){try {
         const auto roundtrip=document::PartDocument::from_serialized(actual.serialized(calculated),&reopened);
         check(roundtrip.history==actual.history&&roundtrip.sketches.size()==actual.sketches.size(),"Actual Part roundtrip changed authored feature definitions");
         valid(reopened.back());near(reopened.back().volume,calculated.back().volume);
-        check(document::serialize_body_result(reopened.back()).at("sheet_cuts")==document::serialize_body_result(calculated.back()).at("sheet_cuts"),
+        check(document::serialize_body_result(reopened.back()).value("sheet_cuts",nlohmann::json::array())==document::serialize_body_result(calculated.back()).value("sheet_cuts",nlohmann::json::array()),
             "Actual Part roundtrip changed native cut region identities");
         std::cout<<"Actual Part calculated without errors and passed native roundtrip, volume="<<calculated.back().volume<<'\n';return 0;
     }

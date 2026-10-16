@@ -1,0 +1,37 @@
+# Drawing contour dimension investigation — 2026-10-16
+
+## Reproduction and scope
+
+The edited `Projects/HHS-ISO4017-M3X20.drwz` and its Part were snapshotted before investigation. The Drawing contains two views and eight measured dimensions. The existing R0.1 dimension points to one original Fillet meridian. Only that circular edge exists in the saved measurement geometry; the opposite visible surface contour has no selectable source curve. Drawing triangle silhouettes have no persistent curve identity and are intentionally excluded by the measurement picker.
+
+This is a drawing contour/reference issue, not evidence of a Sketch solver failure. A projected boundary of a surface is not necessarily a topological edge or a circular arc.
+
+## Implemented behavior
+
+- Capture exact toroidal surface support and trimmed parameter bounds during ordinary explicit native calculation. Store this as `FaceReference::contour_surface`, separate from the analytic supports accepted by placement and symbols.
+- Derive two view-local meridian curves for complete, rectangular, monotone torus bands viewed perpendicular to their axis. Derive straight generators of complete conical bands bounded by two closed circular rims. Keep the original face owner and occurrence and an explicit contour side in each drawing curve reference.
+- Retain real mesh visibility against other faces, and replace the same surface's approximate triangle silhouette with its exact supported profile. No OCCT calculation is added to picking or dragging.
+- Clamp radial arrow contacts to the actual trimmed arc. An opposite leader direction can cross the centre without moving its arrow onto the missing part of the full circle. Normalize only the changed presentation so subsequent drags use its real bearing.
+- Persist and transform contour support with native geometry, Drawing snapshots, Body transformations and Assembly occurrences. This metadata does not enable torus placement or change placement solving.
+
+## Verification results
+
+The native contour matrix passes all 128 cases. The source-reference transformation regression passes, including separate contour data under Body placement, source-frame transformation, Mirror, Scale and Pattern. Exact contour packets roundtrip without enabling an unsupported modeling placement surface.
+
+The synthetic matrix exercises two camera orientations, two contour sides, both arrow states, both centre-line states, eight bearings, three successive text drags and dimension serialization. On an independent copy of the edited bolt, two exact R0.1 contours and two straight Chamfer contours are present. Twenty native creation/edit cases pass, including successive radial bearings, stable attachment identities and Undo/Redo. Original user file SHA-256 values remain unchanged during testing.
+
+Actual GUI mouse tests pass on the edited user Drawing and the factory Drawing for both radius contours, both Chamfer half-span dimensions and both Chamfer/axis angles. The user example has R0.1, a 0.25 mm half-span and 45-degree Chamfers. Radius text grips undergo three successive drags. Creation and every drag pass atomic GUI Undo/Redo checks, followed by native save/reopen. Screenshots were inspected for actual arc contact and repaired axis display.
+
+The existing radius annotation in each supplied Drawing was explicitly rebound from its unstable original meridian edge to the geometrically identical visible contour. This artifact repair preserves its ID, style and authored layout; it is not a runtime topology fallback. The user Drawing retains two views/eight dimensions; the factory reference retains four views/six dimensions. Independent copies of both now pass twelve source-change states: three radius changes with Undo/Redo at each step, followed by three shaft-length changes. All original and newly created dimensions resolve, their attachments remain stable, and radial contacts satisfy the actual trimmed-circle equations. Both files save/reopen successfully and source-file SHA-256 values remain unchanged by the verifier. Run `tools/verify-drawing-contours.py --cli <native-cli>` to reproduce the factory test; `--drawing` selects another supplied Drawing.
+
+The initial GUI test exposed a second projection path that did not prepare profiles. The source-loaded/output path now consumes the same exact profile construction as interactive display. The angular GUI test then exposed stale model-annotation ownership in the previously copied bolt Drawing. Its visible axes referred to the original primary document, while newly refreshed valid axes were hidden. Save Copy now rebinds primary model annotations, and an explicit test utility repairs only the specified old namespace in existing Drawing assets, retaining authored visibility/layout. This is not an opening-time topology fallback.
+
+The broader command-host test had a pre-existing obsolete command-count expectation (320 versus the registered 330); its fixture expectation was updated so the new independent-copy assertions can run. Its Save As fixture now snapshots the source immediately before copying and tests pending edits explicitly, respecting the ordinary Assembly-save dependency behavior. This change adds no product command. All eleven related drawing/copy/reference suites pass, as do fourteen broader native suites. The rebuilt ordinary Windows executable passes six template, point-limit and FORM GUI scenarios.
+
+Oblique torus silhouettes, nonrectangular/holed trimmed torus patches and torus bands crossing a meridian height extremum are not represented as circles by this implementation. They retain the ordinary display geometry; they must not acquire a false circular radius reference. These are explicit remaining scope limits, not verified dimensioning capabilities.
+
+There are no new UI labels or commands. Existing controls and translated dimension/property text are reused. Native serialization diagnostic wording is reused. All five localization catalog contracts pass. The engineering references pass 35 independent data/layout tests; all 1,405 localized pages passed browser checks at 1,100 and 1,920 pixels, and the changed 365 fastener pages were rendered again after the corrected radius illustration.
+
+All fifteen affected native factory inputs (four FORM definitions, four library bolts, the reference Part and six start templates) were calculated, saved and reopened with the changed implementation. Authored comparisons preserve geometry, original face/edge identities and volume/area; only calculated Relations outputs and derived Thread support bounds may refresh. The reference Drawing was repaired separately and cold-loaded after relocating its two native files; its model dependency is relative. The ordinary single-solid verifier is inapplicable to the four multi-role FORM definitions; their dedicated insertion/thickness/side/point-limit and dependent-operation tests pass instead. All five bolt/reference Parts pass independent OCCT single-solid checks. Factory assets were promoted only after these checks. Independently stored user FORM definitions remain untouched.
+
+Body/source-frame/Mirror/Scale/Pattern contour transformations are covered natively; an actual nested-Assembly GUI contour-selection scenario is not covered. Linux execution and release packaging remain unavailable on this Windows host. Signed Windows package acceptance is recorded separately in the release note after immutable-source packaging.

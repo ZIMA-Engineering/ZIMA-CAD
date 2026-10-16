@@ -35,10 +35,11 @@ inline ViewerMesh scaled_body_mesh(ViewerMesh mesh,double factor,Vec3 center,con
         if(ref.measured_area)*ref.measured_area*=factor*factor;
         ref.sheet_thickness*=factor;
         if(!ref.sheet_owner.empty())ref.sheet_owner=std::string(derivation)+":from:"+std::to_string(ref.sheet_owner.size())+":"+ref.sheet_owner+"sheet";
-        if(!ref.surface)return;
-        auto surface=std::make_shared<SurfaceGeometry>(*ref.surface);
-        point(surface->origin);surface->radius*=factor;
-        surface->axial_min*=factor;surface->axial_max*=factor;ref.surface=std::move(surface);
+        for(auto* target:{&ref.surface,&ref.contour_surface})if(*target) {
+            auto surface=std::make_shared<SurfaceGeometry>(**target);
+            point(surface->origin);surface->radius*=factor;surface->minor_radius*=factor;
+            surface->axial_min*=factor;surface->axial_max*=factor;*target=std::move(surface);
+        }
     };
     const auto geometry=[&](auto& value){
         for(auto& p:value.vertices)point(p);

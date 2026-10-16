@@ -184,6 +184,7 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
     const QString root=QDir(repository).filePath(relative_root);
     const auto original=zima::app::ApplicationSettings::load();
     zima::app::ApplicationSettings settings;settings.language="cs";settings.theme="light";settings.file_manager.default_view="overview";
+    settings.file_manager.company_website="https://example.com/company?name=O%27Reilly&source=tables";
     zima::app::apply_application_appearance(application,settings);
     zima::app::FileManagerTab tab(settings,root,root);tab.resize(1300,850);tab.show();application.processEvents();
     auto* overview=tab.findChild<QListWidget*>("fileManagerOverview");
@@ -203,6 +204,7 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
     for(const auto* language:{"cs","en","de","fr","ru"}){
         if(settings.language!=language){loaded=false;settings.language=language;tab.reload_settings(settings);wait([&]{return loaded;},"Localized native unit table did not load");}
         check(read("document.documentElement.lang").toString()==language,"Native unit table language differs from settings");
+        check(read("document.querySelector('a.reference-brand')?.getAttribute('href')").toString()==settings.file_manager.company_website,"Reference logo ignored the configured company website");
         const int before=reloads;
         for(const auto* theme:{"light","dark","light"}){
             settings.theme=theme;zima::app::apply_application_appearance(application,settings);
@@ -221,6 +223,8 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
         }
         check(reloads==before,"Changing unit table theme reloaded its page");
     }
+    loaded=false;settings.file_manager.company_website.clear();tab.reload_settings(settings);wait([&]{return loaded;},"Unlinked company logo page did not load");
+    check(read("!!document.querySelector('.reference-brand img')&&!document.querySelector('a.reference-brand').hasAttribute('href')").toBool(),"Clearing the company website did not retain an unlinked logo");
     zima::app::apply_application_appearance(application,original);
     std::cout<<relative_root.toStdString()<<": automatic overview, native HTML and five-language Light/Dark/Light without reload passed\n";
 }
@@ -236,6 +240,9 @@ int main(int argc,char** argv){
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/01-GENERAL-STANDARDS/01-UNITS","01-BASE-UNITS",7);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","06-GEARS/09-SPAN",6);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/01-GRADE-AB",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","01-CAPACITY",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","02-HOLES",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/03-FULL-AB",6);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS/02-METRIC","01-GENERAL",3);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS/02-METRIC","02-PRECISION",3);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS","04-WHITWORTH",9);

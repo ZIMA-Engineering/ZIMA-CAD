@@ -42,10 +42,13 @@ void pick(QWidget *w, QPointF p) {
     mouse(w, QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
 }
 } // namespace
+#include "drawing_surface_contour_ui.inc"
 int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING"))
+            return verify_surface_contour_ui(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING").toStdString()));
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FILLET_DRAWING")) {
             const auto path=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_FILLET_DRAWING").toStdString());
             auto document=DrawingDocument::load(path);workspace::DrawingProjection projection(nullptr,path);

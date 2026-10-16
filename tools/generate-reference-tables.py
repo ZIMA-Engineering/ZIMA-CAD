@@ -1,5 +1,6 @@
 """Generate localized factory engineering reference pages (no CAD runtime dependency)."""
 import argparse
+from decimal import Decimal, InvalidOperation
 import html
 import hashlib
 import json
@@ -20,6 +21,46 @@ def table_blocks(page):
     yield from page.get('sections', [])
 
 
+def screen_table_blocks(page):
+    blocks = list(table_blocks(page))
+    if not page.get('thread_dimension_rows'):
+        return blocks
+    dimensions = [block for block in blocks if block['headers'][0] == 'parameter']
+    assert dimensions
+    parameters = []
+    def parameter_names(block):
+        occurrences = {}
+        for row in block['rows']:
+            token = json.dumps(row[0], sort_keys=True)
+            occurrence = occurrences.get(token, 0)
+            occurrences[token] = occurrence + 1
+            yield (row[0], occurrence)
+    for block in dimensions:
+        for name in parameter_names(block):
+            if name not in parameters:
+                parameters.append(name)
+    rows = []
+    for block in dimensions:
+        for column, thread in enumerate(block['headers'][1:], 1):
+            row = [{'key': thread}, *['—'] * len(parameters)]
+            for name, source in zip(parameter_names(block), block['rows']):
+                row[1 + parameters.index(name)] = source[column]
+            # Retain differing historical variants, even for the same thread.
+            if row not in rows:
+                rows.append(row)
+    combined = {**dimensions[0], 'heading': page['title'],
+                'headers': ['symbol_d', *[
+                    name if isinstance(name, dict) else {'literal': name}
+                    for name, occurrence in parameters]], 'rows': rows, 'preferred_rows': []}
+    result = []
+    for block in blocks:
+        if block is dimensions[0]:
+            result.append(combined)
+        elif block not in dimensions:
+            result.append(block)
+    return result
+
+
 def diagram(kind):
     # Inline vector geometry inherits the reference page's actual text color.
     if kind == 'taper':
@@ -36,6 +77,7 @@ def load_data(source=DATA):
     common = json.loads((DATA.parent / 'reference-ui.json').read_text(encoding='utf-8'))
     assert common['languages'] == list(LANGUAGES)
     data['labels'] = {**common['labels'], **data['labels']}
+    data.setdefault('branding', common.get('branding'))
     assert data["languages"] == list(LANGUAGES)
     paths = {page["path"] for page in data["pages"]}
     assert len(paths) == len(data["pages"]) and "" in paths
@@ -124,12 +166,24 @@ def render(data, page, language):
     navigation.extend(f'<a lang="{lang}" hreflang="{lang}" href="index_{lang}.html"'
                       + (' aria-current="page"' if lang == language else '') + f'>{lang.upper()}</a>'
                       for lang in LANGUAGES)
+    brand = ''
+    if data.get('branding'):
+        branding = data['branding']
+        logo = (REPOSITORY / branding['logo']).resolve()
+        assert logo.is_relative_to(REPOSITORY) and logo.is_file()
+        logo_path = os.path.relpath(logo, root / page['path'] / '0000-index').replace('\\', '/')
+        brand = '<img src="' + html.escape(logo_path, quote=True) + '" alt="ZIMA-Engineering">'
+        if branding.get('url'):
+            assert re.match(r'^https?://', branding['url'])
+            brand = '<a class="reference-brand" href="' + html.escape(branding['url'], quote=True) + '">' + brand + '</a>'
+        else:
+            brand = '<span class="reference-brand">' + brand + '</span>'
     parts = ["<!doctype html>", f'<html lang="{language}">', '<head><meta charset="utf-8">',
              '<meta name="viewport" content="width=device-width, initial-scale=1">',
              '<meta name="color-scheme" content="light dark">',
              f'<title>{tr(page["title"])} · ZIMA-CAD</title>',
              f'<link rel="stylesheet" href="{css}"></head><body>', '<main>',
-             '<nav aria-label="' + tr("section") + '">' + ' '.join(navigation) + '</nav>',
+             '<header class="reference-header"><nav aria-label="' + tr("section") + '">' + ' '.join(navigation) + '</nav>' + brand + '</header>',
              f'<h1>{tr(page["title"])}</h1>']
     if page.get('review'):
         parts.append('<p class="review-status">' + tr(page['review']) + '</p>')
@@ -141,7 +195,7 @@ def render(data, page, language):
                          + '" alt="' + tr(figure['caption']) + '"><figcaption>' + tr(figure['caption']) + '</figcaption></figure>')
         if page.get('diagram'):
             parts.append(diagram(page['diagram']))
-        screen_blocks = list(table_blocks(page))
+        screen_blocks = screen_table_blocks(page)
         if page.get('continuous_table'):
             headers=page.get('continuous_headers') or list(dict.fromkeys(key for block in screen_blocks for key in block['headers']))
             assert all(block['headers'][0]==headers[0] and set(block['headers'])<=set(headers) for block in screen_blocks)
@@ -149,6 +203,30 @@ def render(data, page, language):
             for block in screen_blocks:
                 preferred.extend(len(rows)+i for i in block.get('preferred_rows', []))
                 rows.extend([[dict(zip(block['headers'],row)).get(key,'—') for key in headers] for row in block['rows']])
+            if page.get('continuous_join_keys'):
+                def same_cell(first,second):
+                    if first==second:return True
+                    if not isinstance(first,str) or not isinstance(second,str):return False
+                    try:return Decimal(first.replace(',','.'))==Decimal(second.replace(',','.'))
+                    except InvalidOperation:return False
+                joined=[dict(zip(screen_blocks[0]['headers'],row)) for row in screen_blocks[0]['rows']]
+                for block in screen_blocks[1:]:
+                    keys=[key for key in page['continuous_join_keys'] if key in block['headers']]
+                    assert keys
+                    for row in block['rows']:
+                        values=dict(zip(block['headers'],row))
+                        matches=[target for target in joined if all(same_cell(target.get(key),values[key]) for key in keys)]
+                        if not matches:
+                            joined.append(values);continue
+                        for target in matches:
+                            assert all(key not in target or same_cell(target[key],value) for key,value in values.items())
+                            for key,value in values.items():target.setdefault(key,value)
+                rows=[[row.get(key,'—') for key in headers] for row in joined]
+            if page.get('transpose_table'):
+                old_headers=headers
+                headers=[page.get('transpose_header',headers[0]), *[
+                    row[0] if isinstance(row[0],dict) else {'literal':row[0]} for row in rows]]
+                rows=[[{'key':old_headers[column]}, *[row[column] for row in rows]] for column in range(1,len(old_headers))]
             screen_blocks=[{**page,'headers':headers,'rows':rows,'preferred_rows':preferred}]
         split_print = any(len(block['headers']) > 7 for block in screen_blocks)
         output_blocks = [(block, False) for block in screen_blocks]
@@ -169,7 +247,10 @@ def render(data, page, language):
             frozen = ' table-scroll--frozen' if page.get('freeze_header') and not print_copy else ''
             focus = f' tabindex="0" role="region" aria-label="{tr(block.get("heading", page["title"]))}"' if frozen else ''
             parts += [f'<div class="table-scroll{frozen}"{focus}><table>', f'<caption>{tr(page["title"])}</caption>',
-                      '<thead><tr>' + ''.join(f'<th scope="col">{tr(key)}</th>' for key in block["headers"]) + '</tr></thead><tbody>']
+                      '<thead><tr>' + ''.join('<th scope="col">' +
+                          (tr(key['key']) if 'key' in key else mathematical(key['literal'],language))
+                          + '</th>' if isinstance(key,dict) else f'<th scope="col">{tr(key)}</th>'
+                          for key in block["headers"]) + '</tr></thead><tbody>']
             preferred=set(block.get('preferred_rows', []))
             for row_index,row in enumerate(block["rows"]):
                 cells = []

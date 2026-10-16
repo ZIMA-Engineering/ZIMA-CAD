@@ -5620,6 +5620,24 @@ std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
         result.radius=cone.RefRadius();result.semi_angle=cone.SemiAngle();
         result.axial_min=surface.FirstVParameter()*std::cos(result.semi_angle);
         result.axial_max=surface.LastVParameter()*std::cos(result.semi_angle);
+    } else if (surface.GetType()==GeomAbs_Torus) {
+        result.kind=SurfaceGeometry::Kind::Torus;
+        const auto torus=surface.Torus();frame=torus.Position();
+        result.radius=torus.MajorRadius();result.minor_radius=torus.MinorRadius();
+        result.u_min=surface.FirstUParameter();result.u_max=surface.LastUParameter();
+        result.v_min=surface.FirstVParameter();result.v_max=surface.LastVParameter();
+        unsigned wires=0,rims=0;bool rectangular=true;
+        for(TopExp_Explorer it(face,TopAbs_WIRE);it.More();it.Next())++wires;
+        TopTools_IndexedMapOfShape profile_edges;TopExp::MapShapes(face,TopAbs_EDGE,profile_edges);
+        for(int i=1;i<=profile_edges.Extent();++i) {
+            const auto edge=TopoDS::Edge(profile_edges(i));
+            if(BRep_Tool::IsClosed(edge,face))continue;
+            BRepAdaptor_Curve curve(edge);
+            if(curve.GetType()!=GeomAbs_Circle||!curve.IsClosed()||
+                std::abs(curve.Circle().Axis().Direction().Dot(frame.Direction()))<1-1e-9)rectangular=false;
+            ++rims;
+        }
+        result.complete_profile=wires==1&&rectangular&&rims==2&&std::abs(result.u_max-result.u_min-2*std::numbers::pi)<1e-9;
     } else return std::nullopt;
     // OCCT face orientation is relative to the surface parameterization.
     // An indirect frame reverses its natural normal (common for an extruded
@@ -5955,8 +5973,11 @@ BodyResult make_result(
             reference.measured_area = std::abs(measured.Mass());
         }
         else reference.measured_area.reset();
-        if (reference.valid()) if (const auto surface=analytic_surface(face))
-            reference.surface=std::make_shared<const SurfaceGeometry>(*surface);
+        reference.contour_surface.reset();
+        if (reference.valid()) if (const auto surface=analytic_surface(face)) {
+            auto& target=surface->kind==SurfaceGeometry::Kind::Torus?reference.contour_surface:reference.surface;
+            target=std::make_shared<const SurfaceGeometry>(*surface);
+        }
         const std::uint32_t base =
             static_cast<std::uint32_t>(result.mesh.vertices.size());
         const gp_Trsf transform = location.Transformation();
@@ -7009,17 +7030,18 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
     std::unordered_map<const SurfaceGeometry*,std::pair<
         std::shared_ptr<const SurfaceGeometry>,std::shared_ptr<const SurfaceGeometry>>> placed_surfaces;
     const auto face = [&](FaceReference& reference) {
-        if (!reference.surface) return;
-        const auto original=reference.surface;
+        for(auto* target:{&reference.surface,&reference.contour_surface})if(*target) {
+        const auto original=*target;
         if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end()) {
-            reference.surface=cached->second.second;return;
+            *target=cached->second.second;continue;
         }
-        auto surface = std::make_shared<SurfaceGeometry>(*reference.surface);
+        auto surface = std::make_shared<SurfaceGeometry>(*original);
         point(surface->origin);
         direction(surface->axis);
         direction(surface->radial);
-        reference.surface = surface;
+        *target = surface;
         placed_surfaces.emplace(original.get(),std::make_pair(original,std::move(surface)));
+        }
     };
     const auto geometry = [&](auto& value) {
         for (auto& vertex : value.vertices) point(vertex);
@@ -9334,8 +9356,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         // material orientation, during this explicit calculation.
                         for (TopExp_Explorer faces(result_shape,TopAbs_FACE);faces.More();faces.Next()) {
                             if (!faces.Current().IsSame(found->shape)) continue;
-                            if (const auto surface=analytic_surface(TopoDS::Face(faces.Current())))
-                                reference.surface=std::make_shared<const SurfaceGeometry>(*surface);
+                            if (const auto surface=analytic_surface(TopoDS::Face(faces.Current()))) {
+                                auto& target=surface->kind==SurfaceGeometry::Kind::Torus?reference.contour_surface:reference.surface;
+                                target=std::make_shared<const SurfaceGeometry>(*surface);
+                            }
                             break;
                         }
                     };

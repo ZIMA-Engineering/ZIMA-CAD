@@ -9473,6 +9473,17 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && seed_equal_length_components(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
+    if(result.status==SolveStatus::Conflicting && dimension_kind==DimensionKind::AngleBetween) {
+        // The sequential corrections may already have distorted the two line
+        // directions. Fit their coupled supports from the original branch.
+        auto candidate=*this;candidate.dimensions=next.dimensions;
+        if(seed_circular_equations(candidate,{},true)) {
+            const auto checked=candidate.solve_impl(100,needs_rank_for_redundancy);
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                next=std::move(candidate);result=checked;
+            }
+        }
+    }
     if(result.status==SolveStatus::Conflicting && seed_circular_equations(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting) {
@@ -9646,6 +9657,20 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
             result = solve_impl(maximum_iterations, true);
             if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid)
                 *this = std::move(before);
+        }
+    }
+    if(result.status==SolveStatus::Conflicting&&std::ranges::any_of(dimensions,[](const auto& d){
+        return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
+    })) {
+        // Updated read-only supports need the same coupled angular fit as an
+        // explicit value edit; sequential line projections can otherwise undo
+        // each other while the valid profile changes height or width.
+        auto candidate=*this;
+        if(seed_circular_equations(candidate,{},true)) {
+            const auto checked=candidate.solve_impl(maximum_iterations,true);
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                *this=std::move(candidate);result=checked;
+            }
         }
     }
     if(result.status != SolveStatus::Invalid && result.status != SolveStatus::Conflicting)refresh_curve_dependencies();

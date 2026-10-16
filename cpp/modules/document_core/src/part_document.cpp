@@ -2851,6 +2851,15 @@ zima::kernel::ViewerReferenceGeometry transform_reference_geometry(
         std::shared_ptr<const zima::kernel::SurfaceGeometry>,
         std::shared_ptr<const zima::kernel::SurfaceGeometry>>> placed_surfaces;
     const auto face = [&](auto& reference) {
+        if(reference.contour_surface) {
+            const auto original=reference.contour_surface;
+            if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end())reference.contour_surface=cached->second.second;
+            else {
+                auto surface=std::make_shared<zima::kernel::SurfaceGeometry>(*original);
+                surface->origin=point(surface->origin);surface->axis=direction(surface->axis);surface->radial=direction(surface->radial);
+                reference.contour_surface=surface;placed_surfaces.emplace(original.get(),std::make_pair(original,std::move(surface)));
+            }
+        }
         if (!reference.surface) return;
         const auto original=reference.surface;
         if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end()) {

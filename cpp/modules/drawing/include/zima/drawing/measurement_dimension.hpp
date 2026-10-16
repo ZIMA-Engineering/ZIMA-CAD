@@ -10,6 +10,7 @@ struct DimensionEvaluation {
     std::vector<kernel::ViewerDimension> presentations;
     std::vector<std::size_t> cached_segment_indices;
     std::vector<bool> angular_leaders;
+    std::optional<kernel::DimensionLayout> normalized_radius_layout;
 };
 struct ProjectedMeasurementCurve {
     kernel::EdgeReference source;
@@ -52,6 +53,9 @@ private:
 std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &, Point2, double tolerance,
                                                          const MeasurementPickRequest &);
 void capture_measurement_geometry(DrawingView &, const kernel::ViewerMesh &);
+// Exact view-local contours consume calculated analytic faces, never OCCT or
+// guessed triangle identities. Source topology remains owned by the Part.
+kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh &, const ProjectionCamera &);
 std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const DrawingView &);
 // Exact displayed fragments shared by hover and reference highlighting.
 std::vector<std::vector<Point2>> measurement_reference_geometry(

@@ -51,15 +51,19 @@ zima::kernel::Vec3 load_vec3(const nlohmann::json& source) {
 }
 
 nlohmann::json serialize_surface(const zima::kernel::SurfaceGeometry& value) {
-    return {{"kind",static_cast<int>(value.kind)},{"origin",serialize_vec3(value.origin)},
+    nlohmann::json result={{"kind",static_cast<int>(value.kind)},{"origin",serialize_vec3(value.origin)},
         {"axis",serialize_vec3(value.axis)},{"radial",serialize_vec3(value.radial)},
         {"radius",value.radius},{"semi_angle",value.semi_angle},
         {"min",value.axial_min},{"max",value.axial_max},{"reversed",value.reversed}};
+    if(value.kind==zima::kernel::SurfaceGeometry::Kind::Torus)
+        result["torus"]={{"minor_radius",value.minor_radius},{"u_min",value.u_min},{"u_max",value.u_max},
+            {"v_min",value.v_min},{"v_max",value.v_max},{"complete_profile",value.complete_profile}};
+    return result;
 }
 zima::kernel::SurfaceGeometry load_surface(const nlohmann::json& value) {
     zima::kernel::SurfaceGeometry result;
     const int kind=value.at("kind");
-    if (kind<0 || kind>2) throw std::runtime_error("Invalid analytic surface kind");
+    if (kind<0 || kind>3) throw std::runtime_error("Invalid analytic surface kind");
     result.kind=static_cast<zima::kernel::SurfaceGeometry::Kind>(kind);
     result.origin=load_vec3(value.at("origin"));result.axis=load_vec3(value.at("axis"));
     result.radial=load_vec3(value.at("radial"));result.radius=value.at("radius");
@@ -67,6 +71,16 @@ zima::kernel::SurfaceGeometry load_surface(const nlohmann::json& value) {
     result.axial_max=value.at("max");result.reversed=value.at("reversed");
     require_finite(result.radius,"surface radius");require_finite(result.semi_angle,"surface angle");
     require_finite(result.axial_min,"surface min");require_finite(result.axial_max,"surface max");
+    if(result.kind==zima::kernel::SurfaceGeometry::Kind::Torus) {
+        const auto& torus=value.at("torus");
+        result.minor_radius=torus.at("minor_radius");result.u_min=torus.at("u_min");result.u_max=torus.at("u_max");
+        result.v_min=torus.at("v_min");result.v_max=torus.at("v_max");
+        result.complete_profile=torus.at("complete_profile");
+        for(const auto number:{result.minor_radius,result.u_min,result.u_max,result.v_min,result.v_max})
+            require_finite(number,"surface angle");
+        if(result.minor_radius<=0||result.radius<=0||result.u_max<=result.u_min||result.v_max<=result.v_min)
+            throw std::runtime_error("Invalid analytic surface kind");
+    }
     return result;
 }
 
@@ -273,6 +287,7 @@ nlohmann::json serialize_reference_geometry(
             references.back()["sheet_thickness"]=reference.sheet_thickness;
             references.back()["sheet_owner"]=reference.sheet_owner;
             if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
+            if (reference.contour_surface) references.back()["contour_surface"]=serialize_surface(*reference.contour_surface);
             if (reference.measured_area) references.back()["measured_area"]=*reference.measured_area;
         }
         return index;
@@ -364,6 +379,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             throw std::runtime_error("Persisted original reference is invalid");
         }
         if (value.contains("surface")) reference.surface=std::make_shared<const zima::kernel::SurfaceGeometry>(load_surface(value.at("surface")));
+        if (value.contains("contour_surface")) reference.contour_surface=std::make_shared<const zima::kernel::SurfaceGeometry>(load_surface(value.at("contour_surface")));
         reference.surface_result=value.value("surface_result",false);
         load_sheet_face(reference,value);
         if (value.contains("measured_area")) {
