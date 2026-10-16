@@ -1249,3 +1249,5 @@ personal configuration and projects were preserved. The classic FORM library
 contains the new outward experimental definitions while retaining the original
 production styles. The linked corner remains unrounded for manual evaluation.
 Linux execution remains a separate host acceptance requirement.
+
+Signed Windows [2026101602](releases/2026101602.md) was published on 2026-10-16 from immutable source commit `2f9c671d0c35aa307daa7f6666005cb0e62de344`. Clean compilation, dependency/archive gates, all 22 factory native assets, production trust and sixteen isolated packaged GUI scenarios passed. Exact committed resources, three public asset downloads and update discovery from trusted 2026101601 passed. Personal working data remained unchanged. The normal local launcher uses the current development build. Linux execution remains unverified.
