@@ -1,5 +1,16 @@
 # Application updates
 
+Signed Windows [2026101601](releases/2026101601.md#windows-package-acceptance)
+was published at `2026-10-16T01:13:16Z` from immutable source commit
+`a60c039c592595876e3d21e932de6e70cedc564f`. Clean candidate/signed smoke,
+22 factory loads, production trust, nine packaged GUI workflows and exact
+committed-source comparisons pass. Every public download matches the accepted
+signed bytes. The trusted 2026101505 helper offers 1601 as installable without
+installing it or changing launch/configuration state. The release covers new
+FORM definitions, point extrusion limits, Sketcher repairs and metadata-owned
+File Manager columns. Shared C++, OCCT/Qt versions and native formats remain
+unchanged; Linux execution and linked finite verification gaps remain explicit.
+
 Signed Windows [2026101505](releases/2026101505.md#windows-package-acceptance)
 was published at `2026-10-15T13:42:23Z` from source commit
 `b78a9735aa7dc7430faa9a3a8fb419394b63f8af`. Candidate/signed native smoke,

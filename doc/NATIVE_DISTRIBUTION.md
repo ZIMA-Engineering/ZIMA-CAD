@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Signed Windows [2026101601](releases/2026101601.md#windows-package-acceptance)
+was published at `2026-10-16T01:13:16Z`. It adds the Dimpled Hole and Bridge Lance
+factory FORMs, earlier-Sketch point extrusion limits, automatic Up to entry,
+metadata-controlled File Manager columns and the documented finite Sketcher
+repairs. Fifteen focused native suites, nine signed-package GUI scenarios,
+22 factory loads, all 4,355 committed configuration comparisons, production
+trust and anonymous public asset downloads pass. All 11,219 packaged checksums
+remain unchanged. Signed 1505 offers an installable update without installation.
+Shared C++, native formats, protected placement and the development BAT remain
+unchanged. Linux execution remains unverified; linked Sketcher variant limits
+remain explicit.
+
 Signed Windows [2026101505](releases/2026101505.md#windows-package-acceptance)
 was published at `2026-10-15T13:42:23Z`. It adds local/global File Manager filters,
 individual Material Properties, library material/folder editing, azure type
