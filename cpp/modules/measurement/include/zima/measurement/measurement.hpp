@@ -5,6 +5,8 @@ namespace zima::measurement {
 struct MeasurementGeometry {
     zima::kernel::MeasurementReference reference;
     zima::kernel::MeasurementValues values;
+    // Derived from the persisted exact rational curve; inspection-only.
+    std::optional<double> diameter;
     std::vector<zima::kernel::Vec3> points;
     std::vector<std::array<zima::kernel::Vec3,2>> segments;
     std::vector<std::array<zima::kernel::Vec3,3>> triangles;

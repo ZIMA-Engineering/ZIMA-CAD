@@ -210,6 +210,14 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
             wait([&]{return read("document.documentElement.dataset.zimaTheme").toString()==theme;},"Unit table did not follow the application theme");
             const auto background=application.palette().color(QPalette::Base);
             check(read("getComputedStyle(document.body).backgroundColor").toString()==QString("rgb(%1, %2, %3)").arg(background.red()).arg(background.green()).arg(background.blue()),"Unit table CSS did not follow the application palette");
+            if(leaf=="01-GENERAL") {
+                check(read("document.querySelectorAll('tbody tr').length").toInt()==392&&read("document.querySelectorAll('table').length").toInt()==1,"Merged metric table lost rows or retained split tables");
+                check(read("document.querySelectorAll('tr.preferred-row').length").toInt()==25,"Merged metric table lost first-choice marking");
+                check(read("(() => {const r=document.querySelector('.table-scroll--frozen'),h=r.querySelector('thead th'),b=r.querySelector('tbody td');r.scrollTop=0;const ht=h.getBoundingClientRect().top,bt=b.getBoundingClientRect().top;r.scrollTop=240;const ok=r.scrollTop>0&&Math.abs(h.getBoundingClientRect().top-ht)<1&&b.getBoundingClientRect().top<bt-100;r.scrollTop=0;return ok})()").toBool(),"Merged metric header moved or its body did not scroll");
+                check(read("(() => {const r=document.querySelector('tr.preferred-row');return getComputedStyle(r.querySelector('th')).backgroundColor===getComputedStyle(r.querySelector('td')).backgroundColor&&getComputedStyle(r.querySelector('td')).backgroundColor!==getComputedStyle(document.body).backgroundColor})()").toBool(),"Preferred metric rows lost contrast or their sticky-column color");
+            }
+            if(leaf=="02-PRECISION"||leaf=="04-WHITWORTH"||leaf.startsWith("03-INCH/")||leaf.startsWith("06-TRAPEZOID/")||leaf=="01-SHAFT-END/03-TORQUE"||leaf=="03-FINE/03-ACCURACY")
+                check(read("(() => {const regions=[...document.querySelectorAll('.table-scroll--frozen')];return regions.length>0&&regions.every(r=>{if(r.scrollHeight<=r.clientHeight)return true;const h=r.querySelector('thead th'),t=h.getBoundingClientRect().top;r.scrollTop=240;const ok=r.scrollTop>0&&Math.abs(h.getBoundingClientRect().top-t)<1;r.scrollTop=0;return ok})})()").toBool(),"Thread table header moved while scrolling");
         }
         check(reloads==before,"Changing unit table theme reloaded its page");
     }
@@ -228,6 +236,13 @@ int main(int argc,char** argv){
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/01-GENERAL-STANDARDS/01-UNITS","01-BASE-UNITS",7);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","06-GEARS/09-SPAN",6);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/01-GRADE-AB",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS/02-METRIC","01-GENERAL",3);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS/02-METRIC","02-PRECISION",3);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS","04-WHITWORTH",9);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS","03-INCH/02-SIZES",9);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/03-THREADS","06-TRAPEZOID/01-SIZES",9);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","01-SHAFT-END/03-TORQUE",6);
+        verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","03-FINE/03-ACCURACY",6);
         const QString factory_directory=qEnvironmentVariable("ZIMA_FILE_MANAGER_VERIFY_FACTORY_LABELS");
         if(!factory_directory.isEmpty()){
             check(QFileInfo(factory_directory).isDir(),"Factory label verification directory is missing");int directories=0;
@@ -240,9 +255,10 @@ int main(int argc,char** argv){
                 }
                 ++directories;
             }
-            check(directories==337,"Factory directory label inventory differs from 337 directories");
-            std::cout<<"Native Qt reading of all 1685 factory directory labels passed\n";
+            check(directories==332,"Factory directory label inventory differs from 332 directories");
+            std::cout<<"Native Qt reading of all 1660 factory directory labels passed\n";
         }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_REFERENCE_TABLES_ONLY"))return 0;
         QTemporaryDir fixture(QDir::current().filePath("file-manager-test-XXXXXX"));check(fixture.isValid(),"Cannot create synthetic fixture");
         {
             const QString directory=fixture.filePath("foreign-previews");check(QDir().mkpath(directory),"Cannot create foreign preview fixtures");

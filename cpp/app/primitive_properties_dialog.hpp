@@ -48,6 +48,8 @@ public:
     void set_sheet_default_thickness(double value) { sheet_default_thickness_=value; }
     void set_sheet_reference_geometry(zima::kernel::ViewerReferenceGeometry value) { sheet_reference_geometry_=std::move(value); }
     void set_sheet_form_body_origin(std::string value) { sheet_form_body_origin_=std::move(value); }
+    void set_sheet_form_draft_resolver(std::function<bool(zima::document::HistoryContainer&)> value) { sheet_form_draft_resolver_=std::move(value); }
+    bool resolve_sheet_form_draft(zima::document::HistoryContainer& value) const { return sheet_form_draft_resolver_&&sheet_form_draft_resolver_(value); }
     void set_sheet_form_definition_request(std::function<void()> value) { sheet_form_definition_request_=std::move(value); }
     void replace_sheet_form_definition(zima::document::SheetFormParameters);
     [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& sheet_form_preview() const { return sheet_form_preview_; }
@@ -208,6 +210,7 @@ private:
     std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse);
     const std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse) const;
     zima::kernel::ViewerReferenceGeometry sheet_reference_geometry_;
+    std::function<bool(zima::document::HistoryContainer&)> sheet_form_draft_resolver_;
     QCheckBox* sheet_thickness_override_{};
     double sheet_default_thickness_{1};
     void lock_sheet_attachment_fields();

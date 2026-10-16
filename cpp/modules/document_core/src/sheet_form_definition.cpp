@@ -1,4 +1,5 @@
 #include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/sheet_form_dimensions.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -11,8 +12,110 @@
 #include <set>
 #include <deque>
 #include <mutex>
+#include <charconv>
 
 namespace zima::document {
+namespace {
+std::optional<std::pair<std::string,std::string>> internal_dimension_key(const std::string& key) {
+    constexpr std::string_view prefix="form:internal:";
+    if(!key.starts_with(prefix))return {};
+    const auto end=key.find(':',prefix.size());if(end==std::string::npos)return {};
+    std::size_t length{};const auto parsed=std::from_chars(key.data()+prefix.size(),key.data()+end,length);
+    if(parsed.ec!=std::errc{}||parsed.ptr!=key.data()+end||length>key.size()-end-1)return {};
+    const auto separator=end+1+length;if(separator>=key.size()||key[separator]!=':')return {};
+    return std::pair{key.substr(end+1,length),key.substr(separator+1)};
+}
+bool writable_internal_dimension(const sketcher::Sketch& sketch,const std::string& key) {
+    if(sketch.suppressed)return false;
+    if(key.starts_with("dimension:")) {
+        const auto found=std::ranges::find(sketch.dimensions,key.substr(10),&sketcher::SketchDimension::id);
+        return found!=sketch.dimensions.end()&&found->driving&&!found->suppressed;
+    }
+    return key.starts_with("corner_dimension:")&&std::ranges::any_of(sketch.corner_radii,[&](const auto& r){return r.id==key.substr(17)&&!r.suppressed;});
+}
+template<class Visitor> bool visit_internal_dimension(PartDocument& part,const std::string& owner,Visitor visit) {
+    for(auto& sketch:part.sketches)if(sketch.id==owner) {
+        const auto* feature=part.find_container(sketch.owner_container_id);
+        if(feature&&feature->suppressed)return false;
+        visit(sketch);return true;
+    }
+    bool found=false;
+    for(auto& feature:part.history)if(!feature.suppressed)visit_feature_sketches(feature,[&](auto& data,std::size_t){
+        auto sketch=sketcher::Sketch::from_serialized(data);if(found||sketch.id!=owner)return;
+        const auto before=sketch.serialized();visit(sketch);if(sketch.serialized()!=before)data=sketch.serialized();found=true;
+    });
+    return found;
+}
+}
+bool sheet_form_internal_dimension_editable(const HistoryContainer& feature,const std::string& key) {
+    if(feature.feature_kind!=FeatureKind::SheetForm)return false;
+    const auto target=internal_dimension_key(key);if(!target)return false;
+    auto source=stored_sheet_form_definition(feature.sheet_form);bool writable=false;
+    static_cast<void>(visit_internal_dimension(source.part,target->first,[&](auto& sketch){writable=writable_internal_dimension(sketch,target->second);}));
+    return writable;
+}
+std::optional<double> sheet_form_internal_dimension_value(const PartDocument& part,const std::string& key) {
+    const auto target=internal_dimension_key(key);if(!target)return {};
+    auto copy=part;std::optional<double> result;
+    static_cast<void>(visit_internal_dimension(copy,target->first,[&](auto& sketch) {
+        for(const auto& dimension:sketch.viewer_mesh().dimensions)if(dimension.reference.semantic_key==target->second)result=dimension.value;
+    }));return result;
+}
+bool edit_sheet_form_internal_dimension(PartDocument& part,const std::string& key,double value) {
+    const auto target=internal_dimension_key(key);if(!target||!std::isfinite(value))throw std::invalid_argument("This dimension is not directly editable");
+    bool changed=false;
+    const bool found=visit_internal_dimension(part,target->first,[&](auto& sketch) {
+        if(!writable_internal_dimension(sketch,target->second))throw std::invalid_argument("This dimension is not directly editable");
+        const auto mesh=sketch.viewer_mesh();const auto shown=std::ranges::find_if(mesh.dimensions,[&](const auto& d){return d.reference.semantic_key==target->second;});
+        if(shown==mesh.dimensions.end())throw std::invalid_argument("This dimension is not directly editable");
+        if(shown->value==value&&std::signbit(value)==std::signbit(shown->value))return;
+        if(target->second.starts_with("dimension:")) {
+            if(!sketch.set_dimension_value(target->second.substr(10),value))throw std::invalid_argument("Zadanou hodnotu nelze použít: je mimo meze nebo odporuje vazbám skici.");
+        }else {
+            const auto radius=std::ranges::find(sketch.corner_radii,target->second.substr(17),&sketcher::SketchCornerRadius::id);
+            if(value<=0)throw std::invalid_argument("Invalid family corner radius.");
+            static_cast<void>(sketch.add_corner_fillet(radius->first_segment_id,radius->second_segment_id,value));
+        }
+        sketch.validate();changed=true;
+    });
+    if(!found)throw std::invalid_argument("This dimension is not directly editable");return changed;
+}
+std::vector<kernel::ViewerDimension> sheet_form_internal_dimensions(const HistoryContainer& feature) {
+    if(feature.feature_kind!=FeatureKind::SheetForm)return {};
+    const auto source=stored_sheet_form_definition(feature.sheet_form);
+    const auto request=sheet_form_request(source,{}, {},{0,1,0},{1,0,0},feature.sheet_form.thickness);
+    using namespace kernel::sheet_material;
+    const auto& p=feature.placement;const kernel::Vec3 angles{p.rotation_x,p.rotation_y,p.rotation_z};
+    const auto x=construction_direction_from_local_axis("x",angles),normal=construction_direction_from_local_axis("y",angles),z=cross(x,normal);
+    const auto source_z=cross(request.source_x,request.source_normal);
+    const auto vector=[&](kernel::Vec3 v){return add(mul(x,dot(v,request.source_x)),add(mul(normal,dot(v,request.source_normal)),mul(z,dot(v,source_z))));};
+    const auto point=[&](kernel::Vec3 v){return add({p.x,p.y,p.z},vector(sub(v,request.source_origin)));};
+    std::vector<kernel::ViewerDimension> result;std::set<std::pair<std::string,std::string>> seen;
+    const auto append=[&](const sketcher::Sketch& sketch,const std::string& owner) {
+        if(sketch.suppressed)return;
+        auto mesh=sketch.viewer_mesh();
+        if(const auto* body=source.part.body_owner_for_object(owner))mesh=source.part.place_body_mesh(std::move(mesh),body->scope.id);
+        for(auto dimension:mesh.dimensions) {
+            if(!seen.emplace(dimension.reference.owner_id,dimension.reference.semantic_key).second)continue;
+            const auto parent=dimension.reference;
+            dimension.reference={feature.id,"form:internal:"+std::to_string(parent.owner_id.size())+":"+parent.owner_id+":"+parent.semantic_key,{}};
+            dimension.participant_semantic_keys.clear();dimension.value_lock_key.clear();
+            dimension.witness_first=point(dimension.witness_first);dimension.witness_second=point(dimension.witness_second);
+            dimension.line_first=point(dimension.line_first);dimension.line_second=point(dimension.line_second);
+            dimension.plane_normal=vector(dimension.plane_normal);
+            if(dimension.label_position)dimension.label_position=point(*dimension.label_position);
+            if(dimension.measurement_direction)dimension.measurement_direction=vector(*dimension.measurement_direction);
+            result.push_back(std::move(dimension));
+        }
+    };
+    for(const auto& sketch:source.part.sketches) {
+        const auto* owner=source.part.find_container(sketch.owner_container_id);
+        if(!owner||!owner->suppressed)append(sketch,sketch.owner_container_id.empty()?sketch.id:sketch.owner_container_id);
+    }
+    for(const auto& owner:source.part.history)if(!owner.suppressed)
+        visit_feature_sketches(owner,[&](const auto& data,std::size_t){append(sketcher::Sketch::from_serialized(data),owner.id);});
+    return result;
+}
 std::vector<kernel::ViewerDimension> sheet_form_placement_dimensions(
         const HistoryContainer& feature,const kernel::ViewerReferenceGeometry& geometry) {
     using namespace kernel::sheet_material;
@@ -249,7 +352,6 @@ std::vector<kernel::ViewerEdge> sheet_form_preview_edges(const SheetFormParamete
             const auto relative=kernel::sheet_material::sub(point,request.source_origin);
             point={kernel::sheet_material::dot(relative,request.source_x),
                 kernel::sheet_material::dot(relative,request.source_normal),kernel::sheet_material::dot(relative,z)};
-            if(request.outward&&!source.corner())point.y-=value.thickness;
         }
         // A transient wire offers no source-document topology for picking.
         edge.reference={};edge.display_owner_id.clear();edge.exact_spline.reset();
@@ -531,6 +633,9 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
     result.source_origin=kernel::sheet_material::add(rotate(cut->resolved_origin),{placement.x,placement.y,placement.z});
     result.source_normal=rotate(cut->resolved_normal);result.source_x=rotate(cut->resolved_x_axis);
     }
+    // Planar tools face into the selected stock face. Reverse the source
+    // frame, not the shared placement or its persisted support side.
+    if(!definition.corner())result.source_normal=kernel::sheet_material::mul(result.source_normal,-1.);
     const auto symbol=std::ranges::find(part.sketches,definition.symbol_sketch,&sketcher::Sketch::id);
     if(symbol==part.sketches.end())throw std::invalid_argument("Invalid FORM definition.");
     auto symbol_mesh=part.place_body_mesh(symbol->evaluated_profile_sketch().viewer_mesh(),definition.bodies[3]);

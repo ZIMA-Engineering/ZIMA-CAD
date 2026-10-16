@@ -1,0 +1,370 @@
+{
+  "purpose": "Retained factory source and generated evidence from the five merged metric-thread ranges. Not a browsable reference topic.",
+  "files": [
+    {
+      "original_path": "01-M1-M18/0000-index/01.jpg",
+      "file": "5590fefdb4046c55ae7076c2.jpg",
+      "sha256": "5590fefdb4046c55ae7076c2a36f9482200dda7563c46b6c47b2b0b0637eb3dd"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/01_cs.jpg",
+      "file": "5590fefdb4046c55ae7076c2.jpg",
+      "sha256": "5590fefdb4046c55ae7076c2a36f9482200dda7563c46b6c47b2b0b0637eb3dd"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/01_de.jpg",
+      "file": "3446a8d8aae10724c263ee9a.jpg",
+      "sha256": "3446a8d8aae10724c263ee9a2fdf499d09ecded91f9490c27f5c7646483c552f"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/01_en.jpg",
+      "file": "289525756dc4bba1230c3e27.jpg",
+      "sha256": "289525756dc4bba1230c3e27e807ed2b2b81dcbb66c13042cb10d194ebc8bf44"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/01_fr.jpg",
+      "file": "c055c3bc2b471ee6e9bacde7.jpg",
+      "sha256": "c055c3bc2b471ee6e9bacde7e1935157eb716b17130038e5106cbe394ec06b57"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/01_ru.jpg",
+      "file": "ce856b124b79482834a82e2f.jpg",
+      "sha256": "ce856b124b79482834a82e2fa94616bc262ef28303d268089601d3505c9701a8"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/alt_table.html",
+      "file": "e3b0c44298fc1c149afbf4c8.html",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/alt_table.ods",
+      "file": "3ba4fb01e4ef8235162ff83e.ods",
+      "sha256": "3ba4fb01e4ef8235162ff83e0038ece720a76c05a73b0306086b5f48afef0f47"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/index_cs.html",
+      "file": "ccf7579a4c9574b17bf72bda.html",
+      "sha256": "ccf7579a4c9574b17bf72bda430fb4e47a8bce860670a32f8479b58bf2cee96d"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/index_de.html",
+      "file": "d992af169db074cfa7471822.html",
+      "sha256": "d992af169db074cfa74718221b3a8bf00846be1a7ff5e2825422aaa6990ce1dd"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/index_en.html",
+      "file": "79cfbf64ef9ebca2821daf59.html",
+      "sha256": "79cfbf64ef9ebca2821daf59eee853590f08826698b00be06dffe0aa1ba3d84b"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/index_fr.html",
+      "file": "de3f72b140c9c30a98d076ed.html",
+      "sha256": "de3f72b140c9c30a98d076ed2488e626c8088a63288908f1ed44391b5cb311a2"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/index_ru.html",
+      "file": "9c0f9f14fb39b802401c968f.html",
+      "sha256": "9c0f9f14fb39b802401c968ff20222cb4644d3340576e7530f24fb915ff27ec3"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/metadata.ini",
+      "file": "1ce11b6e8cbf2c20bc6cc3b7.ini",
+      "sha256": "1ce11b6e8cbf2c20bc6cc3b7a254fa7ff5744d7e697bc12fb0b851250d1b0a2a"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/style.css",
+      "file": "59492462cf054ef0538d7ec4.css",
+      "sha256": "59492462cf054ef0538d7ec4aea5d62883954de014e8d4c3b7ad22aca213cbc3"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/table1.csv",
+      "file": "cdcac583b83e80834231ac02.csv",
+      "sha256": "cdcac583b83e80834231ac028e8a02192657d9f85fd721480ea138b42b56db7e"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/table2.csv",
+      "file": "923029010084767cacc58829.csv",
+      "sha256": "923029010084767cacc58829d7a51b0a9989cb5f0cb173f5cdb697935fdd3a0b"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/table3.csv",
+      "file": "c22794e15bb2200eda8ae681.csv",
+      "sha256": "c22794e15bb2200eda8ae681fdb23b5936ef95dfde042008bea9037251d28226"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/table4.csv",
+      "file": "f665d62340f161b2e49289b6.csv",
+      "sha256": "f665d62340f161b2e49289b6c34f0c2c664667c53dcf6dbc73e1cadedbd4f429"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/table5.csv",
+      "file": "c165bb689572c4f9f7f36f3a.csv",
+      "sha256": "c165bb689572c4f9f7f36f3ab1b994e3d48c2d740463f03f0ac8eec1bdc55fc3"
+    },
+    {
+      "original_path": "01-M1-M18/0000-index/tabulka.csv",
+      "file": "beaf23a55e0efa2f857caaff.csv",
+      "sha256": "beaf23a55e0efa2f857caaff537104d1731126164bdddf951bbb5a460bdd182e"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/01.jpg",
+      "file": "6159d0da24d8d86b8cc14ebd.jpg",
+      "sha256": "6159d0da24d8d86b8cc14ebd5712720a5697a31294144da220b87afc78bd1547"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/01_cs.jpg",
+      "file": "6159d0da24d8d86b8cc14ebd.jpg",
+      "sha256": "6159d0da24d8d86b8cc14ebd5712720a5697a31294144da220b87afc78bd1547"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/01_de.jpg",
+      "file": "57c1e9f7d7285dba06c9fe0c.jpg",
+      "sha256": "57c1e9f7d7285dba06c9fe0c9a202bba8e1afc85f7010229d8a51c7a2625f8fb"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/01_en.jpg",
+      "file": "2f9b2d6372c57734a872a254.jpg",
+      "sha256": "2f9b2d6372c57734a872a25466fda7933af13578b439a9987ccf9036b438cf21"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/01_fr.jpg",
+      "file": "6418c5c0acc1663af05fbe38.jpg",
+      "sha256": "6418c5c0acc1663af05fbe38181b4dd7ceb9b688d8ffb69fb82512b484638ad9"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/01_ru.jpg",
+      "file": "cbc17457c2300631423eed5f.jpg",
+      "sha256": "cbc17457c2300631423eed5f4aedf13303b18444796fb6e518f8a1a61e118dfe"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/index_cs.html",
+      "file": "33767f27d5f0a4c31d942b89.html",
+      "sha256": "33767f27d5f0a4c31d942b896af40e621bfc0cf16bf242f83e00232838dcba27"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/index_de.html",
+      "file": "b2980647ecbcd396098ddd66.html",
+      "sha256": "b2980647ecbcd396098ddd666f267e0a89ac714210e06c759c59a4a1d7791ba8"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/index_en.html",
+      "file": "7fd55591388aa681af319312.html",
+      "sha256": "7fd55591388aa681af319312491a2eb5a487e0051b840b9ac3ad4e2aa6755ae8"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/index_fr.html",
+      "file": "f02dfb3b281a7c896a06abf8.html",
+      "sha256": "f02dfb3b281a7c896a06abf8364b111e7815876226b6f9337235f9925d628b95"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/index_ru.html",
+      "file": "a5aaa70cf2a7867a50fd6e37.html",
+      "sha256": "a5aaa70cf2a7867a50fd6e3796a6ad36056a2fd4c840552e730a0c0e5491a499"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/metadata.ini",
+      "file": "736162f43ae867a86b8fc545.ini",
+      "sha256": "736162f43ae867a86b8fc545573b2c0b79e2874635e28023570294bf98ace83b"
+    },
+    {
+      "original_path": "02-M20-M48/0000-index/style.css",
+      "file": "59492462cf054ef0538d7ec4.css",
+      "sha256": "59492462cf054ef0538d7ec4aea5d62883954de014e8d4c3b7ad22aca213cbc3"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/01.jpg",
+      "file": "c7468adc1baa9f0b8019f9c3.jpg",
+      "sha256": "c7468adc1baa9f0b8019f9c3ec4782b34d46e5ffd5df7c95bc3e9f2067ea253d"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/01_cs.jpg",
+      "file": "c7468adc1baa9f0b8019f9c3.jpg",
+      "sha256": "c7468adc1baa9f0b8019f9c3ec4782b34d46e5ffd5df7c95bc3e9f2067ea253d"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/01_de.jpg",
+      "file": "0b4625f67713751e33bcc6b1.jpg",
+      "sha256": "0b4625f67713751e33bcc6b1fd57cadc0a2f76a2b91cb9d95b6ed89a7220af78"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/01_en.jpg",
+      "file": "a87bcb6e3dac9dc7548f8336.jpg",
+      "sha256": "a87bcb6e3dac9dc7548f83362ba6cd1784d5fab6242cb72b7a9ba1061469d89c"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/01_fr.jpg",
+      "file": "fbeaf55c8fff10b30925aebe.jpg",
+      "sha256": "fbeaf55c8fff10b30925aebe04249fa2c9cd55854d6074011a46785b8845275c"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/01_ru.jpg",
+      "file": "6fe9405ce39d47ff3786f7fc.jpg",
+      "sha256": "6fe9405ce39d47ff3786f7fc08d792ecd8e595065140813d7941c9f770dcedc5"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/index_cs.html",
+      "file": "f9b99d4f607d0ae1a0584ebf.html",
+      "sha256": "f9b99d4f607d0ae1a0584ebf7939bfa88d5bf507f98d30d31234d296f499f306"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/index_de.html",
+      "file": "b340448e82a210df2a89da4b.html",
+      "sha256": "b340448e82a210df2a89da4b4ae5403d638b5bff19a8f18017d050c7e57020b6"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/index_en.html",
+      "file": "3c4028653c7317a37cd86933.html",
+      "sha256": "3c4028653c7317a37cd869335983e36014e46b0055467782a4ff47b81865d86f"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/index_fr.html",
+      "file": "a0f41e318ec634b7d291e44e.html",
+      "sha256": "a0f41e318ec634b7d291e44e6f7655511ff491a0ee87855568f9f65f94c33a51"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/index_ru.html",
+      "file": "965b46749622b386de86a81b.html",
+      "sha256": "965b46749622b386de86a81b690c12ef53ea8ad597736cf71fe05dfef12b96c2"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/metadata.ini",
+      "file": "5d54634740e6f6178dbf7fc2.ini",
+      "sha256": "5d54634740e6f6178dbf7fc24a7dee468509bfae6a9fb917909e32a7ea2c1782"
+    },
+    {
+      "original_path": "03-M50-M82/0000-index/style.css",
+      "file": "59492462cf054ef0538d7ec4.css",
+      "sha256": "59492462cf054ef0538d7ec4aea5d62883954de014e8d4c3b7ad22aca213cbc3"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/01.jpg",
+      "file": "6a69834f8a653c5dadfe336c.jpg",
+      "sha256": "6a69834f8a653c5dadfe336cc3e7844767c9e9a961725576d2d19c2ad84ea522"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/01_cs.jpg",
+      "file": "6a69834f8a653c5dadfe336c.jpg",
+      "sha256": "6a69834f8a653c5dadfe336cc3e7844767c9e9a961725576d2d19c2ad84ea522"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/01_de.jpg",
+      "file": "41e19ce0050c6ca6fc07de63.jpg",
+      "sha256": "41e19ce0050c6ca6fc07de636a047a15b34a68ab160fed576e760fb7a3ba3e9a"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/01_en.jpg",
+      "file": "36cc17dd945cf3bd66b7604a.jpg",
+      "sha256": "36cc17dd945cf3bd66b7604a8a5df8d5c5f3370dc29630b5423d7c0c27ec661a"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/01_fr.jpg",
+      "file": "fe59db67eb03f13b84ef1b3c.jpg",
+      "sha256": "fe59db67eb03f13b84ef1b3ca8e0a7be86e201a48172e5b8d1bfc3d7b5fc6e45"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/01_ru.jpg",
+      "file": "21d9465b6ae361bec1b8c798.jpg",
+      "sha256": "21d9465b6ae361bec1b8c798f575216abfe3a6af6580c1ea372d2981c9e87b2e"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/index_cs.html",
+      "file": "c812df791077460ddd32a3f8.html",
+      "sha256": "c812df791077460ddd32a3f8d31efc703c5adf719cddbedd67dc77db0cbd9052"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/index_de.html",
+      "file": "88754f3874aaf6963d5e99ec.html",
+      "sha256": "88754f3874aaf6963d5e99ecaf70434c6a9b8c17f45d57277433cce1138c2f42"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/index_en.html",
+      "file": "60792582b5d32de715d36a47.html",
+      "sha256": "60792582b5d32de715d36a4719e7f875432bc6a38e3ad2a9ed68040efcda089e"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/index_fr.html",
+      "file": "d4e45e1b77bf581ebefd15d3.html",
+      "sha256": "d4e45e1b77bf581ebefd15d378c43e183382599bcffb71b108b8ecfa4705c4f6"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/index_ru.html",
+      "file": "0988711fd32bf3fe11a332be.html",
+      "sha256": "0988711fd32bf3fe11a332be122e23c8dde254651dbbe9ede0103e77b40df4d0"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/metadata.ini",
+      "file": "9a54d9eda449feed6c72b1dc.ini",
+      "sha256": "9a54d9eda449feed6c72b1dcbf9cd272ef84aced3ff7be1263d36f70ec5a75e3"
+    },
+    {
+      "original_path": "04-M85-M175/0000-index/style.css",
+      "file": "59492462cf054ef0538d7ec4.css",
+      "sha256": "59492462cf054ef0538d7ec4aea5d62883954de014e8d4c3b7ad22aca213cbc3"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/01.jpg",
+      "file": "b8a34c4591966506c28b5a3c.jpg",
+      "sha256": "b8a34c4591966506c28b5a3c6b21b951a792acf3a5842d3dcd91a399489a2d43"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/01_cs.jpg",
+      "file": "b8a34c4591966506c28b5a3c.jpg",
+      "sha256": "b8a34c4591966506c28b5a3c6b21b951a792acf3a5842d3dcd91a399489a2d43"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/01_de.jpg",
+      "file": "e54e744308bbb4bf9d00956c.jpg",
+      "sha256": "e54e744308bbb4bf9d00956c7b7455948cce50bd6409cdfae46018f53786c662"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/01_en.jpg",
+      "file": "41457e517a900ba52f9bca80.jpg",
+      "sha256": "41457e517a900ba52f9bca809058f311e25937523f77b05c64caf48105b192d9"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/01_fr.jpg",
+      "file": "b4baee8050bf3294ee2c3acb.jpg",
+      "sha256": "b4baee8050bf3294ee2c3acb3da1ce18de985edc2c69d97efc42e13f13c163cd"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/01_ru.jpg",
+      "file": "d0b553bd690d77c114e1e156.jpg",
+      "sha256": "d0b553bd690d77c114e1e15644e2698e4e42357fa224ce8172321f75d2f8382c"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/index_cs.html",
+      "file": "b0680637e0734261815dd1dd.html",
+      "sha256": "b0680637e0734261815dd1dd400db4b560fd9837c4d56f1b7587eaed1cc706ce"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/index_de.html",
+      "file": "67c0958bd2f4472381b13c2c.html",
+      "sha256": "67c0958bd2f4472381b13c2c0ef2d92b4aed0efe54e52114e7beb62aab8c9d58"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/index_en.html",
+      "file": "b8c33ea2496d6f95a34fefb7.html",
+      "sha256": "b8c33ea2496d6f95a34fefb7f756f4e88abe4a3696370e321d90ea6f6261b5d6"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/index_fr.html",
+      "file": "e913d9ba84b3e6a1b8b14e67.html",
+      "sha256": "e913d9ba84b3e6a1b8b14e6792db805ffe8830207804c7081ab372cd35da1552"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/index_ru.html",
+      "file": "2a0edea3746d3b96489ebf3c.html",
+      "sha256": "2a0edea3746d3b96489ebf3c9bd4678e04ed3b90ebeea40cca4fcd9ac5bff0ae"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/metadata.ini",
+      "file": "74d1ff0147e2b948fe7b628c.ini",
+      "sha256": "74d1ff0147e2b948fe7b628ca44d4375e23898944ce05178fb459cf9a7433ab0"
+    },
+    {
+      "original_path": "05-M180-M300/0000-index/style.css",
+      "file": "59492462cf054ef0538d7ec4.css",
+      "sha256": "59492462cf054ef0538d7ec4aea5d62883954de014e8d4c3b7ad22aca213cbc3"
+    }
+  ]
+}

@@ -22,8 +22,37 @@ appearance; it does not simulate material flow or local thinning.
 5. Author an independent manufacturing Sketch in `FORM_SYMBOL`. Save the
    calculated Part and insert it with Sheet Metal > Form.
 
-The current Window selects the outer sheet face and grows outside it. Its
-`form_outward` intent selects the authored normal side for full stock thickness.
+Planar FORMs select a sheet face and grow into it.
+For planar definitions the authored skin is the starting surface: its datum
+coincides with the selected stock face, without a stock-thickness translation.
+Thickness is added on the opposite side of the skin using the first surface
+side. Keep the authored surface orientation consistent with this intent.
+The factory Dimpled Hole and Bridge Lance now follow this same convention.
+Author the raised skin on the positive side of the `FORM_CUT` attachment normal;
+the planar insertion reverses the source attachment normal while retaining its
+X axis and datum. This is a rigid half-turn, not a stock-thickness translation.
+Select the opposite stock face for the opposite result.
+Keep the cut, flat precut and manufacturing symbol in their corresponding datum
+frame. A symmetric surface extrusion may contain separate native shells; FORM
+must consume their complete connected skin rather than only its anchor shell.
+Planar reference entry retains the initial clicked position: subsequent point,
+line and plane references receive signed offsets measured at that position.
+Corner entry aligns to the first face normal, then uses the second face to seat
+and orient the pending tool in the corner. The third reference locates it along
+that already oriented corner. These command-specific drafts consume the shared
+placement implementation without changing its general reference contract.
+Every planar FORM already exposes its own 10 mm reference axis at the insertion
+point, normal to the selected stock face. This is the FORM placement axis; it
+does not require an additional centroid axis from the source extrusion.
+An ordinary feature double-click exposes its embedded authored Sketch dimensions
+in this same frame. Double-clicking a driving dimension edits only the inserted
+FORM's embedded native definition and recalculates its dependent geometry.
+Reference dimensions remain read-only. Invalid solves or calculations are
+rejected atomically; unchanged values do not calculate or create Undo entries.
+The library file and other insertions remain independent. Ordinary Sketch lock
+policy is retained: locking geometry dragging does not prohibit intentional
+numeric edits. Single-click selection does not expose dimensions. Placement dimensions retain
+their existing editing behavior.
 The command cuts the
 replacement region and joins the formed wall. A pocket uses the same planar
 workflow as the window, with continuous walls/bottom instead of an opening.

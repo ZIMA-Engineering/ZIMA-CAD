@@ -10,6 +10,8 @@
 #include "workspace_internal.hpp"
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/sheet_form_operations.hpp>
+#include <zima/document/sheet_form_dimensions.hpp>
 #include "../numeric_expression_edit.hpp"
 
 namespace zima::app {
@@ -58,6 +60,14 @@ QString AssemblyWorkspaceWindow::dimension_identifier(
 void AssemblyWorkspaceWindow::edit_dimension_inline(
     const zima::viewer::ViewerCandidate& candidate) {
     if (candidate.semantic_key.starts_with("measurement:")) return;
+    if(document::is_sheet_form_internal_dimension(candidate.semantic_key)) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* feature=part?part->session.document().find_container(candidate.owner_id):nullptr;
+        if(properties_dialog_||candidate.instance_path!=workspace_.active_occurrence_path()||!feature||
+            !part_element_context_menu_enabled(candidate.owner_id)||!document::sheet_form_internal_dimension_editable(*feature,candidate.semantic_key)) {
+            state_->setText(tr("This dimension is not directly editable"));return;
+        }
+    }
     if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)){state_->setText(tr("Hodnota je zamčená. Nejprve ji odemkněte."));return;}
     const auto value = viewer_->candidate_dimension_value(candidate);
     const auto dimension = viewer_->dimension_source(candidate);
@@ -171,6 +181,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         }
         try {
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
+            if(document::is_sheet_form_internal_dimension(candidate.semantic_key)) {
+                if(candidate.instance_path!=workspace_.active_occurrence_path()||properties_dialog_||!part_element_context_menu_enabled(candidate.owner_id))
+                    throw std::runtime_error("Dimension is outside the active editing occurrence");
+                static_cast<void>(workspace::set_sheet_form_dimension(workspace_,kernel_,workspace_.active_document_id(),candidate.owner_id,candidate.semantic_key,next_value));
+                guarded->hide();construction_dimension_object_id_=candidate.owner_id;
+                preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
+            }
             if(candidate.semantic_key.starts_with("parameter:pattern:")&&!properties_dialog_) {
                 if(candidate.instance_path!=workspace_.active_occurrence_path())throw std::runtime_error("Dimension is outside the active editing occurrence");
                 const auto edit=workspace::prepare_derived_copy_edit(workspace_,workspace_.active_document_id(),candidate.owner_id);

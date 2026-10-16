@@ -14,6 +14,7 @@
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/sheet_form_dimensions.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
 #include "../sketch_external_reference_kind.hpp"
@@ -61,7 +62,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     viewer_->set_document_origin(workspace_.displayed_document_id()+":origin");
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
-    viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
+    viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_,
+        [](const auto& reference){return !zima::document::is_sheet_form_internal_dimension(reference.semantic_key);});
     if (auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_); dialog && dialog->isVisible())
         viewer_->set_dimension_layout_editable(true, [this, dialog](const auto& reference) {
             return reference.instance_path==workspace_.active_occurrence_path() &&
@@ -428,6 +430,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 : stored_container != document.history.end()
                     ? &*stored_container : nullptr;
             if (container != nullptr) {
+                if(container->feature_kind==zima::document::FeatureKind::SheetForm&&active_sketch_id_.empty()&&!properties_dialog_) {
+                    zima::kernel::ViewerMesh internal;internal.dimensions=zima::document::sheet_form_internal_dimensions(*container);
+                    if(const auto* body=document.body_owner_for_object(container->id))internal=document.place_body_mesh(std::move(internal),body->scope.id);
+                    mesh.dimensions.insert(mesh.dimensions.end(),internal.dimensions.begin(),internal.dimensions.end());
+                }
                 if(active_sketch_id_.empty())zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t stage){
                     if(container->feature_kind==zima::document::FeatureKind::Bend&&stage==0&&container->bend.angle_degrees==0)return;
                     const auto sketch=zima::sketcher::Sketch::from_serialized(data);

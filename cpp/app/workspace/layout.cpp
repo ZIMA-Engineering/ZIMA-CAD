@@ -1465,6 +1465,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(candidate.kind==zima::viewer::CandidateKind::Dimension&&candidate.semantic_key.starts_with("form:internal:")) {
+            edit_dimension_inline(candidate);return;
+        }
         if(accept_relation_dimension(candidate))return;
         if(accept_family_reference(candidate,true))return;
         if(measurement_dialog_)return;

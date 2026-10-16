@@ -24,13 +24,18 @@ spacing between controls and the existing Save/OK/Cancel behavior are unchanged.
 | Entity | Information |
 | --- | --- |
 | Point | X, Y, Z in displayed space |
-| Edge or curve | Length |
+| Edge or curve | Length; diameter for exact native circular edges and arcs |
 | Bounded face | Area |
 | Body or component | Surface area, volume; mass if density is known |
 | Axis | Point and direction of the infinite axis |
 | Construction plane | Point and infinite plane |
 
 Two references additionally show shortest distance and a line joining its endpoints.
+Circular diameter is derived from the persisted exact rational curve, independently
+of arc length and display tessellation. The inspector verifies the circle equation
+on every quadratic span, so an ellipse or other spline does not receive a circular
+diameter. This inspection requires no model regeneration or document transaction;
+reopening a saved measurement resolves the diameter again from its source.
 Faces are measured within their boundaries; axes/construction planes are infinite
 for distance calculations. Overlapping bodies and points inside closed bodies have
 zero distance.

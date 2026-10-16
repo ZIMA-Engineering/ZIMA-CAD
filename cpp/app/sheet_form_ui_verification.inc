@@ -46,7 +46,23 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
             view->set_display_mode(viewer::DisplayMode::ShadedWithEdges);flush();
             check(view->grabFramebuffer().save(QString::fromStdString((directory/(std::string("corner-form-")+suffix+".png")).string())),"Corner rendering capture failed");
         };
+        const auto thumbnail_output=qEnvironmentVariable("ZIMA_FORM_THUMBNAIL_OUTPUT");
+        if(!thumbnail_output.isEmpty()) {
+            const auto definition=document::read_sheet_form_definition(input);
+            view->set_mesh(definition.part.place_body_mesh(definition.calculated->back().body_outputs.at(definition.bodies[1])->mesh,definition.bodies[1]));flush();
+        }
         render("inside",-45,0,25);render("outside",135,0,25);
+        if(!thumbnail_output.isEmpty()) {
+            render("thumbnail",-55,0,25);
+            view->clear_selection();view->set_transient_edges({});view->set_transient_points({});flush();
+            auto foreground=view->grabFramebuffer().convertToFormat(QImage::Format_ARGB32);
+            view->set_mesh({},false);flush();const auto background=view->grabFramebuffer().convertToFormat(QImage::Format_ARGB32);
+            check(foreground.size()==background.size(),"FORM thumbnail background capture changed size");
+            for(int y=0;y<foreground.height();++y)for(int x=0;x<foreground.width();++x)
+                if(foreground.pixel(x,y)==background.pixel(x,y))foreground.setPixel(x,y,qRgba(0,0,0,0));
+            const auto image=compact_thumbnail_image(foreground).scaled(320,240,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+            check(!image.isNull()&&image.save(thumbnail_output),"FORM thumbnail capture failed");
+        }
         if(preview_only){std::cout<<"Corner body-cut diagnostic rendering captured; editing and persistence not verified\n";return 0;}
         auto* tree=window.findChild<QTreeWidget*>("documentTree");check(tree,"Corner Tree missing");
         const auto row=[&]{for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==id&&
@@ -84,6 +100,39 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
             QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
             QApplication::sendEvent(edit,&enter);flush();
         };
+        const auto dismiss_revision=run("documents").data;const auto dismiss_camera=view->camera_state();
+        tree->scrollToItem(row());flush();const auto inspect_point=tree->visualItemRect(row()).center();
+        for(const auto type:{QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,QPointF(inspect_point),QPointF(tree->viewport()->mapToGlobal(inspect_point)),Qt::LeftButton,
+                type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&event);flush();
+        }
+        check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==id;}),"Corner FORM double-click did not expose dimensions");
+        const QPointF dismiss_point(view->width()/2.,view->height()/2.);
+        for(const auto type:{QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,dismiss_point,QPointF(view->mapToGlobal(dismiss_point.toPoint())),Qt::MiddleButton,
+                type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::MiddleButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        }
+        check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==id;}),"Middle double-click retained corner FORM dimensions");
+        check(run("documents").data==dismiss_revision&&view->camera_state()==dismiss_camera,"Dismissing corner FORM dimensions changed document or camera");
+        window.show_parameter_dimensions(id);flush();bool edited_corner_dimension=false;
+        const auto corner_before=saved();
+        for(std::size_t i=0;i<view->mesh().dimensions.size()&&!edited_corner_dimension;++i) {
+            const auto dimension=view->mesh().dimensions[i];
+            if(dimension.value==0||!document::sheet_form_internal_dimension_editable(*corner_before.find_container(id),dimension.reference.semantic_key))continue;
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.owner_id=id;
+            candidate.semantic_key=dimension.reference.semantic_key;candidate.geometry_index=i;
+            window.edit_dimension_inline(candidate);flush();auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(edit&&edit->isVisible(),"Corner FORM internal driving dimension has no editor");edit->setText(QString::number(dimension.value*1.02,'g',15));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+            const auto after=saved();if(after.serialized()==corner_before.serialized())continue;
+            check(after.find_container(id)->placement==corner_before.find_container(id)->placement,"Corner FORM dimension changed attachment");
+            run("undo");check(saved().serialized()==corner_before.serialized(),"Corner FORM dimension Undo failed");
+            run("redo");check(saved().serialized()==after.serialized(),"Corner FORM dimension Redo failed");
+            run("undo");static_cast<void>(saved());edited_corner_dimension=true;
+        }
+        check(edited_corner_dimension,"No corner FORM internal dimension accepted an edit");
         auto* dialog=open();const auto placed=dialog->pending_value();
         if(placed.placement!=original.history.back().placement)std::cerr<<nlohmann::json(placed.placement).dump()<<'\n'<<nlohmann::json(original.history.back().placement).dump()<<'\n';
         check(placed.placement==original.history.back().placement,"Corner Properties changed stored placement");
@@ -235,9 +284,28 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
                 if(found)break;
             }
             check(found,"Corner picker did not offer the expected outer plane");
+            const auto pending=dialog->pending_value();const auto& p=pending.placement;
+            const auto normal=kernel::sheet_material::mul(pending.sheet_form.support.surface->axis,pending.sheet_form.support.surface->reversed?-1.:1.);
+            check(kernel::sheet_material::dot(document::construction_direction_from_local_axis("y",{p.rotation_x,p.rotation_y,p.rotation_z}),normal)>1.-1e-8,
+                "First corner face did not align the pending FORM normal");
+            if(reference==1) {
+                const auto& r=p.references[1];const auto& faces=stock_result.back().mesh.triangle_references;
+                const auto second=std::ranges::find_if(faces,[&](const auto& face){return face.owner_id==r.owner_id&&face.semantic_key==r.semantic_key;});
+                check(second!=faces.end()&&second->surface,"Corner second face is missing from stock");
+                const auto n=kernel::sheet_material::mul(second->surface->axis,second->surface->reversed?-1.:1.);
+                check(kernel::sheet_material::dot(document::construction_direction_from_local_axis("z",{p.rotation_x,p.rotation_y,p.rotation_z}),n)<-1.+1e-8&&
+                    std::abs(kernel::sheet_material::dot(kernel::sheet_material::sub({p.x,p.y,p.z},second->surface->origin),n))<1e-7,
+                    "Second corner face did not align and seat the pending FORM");
+            }
         }
+        const auto before_station=dialog->pending_value().placement;
         const auto point=original.history.back().placement.references[2];
         check(dialog->set_reference(2,point,"Bend station datum"),"Corner station entry failed");flush();
+        const auto after_station=dialog->pending_value().placement;
+        for(const auto* axis:{"x","y","z"})check(kernel::sheet_material::dot(
+            document::construction_direction_from_local_axis(axis,{before_station.rotation_x,before_station.rotation_y,before_station.rotation_z}),
+            document::construction_direction_from_local_axis(axis,{after_station.rotation_x,after_station.rotation_y,after_station.rotation_z}))>1.-1e-8,
+            "Corner station reference rotated the already aligned FORM");
         check(dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Complete corner creation cannot confirm");
         check(std::ranges::none_of(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==created_id&&axis.reference.semantic_key=="axis";}),
             "Corner preview retained arbitrary placement axis");
@@ -428,15 +496,32 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             check(pending.sheet_form.support.owner_id==offered->owner_id&&pending.sheet_form.support.semantic_key==offered->semantic_key,
                 "FORM replacement changed the hovered face identity");
             const auto delta=kernel::sheet_material::sub({pending.placement.x,pending.placement.y,pending.placement.z},first_position);
-            replaced_face=kernel::sheet_material::dot(delta,delta)>1e-8;break;
+            replaced_face=kernel::sheet_material::dot(delta,delta)>1e-8;if(replaced_face)break;
         }
         check(replaced_face,"FORM face replacement retained the old click position");
         check(pending.placement.references[1].owner_id.empty()&&pending.placement.references[2].owner_id.empty(),
             "FORM face replacement generated unwanted datum planes");
         const auto point_owner=part.body_owner_for_object(stock.id)->origin().id;
         const document::ConstructionReference point_reference{{},point_owner,"origin:point"};
-        check(dialog->set_reference(1,point_reference,"Sheet datum point")&&
-            dialog->set_reference(2,point_reference,"Sheet datum point"),"FORM manual coordinates failed");flush();
+        const auto placed_position=dialog->pending_value().placement;
+        const auto stationary=[&] {
+            const auto p=dialog->pending_value().placement;
+            if(std::abs(p.x-placed_position.x)>=1e-7||std::abs(p.y-placed_position.y)>=1e-7||std::abs(p.z-placed_position.z)>=1e-7)
+                std::cerr<<"FORM reference position expected="<<placed_position.x<<','<<placed_position.y<<','<<placed_position.z<<" actual="<<p.x<<','<<p.y<<','<<p.z<<" offsets="<<p.references[1].offset<<','<<p.references[2].offset<<'\n';
+            check(std::abs(p.x-placed_position.x)<1e-7&&std::abs(p.y-placed_position.y)<1e-7&&std::abs(p.z-placed_position.z)<1e-7,
+                "FORM positioning reference moved the first-click position");
+        };
+        for(const auto index:{1u,2u}) {check(dialog->set_reference(index,point_reference,"Sheet datum point"),"FORM manual coordinates failed");flush();stationary();}
+        std::vector<document::ConstructionReference> position_candidates;
+        for(const auto* key:{"origin:plane:xy","origin:plane:xz","origin:plane:yz"})position_candidates.push_back({{},point_owner,key});
+        for(const auto& edge:calculated.back().mesh.edges)position_candidates.push_back({edge.reference.instance_path,edge.reference.owner_id,edge.reference.semantic_key});
+        int accepted=0;
+        for(const auto index:{1u,2u})for(const auto& reference:position_candidates) {
+            if(!dialog->set_reference(index,reference,"Position support"))continue;
+            flush();stationary();++accepted;
+            check(dialog->set_reference(index,point_reference,"Sheet datum point"),"FORM point restoration failed");flush();stationary();
+        }
+        check(accepted>=4,"FORM entry did not cover plane and edge positioning references");
         pending=dialog->pending_value();
         const auto position=kernel::Vec3{pending.placement.x,pending.placement.y,pending.placement.z};
         const auto outward=kernel::sheet_material::mul(pending.sheet_form.support.surface->axis,pending.sheet_form.support.surface->reversed?-1.:1.);
@@ -520,7 +605,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
                 const auto distance=kernel::sheet_material::dot(kernel::sheet_material::sub(p,position),outward);
                 low=std::min(low,distance);high=std::max(high,distance);
             }
-            check(low>=-1.-1e-7&&high>2.,"GUI Window grows through the opposite face instead of outside the selected support");
+            check(low<-2.&&high<=1e-7,"GUI planar FORM does not grow into the selected support");
             std::cout<<"FORM GUI outward signed extent=["<<low<<','<<high<<"]"<<std::endl;
         }
         check(saved.find_container(id)->placement.references==pending.placement.references,"FORM OK lost its attachment references");
@@ -556,7 +641,25 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto original=saved.find_container(id)->sheet_form;const auto placed=saved.find_container(id)->placement;
         const auto annotation_revision=run("documents").data;
         const auto annotation_camera=view->camera_state();
-        tree->itemDoubleClicked(row(id),0);flush();
+        window.finish_parameter_dimensions();flush();tree->scrollToItem(row(id));flush();
+        const auto tree_point=tree->visualItemRect(row(id)).center();
+        const auto tree_mouse=[&](QEvent::Type type) {
+            QMouseEvent event(type,QPointF(tree_point),QPointF(tree->viewport()->mapToGlobal(tree_point)),Qt::LeftButton,
+                type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&event);
+        };
+        tree_mouse(QEvent::MouseButtonPress);tree_mouse(QEvent::MouseButtonRelease);flush();
+        check(std::ranges::none_of(view->mesh().dimensions,[](const auto& d){return d.reference.semantic_key.starts_with("form:internal:");}),"A single FORM click exposed internal dimensions");
+        tree_mouse(QEvent::MouseButtonDblClick);tree_mouse(QEvent::MouseButtonRelease);flush();
+        std::size_t expected_internal=0;for(const auto& sketch:definition.part.sketches)expected_internal+=sketch.viewer_mesh().dimensions.size();
+        std::size_t shown_internal=0;
+        for(std::size_t i=0;i<view->mesh().dimensions.size();++i) {
+            const auto& dimension=view->mesh().dimensions[i];if(!dimension.reference.semantic_key.starts_with("form:internal:"))continue;
+            ++shown_internal;viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.geometry_index=i;
+            candidate.owner_id=dimension.reference.owner_id;candidate.semantic_key=dimension.reference.semantic_key;
+            check(candidate.owner_id==id&&!view->dimension_layout_editable(candidate),"Internal FORM dimension offers an edit grip or leaks ownership");
+        }
+        check(expected_internal>0&&shown_internal>=expected_internal,"FORM double-click omitted authored internal dimensions");
         const auto sheet_angle=std::ranges::find_if(view->mesh().dimensions,[&](const auto& value) {
             return value.reference.owner_id==id&&value.reference.semantic_key=="parameter:placement:rotation_y";
         });
@@ -568,6 +671,51 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
                 "FORM angular witness leaves its support plane");
         check(run("documents").data==annotation_revision&&view->camera_state()==annotation_camera,
             "FORM double-click changed the document or camera");
+        const auto inspection_camera=view->camera_state();
+        view->fit_points({{confirmed.x-40,confirmed.y-40,confirmed.z-20},{confirmed.x+40,confirmed.y+40,confirmed.z+20}});flush();
+        check(window.grab().save(QString::fromStdString((directory/"sheet-form-internal-dimensions.png").string())),"FORM internal dimension capture failed");
+        view->set_camera_state(inspection_camera);flush();
+        bool edited_internal=false;
+        for(std::size_t i=0;i<view->mesh().dimensions.size()&&!edited_internal;++i) {
+            const auto dimension=view->mesh().dimensions[i];
+            if(dimension.reference.owner_id!=id||!document::sheet_form_internal_dimension_editable(*saved.find_container(id),dimension.reference.semantic_key)||dimension.value==0)continue;
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.owner_id=id;
+            candidate.semantic_key=dimension.reference.semantic_key;candidate.geometry_index=i;
+            const auto before_edit=native().first.serialized();
+            view->confirm_reference(id,candidate.semantic_key,{},viewer::CandidateKind::Dimension);
+            const auto edit_point=view->candidate_dimension_label_position(candidate).value_or(view->last_pointer_position());
+            mouse(QPointF(edit_point),QEvent::MouseButtonDblClick,Qt::LeftButton,Qt::LeftButton);
+            mouse(QPointF(edit_point),QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);flush();
+            auto* value_editor=window.findChild<QLineEdit*>("inlineDimensionValueEdit");check(value_editor&&value_editor->isVisible(),"FORM driving dimension has no inline editor");
+            value_editor->setText(QString::number(dimension.value*1.02,'g',15));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(value_editor,&enter);flush();
+            const auto after_edit=native().first;
+            if(after_edit.serialized()==before_edit)continue;
+            check(after_edit.find_container(id)->placement==placed,"Editing FORM dimension moved its placement");
+            check(after_edit.find_container(id)->sheet_form.definition!=original.definition,"FORM dimension failed to update its own definition");
+            const auto factory=document::read_sheet_form_definition(source);
+            check(factory.part.serialized(*factory.calculated)==definition.part.serialized(*definition.calculated),"FORM dimension mutated the library");
+            run("undo");check(native().first.serialized()==before_edit,"FORM dimension Undo did not restore its packet");
+            run("redo");check(native().first.serialized()==after_edit.serialized(),"FORM dimension Redo did not restore its packet");
+            run("undo");static_cast<void>(native());edited_internal=true;window.show_parameter_dimensions(id);flush();
+        }
+        check(edited_internal,"No internal FORM driving dimension could be edited in GUI");
+        const auto dismiss_revision=run("documents").data;const auto dismiss_camera=view->camera_state();
+        const QPointF dismiss_point(view->width()/2.,view->height()/2.);
+        mouse(dismiss_point,QEvent::MouseButtonPress,Qt::MiddleButton,Qt::MiddleButton);
+        mouse(dismiss_point,QEvent::MouseButtonRelease,Qt::MiddleButton,Qt::NoButton);
+        check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==id;}),
+            "Short middle click retained FORM dimensions unlike ordinary solids");
+        tree_mouse(QEvent::MouseButtonDblClick);tree_mouse(QEvent::MouseButtonRelease);flush();
+        mouse(dismiss_point,QEvent::MouseButtonDblClick,Qt::MiddleButton,Qt::MiddleButton);
+        mouse(dismiss_point,QEvent::MouseButtonRelease,Qt::MiddleButton,Qt::NoButton);
+        check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==id;}),
+            "Middle double-click retained FORM internal or placement dimensions");
+        check(run("documents").data==dismiss_revision&&view->camera_state()==dismiss_camera,
+            "Dismissing FORM dimensions changed the document or camera");
+        tree_mouse(QEvent::MouseButtonDblClick);tree_mouse(QEvent::MouseButtonRelease);flush();
+        check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==id&&d.reference.semantic_key.starts_with("form:internal:");}),
+            "FORM dimensions cannot be shown again after middle double-click");
         run("undo");check(!native().first.find_container(id),"FORM creation Undo failed");run("redo");check(native().first.find_container(id),"FORM creation Redo failed");
         window.show_tree_item_properties(row(id));flush();dialog=editor();check(dialog,"FORM edit Properties missing");
         const auto* reopened_table=dialog->findChild<QTableWidget*>("primitiveReferenceTable");

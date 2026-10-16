@@ -113,8 +113,9 @@ outer image background, with a retained border and no clipping of foreground
 pixels. Small decoded previews use a bounded cache keyed by actual image bytes;
 changed thumbnails cannot reuse stale pixels. Saved PNG dimensions remain bounded
 by 320 x 240 pixels. Eight symbol categories reuse their SVG tree logos as `01.svg`
-Overview directory previews. The FORM category has an SVG logo/preview and the two
-factory FORM definitions have compact previews rendered from their native geometry.
+Overview directory previews. The FORM category has an SVG logo/preview, and all
+four factory FORM definitions have compact previews rendered from their native
+geometry.
 
 Directory cards in Overview retain their existing `0000-index/01_<language>` / `01` images;
 native model thumbnails do not introduce file cards into Overview. HTML keeps

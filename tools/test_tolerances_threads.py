@@ -5,6 +5,7 @@ import json
 import re
 import unittest
 import math
+import hashlib
 from decimal import Decimal, localcontext
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def rows_for(data, prefix):
             continue
         for offset, row in enumerate(page['rows']):
             # Separate tables within one original topic retain different prefixes.
-            index = (page.get('source_path',page['path']).rsplit('/', 1)[-1].split('-', 1)[0], page['source_rows'][0] + offset)
+            index = (page.get('source_path',page.get('path','')).rsplit('/', 1)[-1].split('-', 1)[0], page['source_rows'][0] + offset)
             assembled = result.setdefault(index, {})
             for column, cell in zip(page['source_columns'], row):
                 if column in assembled:
@@ -40,7 +41,7 @@ class ReferenceChapters(unittest.TestCase):
 
     def test_calculated_metric_profiles(self):
         checked = 0
-        paths = {p.get('source_table') for p in self.thread['pages'] if p.get('source_table') and
+        paths = {p.get('source_table') for topic in self.thread['pages'] for p in generator.table_blocks(topic) if p.get('source_table') and
                  (p['source_table'].startswith('02-METRIC/01-GENERAL/') or p['source_table'] == '02-METRIC/02-PRECISION')}
         for path in paths:
             for row in rows_for(self.thread, path):
@@ -58,6 +59,47 @@ class ReferenceChapters(unittest.TestCase):
                 self.assertGreater(Decimal(row[3]), Decimal(row[2]))
                 checked += 1
         self.assertEqual(checked, 706)
+
+    def test_general_metric_is_one_continuous_table(self):
+        from lxml import html as parser
+        topic=next(p for p in self.thread['pages'] if p['path']=='02-METRIC/01-GENERAL')
+        self.assertTrue(topic['continuous_table'] and topic['freeze_header'])
+        self.assertFalse(any(p['path'].startswith(topic['path']+'/') for p in self.thread['pages']))
+        self.assertEqual(sum(len(b['rows']) for b in generator.table_blocks(topic)),392)
+        for language in generator.LANGUAGES:
+            doc=parser.fromstring(generator.render(self.thread,topic,language))
+            self.assertEqual(len(doc.xpath('//table')),1)
+            self.assertEqual(len(doc.xpath('//thead')),1)
+            self.assertEqual(len(doc.xpath('//tbody/tr')),392)
+            self.assertEqual(len(doc.xpath('//tr[@class="preferred-row"]')),25)
+            self.assertFalse(doc.xpath('//ul[@class="topics"]'))
+            self.assertFalse(doc.xpath('//details//img'))
+
+    def test_precision_metric_has_frozen_header(self):
+        from lxml import html as parser
+        topic=next(p for p in self.thread['pages'] if p['path']=='02-METRIC/02-PRECISION')
+        for language in generator.LANGUAGES:
+            doc=parser.fromstring(generator.render(self.thread,topic,language))
+            self.assertEqual(len(doc.xpath('//div[contains(@class,"table-scroll--frozen")]')),1)
+            self.assertEqual(len(doc.xpath('//thead')),1)
+
+    def test_merged_metric_preserves_original_rows_and_assets(self):
+        from lxml import html as parser
+        topic=next(p for p in self.thread['pages'] if p['path']=='02-METRIC/01-GENERAL')
+        root=ROOT/self.thread['root']/topic['path']
+        archive=root/'0000-index/retained-source'
+        records=json.loads((archive/'manifest.json').read_text(encoding='utf-8'))['files']
+        self.assertEqual(len(records),73)
+        for record in records:self.assertEqual(hashlib.sha256((archive/record['file']).read_bytes()).hexdigest(),record['sha256'])
+        rows=[]
+        for record in records:
+            if not record['original_path'].endswith('/index_en.html'):continue
+            doc=parser.fromstring((archive/record['file']).read_text(encoding='utf-8'))
+            rows.extend([[cell.text_content() for cell in row] for row in doc.xpath('//tbody/tr')])
+        current=parser.fromstring(generator.render(self.thread,topic,'en'))
+        self.assertEqual([[cell.text_content() for cell in row] for row in current.xpath('//tbody/tr')],rows)
+        self.assertEqual(len(rows),392)
+        self.assertEqual([p.name for p in root.iterdir() if p.is_dir()],['0000-index'])
 
     def test_engagement_ranges_and_duplicate_source(self):
         first = rows_for(self.thread, '06-TRAPEZOID/03-ENGAGE')
@@ -121,6 +163,18 @@ class ReferenceChapters(unittest.TestCase):
         # The vertical rounding cutback is H/6, independently checking tangency.
         self.assertAlmostEqual(radius * (1 / math.sin(theta) - 1), h_triangle / 6, places=12)
         self.assertEqual(profile.TARGET.read_text(encoding='utf-8'), profile.drawing())
+        from lxml import etree
+        drawing=etree.fromstring(profile.drawing().encode())
+        leader=drawing.xpath('//*[@id="radius-leader"]')[0]
+        x1,y1,x2,y2=map(float,re.findall(r'-?\d+(?:\.\d+)?',leader.get('d')))
+        _,depth,root_radius=profile.geometry(300)
+        cx,cy=320,110+depth-root_radius
+        self.assertAlmostEqual(math.hypot(x2-cx,y2-cy),root_radius,places=4)
+        # The leader must pass through the arc center, with its arrow at the arc.
+        self.assertLess(abs((x2-x1)*(cy-y2)-(y2-y1)*(cx-x2)),.02)
+        marker=drawing.xpath('//*[@id="radius-arrow"]')[0]
+        self.assertEqual(marker.get('refX'),'10')
+        self.assertEqual(leader.get('marker-end'),'url(#radius-arrow)')
         for name in ['01.png', '02.png', 'nakres.png']:
             self.assertFalse((profile.TARGET.parent / name).exists())
         for relative in ['05-PIPE/0000-index/01.png', '05-PIPE/0000-index/nakres.png',

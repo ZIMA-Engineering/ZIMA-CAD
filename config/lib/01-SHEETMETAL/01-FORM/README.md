@@ -6,13 +6,25 @@ four completed native definitions.
 | Definition | Placement | Geometry |
 | --- | --- | --- |
 | `CornerGusset90.prtz` | Two outer flat faces adjoining one 90-degree Bend, one longitudinal positioning reference | Solid Cut, linked outward surface with full stock thickness, exact outer Bend-radius trim and both transition Fillets |
-| `VentilationWindow.prtz` | One outer sheet face, two positioning references and angle | Cutting Sketch followed by an outward surface with full stock thickness |
+| `VentilationWindow.prtz` | One sheet face, two positioning references and angle | Cutting Sketch followed by a surface seated at the selected face, facing into the sheet, with full stock thickness |
 | `DimpledHole.prtz` | One outer sheet face | Formed hole with an enlarged opening, flat precut and two concentric construction circles as its manufacturing symbol |
 | `BridgeLance.prtz` | One outer sheet face | Bridge lance with a rectangular replacement region, empty flat precut and a construction rectangle symbol |
 
 All definitions keep `FORM_CUT` before `FORM`, followed by `FORM_FLAT` and
 `FORM_SYMBOL`. Body names identify the roles, independently of list order.
 Keep ordinary Part ownership, history and one-way dependencies.
+
+All three planar definitions use the same stock-side convention:
+the authored skin starts at the selected face and grows into it. Insertion
+reverses the source attachment normal while retaining its X axis and datum;
+thickness uses the opposite surface side. Selecting the opposite stock face
+reverses the spatial result, without translating the authored starting skin.
+The replacement cut remains two-sided through the stock.
+Bridge Lance consumes its complete symmetric extrusion, including both native
+surface shells. Existing inserted definitions remain independent; use Replace
+definition explicitly to adopt revised factory data. Existing inserted models
+need explicit Regenerate with the current runtime to use its revised insertion
+direction and thickness side.
 
 In the corner, edit the closed solid in `FORM_CUT`. `FORM` uses **Surfaces from
 Body** with that preceding Body as its source and the two closing planes removed;

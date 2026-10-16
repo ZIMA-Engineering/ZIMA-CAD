@@ -9,6 +9,19 @@ generator=importlib.util.module_from_spec(spec);spec.loader.exec_module(generato
 
 
 class LogicalReferences(unittest.TestCase):
+    def test_long_references_keep_headers_visible(self):
+        checked=0
+        for name in ['unit','general','tolerance','thread','shaft','fastener','remaining']:
+            data=generator.load_data(ROOT/f'tools/data/{name}-tables.json')
+            for topic in data['pages']:
+                if max((len(block['rows']) for block in generator.table_blocks(topic)),default=0)<16:continue
+                self.assertTrue(topic.get('freeze_header'),(name,topic['path']))
+                for language in data['languages']:
+                    document=html.fromstring(generator.render(data,topic,language))
+                    self.assertTrue(document.xpath('//div[contains(@class,"table-scroll--frozen")]'),(name,topic['path'],language))
+                checked+=1
+        self.assertGreater(checked,100)
+
     def test_retired_source_evidence_and_archive_paths(self):
         retained=0
         for name in ['shaft','fastener']:
@@ -75,11 +88,11 @@ class LogicalReferences(unittest.TestCase):
                     text=generator.render(data,topic,lang)
                     document=html.fromstring(text)
                     screen_tables=document.xpath('//table[not(ancestor::div[contains(concat(" ",normalize-space(@class)," ")," print-only ")])]')
-                    self.assertEqual(len(screen_tables),len(list(generator.table_blocks(topic))))
+                    self.assertEqual(len(screen_tables),1 if topic.get('continuous_table') else len(list(generator.table_blocks(topic))))
                     self.assertIn(f'<html lang="{lang}">',text)
                     for figure in topic.get('figures',[]):
                         self.assertLess(text.index('<figure'),text.index('<table>'))
-        self.assertEqual(pages,287)
+        self.assertEqual(pages,281)
         self.assertGreater(sections,pages)
 
     def test_analytical_examples_and_unit_factors(self):

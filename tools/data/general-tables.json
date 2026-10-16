@@ -5615,7 +5615,8 @@
       "sources": [
         "iso2538"
       ],
-      "diagram": "slope"
+      "diagram": "slope",
+      "freeze_header": true
     },
     {
       "path": "04-SLOPES/03-RATIOS",
@@ -6472,7 +6473,8 @@
       ],
       "sources": [
         "nist"
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "06-INCH-MM/02-FRACTIONS-01",
@@ -6748,7 +6750,8 @@
       ],
       "sources": [
         "nist"
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "07-SHEETS",

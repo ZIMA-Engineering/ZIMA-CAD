@@ -5667,7 +5667,6 @@
         6,
         7
       ],
-      "heading": "logical_title_01-SHAFT-END/03-TORQUE_01_1_0",
       "figures": [
         {
           "path": "../../0000-index/shaft-ends.svg",
@@ -5882,7 +5881,19 @@
           "source_path": "01-SHAFT-END/03-TORQUE/02-C02-R001"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "continuous_table": true,
+      "continuous_headers": [
+        "sym_d [mm]",
+        "sym_T [N·m] | τ=10 MPa",
+        "sym_T [N·m] | τ=14 MPa",
+        "sym_T [N·m] | τ=20 MPa",
+        "sym_T [N·m] | τ=28 MPa",
+        "sym_T [N·m] | τ=40 MPa",
+        "sym_T [N·m] | τ=56 MPa",
+        "sym_T [N·m] | τ=80 MPa",
+        "sym_T [N·m] | τ=112 MPa"
+      ]
     },
     {
       "path": "02-KNURLING",
@@ -6753,7 +6764,6 @@
       "review": "historical",
       "source_path": "03-FINE/03-ACCURACY/01-C02-R001",
       "id": "283c4ca2-af00-5d2c-96b0-7ee3ed15d69e",
-      "heading": "title_03-FINE/03-ACCURACY_01_1_0",
       "sections": [
         {
           "path": "03-FINE/03-ACCURACY",
@@ -6892,7 +6902,8 @@
           "heading": "title_03-FINE/03-ACCURACY_02_1_0"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "continuous_table": true
     },
     {
       "path": "04-STRAIGHT",

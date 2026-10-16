@@ -658,9 +658,10 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
             const auto distance=kernel::sheet_material::dot(kernel::sheet_material::sub({p.X(),p.Y(),p.Z()},position),normal);
             low=std::min(low,distance);high=std::max(high,distance);
         }
-        check(low>=-thickness-1e-7&&high>2.*thickness,"Window must grow outside its selected face without protruding through the opposite stock face");
+        check(low<-2.*thickness&&high<=1e-7,"Window must grow into its selected face without shifting the starting skin");
         const auto preview=document::sheet_form_preview_edges(feature.sheet_form);
-        check(std::ranges::any_of(preview,[](const auto& edge){return std::ranges::any_of(edge.points,[](const auto& p){return p.y>0.;});}),"Window preview has no outward geometry");
+        check(std::ranges::any_of(preview,[](const auto& edge){return std::ranges::any_of(edge.points,[](const auto& p){return p.y<-1.;});})&&
+            std::ranges::all_of(preview,[](const auto& edge){return std::ranges::all_of(edge.points,[](const auto& p){return p.y<=1e-7;});}),"Window preview does not face into the selected support");
         std::cout<<"Window signed extent from selected outer face=["<<low<<','<<high<<"]"<<std::endl;
     };
     verify_window_side(results.back());

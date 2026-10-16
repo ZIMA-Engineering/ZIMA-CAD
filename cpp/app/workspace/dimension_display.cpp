@@ -8,6 +8,7 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
+    if(reference.semantic_key.starts_with("form:internal:"))return;
     if (reference.instance_path==workspace_.active_occurrence_path())
         if (auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_))
             if (dialog->set_pending_dimension_layout(reference,layout)) {
@@ -35,6 +36,7 @@ void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeRe
     }
 }
 void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewer::ViewerCandidate& candidate) {
+    if(candidate.semantic_key.starts_with("form:internal:"))return;
     if(properties_dialog_)return;
     const auto source=viewer_->dimension_source(candidate);if(!source)return;
     if(source->reference.instance_path!=workspace_.active_occurrence_path())return;
@@ -55,7 +57,7 @@ void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewe
     if(entries)if(const auto* value=zima::kernel::find_dimension_layout(*entries,source->reference))initial=*value;
     auto* dialog=new DimensionPropertiesDialog(*source,initial,[this,id,reference=source->reference](auto layout){if(workspace_.active_document_id()!=id)throw std::runtime_error("Active dimension document changed");commit_dimension_layout(reference,layout);},this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;viewer_->set_dimension_layout_editable(false);
-    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;viewer_->set_dimension_layout_editable(!sketch_universal_dimension_active_&&!sweep_profile_sketch_draft_);});
+    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;viewer_->set_dimension_layout_editable(!sketch_universal_dimension_active_&&!sweep_profile_sketch_draft_,[](const auto& ref){return !ref.semantic_key.starts_with("form:internal:");});});
     dialog->show();
 }
 
@@ -134,8 +136,11 @@ void AssemblyWorkspaceWindow::show_parameter_dimensions(
             }
         }
     }
-    state_->setText(tr(
-        "Parametrické kóty jsou zobrazené. Dvojklikem na kótu upravíte hodnotu."));
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    const auto* feature=part?part->session.document().find_container(owner_id):nullptr;
+    state_->setText(feature&&feature->feature_kind==document::FeatureKind::SheetForm
+        ?tr("Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.")
+        :tr("Parametrické kóty jsou zobrazené. Dvojklikem na kótu upravíte hodnotu."));
 }
 
 bool AssemblyWorkspaceWindow::is_edge_treatment_feature(

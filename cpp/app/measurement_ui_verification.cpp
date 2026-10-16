@@ -55,8 +55,8 @@ try{
         mouse(QEvent::MouseMove,at,Qt::NoButton);mouse(QEvent::MouseButtonPress,at,button);
         mouse(QEvent::MouseButtonRelease,at,button);flush();
     };
-    const auto select=[&](viewer::CandidateKind kind,const std::string& occurrence=std::string{},const std::string& owner=std::string{}){
-        const auto matches=[&](const auto& c){return c.kind==kind&&(occurrence.empty()||c.instance_path==occurrence)&&(owner.empty()||c.owner_id==owner);};
+    const auto select=[&](viewer::CandidateKind kind,const std::string& occurrence=std::string{},const std::string& owner=std::string{},const std::string& key=std::string{}){
+        const auto matches=[&](const auto& c){return c.kind==kind&&(occurrence.empty()||c.instance_path==occurrence)&&(owner.empty()||c.owner_id==owner)&&(key.empty()||c.semantic_key==key);};
         for(int y=20;y<view->height()-20;y+=5)for(int x=20;x<view->width()-20;x+=5){
             const QPointF at(x,y);const auto candidates=view->selection_candidates_at(at);
             if(std::ranges::none_of(candidates,matches))continue;
@@ -73,6 +73,21 @@ try{
     };
     // Closing a Drawing property window must release the shared command owner
     // before returning to Part and invoking the View inspector.
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CIRCULAR_MEASUREMENT_ONLY")) {
+        auto circular=document::PartDocument::create_default();auto feature=test::circular_feature(circular,5,12);circular.history={feature};
+        const auto cache=kernel.evaluate_history(circular.kernel_operations());const auto file=directory/"measurement-circle-ui.prtz";circular.save(file,cache);
+        check(window.open_document_path(QString::fromStdString(file.string())),"Cannot open circular measurement fixture");flush();view->fit_all();flush();
+        const auto before=window.execute_console_command("documents").data;action->trigger();flush();
+        const auto& edges=view->mesh().original_references.edges;
+        const auto edge=std::ranges::find_if(edges,[](const auto& e){return e.measured_length&&std::abs(*e.measured_length-10*std::numbers::pi)<1e-7;});
+        check(edge!=edges.end(),"Circular measurement fixture has no exact rim");
+        select(viewer::CandidateKind::Edge,edge->reference.instance_path,edge->reference.owner_id,edge->reference.semantic_key);
+        const auto label=dialog()->findChild<QLabel*>("measurementInfo1")->text();
+        check(label.contains(QObject::tr("Průměr: %1").arg("10mm"))&&label.contains(QObject::tr("Délka: %1").arg("31,416mm")),"Circular measurement omits its localized diameter or length");
+        if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE"));
+        dialog()->reject();flush();check(window.execute_console_command("documents").data==before,"Circular measurement inspection changed document revision");
+        std::cout<<"Circular measurement exact diameter, length, localization and unchanged revision passed\n";return 0;
+    }
     auto drawing=drawing::DrawingDocument::create_default();
     drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(part.document_id,path,bodies.back().mesh));
     const auto drawing_path=directory/"measurement-lifecycle.drwz";drawing.save(drawing_path);

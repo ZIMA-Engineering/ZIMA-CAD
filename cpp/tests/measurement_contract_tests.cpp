@@ -243,6 +243,23 @@ try{
         require(measured&&measured->values.length&&!measured->values.length->approximate,"Exact edge length unavailable");
         if(std::abs(*edge.measured_length-10*std::numbers::pi)<1e-6){
             circular_edge=true;near(measured->values.length->value,10*std::numbers::pi,"Circle length follows tessellation",1e-6);
+            require(measured->diameter.has_value(),"Exact circular edge diameter missing after reopen");
+            near(*measured->diameter,10.,"Circular edge diameter is wrong",1e-8);
+            auto arc=edge;
+            // A quarter-circle has the same diameter, independently of its
+            // length and of the number of display samples.
+            const double w=std::sqrt(.5);
+            arc.exact_spline=kernel::BSplineGeometry{2,{{5,0,0},{5,5,0},{0,5,0}},{0,0,0,1,1,1},{1,w,1}};
+            arc.points={{5,0,0},{0,5,0}};arc.measured_length=2.5*std::numbers::pi;
+            kernel::ViewerMesh probe;probe.edges={arc};
+            auto result=measurement::measure_entity(probe,{K::Curve,arc.reference.owner_id,arc.reference.semantic_key,arc.reference.instance_path});
+            require(result&&result->diameter,"Sparse circular arc lost its diameter");near(*result->diameter,10.,"Arc length was mistaken for circumference");
+            for(auto& p:arc.exact_spline->poles){p.x=100+2*p.x;p.y=-20+2*p.y;p.z=30;}
+            probe.edges={arc};result=measurement::measure_entity(probe,{K::Curve,arc.reference.owner_id,arc.reference.semantic_key,arc.reference.instance_path});
+            require(result&&result->diameter,"Transformed circle lost its diameter");near(*result->diameter,20.,"Scaled diameter is wrong");
+            arc.exact_spline->poles[1].x+=.1;probe.edges={arc};
+            result=measurement::measure_entity(probe,{K::Curve,arc.reference.owner_id,arc.reference.semantic_key,arc.reference.instance_path});
+            require(result&&!result->diameter,"Noncircular exact spline was reported as a circle");
         }
     }
     for(const auto& face:loaded.mesh.original_references.triangle_references){
@@ -257,7 +274,7 @@ try{
         }
     }
     require(circular_edge&&cylindrical_face,"Cylinder test did not exercise analytic metrics");
-    const auto& edge=loaded.mesh.original_references.edges.front();
+    const auto& edge=*std::ranges::find_if(loaded.mesh.original_references.edges,[](const auto& e){return e.measured_length&&std::abs(*e.measured_length-10*std::numbers::pi)<1e-6;});
     kernel::SavedMeasurement saved;saved.id="measurement-test";saved.name="Saved measurement";saved.after_object_id=cylinder.id;
     saved.references={{K::Curve,edge.reference.owner_id,edge.reference.semantic_key,{}}};
     saved.values={measurement::measure_entity(loaded.mesh,saved.references[0])->values};
@@ -270,6 +287,9 @@ try{
     const auto reloaded=document::PartDocument::load(directory/"measurement.prtz",&restored);
     require(reloaded.measurements==part.measurements,"Part lost saved measurement");
     require(!restored.empty()&&measurement::measure_entity(restored.back().mesh,saved.references[0]).has_value(),"Saved Part lost measurement reference");
+    const auto restored_circle=measurement::measure_entity(restored.back().mesh,reloaded.measurements.front().references.front());
+    require(restored_circle&&restored_circle->diameter,"Saved measurement lost its circular diameter on reopen");
+    near(*restored_circle->diameter,10.,"Reopened measurement diameter is wrong");
     auto assembly=assembly::AssemblyDocument::create_default();assembly.measurements={saved};
     assembly.save(directory/"measurement.asmz");
     require(assembly::AssemblyDocument::load(directory/"measurement.asmz").measurements==assembly.measurements,"Assembly lost saved measurement");

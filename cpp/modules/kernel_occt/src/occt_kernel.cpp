@@ -8873,23 +8873,80 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                     if(role=="shape"&&form->solid_opening_faces.empty()) {
                         profile("tools and source extraction");
+                        auto anchor=form->surface;
+                        // FORM owns the complete authored skin. A symmetric
+                        // surface extrusion can leave its two sides as separate
+                        // shells; ordinary face thickening intentionally consumes
+                        // only one shell. Sew those native patches here, using
+                        // the existing ancestry-preserving surface operation.
+                        TopTools_IndexedMapOfShape all_faces,anchor_faces;
+                        TopExp::MapShapes(source.shape,TopAbs_FACE,all_faces);
+                        for(TopExp_Explorer shell(source.shape,TopAbs_SHELL);shell.More();shell.Next()) {
+                            TopTools_IndexedMapOfShape members;TopExp::MapShapes(shell.Current(),TopAbs_FACE,members);
+                            if(std::ranges::any_of(source.faces,[&](const auto& f){return same_face_identity(f.reference,anchor)&&members.Contains(f.shape);})) {
+                                anchor_faces=members;break;
+                            }
+                        }
+                        if(all_faces.Extent()>1&&anchor_faces.Extent()!=all_faces.Extent()) {
+                            // The sides of a native symmetric extrusion already
+                            // share their junction edges. Combine those shells
+                            // without renaming any of their existing topology.
+                            TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+                            TopExp::MapShapesAndAncestors(source.shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
+                            std::set<int> connected{1};bool changed=true;
+                            while(changed) {
+                                changed=false;
+                                for(int i=1;i<=adjacency.Extent();++i) {
+                                    std::set<int> incident;
+                                    for(TopTools_ListIteratorOfListOfShape it(adjacency.FindFromIndex(i));it.More();it.Next())incident.insert(all_faces.FindIndex(it.Value()));
+                                    if(incident.size()>2)throw std::runtime_error("FORM definition calculation failed.");
+                                    if(std::ranges::any_of(incident,[&](int f){return connected.contains(f);}))
+                                        for(int f:incident)changed|=connected.insert(f).second;
+                                }
+                            }
+                            if(connected.size()==static_cast<std::size_t>(all_faces.Extent())) {
+                                BRepBuilderAPI_Sewing sewing(operation.boolean_tolerance,true,true,true,false);
+                                for(int i=1;i<=all_faces.Extent();++i)sewing.Add(all_faces(i));
+                                sewing.Perform();auto joined=sewing.SewedShape();
+                                if(joined.IsNull()||joined.ShapeType()!=TopAbs_SHELL||!BRepCheck_Analyzer(joined).IsValid())throw std::runtime_error("FORM definition calculation failed.");
+                                const auto selected=std::ranges::find_if(source.faces,[&](const auto& f){return same_face_identity(f.reference,anchor);});
+                                TopTools_IndexedMapOfShape joined_faces;TopExp::MapShapes(joined,TopAbs_FACE,joined_faces);
+                                if(selected==source.faces.end()||!joined_faces.Contains(selected->shape))throw std::runtime_error("FORM definition calculation failed.");
+                                // Joining must retain the chosen anchor's side;
+                                // sewing may orient the other extrusion half.
+                                if(joined_faces(joined_faces.FindIndex(selected->shape)).Orientation()!=selected->shape.Orientation())joined.Reverse();
+                                // No new junction is needed: every existing
+                                // source identity must survive this shell join.
+                                const auto rebind=[&](auto& bindings,TopAbs_ShapeEnum kind) {
+                                    TopTools_IndexedMapOfShape members;TopExp::MapShapes(joined,kind,members);
+                                    for(auto& item:bindings) {
+                                        const auto index=members.FindIndex(item.shape);
+                                        if(!index)throw std::runtime_error("FORM definition calculation failed.");
+                                        item.shape=members(index);
+                                    }
+                                };
+                                rebind(source.faces,TopAbs_FACE);rebind(source.edges,TopAbs_EDGE);rebind(source.vertices,TopAbs_VERTEX);
+                                source.shape=joined;
+                            }else {
+                                SurfaceSewingRequest sewing;sewing.tolerance=operation.boolean_tolerance;
+                                for(const auto& face:source.faces)sewing.faces.push_back(face.reference);
+                                const auto sewn_key="sewn:face:from:"+encoded_topology_reference(anchor);
+                                source=make_sewn_surface_data(sewing,"FORM_SKIN",source.shape,source.faces,source.edges,source.vertices);
+                                const auto selected=std::ranges::find_if(source.faces,[&](const auto& f){return f.reference.semantic_key==sewn_key;});
+                                if(selected==source.faces.end())throw std::runtime_error("FORM definition calculation failed.");
+                                anchor=selected->reference;
+                            }
+                        }
                         const auto thickened=make_thickened_surface_data(
-                            {form->surface,form->thickness,form->outward?SurfaceThicknessSide::First:SurfaceThicknessSide::Second,operation.boolean_tolerance},
+                            {anchor,form->thickness,!form->outward&&sheet_form_geometry::corner_definition(*form)?SurfaceThicknessSide::Second:SurfaceThicknessSide::First,operation.boolean_tolerance},
                             "FORM_THICKNESS",source.shape,source.faces,source.edges,source.vertices,true);
+                        if(!thickened.remaining.faces.empty())throw std::runtime_error("FORM definition calculation failed.");
                         source=thickened.operand;
                         profile("shell thickening and validation");
                     }
                     const auto scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==id;});
                     if(scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
                     auto placed=sheet_form_geometry::move(source,primitive_transform(scope->body.translation,scope->body.rotation_degrees));
-                    if(role=="shape"&&form->outward&&!outward_corner) {
-                        // An outward planar skin starts at the inner stock
-                        // level while its attachment datum is the outer face.
-                        // The positive normal offset then spans the real rim
-                        // thickness instead of merely touching the sheet.
-                        placed=sheet_form_geometry::move(placed,primitive_transform(
-                            sheet_material::mul(form->source_normal,-form->thickness),{}));
-                    }
                     return placed;
                 };
                 const auto shape_scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==form->shape_body;});

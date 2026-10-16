@@ -1104,6 +1104,7 @@
   "Uložit měření do historie zobrazeného dokumentu a zavřít.": "Save measurement in the displayed document’s history and close.",
   "X: %1   Y: %2   Z: %3": "X: %1   Y: %2   Z: %3",
   "Délka: %1": "Length: %1",
+  "Průměr: %1": "Diameter: %1",
   "Obsah: %1": "Area: %1",
   "Směr osy: %1; %2; %3": "Axis direction: %1; %2; %3",
   "Nekonečná referenční rovina": "Infinite reference plane",
@@ -2487,5 +2488,6 @@
   "Global filters: %1": "Global filters: %1",
   "Hidden names and patterns": "Hidden names and patterns",
   "Global file filters": "Global file filters",
-  "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "One name or wildcard pattern per line. Matches files and folders, without case sensitivity."
+  "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.",
+  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only."
 }

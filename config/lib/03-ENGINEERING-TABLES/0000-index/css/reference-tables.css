@@ -27,6 +27,10 @@ th, td { border:1px solid var(--line); padding:5px 8px; text-align:left; vertica
 thead th { background:var(--head); font-weight:600; }
 tbody th { font-weight:500; }
 tbody tr:nth-child(even) { background:var(--stripe); }
+.table-scroll table tbody tr.preferred-row > * { background:color-mix(in srgb,var(--paper) 86%,var(--link)); font-weight:600; }
+.row-legend { margin:0 0 8px; color:var(--muted); }
+.reference-profile { margin:0 0 12px; }
+.reference-profile summary { cursor:pointer; color:var(--link); }
 .formula { white-space:nowrap; font-family:"Segoe UI",Arial,sans-serif; font-style:normal; }
 .reference-diagram { display:block; width:220px; height:130px; margin:0 auto 10px; }
 .reference-figure { margin:8px 0 14px; text-align:center; font-size:13px; }

@@ -137,6 +137,7 @@ private:
         if(v.position)lines<<tr("X: %1   Y: %2   Z: %3").arg(
             number(v.position->x/length_scale_)+length_unit_,number(v.position->y/length_scale_)+length_unit_,number(v.position->z/length_scale_)+length_unit_);
         if(v.length)lines<<tr("Délka: %1").arg(format(*v.length,1,length_scale_,length_unit_));
+        if(geometry.diameter)lines<<tr("Průměr: %1").arg(format({*geometry.diameter,false},1,length_scale_,length_unit_));
         if(v.area)lines<<tr("Obsah: %1").arg(format(*v.area,2,length_scale_,length_unit_));
         if(v.volume)lines<<tr("Objem: %1").arg(format(*v.volume,3,length_scale_,length_unit_));
         if(v.mass)lines<<tr("Hmotnost: %1").arg(format(*v.mass,1,mass_scale_,mass_unit_));

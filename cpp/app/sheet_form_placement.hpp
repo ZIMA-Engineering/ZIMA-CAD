@@ -63,10 +63,10 @@ public:
         }
         inspected_={};refresh();
     }
-    void set_reference(std::size_t index,Reference reference,const QString& label) {
+    void set_reference(std::size_t index,Reference reference,const QString& label,bool retain_offset=true) {
         if(index>=3)return;reference.orientation_only=false;reference.orientation_drives_rotation=false;
         reference.orientation_role="none";reference.supports_offset=true;
-        reference.offset=index==0?0.:rows_[index].offset;
+        reference.offset=index==0?0.:retain_offset?rows_[index].offset:reference.offset;
         reference.measured_offset.reset();reference.picked_position.reset();
         rows_[index]=std::move(reference);labels_[index]=label;inspected_[index]=false;refresh();
     }

@@ -32,14 +32,14 @@ remain complete in HTML. Groups use real descendants, never unrelated previews.
 | Quantities and units | 20 | 100 |
 | Other General standards | 19 | 95 |
 | Tolerances | 54 | 270 |
-| Threads | 32 | 160 |
+| Threads | 26 | 130 |
 | Shafts, splines and gears | 35 | 175 |
 | Bolts, screws, nuts and washers | 73 | 365 |
 | Remaining chapters | 54 | 270 |
-| **Total** | **287** | **1,435** |
+| **Total** | **281** | **1,405** |
 
-The tree has **337 directories / 1,685 localized labels**. This follow-up removes
-418 redundant navigation directories from the 755-directory published tree.
+The tree has **332 directories / 1,660 localized labels**. These follow-ups remove
+423 redundant navigation directories from the 755-directory published tree.
 Related dimensional ranges share a document; useful technical topic groups
 remain. All numerical source values, evidence references and review limits are
 retained. Category logo-text SVGs follow the existing Symbols visual style.
@@ -82,6 +82,36 @@ not certify manufacturing limits or classes. The correction ledger preserves
 source discrepancies. Whitworth/metric/trapezoidal SVGs are original analytic
 figures, with independent angle/rounding checks. Identified copied figures are
 removed. Duplicate historical engagement tables await semantic review.
+
+The general-purpose metric reference is now one continuous 392-row table, from
+M1 through M300. Its header and identifying column remain fixed while its body
+scrolls. The five former range directories and the intermediate metric HTML
+landing page are retired. The metric folder uses native directory navigation
+for General use, Precision and Tolerances. A fully visible profile diagram and
+designation notes retain the explanatory material on the General use page.
+Twenty-five rows retain the original first-choice emphasis through color and
+weight, with a localized legend; the separate first/second-choice overview is
+retained as source evidence in the dataset. Every data row and all 73 retired
+files are retained and hashed under the General use `0000-index/retained-source`
+folder. Source row/column identities remain available for independent equation
+and preservation checks. Printing removes the scrolling limit and repeats the
+header on paginated A4 output. All five languages and Light/Dark presentation
+use the same values.
+
+Precision metric and Whitworth tables use the same frozen-header scrolling
+regions. Profile diagrams remain expanded. The Whitworth radius leader is
+radial to its analytic root circle, with the arrow tip on that circle and the
+R label aligned with the leader; its generator and independent geometric checks
+retain this relationship when the schematic is regenerated.
+
+An additional audit enabled the same frozen-header viewport in 46 existing long
+references: three general references, 36 tolerance references and seven thread
+references. This includes the inch overview and dimensions, trapezoidal dimensions
+and engagement, pipe dimensions, runouts and reliefs. A block with at least 16
+data rows is included in this audit; the viewport's existing 65vh maximum only
+scrolls when its actual rendered content exceeds that height. Existing shaft,
+fastener and remaining-reference frozen viewports are retained. Short topics
+remain unchanged. Screen scrolling never limits the printed table.
 
 `shaft-tables.json` preserves historical dimension/accuracy matrices and their
 source identities. Independent input is in `shaft-retained-source-tables.json`.
@@ -162,3 +192,7 @@ Shared C++, native formats, OCCT 8.0.0 and protected modeling contracts are
 unchanged by this library work. Linux execution requires its own host and is
 not claimed here. User configuration, models and custom artwork remain outside
 the change and committed-source package.
+
+## Continuous shaft reference tables (2026-10-16)
+
+Solid-shaft torsion now combines its two source blocks into one 30-row table. Fine-spline accuracy combines its two blocks into one 26-row table. Both use fixed headers and a scrolling body in all five languages. Columns are aligned by their original header identity; an em dash marks an absent source field. No engineering values are invented or discarded. Independent cell-by-cell tests, browser scrolling, full print output and native File Manager checks passed.

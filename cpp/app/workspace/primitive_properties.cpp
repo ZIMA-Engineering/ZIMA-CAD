@@ -1073,6 +1073,19 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (feature_kind != zima::document::FeatureKind::Extrusion)
             dialog->set_sheet_reference_geometry(reference_geometry);
         primitive_reference_geometry_ = std::move(reference_geometry);
+        if(feature_kind==zima::document::FeatureKind::SheetForm)dialog->set_sheet_form_draft_resolver([this,owner_id](auto& feature) {
+            const auto* owner=workspace_.open_part(owner_id);if(!owner)return false;
+            auto candidate=owner->session.document();
+            if(auto* existing=candidate.find_container(feature.id))*existing=feature;
+            else {candidate.insert_history_entry(zima::document::PartHistoryKind::Feature,feature.id);candidate.history.push_back(feature);}
+            const auto& input=owner->session.calculated_boundaries();
+            auto references=construction_reference_source_geometry(input);
+            const auto views=input.empty()?zima::document::HistoryReferenceViews{}:
+                zima::document::solid_state_reference_views(candidate,input.back(),references);
+            candidate.resolve_constructions(std::move(references),views);
+            feature.placement=candidate.find_container(feature.id)->placement;
+            return feature.placement.reference_valid;
+        });
         if(part)dialog->set_sheet_default_thickness(zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1));
         dialog->set_reference_request_callback(
             [this](std::size_t index) { start_primitive_reference_selection(index); });
@@ -1141,19 +1154,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // Match FORM confirmation's native Body-local frame, including
                 // the reference normal's exact orientation at Euler singularities.
                 // This is transient reference solving from cached packets only.
-                const auto* owner=workspace_.open_part(owner_id);
-                if(owner) {
-                    auto candidate=owner->session.document();
-                    if(auto* existing=candidate.find_container(resolved_preview.id))*existing=resolved_preview;
-                    else {candidate.insert_history_entry(zima::document::PartHistoryKind::Feature,resolved_preview.id);
-                        candidate.history.push_back(resolved_preview);}
-                    const auto& input=owner->session.calculated_boundaries();
-                    auto references=construction_reference_source_geometry(input);
-                    const auto views=input.empty()?zima::document::HistoryReferenceViews{}:
-                        zima::document::solid_state_reference_views(candidate,input.back(),references);
-                    candidate.resolve_constructions(std::move(references),views);
-                    placement=candidate.find_container(resolved_preview.id)->placement;
-                    placement_valid=placement.reference_valid;
+                {
+                    placement_valid=dialog->resolve_sheet_form_draft(resolved_preview);
                     base_rotation={placement.absolute_rotation_x,placement.absolute_rotation_y,placement.absolute_rotation_z};
                 }
             }

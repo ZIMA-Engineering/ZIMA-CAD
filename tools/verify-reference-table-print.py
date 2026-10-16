@@ -9,12 +9,15 @@ import pdfplumber
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', type=Path, default=Path(__file__).parent / 'data/unit-tables.json')
+    parser.add_argument('--topic', help='Verify one logical reference')
     args = parser.parse_args()
     repository = Path(__file__).resolve().parents[1]
     data = json.loads(args.data.read_text(encoding='utf-8'))
     evidence = repository / 'build/reference-table-verification' / args.data.stem
     results, failures = [], []
     for topic in data['pages']:
+        if args.topic and topic['path']!=args.topic:
+            continue
         if not topic['rows']:
             continue
         for language in data['languages']:

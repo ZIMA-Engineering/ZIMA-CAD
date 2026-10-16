@@ -2726,7 +2726,56 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         } catch(const std::exception& failure){error_->setText(tr(failure.what()));return false;}
     }
     if(is_sheet_form()) {
-        sheet_form_placement_->set_reference(index,std::move(reference),label);
+        const bool corner=zima::document::stored_sheet_form_definition(initial_.sheet_form).corner();
+        auto current=values().placement;
+        if(!corner&&index>0) {
+            using namespace zima::kernel::sheet_material;
+            const zima::kernel::Vec3 position{current.x,current.y,current.z};
+            // Measure in the same native Body frame used by preview and OK.
+            // Viewer face packets can choose a different in-plane Euler branch.
+            auto probe=values();probe.placement=zima::document::sheet_form_attachment(
+                probe.sheet_form.support,sheet_form_body_origin_,sheet_reference_geometry_,current,position);
+            probe.placement.references.front()=current.references.front();
+            probe.placement.references.back()=current.references.back();
+            probe.placement.absolute_rotation_y=0.;
+            if(!resolve_sheet_form_draft(probe))return false;
+            const auto& frame=probe.placement;
+            const zima::kernel::Vec3 angles{frame.rotation_x,frame.rotation_y,frame.rotation_z};
+            const auto normal=zima::document::construction_direction_from_local_axis("y",angles);
+            const auto same=[&](const auto& r){return r.owner_id==reference.owner_id&&r.semantic_key==reference.semantic_key&&r.instance_path==reference.instance_path;};
+            reference.supports_offset=true;
+            const auto point=std::ranges::find_if(sheet_reference_geometry_.points,[&](const auto& p){return same(p.reference);});
+            const bool plane=reference.semantic_key=="plane"||reference.semantic_key.starts_with("plane:")||reference.semantic_key.starts_with("origin:plane:")||
+                std::ranges::any_of(sheet_reference_geometry_.triangle_references,same);
+            if(plane) {
+                const auto distance=zima::document::measure_placement_reference_offset(reference,sheet_reference_geometry_,position);
+                if(!distance)return false;reference.offset=*distance;
+            }else if(point!=sheet_reference_geometry_.points.end()) {
+                const auto axis=zima::document::construction_direction_from_local_axis(index==1?"x":"z",angles);
+                reference.offset=dot(sub(position,point->position),axis);
+            }else {
+                zima::kernel::Vec3 anchor,direction;
+                const auto axis=std::ranges::find_if(sheet_reference_geometry_.axes,[&](const auto& a){return same(a.reference);});
+                if(axis!=sheet_reference_geometry_.axes.end()){anchor=axis->point;direction=axis->direction;}
+                else {
+                    const auto edge=std::ranges::find_if(sheet_reference_geometry_.edges,[&](const auto& e){return same(e.reference);});
+                    if(edge==sheet_reference_geometry_.edges.end()||edge->points.size()<2)return false;
+                    anchor=edge->points.front();direction=sub(edge->points.back(),anchor);
+                }
+                reference.offset=dot(sub(position,anchor),unit(cross(normal,direction)));
+            }
+        }
+        sheet_form_placement_->set_reference(index,std::move(reference),label,corner);
+        if(corner&&index==1) {
+            // Consume the ordinary two-plane placement for the pending frame.
+            // The station remains free until the third reference is entered.
+            const auto rows=sheet_form_placement_->references();auto frame=current;
+            auto top=rows[1];top.orientation_only=true;top.orientation_drives_rotation=true;
+            top.orientation_role="top";top.flip=!top.flip;
+            frame.references={rows[0],rows[1],rows.back(),top};
+            frame.absolute_rotation_y=0.;frame.rotation_offset_x=frame.rotation_offset_y=frame.rotation_offset_z=0.;
+            if(zima::document::resolve_placement(frame,sheet_reference_geometry_))placement_->initialize_numeric_values(frame);
+        }
         error_->clear();notify_preview();return true;
     }
     if((initial_.revolution.sheet_metal||

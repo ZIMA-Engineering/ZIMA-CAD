@@ -4,9 +4,13 @@
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/document/sheet_form_dimensions.hpp>
+#include <nlohmann/json.hpp>
+#include <cmath>
 namespace zima::workspace {
-bool commit_sheet_form(Workspace& live,const kernel::OcctKernel& kernel,
-        const std::string& id,document::HistoryContainer feature) {
+namespace {
+bool commit_form(Workspace& live,const kernel::OcctKernel& kernel,
+        const std::string& id,document::HistoryContainer feature,bool strict=false) {
     auto* state=live.open_part(id);
     if(!state||feature.feature_kind!=document::FeatureKind::SheetForm)
         throw std::invalid_argument("FORM requires an open Part.");
@@ -46,8 +50,33 @@ bool commit_sheet_form(Workspace& live,const kernel::OcctKernel& kernel,
     next.resolve_constructions(std::move(references),views);
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
+    if(strict){policy.reject_errors=true;policy.edited_history_limit.reset();}
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     if(next.serialized()==before.serialized()){state->session.update_calculated_boundaries(std::move(calculated));return false;}
     commit_part_document(live,id,std::move(next),std::move(calculated));return true;
+}
+}
+bool commit_sheet_form(Workspace& live,const kernel::OcctKernel& kernel,
+        const std::string& id,document::HistoryContainer feature) {
+    return commit_form(live,kernel,id,std::move(feature));
+}
+bool set_sheet_form_dimension(Workspace& live,const kernel::OcctKernel& kernel,
+        const std::string& id,const std::string& owner,const std::string& key,double value) {
+    const auto* state=live.open_part(id);const auto* existing=state?state->session.document().find_container(owner):nullptr;
+    if(!existing||existing->feature_kind!=document::FeatureKind::SheetForm)throw std::invalid_argument("FORM requires an open Part.");
+    auto source=document::stored_sheet_form_definition(existing->sheet_form);
+    if(!document::edit_sheet_form_internal_dimension(source.part,key,value))return false;
+    const auto expected=document::sheet_form_internal_dimension_value(source.part,key);
+    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto calculated=calculate_part_with_resolved_references(kernel,source.part,source.calculated.get(),policy);
+    const auto actual=document::sheet_form_internal_dimension_value(source.part,key);
+    if(!expected||!actual||std::abs(*actual-*expected)>1e-10*(1.+std::abs(*expected))||
+        (*expected==0.&&std::signbit(*expected)!=std::signbit(*actual)))
+        throw std::invalid_argument("Zadanou hodnotu nelze použít: je mimo meze nebo odporuje vazbám skici.");
+    const auto definition=document::sheet_form_definition(source.part,calculated);
+    if(definition.bodies!=source.bodies)throw std::invalid_argument("FORM editing must preserve feature identity.");
+    auto feature=*existing;feature.sheet_form.surface=definition.surface;
+    feature.sheet_form.definition=std::make_shared<const std::string>(source.part.serialized(calculated).dump());
+    return commit_form(live,kernel,id,std::move(feature),true);
 }
 }

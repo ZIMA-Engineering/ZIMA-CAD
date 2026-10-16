@@ -1,4 +1,5 @@
 #include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/sheet_form_dimensions.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/placement_orientation.hpp>
@@ -20,6 +21,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepLProp_SLProps.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <TopoDS.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
@@ -209,6 +211,8 @@ void verify_corner_axis(const document::PartDocument& part,const document::Histo
 #include "corner_outward_form_experiment.inc"
 #include "dimpled_hole_form_verification.inc"
 int main(int argc,char** argv){try {
+    if(argc==3&&std::string_view(argv[1])=="--verify-form-dimensions")return verify_form_dimension_edits(argv[2]);
+    if(argc==4&&std::string_view(argv[1])=="--prepare-outward-planar")return prepare_outward_planar(argv[2],argv[3]);
     if(argc==4&&std::string_view(argv[1])=="--prepare-dimpled-hole")return prepare_dimpled_hole(argv[2],argv[3]);
     if(argc==3&&std::string_view(argv[1])=="--verify-dimpled-hole")return verify_library_form(argv[2],true);
     if(argc==4&&std::string_view(argv[1])=="--prepare-bridge-lance")return prepare_bridge_lance(argv[2],argv[3]);

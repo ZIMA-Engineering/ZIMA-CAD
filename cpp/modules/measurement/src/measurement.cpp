@@ -230,6 +230,48 @@ Pair plane_line(P origin,P normal,P line,P direction){
 }
 }
 
+namespace {
+std::optional<double> circular_diameter(const kernel::ViewerEdge& edge) {
+    if(!edge.exact_spline)return {};
+    const auto& s=*edge.exact_spline;
+    // Native circles/arcs are exact piecewise rational quadratic Beziers.
+    // Prove the circle equation on every span, rather than inferring it from
+    // the displayed polyline or dividing an arc's length by pi.
+    if(s.degree!=2||s.poles.size()<3||s.poles.size()%2==0||s.weights.size()!=s.poles.size()||s.knots.size()!=s.poles.size()+3)return {};
+    for(std::size_t i=3;i<s.poles.size();i+=2)if(s.knots[i]!=s.knots[i+1])return {};
+    std::vector<P> samples;
+    for(std::size_t i=0;i+2<s.poles.size();i+=2) {
+        samples.push_back(s.poles[i]);
+        const auto total=s.weights[i]+2*s.weights[i+1]+s.weights[i+2];
+        samples.push_back(mul(add(add(mul(s.poles[i],s.weights[i]),mul(s.poles[i+1],2*s.weights[i+1])),mul(s.poles[i+2],s.weights[i+2])),1./total));
+    }
+    samples.push_back(s.poles.back());const auto a=samples.front();auto b=a,c=a;double longest=0,area=0;
+    for(const auto& p:samples)if(const auto d=dot(sub(p,a),sub(p,a));d>longest){longest=d;b=p;}
+    const auto u=sub(b,a);
+    for(const auto& p:samples)if(const auto d=dot(cross(u,sub(p,a)),cross(u,sub(p,a)));d>area){area=d;c=p;}
+    if(longest<=0||area<=1e-16*longest*longest)return {};
+    const auto v=sub(c,a),n=cross(u,v);
+    const auto center=add(a,mul(add(mul(cross(v,n),dot(u,u)),mul(cross(n,u),dot(v,v))),1./(2*area)));
+    const auto r2=dot(sub(a,center),sub(a,center));const auto normal=unit(n);
+    if(!(r2>0)||!std::isfinite(r2))return {};
+    constexpr double choose2[]{1,2,1},choose4[]{1,4,6,4,1};
+    for(std::size_t span=0;span+2<s.poles.size();span+=2) {
+        double scale=0;for(int i=0;i<3;++i)scale=std::max(scale,s.weights[span+i]);
+        std::array<P,3> h;std::array<double,3> w;
+        for(int i=0;i<3;++i) {
+            const auto delta=sub(s.poles[span+i],center);
+            if(std::abs(dot(delta,normal))>std::sqrt(r2)*1e-9)return {};
+            w[i]=s.weights[span+i]/scale;h[i]=mul(delta,w[i]);
+        }
+        for(int k=0;k<=4;++k) {
+            double residual=0;
+            for(int i=0;i<3;++i){const int j=k-i;if(j>=0&&j<3)residual+=choose2[i]*choose2[j]/choose4[k]*(dot(h[i],h[j])-r2*w[i]*w[j]);}
+            if(std::abs(residual)>r2*1e-9)return {};
+        }
+    }
+    return 2*std::sqrt(r2);
+}
+}
 std::optional<MeasurementGeometry> measure_entity(const kernel::ViewerMesh& mesh,const kernel::MeasurementReference& request){
     MeasurementGeometry out;out.reference=request;
     const auto collect=[&](const auto& source){
@@ -246,7 +288,7 @@ std::optional<MeasurementGeometry> measure_entity(const kernel::ViewerMesh& mesh
                 if(edge.infinite||request.kind==K::Axis){out.axis={{edge.points.front(),unit(sub(edge.points.back(),edge.points.front()))}};out.values.position=edge.points.front();return;}
                 double length=0;
                 for(std::size_t i=1;i<edge.points.size();++i){out.segments.push_back({edge.points[i-1],edge.points[i]});length+=norm(sub(edge.points[i],edge.points[i-1]));}
-                out.approximate=!straight(edge.points);out.values.length=V{edge.measured_length.value_or(length),!edge.measured_length&&out.approximate};return;
+                out.approximate=!straight(edge.points);out.values.length=V{edge.measured_length.value_or(length),!edge.measured_length&&out.approximate};out.diameter=circular_diameter(edge);return;
             }
         if(request.kind==K::Face||request.kind==K::Plane||request.kind==K::Object){
             std::map<std::tuple<std::string,std::string,std::string>,kernel::FaceReference> face_areas;

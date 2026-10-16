@@ -22,6 +22,7 @@ async function main() {
     const topicOption = process.argv.indexOf('--topic');
     const prefixOption = process.argv.indexOf('--topic-prefix');
     const topics = data.pages.filter(topic => topic.rows.length &&
+      (!process.argv.includes('--only-frozen') || topic.freeze_header) &&
       (topicOption < 0 || topic.path === process.argv[topicOption + 1]) &&
       (prefixOption < 0 || topic.path.startsWith(process.argv[prefixOption + 1])));
     if (!topics.length) throw Error('No reference topics selected');

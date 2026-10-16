@@ -1,4 +1,5 @@
 #include "resource_icon.hpp"
+#include "thumbnail_image.hpp"
 #include "../common/interaction_colors.hpp"
 #include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
@@ -25,6 +26,7 @@
 #include "surface_wire_visibility.hpp"
 #include "confirmed_face_hit.hpp"
 #include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/sheet_form_dimensions.hpp>
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/bend.hpp>

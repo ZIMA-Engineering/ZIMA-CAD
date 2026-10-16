@@ -12145,7 +12145,8 @@
           "path": "../../../../0000-index/diagrams/fit.svg",
           "caption": "own_schematic"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/02-HOLE-FITS",
@@ -12708,7 +12709,8 @@
         }
       ],
       "source_path": "02-ISO-FITS/03-HOLE-500/01-C02-R001",
-      "sections": []
+      "sections": [],
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/04-SHAFT-500",
@@ -12998,7 +13000,8 @@
         }
       ],
       "source_path": "02-ISO-FITS/04-SHAFT-500/01-C02-R001",
-      "sections": []
+      "sections": [],
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/05-HOLE-3150",
@@ -14321,7 +14324,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/01-A-D/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/01-A-D/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/02-E-EF",
@@ -14809,7 +14813,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/02-E-EF/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/02-E-EF/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/03-F-FG",
@@ -15297,7 +15302,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/03-F-FG/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/03-F-FG/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/04-G-H9",
@@ -15785,7 +15791,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/04-G-H9/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/04-G-H9/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/05-H10-H18",
@@ -16227,7 +16234,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/05-H10-H18/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/05-H10-H18/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/06-JS1-JS9",
@@ -16669,7 +16677,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/06-JS1-JS9/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/06-JS1-JS9/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/07-JS10-JS18",
@@ -17111,7 +17120,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/07-JS10-JS18/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/07-JS10-JS18/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/08-J-K",
@@ -17599,7 +17609,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/08-J-K/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/08-J-K/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/09-M-N",
@@ -18087,7 +18098,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/09-M-N/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/09-M-N/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/10-P-R",
@@ -18978,7 +18990,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/10-P-R/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/10-P-R/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/11-S-T",
@@ -21271,7 +21284,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/11-S-T/01-C04-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/11-S-T/01-C04-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/12-U-X",
@@ -22219,7 +22233,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/12-U-X/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/12-U-X/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/09-HOLES/13-Y-ZC",
@@ -22863,7 +22878,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/09-HOLES/13-Y-ZC/01-C03-R001"
+      "source_path": "02-ISO-FITS/09-HOLES/13-Y-ZC/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS",
@@ -23398,7 +23414,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/01-A-CD/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/01-A-CD/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/02-D-E",
@@ -23886,7 +23903,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/02-D-E/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/02-D-E/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/03-EF",
@@ -24505,7 +24523,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/04-F-FG/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/04-F-FG/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/05-G-H7",
@@ -24993,7 +25012,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/05-G-H7/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/05-G-H7/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/06-H8-H18",
@@ -25481,7 +25501,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/06-H8-H18/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/06-H8-H18/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/07-JS1-JS9",
@@ -25953,7 +25974,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/08-JS10-JS18/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/08-JS10-JS18/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/09-J-K",
@@ -26441,7 +26463,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/09-J-K/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/09-J-K/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/10-M-N",
@@ -27657,7 +27680,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/10-M-N/01-C04-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/10-M-N/01-C04-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/11-P-R",
@@ -28548,7 +28572,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/11-P-R/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/11-P-R/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/12-S-T",
@@ -29477,7 +29502,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/12-S-T/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/12-S-T/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/13-U-V",
@@ -30335,7 +30361,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/13-U-V/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/13-U-V/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/14-X-Y",
@@ -30899,7 +30926,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/14-X-Y/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/14-X-Y/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "02-ISO-FITS/10-SHAFTS/15-Z-ZC",
@@ -31463,7 +31491,8 @@
           "caption": "own_schematic"
         }
       ],
-      "source_path": "02-ISO-FITS/10-SHAFTS/15-Z-ZC/01-C03-R001"
+      "source_path": "02-ISO-FITS/10-SHAFTS/15-Z-ZC/01-C03-R001",
+      "freeze_header": true
     },
     {
       "path": "03-ANGLES",
@@ -32060,7 +32089,8 @@
           "path": "01.png",
           "caption": "figure_caption_04-GEOMETRY/01-FORM"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "04-GEOMETRY/02-ROUNDNESS",
@@ -34614,7 +34644,8 @@
           "path": "01.png",
           "caption": "figure_caption_04-GEOMETRY/05-CYLINDER"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "04-GEOMETRY/06-FLATNESS",
@@ -35701,7 +35732,8 @@
           "path": "01.png",
           "caption": "figure_caption_04-GEOMETRY/06-FLATNESS"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "01-GENERAL/01-C03-R001",
@@ -36524,7 +36556,8 @@
           "path": "../../../../0000-index/diagrams/fit.svg",
           "caption": "own_schematic"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "03-ANGLES/01-C03-R001",
@@ -36861,7 +36894,8 @@
           "path": "../../0000-index/01.png",
           "caption": "figure_caption_03-ANGLES"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "03-ANGLES/02-C03-R001",
@@ -37078,7 +37112,8 @@
           "path": "../../0000-index/01.png",
           "caption": "figure_caption_03-ANGLES"
         }
-      ]
+      ],
+      "freeze_header": true
     },
     {
       "path": "04-GEOMETRY/00-C02-R001",
@@ -37317,7 +37352,8 @@
         1
       ],
       "review": "source_data",
-      "id": "80eb7d3a-25ea-5f4b-b107-648e414fb966"
+      "id": "80eb7d3a-25ea-5f4b-b107-648e414fb966",
+      "freeze_header": true
     }
   ],
   "original_source_sha256": {

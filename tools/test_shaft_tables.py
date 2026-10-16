@@ -185,5 +185,26 @@ class ShaftTables(unittest.TestCase):
         self.assertAlmostEqual(abs(theta), math.pi / 40, delta=.00003)
 
 
+class MergedShaftReferences(unittest.TestCase):
+    def test_continuous_tables_align_every_original_cell(self):
+        from lxml import html
+        for path in ['01-SHAFT-END/03-TORQUE','03-FINE/03-ACCURACY']:
+            page=next(p for p in generator.load_data(ROOT/'tools/data/shaft-tables.json')['pages'] if p['path']==path)
+            data=generator.load_data(ROOT/'tools/data/shaft-tables.json')
+            blocks=list(generator.table_blocks(page))
+            headers=page.get('continuous_headers') or list(dict.fromkeys(h for b in blocks for h in b['headers']))
+            for language in data['languages']:
+                doc=html.fromstring(generator.render(data,page,language))
+                tables=doc.xpath('//div[contains(@class,"table-scroll--frozen")]/table')
+                self.assertEqual(len(tables),1)
+                rows=tables[0].xpath('./tbody/tr');self.assertEqual(len(rows),sum(len(b['rows']) for b in blocks))
+                index=0
+                for block in blocks:
+                    for source_row in block['rows']:
+                        values=[''.join(c.itertext()) for c in rows[index]]
+                        for key,value in zip(block['headers'],source_row):self.assertEqual(values[headers.index(key)].replace(',','.'),value.replace(',','.'))
+                        for key in set(headers)-set(block['headers']):self.assertEqual(values[headers.index(key)],'—')
+                        index+=1
+
 if __name__ == '__main__':
     unittest.main()

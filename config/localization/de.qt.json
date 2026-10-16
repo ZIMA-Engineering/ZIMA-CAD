@@ -1104,6 +1104,7 @@
   "Uložit měření do historie zobrazeného dokumentu a zavřít.": "Messung im Verlauf des angezeigten Dokuments speichern und schließen.",
   "X: %1   Y: %2   Z: %3": "X: %1   Y: %2   Z: %3",
   "Délka: %1": "Länge: %1",
+  "Průměr: %1": "Durchmesser: %1",
   "Obsah: %1": "Fläche: %1",
   "Směr osy: %1; %2; %3": "Achsenrichtung: %1; %2; %3",
   "Nekonečná referenční rovina": "Unendliche Referenzebene",
@@ -2487,5 +2488,6 @@
   "Global filters: %1": "Globale Filter: %1",
   "Hidden names and patterns": "Ausgeblendete Namen und Muster",
   "Global file filters": "Globale Dateifilter",
-  "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "Ein Name oder Platzhaltermuster pro Zeile. Gilt für Dateien und Ordner ohne Beachtung der Groß-/Kleinschreibung."
+  "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "Ein Name oder Platzhaltermuster pro Zeile. Gilt für Dateien und Ordner ohne Beachtung der Groß-/Kleinschreibung.",
+  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Steuernde FORM-Bemaßungen ändern nur diese Einfügung. Referenzbemaßungen sind schreibgeschützt."
 }

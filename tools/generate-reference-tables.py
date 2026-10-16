@@ -134,12 +134,22 @@ def render(data, page, language):
     if page.get('review'):
         parts.append('<p class="review-status">' + tr(page['review']) + '</p>')
     if page["rows"]:
+        if page.get('row_legend'):
+            parts.append('<p class="row-legend">' + tr(page['row_legend']) + '</p>')
         for figure in page.get('figures', []):
             parts.append('<figure class="reference-figure"><img src="' + html.escape(figure['path'], quote=True)
                          + '" alt="' + tr(figure['caption']) + '"><figcaption>' + tr(figure['caption']) + '</figcaption></figure>')
         if page.get('diagram'):
             parts.append(diagram(page['diagram']))
         screen_blocks = list(table_blocks(page))
+        if page.get('continuous_table'):
+            headers=page.get('continuous_headers') or list(dict.fromkeys(key for block in screen_blocks for key in block['headers']))
+            assert all(block['headers'][0]==headers[0] and set(block['headers'])<=set(headers) for block in screen_blocks)
+            rows=[];preferred=[]
+            for block in screen_blocks:
+                preferred.extend(len(rows)+i for i in block.get('preferred_rows', []))
+                rows.extend([[dict(zip(block['headers'],row)).get(key,'—') for key in headers] for row in block['rows']])
+            screen_blocks=[{**page,'headers':headers,'rows':rows,'preferred_rows':preferred}]
         split_print = any(len(block['headers']) > 7 for block in screen_blocks)
         output_blocks = [(block, False) for block in screen_blocks]
         if split_print:
@@ -160,7 +170,8 @@ def render(data, page, language):
             focus = f' tabindex="0" role="region" aria-label="{tr(block.get("heading", page["title"]))}"' if frozen else ''
             parts += [f'<div class="table-scroll{frozen}"{focus}><table>', f'<caption>{tr(page["title"])}</caption>',
                       '<thead><tr>' + ''.join(f'<th scope="col">{tr(key)}</th>' for key in block["headers"]) + '</tr></thead><tbody>']
-            for row in block["rows"]:
+            preferred=set(block.get('preferred_rows', []))
+            for row_index,row in enumerate(block["rows"]):
                 cells = []
                 for column, cell in enumerate(row):
                     tag = 'th scope="row"' if column == 0 else 'td'
@@ -171,7 +182,7 @@ def render(data, page, language):
                         value = mathematical(cell, language)
                         tag += ' class="formula"'
                     cells.append(f'<{tag}>{value}</{ending}>')
-                parts.append('<tr>' + ''.join(cells) + '</tr>')
+                parts.append(('<tr class="preferred-row">' if row_index in preferred else '<tr>') + ''.join(cells) + '</tr>')
             parts += ['</tbody></table></div>']
             if split_print:
                 parts.append('</div>')
@@ -206,6 +217,11 @@ def main():
     args = parser.parse_args()
     data = load_data(args.data)
     root = REPOSITORY / data.get("root", str(ROOT.relative_to(REPOSITORY)))
+    for retired in data.get('retired_directories', []):
+        target=(root/retired).resolve()
+        assert target.is_relative_to(root.resolve()) and retired not in {p['path'] for p in data['pages']}
+        if target.exists():
+            raise SystemExit(f'Retired reference directory reappeared: {target.relative_to(REPOSITORY)}')
     # Reviewed legacy neutral-language pages would otherwise override the
     # automatic directory overview. Remove only the exact captured source file.
     for legacy in data.get('legacy_index_files', []):
