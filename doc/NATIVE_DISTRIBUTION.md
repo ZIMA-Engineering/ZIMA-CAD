@@ -2,6 +2,19 @@
 
 ## Scope and status
 
+Signed Windows [2026101603](releases/2026101603.md#windows-package-acceptance)
+was published at `2026-10-16T14:23:04Z` from immutable source commit
+`11a91d7082cde2dbdf92ba88fb7f40bc2f871017`. It adds associative bolt surface-contour
+dimensions, supported-angle Sketch editing, stable copied internal references,
+the repaired Ventilation Window, editable ISO 4017 M3–M6 library models and
+the engineering reference layout/illustration updates. Fresh candidate/signed
+smoke, all 28 factory loads, 4,361 exact committed resource comparisons,
+17 packaged GUI scenarios, two packaged native edit/persistence verifiers,
+production trust and all three anonymous public downloads pass. Signed 1602
+offers an installable update without installation or launcher/settings changes.
+Shared C++, OCCT 8.0.0, Qt 6.11.0 and the development BAT are retained;
+Linux execution and the linked finite contour/Sketcher limits remain explicit.
+
 Signed Windows [2026101601](releases/2026101601.md#windows-package-acceptance)
 was published at `2026-10-16T01:13:16Z`. It adds the Dimpled Hole and Bridge Lance
 factory FORMs, earlier-Sketch point extrusion limits, automatic Up to entry,
