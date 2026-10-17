@@ -48,7 +48,7 @@ def main():
     manifest=json.loads(args.manifest.read_text(encoding='utf-8'))
     cases=json.loads(args.verification.read_text(encoding='utf-8'))
     verified={v['filename']:v for v in cases}
-    assert len(verified)==len(cases)==len(manifest['variants'])==222
+    assert len(verified)==len(cases)==len(manifest['variants'])==200
     prepared=[];identities=set()
     for variant in manifest['variants']:
         name=variant['filename']
@@ -68,7 +68,7 @@ def main():
         values=json.loads(native['UserParameterValues']['data'])
         assert set(values['name'])==set(LANGUAGES) and float(values['mass'][''])>0,name
         labels={key:{language:native['UserParameterLabels'][key+'\\'+language] for language in LANGUAGES}
-            for key in ('name','standard','stock','material','product_grade','quantity','mass')}
+            for key in ('name','standard','stock','material','quantity','mass')}
         prepared.append((variant,source,image,values,labels))
     references=[]
     for standard in sorted({v['standard'] for v in manifest['variants']}):
@@ -76,19 +76,20 @@ def main():
         representative=next(v for v in manifest['variants'] if v['standard']==standard and
             v['diameter_mm']==8 and (not standard.startswith('ČSN') or not v['fine_pitch']))
         source=args.references/folder/(Path(representative['filename']).stem+'-REFERENCE')
-        for extension in ('.prtz','.drwz','.png'):
-            assert source.with_suffix(extension).is_file(),source
-        native_part=configparser.RawConfigParser();native_part.read(source.with_suffix('.prtz'),encoding='utf-8')
+        extensions=('.prtz','.drwz','.png',*('_'+language+'.png' for language in LANGUAGES))
+        for extension in extensions:
+            assert Path(str(source)+extension).is_file(),source
+        native_part=configparser.RawConfigParser();native_part.read(Path(str(source)+'.prtz'),encoding='utf-8')
         identity=native_part['Document']['document_id']
         assert identity not in identities,'Reference Part must have an independent native identity'
         identities.add(identity)
-        native=configparser.RawConfigParser();native.read(source.with_suffix('.drwz'),encoding='utf-8')
+        native=configparser.RawConfigParser();native.read(Path(str(source)+'.drwz'),encoding='utf-8')
         drawing=json.loads(native['Document']['param.cpp_drawing'])
-        assert drawing['source_path']==source.with_suffix('.prtz').name
+        assert drawing['source_path']==source.name+'.prtz'
         assert all(v['source_path']==drawing['source_path'] for s in drawing['sheets'] for v in s['views'])
         family=next(v['family'] for v in manifest['variants'] if v['standard']==standard)
-        for extension in ('.prtz','.drwz','.png'):
-            destination=LIBRARY/family/'0000-index'/source.with_suffix(extension).name
+        for extension in extensions:
+            destination=LIBRARY/family/'0000-index'/(source.name+extension)
             if destination.exists():raise RuntimeError(f'Reference artwork already exists: {destination}')
         references.append((family,source))
     # Nothing is installed until every candidate and every required image passes.
@@ -98,16 +99,15 @@ def main():
         thumbnails=index/'thumbnails';thumbnails.mkdir(parents=True,exist_ok=True)
         shutil.copy2(source,folder/source.name)
         shutil.copy2(image,thumbnails/image.name)
-        ini=changes.setdefault(index/'metadata.ini',{'Directory':{'Parameters':'name, standard, stock, material, product_grade, quantity, mass','AutoIndex':'true'},'Parameters':{},'Parts':{},'Files':{}})
+        ini=changes.setdefault(index/'metadata.ini',{'Directory':{'Parameters':'name, standard, stock, material, quantity, mass','AutoIndex':'true'},'Parameters':{},'Parts':{},'Files':{}})
         # QSettings list syntax is authored directly after serializing scalar values.
         stem=source.stem
         for key,translations in labels.items():
             for language,label in translations.items():ini['Parameters'][key+'\\Label\\'+language]=label
-        for key in ('name','standard','stock','material','product_grade','quantity','mass'):
+        for key in ('name','standard','stock','material','quantity','mass'):
             for language,value in values[key].items():
                 ini['Parts'][stem+'\\'+key+('\\'+language if language else '')]=value
         for key,labels in {
-            'product_grade':dict(cs='Výrobní třída',en='Product grade',de='Produktklasse',fr='Grade de produit',ru='Класс точности изготовления'),
             'mass':dict(cs='Hmotnost [kg]',en='Mass [kg]',de='Masse [kg]',fr='Masse [kg]',ru='Масса [kg]')}.items():
             for language,label in labels.items():ini['Parameters'][key+'\\Label\\'+language]=label
         modified=datetime.fromtimestamp(source.stat().st_mtime,timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
@@ -115,15 +115,16 @@ def main():
             stem+'\\Thumbnail':'0000-index/thumbnails/'+image.name})
     for family,source in references:
         index=LIBRARY/family/'0000-index'
-        for extension in ('.prtz','.drwz','.png'):
-            destination=index/source.with_suffix(extension).name
+        for extension in ('.prtz','.drwz','.png',*('_'+language+'.png' for language in LANGUAGES)):
+            original=Path(str(source)+extension)
+            destination=index/original.name
             if destination.exists():raise RuntimeError(f'Reference artwork already exists: {destination}')
-            shutil.copy2(source.with_suffix(extension),destination)
+            shutil.copy2(original,destination)
     for path,values in changes.items():
         update_ini(path,values)
         # Parameters is a QStringList, rather than a quoted scalar containing commas.
-        text=path.read_text(encoding='utf-8').replace('Parameters="name, standard, stock, material, product_grade, quantity, mass"',
-            'Parameters=name, standard, stock, material, product_grade, quantity, mass')
+        text=path.read_text(encoding='utf-8').replace('Parameters="name, standard, stock, material, quantity, mass"',
+            'Parameters=name, standard, stock, material, quantity, mass')
         path.write_text(text,encoding='utf-8')
     print(f'Installed {len(prepared)} native fasteners, thumbnails and {len(references)} native reference Drawings')
 

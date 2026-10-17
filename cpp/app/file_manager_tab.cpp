@@ -131,6 +131,11 @@ QString localized_index_file(const QString& directory, QString language) {
               << QStringLiteral("index_%1.htm").arg(selected);
     }
     names << QStringLiteral("index.html") << QStringLiteral("index.htm");
+    for (const auto& selected : languages) {
+        names << QStringLiteral("01_%1.html").arg(selected)
+              << QStringLiteral("01_%1.htm").arg(selected);
+    }
+    names << QStringLiteral("01.html") << QStringLiteral("01.htm");
     for (const auto& name : names) {
         const QString candidate = index.filePath(name);
         if (QFileInfo(candidate).isFile() && QFileInfo(candidate).isReadable()) return candidate;
@@ -369,7 +374,8 @@ QIcon compact_preview_icon(const QString& path) {
 
 bool legacy_project(const QString& directory) {
     const QDir index(QDir(directory).filePath(QStringLiteral("0000-index")));
-    const bool html = !index.entryList({QStringLiteral("index_*.html"),QStringLiteral("index.html")},QDir::Files).isEmpty();
+    const bool html = !index.entryList({QStringLiteral("index_*.html"),QStringLiteral("index.html"),
+        QStringLiteral("01_*.html"),QStringLiteral("01.html")},QDir::Files).isEmpty();
     const bool image = !first_existing_image(directory,{},QStringLiteral("cs"),{QStringLiteral("01")}).isEmpty();
     return html && image;
 }

@@ -20,15 +20,15 @@ def thumbnail(native, path, variant, output):
     width, height = sheet['width_mm'], sheet['height_mm']
     r = variant['across_flats_mm'] / math.sqrt(3)
     half_flats = variant['across_flats_mm'] / 2
-    horizontal = math.sqrt(2) * (r + half_flats)
-    vertical = math.sqrt(2/3) * (variant['length_mm'] + variant['head_height_mm'] + r + half_flats)
+    horizontal = math.sqrt(2/3) * (variant['length_mm'] + variant['head_height_mm'] + r + half_flats)
+    vertical = math.sqrt(2) * (r + half_flats)
     scale = min(90/horizontal, 65/vertical)
-    center_y = -math.sqrt(2/3) * (variant['length_mm'] - variant['head_height_mm']) / 2
-    camera = {'horizontal':[1/math.sqrt(2),-1/math.sqrt(2),0],
-        'vertical':[1/math.sqrt(6),1/math.sqrt(6),-math.sqrt(2/3)],
+    center_x = math.sqrt(2/3) * (variant['length_mm'] - variant['head_height_mm']) / 2
+    camera = {'horizontal':[-1/math.sqrt(6),-1/math.sqrt(6),math.sqrt(2/3)],
+        'vertical':[1/math.sqrt(2),-1/math.sqrt(2),0],
         'depth':[-1/math.sqrt(3),-1/math.sqrt(3),-1/math.sqrt(3)]}
     native.run('drawing.view.create', sheet=sheet['sheet'], source=source, camera=camera,
-        x_mm=width/2, y_mm=height/2-center_y*scale, scale=scale, display_style='shaded_with_edges')
+        x_mm=width/2+center_x*scale, y_mm=height/2, scale=scale, display_style='shaded_with_edges')
     native.run('export.image', path=str(output), sheet=sheet['sheet'], dpi=81.28,
         crop_mm=[width/2-50, height/2-37.5, 100, 75])
     native.run('close', discard=True)

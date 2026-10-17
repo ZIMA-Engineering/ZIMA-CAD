@@ -134,11 +134,61 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
-        if(argc==3&&std::string(argv[1])=="--rebase-reference-drawing") {
+        if(argc==4&&std::string(argv[1])=="--illustration-texts") {
             const auto path=fs::absolute(fs::u8path(argv[2]));
-            auto source_path=path;source_path.replace_extension(".prtz");
+            auto drawing=drawing::DrawingDocument::load(path);
+            Json specification;std::ifstream input(fs::u8path(argv[3]));input>>specification;
+            require(drawing.sheets.size()==1,"Factory illustration must have one sheet");
+            auto& sheet=drawing.sheets.front();
+            std::erase_if(sheet.texts,[](const auto& text){return text.id.find(":illustration:")!=std::string::npos;});
+            const auto retained_texts=sheet.texts.size();
+            sheet.title_block_locale=specification.at("locale").get<std::string>();
+            for(const auto& note:specification.at("texts")) {
+                drawing::DrawingText text;text.id=drawing.document_id+":illustration:"+std::to_string(sheet.texts.size());
+                text.presentation.text=note.at("text").get<std::string>();
+                text.presentation.position={note.at("x_mm"),note.at("y_mm")};
+                text.presentation.height=note.value("height_mm",2.5);
+                text.presentation.pen=drawing::DrawingPen::Green;
+                text.presentation.font="osifont";
+                sheet.texts.push_back(std::move(text));
+            }
+            drawing.save(path);
+            require(drawing::DrawingDocument::load(path).sheets.front().texts.size()==retained_texts+specification.at("texts").size(),
+                "Localized illustration texts did not persist");
+            std::cout<<"Native illustration text and locale saved\n";return 0;
+        }
+        if((argc==3&&std::string(argv[1])=="--rebase-reference-drawing")||
+           (argc==5&&std::string(argv[1])=="--adopt-reference-source")) {
+            const auto path=fs::absolute(fs::u8path(argv[2]));
+            auto source_path=argc==5?fs::absolute(fs::u8path(argv[3])):path;
+            if(argc==3)source_path.replace_extension(".prtz");
+            const auto output=argc==5?fs::absolute(fs::u8path(argv[4])):path;
             const auto source=document::PartDocument::load(source_path);
             auto drawing=drawing::DrawingDocument::load(path);
+            if(std::string(argv[1])=="--adopt-reference-source") {
+                for(auto& sheet:drawing.sheets)for(auto& view:sheet.views) {
+                    require(view.source_document_id==source.document_id,"Retarget all real views before adopting a reference source");
+                    // Projection has already supplied current source geometry.
+                    // Transfer the pattern's explicit display choices by its
+                    // real native feature/semantic identity, never stale curves.
+                    for(auto& current:view.model_annotations)if(current.source.document_id==source.document_id) {
+                        const auto old=std::ranges::find_if(view.model_annotations,[&](const auto& value) {
+                            return value.source.document_id!=source.document_id&&value.kind==current.kind&&
+                                value.source.owner_id==current.source.owner_id&&value.source.semantic_id==current.source.semantic_id&&
+                                value.source.instance_path==current.source.instance_path;
+                        });
+                        if(old!=view.model_annotations.end()) {
+                            current.visible=old->visible;current.view_layout=old->view_layout;current.paper_handles=old->paper_handles;
+                        }
+                    }
+                    std::erase_if(view.model_annotations,[&](const auto& value){return value.source.document_id!=source.document_id;});
+                    for(const auto& value:view.model_annotations)require(!value.visible||!value.unresolved,
+                        "Visible pattern annotation failed to retarget to its current native source");
+                }
+                for(const auto& old:drawing.data_sources())if(old.document_id!=source.document_id)
+                    static_cast<void>(drawing.remove_data_source(old.document_id));
+                drawing.source_document_id=source.document_id;drawing.source_name=source_path.stem().string();
+            }
             require(drawing.source_document_id==source.document_id,"Reference Drawing source identity mismatch");
             drawing.source_path=source_path.filename();
             for(auto& item:drawing.sources) {
@@ -157,8 +207,9 @@ int main(int argc,char** argv) {
                         "Reference dimension unresolved after source rebasing");
                 }
             }
-            drawing.save(path);
-            require(drawing::DrawingDocument::load(path).source_path==source_path.filename(),"Relative native source path did not persist");
+            if(argc==5)drawing.name=output.stem().string();
+            drawing.save(output);
+            require(drawing::DrawingDocument::load(output).source_path==source_path.filename(),"Relative native source path did not persist");
             std::cout<<"Native reference Drawing source rebased to sibling Part\n";
             return 0;
         }

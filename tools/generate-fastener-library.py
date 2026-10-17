@@ -14,7 +14,7 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = ROOT / 'config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD'
-TEMPLATE = LIBRARY / '03-FULL-AB/HHS-ISO4017-M3x20.prtz'
+TEMPLATE = LIBRARY / '03-FULL-AB/HHS-ISO4017-M03.0x020.prtz'
 SHAFT = '01a14429e3207acba34fc9c038cdcc7f'
 HEAD = '01a14429e3207acba34fc9c038cdcc90'
 BEARING = '01a14429e3207acba34fc9c038cdcd01'
@@ -141,14 +141,7 @@ def finalize(native, variant, output):
         if parameter['key'] == 'mass':
             parameter['labels'] = dict(cs='Hmotnost [kg]',en='Mass [kg]',de='Masse [kg]',
                 fr='Masse [kg]',ru='Масса [kg]')
-    quality = {'key': 'product_grade', 'labels': {'cs': 'Výrobní třída',
-        'en': 'Product grade', 'de': 'Produktklasse', 'fr': 'Grade', 'ru': 'Класс точности'},
-        'values': variant.get('product_grade_values', {'': variant['product_grade']})}
-    existing = next((parameter for parameter in parameters if parameter['key'] == 'product_grade'), None)
-    if existing is None:
-        parameters.append(quality)
-    else:
-        existing.update(quality)
+    parameters=[parameter for parameter in parameters if parameter['key']!='product_grade']
     native.run('document.parameters.set', parameters=parameters)
     stock = '"M" & d1 & "x" & d12'
     if variant['fine_pitch']:

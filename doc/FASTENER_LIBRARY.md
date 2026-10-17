@@ -1,19 +1,19 @@
 # Native fastener library
 
-The hexagon-head library defines one representative length per supported diameter,
-pitch and product-grade combination: 222 ordinary editable Parts under
+The hexagon-head library defines one representative length per supported diameter
+and pitch combination: 200 ordinary editable Parts under
 `config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD`.
 Models belong directly to their chapter. Reference documents, illustrations and
 thumbnails belong in `0000-index`.
 
 | Standard | Geometry | Product grade | Models |
 | --- | --- | --- | ---: |
-| ISO 4014 | Partial coarse thread | A/B | 34 |
+| ISO 4014 | Partial coarse thread | A/B | 29 |
 | ISO 4016 | Partial coarse thread | C | 23 |
-| ISO 4017 | Full coarse thread | A/B | 34 |
+| ISO 4017 | Full coarse thread | A/B | 29 |
 | ISO 4018 | Full coarse thread | C | 23 |
-| ISO 8765 | Partial fine thread | A/B | 30 |
-| ISO 8676 | Full fine thread | A/B | 30 |
+| ISO 8765 | Partial fine thread | A/B | 24 |
+| ISO 8676 | Full fine thread | A/B | 24 |
 | CSN 02 1201 | Small head, partial thread | Historical precision class | 12 |
 | CSN 02 1205 | Small head, partial thread, locking hole | Historical precision class | 12 |
 | CSN 02 1207 | Small head, full thread | Historical precision class | 12 |
@@ -29,10 +29,10 @@ Dimension changes update stock metadata without renaming the file.
 
 ISO coarse A/B covers the table sizes M1.6–M64; grade C starts at M5. Fine-thread
 families cover the listed M8–M64 diameter/pitch combinations. Grade A requires
-`d <= 24` and `l <= min(10d, 150 mm)`. M16–M24 therefore also have longer B
-representatives; M27 and larger use B. Product grade is dimensional accuracy,
-separate from strength class. The original ISO 4017 M3x20, M4x20, M5x20 and M6x25
-filenames remain unchanged, without an added grade suffix.
+`d <= 24` and `l <= min(10d, 150 mm)`. Combined A/B chapters use one suitable
+representative, without extra long B copies. M27 and larger use B. Product grade
+is dimensional accuracy, separate from strength class. Grade remains a reviewed
+authoring input rather than an exposed native parameter or overview column.
 
 Partial lengths are selected from preferred lengths so the complete thread and
 runout stop before the underhead fillet. ISO thread length b uses the reviewed
@@ -80,10 +80,15 @@ tolerance-limit solids, or every available commercial length.
 
 ## Names, metadata and artwork
 
-Filenames use lowercase ASCII x, for example `HHB-ISO4014-M12x60-A.prtz` and
-`HHS-ISO8676-M10x1.25x40-A.prtz`. Product filenames are unique ignoring case.
+Filenames use lowercase ASCII x, for example `HHB-ISO4014-M12x060.prtz` and
+`HHS-ISO8676-M10x1.25x040.prtz`. Leading zeros provide ordinary text ordering
+within this finite library. Fractional small diameters share a decimal position
+(`M02.0`, `M02.5`, `M03.0`, `M03.5`); fine pitches have two decimals and lengths
+three digits. General file sorting is unchanged. Product filenames are unique
+ignoring case; native size designations, stock, standards and dimensions remain
+unpadded and independent of filenames.
 Native BOM fields include five-language name, standard, dimension-derived stock,
-material, product_grade, quantity=- and mass. Fine stock includes pitch. Relations
+material, quantity=- and mass. Fine stock includes pitch. Relations
 bind shaft diameter and extrusion length, rather than parsing filenames. Kilogram
 masses use six decimal places so small screws do not round to zero; dimension
 annotations retain their independent presentation precision.
@@ -96,9 +101,14 @@ Above M39, the grade C standards require agreement on mechanical properties;
 the stored 4.6 material remains a representative choice rather than evidence
 that such an agreement or manufacturing certification exists.
 
-Every product has a native isometric thumbnail. Each standard also has a native
-reference Drawing and rendered illustration with l, k, d and s attached to real
-geometry. Enlarged explanatory schematics remain separate from actual-model views.
+Every product has a horizontal native isometric thumbnail on white, with its
+head on the left. Each standard has an independent native reference Drawing
+derived from the user's authored two-view pattern, with its applicable dimensions
+attached to real geometry. Radius labels clear adjacent extension lines; historical
+15-degree chamfers use outside arrows. Captions and legends cover all five
+languages. Chapter `0000-index` directories retain neutral PNG/`01.html` fallbacks
+alongside localized PNG/`01_cs.html` variants. Existing index pages keep priority;
+when a localized illustration asset is unavailable, its neutral asset is used.
 
 ## Reproduction and acceptance
 
@@ -115,6 +125,12 @@ models as text:
    create native-derived artwork.
 6. `tools/install-fastener-library.py` requires complete matching verification
    records and every required image before installing factory candidates.
+
+For metadata-only consolidation, `tools/consolidate-fastener-library.py` uses
+native parameter commands and proves identical calculated-cache bytes and document
+identity. `tools/promote-consolidated-fasteners.py` requires the earlier native
+edit evidence and checks every retired file against Git before replacing it.
+User Projects and unrelated metadata rows are preserved.
 
 Disposable candidates/evidence stay under build. The original four-model
 `tools/verify-fastener-library.py` remains a focused regression. See the

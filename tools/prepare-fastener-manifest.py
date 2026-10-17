@@ -24,6 +24,17 @@ NAMES = {
 LENGTHS = [3,4,5,6,8,10,12,16,20] + list(range(25,101,5)) + list(range(110,201,10)) + list(range(220,501,20))
 
 
+def library_filename(variant):
+    """Finite library ordering only; never change the native size designation."""
+    d=variant['diameter_mm']
+    # M2/M2.5 and M3/M3.5 need a common decimal position as well as padding.
+    diameter=f'{d:04.1f}' if d%1 or d in (2,3) else f'{int(d):02d}'
+    pitch=f'x{variant["pitch_mm"]:.2f}' if variant['fine_pitch'] else ''
+    prefix='HHS' if variant['full_thread'] else 'HHB'
+    standard=variant['standard'].replace('ČSN','CSN').replace(' ','')
+    return f'{prefix}-{standard}-M{diameter}{pitch}x{int(variant["length_mm"]):03d}.prtz'
+
+
 def prepare():
     geometry = json.loads((ROOT / 'tools/data/hex-fastener-geometry.json').read_text(encoding='utf-8'))
     rows = {row[0]: row for row in geometry['sizes']}
@@ -50,15 +61,13 @@ def prepare():
             _, coarse, flats, head, radius, bearing_a, bearing_bc = rows[d]
             if grade_c and d < 5:
                 raise ValueError('Grade C starts at M5')
-            grades = ['C'] if grade_c else (['A', 'B'] if 16 <= d <= 24 else ['A'] if d < 16 else ['B'])
+            grades = ['C'] if grade_c else ['A'] if d <= 24 else ['B']
             for grade in grades:
                 if full:
                     desired = {3:20,4:20,5:20,6:25}.get(d, min(4*d,200))
                 else:
                     short_b = {1.6:9,2:10,2.5:11,3:12,3.5:13,4:14}.get(d, 2*d+6)
                     desired = max(5*d, short_b + 5*coarse + max(2*coarse, radius))
-                if grade == 'B' and d <= 24:
-                    desired = max(desired, 160)
                 length = next(value for value in LENGTHS if value >= desired)
                 if length > min(10*d, 200 if full else 500):
                     raise ValueError(f'Nonstandard length {standard} M{d:g} {grade}: {length}')
@@ -140,6 +149,9 @@ def prepare():
         'CSN 02 1205': 'https://nahledy.normy.biz/n.php?i=222',
         'CSN 02 1207': 'https://nahledy.normy.biz/n.php?i=223',
         'CSN 02 1208': 'https://nahledy.normy.biz/nahled.php?i=224'}
+    for variant in variants:
+        variant['full_thread']=variant['filename'].startswith('HHS-')
+        variant['filename']=library_filename(variant)
     return dict(sources=sources, catalog_corrections=corrections, variants=variants)
 
 

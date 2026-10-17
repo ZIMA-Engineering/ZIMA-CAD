@@ -1176,6 +1176,8 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_native_documents_tests tests/native_documents_tests.cpp)
     add_executable(zima_cpp_fastener_library_contract_tests tests/fastener_library_contract_tests.cpp)
     target_link_libraries(zima_cpp_fastener_library_contract_tests PRIVATE zima_workspace TKTopAlgo)
+    add_executable(zima_cpp_silhouette_ui_contract_tests tests/silhouette_ui_contract_tests.cpp)
+    target_link_libraries(zima_cpp_silhouette_ui_contract_tests PRIVATE zima_workspace zima_viewer)
     add_executable(zima_cpp_drawing_projection_benchmark tests/drawing_projection_benchmark.cpp)
     target_link_libraries(zima_cpp_drawing_projection_benchmark PRIVATE zima_workspace)
     target_link_libraries(zima_cpp_native_documents_tests PRIVATE zima_workspace)
@@ -1418,7 +1420,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_bolt_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup
         --working-directory "${CMAKE_BINARY_DIR}/bolt-sketch-ui-contract")
     set_tests_properties(zima_cpp_bolt_sketch_ui_contract PROPERTIES
-        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_BOLT_SKETCH_ONLY=1;ZIMA_BOLT_SOURCE=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/HHS-ISO4017-M3x20.prtz"
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_BOLT_SKETCH_ONLY=1;ZIMA_BOLT_SOURCE=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/HHS-ISO4017-M03.0x020.prtz"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_sketch_relation_command_tests tests/sketch_relation_command_tests.cpp)
     target_link_libraries(zima_cpp_sketch_relation_command_tests PRIVATE zima_command_host)

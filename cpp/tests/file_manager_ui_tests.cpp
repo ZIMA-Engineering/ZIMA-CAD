@@ -479,6 +479,17 @@ int main(int argc,char** argv){
 
         first.navigate(html_directory);application.processEvents();auto* overview_stack=first.findChild<QStackedWidget*>("fileManagerOverviewStack");auto* overview_web=first.findChild<QWebEngineView*>("fileManagerOverviewWeb");check(overview_stack&&overview_web&&overview_stack->currentWidget()==overview_web,"Localized HTML did not replace the automatic overview");check(wait_until([&]{return QDir::cleanPath(overview_web->url().toLocalFile())==QDir::cleanPath(html_index+"/index_cs.html");}),"The active-language HTML overview did not take precedence over index.html");first.navigate(project);check(overview_stack->currentWidget()==first.findChild<QWidget*>("fileManagerAutomaticOverview"),"Automatic overview was not restored for a directory without HTML");
 
+        { // Both localized artwork pages and the neutral fallback are optional.
+            for(const auto& name:{"01_cs.html","01.html"}){QFile page(html_index+"/"+name);check(page.open(QIODevice::WriteOnly),"Cannot create artwork HTML fixture");page.write("<!doctype html><title>Artwork</title>");}
+            first.navigate(html_directory);
+            check(wait_until([&]{return overview_web->url().toLocalFile().endsWith("/index_cs.html");}),"Artwork page replaced an existing index");
+            first.navigate(project);check(QFile::remove(html_index+"/index_cs.html")&&QFile::remove(html_index+"/index.html"),"Cannot retire index fixtures");
+            first.navigate(html_directory);
+            check(wait_until([&]{return overview_web->url().toLocalFile().endsWith("/01_cs.html");}),"Localized artwork page was not selected");
+            auto russian=settings;russian.language="ru";first.reload_settings(russian);
+            check(wait_until([&]{return overview_web->url().toLocalFile().endsWith("/01.html");}),"Missing artwork locale did not use the neutral fallback");
+            first.reload_settings(settings);first.navigate(project);
+        }
         auto files_settings=settings;files_settings.file_manager.default_view="files";
         zima::app::FileManagerTab second(files_settings,working,working);check(second.findChild<QTabWidget*>("fileManagerViews")->currentIndex()==1,"Initial Files preference was ignored");second.navigate(source);
         check(first.current_directory()==QDir::cleanPath(project)&&second.current_directory()==QDir::cleanPath(source),"File Manager tabs do not keep independent navigation state");

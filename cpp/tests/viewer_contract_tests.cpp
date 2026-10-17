@@ -2,6 +2,7 @@
 #include <zima/kernel/state_display.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
+#include <zima/viewer/silhouette.hpp>
 #include "../app/construction_reference_candidate_policy.hpp"
 #include "../app/sketch_point_pick_priority.hpp"
 
@@ -77,10 +78,47 @@ static void verify_picking_acceleration() {
     std::cout<<"Picking acceleration: "<<tested<<" complete candidate lists equal; changed-source rebuild passed\n";
 }
 
+static void verify_smooth_silhouettes() {
+    using namespace zima::viewer;
+    // An irregular triangulation edge is not the outline: the interpolated
+    // smooth-normal field crosses the triangle interior at x=0.
+    for(float radius:{.001F,.02F,.1F,1.F,100.F}) {
+        SmoothSilhouetteTriangle triangle{{QVector3D(-radius,0,0),QVector3D(radius,0,0),QVector3D(radius,radius,0)},
+            {QVector3D(-1,0,1),QVector3D(1,0,1),QVector3D(1,0,1)}};
+        for(float sign:{-1.F,1.F}) {
+            const auto segment=smooth_silhouette_segment(triangle,{sign,0,0});
+            require(segment.has_value(),"Smooth outline disappeared when view side reversed");
+            for(const auto& p:*segment)
+                require(std::abs(p.x())<radius*1e-6F&&p.y()>=0&&p.y()<=radius&&p.z()==0,
+                    "Smooth silhouette followed a mesh edge instead of the normal-field zero");
+        }
+        require(!smooth_silhouette_segment(triangle,{0,0,1}),"Front-facing smooth triangle gained an outline");
+        require(!smooth_silhouette_segment(triangle,{0,1,0}),"Tangent planar patch gained an internal stroke");
+        triangle.normals={QVector3D(0,0,1),QVector3D(1,0,1),QVector3D(-1,0,1)};
+        const auto vertex=smooth_silhouette_segment(triangle,{1,0,0});
+        require(vertex&&((*vertex)[0]==triangle.points[0]||(*vertex)[1]==triangle.points[0]),
+            "Outline through an exact native vertex is broken");
+        triangle.normals={QVector3D(0,0,1),QVector3D(0,0,1),QVector3D(1,0,1)};
+        const auto edge=smooth_silhouette_segment(triangle,{1,0,0});
+        require(edge&&((*edge)[0]-(*edge)[1]).length()>radius,
+            "An exactly tangent complete boundary was lost");
+    }
+    zima::kernel::ViewerMesh mesh;
+    mesh.vertices={{-1,0,0},{1,0,0},{1,1,0}};mesh.triangles={0,1,9,0,1,2};
+    mesh.triangle_references={{"invalid","face",{}},{"native","face",{}}};
+    const auto shaded=shaded_triangle_vertices(mesh);
+    require(smooth_silhouette_triangles(mesh,shaded).size()==1,
+        "Invalid mesh triangles shifted the smooth shading buffer");
+    mesh.triangle_references[1]={};
+    require(smooth_silhouette_triangles(mesh,shaded).empty(),
+        "Unreferenced faceted input lost its existing outline path");
+}
+
 int main() {
     try {
         verify_picking_acceleration();
         verify_treatment_surface_selection();
+        verify_smooth_silhouettes();
         {
             using namespace zima::kernel;
             using namespace zima::viewer;

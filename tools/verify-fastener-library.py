@@ -18,6 +18,11 @@ THREAD = '01a14429e3207acba34fc9c038cdccfe'
 VARIANTS = [(3, 20, .5), (4, 20, .7), (5, 20, .8), (6, 25, 1.)]
 
 
+def filename(diameter, length):
+    diameter_text=f'{diameter:04.1f}' if diameter in (2,3) else f'{diameter:02d}'
+    return f'HHS-ISO4017-M{diameter_text}x{length:03d}.prtz'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cli', type=Path, required=True)
@@ -26,7 +31,7 @@ def main():
     work.mkdir(parents=True)
     environment = os.environ | {'TEMP': str(work), 'TMP': str(work)}
     results = []
-    sources = {LIBRARY / f'HHS-ISO4017-M{d}x{length}.prtz': None for d, length, _ in VARIANTS}
+    sources = {LIBRARY / filename(d,length): None for d, length, _ in VARIANTS}
     for path in sources:
         sources[path] = hashlib.sha256(path.read_bytes()).hexdigest()
         matches = list((ROOT / 'config/lib/03-ENGINEERING-TABLES').rglob('*.prtz'))
@@ -52,7 +57,7 @@ def main():
             return run('feature.get', container=SHAFT)['parameters']['sides'][0]['length']
         try:
             for diameter, original, pitch in VARIANTS:
-                source = LIBRARY / f'HHS-ISO4017-M{diameter}x{original}.prtz'
+                source = LIBRARY / filename(diameter,original)
                 copy = work / source.name
                 run('open', path=str(source)); run('save_as', path=str(copy)); run('open', path=str(copy))
                 references = supports()

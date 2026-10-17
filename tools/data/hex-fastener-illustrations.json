@@ -1,0 +1,16 @@
+{
+  "legend": {
+    "l": {"cs":"délka šroubu","en":"fastener length","de":"Schraubenlänge","fr":"longueur de la vis","ru":"длина болта"},
+    "k": {"cs":"výška hlavy","en":"head height","de":"Kopfhöhe","fr":"hauteur de tête","ru":"высота головки"},
+    "d": {"cs":"jmenovitý průměr závitu","en":"nominal thread diameter","de":"Gewindenenndurchmesser","fr":"diamètre nominal du filetage","ru":"номинальный диаметр резьбы"},
+    "s": {"cs":"rozměr přes plochy","en":"width across flats","de":"Schlüsselweite","fr":"largeur sur plats","ru":"размер под ключ"},
+    "e": {"cs":"rozměr přes rohy, informativně","en":"width across corners, reference","de":"Eckmaß, Bezugsmaß","fr":"largeur sur angles, référence","ru":"размер по углам, справочный"},
+    "r": {"cs":"poloměr přechodu pod hlavou","en":"underhead fillet radius","de":"Unterkopfradius","fr":"rayon de raccordement sous tête","ru":"радиус перехода под головкой"},
+    "c": {"cs":"výška zvýšené dosedací plochy","en":"raised bearing-face height","de":"Höhe der erhöhten Auflagefläche","fr":"hauteur de la portée surélevée","ru":"высота выступающей опорной поверхности"},
+    "dw": {"cs":"průměr dosedací plochy","en":"bearing-face diameter","de":"Auflagedurchmesser","fr":"diamètre de la portée","ru":"диаметр опорной поверхности"},
+    "u": {"cs":"neúplný závit na konci","en":"incomplete thread at the end","de":"unvollständiges Gewinde am Ende","fr":"filetage incomplet en bout","ru":"неполная резьба на конце"},
+    "z1": {"cs":"délka sražení konce","en":"end-chamfer length","de":"Länge der Endfase","fr":"longueur du chanfrein en bout","ru":"длина фаски на конце"},
+    "b": {"cs":"délka závitu","en":"thread length","de":"Gewindelänge","fr":"longueur filetée","ru":"длина резьбы"},
+    "d1": {"cs":"průměr pojistného otvoru","en":"locking-hole diameter","de":"Durchmesser der Sicherungsbohrung","fr":"diamètre du trou de freinage","ru":"диаметр стопорного отверстия"}
+  }
+}

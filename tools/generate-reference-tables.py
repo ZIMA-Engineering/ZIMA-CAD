@@ -105,6 +105,10 @@ def load_data(source=DATA):
             root = REPOSITORY / data.get('root', str(ROOT.relative_to(REPOSITORY)))
             target = (root / page['path'] / '0000-index' / figure['path']).resolve()
             assert target.is_relative_to(REPOSITORY) and target.is_file(), figure['path']
+            for language, name in figure.get('localized_paths', {}).items():
+                assert language in LANGUAGES
+                localized_target = (root / page['path'] / '0000-index' / name).resolve()
+                assert localized_target.is_relative_to(REPOSITORY), name
     return data
 
 
@@ -156,14 +160,15 @@ def metadata(data, page):
     return "\n".join([*lines, *preserved, ""])
 
 
-def render(data, page, language):
+def render(data, page, language, illustrations_only=False):
     tr = lambda key: html.escape(localized(data, key, language))
     depth = len(Path(page["path"]).parts) if page["path"] else 0
     root = REPOSITORY / data.get("root", str(ROOT.relative_to(REPOSITORY)))
     stylesheet = REPOSITORY / "config/lib/03-ENGINEERING-TABLES/0000-index/css/reference-tables.css"
     css = os.path.relpath(stylesheet, root / page['path'] / '0000-index').replace('\\', '/')
     navigation = []
-    navigation.extend(f'<a lang="{lang}" hreflang="{lang}" href="index_{lang}.html"'
+    navigation_stem = '01' if illustrations_only else 'index'
+    navigation.extend(f'<a lang="{lang}" hreflang="{lang}" href="{navigation_stem}_{lang}.html"'
                       + (' aria-current="page"' if lang == language else '') + f'>{lang.upper()}</a>'
                       for lang in LANGUAGES)
     brand = ''
@@ -190,8 +195,13 @@ def render(data, page, language):
         if page.get('row_legend'):
             parts.append('<p class="row-legend">' + tr(page['row_legend']) + '</p>')
         for figure in page.get('figures', []):
-            parts.append('<figure class="reference-figure"><img src="' + html.escape(figure['path'], quote=True)
+            image = figure.get('localized_paths', {}).get(language, figure['path'])
+            if not (root / page['path'] / '0000-index' / image).is_file():
+                image = figure['path']
+            parts.append('<figure class="reference-figure"><img src="' + html.escape(image, quote=True)
                          + '" alt="' + tr(figure['caption']) + '"><figcaption>' + tr(figure['caption']) + '</figcaption></figure>')
+        if illustrations_only:
+            return '\n'.join(parts + ['</main></body></html>', ''])
         if page.get('diagram'):
             parts.append(diagram(page['diagram']))
         screen_blocks = screen_table_blocks(page)
@@ -326,6 +336,11 @@ def main():
                 if args.check:
                     raise SystemExit(f'Unexpected directory landing page: {path.relative_to(REPOSITORY)}')
                 path.unlink()  # Only the known generated landing pages, never directory contents.
+        if page.get('localized_illustrations'):
+            assert page.get('figures')
+            for language in LANGUAGES:
+                outputs[index / f'01_{language}.html'] = render(data, page, language, True)
+            outputs[index / '01.html'] = render(data, page, 'en', True)
     for path, text in outputs.items():
         if args.check:
             if not path.exists() or path.read_text(encoding='utf-8') != text:

@@ -21,6 +21,7 @@
 #include <zima/viewer/embedded_image.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
+#include <zima/viewer/silhouette.hpp>
 
 #include <QMatrix4x4>
 #include <QKeyEvent>
@@ -218,8 +219,11 @@ struct MeshView::Impl {
         QVector3D second;
         QVector3D normal_a;
         QVector3D normal_b;
+        bool smooth_face{};
+        bool operator==(const SilhouetteCandidate&)const=default;
     };
     std::vector<SilhouetteCandidate> silhouette_candidates;
+    std::vector<SmoothSilhouetteTriangle> smooth_silhouette_triangles;
     struct SilhouetteSource {
         std::size_t first_triangle{},second_triangle{},first_side{};
         std::size_t first_address{},second_address{},face_key{};
@@ -3112,7 +3116,12 @@ void MeshView::upload_mesh() {
         upload_timer.restart();
     };
     setProperty("gpuMeshUploadCount",property("gpuMeshUploadCount").toULongLong()+1);
+    auto previous_smooth=std::move(impl_->smooth_silhouette_triangles);
+    auto previous_candidates=std::move(impl_->silhouette_candidates);
+    const auto previous_direction=impl_->silhouette_view_direction;
+    const auto previous_vertex_count=impl_->silhouette_vertex_count;
     const auto vertex_data = shaded_triangle_vertices(impl_->mesh);
+    impl_->smooth_silhouette_triangles=zima::viewer::smooth_silhouette_triangles(impl_->mesh,vertex_data);
     impl_->vertices.bind();
     impl_->vertices.allocate(vertex_data.data(),
         static_cast<int>(vertex_data.size() * sizeof(float)));
@@ -3292,7 +3301,8 @@ void MeshView::upload_mesh() {
                 const auto first=triangle_points(source->first_triangle);
                 const auto second=triangle_points(source->second_triangle);
                 impl_->silhouette_candidates.push_back({first[source->first_side],first[(source->first_side+1)%3],
-                    triangle_normal(first),triangle_normal(second)});
+                    triangle_normal(first),triangle_normal(second),
+                    impl_->mesh.triangle_references[source->first_triangle].valid()});
             }
             setProperty("gpuAdjacencyReuseCount",property("gpuAdjacencyReuseCount").toULongLong()+1);
         } else {
@@ -3387,7 +3397,8 @@ void MeshView::upload_mesh() {
         for(const auto* entry:ordered) {
             const auto& records=entry->second;
             impl_->silhouette_candidates.push_back({records.first.first,
-                records.first.second,records.first.normal,records.second_normal});
+                records.first.second,records.first.normal,records.second_normal,
+                impl_->mesh.triangle_references[records.first_triangle].valid()});
             connectivity.sources.push_back({records.first_triangle,records.second_triangle,records.first_side,
                 entry->first.second.first,entry->first.second.second,
                 face_addresses.at(entry->first.first)});
@@ -3395,6 +3406,14 @@ void MeshView::upload_mesh() {
         impl_->silhouette_connectivity=std::move(connectivity);
         setProperty("gpuAdjacencyBuildCount",property("gpuAdjacencyBuildCount").toULongLong()+1);
         }
+    }
+    // Navigation may refresh screen-sized reference helpers without changing
+    // any surface. Retain the completed outline only when all of its actual
+    // point/normal/faceted-fallback inputs are exactly unchanged.
+    if(previous_smooth==impl_->smooth_silhouette_triangles&&
+       previous_candidates==impl_->silhouette_candidates) {
+        impl_->silhouette_view_direction=previous_direction;
+        impl_->silhouette_vertex_count=previous_vertex_count;
     }
     upload_phase("adjacency");
     if(qEnvironmentVariableIsSet("ZIMA_CPP_VERIFY_GPU_UPLOAD")||qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND")) {
@@ -3406,6 +3425,8 @@ void MeshView::upload_mesh() {
                 const std::array<float,3> coordinates{value.x(),value.y(),value.z()};
                 hash.addData(QByteArrayView(reinterpret_cast<const char*>(coordinates.data()),sizeof(coordinates)));
             }
+            const std::uint8_t smooth=edge.smooth_face;
+            hash.addData(QByteArrayView(reinterpret_cast<const char*>(&smooth),sizeof(smooth)));
         }
         setProperty("gpuMeshUploadDigest",hash.result().toHex());
     }
@@ -4069,7 +4090,7 @@ if (impl_->show_origins) {
     // Python's _draw_gpu_silhouette_edges() in zima_cad/viewer.py: only in
     // the line-drawing display modes, never in plain Shaded.
     if (impl_->display_mode != DisplayMode::Shaded &&
-        !impl_->silhouette_candidates.empty()) {
+        (!impl_->silhouette_candidates.empty()||!impl_->smooth_silhouette_triangles.empty())) {
         const QVector3D view_direction =
             impl_->orientation.inverted().rotatedVector(QVector3D(0.0F, 0.0F, 1.0F));
         const std::array<float, 3> direction_key{
@@ -4079,18 +4100,29 @@ if (impl_->show_origins) {
         if (impl_->silhouette_view_direction != direction_key) {
             std::vector<float> silhouette_data;
             silhouette_data.reserve(impl_->silhouette_candidates.size() * 12);
+            const auto append_segment=[&](const QVector3D& a,const QVector3D& b) {
+                silhouette_data.insert(silhouette_data.end(),{
+                    a.x(),a.y(),a.z(),0.0F,0.0F,1.0F,
+                    b.x(),b.y(),b.z(),0.0F,0.0F,1.0F});
+            };
+            for(const auto& triangle:impl_->smooth_silhouette_triangles)
+                if(const auto segment=smooth_silhouette_segment(triangle,view_direction))
+                    append_segment((*segment)[0],(*segment)[1]);
             for (const auto& candidate : impl_->silhouette_candidates) {
+                // Unreferenced faceted meshes retain their established outline.
+                // Native faces follow the actual smooth shading field instead.
+                if(candidate.smooth_face)continue;
                 const float side_a = QVector3D::dotProduct(candidate.normal_a, view_direction);
                 const float side_b = QVector3D::dotProduct(candidate.normal_b, view_direction);
                 constexpr float epsilon = 1.0e-4F;
                 if ((side_a >= -epsilon) == (side_b >= -epsilon)) continue;
-                silhouette_data.insert(silhouette_data.end(), {
-                    candidate.first.x(), candidate.first.y(), candidate.first.z(),
-                    0.0F, 0.0F, 1.0F,
-                    candidate.second.x(), candidate.second.y(), candidate.second.z(),
-                    0.0F, 0.0F, 1.0F});
+                append_segment(candidate.first,candidate.second);
             }
             impl_->silhouette_vertex_count = static_cast<GLsizei>(silhouette_data.size() / 6);
+            if(qEnvironmentVariableIsSet("ZIMA_CPP_VERIFY_GPU_UPLOAD")) {
+                setProperty("gpuSilhouetteBuildCount",property("gpuSilhouetteBuildCount").toULongLong()+1);
+                setProperty("gpuSilhouetteVertexCount",impl_->silhouette_vertex_count);
+            }
             if (impl_->silhouette_vertex_count != 0) {
                 impl_->silhouette.bind();
                 impl_->silhouette.allocate(silhouette_data.data(),
