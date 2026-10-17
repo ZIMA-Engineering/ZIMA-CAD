@@ -1064,6 +1064,26 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                     axis.reference.owner_id,{},axis.reference.instance_path,geometry});
             }
         }
+        // The two axis hit corridors overlap in a square around their common
+        // origin. Its point hit used to cover only the inscribed circle, so a
+        // nearby creation click could silently bind just one coordinate.
+        // Offer the real persisted Origin reference whenever both Sketch axes
+        // are hit; keep both axes available for explicit candidate cycling.
+        const double ray_squared=dot(ray_direction,ray_direction);
+        if(ray_squared>1e-18)for(std::size_t index=0;index<source.points.size();++index) {
+            const auto& point=source.points[index];const auto& ref=point.reference;
+            if(ref.semantic_key!="external_point:sketch_origin"||!ref.valid())continue;
+            const auto matches=[&](const auto& candidate,const char* key) {
+                return candidate.kind==CandidateKind::SketchAxis&&candidate.owner_id==ref.owner_id&&
+                    candidate.instance_path==ref.instance_path&&candidate.geometry==geometry&&candidate.semantic_key==key;
+            };
+            if(!std::ranges::any_of(result,[&](const auto& c){return matches(c,"sketch_axis:x");})||
+               !std::ranges::any_of(result,[&](const auto& c){return matches(c,"sketch_axis:y");}))continue;
+            if(std::ranges::any_of(result,[&](const auto& c){return c.kind==CandidateKind::SketchExternalReference&&
+                c.owner_id==ref.owner_id&&c.instance_path==ref.instance_path&&c.semantic_key==ref.semantic_key;}))continue;
+            const double distance=dot(subtract(point.position,ray_origin),ray_direction)/ray_squared;
+            if(distance>=0)result.push_back({CandidateKind::SketchExternalReference,distance,index,ref.owner_id,ref.semantic_key,ref.instance_path,geometry});
+        }
     };
     append_geometry(mesh, CandidateGeometry::Display);
     append_geometry(references, CandidateGeometry::OriginalReference);

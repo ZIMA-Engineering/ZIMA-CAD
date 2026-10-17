@@ -1,7 +1,74 @@
 // Exact rotational surface contours and radius contacts, independent of OCCT.
-void verify_surface_contours() {
+void verify_surface_contours(const std::filesystem::path& directory) {
     using K=kernel::SurfaceGeometry::Kind;
     const double pi=std::numbers::pi;
+    {
+        kernel::ViewerMesh arc;kernel::ViewerEdge edge;edge.reference={"rim","trimmed-circle",{}};
+        for(int i=0;i<=5;++i){const double t=-pi/3+2*pi*i/15;edge.points.push_back({2.75*std::cos(t),2.75*std::sin(t),-2});}
+        arc.edges={edge};const auto exact=drawing::drawing_profile_mesh(arc,{{0,0,1},{1,0,0},{0,-1,0}});
+        double high=0;for(const auto p:exact.edges.front().points)high=std::max(high,p.x);
+        require(std::abs(high-2.75)<1e-12,"Trimmed edge-on circle leaves a gap at its extremum");
+        require(exact.edges.front().points.front()==edge.points.front()&&exact.edges.front().points.back()==edge.points.back(),"Extremum refinement changed trimmed circle endpoints");
+    }
+    for(const int count:{25,26,27})for(const double phase:{0.,.17}) {
+        kernel::ViewerMesh circle;kernel::ViewerEdge edge;edge.reference={"rim","circle",{}};
+        for(int i=0;i<=count;++i){const auto t=phase+2*pi*i/count;edge.points.push_back({2.75*std::cos(t),2.75*std::sin(t),-2});}
+        edge.points.back()=edge.points.front();circle.edges.push_back(edge);
+        const drawing::ProjectionCamera camera{{0,0,1},{1,0,0},{0,-1,0}};
+        const auto exact=drawing::drawing_profile_mesh(circle,camera);
+        double low=0,high=0;for(const auto p:exact.edges.front().points){low=std::min(low,p.x);high=std::max(high,p.x);}
+        require(std::abs(low+2.75)<1e-12&&std::abs(high-2.75)<1e-12,"Edge-on circle display stops short of its exact extrema");
+        require(exact.edges.front().reference==edge.reference&&circle.edges.front().points==edge.points,"Circle display refinement changed native reference or source samples");
+    }
+    {
+        kernel::ViewerMesh cone;
+        auto support=std::make_shared<kernel::SurfaceGeometry>();support->kind=K::Cone;
+        support->radius=5;support->semi_angle=std::atan(.5);support->axial_max=2.8;
+        kernel::FaceReference face{"cone","trimmed",{}};face.surface=support;
+        const auto plane=[](std::string name,kernel::Vec3 origin,kernel::Vec3 normal) {
+            kernel::FaceReference f{"trim",std::move(name),{}};auto s=std::make_shared<kernel::SurfaceGeometry>();
+            s->origin=origin;s->axis=normal;f.surface=s;return f;
+        };
+        const auto bottom=plane("bottom",{0,0,0},{0,0,1}),top=plane("top",{6,0,0},kernel::dimension_unit({1,0,1}));
+        std::array<kernel::ViewerEdge,4> edges;
+        for(unsigned i=0;i<4;++i){edges[i].reference={"trim","edge"+std::to_string(i),{}};edges[i].edge_treatment_side_references={face};}
+        edges[0].edge_treatment_side_references.push_back(bottom);edges[1].edge_treatment_side_references.push_back(top);
+        for(unsigned i=0;i<=24;++i) {
+            const double angle=-pi/3+2*pi*i/72,z=(6-5*std::cos(angle))/(1+.5*std::cos(angle));
+            for(const double station:{0.,z})cone.vertices.push_back({(5+.5*station)*std::cos(angle),(5+.5*station)*std::sin(angle),station});
+            edges[0].points.push_back(cone.vertices[2*i]);edges[1].points.push_back(cone.vertices[2*i+1]);
+            if(i)for(const auto index:{2*i-2,2*i,2*i-1,2*i,2*i+1,2*i-1})cone.triangles.push_back(index);
+            if(i){cone.triangle_references.push_back(face);cone.triangle_references.push_back(face);}
+        }
+        for(unsigned i=0;i<2;++i) {
+            const unsigned offset=i?48:0;edges[i+2].points={cone.vertices[offset],cone.vertices[offset+1]};
+            const auto p=edges[i+2].points.front();
+            edges[i+2].edge_treatment_side_references.push_back(plane("side"+std::to_string(i),{},kernel::dimension_unit({-p.y,p.x,0})));
+        }
+        for(auto& edge:edges)cone.edges.push_back(std::move(edge));
+        const auto exact=drawing::drawing_profile_mesh(cone,{{0,0,1},{1,0,0},{0,-1,0}});
+        std::vector<kernel::ViewerEdge> contours;
+        for(const auto& edge:exact.edges)if(edge.reference.semantic_key.starts_with("drawing-contour:"))contours.push_back(edge);
+        require(contours.size()==1,"Convex cone trim did not retain exactly its in-domain generator");
+        const auto a=contours.front().points.front(),b=contours.front().points.back();
+        require(std::abs(a.x-5)<1e-9&&std::abs(a.z)<1e-9&&std::abs(b.x-16./3)<1e-9&&std::abs(b.z-2./3)<1e-9,"Cone trim used sampled bounds instead of exact plane intersection");
+        auto snapshot=drawing::DrawingDocument::create_default();
+        auto view=drawing::DrawingDocument::create_view("unavailable","missing.prtz",cone,drawing::ViewOrientation::Front);
+        view.camera={{0,0,1},{1,0,0},{0,-1,0}};
+        drawing::prepare_interactive_view(view,std::make_shared<const kernel::ViewerMesh>(cone));
+        // Reproduce a saved projection lacking its analytic boundary. Opening
+        // must use the embedded calculated packet, without loading the Part.
+        std::erase_if(view.projected_edges,[](const auto& e){return e.source.semantic_key.starts_with("drawing-contour:");});
+        auto stale=*view.measurement_geometry;
+        std::erase_if(stale.curves,[](const auto& c){return c.source.semantic_key.starts_with("drawing-contour:");});
+        view.measurement_geometry=drawing::share_measurement_geometry(std::move(stale));
+        snapshot.sheets.front().views={view};const auto path=directory/"embedded-contour.drwz";snapshot.save(path);
+        const auto reopened=drawing::DrawingDocument::load(path);const auto& restored=reopened.sheets.front().views.front();
+        drawing::MeasurementPickRequest request;request.lines_only=true;
+        const auto picks=drawing::measurement_candidates(restored,{1./3,31./6},.01,request);
+        require(std::ranges::any_of(picks,[&](const auto& p){return p.attachment.reference==contours.front().reference;}),"Opening a Drawing did not rebuild analytic contour picking from its embedded source");
+        require(restored.source_path==view.source_path&&restored.id==view.id&&restored.scale==view.scale,"Opening contour projection changed authored view properties");
+    }
     kernel::ViewerMesh mesh;
     auto surface=std::make_shared<kernel::SurfaceGeometry>();
     surface->kind=K::Torus;surface->radius=5;surface->minor_radius=1;

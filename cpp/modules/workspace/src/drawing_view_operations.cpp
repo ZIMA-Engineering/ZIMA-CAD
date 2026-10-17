@@ -163,8 +163,11 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         for(auto& view:s.views)refresh_detail(refresh_detail,view);
     }
     discard_reoriented_dimensions(document,next);
-    for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id))
+    for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id)) {
+        if(const auto* before=document.find_view(dimension.view_id))
+            drawing::retain_drawing_dimension_clearance(*before,*next.find_view(dimension.view_id),dimension);
         drawing::refresh_drawing_dimension(*next.find_view(dimension.view_id),dimension);
+    }
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
     next.sources=next.data_sources();
     document=std::move(next);
@@ -189,7 +192,10 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
                 if(view.detail_view)drawing::refresh_detail_view(view,*parent);else view.camera=drawing::projected_camera(parent->camera,view.projection_direction,sheet.projection_method);
             }
             if(!view.detail_view)projection.project(view,{.refresh_markers=true,.require_geometry=false,.interactive=true});
-            for(auto& dimension:sheet.dimensions)if(dimension.view_id==view.id)drawing::refresh_drawing_dimension(view,dimension);
+            for(auto& dimension:sheet.dimensions)if(dimension.view_id==view.id) {
+                if(const auto* before=document.find_view(view.id))drawing::retain_drawing_dimension_clearance(*before,view,dimension);
+                drawing::refresh_drawing_dimension(view,dimension);
+            }
             state=2;++count;
         };
         for(auto& view:sheet.views)refresh(refresh,view,0);

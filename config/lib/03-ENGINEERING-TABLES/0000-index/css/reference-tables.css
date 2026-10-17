@@ -5,9 +5,11 @@
 body { margin:0; background:var(--paper); color:var(--text);
   font:15px/1.3 "Segoe UI",Arial,sans-serif; }
 main { width:100%; margin:0; padding:16px 20px; }
-.reference-header { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:10px 24px; margin-bottom:14px; }
+.reference-header { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:16px; margin-bottom:14px; }
+.reference-header h1 { margin:0; overflow-wrap:anywhere; }
+.reference-header nav { flex-wrap:nowrap; white-space:nowrap; }
 nav { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:6px 16px; font-size:13px; }
-.reference-brand { display:block; padding:3px 6px; background:white; }
+.reference-brand { display:block; padding:3px 6px; background:transparent; }
 .reference-brand img { display:block; width:215px; max-width:100%; height:auto; }
 a { color:var(--link); text-underline-offset:3px; }
 a:hover { text-decoration-thickness:2px; }
@@ -62,13 +64,18 @@ footer p { margin:5px 0 0; }
 :root[data-zima-theme="dark"] { color-scheme:dark; }
 @media (max-width:700px) {
   main { padding:12px; } h1 { font-size:21px; } .topics { grid-template-columns:1fr; }
+  .reference-header { gap:8px; }
+  .reference-header nav { gap:4px; }
+  .reference-header .reference-brand img { width:clamp(64px,20vw,145px); }
 }
 @media print {
   :root, :root[data-zima-theme] { color-scheme:light; --paper:#fff; --text:#000; --muted:#333;
     --line:#999; --head:#eee; --stripe:#fafafa; --link:#000; }
   @page { size:A4 portrait; margin:12mm; }
   body { font-size:10pt; } main { max-width:none; padding:0; }
-  .reference-header { display:none; } h1 { font-size:16pt; margin-bottom:10px; }
+  .reference-header { display:block; margin-bottom:10px; }
+  .reference-header nav, .reference-header .reference-brand { display:none; }
+  h1 { font-size:16pt; margin-bottom:10px; }
   h1, h2, .reference-figure { break-after:avoid; }
   h2 { font-size:12pt; }
   .reference-figure img { max-width:100%; max-height:60mm; }

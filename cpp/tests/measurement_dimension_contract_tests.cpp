@@ -53,6 +53,68 @@ DrawingView view(kernel::ViewerMesh mesh) {
 int main() {
     try {
         {
+            kernel::ViewerMesh mesh;mesh.edges={circle("closed",0,0,5),line("straight",{10,0,0},{30,0,0}),circle("open",40,0,5,std::numbers::pi)};
+            const auto v=view(mesh);
+            for(const int mode:{-1,int(DimensionAttachmentKind::Point),int(DimensionAttachmentKind::CurvePoint)}) {
+                MeasurementPickRequest request;request.mode=mode;
+                for(const auto p:std::array{Point2{5/std::sqrt(2.),5/std::sqrt(2.)},Point2{0,5},Point2{5,0}}) {
+                    const auto offered=checked_candidates(v,p,.01,request);
+                    require(std::ranges::none_of(offered,[](const auto& item){return item.attachment.kind==DimensionAttachmentKind::CurvePoint;}),"Closed circle offered an arbitrary point or parameter seam");
+                    if(mode<0)require(!offered.empty()&&offered.front().attachment.kind==DimensionAttachmentKind::Tangent,"Automatic curved support did not offer tangency");
+                }
+                const auto line_picks=checked_candidates(v,{13,0},.01,request);
+                require(std::ranges::none_of(line_picks,[](const auto& p){return p.attachment.kind==DimensionAttachmentKind::CurvePoint;}),"Straight edge offered arbitrary point");
+                const auto arc_middle=checked_candidates(v,{40,5},.01,request);
+                require(std::ranges::none_of(arc_middle,[](const auto& p){return p.attachment.kind==DimensionAttachmentKind::CurvePoint;}),"Arc parameter midpoint offered as a geometric point");
+                require(!checked_candidates(v,{45,0},.01,request).empty(),"Open arc lost its real endpoint");
+            }
+            for(const int side:{1,-1}) {
+                MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Tangent);
+                const auto offered=checked_candidates(v,{0,5},.01,request);
+                require(std::ranges::any_of(offered,[&](const auto& p){return p.attachment.kind==DimensionAttachmentKind::Tangent&&p.attachment.side==side;}),"Explicit tangent side lost");
+            }
+            MeasurementPickRequest radius;radius.circles_only=true;
+            require(!checked_candidates(v,{5/std::sqrt(2.),5/std::sqrt(2.)},.01,radius).empty(),"Radius arrow placement was disabled with arbitrary dimension points");
+        }
+        {
+            kernel::ViewerMesh mesh;
+            auto rim=circle("rim",0,0,5);
+            for(auto& p:rim.points)std::swap(p.y,p.z);
+            mesh.edges={rim,line("bevel",{0,0,0},{5,5,0}),line("parallel",{0,3,0},{10,3,0})};
+            auto v=view(mesh);const auto original=v.measurement_geometry;
+            MeasurementPickRequest request;request.lines_only=true;request.mode=int(DimensionAttachmentKind::Line);
+            auto picks=checked_candidates(v,{2,0},.01,request);
+            require(!picks.empty()&&picks.front().attachment.reference==ref("rim"),"Edge-on circle rejected as straight support");
+            near(picks.front().position.x,2);near(picks.front().position.y,0);
+            for(const bool reverse:{false,true}) {
+                auto angle=make_drawing_dimension(v.id,DrawingDimensionKind::Angular);
+                angle.attachments={picks.front().attachment,{DimensionAttachmentKind::Line,ref("bevel"),{},.5}};
+                if(reverse)std::swap(angle.attachments[0],angle.attachments[1]);
+                near(evaluate_drawing_dimension(v,angle).presentations.front().value,45);
+                for(const Point2 p:std::array{Point2{7,2},Point2{-7,2},Point2{7,2}}) {
+                    place_drawing_dimension(v,angle,0,p);
+                    const auto value=evaluate_drawing_dimension(v,angle).presentations.front().value;
+                    require(std::abs(value-45)<1e-6||std::abs(value-135)<1e-6,"Projected support lost angular sector");
+                    drag_drawing_dimension(v,angle,0,0,{.1,.2});
+                    near(evaluate_drawing_dimension(v,angle).presentations.front().value,value);
+                }
+                require(deserialize_drawing_dimensions(serialize_drawing_dimensions({angle})).front()==angle,"Projected angular reference did not roundtrip");
+            }
+            auto linear=make_drawing_dimension(v.id,DrawingDimensionKind::Linear);
+            linear.attachments={picks.front().attachment,{DimensionAttachmentKind::Line,ref("parallel"),{},.5}};
+            near(evaluate_drawing_dimension(v,linear).presentations.front().value,3);
+            linear.direction=DimensionDirection::Parallel;linear.parallel_reference=ref("bevel");
+            require(evaluate_drawing_dimension(v,linear).state==MeasurementState::Resolved,"Projected rim failed explicit dimension direction");
+            linear.parallel_reference=ref("rim");
+            require(evaluate_drawing_dimension(v,linear).state==MeasurementState::Resolved,"Projected rim failed parallel reference");
+            require(v.measurement_geometry==original&&!v.measurement_geometry->curves.front().line&&v.measurement_geometry->curves.front().circle,"Dimension changed original circular geometry");
+            // A slight tilt remains an ellipse and must never become a line.
+            v.camera={{1,0,0},{0,std::cos(.01),std::sin(.01)},{0,-std::sin(.01),std::cos(.01)}};
+            v.projected_edges=project_edges(mesh,v.camera);
+            const auto tilted=checked_candidates(v,{2,0},.1,request);
+            require(std::ranges::none_of(tilted,[&](const auto& p){return p.attachment.reference==ref("rim");}),"Oblique ellipse accepted as straight support");
+        }
+        {
             const auto encode=[](const std::string& value){return std::to_string(value.size())+":"+value;};
             kernel::ViewerMesh mesh;auto edge=line("body-edge",{0,0,0},{10,0,0});edge.reference={"cut","body-edge","A"};mesh.edges={edge};
             kernel::ViewerPoint original{{0,0,0},{"profile","source-point","A"}};
@@ -77,7 +139,7 @@ int main() {
             auto original=line("original",{0,0,0},{100,0,0});original.reference.instance_path="occurrence-A";
             auto fragment=original;fragment.points={{80,0,0},{60,0,0}};fragment.reference=split(original.reference,"cut-A");
             kernel::ViewerMesh mesh;mesh.original_references.edges={original};mesh.edges={fragment};
-            auto v=view(mesh);MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::CurvePoint);
+            auto v=view(mesh);MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Line);request.lines_only=true;
             const auto offered=checked_candidates(v,{73,0},.1,request);
             require(!offered.empty(),"Split edge not offered");
             auto attachment=offered.front().attachment;

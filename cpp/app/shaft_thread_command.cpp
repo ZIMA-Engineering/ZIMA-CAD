@@ -57,6 +57,9 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
                 editing?workspace::ShaftThreadEditMode::Replace:workspace::ShaftThreadEditMode::Create));
         }catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
     },this);
+    // Thread inputs are faces, not whole Origins. Consume the existing binding
+    // guard so generic dialog registration does not recreate the unused button.
+    dialog->setProperty("originSelectionBound",true);
     shaft_thread_dialog_=dialog;properties_dialog_=dialog;track_tree_edit(dialog);
     properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;

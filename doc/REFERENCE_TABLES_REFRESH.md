@@ -234,5 +234,24 @@ head-height correction, 2.5 to 2.8 mm, is explicitly recorded with its catalog
 source in `reviewed_numeric_corrections`; original source evidence is unchanged.
 
 Product-grade A/B/C labels are distinct from property classes such as 8.8.
-[The native fastener library](FASTENER_LIBRARY.md) documents the four verified
-editable models, material, Relations, source Drawing and native thumbnails.
+[The native fastener library](FASTENER_LIBRARY.md) documents 222 editable models
+across ten standards, representative materials, Relations, native reference
+Drawings and individual thumbnails. The seven hexagon-head chapters include
+native-derived illustrations with captions in all five languages. Historical
+small-head dimensions and the fine-pitch M12 header retain explicit source
+corrections; the captured source tables remain unchanged.
+
+## Adaptive company branding (2026-10-17)
+
+The shared heading row contains the chapter title, language links and logo.
+The ZIMA-Engineering SVG has transparent surroundings. Its dark ink becomes
+off-white in Dark mode; its green field and existing white lettering retain
+their authored colors. HTML follows the embedding page's color scheme, including
+live application theme changes. Printed references retain their title and omit
+the navigation and logo.
+
+Native automatic directory/project overviews and branded Tree entries resolve
+the same ink choice from the Qt palette. Previously imported copies of this
+specific artwork are recognized by their view box, palette and ink class.
+Other SVG/PNG artwork retains its original colors. Theme and file fingerprints
+participate in the native logo cache; no source artwork is rewritten at runtime.

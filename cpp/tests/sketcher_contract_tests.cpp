@@ -2602,7 +2602,8 @@ int main() {
                 return marker.reference.semantic_key ==
                     "constraint:" + origin_constraint;
             });
-        require(origin_marker == origin_marker_packet.constraint_markers.end() &&
+        require(origin_marker != origin_marker_packet.constraint_markers.end() &&
+                    origin_marker->label == "C" &&
                     origin_marker_sketch.constraints.size() == 1 &&
                     origin_marker_sketch.constraints.front().kind ==
                         zima::sketcher::ConstraintKind::PointReference &&
@@ -2610,7 +2611,20 @@ int main() {
                         marker_origin_bound_point)->x) < 1.0e-9 &&
                     std::abs(origin_marker_sketch.find_point(
                         marker_origin_bound_point)->y) < 1.0e-9,
-                "Origin point reference was not solved or leaked a C marker");
+                "Origin point reference was not solved or has no selectable C marker");
+        auto reopened_origin_marker=zima::sketcher::Sketch::from_serialized(origin_marker_sketch.serialized());
+        require(std::ranges::any_of(reopened_origin_marker.viewer_mesh().constraint_markers,[&](const auto& marker){return marker.label=="C"&&marker.reference.semantic_key=="constraint:"+origin_constraint;}),"Origin C marker did not survive reopen");
+        reopened_origin_marker.remove_constraint(origin_constraint);
+        require(std::ranges::none_of(reopened_origin_marker.viewer_mesh().constraint_markers,[&](const auto& marker){return marker.reference.semantic_key=="constraint:"+origin_constraint;}),"Removed Origin C marker remains visible");
+        {
+            auto ellipse_contact=zima::sketcher::Sketch::create_default();
+            static_cast<void>(ellipse_contact.add_ellipse(0,-3.0000035762780612,5.00000047684091,-3.0000042915337986,0,0));
+            const auto ellipse=ellipse_contact.ellipses.front();
+            static_cast<void>(ellipse_contact.add_point_on_line_constraint(ellipse.center_point_id,"sketch_axis:y"));
+            static_cast<void>(ellipse_contact.add_point_reference_constraint(ellipse.minor_point_id,"sketch_origin"));
+            const auto* minor=ellipse_contact.find_point(ellipse.minor_point_id);
+            require(std::hypot(minor->x,minor->y)<1e-9&&ellipse_contact.solve().maximum_residual<1e-7,"Slightly rotated ellipse minor endpoint could not bind the exact Origin");
+        }
         auto keypoint_marker_sketch = zima::sketcher::Sketch::create_default();
         const auto keypoint_circle =
             keypoint_marker_sketch.add_circle(0.0, 0.0, 5.0);

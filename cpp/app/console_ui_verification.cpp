@@ -395,7 +395,39 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
 #include "history_deletion_ui_verification.inc"
 #include "assembly_history_cursor_ui_verification.inc"
 #include "bolt_sketch_ui_verification.inc"
+Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[] {QApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QApplication::processEvents();};
+        const auto call=[&](const char* command,commands::Json arguments=commands::Json::object()) {
+            auto answer=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));
+            if(!answer.ok)throw std::runtime_error(answer.message);flush();return answer;
+        };
+        window.showMaximized();flush();const auto name="shaft-dialog-"+kernel::make_stable_id();
+        call("new",{{"type","part"},{"name",name}});
+        const auto shaft=test::circular_commands(call,{{"radius_mm",5},{"height_mm",30}}).data.at("container").get<std::string>();call("save");
+        const auto part=document::PartDocument::load(directory/(name+".prtz"));
+        const auto id=call("shaft_thread.create",{{"cylinder",{{"owner",shaft},{"key",test::profile_key(part,shaft,"side")}}},
+            {"start",{{"owner",shaft},{"key",test::profile_key(part,shaft,"z_min")}}},{"designation","M10"},{"length_mm",15}}).data.at("container").get<std::string>();
+        const auto get=[&]{return call("shaft_thread.get",{{"container",id}}).data;};
+        for(const bool commit:{false,true}) {
+            QTreeWidgetItem* row{};auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+            check(row,"Shaft thread Tree row missing");window.show_tree_item_properties(row);flush();
+            auto* dialog=window.findChild<QDialog*>("shaftThreadDialog");check(dialog&&dialog->isVisible(),"Shaft thread Properties missing");
+            check(!dialog->findChild<QPushButton*>("containerOriginSelectionButton"),"Shaft thread exposes an unused Origin button");
+            check(dialog->findChild<QTableWidget*>("shaftThreadReferences")->rowCount()==4,"Shaft thread lost face-reference rows");
+            dialog->findChild<QDoubleSpinBox*>("shaftThreadLength")->setValue(20);flush();check(get().at("length_mm")==15,"Shaft thread preview committed early");
+            dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            check(get().at("length_mm")==(commit?20:15),"Shaft thread OK/Cancel failed");
+        }
+        call("undo");check(get().at("length_mm")==15,"Shaft thread Undo failed");call("redo");
+        check(get().at("length_mm")==20&&get().at("cylinder").at("owner")==shaft,"Shaft thread Redo lost parameters or face identity");call("save");
+        std::cout<<"Shaft thread GUI: no Origin button, four face-reference rows, OK/Cancel, Undo/Redo and original cylinder identity passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_DIALOG_ONLY"))return verify_shaft_thread_dialog(window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BOLT_SKETCH_ONLY"))return verify_bolt_sketch_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_HISTORY_CURSOR_ONLY")) {
         verify_assembly_history_cursor(application,window,directory);return 0;
@@ -3141,7 +3173,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 for(QTreeWidgetItemIterator it(model_tree);*it;++it)
                     if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
                 check(item,"CLI shaft thread is missing from the tree");window.show_tree_item_properties(item);flush();
-                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->objectName()=="shaftThreadDialog")return dialog;
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->objectName()=="shaftThreadDialog"){check(!dialog->findChild<QPushButton*>("containerOriginSelectionButton"),"Shaft thread exposes an unused Origin button");return dialog;}
                 throw std::runtime_error("Shaft thread Properties did not open");
             };
             for(const bool commit:{false,true}) {

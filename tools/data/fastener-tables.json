@@ -11522,6 +11522,76 @@
       "Ansichten aus dem nativen ISO-4017-Modell und vergrößerte schematische Details der Parameterzeichen. Grenzmaße und Toleranzen stehen in der Tabelle; die Details definieren keine zusätzliche Modellgeometrie.",
       "Vues du modèle natif ISO 4017 et détails schématiques agrandis des symboles. Les limites et tolérances sont définies dans le tableau ; les détails ne définissent pas de géométrie supplémentaire du modèle.",
       "Виды из нативной модели ISO 4017 и увеличенные схемы обозначений параметров. Предельные размеры и допуски указаны в таблице; схемы не задают дополнительную геометрию модели."
+    ],
+    "native_reference_iso4014": [
+      "ISO 4014 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ISO 4014 · Native model views with dimension symbols l, k, d and s.",
+      "ISO 4014 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ISO 4014 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ISO 4014 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_iso4016": [
+      "ISO 4016 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ISO 4016 · Native model views with dimension symbols l, k, d and s.",
+      "ISO 4016 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ISO 4016 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ISO 4016 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_iso4017": [
+      "ISO 4017 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ISO 4017 · Native model views with dimension symbols l, k, d and s.",
+      "ISO 4017 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ISO 4017 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ISO 4017 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_iso4018": [
+      "ISO 4018 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ISO 4018 · Native model views with dimension symbols l, k, d and s.",
+      "ISO 4018 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ISO 4018 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ISO 4018 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_iso8676": [
+      "ISO 8676 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ISO 8676 · Native model views with dimension symbols l, k, d and s.",
+      "ISO 8676 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ISO 8676 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ISO 8676 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_iso8765": [
+      "ISO 8765 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ISO 8765 · Native model views with dimension symbols l, k, d and s.",
+      "ISO 8765 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ISO 8765 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ISO 8765 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_csn021201": [
+      "ČSN 02 1201 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ČSN 02 1201 · Native model views with dimension symbols l, k, d and s.",
+      "ČSN 02 1201 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ČSN 02 1201 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ČSN 02 1201 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_csn021205": [
+      "ČSN 02 1205 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ČSN 02 1205 · Native model views with dimension symbols l, k, d and s.",
+      "ČSN 02 1205 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ČSN 02 1205 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ČSN 02 1205 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_csn021207": [
+      "ČSN 02 1207 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ČSN 02 1207 · Native model views with dimension symbols l, k, d and s.",
+      "ČSN 02 1207 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ČSN 02 1207 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ČSN 02 1207 · Виды нативной модели с обозначениями размеров l, k, d и s."
+    ],
+    "native_reference_csn021208": [
+      "ČSN 02 1208 · Nativní pohledy s rozměrovými značkami l, k, d a s.",
+      "ČSN 02 1208 · Native model views with dimension symbols l, k, d and s.",
+      "ČSN 02 1208 · Native Ansichten mit den Maßzeichen l, k, d und s.",
+      "ČSN 02 1208 · Vues du modèle natif avec les symboles dimensionnels l, k, d et s.",
+      "ČSN 02 1208 · Виды нативной модели с обозначениями размеров l, k, d и s."
     ]
   },
   "sources": {
@@ -14185,6 +14255,10 @@
       ],
       "figures": [
         {
+          "path": "HHB-ISO4014-M8x40-A-REFERENCE.png",
+          "caption": "native_reference_iso4014"
+        },
+        {
           "path": "../../../../../0000-index/diagrams/hex-screw.svg",
           "caption": "own_schematic"
         }
@@ -16009,6 +16083,10 @@
       ],
       "figures": [
         {
+          "path": "HHB-ISO4016-M8x40-C-REFERENCE.png",
+          "caption": "native_reference_iso4016"
+        },
+        {
           "path": "../../../../../0000-index/diagrams/hex-screw.svg",
           "caption": "own_schematic"
         }
@@ -17532,6 +17610,10 @@
         "iso4759-1_2000"
       ],
       "figures": [
+        {
+          "path": "HHS-ISO4017-M8x35-A-REFERENCE.png",
+          "caption": "native_reference_iso4017"
+        },
         {
           "path": "../../../../../0000-index/diagrams/hex-screw-reference.svg",
           "caption": "native_screw_reference"
@@ -19265,6 +19347,10 @@
       ],
       "figures": [
         {
+          "path": "HHS-ISO4018-M8x35-C-REFERENCE.png",
+          "caption": "native_reference_iso4018"
+        },
+        {
           "path": "../../../../../0000-index/diagrams/hex-screw.svg",
           "caption": "own_schematic"
         }
@@ -20810,6 +20896,10 @@
       ],
       "figures": [
         {
+          "path": "HHB-ISO8765-M8x1x40-A-REFERENCE.png",
+          "caption": "native_reference_iso8765"
+        },
+        {
           "path": "../../../../../0000-index/diagrams/hex-screw.svg",
           "caption": "own_schematic"
         }
@@ -20826,7 +20916,7 @@
             "symbol_M8×1",
             "symbol_M10×1",
             "symbol_(M10×1,25)",
-            "symbol_(M12×1)",
+            "symbol_(M12×1,25)",
             "symbol_M12×1,5",
             "symbol_M14×1,5",
             "symbol_M16×1,5"
@@ -21063,7 +21153,7 @@
             "symbol_M8×1",
             "symbol_M10×1",
             "symbol_(M10×1,25)",
-            "symbol_(M12×1)",
+            "symbol_(M12×1,25)",
             "symbol_M12×1,5",
             "symbol_M14×1,5",
             "symbol_M16×1,5"
@@ -22565,6 +22655,10 @@
         "iso4759-1_2000"
       ],
       "figures": [
+        {
+          "path": "HHS-ISO8676-M8x1x35-A-REFERENCE.png",
+          "caption": "native_reference_iso8676"
+        },
         {
           "path": "../../../../../0000-index/diagrams/hex-screw.svg",
           "caption": "own_schematic"
@@ -25148,9 +25242,9 @@
           "13",
           "14",
           "16",
-          "16",
+          "18",
           "20",
-          "2"
+          "22"
         ],
         [
           "d _1",
@@ -25188,7 +25282,7 @@
           "0,3",
           "0,5",
           "0,5",
-          "0,5",
+          "1",
           "1",
           "1"
         ],
@@ -25259,6 +25353,22 @@
       "review": "historical",
       "heading": "logical_page_04-SCREWS/01-HEX-HEAD/07-SMALL-HEX_0_1_0",
       "figures": [
+        {
+          "path": "HHS-CSN021208-M8x16-REFERENCE.png",
+          "caption": "native_reference_csn021208"
+        },
+        {
+          "path": "HHS-CSN021207-M8x16-REFERENCE.png",
+          "caption": "native_reference_csn021207"
+        },
+        {
+          "path": "HHB-CSN021205-M8x40-REFERENCE.png",
+          "caption": "native_reference_csn021205"
+        },
+        {
+          "path": "HHB-CSN021201-M8x40-REFERENCE.png",
+          "caption": "native_reference_csn021201"
+        },
         {
           "path": "../../../../../0000-index/diagrams/hex-screw.svg",
           "caption": "own_schematic"
@@ -57931,7 +58041,7 @@
         "symbol_M8×1",
         "symbol_M10×1",
         "symbol_(M10×1,25)",
-        "symbol_(M12×1)",
+        "symbol_(M12×1,25)",
         "symbol_M12×1,5",
         "symbol_M14×1,5",
         "symbol_M16×1,5"
@@ -58138,7 +58248,7 @@
         "symbol_M8×1",
         "symbol_M10×1",
         "symbol_(M10×1,25)",
-        "symbol_(M12×1)",
+        "symbol_(M12×1,25)",
         "symbol_M12×1,5",
         "symbol_M14×1,5",
         "symbol_M16×1,5"
@@ -61669,9 +61779,9 @@
           "13",
           "14",
           "16",
-          "16",
+          "18",
           "20",
-          "2"
+          "22"
         ],
         [
           "d _1",
@@ -61709,7 +61819,7 @@
           "0,3",
           "0,5",
           "0,5",
-          "0,5",
+          "1",
           "1",
           "1"
         ],
@@ -82249,6 +82359,48 @@
       "before": "2,5",
       "after": "2,8",
       "source": "https://www.fabory.com/nl_BE/zeskanttapbout-iso-4017-din-933-staal-elektrolytisch-verzinkt-8-8-m4x20/p/01210040020"
+    },
+    {
+      "source_table": "04-SCREWS/01-HEX-HEAD/07-SMALL-HEX#0",
+      "row": 1,
+      "column": 5,
+      "before": "16",
+      "after": "18",
+      "source": "https://nahledy.normy.biz/n.php?i=220"
+    },
+    {
+      "source_table": "04-SCREWS/01-HEX-HEAD/07-SMALL-HEX#0",
+      "row": 1,
+      "column": 7,
+      "before": "2",
+      "after": "22",
+      "source": "https://nahledy.normy.biz/n.php?i=220"
+    },
+    {
+      "source_table": "04-SCREWS/01-HEX-HEAD/07-SMALL-HEX#0",
+      "row": 5,
+      "column": 5,
+      "before": "0,5",
+      "after": "1",
+      "source": "https://nahledy.normy.biz/n.php?i=223"
+    }
+  ],
+  "reviewed_header_corrections": [
+    {
+      "source_table": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/01-SIZES#0",
+      "column": 4,
+      "before": "symbol_(M12×1)",
+      "after": "symbol_(M12×1,25)",
+      "source": "https://preview.sist.si/sist-preview/72583/7f0b086055884c2d8a087755135b7622/ISO-8765-2022.pdf",
+      "table": 1
+    },
+    {
+      "source_table": "04-SCREWS/01-HEX-HEAD/05-FINE-AB/01-SIZES#1",
+      "column": 6,
+      "before": "symbol_(M12×1)",
+      "after": "symbol_(M12×1,25)",
+      "source": "https://preview.sist.si/sist-preview/72583/7f0b086055884c2d8a087755135b7622/ISO-8765-2022.pdf",
+      "table": 1
     }
   ]
 }

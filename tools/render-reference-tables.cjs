@@ -45,7 +45,13 @@ async function main() {
         const metrics = await page.evaluate(() => {
           const main = document.querySelector('main').getBoundingClientRect();
           const table = document.querySelector('.table-scroll');
+          const header = document.querySelector('.reference-header');
+          const headerItems = header ? [...header.children].map(item => {
+            const box = item.getBoundingClientRect();
+            return { left: box.left, right: box.right, center: (box.top + box.bottom) / 2 };
+          }) : [];
           return { height: Math.ceil(main.height), width: document.documentElement.scrollWidth,
+            headerItems,
             tableWidth: table?.scrollWidth || 0, tableAvailable: table?.clientWidth || 0,
             mainLeft: main.left, mainWidth: main.width,
             brandRight: document.querySelector('.reference-brand')?.getBoundingClientRect().right,
@@ -58,6 +64,11 @@ async function main() {
         });
         // References may scroll vertically. Width and readable content still
         // have to fit; thumbnails show the schematic and beginning of the table.
+        if (metrics.headerItems.length !== 3 ||
+            metrics.headerItems.some(item => Math.abs(item.center - metrics.headerItems[0].center) > 1) ||
+            Math.abs(metrics.headerItems[0].left - (viewportWidth <= 700 ? 12 : 20)) > 1 ||
+            metrics.headerItems.some((item, i, items) => i && item.left < items[i - 1].right))
+          throw Error(`Reference title, languages and brand are not aligned: ${topic.path}/${language}`);
         if (metrics.width > viewportWidth || (!topic.freeze_header && metrics.tableWidth > metrics.tableAvailable) ||
             Math.abs(metrics.mainLeft) > 1 || Math.abs(metrics.mainWidth - viewportWidth) > 1 || !metrics.imagesLoaded ||
             (metrics.brandRight !== undefined && Math.abs(metrics.brandRight - (viewportWidth - (viewportWidth <= 700 ? 12 : 20))) > 1))
@@ -68,6 +79,18 @@ async function main() {
         const expectedRows = topic.display_row_count ?? (topic.rows.length + (topic.sections || []).reduce((n, block) => n + block.rows.length, 0));
         if (metrics.language !== language || metrics.rows !== expectedRows)
           throw Error(`Rendered content mismatch: ${topic.path}/${language}`);
+        await page.emulateMedia({ media: 'print' });
+        const printHeader = await page.evaluate(() => {
+          const title = document.querySelector('.reference-header h1');
+          return title && title.getBoundingClientRect().height > 0 &&
+            getComputedStyle(document.querySelector('.reference-header nav')).display === 'none' &&
+            getComputedStyle(document.querySelector('.reference-brand')).display === 'none';
+        });
+        if (!printHeader) throw Error(`Printed reference title missing or navigation visible: ${topic.path}/${language}`);
+        await page.emulateMedia({ media: 'screen' });
+        if (checkOnly && process.argv.includes('--capture-evidence'))
+          await page.screenshot({ path: path.join(evidence,
+            (topic.path || 'root').replaceAll('/', '_') + `_${language}_${viewportWidth}.png`) });
         if (topic.freeze_header) {
           const frozen = await page.evaluate(() => [...document.querySelectorAll('.table-scroll--frozen')].map(region => {
             const originalWidth = region.style.width;
@@ -110,6 +133,9 @@ async function main() {
           return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
         });
         if (contrast < 4.5) throw Error(`Insufficient dark contrast: ${topic.path}/${language}`);
+        if (checkOnly && process.argv.includes('--capture-evidence'))
+          await page.screenshot({ path: path.join(evidence,
+            (topic.path || 'root').replaceAll('/', '_') + `_${language}_${viewportWidth}_dark.png`) });
         if (!checkOnly && language === 'cs' && ['', '01-BASE-UNITS', '04-SI-PREFIXES', '06-IMPERIAL-US/02-VOLUME'].includes(topic.path))
           await page.screenshot({ path: path.join(evidence, (topic.path || 'root').replaceAll('/', '_') + '-dark.png'), fullPage: true });
         await page.emulateMedia({ colorScheme: 'light' });

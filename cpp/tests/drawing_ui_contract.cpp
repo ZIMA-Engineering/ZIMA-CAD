@@ -142,6 +142,25 @@ void verify_drawing_depth_rendering() {
     view.hidden_edge_style=HiddenEdgeStyle::Gray;const auto gray=draw();
     require(dashed_count>0&&dashed_count==ink(gray,100),"Interactive hidden edges must be continuous regardless of print dash style");
     view.display_style=DisplayStyle::Shaded;const auto shaded=draw();require(qAlpha(shaded.pixel(100,100))>0,"Depth renderer lost shaded fill");
+    {
+        DrawingView crossing;crossing.display_style=DisplayStyle::VisibleEdges;crossing.tangent_edge_style=TangentEdgeStyle::Thin;
+        ProjectedEdge radius,thin;
+        for(unsigned i=0;i<=128;++i){const double angle=2*std::numbers::pi*i/128;radius.points.push_back({std::cos(angle),std::sin(angle)});radius.vertex_depths.push_back(0);}
+        thin.points={{-2,0},{2,0}};thin.vertex_depths={0,0};thin.tangent=true;
+        crossing.projected_edges={radius,thin};
+        const auto render=[&]{return zima::app::drawing_depth_view().render(crossing,QRectF(-2,-2,4,4),50,1,Qt::white,Qt::gray,8,2);};
+        const auto forward=render();std::ranges::reverse(crossing.projected_edges);const auto reverse=render();
+        require(!forward.isNull()&&forward==reverse,"Thin edge overwrote the thick radius depending on input order");
+        require(forward.pixelColor(149,99)==QColor(Qt::white)&&forward.pixelColor(150,100)==QColor(Qt::white),"Thin crossing covered the visible radius contour");
+        struct WeightedRenderer: zima::drawing_render::SheetRenderer {WeightedRenderer(){lineweights_=true;}} renderer;
+        auto sheet=DrawingDocument::create_default().sheets.front();crossing.x=sheet.width_mm()-128./80;crossing.y=sheet.height_mm()-128./80;crossing.scale=1;crossing.show_caption=false;
+        crossing.output_source=std::make_shared<const zima::kernel::ViewerMesh>();sheet.views={crossing};renderer.set_render_sheet(&sheet);
+        const auto paint=[&]{QImage image(256,256,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::black);QPainter painter(&image);renderer.paint_sheet(painter,80,{},false);return image;};
+        const auto count=[](const QImage& image){unsigned ink=0;for(int y=20;y<236;++y)for(int x=20;x<236;++x){const auto c=image.pixelColor(x,y);if(c.red()>220&&c.green()>220&&c.blue()>220)++ink;}return ink;};
+        const auto local=paint();auto remote=thin;remote.points={{1000,0},{1001,0}};sheet.views.front().projected_edges.push_back(remote);
+        const auto distant=paint();require(count(local)>1000&&count(distant)>count(local)*.85&&count(distant)<count(local)*1.15,"Off-screen geometry degraded visible radius resolution or stroke weights");
+        distant.save("build/drawing-radius-stroke-priority.png");
+    }
 }
 
 int verify_drawing_source_picker() {

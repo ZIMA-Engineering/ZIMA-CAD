@@ -1,6 +1,10 @@
+#include "bolt_center_ui_verification.inc"
+#include "sketch_origin_creation_ui_verification.inc"
 int verify_sketch_circle_endpoint_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_CREATION"))return verify_sketch_origin_creation_ui(application,directory);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BOLT_CENTER_SOURCE"))return verify_bolt_center_ui(application,directory,std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_BOLT_CENTER_SOURCE").toStdString()));
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         for(bool upper:{false,true}) {

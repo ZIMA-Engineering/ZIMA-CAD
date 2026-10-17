@@ -557,6 +557,7 @@ void AssemblyWorkspaceWindow::start_sketch_polygon(unsigned sides) {
 void AssemblyWorkspaceWindow::cancel_sketch_polygon() {
     sketch_polygon_active_ = false;
     pending_polygon_center_.reset();
+    pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
 }
 

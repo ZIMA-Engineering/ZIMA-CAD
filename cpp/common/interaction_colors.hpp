@@ -9,6 +9,7 @@ inline constexpr double selected_wire_width = 2.5;
 inline const QColor subtract{"#FF0000"};
 inline const QColor surface{"#FFD400"};
 inline const QColor construction{"#FF8C00"};
+inline const QColor sketch_construction{"#4DD811"};
 inline const QColor axis{"#AD6E2E"};
 inline const QColor auxiliary{"#8066C2"};
 inline QVector4D rgba(const QColor& color) {

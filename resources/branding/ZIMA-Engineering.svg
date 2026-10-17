@@ -6,6 +6,8 @@
 	.st1{fill:#1C1B17;}
 	.st2{fill:#FEFEFE;}
 	.st3{fill:#FFFFFF;}
+@media (prefers-color-scheme:dark) {.st1{fill:#FEFEFE;}}
+@media print {.st1{fill:#1C1B17;}}
 </style>
 <g>
 	<rect x="157.2" y="349.7" class="st0" width="102.5" height="34.3"/>

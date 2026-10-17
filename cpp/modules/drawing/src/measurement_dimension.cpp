@@ -13,6 +13,7 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 namespace zima::drawing {
 namespace {
 constexpr double pi = std::numbers::pi;
@@ -27,6 +28,34 @@ Point2 unit(Point2 a) {
     return l > 1e-12 ? mul(a, 1 / l) : Point2{};
 }
 Point2 perp(Point2 a) { return {-a.y, a.x}; }
+// A circular edge may have a straight support in this view without becoming
+// a native line. Preserve its points, parameters and original circle identity.
+std::optional<std::pair<Point2, Point2>> straight_support(const ProjectedMeasurementCurve* c) {
+    if(!c||c->points.size()<2)return {};
+    if(c->line&&length(sub(c->points.back(),c->points.front()))>1e-9)
+        return std::pair{c->points.front(),c->points.back()};
+    if(!c->center)return {};
+    const auto axis=length(c->cosine_axis)>=length(c->sine_axis)?c->cosine_axis:c->sine_axis;
+    const double size=length(axis);
+    if(size<=1e-9||std::abs(cross(c->cosine_axis,c->sine_axis))>1e-10*size*size)return {};
+    const auto u=unit(axis);
+    double low=std::numeric_limits<double>::infinity(),high=-std::numeric_limits<double>::infinity();
+    for(const auto p:c->points){const double t=dot(sub(p,*c->center),u);low=std::min(low,t);high=std::max(high,t);}
+    const double a=dot(c->cosine_axis,u),b=dot(c->sine_axis,u),phase=std::atan2(b,a);
+    for(int turn=-4;turn<=4;++turn) {
+        const double angle=phase+pi*turn;
+        if(angle>=std::min(0.,c->sweep)-1e-12&&angle<=std::max(0.,c->sweep)+1e-12) {
+            const double t=a*std::cos(angle)+b*std::sin(angle);
+            low=std::min(low,t);high=std::max(high,t);
+        }
+    }
+    if(high-low<=1e-9)return {};
+    return std::pair{add(*c->center,mul(u,low)),add(*c->center,mul(u,high))};
+}
+Point2 straight_direction(const ProjectedMeasurementCurve* c) {
+    const auto support=straight_support(c);
+    return support?unit(sub(support->second,support->first)):Point2{};
+}
 Point2 project(kernel::Vec3 p, const ProjectionCamera &c) {
     return {kernel::dimension_dot(p, c.horizontal), kernel::dimension_dot(p, c.vertical)};
 }
@@ -144,6 +173,18 @@ Point2 point_at(const ProjectedMeasurementCurve &c, double t) {
     return c.points.back();
 }
 double parameter_at(const ProjectedMeasurementCurve &c, Point2 point) {
+    if(c.center&&!c.line&&straight_support(&c)&&std::abs(c.sweep)>1e-12) {
+        const auto u=straight_direction(&c);
+        const double a=dot(c.cosine_axis,u),b=dot(c.sine_axis,u);
+        const double phase=std::atan2(b,a),angle=std::acos(std::clamp(dot(sub(point,*c.center),u)/std::hypot(a,b),-1.,1.));
+        double best=std::numeric_limits<double>::infinity(),parameter=0;
+        for(const double sign:{1.,-1.})for(int turn=-2;turn<=2;++turn) {
+            const double t=std::clamp((phase+sign*angle+2*pi*turn)/c.sweep,0.,1.);
+            const double distance=length(sub(point_at(c,t),point));
+            if(distance<best){best=distance;parameter=t;}
+        }
+        return parameter;
+    }
     double total = 0, best = std::numeric_limits<double>::infinity(), result = 0, passed = 0;
     for (std::size_t i = 1; i < c.points.size(); ++i)
         total += length(sub(c.points[i], c.points[i - 1]));
@@ -165,6 +206,10 @@ double parameter_at(const ProjectedMeasurementCurve &c, Point2 point) {
     return result;
 }
 bool on_arc(const ProjectedMeasurementCurve &c, Point2 p) {
+    if(!c.line)if(const auto support=straight_support(&c)) {
+        const auto u=straight_direction(&c);const auto delta=sub(p,support->first);
+        return std::abs(cross(delta,u))<1e-7&&dot(delta,u)>=-1e-7&&dot(sub(p,support->second),u)<=1e-7;
+    }
     if (!c.center || c.points.size() < 3)
         return true;
     const double det = cross(c.cosine_axis, c.sine_axis);
@@ -282,7 +327,7 @@ std::optional<Point2> resolve(const DrawingView &view, const std::vector<Project
     case DimensionAttachmentKind::CurvePoint:
         return point_at(*curve, a.parameter);
     case DimensionAttachmentKind::Line:
-        if (curve->line && length(sub(curve->points.back(), curve->points.front())) > 1e-9)
+        if (straight_support(curve))
             return point_at(*curve, a.parameter);
         return {};
     case DimensionAttachmentKind::Center:
@@ -315,6 +360,9 @@ std::optional<Point2> resolve(const DrawingView &view, const std::vector<Project
     }
 }
 } // namespace
+std::optional<std::pair<Point2,Point2>> measurement_line_support(const ProjectedMeasurementCurve& curve) {
+    return straight_support(&curve);
+}
 std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(MeasurementGeometry data) {
     static std::mutex mutex;
     static std::vector<std::weak_ptr<const MeasurementGeometry>> shared;
@@ -328,6 +376,41 @@ std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(Measuremen
 
 kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const ProjectionCamera& camera) {
     auto result=mesh;
+    // An edge-on circular rim must reach its analytic extrema even when its
+    // display samples miss the quarter turns. Otherwise adjacent exact cone
+    // generators stop at the true rim while the sampled rim leaves a gap.
+    const auto complete_circle=[&](kernel::ViewerEdge& edge) {
+        if(edge.parameter_seam||edge.construction||edge.overlay||edge.points.size()<5)return;
+        const auto circle=circle_geometry(edge.points);
+        if(!circle||std::abs(kernel::dimension_dot(circle->normal,camera.depth))>1e-9)return;
+        const auto axis=kernel::dimension_unit(kernel::dimension_cross(circle->normal,camera.depth));
+        const auto y=kernel::dimension_cross(circle->normal,circle->radial);
+        const auto angle=[&](kernel::Vec3 p){const auto d=kernel::dimension_sub(p,circle->center);return std::atan2(kernel::dimension_dot(d,y),kernel::dimension_dot(d,circle->radial));};
+        const auto original=edge.points;edge.points.clear();
+        auto directions=edge.edge_treatment_side_directions;
+        for(auto& side:edge.edge_treatment_side_directions)if(side.size()==original.size())side.clear();
+        for(std::size_t i=0;i<original.size();++i) {
+            if(i) {
+                const double start=angle(original[i-1]),span=std::remainder(angle(original[i])-start,2*pi);
+                std::vector<std::pair<double,kernel::Vec3>> additions;
+                for(const int sign:{-1,1}) {
+                    const auto p=kernel::dimension_add(circle->center,kernel::dimension_scale(axis,sign*circle->radius));
+                    const double offset=std::remainder(angle(p)-start,2*pi),t=std::abs(span)>1e-12?offset/span:-1;
+                    if(t>1e-10&&t<1-1e-10)additions.emplace_back(t,p);
+                }
+                std::ranges::sort(additions,{},&std::pair<double,kernel::Vec3>::first);
+                for(const auto& [t,p]:additions) {
+                    edge.points.push_back(p);
+                    for(std::size_t side=0;side<directions.size();++side)if(directions[side].size()==original.size())
+                        edge.edge_treatment_side_directions[side].push_back(kernel::dimension_add(kernel::dimension_scale(directions[side][i-1],1-t),kernel::dimension_scale(directions[side][i],t)));
+                }
+            }
+            edge.points.push_back(original[i]);
+            for(std::size_t side=0;side<directions.size();++side)if(directions[side].size()==original.size())edge.edge_treatment_side_directions[side].push_back(directions[side][i]);
+        }
+    };
+    for(auto& edge:result.edges)complete_circle(edge);
+    for(auto& edge:result.original_references.edges)complete_circle(edge);
     std::set<std::tuple<std::string,std::string,std::string>> seen;
     using FaceKey=std::tuple<std::string,std::string,std::string>;
     std::map<FaceKey,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces;
@@ -337,6 +420,18 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
     for(const auto& face:mesh.triangle_references)if(face.surface)surfaces[face_key(face)]=face.surface;
     for(const auto& face:mesh.original_references.triangle_references)if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
     for(const auto& face:mesh.triangle_references)if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
+    const auto inherit_surface=[&](const auto& face) {
+        auto current=face_key(face);
+        for(unsigned depth=0;depth<64&&!surfaces.contains(face_key(face));++depth) {
+            const auto parent=kernel::boolean_face_parent(std::get<1>(current));if(!parent)break;
+            current={parent->first,parent->second,face.instance_path};
+            if(const auto source=surfaces.find(current);source!=surfaces.end())surfaces.emplace(face_key(face),source->second);
+        }
+    };
+    // Exact Boolean fragments retain their native supporting surface through
+    // explicit persisted ancestry. The contour still belongs to the fragment.
+    for(const auto& face:mesh.triangle_references)inherit_surface(face);
+    for(const auto& edge:mesh.edges)for(const auto& face:edge.edge_treatment_side_references)inherit_surface(face);
     for(const auto& edge:mesh.edges)if(!edge.parameter_seam)
         for(const auto& face:edge.edge_treatment_side_references)boundaries[face_key(face)].push_back(&edge);
     for(const auto& face:mesh.triangle_references) {
@@ -352,6 +447,9 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
         if(std::abs(kernel::dimension_dot(surface.axis,camera.depth))>1e-9)continue;
         if(torus&&(!surface.complete_profile||surface.radius<=surface.minor_radius||
             std::floor((surface.v_min+pi/2+1e-9)/pi)!=std::floor((surface.v_max+pi/2-1e-9)/pi)))continue;
+        std::vector<std::pair<kernel::Vec3,kernel::Vec3>> clipping_planes;
+        std::optional<double> cone_angle_origin;
+        double cone_angle_min=0,cone_angle_max=0;
         if(!torus) {
             // Only a complete cone band bounded by its two exact circular
             // rims is rectangular in parameter space. Reject cut/holed bands.
@@ -372,11 +470,74 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                 }
                 ++rings;
             }
-            if(!complete||rings!=2)continue;
+            if(!complete||rings!=2) {
+                // A convex planar trim (for example a hexagonal bolt head)
+                // clips the exact cone generators with exact native planes.
+                // Tessellation certifies the retained half-space only; it never
+                // supplies the contour positions or approximates the angle.
+                bool certified=!boundaries[face_key(face)].empty();
+                for(const auto* boundary:boundaries[face_key(face)]) {
+                    std::optional<std::pair<kernel::Vec3,kernel::Vec3>> plane;
+                    for(const auto& adjacent:boundary->edge_treatment_side_references) {
+                        if(face_key(adjacent)==face_key(face))continue;
+                        const auto it=surfaces.find(face_key(adjacent));
+                        const auto support=adjacent.surface?adjacent.surface:(it==surfaces.end()?nullptr:it->second);
+                        if(support&&support->kind==kernel::SurfaceGeometry::Kind::Plane)
+                            plane=std::pair{support->origin,support->axis};
+                    }
+                    if(!plane)if(const auto circle=circle_geometry(boundary->points))
+                        if(std::abs(kernel::dimension_dot(circle->normal,surface.axis))>1-1e-9)
+                            plane=std::pair{circle->center,surface.axis};
+                    if(!plane&&boundary->points.size()>=2) {
+                        const auto delta=kernel::dimension_sub(boundary->points.back(),boundary->points.front());
+                        const auto radial=kernel::dimension_sub(boundary->points.front(),surface.origin);
+                        const auto normal=kernel::dimension_unit(kernel::dimension_cross(surface.axis,radial));
+                        if(kernel::dimension_dot(delta,delta)>1e-18&&kernel::dimension_dot(normal,normal)>.5&&std::abs(kernel::dimension_dot(delta,normal))<1e-9&&
+                           std::ranges::all_of(boundary->points,[&](auto p){
+                               const auto cross=kernel::dimension_cross(delta,kernel::dimension_sub(p,boundary->points.front()));
+                               return kernel::dimension_dot(cross,cross)<1e-16*std::max(1.,kernel::dimension_dot(delta,delta));
+                           }))plane=std::pair{surface.origin,normal};
+                    }
+                    if(!plane){certified=false;break;}
+                    double low=0,high=0;
+                    for(std::size_t i=0;i<mesh.triangle_references.size();++i)if(face_key(mesh.triangle_references[i])==face_key(face)) {
+                        kernel::Vec3 center{};
+                        for(unsigned corner=0;corner<3;++corner)center=kernel::dimension_add(center,mesh.vertices[mesh.triangles[i*3+corner]]);
+                        center=kernel::dimension_scale(center,1./3);
+                        // Classify face interiors. Tessellated boundary vertices
+                        // can straddle their exact native trimming plane.
+                        const double value=kernel::dimension_dot(kernel::dimension_sub(center,plane->first),plane->second);
+                        low=std::min(low,value);high=std::max(high,value);
+                    }
+                    if((low < -1e-7&&high > 1e-7)||(low>=-1e-7&&high<=1e-7)){certified=false;break;}
+                    if(high<=1e-7)plane->second=kernel::dimension_scale(plane->second,-1);
+                    clipping_planes.push_back(*plane);
+                }
+                if(!certified)continue;
+                const auto y=kernel::dimension_cross(surface.axis,surface.radial);
+                for(std::size_t i=0;i<mesh.triangle_references.size();++i)if(face_key(mesh.triangle_references[i])==face_key(face))
+                    for(unsigned corner=0;corner<3;++corner) {
+                        const auto delta=kernel::dimension_sub(mesh.vertices[mesh.triangles[i*3+corner]],surface.origin);
+                        const double angle=std::atan2(kernel::dimension_dot(delta,y),kernel::dimension_dot(delta,surface.radial));
+                        if(!cone_angle_origin)cone_angle_origin=angle;
+                        const double relative=std::remainder(angle-*cone_angle_origin,2*pi);
+                        cone_angle_min=std::min(cone_angle_min,relative);cone_angle_max=std::max(cone_angle_max,relative);
+                    }
+                // A planar clipping plane can intersect opposite cone sectors.
+                // Certify the fragment's local angular sector before emitting a
+                // generator; the exact planes still determine both endpoints.
+                if(!cone_angle_origin||cone_angle_max-cone_angle_min>=pi-1e-9)continue;
+            }
         }
         const auto transverse=kernel::dimension_unit(kernel::dimension_cross(surface.axis,camera.depth));
         for(const int side:{1,-1}) {
             const auto radial=kernel::dimension_scale(transverse,side);
+            if(cone_angle_origin) {
+                const auto y=kernel::dimension_cross(surface.axis,surface.radial);
+                const double angle=std::atan2(kernel::dimension_dot(radial,y),kernel::dimension_dot(radial,surface.radial));
+                const double relative=std::remainder(angle-*cone_angle_origin,2*pi);
+                if(relative<cone_angle_min-1e-9||relative>cone_angle_max+1e-9)continue;
+            }
             kernel::ViewerEdge edge;
             edge.reference={face.owner_id,"drawing-contour:"+std::to_string(face.semantic_key.size())+":"+face.semantic_key+":side:"+std::to_string(side),face.instance_path};
             edge.edge_treatment_side_references={face};
@@ -399,9 +560,20 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                 spline.knots.insert(spline.knots.end(),3,pieces);spline.validate();edge.exact_spline=spline;
                 const int samples=std::max(8,static_cast<int>(std::ceil(span*64/pi)));
                 for(int i=0;i<=samples;++i)edge.points.push_back(at(surface.v_min+span*i/samples));
-            }else for(const auto station:{surface.axial_min,surface.axial_max})
-                edge.points.push_back(kernel::dimension_add(kernel::dimension_add(surface.origin,kernel::dimension_scale(surface.axis,station)),
-                    kernel::dimension_scale(radial,surface.radius+station*std::tan(surface.semi_angle))));
+            }else {
+                const auto start=kernel::dimension_add(surface.origin,kernel::dimension_scale(radial,surface.radius));
+                const auto direction=kernel::dimension_add(surface.axis,kernel::dimension_scale(radial,std::tan(surface.semi_angle)));
+                double low=surface.axial_min,high=surface.axial_max;
+                for(const auto& [origin,normal]:clipping_planes) {
+                    const double value=kernel::dimension_dot(kernel::dimension_sub(start,origin),normal);
+                    const double rate=kernel::dimension_dot(direction,normal);
+                    if(std::abs(rate)<1e-12){if(value < -1e-9){high=low;break;}continue;}
+                    const double limit=-value/rate;
+                    if(rate>0)low=std::max(low,limit);else high=std::min(high,limit);
+                }
+                if(high-low<=1e-9)continue;
+                for(const double station:{low,high})edge.points.push_back(kernel::dimension_add(start,kernel::dimension_scale(direction,station)));
+            }
             result.edges.push_back(std::move(edge));
         }
     }
@@ -519,6 +691,18 @@ std::vector<std::pair<Point2, double>> dimension_intersections(const ProjectedMe
     std::vector<std::pair<Point2, double>> result;
     if (a.points.size() < 2 || b.points.size() < 2 || a.source == b.source)
         return result;
+    const auto as=straight_support(&a),bs=straight_support(&b);
+    if((!a.line&&as)||(!b.line&&bs)) {
+        auto first=a,second=b;
+        const auto flatten=[](auto& curve,const auto& support) {
+            if(curve.line||!support)return;
+            curve.points={support->first,support->second};curve.parameters={0,1};curve.center.reset();curve.line=true;curve.circular=false;
+        };
+        flatten(first,as);flatten(second,bs);
+        for(const auto& [point,parameter]:dimension_intersections(first,second))
+            if(on_arc(a,point)&&on_arc(b,point))result.push_back({point,a.line?parameter:parameter_at(a,point)});
+        return result;
+    }
     const auto add_point = [&](Point2 p) {
         if (!finite(p) || !on_arc(a, p) || !on_arc(b, p))
             return;
@@ -883,7 +1067,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         // Do not offer the removed endpoints/midpoint of an untrimmed parent.
         if(prepared ? !prepared->displayed[index] :
            (!curve.axis&&std::ranges::none_of(view.projected_edges,[&](const auto& edge){return edge.source==curve.source;})))continue;
-        if (request.lines_only && !curve.line)
+        if (request.lines_only && !straight_support(&curve))
             continue;
         const bool thread=curve.source.semantic_key.starts_with("thread:boundary:");
         if (request.circles_only && (!curve.center || (!curve.circular&&!thread)))
@@ -960,7 +1144,13 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         }
         if (!curve.axis && (mode < 0 || mode == int(DimensionAttachmentKind::Point) ||
             mode == int(DimensionAttachmentKind::CurvePoint))) {
-            for (double parameter : {0., .5, 1.}) {
+            std::vector<double> parameters{0.,.5,1.};
+            if(!curve.line)if(const auto support=straight_support(&curve))
+                parameters={parameter_at(curve,support->first),parameter_at(curve,mul(add(support->first,support->second),.5)),parameter_at(curve,support->second)};
+            if(!straight_support(&curve)) {
+                parameters=length(sub(curve.points.front(),curve.points.back()))<1e-7?std::vector<double>{}:std::vector<double>{0.,1.};
+            }
+            for (double parameter : parameters) {
                 a.kind = DimensionAttachmentKind::CurvePoint;
                 a.parameter = parameter;
                 const auto point = point_at(curve, parameter);
@@ -978,17 +1168,23 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         }
         if (mode == int(DimensionAttachmentKind::Point))
             continue;
+        if(mode<0&&curve.center&&!straight_support(&curve)) {
+            for(const int side:{1,-1}) {
+                a.kind=DimensionAttachmentKind::Tangent;a.side=side;
+                if(const auto p=resolve(view,curves,a,request.tangent_origin?unit(sub(*curve.center,*request.tangent_origin)):request.tangent_direction))
+                    add_candidate(a,*p,std::min(distance,length(sub(cursor,*p)))+.01*tolerance);
+            }
+            continue;
+        }
         a.parameter = parameter_at(curve, cursor);
-        if (curve.line && (mode == int(DimensionAttachmentKind::Line) || (mode < 0 && !request.curve_points))) {
-            if (parallel && std::abs(cross(unit(sub(parallel->points.back(), parallel->points.front())),
-                                           unit(sub(curve.points.back(), curve.points.front())))) > 1e-7)
+        if (straight_support(&curve) && (mode == int(DimensionAttachmentKind::Line) || mode < 0)) {
+            if (parallel && std::abs(cross(straight_direction(parallel),
+                                           straight_direction(&curve))) > 1e-7)
                 continue;
             a.kind = DimensionAttachmentKind::Line;
-            a.parameter = .5;
-            add_candidate(a, point_at(curve, .5), distance + .05 * tolerance);
-        } else if (mode < 0 || mode == int(DimensionAttachmentKind::CurvePoint)) {
-            a.kind = DimensionAttachmentKind::CurvePoint;
-            add_candidate(a, point_at(curve, a.parameter), distance + .1 * tolerance);
+            const auto support=*straight_support(&curve);
+            a.parameter = curve.line?.5:parameter_at(curve,mul(add(support.first,support.second),.5));
+            add_candidate(a, point_at(curve, a.parameter), distance + .05 * tolerance);
         }
     }
     std::stable_sort(offered.begin(), offered.end(), measurement_candidate_precedes);
@@ -1043,12 +1239,12 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     }
     if(d.kind==DrawingDimensionKind::Chain&&d.chain_datum_only&&!datum_direction&&d.attachments[d.anchor_attachment].kind==DimensionAttachmentKind::Line) {
         const auto* edge=find_curve(curves,d.attachments[d.anchor_attachment].reference);
-        if(edge&&edge->line&&edge->points.size()>1) {
-            datum_direction=d.direction==DimensionDirection::Horizontal?Point2{1,0}:d.direction==DimensionDirection::Vertical?Point2{0,1}:perp(unit(sub(edge->points.back(),edge->points.front())));
+        if(straight_support(edge).has_value()) {
+            datum_direction=d.direction==DimensionDirection::Horizontal?Point2{1,0}:d.direction==DimensionDirection::Vertical?Point2{0,1}:perp(straight_direction(edge));
             if(d.direction==DimensionDirection::Parallel) {
                 const auto* parallel=find_curve(curves,d.parallel_reference);
-                if(!parallel||!parallel->line||parallel->points.size()<2)return missing("Chybí platná úsečka pro rovnoběžnost.");
-                datum_direction=unit(sub(parallel->points.back(),parallel->points.front()));
+                if(!straight_support(parallel))return missing("Chybí platná úsečka pro rovnoběžnost.");
+                datum_direction=straight_direction(parallel);
             }
         }
     }
@@ -1136,12 +1332,13 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         if(d.attachments.size()!=2||d.segments.size()!=1)return missing("Vyberte dvě přímé hrany pro úhlovou kótu.");
         const auto* first=find_curve(curves,d.attachments[0].reference);
         const auto* second=find_curve(curves,d.attachments[1].reference);
-        const auto valid=[](const auto* curve){return curve&&curve->line&&curve->points.size()>1&&length(sub(curve->points.back(),curve->points.front()))>1e-9;};
+        const auto valid=[](const auto* curve){return straight_support(curve).has_value();};
         result.resolved_attachments={valid(first),valid(second)};
         if(!valid(first)||!valid(second)||d.attachments[0].kind!=DimensionAttachmentKind::Line||d.attachments[1].kind!=DimensionAttachmentKind::Line)
             return missing("Chybí přímá hrana úhlové kóty. Vyberte její náhradu.");
         if(first->source==second->source)return missing("Vyberte dvě různé přímé hrany.");
-        const auto u=unit(sub(first->points.back(),first->points.front())),v=unit(sub(second->points.back(),second->points.front()));
+        const auto support1=*straight_support(first),support2=*straight_support(second);
+        const auto u=unit(sub(support1.second,support1.first)),v=unit(sub(support2.second,support2.first));
         const auto ray1=mul(u,d.attachments[0].side),ray2=mul(v,d.attachments[1].side);
         const auto p1=point_at(*first,d.attachments[0].parameter),p2=point_at(*second,d.attachments[1].parameter);
         const auto middle=mul(add(p1,p2),.5);const double determinant=cross(u,v);
@@ -1149,7 +1346,7 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         Point2 center=middle;bool leaders=std::abs(determinant)<1e-9;
         if(!leaders) {
             center=add(p1,mul(u,cross(sub(p2,p1),v)/determinant));
-            const double extent=std::max({length(sub(first->points.back(),first->points.front())),length(sub(second->points.back(),second->points.front())),length(sub(p2,p1)),1/view.scale});
+            const double extent=std::max({length(sub(support1.second,support1.first)),length(sub(support2.second,support2.first)),length(sub(p2,p1)),1/view.scale});
             leaders=length(sub(center,middle))>10*extent+100/view.scale;
         }
         kernel::ViewerDimension value;value.kind=kernel::ViewerDimensionKind::Angular;value.value=std::abs(sweep);value.sweep_degrees=sweep;value.unit_suffix="°";value.driving=false;
@@ -1178,16 +1375,17 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     else if (d.direction == DimensionDirection::Parallel) {
         const auto *curve = find_curve(curves, d.parallel_reference);
         result.direction_resolved =
-            curve && curve->line && length(sub(curve->points.back(), curve->points.front())) > 1e-9;
+            straight_support(curve).has_value();
         if (!result.direction_resolved)
             return missing("Chybí platná úsečka pro rovnoběžnost.");
-        direction = unit(sub(curve->points.back(), curve->points.front()));
+        direction = straight_direction(curve);
     } else if (d.direction == DimensionDirection::Automatic &&
-               d.attachments[anchor].kind == DimensionAttachmentKind::Line) {
-        const auto *curve = find_curve(curves, d.attachments[anchor].reference);
-        if (!curve || !curve->line || length(sub(curve->points.back(), curve->points.front())) < 1e-9)
+               (d.attachments[anchor].kind == DimensionAttachmentKind::Line||d.attachments[anchor+1].kind==DimensionAttachmentKind::Line)) {
+        const auto& reference=d.attachments[anchor].kind==DimensionAttachmentKind::Line?d.attachments[anchor]:d.attachments[anchor+1];
+        const auto *curve = find_curve(curves, reference.reference);
+        if (!straight_support(curve))
             return missing("První úsečka není v pohledu dostupná.");
-        direction = perp(unit(sub(curve->points.back(), curve->points.front())));
+        direction = perp(straight_direction(curve));
     } else if (d.direction == DimensionDirection::Automatic) {
         const auto preliminary = [&](const auto &a) -> std::optional<Point2> {
             if (a.kind == DimensionAttachmentKind::Tangent) {
@@ -1212,11 +1410,11 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         return missing("Některá vazba není dostupná. Vyberte její náhradu.");
     if (d.attachments[anchor].kind == DimensionAttachmentKind::Line) {
         const auto *first = find_curve(curves, d.attachments[anchor].reference);
-        const auto line = unit(sub(first->points.back(), first->points.front()));
+        const auto line = straight_direction(first);
         for (std::size_t i = 0; i < d.attachments.size(); ++i)
             if (d.attachments[i].kind == DimensionAttachmentKind::Line) {
                 const auto *next = find_curve(curves, d.attachments[i].reference);
-                if (std::abs(cross(line, unit(sub(next->points.back(), next->points.front())))) > 1e-7) {
+                if (std::abs(cross(line, straight_direction(next))) > 1e-7) {
                     result.resolved_attachments[i] = false;
                     return missing("Druhá úsečka musí být rovnoběžná s první.");
                 }
@@ -1259,6 +1457,42 @@ void refresh_drawing_dimension(const DrawingView &view, DrawingDimension &d) {
     for (std::size_t i = 0; i < d.segments.size(); ++i) {
         d.segments[i].last_presentation = result.presentations[i];
         d.segments[i].last_angular_leaders=i<result.angular_leaders.size()&&result.angular_leaders[i];
+    }
+}
+void retain_drawing_dimension_clearance(const DrawingView& before,const DrawingView& after,DrawingDimension& d) {
+    if((d.kind!=DrawingDimensionKind::Linear&&d.kind!=DrawingDimensionKind::Chain)||d.chain_datum_only||
+       before.camera!=after.camera||before.scale<=0||after.scale<=0)return;
+    const auto old=evaluate_drawing_dimension(before,d),current=evaluate_drawing_dimension(after,d);
+    if(old.state!=MeasurementState::Resolved||current.state!=MeasurementState::Resolved)return;
+    const auto extent=[](const DrawingView& view,Point2 direction)->std::optional<std::pair<double,double>> {
+        double low=std::numeric_limits<double>::infinity(),high=-low;
+        const auto include=[&](Point2 p){const double t=dot(mul(break_map(view,p),view.scale),direction);low=std::min(low,t);high=std::max(high,t);};
+        for(const auto& edge:view.projected_edges)if(!edge.hatch)for(auto p:edge.points)include(p);
+        for(const auto& triangle:view.projected_triangles)for(auto p:triangle.points)include(p);
+        return std::isfinite(low)?std::optional(std::pair{low,high}):std::nullopt;
+    };
+    for(std::size_t i=0;i<old.presentations.size();++i) {
+        auto probe=d;for(auto& segment:probe.segments)segment.layout.line_offset+=1;
+        const auto shifted=evaluate_drawing_dimension(after,probe);
+        if(shifted.state!=MeasurementState::Resolved)return;
+        const auto& a=old.presentations[i];const auto& b=current.presentations[i];
+        const Point2 outward=unit({shifted.presentations[i].line_first.x-b.line_first.x,shifted.presentations[i].line_first.y-b.line_first.y});
+        auto old_probe=d;for(auto& segment:old_probe.segments)segment.layout.line_offset+=1;
+        const auto old_shifted=evaluate_drawing_dimension(before,old_probe);
+        if(old_shifted.state!=MeasurementState::Resolved)continue;
+        const auto old_outward=unit(Point2{old_shifted.presentations[i].line_first.x-a.line_first.x,old_shifted.presentations[i].line_first.y-a.line_first.y});
+        if(dot(old_outward,outward)<1-1e-8)continue;
+        const auto previous=extent(before,outward),next=extent(after,outward);if(!previous||!next)continue;
+        const auto p=mul(break_map(before,{a.line_first.x,a.line_first.y}),before.scale);
+        const double position=dot(p,outward);double target;
+        if(position<previous->first-1e-7)target=next->first+position-previous->first;
+        else if(position>previous->second+1e-7)target=next->second+position-previous->second;
+        else continue; // An intentionally internal dimension stays attached to its witnesses.
+        const auto line=mul(break_map(after,{b.line_first.x,b.line_first.y}),after.scale);
+        if(std::abs(target-dot(line,outward))<1e-10)continue;
+        const auto requested=break_map(after,mul(add(line,mul(outward,target-dot(line,outward))),1/after.scale),true);
+        drag_drawing_dimension(after,d,i,2,sub(requested,{b.line_first.x,b.line_first.y}));
+        if(d.kind==DrawingDimensionKind::Chain)break; // One shared spine, one adjustment.
     }
 }
 bool erase_dimension_branch(const DrawingView& view, DrawingDimension& d, const std::string& id) {
@@ -1359,7 +1593,8 @@ void place_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::
             const auto curves=projected_measurement_curves(view);const auto* first=find_curve(curves,d.attachments[0].reference);const auto* second=find_curve(curves,d.attachments[1].reference);
             const auto center=result.presentations[0].witness_first;const auto requested=sub(point,{center.x,center.y});
             if(length(requested)>1e-9) {
-                const auto u=unit(sub(first->points.back(),first->points.front())),v=unit(sub(second->points.back(),second->points.front()));
+                const auto support1=*straight_support(first),support2=*straight_support(second);
+                const auto u=unit(sub(support1.second,support1.first)),v=unit(sub(support2.second,support2.first));
                 bool chosen=false;
                 for(int a:{1,-1})for(int b:{1,-1})if(!chosen) {
                     const auto r1=mul(u,a),r2=mul(v,b);const double sweep=std::atan2(cross(r1,r2),dot(r1,r2)),t=std::atan2(cross(r1,requested),dot(r1,requested));

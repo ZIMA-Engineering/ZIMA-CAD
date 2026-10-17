@@ -183,8 +183,7 @@ def render(data, page, language):
              '<meta name="color-scheme" content="light dark">',
              f'<title>{tr(page["title"])} · ZIMA-CAD</title>',
              f'<link rel="stylesheet" href="{css}"></head><body>', '<main>',
-             '<header class="reference-header"><nav aria-label="' + tr("section") + '">' + ' '.join(navigation) + '</nav>' + brand + '</header>',
-             f'<h1>{tr(page["title"])}</h1>']
+             '<header class="reference-header">' + f'<h1>{tr(page["title"])}</h1>' + '<nav aria-label="' + tr("section") + '">' + ' '.join(navigation) + '</nav>' + brand + '</header>']
     if page.get('review'):
         parts.append('<p class="review-status">' + tr(page['review']) + '</p>')
     if page["rows"]:

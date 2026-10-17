@@ -130,12 +130,14 @@ public:
         if(!fill_only&&view.display_style!=drawing::DisplayStyle::Shaded)for(bool occluded:{true,false}) {
             if(occluded&&view.display_style!=drawing::DisplayStyle::HiddenEdges)continue;
             gl->glDepthFunc(occluded?GL_GREATER:GL_LEQUAL);
-            for(const auto& range:packet.ranges){auto edge=range.style;edge.hidden=occluded;
+            for(bool thick_pass:{false,true})for(const auto& range:packet.ranges){auto edge=range.style;edge.hidden=occluded;
                 if(!drawing::drawing_edge_visible(view,edge))continue;
+                const bool heavy=!(occluded||edge.thread||edge.hatch||(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin));
+                if(heavy!=thick_pass)continue;
                 // Interactive hidden edges match the continuous gray 3D display.
                 // The saved dash style is applied only by vector output.
                 shader_->setUniformValue("ink",occluded||edge.tangent||edge.thread?hidden:visible);
-                gl->glLineWidth(float((occluded||edge.thread||(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin)?thin:thick)*reduction));
+                gl->glLineWidth(float((heavy?thick:thin)*reduction));
                 gl->glDrawArrays(GL_LINES,range.first,range.count);
             }
         }

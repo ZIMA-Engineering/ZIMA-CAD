@@ -297,6 +297,19 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const double pixels=zoom*view.scale;bounds.adjust(-2/pixels,-2/pixels,2/pixels,2/pixels);
                 const auto color=ink;
                 const double device_scale=painter.device()->devicePixelRatioF();
+                // Rasterize only the visible viewport. Rendering the complete
+                // off-screen model at high zoom needlessly hits the image cap,
+                // shifts displayed strokes away from exact picking geometry
+                // and makes GL clamp thin and thick strokes to the same pixel.
+                QRectF viewport=painter.window();
+                if(painter.hasClipping())viewport=viewport.intersected(painter.clipBoundingRect());
+                const double margin=std::max(4.,width(true)*.5+1.);
+                viewport.adjust(-margin,-margin,margin,margin);
+                const QPointF view_origin{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom};
+                const QRectF visible_bounds(QPointF((viewport.left()-view_origin.x())/pixels,(view_origin.y()-viewport.bottom())/pixels),
+                    QPointF((viewport.right()-view_origin.x())/pixels,(view_origin.y()-viewport.top())/pixels));
+                bounds=bounds.intersected(visible_bounds);
+                if(bounds.isEmpty()){depth_rendered=true;painter.restore();continue;}
                 const auto image=app::drawing_depth_view().render(view,bounds,pixels*device_scale,zoom*device_scale,color,color==ink?QColor("#666666"):color,width(true)*device_scale,width(false)*device_scale);
                 if(!image.isNull()) {
                     const QRectF target(origin.x()+(sheet_->width_mm()-view.x+bounds.left()*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-bounds.bottom()*view.scale)*zoom,bounds.width()*pixels,bounds.height()*pixels);
@@ -327,8 +340,10 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                     }
                 }
                 painter.save();painter.translate(origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom);painter.scale(zoom*view.scale,-zoom*view.scale);
-                for(bool hidden:{true,false})for(const auto& [key,group]:cache.groups) {
+                for(bool hidden:{true,false})for(bool thick_pass:{false,true})for(const auto& [key,group]:cache.groups) {
                     const auto& edge=group.first;if(edge.hidden!=hidden||!drawing::drawing_edge_visible(view,edge))continue;
+                    const bool heavy=!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin);
+                    if(heavy!=thick_pass)continue;
                     const auto color=edge.hatch?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)?QColor("#666666"):ink;
                     QPen pen(color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin))/(zoom*view.scale));
                     pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
@@ -338,9 +353,11 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 }
                 painter.restore();depth_rendered=true;
             }
-            for(bool hidden_pass:{true,false})if(!depth_rendered)for (const auto& edge : software_view?software_view->projected_edges:view.projected_edges) {
+            for(bool hidden_pass:{true,false})for(bool thick_pass:{false,true})if(!depth_rendered)for (const auto& edge : software_view?software_view->projected_edges:view.projected_edges) {
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
+                const bool heavy=!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin);
+                if(heavy!=thick_pass)continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
                 const QColor edge_color=edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
                 QPen pen(edge_color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));

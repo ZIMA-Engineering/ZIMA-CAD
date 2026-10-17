@@ -1017,6 +1017,20 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                                               triangle_json.at("points").at(index).at(1).get<double>()};
                 view.projected_triangles.push_back(std::move(triangle));
             }
+            // Interactive projections are disposable derivatives of the embedded
+            // calculated source. Rebuild display and picking together on open;
+            // no source document read, OCCT calculation or history edit is needed.
+            if(view.output_source&&view.section_id.empty()) {
+                auto measurements=*view.measurement_geometry;
+                prepare_interactive_view(view,view.output_source);
+                // Native references and Thread designation are persisted
+                // measurement data, not reconstructed from a display packet.
+                // Only camera-derived analytic contours are refreshed here.
+                std::erase_if(measurements.curves,[](const auto& curve){return curve.source.semantic_key.starts_with("drawing-contour:");});
+                for(const auto& curve:view.measurement_geometry->curves)
+                    if(curve.source.semantic_key.starts_with("drawing-contour:"))measurements.curves.push_back(curve);
+                view.measurement_geometry=share_measurement_geometry(std::move(measurements));
+            }
             sheet.views.push_back(std::move(view));
         }
         sheet.dimensions=deserialize_drawing_dimensions(serialized.value("dimensions",nlohmann::json::array()).dump());

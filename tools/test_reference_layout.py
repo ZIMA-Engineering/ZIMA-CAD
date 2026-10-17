@@ -88,7 +88,16 @@ class LogicalReferences(unittest.TestCase):
                     text=generator.render(data,topic,lang)
                     document=html.fromstring(text)
                     screen_tables=document.xpath('//table[not(ancestor::div[contains(concat(" ",normalize-space(@class)," ")," print-only ")])]')
-                    self.assertEqual(len(screen_tables),1 if topic.get('continuous_table') else len(list(generator.table_blocks(topic))))
+                    blocks=list(generator.table_blocks(topic))
+                    expected_tables=len(blocks)
+                    if topic.get('thread_dimension_rows'):
+                        # Size ranges share one dimensional matrix; context and
+                        # independent length-availability tables remain separate.
+                        ranges=sum(block['headers'][0]=='parameter' for block in blocks)
+                        self.assertGreater(ranges,0)
+                        expected_tables-=ranges-1
+                    if topic.get('continuous_table'):expected_tables=1
+                    self.assertEqual(len(screen_tables),expected_tables,(name,topic['path'],lang))
                     self.assertIn(f'<html lang="{lang}">',text)
                     for figure in topic.get('figures',[]):
                         self.assertLess(text.index('<figure'),text.index('<table>'))

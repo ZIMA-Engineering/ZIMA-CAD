@@ -246,12 +246,6 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if(angular()){request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);return request;}
         request.mode = row==draft_row_?-1:modes_[row];
         request.circles_only = radial();
-        const auto& anchor=value_.attachments[value_.anchor_attachment];
-        if(request.mode<0&&creating_&&automatic_placement_&&!extended_&&
-           value_.kind==drawing::DrawingDimensionKind::Linear&&row!=int(value_.anchor_attachment)&&
-           anchor.reference.valid()&&anchor.kind!=drawing::DimensionAttachmentKind::Line&&
-           anchor.kind!=drawing::DimensionAttachmentKind::Tangent)
-            request.curve_points=true;
         if (const auto *view = view_(value_.view_id)) {
             if (value_.direction == drawing::DimensionDirection::Vertical)
                 request.tangent_direction = {0, 1};
@@ -263,9 +257,9 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 (value_.direction == drawing::DimensionDirection::Automatic &&
                  first.kind == drawing::DimensionAttachmentKind::Line)) {
                 for (const auto &curve : drawing::projected_measurement_curves(*view))
-                    if (curve.source == direction_reference && curve.line) {
-                        const double x = curve.points.back().x - curve.points.front().x,
-                                     y = curve.points.back().y - curve.points.front().y,
+                    if (curve.source == direction_reference) if(const auto support=drawing::measurement_line_support(curve)) {
+                        const double x = support->second.x - support->first.x,
+                                     y = support->second.y - support->first.y,
                                      size = std::hypot(x, y);
                         if (size > 1e-9)
                             request.tangent_direction =
@@ -647,12 +641,11 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 mode->setObjectName(QString("dimensionAttachmentMode%1").arg(row));
                 mode->addItem(tr("Automaticky"), -1);
                 mode->addItem(tr("Bod"), int(drawing::DimensionAttachmentKind::Point));
-                mode->addItem(tr("Bod na křivce"), int(drawing::DimensionAttachmentKind::CurvePoint));
                 mode->addItem(tr("Úsečka"), int(drawing::DimensionAttachmentKind::Line));
                 mode->addItem(tr("Střed (C)"), int(drawing::DimensionAttachmentKind::Center));
                 mode->addItem(tr("Tečna (T)"), int(drawing::DimensionAttachmentKind::Tangent));
                 mode->addItem(tr("Průsečík (I)"), int(drawing::DimensionAttachmentKind::Intersection));
-                mode->setCurrentIndex(mode->findData(modes_[row]));
+                mode->setCurrentIndex(mode->findData(modes_[row]==int(drawing::DimensionAttachmentKind::CurvePoint)?int(drawing::DimensionAttachmentKind::Point):modes_[row]));
                 mode->setEnabled(!radial()&&!angular());
                 references_->setCellWidget(row, 1, mode);
                 connect(mode, &QComboBox::currentIndexChanged, this, [this, row, mode] {

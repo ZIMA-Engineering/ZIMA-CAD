@@ -3,6 +3,7 @@
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
 #include "../app/construction_reference_candidate_policy.hpp"
+#include "../app/sketch_point_pick_priority.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -705,6 +706,34 @@ int main() {
                     sketch_origin_priority.front().semantic_key ==
                         "external_point:sketch_origin",
                 "Sketch origin point did not take stable priority over its axes");
+        {
+            const zima::viewer::ViewerCandidate origin{zima::viewer::CandidateKind::SketchExternalReference,0,0,"sketch","external_point:sketch_origin"};
+            for(const auto& other:std::vector<zima::viewer::ViewerCandidate>{
+                {zima::viewer::CandidateKind::SketchPoint,0,0,"sketch","point:existing"},
+                {zima::viewer::CandidateKind::SketchExternalReference,0,0,"sketch","sketch_intersection:a:b"},
+                {zima::viewer::CandidateKind::SketchExternalReference,0,0,"sketch","sketch_midpoint:a"},
+                {zima::viewer::CandidateKind::SketchAxis,0,0,"sketch","sketch_axis:x"}})
+                require(zima::app::sketch_placement_pick_priority(origin)<zima::app::sketch_placement_pick_priority(other)&&
+                    zima::app::sketch_point_pick_priority(origin)<zima::app::sketch_point_pick_priority(other),"Origin lost command priority to another snap relation");
+        }
+        {
+            using namespace zima;
+            for(unsigned plane=0;plane<3;++plane)for(const double x:{-.009,.009})for(const double y:{-.009,.009}) {
+                const auto point=[&](double a,double b,double c){return plane==0?kernel::Vec3{a,b,c}:plane==1?kernel::Vec3{a,c,b}:kernel::Vec3{c,a,b};};
+                kernel::ViewerMesh mesh;
+                mesh.points.push_back({point(0,0,5),{"sketch","external_point:sketch_origin","occurrence"}});
+                mesh.axes.push_back({point(0,0,5),point(1,0,0),10,{"sketch","sketch_axis:x","occurrence"}});
+                mesh.axes.push_back({point(0,0,5),point(0,1,0),10,{"sketch","sketch_axis:y","occurrence"}});
+                const auto pick=[&](double a,double b){return viewer::filter_candidates(viewer::ordered_viewer_candidates(mesh,point(a,b,0),point(0,0,1),.01),
+                    {viewer::CandidateKind::SketchExternalReference,viewer::CandidateKind::SketchAxis});};
+                const auto crossing=pick(x,y);
+                require(crossing.size()==3&&crossing.front().semantic_key=="external_point:sketch_origin","Two-axis hit selected only one coordinate instead of the real Origin");
+                const auto single=pick(x,.02);
+                require(single.size()==1&&single.front().kind==viewer::CandidateKind::SketchAxis,"Single-axis hit acquired an unintended Origin anchor");
+                mesh.axes.back().reference.owner_id="other-sketch";
+                require(std::ranges::none_of(pick(x,y),[](const auto& c){return c.semantic_key=="external_point:sketch_origin";}),"Axes from different Sketches fabricated an Origin intersection");
+            }
+        }
         for (bool vertical : {false, true}) for (bool construction : {false, true}) {
             zima::kernel::ViewerMesh overlap;
             overlap.axes.push_back({{0,0,0},vertical?zima::kernel::Vec3{0,1,0}:zima::kernel::Vec3{1,0,0},

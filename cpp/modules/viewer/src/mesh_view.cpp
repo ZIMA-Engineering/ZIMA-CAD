@@ -4662,10 +4662,12 @@ if (impl_->show_origins) {
         };
         if (!impl_->active_sketch_owner_id.empty() && axes_visible) draw_axes();
         if (sketch_geometry_visible) {
-            // Native Sketch strokes cover coincident read-only reference wires.
+            // Construction strokes cover ordinary Sketch wires and solid geometry.
+            for (const bool construction_pass : {false, true})
             for (const bool reference_pass : {true, false})
             for (const auto& edge : impl_->mesh.edges) {
                 if (!is_sketch_wire_edge(edge)) continue;
+                if (edge.construction != construction_pass) continue;
                 if(!(edge.reference.semantic_key.starts_with("symbol:")?impl_->show_symbols:impl_->show_sketches))continue;
                 if(edge.filled_text)continue; // Filled annotation; selection still draws its exact wire.
                 const bool text = edge.reference.semantic_key.starts_with("text:");
@@ -4690,6 +4692,8 @@ if (impl_->show_origins) {
                         : QPen(theme.foreground,
                             impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
                 if (!edge.color.empty()) {const QColor color(QString::fromStdString(edge.color));edge_pen.setColor(color==QColor(Qt::white)?theme.foreground:color);}
+                if (edge.construction && !external && !external_face)
+                    edge_pen.setColor(interaction::sketch_construction);
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
                 const auto key = edge_key(edge.reference);
@@ -4987,7 +4991,7 @@ if (impl_->show_origins) {
             const auto& ref=point.reference;
             const bool inspected=impl_->constraint_reference_edges.contains(EdgeKey{ref.owner_id,ref.semantic_key,ref.instance_path});
             const auto color=inspected?interaction::selected:
-                point.construction||!ref.semantic_key.starts_with("point:")?interaction::axis:theme.foreground;
+                !ref.semantic_key.starts_with("point:")?interaction::axis:theme.foreground;
             draw_circular_marker(painter,project(point.position),color);
         }
         if (impl_->sketch_cursor) {
@@ -5207,7 +5211,7 @@ if (impl_->show_origins) {
                             ? QColor(0, 0, 0)
                         : marker_key.starts_with("point:")
                             ? marker_key.starts_with("point:from:")
-                                ? interaction::axis : point.construction?interaction::axis:theme.foreground
+                                ? interaction::axis : theme.foreground
                         : marker_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)

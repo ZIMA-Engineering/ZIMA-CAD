@@ -1174,6 +1174,8 @@ if(ZIMA_BUILD_TESTS)
             ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=windows;ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")
     endif()
     add_executable(zima_cpp_native_documents_tests tests/native_documents_tests.cpp)
+    add_executable(zima_cpp_fastener_library_contract_tests tests/fastener_library_contract_tests.cpp)
+    target_link_libraries(zima_cpp_fastener_library_contract_tests PRIVATE zima_workspace TKTopAlgo)
     add_executable(zima_cpp_drawing_projection_benchmark tests/drawing_projection_benchmark.cpp)
     target_link_libraries(zima_cpp_drawing_projection_benchmark PRIVATE zima_workspace)
     target_link_libraries(zima_cpp_native_documents_tests PRIVATE zima_workspace)
@@ -1416,7 +1418,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_bolt_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup
         --working-directory "${CMAKE_BINARY_DIR}/bolt-sketch-ui-contract")
     set_tests_properties(zima_cpp_bolt_sketch_ui_contract PROPERTIES
-        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_BOLT_SKETCH_ONLY=1;ZIMA_BOLT_SOURCE=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-MODELS/HHS-ISO4017-M3x20.prtz"
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_BOLT_SKETCH_ONLY=1;ZIMA_BOLT_SOURCE=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/HHS-ISO4017-M3x20.prtz"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_sketch_relation_command_tests tests/sketch_relation_command_tests.cpp)
     target_link_libraries(zima_cpp_sketch_relation_command_tests PRIVATE zima_command_host)
@@ -1929,9 +1931,13 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_show_erase_ui_contract COMMAND zima-cad-drawing-harness --verify-show-erase)
     set_tests_properties(zima_cpp_show_erase_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_measurement_dimension_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    add_test(NAME zima_cpp_drawing_clearance_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    set_tests_properties(zima_cpp_drawing_clearance_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DRAWING_CLEARANCE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_drawing_surface_contour_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
     set_tests_properties(zima_cpp_drawing_surface_contour_ui_contract PROPERTIES
-        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/01-MODELS/0000-index/HHS-ISO4017-REFERENCE.drwz"
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/01-HEX-HEAD/03-FULL-AB/0000-index/HHS-ISO4017-REFERENCE.drwz"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_balloon_ui_contract COMMAND zima-cad-drawing-harness --verify-balloons)
     set_tests_properties(zima_cpp_drawing_balloon_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
@@ -2412,6 +2418,15 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_desktop_integration COMMAND zima_desktop_integration_tests)
     set_tests_properties(zima_desktop_integration PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# These focused verification tools own an isolated runtime so native library and
+# presentation checks do not replace DLLs used by the running development app.
+foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests)
+    if(TARGET ${fastener_check_target})
+        set_target_properties(${fastener_check_target} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fastener-runtime")
+    endif()
+endforeach()
 
 if(WIN32 AND ZIMA_QT_SDK_ROOT)
     set_property(GLOBAL APPEND PROPERTY JOB_POOLS qt_runtime_link=1)

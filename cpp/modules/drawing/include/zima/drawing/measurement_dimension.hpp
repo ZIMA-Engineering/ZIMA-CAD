@@ -24,9 +24,6 @@ struct ProjectedMeasurementCurve {
 struct MeasurementPickRequest {
     int mode{-1}; // Automatic, or an explicit DimensionAttachmentKind.
     bool circles_only{}, lines_only{};
-    // Continue a point pair with the exact contact on a straight curve.
-    // Explicit Line mode and first-line perpendicular measurements are unchanged.
-    bool curve_points{};
     kernel::EdgeReference intersection_first, parallel_line;
     Point2 tangent_direction{1, 0};
     std::optional<Point2> tangent_origin;
@@ -57,6 +54,8 @@ void capture_measurement_geometry(DrawingView &, const kernel::ViewerMesh &);
 // guessed triangle identities. Source topology remains owned by the Part.
 kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh &, const ProjectionCamera &);
 std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const DrawingView &);
+// Straight support in this camera, retaining the source curve and its parameters.
+std::optional<std::pair<Point2,Point2>> measurement_line_support(const ProjectedMeasurementCurve&);
 // Exact displayed fragments shared by hover and reference highlighting.
 std::vector<std::vector<Point2>> measurement_reference_geometry(
     const DrawingView &, const kernel::EdgeReference &);
@@ -66,6 +65,8 @@ std::vector<std::pair<Point2, double>> dimension_intersections(const ProjectedMe
                                                                const ProjectedMeasurementCurve &);
 DimensionEvaluation evaluate_drawing_dimension(const DrawingView &, const DrawingDimension &);
 void refresh_drawing_dimension(const DrawingView &, DrawingDimension &);
+// Retain an outside dimension's paper clearance when its calculated view changes.
+void retain_drawing_dimension_clearance(const DrawingView& before,const DrawingView& after,DrawingDimension&);
 void validate_drawing_dimension(const DrawingDimension &);
 DrawingDimension make_drawing_dimension(std::string view_id,
                                         DrawingDimensionKind = DrawingDimensionKind::Linear);

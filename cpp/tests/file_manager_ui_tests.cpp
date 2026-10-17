@@ -4,6 +4,7 @@
 #include "file_manager_includes.hpp"
 #include "native_file_icon.hpp"
 #include "directory_metadata.hpp"
+#include "branding_image.hpp"
 
 #include <QAction>
 #include <QPersistentModelIndex>
@@ -212,6 +213,8 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
             wait([&]{return read("document.documentElement.dataset.zimaTheme").toString()==theme;},"Unit table did not follow the application theme");
             const auto background=application.palette().color(QPalette::Base);
             check(read("getComputedStyle(document.body).backgroundColor").toString()==QString("rgb(%1, %2, %3)").arg(background.red()).arg(background.green()).arg(background.blue()),"Unit table CSS did not follow the application palette");
+            check(read("getComputedStyle(document.querySelector('.reference-brand')).backgroundColor").toString()=="rgba(0, 0, 0, 0)","Reference logo regained an opaque background");
+            check(read("getComputedStyle(document.documentElement).colorScheme").toString()==(dark?"dark":"light"),"SVG logo did not inherit the application color scheme");
             if(leaf=="01-GENERAL") {
                 check(read("document.querySelectorAll('tbody tr').length").toInt()==392&&read("document.querySelectorAll('table').length").toInt()==1,"Merged metric table lost rows or retained split tables");
                 check(read("document.querySelectorAll('tr.preferred-row').length").toInt()==25,"Merged metric table lost first-choice marking");
@@ -233,6 +236,35 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
+        {
+            const QString path=QFileInfo("resources/branding/ZIMA-Engineering.svg").absoluteFilePath();
+            QPalette light=application.palette(),dark=light;
+            light.setColor(QPalette::Window,Qt::white);dark.setColor(QPalette::Window,QColor("#20262d"));
+            const auto a=zima::app::branding_pixmap(path,{510,100},light).toImage();
+            const auto b=zima::app::branding_pixmap(path,{510,100},dark).toImage();
+            check(!a.isNull()&&a.size()==b.size(),"Adaptive logo lost its size");
+            int ink=0,green=0,white=0,transparent=0;
+            for(int y=0;y<a.height();++y)for(int x=0;x<a.width();++x){
+                const auto ca=a.pixelColor(x,y),cb=b.pixelColor(x,y);
+                check(ca.alpha()==cb.alpha(),"Logo theme changed transparency");
+                if(ca.alpha()==0){++transparent;continue;}
+                if(ca.alpha()!=255)continue;
+                if(ca==QColor("#1C1B17")){++ink;check(cb==QColor("#FEFEFE"),"Dark logo ink remained black");}
+                if(ca==QColor("#80AA1A")){++green;check(ca==cb,"Logo theme changed brand green");}
+                if(ca==Qt::white||ca==QColor("#FEFEFE")){++white;check(ca==cb,"Logo theme inverted white lettering");}
+            }
+            check(ink>100&&green>100&&white>100&&transparent>100,"Logo color fixture does not cover its artwork");
+            check(zima::app::branding_pixmap(path,{510,100},light).toImage()==a,"Light/Dark/Light logo cache is stale");
+            QTemporaryDir legacy;
+            QFile original(path);check(original.open(QIODevice::ReadOnly),"Cannot read authored logo fixture");
+            auto bytes=original.readAll();
+            bytes.replace("@media (prefers-color-scheme:dark) {.st1{fill:#FEFEFE;}}","");
+            bytes.replace("@media print {.st1{fill:#1C1B17;}}","");
+            const QString legacy_path=legacy.filePath("logo-text.svg");
+            QFile copy(legacy_path);check(copy.open(QIODevice::WriteOnly)&&copy.write(bytes)==bytes.size(),"Cannot create legacy logo fixture");copy.close();
+            check(zima::app::branding_pixmap(legacy_path,{510,100},dark).toImage()==b,"Previously imported ZIMA logo did not adapt");
+            std::cout<<"Adaptive native logo: transparent, unchanged green/white and Light/Dark/Light ink passed\n";
+        }
         verify_file_controls(application);
         verify_symbol_thumbnails(application);
         verify_directory_includes(application);

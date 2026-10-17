@@ -37,19 +37,27 @@ void verify_auxiliary_geometry_colors(QApplication& application,QWidget& parent)
         view.setPalette(palette);
         kernel::ViewerMesh styled;
         styled.edges.push_back({{{-2,0,0},{2,0,0}},{"styled-sketch","segment:aux",{}},true,true});
+        styled.points.push_back({{0,1,0},{"styled-sketch","point:aux",{}},{},true,true});
+        styled.points.push_back({{0,-1,0},{"styled-sketch","point:aux-mirror",{}},{},true,true});
         view.set_active_sketch_owner("styled-sketch");view.set_mesh(styled);
         view.set_selection_contract({});view.clear_selection();application.processEvents();
         auto frame=view.grabFramebuffer();
         const double pixels=1/view.world_tolerance_for_pixels(1);
-        int purple{};for(int x=-int(2*pixels)+3;x<int(2*pixels)-3;++x)
-            purple+=framebuffer_contains_color_near(frame,view.size(),center+QPointF(x,0),QColor("#8066C2"),2);
-        require(purple>10,"Auxiliary Sketch wire is not blue-violet");
-        require(!framebuffer_contains_color_near(frame,view.size(),center+QPointF(2.5*pixels,0),QColor("#8066C2"),2),
+        int green{};for(int x=-int(2*pixels)+3;x<int(2*pixels)-3;++x)
+            green+=framebuffer_contains_color_near(frame,view.size(),center+QPointF(x,0),QColor("#4DD811"),2);
+        if(green<=10) {
+            frame.save(dark?"build/auxiliary-dark-failure.png":"build/auxiliary-light-failure.png");
+            std::cerr<<"auxiliary frame "<<frame.width()<<'x'<<frame.height()<<" pixels/unit="<<pixels<<" green="<<green<<'\n';
+        }
+        require(green>10,"Auxiliary Sketch wire is not construction green");
+        require(framebuffer_contains_color_near(frame,view.size(),center+QPointF(0,-pixels),viewer::view_theme(palette).foreground,2),
+            "Construction Sketch point does not match ordinary point foreground");
+        require(!framebuffer_contains_color_near(frame,view.size(),center+QPointF(2.5*pixels,0),QColor("#4DD811"),2),
             "Auxiliary Sketch wire extends beyond its endpoint");
         styled.edges.front().dash_dot=true;view.set_mesh(styled);application.processEvents();frame=view.grabFramebuffer();
-        int brown{};for(int x=-int(2*pixels);x<int(2*pixels);++x)
-            brown+=framebuffer_contains_color_near(frame,view.size(),center+QPointF(x,0),QColor("#AD6E2E"),2);
-        require(brown>10,"Construction axis lost its brown color");
+        int axis_green{};for(int x=-int(2*pixels);x<int(2*pixels);++x)
+            axis_green+=framebuffer_contains_color_near(frame,view.size(),center+QPointF(x,0),QColor("#4DD811"),2);
+        require(axis_green>10,"Construction Sketch axis is not construction green");
     }
     view.set_active_sketch_owner({});view.setPalette(point_palette);
 }

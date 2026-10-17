@@ -71,7 +71,11 @@ class Fasteners(unittest.TestCase):
                 row,column=correction['row'],correction['column']
                 self.assertEqual(numeric_cell(body[row][column]),numeric_cell(correction['before']))
                 self.assertEqual(table['rows'][row][column],correction['after'])
-                self.assertTrue(correction['source'].startswith('https://www.fabory.com/'))
+                self.assertIn(correction['source'], {
+                    'https://www.fabory.com/nl_BE/zeskanttapbout-iso-4017-din-933-staal-elektrolytisch-verzinkt-8-8-m4x20/p/01210040020',
+                    'https://nahledy.normy.biz/n.php?i=220',
+                    'https://nahledy.normy.biz/n.php?i=223',
+                })
                 before[numeric_cell(correction['before'])]-=1
                 before[numeric_cell(correction['after'])]+=1
             after = Counter(numeric_cell(c) for row in table['rows'] for c in row if numeric_cell(c) is not None)

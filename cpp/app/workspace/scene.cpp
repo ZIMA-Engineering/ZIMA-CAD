@@ -1405,6 +1405,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                           zima::viewer::CandidateKind::Symbol,
                               zima::viewer::CandidateKind::SketchExternalReference});
         if (sketch_placement_active) viewer_->set_candidate_priority(sketch_placement_pick_priority);
+        else if(sketch_coincident_active_)viewer_->set_candidate_priority(sketch_point_pick_priority);
         if (sketch_external_reference_active_) {
             const auto source_owners = sketch_external_reference_source_owners(
                 document, active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
@@ -2259,6 +2260,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                           zima::viewer::CandidateKind::SketchExternalReference}
         : ordinary_selection_kinds(static_cast<viewer::SelectionFilter>(selection_filter_combo_->currentIndex()), active_part != nullptr));
     if (sketch_placement_active) viewer_->set_candidate_priority(sketch_placement_pick_priority);
+    else if(sketch_coincident_active_)viewer_->set_candidate_priority(sketch_point_pick_priority);
     if (active_assembly_sketch && sketch_external_reference_active_) {
         const auto top_assembly_id = document.document_id;
         viewer_->set_candidate_filter([this, top_assembly_id](const auto& candidate) {

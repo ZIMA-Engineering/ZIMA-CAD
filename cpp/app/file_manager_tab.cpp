@@ -7,6 +7,7 @@
 #include "thumbnail_image.hpp"
 #include "resource_icon.hpp"
 #include "native_file_icon.hpp"
+#include "branding_image.hpp"
 #include "path_name_dialog.hpp"
 #include "file_manager_filters.hpp"
 #include "tool_button_style.hpp"
@@ -179,7 +180,7 @@ public:
                 auto branded=branding_.constFind(path);if(branded==branding_.cend())branded=branding_.insert(path,directory_branding(path));
                 if(role==BrandingPathRole)return branded->path;
                 if(role==BrandingModeRole)return static_cast<int>(branded->mode);
-                if(role==Qt::DecorationRole&&!branded->path.isEmpty())return QIcon(branded->path);
+                if(role==Qt::DecorationRole&&!branded->path.isEmpty())return QIcon(branding_pixmap(branded->path,{160,30},QApplication::palette()));
                 if(role==Qt::DisplayRole||role==Qt::AccessibleTextRole){
                     const auto cached=labels_.constFind(path);const QString label=cached!=labels_.cend()?cached.value():directory_label(path,language_);
                     if(cached==labels_.cend())labels_.insert(path,label);
@@ -224,11 +225,11 @@ public:
         QStyleOptionViewItem background(option);initStyleOption(&background,index);background.text.clear();background.icon=QIcon();
         const QWidget* widget=option.widget;const QStyle* style=widget?widget->style():QApplication::style();
         style->drawControl(QStyle::CE_ItemViewItem,&background,painter,widget);
-        const QIcon logo(index.data(BrandingPathRole).toString());
-        if(logo.isNull())return;
         const QSize available(std::min(160,std::max(1,option.rect.width()-8)),30);
-        const QPixmap pixmap=logo.pixmap(available);
-        const QRect target(QPoint(option.rect.left()+4,option.rect.center().y()-pixmap.height()/2),pixmap.size());
+        const QPixmap pixmap=branding_pixmap(index.data(BrandingPathRole).toString(),available,option.palette,painter->device()->devicePixelRatioF());
+        if(pixmap.isNull())return;
+        const QSize logical=pixmap.deviceIndependentSize().toSize();
+        const QRect target(QPoint(option.rect.left()+4,option.rect.center().y()-logical.height()/2),logical);
         painter->drawPixmap(target,pixmap);
     }
 };
@@ -651,7 +652,7 @@ QIcon entry_icon(const QFileInfo& info,const QString& directory,int size,const Q
     if(info.isDir()){
         QSettings metadata(metadata_path(info.absoluteFilePath()),QSettings::IniFormat);
         const QString preview=first_existing_image(info.absoluteFilePath(),metadata.value("Project/Preview").toString(),language,{QStringLiteral("01")});if(!preview.isEmpty())return QIcon(preview);
-        const auto branding=directory_branding(info.absoluteFilePath());if(!branding.path.isEmpty())return QIcon(branding.path);
+        const auto branding=directory_branding(info.absoluteFilePath());if(!branding.path.isEmpty())return QIcon(branding_pixmap(branding.path,{size,size},QApplication::palette()));
     }
     if(info.suffix().compare("png",Qt::CaseInsensitive)==0||info.suffix().compare("jpg",Qt::CaseInsensitive)==0||
        info.suffix().compare("jpeg",Qt::CaseInsensitive)==0||info.suffix().compare("webp",Qt::CaseInsensitive)==0)return QIcon(info.absoluteFilePath());
@@ -952,7 +953,7 @@ void FileManagerTab::refresh_overview_header(){
     const QString preview=project?first_existing_image(current_directory_,metadata.value("Project/Preview").toString(),settings_.language,{"01"}):QString{};
     project_image_->setVisible(!preview.isEmpty());project_image_->setPixmap(preview.isEmpty()?QPixmap{}:QIcon(preview).pixmap({640,220}));
     QString logo=first_existing_image(current_directory_,project?metadata.value("Project/Logo").toString():metadata.value("Directory/Logo").toString(),settings_.language,{"logo-text","logo","ZIMA-Engineering"});if(logo.isEmpty())logo=settings_.file_manager.company_logo;
-    project_logo_->setVisible(!logo.isEmpty());project_logo_->setPixmap(logo.isEmpty()?QPixmap{}:QIcon(logo).pixmap(project_logo_->size()));
+    project_logo_->setVisible(!logo.isEmpty());project_logo_->setPixmap(logo.isEmpty()?QPixmap{}:branding_pixmap(logo,project_logo_->size(),palette()));
 }
 
 void FileManagerTab::sync_overview_theme(){
@@ -980,7 +981,14 @@ void FileManagerTab::sync_overview_theme(){
 
 void FileManagerTab::changeEvent(QEvent* event){
     QWidget::changeEvent(event);
-    if(event->type()==QEvent::PaletteChange)sync_overview_theme();
+    if(event->type()==QEvent::PaletteChange){
+        sync_overview_theme();
+        if(project_logo_&&!current_directory_.isEmpty())refresh_overview_header();
+        if(overview_)for(int row=0;row<overview_->count();++row){
+            auto* item=overview_->item(row);
+            item->setIcon(entry_icon(QFileInfo(item->data(Qt::UserRole).toString()),current_directory_,overview_->iconSize().width(),settings_.language));
+        }
+    }
 }
 
 void FileManagerTab::refresh_overview(){

@@ -4,6 +4,7 @@
 #include <zima/document/physical_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/workspace/relation_operations.hpp>
+#include <zima/workspace/drawing_projection.hpp>
 #include <cmath>
 #include <iostream>
 #include <numbers>
@@ -85,6 +86,33 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.message);return result;
 }
 void verify(const kernel::OcctKernel& kernel,std::filesystem::path directory) {
+    verify_surface_contours(directory);
+    for(const auto kind:{drawing::DrawingDimensionKind::Linear,drawing::DrawingDimensionKind::Chain})
+    for(const bool vertical:{false,true})for(const int side:{-1,1}) {
+        const kernel::EdgeReference reference{"clearance","datum",{}};
+        const auto make=[&](double length,double radius) {
+            kernel::ViewerMesh m;
+            m.edges={{{{0,-radius,0},{length,-radius,0},{length,radius,0},{0,radius,0},{0,-radius,0}},{"clearance","outline",{}}},
+                {vertical?std::vector<kernel::Vec3>{{0,-radius,0},{0,radius,0}}:std::vector<kernel::Vec3>{{0,0,0},{length,0,0}},reference}};
+            auto v=drawing::DrawingDocument::create_view("clearance","unavailable.prtz",m);v.camera={{1,0,0},{0,1,0},{0,0,1}};v.scale=2;
+            drawing::capture_measurement_geometry(v,m);v.projected_edges=drawing::project_edges(m,v.camera);return v;
+        };
+        auto view=make(10,1);auto dimension=drawing::make_drawing_dimension(view.id,kind);
+        dimension.direction=vertical?drawing::DimensionDirection::Vertical:drawing::DimensionDirection::Horizontal;
+        dimension.attachments={{drawing::DimensionAttachmentKind::CurvePoint,reference,{},0},{drawing::DimensionAttachmentKind::CurvePoint,reference,{},1}};
+        drawing::place_drawing_dimension(view,dimension,0,vertical?drawing::Point2{side<0?-2.5:12.5,0}:drawing::Point2{5,side*3.5});
+        for(const auto [length,radius]:std::array{std::pair{20.,2.},std::pair{40.,4.},std::pair{12.,1.}}) {
+            auto next=make(length,radius);next.id=view.id;
+            drawing::retain_drawing_dimension_clearance(view,next,dimension);drawing::refresh_drawing_dimension(next,dimension);
+            const auto result=drawing::evaluate_drawing_dimension(next,dimension);require(result.state==drawing::MeasurementState::Resolved,"Resized view lost dimension reference");
+            const auto& value=result.presentations.front();const double actual=vertical?value.line_first.x:value.line_first.y;
+            const double expected=vertical?(side<0?-2.5:length+2.5):side*(radius+2.5);
+            require(std::abs(actual-expected)<1e-8,"Resized view did not preserve 5 mm paper clearance");
+            require(std::abs(value.value-(vertical?2*radius:length))<1e-8,"Resized dimension value is incorrect");
+            auto copy=dimension;drawing::retain_drawing_dimension_clearance(next,next,copy);require(copy==dimension,"Unchanged view moved a dimension");
+            view=std::move(next);
+        }
+    }
     auto doc=drawing::DrawingDocument::create_default();kernel::ViewerMesh mesh;
     const kernel::EdgeReference first{"profile","first","assembly/one"},second{"profile","second","assembly/one"},circle{"profile","circle","assembly/one"};
     mesh.edges={{{{0,0,0},{20,0,0}},first},{{{0,0,0},{10,10*std::sqrt(3.),0}},second}};
@@ -151,6 +179,29 @@ void verify(const kernel::OcctKernel& kernel,std::filesystem::path directory) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==3&&std::string_view(argv[1])=="--verify-bolt-head") {
+            const auto path=std::filesystem::u8path(argv[2]);auto doc=drawing::DrawingDocument::load(path);
+            auto& view=doc.sheets.front().views.front();
+            require(bool(view.output_source),"Bolt drawing has no embedded calculated source");
+            unsigned head=0;
+            for(const auto& curve:drawing::projected_measurement_curves(view))
+                if(curve.source.semantic_key.starts_with("drawing-contour:")&&curve.line&&curve.points.front().x<-.1) {
+                    const auto p=curve.points.front(),q=curve.points.back();
+                    drawing::MeasurementPickRequest request;request.lines_only=true;
+                    drawing::MeasurementPicker picker;
+                    for(int mode=0;mode<2;++mode)for(int step=1;step<100;++step) {
+                        request.lines_only=mode==0;
+                        const double t=step/100.;
+                        const drawing::Point2 cursor{p.x+(q.x-p.x)*t,p.y+(q.y-p.y)*t};
+                        const auto picks=picker.candidates(view,cursor,.01,request);
+                        if(!std::ranges::any_of(picks,[&](const auto& pick){return pick.attachment.reference==curve.source;}))
+                            throw std::runtime_error("Head contour hover rejected at fraction "+std::to_string(t)+" mode "+std::to_string(mode));
+                    }
+                    ++head;std::cout<<"Head contour "<<p.x<<","<<p.y<<" -> "<<q.x<<","<<q.y<<"\n";
+                }
+            require(head==2,"Both exact head chamfer contours are missing");
+            std::cout<<"Actual bolt head: "<<head<<" exact selectable contours; source file unchanged\n";return 0;
+        }
         if(argc==4&&std::string_view(argv[1])=="--compare-authored-parts") {
             compare_authored_parts(std::filesystem::u8path(argv[2]),std::filesystem::u8path(argv[3]));return 0;
         }
@@ -158,7 +209,7 @@ int main(int argc,char** argv) {
             require(argc==5||std::string_view(argv[5])=="--local-primary","Unknown annotation repair option");
             repair_copied_annotations(std::filesystem::u8path(argv[2]),argv[3],std::filesystem::u8path(argv[4]),argc==6);return 0;
         }
-        verify_surface_contours();kernel::OcctKernel kernel;
+        kernel::OcctKernel kernel;
         const auto root=std::filesystem::canonical(std::filesystem::temp_directory_path());
         const auto dir=root/("zima-dimensions-"+document::PartDocument::create_default().document_id);
         std::filesystem::create_directory(dir);verify(kernel,dir);

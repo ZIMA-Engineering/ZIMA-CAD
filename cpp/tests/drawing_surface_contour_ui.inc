@@ -3,8 +3,6 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
     QTemporaryDir temporary;require(temporary.isValid(),"Contour test directory unavailable");
     const auto output_directory=std::filesystem::path(temporary.path().toStdString());
     auto original=DrawingDocument::load(path);
-    workspace::DrawingProjection projection(nullptr,path);
-    for(auto& sheet:original.sheets)for(auto& view:sheet.views)projection.project(view,{});
     auto source_view=original.sheets.front().views.front();
     for(auto& annotation:source_view.model_annotations)
         if(annotation.kind==ModelAnnotationKind::Axis&&!annotation.unresolved)annotation.visible=true;
@@ -18,9 +16,11 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
         if(target.line)cases.emplace_back(target,DrawingDimensionKind::Angular);
     }
     unsigned radii=0,lines=0,angles=0;
+    const bool high_zoom=qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_CONTOURS_HIGH_ZOOM");
     for(const auto& [target,kind]:cases) {
+        if(high_zoom&&target.circular)continue;
         auto document=original;auto& sheet=document.sheets.front();sheet.views={source_view};sheet.dimensions.clear();
-        auto& view=sheet.views.front();view.scale=40;view.show_caption=false;
+        auto& view=sheet.views.front();view.scale=high_zoom?800:40;view.show_caption=false;
         const auto midpoint=target.circular?target.points[target.points.size()/2]:Point2{(target.points.front().x+target.points.back().x)/2,(target.points.front().y+target.points.back().y)/2};
         view.x=sheet.width_mm()/2+midpoint.x*view.scale;view.y=sheet.height_mm()/2-midpoint.y*view.scale;
         workspace::Workspace live;live.add_drawing(document);
@@ -32,17 +32,42 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
         for(auto* candidate:window.findChildren<QDialog*>())if(auto* found=dynamic_cast<app::DrawingDimensionDialog*>(candidate);found&&found->isVisible())dialog=found;
         require(dialog,"Contour dimension dialog missing");
         if(kind!=DrawingDimensionKind::Linear)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(kind));
-        else {
+        else if(!high_zoom) {
             auto* mode=dialog->findChild<QComboBox*>("dimensionAttachmentMode0");
-            mode->setCurrentIndex(mode->findData(int(DimensionAttachmentKind::CurvePoint)));
+            mode->setCurrentIndex(mode->findData(int(DimensionAttachmentKind::Point)));
         }
-        flush();pick(canvas,point(midpoint));
+        flush();
+        if(high_zoom)for(int step=1;step<10;++step) {
+            const double t=step/10.;const auto a=target.points.front(),b=target.points.back();
+            const auto cursor=point({a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t});
+            mouse(canvas,QEvent::MouseMove,cursor,Qt::NoButton,Qt::NoButton);flush();
+            const auto image=canvas->grab().toImage();const auto pixel=(cursor*image.devicePixelRatio()).toPoint();bool highlighted=false;
+            if(!image.rect().adjusted(3,3,-3,-3).contains(pixel))continue;
+            for(int y=-3;y<=3;++y)for(int x=-3;x<=3;++x) {
+                const auto color=image.pixelColor(pixel+QPoint(x,y));
+                highlighted=highlighted||(color.green()>150&&color.blue()>150&&color.red()<100);
+            }
+            if(!highlighted){image.save("build/chamfer-hover-failure.png");std::cerr<<"Hover kind="<<int(kind)<<" fraction="<<t<<" pixel="<<pixel.x()<<","<<pixel.y()<<" target="<<a.x<<","<<a.y<<" -> "<<b.x<<","<<b.y<<"\n";throw std::runtime_error("Chamfer mouse hover did not highlight the displayed boundary");}
+        }
+        if(high_zoom&&kind==DrawingDimensionKind::Angular&&target.points.front().x<-.1) {
+            mouse(canvas,QEvent::MouseMove,QPointF(0,0),Qt::NoButton,Qt::NoButton);flush();
+            const auto image=canvas->grab().toImage();const auto rim=target.points.back();
+            for(int step=0;step<=8;++step) {
+                const auto pixel=(point({rim.x,rim.y-std::copysign(step*.002,rim.y)})*image.devicePixelRatio()).toPoint();
+                if(!image.rect().adjusted(2,2,-2,-2).contains(pixel))continue;
+                bool ink=false;for(int y=-2;y<=2;++y)for(int x=-2;x<=2;++x){const auto c=image.pixelColor(pixel+QPoint(x,y));ink=ink||(c.red()>220&&c.green()>220&&c.blue()>220);}
+                require(ink,"Edge-on head circle leaves a gap at its exact chamfer junction");
+            }
+        }
+        if(high_zoom){mouse(canvas,QEvent::MouseMove,QPointF(0,0),Qt::NoButton,Qt::NoButton);flush();const auto image=canvas->grab().toImage();const auto p=point(midpoint)*image.devicePixelRatio();bool ink=false;for(int y=-2;y<=2;++y)for(int x=-2;x<=2;++x){const auto c=image.pixelColor(p.toPoint()+QPoint(x,y));ink=ink||(c.red()>220&&c.green()>220&&c.blue()>220);}require(ink,"Visible high-zoom chamfer does not coincide with exact picking geometry");}
+        pick(canvas,point(midpoint));
         require(dialog->value().attachments[0].reference==target.source,"Mouse did not bind the offered contour identity");
+        if(high_zoom){++angles;dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();continue;}
         if(target.circular) {
             require(dialog->placing(),"Radius contour click did not arm placement");
             pick(canvas,point({midpoint.x+1,midpoint.y+1}));
         }else if(kind==DrawingDimensionKind::Angular) {
-            pick(canvas,point({midpoint.x,0}));
+            pick(canvas,point({5,0}));
             require(dialog->placing(),"Chamfer/axis lines did not arm angular dimension placement");
             pick(canvas,point({midpoint.x,midpoint.y*.4}));
         }else {
@@ -98,6 +123,7 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
         require(reopened.sheets.front().dimensions==window.document_for_test().sheets.front().dimensions,"GUI contour annotation did not survive reopen");
         window.grab().save(QString::fromStdString((std::filesystem::path("build")/("contour-ui-"+std::to_string(radii)+"-"+std::to_string(lines)+"-"+std::to_string(angles)+".png")).string()));
     }
+    if(high_zoom){require(angles==8,"High-zoom chamfer references missing");std::cout<<"Actual bolt high-zoom GUI: four chamfer references accept linear and angular hover along their length\n";return 0;}
     require(radii==2&&lines>=2&&angles>=2,"Both fillet and chamfer sides were not exercised");
     std::cout<<"Actual bolt contour GUI: "<<radii<<" radii, "<<lines<<" chamfer spans, "<<angles<<" chamfer angles passed\n";return 0;
 }

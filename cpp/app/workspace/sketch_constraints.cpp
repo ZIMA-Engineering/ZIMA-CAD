@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../sketch_point_pick_priority.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -99,11 +100,14 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
         : std::vector{zima::viewer::CandidateKind::SketchPoint,
                       zima::viewer::CandidateKind::SketchSegment,
                       zima::viewer::CandidateKind::SketchExternalReference});
-    if (kind != zima::sketcher::ConstraintKind::Coincident) {
+    viewer_->set_candidate_priority(sketch_point_pick_priority);
+    {
         const auto owner_id=active_sketch_id_;
-        viewer_->set_candidate_filter([owner_id](const auto& candidate) {
+        const bool directional=kind!=zima::sketcher::ConstraintKind::Coincident;
+        viewer_->set_candidate_filter([owner_id,directional,selected_reference](const auto& candidate) {
             return candidate.owner_id==owner_id &&
-                (candidate.kind!=zima::viewer::CandidateKind::SketchExternalReference ||
+                (selected_reference.empty()||(candidate.semantic_key!="point:"+selected_reference&&candidate.semantic_key!="external_point:"+selected_reference))&&
+                (!directional||candidate.kind!=zima::viewer::CandidateKind::SketchExternalReference ||
                  candidate.semantic_key.starts_with("external_point:"));
         });
     }
@@ -693,7 +697,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             refresh_tabs();refresh_scene();
             state_->setText(tr("Vazba úsečky vytvořena. Vyberte další úsečku nebo dvojici bodů."));
         } catch (const std::exception& error) {
-            state_->setText(QObject::tr(error.what()));
+        state_->setText(QObject::tr(error.what()));
         }
         return;
     }
@@ -784,7 +788,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             state_->setText(tr(
                 "Vazba bodu na osu byla vytvořena. Vyberte další referenci."));
         } catch (const std::exception& error) {
-            state_->setText(QObject::tr(error.what()));
+        state_->setText(QObject::tr(error.what()));
         }
         return;
     }
@@ -805,8 +809,11 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                           zima::viewer::CandidateKind::SketchExternalReference});
         const auto owner_id = active_sketch_id_;
         const bool directional=pending_point_pair_constraint_kind_!=zima::sketcher::ConstraintKind::Coincident;
-        viewer_->set_candidate_filter([owner_id,directional](const auto& value) {
+        const auto first_point_id=pending_coincident_point_id_;
+        viewer_->set_candidate_priority(sketch_point_pick_priority);
+        viewer_->set_candidate_filter([owner_id,directional,first_point_id](const auto& value) {
             return value.owner_id == owner_id &&
+                value.semantic_key!="point:"+first_point_id&&value.semantic_key!="external_point:"+first_point_id&&
                 (!directional || value.kind!=zima::viewer::CandidateKind::SketchExternalReference ||
                  value.semantic_key.starts_with("external_point:")) &&
                 (value.kind != zima::viewer::CandidateKind::SketchCurve ||
@@ -848,7 +855,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             state_->setText(tr(
                 "Vazba bodu na geometrii byla vytvořena. Vyberte další bod."));
         } catch (const std::exception& error) {
-            state_->setText(QObject::tr(error.what()));
+        state_->setText(QObject::tr(error.what()));
         }
         return;
     }

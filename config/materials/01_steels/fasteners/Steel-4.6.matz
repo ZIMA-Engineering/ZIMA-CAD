@@ -1,0 +1,26 @@
+[Material]
+Name=4.6
+
+[Properties]
+MASS_DENSITY=7.850000E-06
+CONDITION=ISO 898-1 / 4.6
+
+[PropertyUnits]
+MASS_DENSITY=kg/mm^3
+
+[ParameterDescriptions]
+MASS_DENSITY\cs=Hustota
+CONDITION\cs=Stav materiálu
+MASS_DENSITY\en=Mass density
+CONDITION\en=Material condition
+MASS_DENSITY\de=Massendichte
+MASS_DENSITY\fr=Masse volumique
+CONDITION\de=Materialzustand
+CONDITION\fr=État du matériau
+MATERIAL_NAME\cs=Materiál
+MATERIAL_NAME\de=Material
+MATERIAL_NAME\en=Material
+MATERIAL_NAME\fr=Matériau
+CONDITION\ru=Состояние материала
+MASS_DENSITY\ru=Плотность
+MATERIAL_NAME\ru=Материал

@@ -1,4 +1,4 @@
-﻿#include <zima/symbols/definition.hpp>
+#include <zima/symbols/definition.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/bspline_json.hpp>
 #include "rectilinear_template_solver.hpp"
@@ -4471,6 +4471,36 @@ bool seed_arc_point_contact(Sketch& pending, const std::string& point_id) {
     return seed_circular_equations(pending,{});
 }
 
+bool seed_curve_point_contact(Sketch& candidate,const std::string& point_id,const std::array<double,2>& target) {
+    if(candidate.points.size()>32)return false;
+    const bool circle_center=std::ranges::any_of(candidate.circles,[&](const auto& c){return c.center_point_id==point_id;});
+    const auto ellipse_point=[&](const auto& curves){return std::ranges::any_of(curves,[&](const auto& c){return c.center_point_id==point_id||c.major_point_id==point_id||c.minor_point_id==point_id;});};
+    if(!circle_center&&!ellipse_point(candidate.ellipses)&&!ellipse_point(candidate.elliptical_arcs))return false;
+    for(auto& ellipse:candidate.ellipses) {
+        if(ellipse.major_point_id!=point_id&&ellipse.minor_point_id!=point_id)continue;
+        const auto* center=candidate.find_point(ellipse.center_point_id);
+        if(!center)return false;
+        const double dx=target[0]-center->x,dy=target[1]-center->y;
+        const double radius=std::hypot(dx,dy);if(radius<=1e-12)return false;
+        const bool minor=ellipse.minor_point_id==point_id;
+        ellipse.rotation=std::atan2(dy,dx)-(minor?std::numbers::pi/2:0.);
+        if(minor)ellipse.minor_radius=radius;else ellipse.major_radius=radius;
+        auto* major=candidate.find_point(ellipse.major_point_id);auto* minor_point=candidate.find_point(ellipse.minor_point_id);
+        major->x=center->x+ellipse.major_radius*std::cos(ellipse.rotation);
+        major->y=center->y+ellipse.major_radius*std::sin(ellipse.rotation);
+        minor_point->x=center->x-ellipse.minor_radius*std::sin(ellipse.rotation);
+        minor_point->y=center->y+ellipse.minor_radius*std::cos(ellipse.rotation);
+        return true;
+    }
+    const auto dimensions=candidate.dimensions;
+    // Use the existing constrained manipulation path only as an initial guess.
+    // Restore every dimension definition before solving the added relation;
+    // unlocked driving values must not change as a side effect of adding C.
+    if(!candidate.move_point(point_id,target[0],target[1]))return false;
+    candidate.dimensions=dimensions;
+    return true;
+}
+
 void require_constraint_dof_reduction(
     const Sketch& before, const SolveResult& after,
     const char* redundant_message) {
@@ -4598,6 +4628,15 @@ std::string Sketch::add_point_reference_constraint(
             if(fitted.status!=SolveStatus::Conflicting && fitted.status!=SolveStatus::Invalid) {
                 next=std::move(candidate);result=fitted;
             }
+        }
+    }
+    if (result.status == SolveStatus::Conflicting ||
+        result.status == SolveStatus::Invalid) {
+        auto candidate=*this;
+        if(const auto target=external_point_position(candidate,reference_point_id);target&&seed_curve_point_contact(candidate,native_point_id,*target)) {
+            candidate.constraints=next.constraints;
+            const auto fitted=candidate.solve();
+            if(fitted.status!=SolveStatus::Conflicting&&fitted.status!=SolveStatus::Invalid){next=std::move(candidate);result=fitted;}
         }
     }
     if (result.status == SolveStatus::Conflicting ||
@@ -5429,11 +5468,16 @@ std::string Sketch::add_point_on_line_constraint(
             }
         }
     }
-    if (result.status == SolveStatus::Conflicting ||
-        result.status == SolveStatus::Invalid) {
-        throw std::runtime_error(
-            "Point-on-line constraint conflicts with existing geometry");
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
+        auto candidate=*this;
+        if(const auto target=point_on_line_target(candidate,line_id,point->x,point->y);target&&seed_curve_point_contact(candidate,point_id,*target)) {
+            candidate.constraints=next.constraints;
+            const auto fitted=candidate.solve();
+            if(fitted.status!=SolveStatus::Conflicting&&fitted.status!=SolveStatus::Invalid){next=std::move(candidate);result=fitted;}
+        }
     }
+    if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid)
+        throw std::runtime_error("Point-on-line constraint conflicts with existing geometry");
     // External supports carry a persistent dependency even when another
     // endpoint relation already fixes the current coordinates (CC).
     if (std::ranges::none_of(external_references, [&](const auto& reference) {
@@ -14031,7 +14075,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 return reference.id==constraint.second_point_id && is_external_point_kind(reference.kind);
             });
         if ((constraint.kind == ConstraintKind::PointReference &&
-             !referenced_keypoint_geometry && !external_point_binding) ||
+             !referenced_keypoint_geometry && !external_point_binding &&
+             constraint.second_point_id != "sketch_origin") ||
             constraint.kind == ConstraintKind::Coincident) continue;
         std::optional<zima::kernel::Vec3> anchor;
         if (constraint.kind == ConstraintKind::Tangent &&
@@ -14193,7 +14238,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if (constraint.kind == ConstraintKind::PointReference) {
             const auto reference = std::ranges::find(external_references,
                 constraint.second_point_id, &SketchExternalReference::id);
-            if (reference != external_references.end() && is_external_point_kind(reference->kind))
+            if (constraint.second_point_id == "sketch_origin" ||
+                (reference != external_references.end() && is_external_point_kind(reference->kind)))
                 label = "C";
         }
         bool combined_support=false;

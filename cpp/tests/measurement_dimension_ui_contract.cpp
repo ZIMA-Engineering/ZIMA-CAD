@@ -1,4 +1,6 @@
 #include "drawing_dimension_dialog.hpp"
+#include "profile_solid_fixture.hpp"
+#include <zima/kernel/occt_kernel.hpp>
 #include "../common/interaction_colors.hpp"
 #include "application_settings.hpp"
 #include "drawing_window.hpp"
@@ -43,10 +45,22 @@ void pick(QWidget *w, QPointF p) {
 }
 } // namespace
 #include "drawing_surface_contour_ui.inc"
+#include "drawing_clearance_ui.inc"
 int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_CLEARANCE"))return verify_drawing_clearance_ui();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_HEAD_CAPTURE")) {
+            auto doc=DrawingDocument::load(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_DRAWING_HEAD_CAPTURE").toStdString()));
+            auto& sheet=doc.sheets.front();sheet.views.resize(1);sheet.dimensions.clear();
+            auto& view=sheet.views.front();view.scale=35;view.x=sheet.width_mm()/2-.5*view.scale;view.y=sheet.height_mm()/2;
+            workspace::Workspace live;live.add_drawing(doc);
+            app::DrawingWindow window(&live,false);window.resize(1500,1100);
+            window.edit_workspace_document(doc.document_id);window.show();flush();
+            auto* canvas=window.findChild<QWidget*>("drawingCanvas");require(canvas,"Capture canvas missing");
+            require(canvas->grab().save("build/bolt-head-gap-gui.png"),"Cannot save head capture");return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING"))
             return verify_surface_contour_ui(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_SURFACE_CONTOURS_DRAWING").toStdString()));
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FILLET_DRAWING")) {
@@ -169,25 +183,15 @@ int verify_measurement_dimension_ui() {
         }
         automatic->reject();flush();require(count()==0,"Cancelled automatic placement inserted a dimension");
 
-        // After a point input, clicking away from a straight edge's endpoints
-        // and midpoint must retain that clicked contact, not bind the whole line.
-        command->trigger();flush();automatic=dialog();require(automatic,"Point-curve placement dialog missing");
+        // A click away from characteristic points binds the whole straight
+        // support, never an arbitrary point on its stroke.
+        command->trigger();flush();automatic=dialog();require(automatic,"Point-line placement dialog missing");
+        require(automatic->findChild<QComboBox*>("dimensionAttachmentMode0")->findData(int(DimensionAttachmentKind::CurvePoint))<0,
+                "Arbitrary curve-point mode is still exposed");
         pick(canvas,point(0,0));pick(canvas,point(9,20));
-        const QPointer<QDoubleSpinBox> placement_field=automatic->findChild<QDoubleSpinBox*>("dimensionTextAlong");
-        require(automatic->placing()&&automatic->value().attachments[1].kind==DimensionAttachmentKind::CurvePoint,
-                "Automatic point pair silently bound its second contact as a whole line");
-        const auto contact=resolve_dimension_attachment(*window.document_for_test().find_view(view.id),automatic->value().attachments[1]);
-        require(contact&&std::abs(contact->x-9)<1e-7&&std::abs(contact->y-20)<1e-7,"Point pair changed its clicked edge contact");
-        for(const auto& [cursor,expected]:std::vector<std::pair<Point2,DimensionDirection>>{
-                {{4.5,10},DimensionDirection::Automatic},{{4.5,30},DimensionDirection::Horizontal},
-                {{40,10},DimensionDirection::Vertical},{{4.5,10},DimensionDirection::Automatic}}) {
-            mouse(canvas,QEvent::MouseMove,point(cursor.x,cursor.y),Qt::NoButton,Qt::NoButton);
-            require(automatic->value().direction==expected,"Point-curve pair did not switch the dragged dimension direction");
-            require(placement_field&&placement_field==automatic->findChild<QDoubleSpinBox*>("dimensionTextAlong"),
-                    "Pointer placement recreated its numeric editing controls");
-        }
-        automatic->reject();flush();require(count()==0,"Cancelled point-curve placement inserted a dimension");
-
+        require(automatic->placing()&&automatic->value().attachments[1].kind==DimensionAttachmentKind::Line,
+                "Automatic point-line pair bound an arbitrary curve point");
+        automatic->reject();flush();require(count()==0,"Cancelled point-line placement inserted a dimension");
         command->trigger();
         flush();
         auto *props = dialog();

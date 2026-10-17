@@ -2,6 +2,7 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include "workspace_internal.hpp"
 #include "../thumbnail_image.hpp"
+#include "../branding_image.hpp"
 #include <zima/ui/operation_activity.hpp>
 #include <zima/workspace/symbol_operations.hpp>
 #include "updateservice.h"
@@ -92,15 +93,8 @@ public:
         auto* artwork = new QLabel(this);
         artwork->setObjectName("aboutCompanyLogo");
         artwork->setAlignment(Qt::AlignCenter);
-        QSvgRenderer logo(QStringLiteral(":/zima/branding/ZIMA-Engineering.svg"));
-        if (logo.isValid()) {
-            const auto size=logo.defaultSize().scaled(420,100,Qt::KeepAspectRatio);
-            QPixmap pixmap(size*devicePixelRatioF());
-            pixmap.setDevicePixelRatio(devicePixelRatioF());
-            pixmap.fill(Qt::transparent);
-            QPainter painter(&pixmap);
-            logo.render(&painter,QRectF(QPointF(0,0),QSizeF(size)));
-            painter.end();
+        const auto pixmap=branding_pixmap(QStringLiteral(":/zima/branding/ZIMA-Engineering.svg"),{420,100},palette(),devicePixelRatioF());
+        if (!pixmap.isNull()) {
             artwork->setPixmap(pixmap);
             content_layout()->addWidget(artwork);
         }

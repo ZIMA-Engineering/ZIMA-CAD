@@ -1123,6 +1123,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
     if (!position) return true;
     if (!pending_polygon_center_) {
         pending_polygon_center_ = *position;
+        pending_curve_point_snaps_.clear();
+        pending_curve_point_snaps_.push_back({std::exchange(pending_sketch_snap_geometry_id_,{}),std::exchange(pending_sketch_snap_kind_,std::nullopt)});
         state_->setText(tr("Pravidelný %1úhelník: určete vrchol na pomocné kružnici.")
             .arg(sketch_polygon_sides_));
         return true;
@@ -1136,11 +1138,18 @@ bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
     }
     try {
         if (!mutate_active_sketch([&](auto& target) {
-                static_cast<void>(target.add_regular_polygon(
+                const auto polygon=target.add_regular_polygon(
                     (*pending_polygon_center_)[0], (*pending_polygon_center_)[1],
-                    (*position)[0], (*position)[1], sketch_polygon_sides_));
+                    (*position)[0], (*position)[1], sketch_polygon_sides_);
+                const auto support=std::ranges::find(target.circles,polygon.support_circle_id,&zima::sketcher::SketchCircle::id);
+                if(support==target.circles.end())return;
+                const auto center_id=support->center_point_id;
+                if(!pending_curve_point_snaps_.empty())static_cast<void>(apply_sketch_point_snap(target,center_id,
+                    pending_curve_point_snaps_.front().first,pending_curve_point_snaps_.front().second));
+                static_cast<void>(apply_sketch_point_snap(target,polygon.vertex_ids.front(),pending_sketch_snap_geometry_id_,pending_sketch_snap_kind_));
             })) return true;
         pending_polygon_center_.reset();
+        pending_curve_point_snaps_.clear();
         clear_completed_sketch_interaction();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
