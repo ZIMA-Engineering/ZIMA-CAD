@@ -104,3 +104,15 @@ of interpreting a not-yet-calculated volume as zero. The Assembly fragment test
 reacquires its document-state pointer after explicit regeneration: relation
 evaluation may atomically replace the Workspace, invalidating a previously held
 state pointer. The document and reference identities themselves remain stable.
+
+
+## Finite interaction coverage
+
+| Group | Exercised coverage | Remaining limit |
+| --- | --- | --- |
+| Current profile API | Part/Assembly result and extent matrices, 18 point-end combinations, repeated source changes, locks, rejection, Undo/Redo and reopening | These command matrices do not enumerate every Sketch dimension creation order or mouse orientation. |
+| Bolt Sketch GUI | Existing angular dimension double-click, three successive values, supported endpoint dragging, external support retention, Undo/Redo and native persistence; four representative packaged bolt workflows | This is an AngleBetween edit/drag study, not an exhaustive matrix of every dimension kind, selection order, orientation and contact side. |
+| Locking-hole conversion | All 26 native candidates; all 200 factory bolts; fresh fine-pitch authoring and three length changes; actual current Properties, independent Through All sides, Cancel, unchanged OK, Undo/Redo and reopening | The dedicated hole editor GUI case uses one representative fine-pitch bolt; it is not a GUI run on all 26 files. |
+| Sheet operations | The complete existing Bend command suite, Sheet Cut clearances/projection/cones and Sheet Revolution modes, history, identities and persistence | This finite suite is not a certification of all possible sheet topology. |
+| Broad UI styling | Point-marker and five-language checks pass | The broad suite stops at its existing confirmed-wire thickness assertion; later cases from that invocation are not claimed as verified. |
+| Linux | Shared source and committed native assets retained | No Linux execution was performed. |

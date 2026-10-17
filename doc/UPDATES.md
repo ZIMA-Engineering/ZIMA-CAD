@@ -1,5 +1,19 @@
 # Application updates
 
+Signed Windows [2026101703](releases/2026101703.md#windows-publication-acceptance)
+was published at `2026-10-17T17:48:00Z` from source
+`f179b5939bf2eaeb8e48a848fbcbd674972231a4`. It converts 26 factory locking holes to current Defaults,
+separates modeling and sheet command families, preserves the working directory
+on later opens and improves Engineering Tables navigation, highlighting and
+counterbore artwork. Native/GUI command and sheet regressions, actual Sketch
+Undo/Redo, 200 factory bolt checks and five-language checks pass. Clean candidate
+and signed smoke, 244 factory loads, 4,866 exact factory comparisons,
+21 packaged GUI scenarios, four native verifiers, production trust and public
+asset downloads pass. All 12,308 packaged checksums remain unchanged.
+Signed 1702 offers an installable update without installation. Shared C++, native
+formats, Qt 6.11.0, OCCT 8.0.0 and the development BAT are retained. The linked
+broad wire-thickness assertion and Linux execution remain explicit limits.
+
 Signed Windows [2026101702](releases/2026101702.md#windows-publication-acceptance)
 was published at `2026-10-17T13:07:40Z` from immutable source commit
 `7e24c20b3a55e53b98194601e425b92b653d0df5`. It adds approved two-view fastener artwork in five
