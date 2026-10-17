@@ -1,5 +1,19 @@
 # Application updates
 
+Signed Windows [2026101702](releases/2026101702.md#windows-publication-acceptance)
+was published at `2026-10-17T13:07:40Z` from immutable source commit
+`7e24c20b3a55e53b98194601e425b92b653d0df5`. It adds approved two-view fastener artwork in five
+languages, horizontal white thumbnails, 200 consolidated representative models,
+finite zero-padded filenames and native smooth-outline rendering verified with
+fillets and Sweeps. Clean committed-source and signed smoke, all 244 native
+factory loads, 4,864 exact factory-resource comparisons, 20 packaged GUI
+scenarios, two native persistence verifiers, production trust and anonymous
+public downloads pass. All 12,299 packaged checksums remain unchanged. Signed
+1701 offers an installable update without installation or launcher/configuration
+changes. The development BAT, shared C++, Qt 6.11.0, OCCT 8.0.0 and native formats
+are retained. Linux execution and the linked finite verification limits remain
+explicit.
+
 Signed Windows [2026101603](releases/2026101603.md#windows-package-acceptance)
 was published at `2026-10-16T14:23:04Z` from immutable source commit
 `11a91d7082cde2dbdf92ba88fb7f40bc2f871017`. It adds associative bolt surface-contour
