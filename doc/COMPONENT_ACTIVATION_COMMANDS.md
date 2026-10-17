@@ -3,12 +3,15 @@
 `component.activate` and `component.deactivate` share GUI activation. Activation is temporary Workspace state, changing
 neither document formats nor templates.
 
+Use the returned definition with [Feature editing](PROFILE_COMMANDS.md) to change
+model dimensions in the activated source document.
+
 ## Commands and addressing
 
 ```json
 {"command":"component.activate","arguments":{"document":"TOP_ASSEMBLY_ID","instance_path":"EXACT_PATH_FROM_COMPONENT_LIST"}}
 {"command":"context"}
-{"command":"extrusion.set","arguments":{"container":"SOURCE_EXTRUSION_ID","length_forward_mm":40}}
+{"command":"feature.get","arguments":{"container":"SOURCE_FEATURE_ID"}}
 {"command":"save"}
 {"command":"component.deactivate"}
 ```

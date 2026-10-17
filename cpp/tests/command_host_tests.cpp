@@ -50,8 +50,8 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
     };
     Host host(live,kernel,directory,options);current=&host;
     const auto catalog=run(host,"help").data;
-    require(catalog.size()==330,"Command catalog changed");
-    for(const auto* name:{"save_as","body.suppress","body.link","body.scale","document.relations.get","document.relations.set"})
+    require(catalog.size()==331,"Command catalog changed");
+    for(const auto* name:{"save_as","body.suppress","body.link","body.scale","document.relations.get","document.relations.set","feature.sketch.edit","sheet_cut.create","sheet_revolution.set"})
         require(std::count_if(catalog.begin(),catalog.end(),[&](const auto& command){return command.at("name")==name;})==1,
             "Command catalog lost or duplicated a registered command");
     const auto metric=request(host,"thread.catalog",{{"standard","metric"},{"limit",2}}).data;

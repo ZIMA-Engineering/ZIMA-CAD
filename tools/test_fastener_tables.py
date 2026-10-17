@@ -150,7 +150,11 @@ class Fasteners(unittest.TestCase):
         root = ROOT / self.data['root']
         for page in self.data['pages']:
             folder = root / page['path'] / '0000-index'
-            self.assertEqual((folder / 'metadata.ini').read_text(encoding='utf-8'), generator.metadata(self.data, page))
+            # Qt may add empty separator lines when saving user-edited metadata.
+            # Preserve every authored field while ignoring those INI separators.
+            authored = (folder / 'metadata.ini').read_text(encoding='utf-8')
+            self.assertEqual([line for line in authored.splitlines() if line.strip()],
+                             [line for line in generator.metadata(self.data, page).splitlines() if line.strip()])
             for row in page['rows']:
                 for cell in row:
                     if isinstance(cell, str):
@@ -245,10 +249,14 @@ class MergedFastenerReferences(unittest.TestCase):
     def test_original_counterbore_drawing_is_embedded_locally(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         page=next(p for p in data['pages'] if p['path']=='02-HOLES')
-        self.assertEqual(page['figures'][0]['path'],'01.png')
+        self.assertEqual(page['figures'][0]['path'],'counterbores-horizontal.svg')
         self.assertTrue((ROOT/data['root']/page['path']/'0000-index/01.png').is_file())
         import base64
         import xml.etree.ElementTree as ET
+        folder=ROOT/data['root']/page['path']/'0000-index'
+        composite=ET.parse(folder/page['figures'][0]['path']).getroot()
+        embedded=composite.find('.//{http://www.w3.org/2000/svg}image')
+        self.assertEqual(base64.b64decode(embedded.attrib['href'].split(',',1)[1]),(folder/'01.png').read_bytes())
         figures=ROOT/'config/lib/03-ENGINEERING-TABLES/0000-index/diagrams'
         image=ET.parse(figures/'hex-screw-reference.svg').getroot().find('.//{http://www.w3.org/2000/svg}image')
         self.assertTrue(image.attrib['href'].startswith('data:image/png;base64,'))

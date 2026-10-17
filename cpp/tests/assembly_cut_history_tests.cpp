@@ -5,9 +5,9 @@ using namespace assembly_profile_test;
 namespace {
 void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"cut-history");const auto sketch1=f.rectangle(-1,-1.5,2,3);
-    const std::string first=f.run("extrusion.create",{{"sketch",sketch1},{"length_forward_mm",4},{"targets",{f.first}}}).at("container");
+    const std::string first=f.run("feature.create",{{"sketch",sketch1},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}}).at("container");
     const auto sketch2=f.rectangle(2,0,1,2);
-    const std::string second=f.run("extrusion.create",{{"sketch",sketch2},{"length_forward_mm",3},{"targets",{f.first}}}).at("container");
+    const std::string second=f.run("feature.create",{{"sketch",sketch2},{"parameters",zima::test::feature_profile_parameters(3)},{"targets",{f.first}}}).at("container");
     near(f.volume(f.first),970);near(f.volume(f.second),1000);
     near(f.doc().find_cut(second)->input_component_bodies.at(f.first).volume,976);
     // A profile edited after calculation still references its own input body,
@@ -17,8 +17,10 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
         const auto input=workspace::assembly_sketch_body_reference_geometry(f.doc(),profile);
         const auto final=f.doc().build_scene();
         require(!input.edges.empty()&&final.edges.size()>input.edges.size(),"Assembly profile received its downstream result edges");
-        const auto edge=std::ranges::find_if(input.edges,[](const auto& edge){return edge.points.size()>=2&&std::hypot(edge.points.front().x-edge.points.back().x,edge.points.front().y-edge.points.back().y)>1;});
+        const auto edge=std::ranges::find_if(input.edges,[](const auto& edge){return edge.reference.valid()&&edge.points.size()>=2&&std::hypot(edge.points.front().x-edge.points.back().x,edge.points.front().y-edge.points.back().y)>1;});
         require(edge!=input.edges.end(),"Assembly input has no projectable edge");
+        const auto matches=std::ranges::count_if(input.edges,[&](const auto& candidate){return candidate.reference==edge->reference;});
+        if(matches!=1)throw std::runtime_error("Assembly input edge identity occurs "+std::to_string(matches)+" times: "+edge->reference.owner_id+" / "+edge->reference.semantic_key+" / "+edge->reference.instance_path);
         const auto reference=workspace::prepare_sketch_external_reference(f.live,f.owner,profile,sketcher::ExternalReferenceKind::Edge,edge->reference.owner_id,edge->reference.semantic_key,edge->reference.instance_path,{},false,true);
         auto next=f.doc();auto& edited=*std::ranges::find(next.sketches,sketch1,&sketcher::Sketch::id);
         edited.add_external_reference(reference);f.state().session.commit(std::move(next));
@@ -74,7 +76,7 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory) {
 }
 void lost_reference(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"cut-lost-reference");const auto profile=f.rectangle(-1,-1.5,2,3);
-    const std::string cut=f.run("extrusion.create",{{"sketch",profile},{"length_forward_mm",4},{"targets",{f.first}}}).at("container");
+    const std::string cut=f.run("feature.create",{{"sketch",profile},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}}).at("container");
     const std::string survivor=f.run("sketch.create",{{"name","Dependent curve"},{"plane","XY"}}).at("sketch");
     auto next=f.doc();auto& sketch=*std::ranges::find(next.sketches,survivor,&sketcher::Sketch::id);
     auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);

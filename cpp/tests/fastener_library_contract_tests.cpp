@@ -1,4 +1,6 @@
 #include <zima/workspace/native_documents.hpp>
+#include <zima/workspace/model_calculation.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <nlohmann/json.hpp>
@@ -18,6 +20,7 @@
 #include <cmath>
 #include <algorithm>
 #include <array>
+#include <set>
 
 using namespace zima;
 namespace fs=std::filesystem;
@@ -87,6 +90,13 @@ void verify(const fs::path& path,const Json& expected) {
     const bool raised=expected.value("bearing_face",expected.at("product_grade").get<std::string>()!="C");
     require(bearing==raised,"Bearing-face geometry disagrees with the selected variant");
     require(hole==expected.contains("locking_hole_diameter_mm"),"Locking hole radius, axis or head-center position disagrees");
+    if(expected.contains("locking_hole_diameter_mm")) {
+        const auto& cut=document.history.back();
+        require(cut.feature_kind==document::FeatureKind::Feature&&cut.feature.type==document::FeatureType::Modeling&&
+            cut.combine_mode==document::CombineMode::Subtract&&!cut.feature.symmetric,"Locking hole is not an independent current Default cut");
+        for(const auto& side:cut.feature.sides)require(side.operation==document::FeatureSideOperation::Extrusion&&
+            side.extrusion_extent==document::EndCondition::ThroughAll,"Locking hole must cut Through All on both sides");
+    }
     require(tip,"Actual tip chamfer cone missing");
     GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
     require(properties.Mass()>0,"Nonpositive solid volume");
@@ -134,6 +144,83 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==3&&std::string(argv[1])=="--verify-fitted-starter") {
+            std::vector<kernel::BodyResult> cache;
+            const auto part=document::PartDocument::load(fs::u8path(argv[2]),&cache);
+            require(part.history.size()==4&&std::ranges::all_of(part.history,[](const auto& value){return value.feature_kind==document::FeatureKind::Feature&&!value.suppressed;}),
+                "Fitted starting model must retain four active current Default features");
+            require(!cache.empty()&&cache.back().calculation_errors.empty()&&cache.back().body_outputs.size()==1,"Fitted starting model calculation failed");
+            const auto& body=cache.back().body_outputs.begin()->second.get();
+            TopoDS_Shape shape;BRep_Builder builder;std::istringstream input(body.kernel_shape);BRepTools::Read(shape,input,builder);
+            require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Fitted starting model has invalid BRep");
+            int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+            require(solids==1,"Fitted starting model is disconnected");
+            bool fitted=false,thread_blank=false;
+            for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()){
+                const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()!=GeomAbs_Cylinder)continue;
+                const auto cylinder=surface.Cylinder();near(cylinder.Axis().Location().X(),0,"Fitted cylinder X");near(cylinder.Axis().Location().Y(),0,"Fitted cylinder Y");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(it.Current(),bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                if(std::abs(cylinder.Radius()-5.5)<1e-8){near(z0,0,"Fitted region beginning");near(z1,34,"Fitted region end");fitted=true;}
+                if(std::abs(cylinder.Radius()-5)<1e-8){near(z0,34,"M10 blank beginning");near(z1,50,"M10 blank end");thread_blank=true;}
+            }
+            require(fitted&&thread_blank,"Fitted Ø11 and nominal M10 blank are not distinct actual cylinders");
+            Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+            near(z0,-7,"Fitted head height");near(z1,50,"Fitted bolt length");near(y1-y0,16,"Fitted head width across flats");
+            auto sketch=part.sketches.back();const auto solved=sketch.solve();require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Fitted profile is not anchored and dimensioned");
+            std::cout<<"Editable fitted starter: four current Defaults, one valid solid, Ø11 × 34 fitted region, Ø10 × 16 thread blank, 16 mm head and origin-anchored profile passed\n";return 0;
+        }
+        if(argc==4&&std::string(argv[1])=="--reauthor-locking-hole") {
+            const auto source=fs::absolute(fs::u8path(argv[2])),output=fs::absolute(fs::u8path(argv[3]));
+            require(source!=output&&!fs::exists(output),"Use a new staging path for factory reauthoring");
+            std::vector<kernel::BodyResult> previous;
+            auto document=document::PartDocument::load(source,&previous);
+            require(!previous.empty()&&!document.history.empty(),"Factory source has no calculated history");
+            const auto standard=document.user_parameter_values.at("standard").at("");
+            require(standard=="ČSN 02 1205"||standard=="ČSN 02 1208","Only factory locking-hole variants may be reauthored");
+            auto& hole=document.history.back();
+            require(hole.feature_kind==document::FeatureKind::Extrusion&&hole.combine_mode==document::CombineMode::Subtract&&
+                !hole.extrusion.sheet_cut&&hole.extrusion.profile_source==document::ProfileSource::Internal,
+                "Expected the generator's final ordinary locking-hole extrusion");
+            const auto sketch_id=hole.extrusion.sketch_id;
+            hole.feature_kind=document::FeatureKind::Feature;
+            hole.feature={};hole.feature.sketch_id=sketch_id;hole.feature.automatic_name=hole.name;
+            hole.feature.profile_plane_offset=hole.extrusion.profile_plane_offset;
+            for(auto& side:hole.feature.sides){side.operation=document::FeatureSideOperation::Extrusion;side.extrusion_extent=document::EndCondition::ThroughAll;}
+            hole.extrusion={};
+            const auto hole_id=hole.id,hole_feature_id=hole.feature_id;
+            const auto definition=hole.feature;
+            kernel::OcctKernel kernel;
+            auto calculated=workspace::calculate_part_with_resolved_references(kernel,document,&previous);
+            require(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Reauthored Default failed calculation");
+            const auto& old_body=previous.back().body_outputs.begin()->second.get();
+            const auto& new_body=calculated.back().body_outputs.begin()->second.get();
+            near(new_body.volume,old_body.volume,"Reauthoring changed the bolt volume");
+            near(new_body.surface_area,old_body.surface_area,"Reauthoring changed the bolt surface area");
+            const auto identities=[&](const auto& faces){
+                std::set<std::array<std::string,3>> result;
+                for(const auto& face:faces)if(face.reference.owner_id!=hole_id){
+                    auto owner=face.reference.owner_id,key=face.reference.semantic_key;
+                    while(const auto parent=kernel::boolean_face_parent(key)){owner=parent->first;key=parent->second;}
+                    result.insert({owner,key,face.reference.instance_path});
+                }
+                return result;
+            };
+            if(identities(old_body.kernel_faces)!=identities(new_body.kernel_faces)){
+                const auto old=identities(old_body.kernel_faces),now=identities(new_body.kernel_faces);
+                for(const auto& ref:old)if(!now.contains(ref))std::cerr<<"Removed source identity: "<<Json(ref).dump()<<'\n';
+                for(const auto& ref:now)if(!old.contains(ref))std::cerr<<"Added source identity: "<<Json(ref).dump()<<'\n';
+                throw std::runtime_error("Reauthoring changed a preceding feature's face reference identity");
+            }
+            fs::create_directories(output.parent_path());document.save(output,calculated);
+            std::vector<kernel::BodyResult> reopened_geometry;const auto reopened=document::PartDocument::load(output,&reopened_geometry);
+            require(reopened.document_id==document.document_id&&reopened.history.back().feature==definition&&
+                reopened.history.back().id==hole_id&&reopened.history.back().feature_id==hole_feature_id,
+                "Default definition or authored identity failed save/reopen");
+            require(reopened.sketches.size()==document.sketches.size(),"Reauthoring changed Sketch ownership");
+            for(std::size_t i=0;i<document.sketches.size();++i)require(reopened.sketches[i].serialized()==document.sketches[i].serialized(),"Reauthoring changed a persisted Sketch");
+            std::cout<<"Locking-hole Default, both sides through all, unchanged solid and preceding face identities saved and reopened\n";
+            return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--illustration-texts") {
             const auto path=fs::absolute(fs::u8path(argv[2]));
             auto drawing=drawing::DrawingDocument::load(path);

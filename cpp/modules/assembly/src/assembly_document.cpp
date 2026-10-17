@@ -350,24 +350,6 @@ MateKind mate_kind_from_name(const std::string& name) {
     throw std::runtime_error("Unknown Assembly mate kind");
 }
 
-const char* mate_status_name(MateStatus status) {
-    switch (status) {
-    case MateStatus::Uncalculated: return "uncalculated";
-    case MateStatus::Valid: return "valid";
-    case MateStatus::MissingReference: return "missing_reference";
-    case MateStatus::UnsupportedGeometry: return "unsupported_geometry";
-    }
-    throw std::invalid_argument("Unknown Assembly mate status");
-}
-
-MateStatus mate_status_from_name(const std::string& name) {
-    if (name == "uncalculated") return MateStatus::Uncalculated;
-    if (name == "valid") return MateStatus::Valid;
-    if (name == "missing_reference") return MateStatus::MissingReference;
-    if (name == "unsupported_geometry") return MateStatus::UnsupportedGeometry;
-    throw std::runtime_error("Unknown Assembly mate status");
-}
-
 nlohmann::json serialize_mate_reference(const MateReference& reference) {
     return nlohmann::json{
         {"kind", mate_reference_kind_name(reference.kind)},

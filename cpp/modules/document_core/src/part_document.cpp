@@ -5430,35 +5430,6 @@ double viewer_mesh_bounds_diagonal(const zima::kernel::ViewerMesh& mesh) {
         (max_point.z - min_point.z) * (max_point.z - min_point.z));
 }
 
-bool viewer_mesh_contains_point(const zima::kernel::ViewerMesh& mesh,
-        const zima::kernel::Vec3& point) {
-    const zima::kernel::Vec3 direction{0.811107, 0.324443, 0.486664};
-    std::size_t hits{};
-    for (std::size_t index=0; index+2<mesh.triangles.size(); index+=3) {
-        const auto& a=mesh.vertices[mesh.triangles[index]];
-        const auto& b=mesh.vertices[mesh.triangles[index+1]];
-        const auto& c=mesh.vertices[mesh.triangles[index+2]];
-        const zima::kernel::Vec3 e1{b.x-a.x,b.y-a.y,b.z-a.z};
-        const zima::kernel::Vec3 e2{c.x-a.x,c.y-a.y,c.z-a.z};
-        const zima::kernel::Vec3 p{direction.y*e2.z-direction.z*e2.y,
-            direction.z*e2.x-direction.x*e2.z,
-            direction.x*e2.y-direction.y*e2.x};
-        const double determinant=e1.x*p.x+e1.y*p.y+e1.z*p.z;
-        if (std::abs(determinant)<1.0e-12) continue;
-        const double inverse=1.0/determinant;
-        const zima::kernel::Vec3 t{point.x-a.x,point.y-a.y,point.z-a.z};
-        const double u=(t.x*p.x+t.y*p.y+t.z*p.z)*inverse;
-        if (u<0.0 || u>1.0) continue;
-        const zima::kernel::Vec3 q{t.y*e1.z-t.z*e1.y,
-            t.z*e1.x-t.x*e1.z,t.x*e1.y-t.y*e1.x};
-        const double v=(direction.x*q.x+direction.y*q.y+direction.z*q.z)*inverse;
-        if (v<0.0 || u+v>1.0) continue;
-        const double distance=(e2.x*q.x+e2.y*q.y+e2.z*q.z)*inverse;
-        if (distance>1.0e-9) ++hits;
-    }
-    return hits%2==1;
-}
-
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     const std::string& editing_object_id, double reference_scene_size,
     bool show_sweep_stations, const std::set<std::string>& excluded_features) const {

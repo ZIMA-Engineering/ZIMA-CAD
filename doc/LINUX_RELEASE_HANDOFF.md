@@ -1,5 +1,23 @@
 # Linux build and distribution handoff â€” 2026-09-15
 
+## Current profile commands and factory locking holes (2026-10-17)
+
+Run the current `feature.*`, `sheet_cut.*` and `sheet_revolution.*` command
+matrices on Linux. Ordinary `extrusion.*` and `revolution.*` public commands are
+retired without aliases; the shared native sheet geometry implementation remains.
+Verify Default reference assignment/removal in Part and Assembly, atomic Sketch
+editing, both independent end conditions, rejection without document mutation,
+Undo/Redo and native reopening. The protected changes only route Defaults through
+existing profile transactions; they do not change reference solving.
+
+Use the committed 26 converted small-head locking-hole Parts and both reference
+Drawings. Verify current Properties, Through All on both sides, dependent edits,
+hole-center dimensions, native reopening and exact factory-resource packaging.
+Also check first-shell-document working-directory selection, stable working
+directory on subsequent opens, Engineering Tables page retention and azure row
+selection in both themes. Windows checks and their finite limits are recorded in
+[2026101703](releases/2026101703.md); they do not establish Linux execution.
+
 ## Single-write Save and trimmed circle follow-up (2026-10-14)
 
 The shared Part writer no longer performs a complete automatic temporary-file

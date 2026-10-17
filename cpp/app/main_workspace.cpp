@@ -8441,7 +8441,7 @@ int verify_component_reference_document(QApplication& application, const std::fi
 int verify_component_references(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     auto part=document::PartDocument::create_default();
-    auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
+    auto box=zima::test::rectangular_default(part,{10,10,10});part.history={box};
     kernel::OcctKernel kernel;
     const auto calculated=kernel.evaluate_history(part.kernel_operations());
     const auto part_path=directory/"component-reference.prtz";part.save(part_path,calculated);
@@ -8821,7 +8821,7 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(part_context.data.at("active_document")==part.document_id&&part_context.data.at("displayed_document")==top_id&&
         part_context.data.at("active_occurrence")==nested_path&&window.active_occurrence_path_for_test()==nested_path&&
         box_action&&box_action->isEnabled(),"Console Part activation lost Modeling tools or retained another occurrence"))return 1;
-    if(!verify(component_command("extrusion.set",{{"container",box.id},{"length_forward_mm",6}}).ok,
+    if(!verify(component_command("feature.set",{{"container",box.id},{"parameters",test::feature_profile_parameters(6,true)}}).ok,
         "Console cannot model the activated Part source"))return 1;flush();
     if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& r){return r.instance_path==passive_path;})&&
         tree->topLevelItem(0)->text(0)==QString::fromStdString(top_path.filename().string()),

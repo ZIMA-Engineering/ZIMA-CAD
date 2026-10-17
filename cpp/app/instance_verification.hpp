@@ -31,9 +31,12 @@ inline void install_instance_verification(AssemblyWorkspaceWindow& window,
         QFile request(prefix+".command");
         if(request.open(QIODevice::ReadOnly)) {
             const auto data=QJsonDocument::fromJson(request.readAll()).object();request.close();request.remove();
-            const auto result=window.execute_console_command(QString::fromUtf8(QJsonDocument(data["request"].toObject()).toJson(QJsonDocument::Compact)));
+            const auto input=data["request"].toObject();
+            const bool success=input["command"].toString()=="gui.open"
+                ? window.open_document_path(input["arguments"].toObject()["path"].toString())
+                : window.execute_console_command(QString::fromUtf8(QJsonDocument(input).toJson(QJsonDocument::Compact))).ok;
             window.setProperty("instanceProbeRequest",data["id"].toInt());
-            window.setProperty("instanceProbeSuccess",result.ok);
+            window.setProperty("instanceProbeSuccess",success);
         }
         QJsonArray documents;
         if (const auto* tabs = window.findChild<QTabBar*>("documentTabs"))

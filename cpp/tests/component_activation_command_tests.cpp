@@ -59,9 +59,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     rejected("component.activate",{{"instance_path",path("missing")}},"invalid_arguments");
     rejected("component.activate",{{"instance_path",""}},"missing_argument");
     rejected("component.activate",{{"instance_path",first_leaf},{"document",source}},"unsupported_document");
-    rejected("extrusion.set",{{"container",box},{"length_forward_mm",25},{"document",top}},"document_changed");
+    rejected("feature.set",{{"container",box},{"parameters",zima::test::feature_profile_parameters(25,true)},{"document",top}},"document_changed");
     editing=true;rejected("component.activate",{{"instance_path",first_leaf}},"editing_in_progress");rejected("component.deactivate",Json::object(),"editing_in_progress");editing=false;
-    supplied_path=first_leaf;rejected("extrusion.set",{{"container",box},{"length_forward_mm",25}},"active_occurrence");supplied_path.clear();
+    supplied_path=first_leaf;rejected("feature.set",{{"container",box},{"parameters",zima::test::feature_profile_parameters(25,true)}},"active_occurrence");supplied_path.clear();
     run(host,"save");context(source,second_leaf);saved.clear();static_cast<void>(document::PartDocument::load(dir/"activation-part.prtz",&saved));near(saved.back().volume,8000);
     result=activate(path(first));require(result.data.at("opened")==true,"Nested Assembly source was not opened");context(middle,path(first));
     const auto inserted=run(host,"component.insert",{{"source",source},{"name","Inserted locally"}}).data.at("occurrence").get<std::string>();

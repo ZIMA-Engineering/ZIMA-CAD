@@ -43,6 +43,18 @@ struct Fixture {
     workspace::AssemblyState& state(){return *live.open_assembly(owner);}
     const assembly::AssemblyDocument& doc(){return state().session.document();}
     double volume(const std::string& target){return doc().find_occurrence(target)->calculated_source->volume;}
+    Json create_feature(const std::string& sketch,document::FeatureParameters parameters={},Json extra=Json::object()) {
+        auto values=document::serialize_feature_parameters(parameters);values.erase("sketch_id");
+        extra["sketch"]=sketch;extra["parameters"]=std::move(values);return run("feature.create",std::move(extra));
+    }
+    template<class Edit> Json set_feature(const std::string& id,Edit edit,Json extra=Json::object()) {
+        auto values=document::serialize_feature_parameters(doc().find_cut(id)->definition.feature);edit(values);
+        extra["container"]=id;extra["parameters"]=std::move(values);return run("feature.set",std::move(extra));
+    }
+    template<class Edit> void reject_feature(const std::string& id,Edit edit,const char* code,Json extra=Json::object()) {
+        auto values=document::serialize_feature_parameters(doc().find_cut(id)->definition.feature);edit(values);
+        extra["container"]=id;extra["parameters"]=std::move(values);reject("feature.set",std::move(extra),code);
+    }
     std::string line(const std::string& sketch,double x1,double y1,double x2,double y2) {
         return run("sketch.segment.create",{{"sketch",sketch},{"first",{x1,y1}},{"second",{x2,y2}},{"snap_mm",0.000001}}).at("geometry");
     }

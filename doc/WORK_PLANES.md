@@ -56,8 +56,9 @@ selected Origin, Sketcher return, OK and native save/reopen.
 - `sketch.create`: omitting `plane` selects Automatic; explicit values are
   `AUTO`, `XY`, `XZ`, and `YZ`.
 - `sketch.set`: the same `plane` values, including a Sketch owned by Holes.
-- `extrusion.create/set`, `revolution.create/set`: `profile_plane` accepts
-  the same values; the offset remains `profile_offset_mm`.
+- `feature.create/set`: `profile_plane` accepts the same values; the offset is
+  `parameters.profile_plane_offset`. Sheet Cut and Sheet Revolution use their
+  sheet-specific command families and retain `profile_offset_mm`.
 - `construction.create/set`: `base_plane` = `auto`, `xy`, `xz`, or `yz`.
 - Queries return the resolved plane and the `plane_auto`,
   `profile_plane_auto`, or `base_plane_auto` flag.

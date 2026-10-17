@@ -216,8 +216,9 @@ the current runtime.
 
 Start with `new part example` and `sketch.create Profile XY`. Use the returned
 Sketch ID with the `sketch.segment.create`, `sketch.circle.create` and other
-Sketch commands. `extrusion.create` or `revolution.create` converts that Sketch
-into an editable profile feature. These commands return a stable container ID
+Sketch commands. `feature.create` converts that Sketch
+into an editable Default. Its typed side parameters select extrusion or revolution,
+as documented in [Feature commands](PROFILE_COMMANDS.md). These commands return a stable container ID
 for subsequent `.get` and `.set` calls; use `save` explicitly when finished.
 
 Box, Cylinder, Sphere, Cone, Pyramid and Wedge commands and native feature types

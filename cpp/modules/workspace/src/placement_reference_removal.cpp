@@ -50,7 +50,7 @@ void writable(const document::PartDocument& part, const std::string& object) {
     }
 }
 bool supported(Kind kind) {
-    return kind == Kind::Sketch || kind == Kind::Bend || kind == Kind::Flat || kind == Kind::Holes || primitive_definition(kind) || kind == Kind::Extrusion || kind == Kind::Revolution ||
+    return kind == Kind::Sketch || kind == Kind::Bend || kind == Kind::Flat || kind == Kind::Holes || primitive_definition(kind) || kind == Kind::Feature || kind == Kind::Extrusion || kind == Kind::Revolution ||
         kind == Kind::Hole || kind == Kind::Thread || kind == Kind::Sweep2D || kind == Kind::Sweep3D ||
         kind == Kind::HelicalSweep || kind == Kind::ImportedStep;
 }
@@ -72,7 +72,7 @@ bool commit_feature(Workspace& live, const kernel::OcctKernel& kernel,
         return commit_holes(live,kernel,id,std::move(value),*sketch);
     }
     if (primitive_definition(kind)) return commit_primitive(live, kernel, id, std::move(value), PrimitiveEditMode::Replace);
-    if (kind == Kind::Extrusion || kind == Kind::Revolution) {
+    if (kind == Kind::Feature || kind == Kind::Extrusion || kind == Kind::Revolution) {
         normalize_owned_profile_front_references(value.placement.references);
         commit_profile(live, kernel, id, std::move(value), ProfileEditMode::Replace);
         return true;
@@ -129,7 +129,7 @@ PlacementReferenceRemovalResult remove_placement_reference(Workspace& live,
         if (sketch == sketches.end()) reject("sketch_not_found", "The requested Sketch does not exist.");
         return {commit_sketch_properties(live, kernel, id, *sketch, std::move(placement)), false};
     } else if (const auto* cut = assembly->session.document().find_cut(object)) {
-        if (cut->definition.feature_kind != Kind::Extrusion && cut->definition.feature_kind != Kind::Revolution)
+        if (cut->definition.feature_kind != Kind::Feature && cut->definition.feature_kind != Kind::Extrusion && cut->definition.feature_kind != Kind::Revolution)
             reject("placement_not_found", "The object has no supported placement in this document.");
         auto value = cut->definition;
         if (!remove_row(value.placement.references, index)) return {};

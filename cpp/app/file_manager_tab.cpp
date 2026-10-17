@@ -1425,7 +1425,25 @@ void FileManagerTab::delete_selected(){const auto paths=selected_paths();if(path
 
 void FileManagerTab::set_working_directory_action(QAction* action){choose_working_directory_->setDefaultAction(action);choose_working_directory_->setToolButtonStyle(Qt::ToolButtonIconOnly);}
 
-void FileManagerTab::set_working_directory(const QString& path){working_directory_=clean_path(path);if(!sources_.isEmpty()){sources_[0].source.path=working_directory_;sources_[0].source.resolved_path=working_directory_;sources_[0].model->setRootPath(working_directory_);sources_[0].tree->setRootIndex(sources_[0].proxy->mapFromSource(sources_[0].model->index(working_directory_)));source_list_->item(0)->setToolTip(QDir::toNativeSeparators(working_directory_));}const QString target=source_index_for(current_directory_)<0?working_directory_:current_directory_;history_.clear();history_index_=-1;navigate(target);}
+void FileManagerTab::set_working_directory(const QString& path){
+    working_directory_=clean_path(path);
+    if(!sources_.isEmpty()){
+        sources_[0].source.path=working_directory_;sources_[0].source.resolved_path=working_directory_;
+        sources_[0].model->setRootPath(working_directory_);
+        sources_[0].tree->setRootIndex(sources_[0].proxy->mapFromSource(sources_[0].model->index(working_directory_)));
+        source_list_->item(0)->setToolTip(QDir::toNativeSeparators(working_directory_));
+    }
+    path_->setText(QDir::toNativeSeparators(working_directory_));path_->setToolTip(QDir::toNativeSeparators(working_directory_));
+    // Setting the working root is not navigation. In particular, keep a table's
+    // source, loaded HTML, scroll position and reading marker intact.
+    const int selected=source_stack_->currentIndex();
+    if(selected>=0&&selected<sources_.size()&&path_belongs_to(current_directory_,sources_[selected].source.resolved_path)){
+        up_->setEnabled(current_directory_!=clean_path(sources_[selected].source.resolved_path));
+        return;
+    }
+    const QString target=source_index_for(current_directory_)<0?working_directory_:current_directory_;
+    history_.clear();history_index_=-1;navigate(target);
+}
 
 void FileManagerTab::reload_settings(const ApplicationSettings& settings){const QString current=current_directory_;settings_=settings;sync_overview_theme();rebuild_sources();history_.clear();history_index_=-1;navigate(source_index_for(current)>=0?current:working_directory_);}
 

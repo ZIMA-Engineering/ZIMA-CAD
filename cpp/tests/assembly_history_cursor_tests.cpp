@@ -24,7 +24,7 @@ static void verify_mixed_history(const kernel::OcctKernel& kernel,const std::fil
     require(f.doc().history_order.back().id==f.second&&f.doc().effective_history_cursor()==6,
         "Mixed entries did not insert before the later component");
     const auto uncut=f.doc().find_occurrence(f.first)->calculated_source;
-    const auto cut=f.run("extrusion.create",{{"sketch",sketch},{"length_forward_mm",2},{"targets",{f.first}}}).at("container").get<std::string>();
+    const auto cut=f.run("feature.create",{{"sketch",sketch},{"parameters",zima::test::feature_profile_parameters(2)},{"targets",{f.first}}}).at("container").get<std::string>();
     require(cut==owner&&f.doc().history_order[5].kind==assembly::AssemblyDocument::HistoryKind::Cut,
         "Sketch conversion moved its history identity");
     assembly_profile_test::near(f.volume(f.first),998);
@@ -51,7 +51,7 @@ static void verify_mixed_history(const kernel::OcctKernel& kernel,const std::fil
     assembly_profile_test::near(inspection->values.area->value,600);
     require(f.state().session.revision()==inspection_revision&&f.doc().find_occurrence(f.first)->calculated_source.shares_with(final),
         "History input measurement modified the source or created Undo");
-    f.run("extrusion.set",{{"container",cut},{"length_forward_mm",10}});
+    f.set_feature(cut,[](auto& parameters){parameters["sides"][0]["length"]=10;});
     const auto input_scene=workspace::measurement_scene(f.live,f.owner);
     const auto path=assembly::InstancePath{}.child(f.first).encoded();
     const auto top=std::ranges::find_if(input_scene.original_references.triangle_references,[&](const auto& face){
@@ -83,7 +83,7 @@ static void verify_mixed_history(const kernel::OcctKernel& kernel,const std::fil
     require(prefix.find_construction(point)&&!prefix.find_construction(axis)&&!prefix.find_construction(plane),
         "Construction visibility does not follow unified history");
     const auto later=f.rectangle(2,2,1,1);
-    f.reject("extrusion.create",{{"sketch",later},{"length_forward_mm",1},{"targets",{f.second}}},"profile_rejected");
+    f.reject("feature.create",{{"sketch",later},{"parameters",zima::test::feature_profile_parameters(1)},{"targets",{f.second}}},"profile_rejected");
     f.run("undo");f.run("redo");
     f.run("history.cursor",{{"index",f.doc().history_order.size()}});f.run("save");
     const auto restored=assembly::AssemblyDocument::load(directory/"mixed-cursor.asmz",{},false);

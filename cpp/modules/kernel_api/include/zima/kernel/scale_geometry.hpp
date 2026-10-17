@@ -11,9 +11,6 @@ inline Vec3 scaled_body_point(Vec3 point,double factor,Vec3 center) {
     return {center.x+factor*(point.x-center.x),center.y+factor*(point.y-center.y),
         center.z+factor*(point.z-center.z)};
 }
-inline std::string scale_source_key(const std::string& owner,const std::string& key) {
-    return "scale:from:"+std::to_string(owner.size())+":"+owner+key;
-}
 inline std::optional<EdgeReference> scale_parent_reference(const std::string& key) {
     constexpr std::string_view prefix="scale:from:";
     if(!key.starts_with(prefix))return std::nullopt;

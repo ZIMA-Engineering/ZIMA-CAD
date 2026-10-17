@@ -6,26 +6,29 @@ void point_end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto point=f.run("sketch.point.create",{{"sketch",source},{"position",{3.,reverse?7.:-7.}}}).at("point").get<std::string>();
         const auto other=f.run("sketch.point.create",{{"sketch",source},{"position",{4.,reverse?-3.:3.}}}).at("point").get<std::string>();
         const auto profile=f.sketch();f.run("sketch.circle.create",{{"sketch",profile},{"center",{0,0}},{"radius_mm",2}});
-        const Json target={{"kind","point"},{"owner",source},{"key","point:"+point}};
-        Json args={{"sketch",profile},{"direction",reverse?"reverse":"forward"},{"result_type",result},{"thin_thickness_mm",.5},{"extent",extent},{"end_forward","up_to"},{"targets_forward",Json::array({target})}};
-        if(extent=="two_sides"){args["end_reverse"]="up_to";args["targets_reverse"]=Json::array({{{"kind","point"},{"owner",source},{"key","point:"+other}}});}
-        const auto id=f.run("extrusion.create",args).at("container").get<std::string>();
+        document::FeatureParameters parameters;parameters.result_type=result=="solid"?document::ProfileResultType::Solid:result=="thin"?document::ProfileResultType::Thin:document::ProfileResultType::Surface;
+        parameters.thin_thickness=.5;parameters.symmetric=extent=="symmetric";
+        parameters.sides[0].extrusion_extent=document::EndCondition::UpTo;
+        document::ExtrusionParameters::EndTarget target;target.kind=document::EndTargetKind::Point;target.reference={source,"point:"+point,{}};parameters.sides[0].targets={target};
+        if(extent=="two_sides"){parameters.sides[1].operation=document::FeatureSideOperation::Extrusion;parameters.sides[1].extrusion_extent=document::EndCondition::UpTo;target.reference.semantic_key="point:"+other;parameters.sides[1].targets={target};}
+        Json placement=Json::object();if(reverse)placement["placement"]={{"rotation_x",180}};
+        const auto id=f.create_feature(profile,parameters,placement).at("container").get<std::string>();
         const auto verify=[&](double length) {
             const double back=extent=="symmetric"?length:extent=="two_sides"?3.:0.;
             const auto& body=f.part().session.calculated_boundaries().back();require(body.calculation_errors.empty()&&!body.mesh.vertices.empty(),"Point end target left failed or empty geometry");
             double low=body.mesh.vertices.front().z,high=low;for(const auto& p:body.mesh.vertices){low=std::min(low,p.z);high=std::max(high,p.z);}near(low,reverse?-length:-back);near(high,reverse?back:length);
             if(result=="solid")near(body.volume,4*std::numbers::pi*(length+back));
             if(result=="surface"){near(body.volume,0);near(body.surface_area,4*std::numbers::pi*(length+back));}
-            const auto& current=f.doc().find_container(id)->extrusion.end_targets_forward.front();require(current.kind==document::EndTargetKind::Point&&current.reference.owner_id==source&&current.reference.semantic_key=="point:"+point,"Point end identity changed");
+            const auto& current=f.doc().find_container(id)->feature.sides[0].targets.front();require(current.kind==document::EndTargetKind::Point&&current.reference.owner_id==source&&current.reference.semantic_key=="point:"+point,"Point end identity changed");
         };
         verify(7.);
         for(double value:{9.,6.,8.}) {
             f.run("sketch.point.move",{{"sketch",source},{"point",point},{"position",{3.,reverse?value:-value}}});f.run("regenerate");verify(value);
             f.run("undo");f.run("redo");verify(value);
         }
-        f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"kind","point"},{"owner",profile},{"key","point:missing"}}})}},"invalid_reference_source");
+        f.reject_feature(id,[&](auto& p){p["sides"][0]["targets"][0]["owner"]=profile;p["sides"][0]["targets"][0]["key"]="point:missing";},"invalid_reference_source");
         f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(f.directory/(f.doc().name+".prtz"),&cache);
-        require(reopened.find_container(id)->extrusion.end_targets_forward.front().kind==document::EndTargetKind::Point,"Point end kind lost on native reopen");
+        require(reopened.find_container(id)->feature.sides[0].targets.front().kind==document::EndTargetKind::Point,"Point end kind lost on native reopen");
         kernel::OcctKernel cold;auto native=reopened;const auto recalculated=workspace::calculate_part_with_resolved_references(cold,native);require(recalculated.back().calculation_errors.empty(),"Point end target failed cold regeneration");
     }
     for(bool symmetric:{false,true}) {

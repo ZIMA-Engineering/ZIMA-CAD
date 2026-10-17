@@ -167,7 +167,7 @@ void Host::register_commands(){
             if(!prepared)throw std::runtime_error("I/O runner did not complete native reading");
             id=workspace::insert_native_document(workspace_,std::move(*prepared));
         }
-        activate(id);change_directory(path.parent_path());change_=Change{ChangeKind::Open,id};
+        activate(id);change_=Change{ChangeKind::Open,id};
         return Result::success(documents(workspace_));
     });
     dispatcher_.add({"new",tr("Nový dokument: new part|assembly|drawing název."),{{"type",true},{"name",true}},true},[this](const Json& args){

@@ -166,6 +166,7 @@ def render(data, page, language, illustrations_only=False):
     root = REPOSITORY / data.get("root", str(ROOT.relative_to(REPOSITORY)))
     stylesheet = REPOSITORY / "config/lib/03-ENGINEERING-TABLES/0000-index/css/reference-tables.css"
     css = os.path.relpath(stylesheet, root / page['path'] / '0000-index').replace('\\', '/')
+    script = os.path.relpath(stylesheet.parent.parent / 'js/reference-tables.js', root / page['path'] / '0000-index').replace('\\', '/')
     navigation = []
     navigation_stem = '01' if illustrations_only else 'index'
     navigation.extend(f'<a lang="{lang}" hreflang="{lang}" href="{navigation_stem}_{lang}.html"'
@@ -187,7 +188,7 @@ def render(data, page, language, illustrations_only=False):
              '<meta name="viewport" content="width=device-width, initial-scale=1">',
              '<meta name="color-scheme" content="light dark">',
              f'<title>{tr(page["title"])} · ZIMA-CAD</title>',
-             f'<link rel="stylesheet" href="{css}"></head><body>', '<main>',
+             f'<link rel="stylesheet" href="{css}"><script defer src="{script}"></script></head><body>', '<main>',
              '<header class="reference-header">' + f'<h1>{tr(page["title"])}</h1>' + '<nav aria-label="' + tr("section") + '">' + ' '.join(navigation) + '</nav>' + brand + '</header>']
     if page.get('review'):
         parts.append('<p class="review-status">' + tr(page['review']) + '</p>')
@@ -198,7 +199,8 @@ def render(data, page, language, illustrations_only=False):
             image = figure.get('localized_paths', {}).get(language, figure['path'])
             if not (root / page['path'] / '0000-index' / image).is_file():
                 image = figure['path']
-            parts.append('<figure class="reference-figure"><img src="' + html.escape(image, quote=True)
+            figure_class = 'reference-figure reference-figure--wide' if figure.get('wide') else 'reference-figure'
+            parts.append('<figure class="' + figure_class + '"><img src="' + html.escape(image, quote=True)
                          + '" alt="' + tr(figure['caption']) + '"><figcaption>' + tr(figure['caption']) + '</figcaption></figure>')
         if illustrations_only:
             return '\n'.join(parts + ['</main></body></html>', ''])
@@ -290,7 +292,8 @@ def render(data, page, language, illustrations_only=False):
                 if descendants:
                     links.append(f'<li><span>{tr(child["title"])}</span>{descendants}</li>')
         return '<ul class="topics">' + ''.join(links) + '</ul>' if links else ''
-    parts.append(child_navigation(page['path']))
+    if not page.get('hide_child_navigation'):
+        parts.append(child_navigation(page['path']))
     parts += ['<aside>' + ''.join(f'<p>{tr(key)}</p>' for key in page["notes"]) + '</aside>']
     links = [f'<a href="{html.escape(data["sources"][key]["url"], quote=True)}">'
              + html.escape(data["sources"][key]["label"]) + '</a>' for key in page["sources"]]

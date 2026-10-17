@@ -1,14 +1,15 @@
 # Part and Assembly profile placement references
 
-`extrusion.reference.set` and `revolution.reference.set` assign original references
-to existing Extrusion/Revolution features in the active Part and Assembly profile
-cuts. They use `commit_profile` / `commit_assembly_profile`, shared with Properties
-confirmation, preserving the owned Sketch and selected target components.
+`placement.reference.set` assigns original references to current Default
+features in Parts and Assembly cuts. It routes through `commit_profile` /
+`commit_assembly_profile`, shared with Properties confirmation, preserving the
+owned Sketch and selected target components. Sheet-specific reference commands
+remain available for their distinct sheet operations.
 
 ```json
-{"command":"extrusion.reference.set","arguments":{"container":"EXTRUSION-ID","index":0,"reference":{"owner":"PART-ID:origin","key":"origin:plane:xy"},"offset_mm":7}}
-{"command":"revolution.reference.set","arguments":{"container":"REVOLUTION-ID","index":0,"reference":{"owner":"ASSEMBLY-ID:origin","key":"origin:plane:xy"},"offset_mm":1}}
-{"command":"extrusion.reference.set","arguments":{"container":"CUT-ID","index":0,"reference":{"owner":"ORIGINAL-FEATURE-ID","key":"ORIGINAL-FACE-KEY","instance_path":"EXACT-OCCURRENCE-PATH"},"offset_mm":-4,"derive_orientation":false}}
+{"command":"placement.reference.set","arguments":{"object":"EXTRUSION-ID","index":0,"reference":{"owner":"PART-ID:origin","key":"origin:plane:xy"},"offset_mm":7}}
+{"command":"placement.reference.set","arguments":{"object":"REVOLUTION-ID","index":0,"reference":{"owner":"ASSEMBLY-ID:origin","key":"origin:plane:xy"},"offset_mm":1}}
+{"command":"placement.reference.set","arguments":{"object":"CUT-ID","index":0,"reference":{"owner":"ORIGINAL-FEATURE-ID","key":"ORIGINAL-FACE-KEY","instance_path":"EXACT-OCCURRENCE-PATH"},"offset_mm":-4,"derive_orientation":false}}
 ```
 
 Arguments match the [shared entry](PLACEMENT_REFERENCE_COMMANDS.md): `index` 0–2
@@ -19,10 +20,10 @@ including every subassembly level. Clients obtain paths and keys from original
 references, not Part names or OCCT face numbers.
 
 `offset_mm`, `flip`, `derive_orientation`, and `document` are optional. Results
-match the corresponding `.get` plus `changed`. `.get` returns profile parameters,
-owned Sketch identity, and `reference_valid`, without a separate `placement` field.
-General `placement.reference.set`, with `object` instead of `container`, handles
-Part profiles. Assembly profile cuts use the two specific commands above.
+match `placement.get` plus `changed`. `feature.get` separately returns the full
+profile definition and owned Sketch identity without calculation. The same generic
+reference entry supports Part Defaults and Assembly profile cuts. Use
+`placement.reference.remove` with the same `object` and slot for removal.
 
 ## Rules
 

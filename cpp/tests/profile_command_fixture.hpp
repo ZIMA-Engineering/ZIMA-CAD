@@ -1,9 +1,29 @@
 #pragma once
 #include <zima/commands/dispatcher.hpp>
+#include <zima/document/feature_serialization.hpp>
 #include <array>
 #include <algorithm>
 #include <cmath>
 namespace zima::test {
+inline commands::Json through_all_feature_parameters() {
+    document::FeatureParameters parameters;
+    for(auto& side:parameters.sides){side.operation=document::FeatureSideOperation::Extrusion;side.extrusion_extent=document::EndCondition::ThroughAll;}
+    auto result=document::serialize_feature_parameters(parameters);result.erase("sketch_id");return result;
+}
+inline commands::Json feature_profile_parameters(double length,bool symmetric=false,
+        const std::string& axis={}) {
+    document::FeatureParameters parameters;
+    parameters.symmetric=symmetric;
+    parameters.sides[0].length=length;
+    if(!axis.empty()){
+        parameters.axis_segment_id=axis;
+        parameters.sides[0].operation=document::FeatureSideOperation::Revolution;
+        parameters.sides[0].angle_degrees=length;
+    }
+    auto result=document::serialize_feature_parameters(parameters);
+    result.erase("sketch_id");
+    return result;
+}
 // Build a real editable rectangular profile through public commands. The
 // convenience fixture is not registered as an application command.
 template<class Execute>
@@ -19,7 +39,7 @@ commands::Result create_rectangular_profile(Execute execute,double x,double y,do
             {"second",points[(i+1)%4]},{"snap_mm",.000001}});
         if(!result.ok)return result;
     }
-    return run("extrusion.create",{{"sketch",sketch},{"extent","symmetric"},{"length_forward_mm",z/2}});
+    return run("feature.create",{{"sketch",sketch},{"parameters",feature_profile_parameters(z/2,true)}});
 }
 // Compose public commands for tests whose subject is a downstream operation.
 // The callback keeps each test's normal error handling and return type.
@@ -38,9 +58,9 @@ auto rectangular_commands(Run run,commands::Json dimensions) {
     const std::array<std::array<double,2>,4> points{{{-x/2,-y/2},{x/2,-y/2},{x/2,y/2},{-x/2,y/2}}};
     for(std::size_t i=0;i<4;++i)run("sketch.segment.create",{{"sketch",sketch},{"first",points[i]},
         {"second",points[(i+1)%4]},{"snap_mm",.000001}});
-    Json args={{"sketch",sketch},{"extent","symmetric"},{"length_forward_mm",z/2}};
+    Json args={{"sketch",sketch},{"parameters",feature_profile_parameters(z/2,true)}};
     for(const auto* key:{"name","combine","placement"})if(dimensions.contains(key))args[key]=dimensions[key];
-    return run("extrusion.create",args);
+    return run("feature.create",args);
 }
 
 template<class Run>
@@ -51,7 +71,7 @@ auto circular_commands(Run run,commands::Json dimensions) {
     const auto data=[](auto result)->Json {if constexpr(requires {result.data;})return result.data;else return result;};
     const auto sketch=data(run("sketch.create",{{"name","Fixture profile"},{"plane","XY"}})).at("sketch").template get<std::string>();
     run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",number("radius_mm",40)}});
-    return run("extrusion.create",{{"sketch",sketch},{"length_forward_mm",number("height_mm",50)}});
+    return run("feature.create",{{"sketch",sketch},{"parameters",feature_profile_parameters(number("height_mm",50))}});
 }
 template<class Run>
 auto spherical_commands(Run run,double radius) {
@@ -62,7 +82,7 @@ auto spherical_commands(Run run,double radius) {
     run("sketch.segment.create",{{"sketch",sketch},{"first",{0,radius}},{"second",{0,-radius}}});
     const auto axis=data(run("sketch.segment.create",{{"sketch",sketch},{"first",{0,radius+1}},{"second",{0,-radius-1}}})).at("geometry").template get<std::string>();
     run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
-    return run("revolution.create",{{"sketch",sketch},{"axis",axis},{"angle_degrees",360}});
+    return run("feature.create",{{"sketch",sketch},{"parameters",feature_profile_parameters(360,false,axis)}});
 }
 
 template<class Run>
@@ -73,7 +93,7 @@ auto resize_rectangular_commands(Run run,commands::Json dimensions) {
     Json owner={{"container",dimensions.at("container")}};
     if(dimensions.contains("document"))owner["document"]=dimensions["document"];
     if(dimensions.contains("length_mm")||dimensions.contains("width_mm")) {
-        const auto sketch=data(run("extrusion.get",owner)).at("sketch");
+        const auto sketch=data(run("feature.get",owner)).at("sketch");
         const auto entities=data(run("sketch.entities",{{"sketch",sketch}})).at("items");
         Json points=Json::array(),operations=Json::array();double hx=0,hy=0;
         for(const auto& item:entities)if(item.at("kind")=="point") {
@@ -84,11 +104,13 @@ auto resize_rectangular_commands(Run run,commands::Json dimensions) {
         const double sy=dimensions.contains("width_mm")?number("width_mm")/(2*hy):1;
         for(const auto& p:points)operations.push_back({{"command","sketch.point.move"},{"arguments",{{"point",p.at("id")},{"position",{p.at("x").template get<double>()*sx,p.at("y").template get<double>()*sy}}}}});
         auto args=owner;args["operations"]=operations;
-        if(!dimensions.contains("height_mm"))return run("extrusion.sketch.edit",args);
-        run("extrusion.sketch.edit",args);
+        if(!dimensions.contains("height_mm"))return run("feature.sketch.edit",args);
+        run("feature.sketch.edit",args);
     }
-    owner["length_forward_mm"]=number("height_mm")/2;
-    return run("extrusion.set",owner);
+    auto parameters=data(run("feature.get",owner)).at("parameters");
+    parameters["sides"][0]["length"]=number("height_mm")/2;
+    owner["parameters"]=parameters;
+    return run("feature.set",owner);
 }
 
 }

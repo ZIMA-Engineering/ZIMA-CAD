@@ -712,7 +712,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
         application.processEvents();
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
-            (i==0||i==references.size()-1)?QColor(0,0,0):i==4?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
+            (i==0||i==references.size()-1)?QColor(0,0,0):(i==4||i==5)?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
             "Main Origin and construction/feature/occurrence points have incorrect base colours");
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);

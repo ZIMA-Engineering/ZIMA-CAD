@@ -104,9 +104,6 @@ void AssemblyWorkspaceWindow::insert_component_from_file(bool skeleton_only) {
         } else {
             throw std::runtime_error("Komponenta musí být Part nebo sestava.");
         }
-        if (!source_path.parent_path().empty()) {
-            change_working_directory(source_path.parent_path());
-        }
         choose_component_variant(source_id);
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Vložení selhalo"), error.what());

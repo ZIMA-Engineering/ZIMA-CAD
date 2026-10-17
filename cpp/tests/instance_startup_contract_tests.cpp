@@ -199,6 +199,16 @@ int main(int argc, char** argv) {
             report(root, second_pid)["documents"] == b["documents"],
             "Closing a document changed another instance or lost its number");
         require(execute(third_pid,"open",{{"path",part_path}}),"Closing a document did not release its file reservation");
+        require(report(root,third_pid)["directory"].toString()==drawing_dir,
+            "Opening another native document changed the running instance working directory");
+        const auto extra_path=QDir(fourth_dir).filePath("extra part.prtz");
+        zima::document::PartDocument::create_default().save(std::filesystem::path(extra_path.toStdString()));
+        require(execute(third_pid,"gui.open",{{"path",extra_path}})&&
+            report(root,third_pid)["directory"].toString()==drawing_dir,
+            "GUI opening another model changed the running instance working directory");
+        require(execute(third_pid,"gui.open",{{"path",part_path}})&&
+            report(root,third_pid)["directory"].toString()==drawing_dir,
+            "Reactivating an open model changed the working directory");
         command(root, first_pid, "quit");
         require(first.waitForFinished(10000) && first.exitCode() == 0, "First instance did not close cleanly");
         require(second.state() == QProcess::Running && third.state() == QProcess::Running,

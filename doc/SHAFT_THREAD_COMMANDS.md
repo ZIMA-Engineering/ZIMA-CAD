@@ -17,7 +17,7 @@ Create a Part with `new part shaft`, then extrude a circular Sketch. Replace
 ```json
 {"command":"sketch.create","arguments":{"name":"Shaft profile","plane":"XY"}}
 {"command":"sketch.circle.create","arguments":{"sketch":"SKETCH-ID","center":[0,0],"radius_mm":5}}
-{"command":"extrusion.create","arguments":{"sketch":"SKETCH-ID","length_forward_mm":30}}
+{"command":"feature.create","arguments":{"sketch":"SKETCH-ID","parameters":{"symmetric":false,"sides":[{"operation":"extrusion","length":30,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]},{"operation":"none","length":30,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]}]}}}
 ```
 
 Use `reference.list` to obtain the resulting Extrusion's original cylindrical

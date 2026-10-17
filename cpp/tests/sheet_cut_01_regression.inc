@@ -26,7 +26,7 @@ void verify_sheet_cut_tilted_cone_attachment(std::filesystem::path directory) {
     flat.flat.sketch_id=profile.id;flat.flat.thickness=5.;flat.flat.thickness_override=true;
     flat.placement.absolute_rotation_x=flat.placement.rotation_x=-90.;profile.owner_container_id=flat.id;
     static_cast<void>(workspace::commit_flat(live,kernel,id,flat,profile));
-    const auto geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto geometry=analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references;
     const auto boundary=std::ranges::find_if(geometry.edges,[](const auto& edge) {
         return kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary&&edge.points.size()>=2&&
             std::ranges::all_of(edge.points,[](const auto& point) {
@@ -50,7 +50,8 @@ void verify_sheet_cut_tilted_cone_attachment(std::filesystem::path directory) {
     first->x=2.7052529105731082e-9;first->y=40.000000005010236;
     last->x=-43.25460296502805;last->y=47.626953548054054;
     workspace::commit_profile(live,kernel,id,cone,workspace::ProfileEditMode::Create,generator);
-    const double before=state->session.calculated_boundaries().back().volume;
+    auto measured_input=analyzed_body(kernel,state->session.calculated_boundaries().back());
+    const double before=measured_input.volume;
     auto rectangle=sketcher::Sketch::create_default();
     static_cast<void>(rectangle.add_rectangle(-27.881166458129883,-17.369756301024097,
         27.881166458129883,86.27262540302922));
@@ -61,7 +62,7 @@ void verify_sheet_cut_tilted_cone_attachment(std::filesystem::path directory) {
     cut.extrusion.end_condition_forward=document::EndCondition::Length;cut.extrusion.length_forward=16.023;
     cut.placement.absolute_rotation_x=cut.placement.rotation_x=-90.;cut.extrusion.profile_plane_offset=13.;
     workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,rectangle);
-    const auto& result=state->session.calculated_boundaries().back();
+    auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     check(result.calculation_errors.empty()&&result.volume>0&&result.volume<before,
         "Clearance cut failed across a slightly tilted Flat/cone attachment");
     std::set<std::string> owners;
@@ -75,5 +76,5 @@ void verify_sheet_cut_tilted_cone_attachment(std::filesystem::path directory) {
     const auto pin=zima::test::profile_body(kernel,prism);
     near(kernel.subtract_bodies(result,pin,{},{},1e-7).volume,result.volume);
     const double cut_volume=result.volume;
-    run(host,"regenerate");near(state->session.calculated_boundaries().back().volume,cut_volume);
+    run(host,"regenerate");near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,cut_volume);
 }

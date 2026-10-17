@@ -111,7 +111,7 @@ void Host::register_placement_commands() {
                     else if(kind==document::FeatureKind::Flat)changed=workspace::commit_flat(workspace_,kernel_,id,std::move(value),*sketch);
                     else changed=workspace::commit_holes(workspace_,kernel_,id,std::move(value),*sketch);
                 }
-                else if(kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
+                else if(kind==document::FeatureKind::Feature||kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
                     changed=workspace::set_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else if(kind==document::FeatureKind::Hole||kind==document::FeatureKind::Thread)
                     changed=workspace::set_drill_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);

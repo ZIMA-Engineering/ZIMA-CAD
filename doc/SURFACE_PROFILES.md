@@ -38,8 +38,8 @@ This rule applies independently of the current model-view visibility toggle.
 
 ## Console and persistence
 
-`extrusion.create`, `extrusion.set`, `revolution.create` and `revolution.set` accept
-`"result_type": "surface"`. A simultaneous `"combine": "subtract"` is rejected
+`feature.create` and `feature.set` accept
+`"parameters": {"result_type": "surface"}`. A simultaneous `"combine": "subtract"` is rejected
 without changing document state. Thin thickness parameters are inactive for Surface.
 
 Part INI/payload versions are 27/51; Assembly INI/payload versions are 23/35.

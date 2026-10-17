@@ -367,22 +367,6 @@ std::vector<Owned> propagate_topology(
     return propagated;
 }
 
-ViewerAxis transformed_axis(
-    const std::string& owner_id,
-    const std::string& key,
-    const Vec3& local_direction,
-    double display_length,
-    const gp_Trsf& transform) {
-    gp_Pnt point(0.0, 0.0, 0.0);
-    point.Transform(transform);
-    gp_Vec direction(local_direction.x, local_direction.y, local_direction.z);
-    direction.Transform(transform);
-    direction.Normalize();
-    return {{point.X(), point.Y(), point.Z()},
-            {direction.X(), direction.Y(), direction.Z()}, display_length,
-            {owner_id, key}};
-}
-
 Handle(Geom_Curve) sweep_spine_curve(const Sweep3DRequest::PathSegment& segment) {
     if(segment.arc_midpoint) {
         const auto& a=segment.start;const auto& m=*segment.arc_midpoint;const auto& b=segment.end;

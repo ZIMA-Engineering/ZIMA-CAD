@@ -343,8 +343,12 @@ def smoke(root, version, gui=True):
         'sketch': sketch, 'first': corners[i], 'second': corners[(i + 1) % 4],
         'snap_mm': 0.000001}} for i in range(4)]
     records = commands(['open PACKAGE-SMOKE.prtz', *profile,
-        {'command': 'extrusion.create', 'arguments': {'sketch': sketch,
-            'extent': 'symmetric', 'length_forward_mm': 15}}, 'save'])
+        {'command': 'feature.create', 'arguments': {'sketch': sketch,
+            'parameters': {'symmetric': True, 'sides': [
+                {'operation': 'extrusion', 'length': 15, 'extrusion_extent': 'length',
+                 'angle_degrees': 90, 'rotation_extent': 'angle', 'draft_angle_degrees': 0, 'targets': []},
+                {'operation': 'none', 'length': 50, 'extrusion_extent': 'length',
+                 'angle_degrees': 90, 'rotation_extent': 'angle', 'draft_angle_degrees': 0, 'targets': []}]}}}, 'save'])
     owner = records[-2]['data']['container']
     result = commands(['open PACKAGE-SMOKE.prtz', {'command': 'measurement.evaluate', 'arguments': {
         'references': [{'kind': 'object', 'owner': owner}]}}])

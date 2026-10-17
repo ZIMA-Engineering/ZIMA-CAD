@@ -13473,7 +13473,8 @@
       "review": "historical",
       "figures": [
         {
-          "path": "01.png",
+          "path": "counterbores-horizontal.svg",
+          "wide": true,
           "caption": "original_hole_drawing"
         }
       ],
@@ -14151,6 +14152,7 @@
     },
     {
       "path": "04-SCREWS",
+      "hide_child_navigation": true,
       "title": "directory_04-SCREWS",
       "headers": [
         "symbol",

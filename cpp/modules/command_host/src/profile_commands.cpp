@@ -14,6 +14,21 @@ namespace {
 using Feature = document::HistoryContainer;
 using Kind = document::FeatureKind;
 using Error = workspace::ProfileOperationError;
+void validate_feature_patch(const Json& patch,const Json& definition){
+    const auto keys=[](const Json& value,const auto& allowed){
+        if(!value.is_object())throw Error("invalid_arguments","Unknown profile parameter option.");
+        for(const auto& [key,item]:value.items())if(!allowed(key))throw Error("invalid_arguments","Unknown profile parameter option.");
+    };
+    keys(patch,[&](const auto& key){return definition.contains(key);});
+    if(!patch.contains("sides")||!patch.at("sides").is_array())return;
+    for(const auto& side:patch.at("sides")){
+        keys(side,[&](const auto& key){return definition.at("sides")[0].contains(key)||key=="axis_enabled"||key=="twist_reverse"||key=="twist_smooth";});
+        if(!side.contains("targets")||!side.at("targets").is_array())continue;
+        for(const auto& target:side.at("targets"))keys(target,[](const auto& key){
+            return key=="kind"||key=="owner"||key=="key"||key=="instance_path"||key=="label"||key=="origin"||key=="normal"||key=="triangles";
+        });
+    }
+}
 const Feature& profile(const workspace::Workspace& live, const std::string& document, const std::string& id, Kind kind) {
     const Feature* value = nullptr;
     if (const auto* state = live.open_part(document)) value = state->session.document().find_container(id);
@@ -22,7 +37,7 @@ const Feature& profile(const workspace::Workspace& live, const std::string& docu
         if (cut) value = &cut->definition;
     } else throw Error("unsupported_document", "Profile operations require an open Part or Assembly.");
     if (!value) throw Error("container_not_found", "The requested container does not exist.");
-    if (value->feature_kind != kind) throw Error("wrong_feature", "The requested profile type does not match the container.");
+    if (value->feature_kind != kind || (kind==Kind::Extrusion&&!value->extrusion.sheet_cut) || (kind==Kind::Revolution&&!value->revolution.sheet_metal)) throw Error("wrong_feature", "The requested profile type does not match the container.");
     return *value;
 }
 const char* extent(document::ProfileExtentMode mode) {
@@ -50,6 +65,11 @@ Json details(const workspace::Workspace& live, const std::string& id, const Feat
             {"value_locks",value.value_locks},{"reference_valid",value.placement.reference_valid},
             {"suppressed",value.suppressed}};
         if(assembly)result["targets"]=assembly->session.document().find_cut(value.id)->target_occurrence_ids;
+        const auto& sketches=part?part->session.document().sketches:assembly->session.document().sketches;
+        if(const auto sketch=std::ranges::find(sketches,value.feature.sketch_id,&sketcher::Sketch::id);sketch!=sketches.end()){
+            result["profile_plane_auto"]=sketch->plane_auto;
+            result["profile_plane"]=sketch->plane==sketcher::SketchPlane::XY?"XY":sketch->plane==sketcher::SketchPlane::XZ?"XZ":"YZ";
+        }
         return result;
     }
     const auto result_type=extrusion?value.extrusion.result_type:value.revolution.result_type;
@@ -98,20 +118,9 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
         const auto v=args.at(key).get<double>();if(!std::isfinite(v))throw Error("invalid_arguments","Profile dimensions must be finite JSON numbers.");field=v;
     };
     const auto previous=value;
-    if(extrusion&&args.contains("sheet_cut")) {
-        value.extrusion.sheet_cut=args.at("sheet_cut");
-        if(value.extrusion.sheet_cut) {
-            value.combine_mode=document::CombineMode::Subtract;
-            value.extrusion.result_type=document::ProfileResultType::Solid;
-        }
-    }
     if(extrusion&&args.contains("sheet_cut_clearance"))
         value.extrusion.sheet_cut_clearance=args.at("sheet_cut_clearance");
     if(!extrusion) {
-        if(args.contains("sheet_metal")) {
-            value.revolution.sheet_metal=args.at("sheet_metal");
-            if(value.revolution.sheet_metal)value.revolution.result_type=document::ProfileResultType::Thin;
-        }
         if(value.revolution.sheet_metal&&args.contains("thin_thickness_mm"))value.revolution.thickness_override=true;
         if(args.contains("thickness_override"))value.revolution.thickness_override=args.at("thickness_override");
     }
@@ -197,7 +206,7 @@ void Host::register_profile_commands() {
     for(bool create:{true,false}) {
         dispatcher_.add({create?"feature.create":"feature.set",tr("Create or edit a Feature through the shared Part/Assembly transaction."),
             {{create?"sketch":"container",true},{"parameters",false,Type::Object},{"name",false},{"combine",false},
-             {"targets",false,Type::Array},{"document",false}},true},[this,create](const Json& args) {
+             {"targets",false,Type::Array},{"placement",false,Type::Object},{"profile_plane",false},{"document",false}},true},[this,create](const Json& args) {
             const auto checked=target(args);if(!checked.ok)return checked;
             try {
                 const auto id=workspace_.active_document_id();auto* part=workspace_.open_part(id);auto* assembly=workspace_.open_assembly(id);
@@ -205,14 +214,19 @@ void Host::register_profile_commands() {
                 auto value=create?(part?workspace::profile_from_sketch(part->session.document(),args.at("sketch"),Kind::Feature):
                     workspace::profile_from_sketch(assembly->session.document(),args.at("sketch"),Kind::Feature)):
                     profile(workspace_,id,args.at("container"),Kind::Feature);
+                if(create){value.name=tr(value.name.c_str());value.feature.automatic_name=value.name;}
                 if(part) {
                     const auto* body=part->session.document().body_owner_for_object(value.id);
                     if(body&&body->scope.id!=part->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
                     if(args.contains("targets"))throw Error("invalid_arguments","Occurrence targets are available only in an Assembly.");
                 }
                 if(args.contains("parameters")) {
-                    auto parameters=document::serialize_feature_parameters(value.feature);parameters.merge_patch(args.at("parameters"));
-                    auto next=document::load_feature_parameters(parameters);
+                    auto parameters=document::serialize_feature_parameters(value.feature);
+                    validate_feature_patch(args.at("parameters"),parameters);parameters.merge_patch(args.at("parameters"));
+                    document::FeatureParameters next;
+                    try {next=document::load_feature_parameters(parameters);}
+                    catch(const std::invalid_argument& error){throw Error("invalid_arguments",error.what());}
+                    catch(const std::runtime_error& error){throw Error("invalid_arguments",error.what());}
                     if(next.sketch_id!=value.feature.sketch_id)throw Error("identity_changed","The profile Sketch identity does not match its feature.");
                     value.feature=std::move(next);
                 }
@@ -240,9 +254,26 @@ void Host::register_profile_commands() {
                     if(combine!="add"&&combine!="subtract")throw Error("invalid_arguments","Unknown profile parameter option.");
                     value.combine_mode=combine=="add"?document::CombineMode::Add:document::CombineMode::Subtract;
                 }
+                if(args.contains("placement")){
+                    if(args.at("placement").empty())throw Error("invalid_arguments","Specify at least one placement parameter.");
+                    const auto geometry=workspace::placement_edit_geometry(workspace_,id,value.id);
+                    for(const auto& [key,input]:args.at("placement").items()){
+                        if(!input.is_number()||!std::isfinite(input.get<double>()))throw Error("invalid_arguments","Placement parameters must be finite JSON numbers.");
+                        if(!workspace::assign_placement_dimension(value,geometry,key,input.get<double>()))
+                            throw Error("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
+                    }
+                }
                 const auto container=value.id;
                 const auto revision=part?part->session.revision():assembly->session.revision();
-                if(part)workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
+                std::optional<sketcher::Sketch> pending_sketch;
+                if(args.contains("profile_plane")){
+                    const auto plane=args.at("profile_plane").get<std::string>();
+                    if(plane!="AUTO"&&plane!="XY"&&plane!="XZ"&&plane!="YZ")throw Error("invalid_arguments","Profile plane must be AUTO, XY, XZ or YZ.");
+                    pending_sketch=workspace::document_sketch(workspace_,id,value.feature.sketch_id);
+                    pending_sketch->plane_auto=plane=="AUTO";
+                    if(!pending_sketch->plane_auto)pending_sketch->plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
+                }
+                if(part)workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch);
                 else {
                     std::vector<std::string> selected;
                     if(args.contains("targets"))for(const auto& entry:args.at("targets")) {
@@ -251,7 +282,7 @@ void Host::register_profile_commands() {
                     } else if(!create)selected=assembly->session.document().find_cut(container)->target_occurrence_ids;
                     else for(const auto& occurrence:assembly->session.document().components)
                         if(!occurrence.suppressed&&!occurrence.derived_copy&&!assembly::is_skeleton(occurrence)&&occurrence.source_kind==assembly::ComponentSourceKind::Part)selected.push_back(occurrence.occurrence_id);
-                    workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),std::move(selected),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
+                    workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),std::move(selected),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch);
                 }
                 const bool changed=revision!=(part?part->session.revision():assembly->session.revision());
                 if(changed)change_=Change{ChangeKind::Model,id};
@@ -267,9 +298,11 @@ void Host::register_profile_commands() {
         auto items=Json::array();for(const auto& cut:state->session.document().cuts)items.push_back(details(workspace_,id,cut.definition));
         return Result::success({{"document",id},{"items",std::move(items)},{"total",state->session.document().cuts.size()}});
     });
-    for(const auto kind:{Kind::Extrusion,Kind::Revolution}) {
-        const bool extrusion=kind==Kind::Extrusion;const std::string prefix=extrusion?"extrusion":"revolution";
-        dispatcher_.add({prefix+".get",tr("Read an Extrusion or Revolution and its owned profile without calculation."),{{"container",true},{"document",false}},false},[this,kind](const Json& args){
+    for(const auto kind:{Kind::Feature,Kind::Extrusion,Kind::Revolution}) {
+        const bool unified=kind==Kind::Feature;
+        const bool extrusion=kind==Kind::Extrusion;const std::string prefix=unified?"feature":extrusion?"sheet_cut":"sheet_revolution";
+        if(!unified){
+        dispatcher_.add({prefix+".get",tr("Read a Sheet Cut or Sheet Revolution and its owned profile without calculation."),{{"container",true},{"document",false}},false},[this,kind](const Json& args){
             try{const auto id=args.value("document",workspace_.active_document_id());const auto& value=profile(workspace_,id,args.at("container").get<std::string>(),kind);return Result::success(details(workspace_,id,value));}
             catch(const Error& e){return Result::failure(e.code,tr(e.what()));}
         });
@@ -292,6 +325,7 @@ void Host::register_profile_commands() {
              catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
              catch(const std::exception& error){return Result::failure("profile_rejected",tr(error.what()));}
         });
+        }
         dispatcher_.add({prefix+".sketch.edit",tr("Edit an owned profile Sketch and calculate its feature in one atomic batch."),
             {{"container",true},{"operations",true,Type::Array},{"document",false}},true},[this,kind](const Json& args) {
             const auto checked=target(args);if(!checked.ok)return checked;
@@ -307,7 +341,7 @@ void Host::register_profile_commands() {
                     if(body&&body->derived_copy)throw Error("read_only_body","A derived Body cannot be edited directly.");
                     if(body&&body->scope.id!=part->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
                 }
-                const auto sketch_id=kind==Kind::Extrusion?value.extrusion.sketch_id:value.revolution.sketch_id;
+                const auto sketch_id=kind==Kind::Feature?value.feature.sketch_id:kind==Kind::Extrusion?value.extrusion.sketch_id:value.revolution.sketch_id;
                 auto draft=workspace::document_sketch(workspace_,id,sketch_id);
                 const auto before=draft.serialized();const auto batch=sketch_draft_dispatcher(draft);auto results=Json::array();
                 for(std::size_t i=0;i<operations.size();++i) {
@@ -331,21 +365,22 @@ void Host::register_profile_commands() {
               catch(const workspace::SketchOperationError& error){return Result::failure(error.code,tr(error.what()));}
               catch(const std::exception& error){return Result::failure("profile_rejected",tr(error.what()));}
         });
+        if(unified)continue;
         for(const bool create:{true,false}) {
             std::vector<commands::Argument> fields{{create?"sketch":"container",true},{"name",false},{"combine",false},
                 {"result_type",false},{"thin_thickness_mm",false,Type::Number},{"thin_mode",false},{"extent",false},{"direction",false},
                 {extrusion?"length_forward_mm":"angle_degrees",false,Type::Number},{extrusion?"length_reverse_mm":"angle_reverse_degrees",false,Type::Number},
                 {"profile_offset_mm",false,Type::Number},{"profile_plane",false},{"placement",false,Type::Object},{"targets",false,Type::Array},{"document",false}};
             if(extrusion){fields.push_back({"end_forward",false});fields.push_back({"end_reverse",false});fields.push_back({"targets_forward",false,Type::Array});fields.push_back({"targets_reverse",false,Type::Array});}else fields.push_back({"axis",false});
-            if(extrusion){fields.push_back({"sheet_cut",false,Type::Boolean});fields.push_back({"sheet_cut_clearance",false,Type::Boolean});}
-            else {fields.push_back({"sheet_metal",false,Type::Boolean});fields.push_back({"thickness_override",false,Type::Boolean});}
-            dispatcher_.add({prefix+(create?".create":".set"),create?tr("Convert a standalone Sketch to an Extrusion or Revolution in one transaction."):tr("Edit and calculate a profile feature through the shared Properties transaction."),std::move(fields),true},
+            if(extrusion)fields.push_back({"sheet_cut_clearance",false,Type::Boolean});
+            else fields.push_back({"thickness_override",false,Type::Boolean});
+            dispatcher_.add({prefix+(create?".create":".set"),create?tr("Convert a standalone Sketch to a Sheet Cut or Sheet Revolution in one transaction."):tr("Edit and calculate a profile feature through the shared Properties transaction."),std::move(fields),true},
                 [this,create,kind](const Json& args){
                     const auto check=target(args);if(!check.ok)return check;
                     try {
                         const auto id=workspace_.active_document_id();auto* state=workspace_.open_part(id);
                         auto* assembly=workspace_.open_assembly(id);
-                        if((!state&&!assembly)||interaction().template_document)throw Error("unsupported_document","Profile operations require an open Part or Assembly.");
+                        if(!state||interaction().template_document)throw Error("unsupported_document","Profile operations require an open Part.");
                         auto value=create?(state?workspace::profile_from_sketch(state->session.document(),args.at("sketch").get<std::string>(),kind)
                                                 :workspace::profile_from_sketch(assembly->session.document(),args.at("sketch").get<std::string>(),kind))
                                          :profile(workspace_,id,args.at("container").get<std::string>(),kind);
@@ -354,7 +389,11 @@ void Host::register_profile_commands() {
                             if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
                             if(args.contains("targets"))throw Error("invalid_arguments","Occurrence targets are available only in an Assembly.");
                         }
-                        if(create)value.name=tr(value.name.c_str());
+                        if(create) {
+                            value.name=tr(kind==Kind::Extrusion?"Řez plechem":"Rotace plechu");
+                            if(kind==Kind::Extrusion){value.extrusion.sheet_cut=true;value.combine_mode=document::CombineMode::Subtract;value.extrusion.result_type=document::ProfileResultType::Solid;}
+                            else {value.revolution.sheet_metal=true;value.combine_mode=document::CombineMode::Add;value.revolution.result_type=document::ProfileResultType::Thin;}
+                        }
                         properties(value,args,workspace_,id);const auto container=value.id;
                         std::optional<sketcher::Sketch> pending_sketch;
                         if(args.contains("profile_plane")) {

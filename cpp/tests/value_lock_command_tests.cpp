@@ -23,15 +23,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto set=[&](const std::string& object,const std::string& key,bool locked){return run(host,"value_lock.set",{{"object",object},{"key",key},{"locked",locked}}).data;};
     const auto locked=[&](const std::string& object,const std::string& key){return workspace::value_locked(live,live.active_document_id(),object,key).value_or(false);};
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
-    const auto before=get(box);require(before.at("items").size()==13&&state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&!host.change(),"Lock query calculated or mutated geometry");
+    const auto before=get(box);require(before.at("items").size()==17&&state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&!host.change(),"Lock query calculated or mutated geometry");
     const auto shape=state->session.calculated_boundaries().back().kernel_shape;const auto fingerprint=state->session.calculated_boundaries().back().source_fingerprint;
-    require(set(box,"length_forward",true).at("changed")==true&&host.change()->kind==command_host::ChangeKind::Metadata,"Lock did not use metadata notification");
-    require(locked(box,"parameter:length_forward")&&zima::test::profile_dimension(state->session.document(),*state->session.document().find_container(box),0)==10&&
+    require(set(box,"side0_length",true).at("changed")==true&&host.change()->kind==command_host::ChangeKind::Metadata,"Lock did not use metadata notification");
+    require(locked(box,"parameter:side0_length")&&state->session.document().find_container(box)->feature.sides[0].length==15&&
         state->session.calculated_boundaries().back().kernel_shape==shape&&state->session.calculated_boundaries().back().source_fingerprint==fingerprint,"Lock changed a value or recalculated its solid");
     const auto lock_revision=state->session.revision();const auto* lock_cache=state->session.calculated_boundaries().data();
-    require(set(box,"parameter:length_forward",true).at("changed")==false&&state->session.revision()==lock_revision&&state->session.calculated_boundaries().data()==lock_cache&&!host.change(),"Repeated lock created an Undo step");
-    require(host.execute({{"command","extrusion.set"},{"arguments",{{"container",box},{"length_forward_mm",16.5}}}}).code=="value_locked","Locked length remained editable through CLI");
-    run(host,"undo");require(!locked(box,"length_forward"),"Undo did not unlock");run(host,"redo");require(locked(box,"length_forward"),"Redo lost lock");
+    require(set(box,"parameter:side0_length",true).at("changed")==false&&state->session.revision()==lock_revision&&state->session.calculated_boundaries().data()==lock_cache&&!host.change(),"Repeated lock created an Undo step");
+    require(host.execute({{"command","feature.set"},{"arguments",{{"container",box},{"parameters",zima::test::feature_profile_parameters(16.5,true)}}}}).code=="value_locked","Locked length remained editable through CLI");
+    run(host,"undo");require(!locked(box,"side0_length"),"Undo did not unlock");run(host,"redo");require(locked(box,"side0_length"),"Redo lost lock");
     set(box,"x",true);require(locked(box,"parameter:placement:x"),"Placement alias lost stored slot");
     require(host.execute({{"command","placement.set"},{"arguments",{{"object",box},{"values",{{"x",4}}}}}}).code=="parameter_not_editable","Zero-valued placement lock was bypassed");
     set(body,"placement:rotation_offset_z",true);
@@ -43,10 +43,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key",key},{"locked",true}}}}).code=="unknown_parameter","Invalid lock key wrote arbitrary metadata");
         require(state->session.revision()==stable,"Invalid key changed revision");
     }
-    for(auto value:{Json(1),Json("false"),Json(nullptr)})require(!host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","length_forward"},{"locked",value}}}}).ok,"Non-boolean lock value accepted");
-    interaction.editing=true;require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","length_forward"},{"locked",false}}}}).code=="editing_in_progress","CLI overrode pending GUI locks");interaction={};
+    for(auto value:{Json(1),Json("false"),Json(nullptr)})require(!host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","side0_length"},{"locked",value}}}}).ok,"Non-boolean lock value accepted");
+    interaction.editing=true;require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","side0_length"},{"locked",false}}}}).code=="editing_in_progress","CLI overrode pending GUI locks");interaction={};
     run(host,"body.create",{{"name","Other"}});
-    require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","length_forward"},{"locked",false}}}}).code=="inactive_body","Lock edited another Body");
+    require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","side0_length"},{"locked",false}}}}).code=="inactive_body","Lock edited another Body");
     require(get(box).at("object")==box,"Read-only locks cannot inspect another Body");run(host,"body.activate",{{"body",body}});
     const auto plane=run(host,"construction.create",{{"kind","plane"},{"name","Plane"}}).data.at("construction").get<std::string>();
     set(plane,"offset",true);require(host.execute({{"command","construction.set"},{"arguments",{{"construction",plane},{"offset_mm",1}}}}).code=="value_locked","Datum offset lock was bypassed");
@@ -56,9 +56,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(host.execute({{"command","construction.set"},{"arguments",{{"construction",child},{"radius_mm",2}}}}).code=="value_locked","Curve point radius lock was bypassed");
     require(host.execute({{"command","placement.set"},{"arguments",{{"object",child},{"values",{{"y",2}}}}}}).code=="parameter_not_editable","Local point lock was bypassed");
     set(child,"radius",false);run(host,"construction.set",{{"construction",child},{"radius_mm",2}});
-    set(box,"length_forward",false);run(host,"extrusion.set",{{"container",box},{"length_forward_mm",16.5}});set(box,"length_forward",true);
+    set(box,"side0_length",false);run(host,"feature.set",{{"container",box},{"parameters",zima::test::feature_profile_parameters(16.5,true)}});set(box,"side0_length",true);
     run(host,"save");std::vector<kernel::BodyResult> saved;const auto native=document::PartDocument::load(dir/"value-locks.prtz",&saved);
-    require(native.find_container(box)->value_locks.contains("length_forward")&&native.find_container(box)->placement.value_locks.contains("x")&&
+    require(native.find_container(box)->value_locks.contains("side0_length")&&native.find_container(box)->placement.value_locks.contains("x")&&
         std::ranges::any_of(native.body_history.find(body)->scope.placement.references,[](const auto& ref){return ref.semantic_key=="origin:plane:yz"&&ref.offset_locked;})&&native.find_construction(child)->value_locks.contains("placement:y"),"Native Part lost a lock");
     require(std::abs(saved.back().volume-6600)<1e-6,"Locks corrupted the calculated solid");
     run(host,"new",{{"type","assembly"},{"name","assembly-locks"}});const auto assembly_id=live.active_document_id();
@@ -68,6 +68,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(get(first).at("items").size()==6,"Component offered nonexistent angle-correction locks");
     require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",first},{"key","placement:rotation_offset_x"},{"locked",true}}}}).code=="unknown_parameter","Component accepted an inert correction lock");
     set(first,"placement:x",true);require(locked(first,"placement:x")&&!locked(second,"placement:x"),"Lock leaked into another occurrence");
+    // The mate's target must precede its consumer in valid Assembly history.
+    run(host,"history.move",{{"object",second},{"before",first}});
     auto draft=assembly->session.document();assembly::ComponentPlacementReference ref;
     ref.component_reference.owner_id=box;ref.component_reference.semantic_key="z_max";
     ref.target_reference.owner_id=box;ref.target_reference.semantic_key="z_min";ref.target_reference.instance_path=assembly::InstancePath{}.child(second);ref.offset=25;
@@ -79,7 +81,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"undo");require(!locked(first,"placement:reference_offset:0"),"Mate lock Undo failed");run(host,"redo");
     const auto assembly_plane=run(host,"construction.create",{{"kind","plane"},{"name","Plane"}}).data.at("construction").get<std::string>();set(assembly_plane,"offset",true);
     const auto at=assembly->session.revision();require(run(host,"value_lock.list",{{"document",id},{"object",box}}).data.at("object")==box&&assembly->session.revision()==at&&live.active_document_id()==assembly_id,"Inactive-document query changed activation");
-    require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","length_forward"},{"locked",false}}}}).code=="object_not_found","Assembly edited source Part lock");
+    require(host.execute({{"command","value_lock.set"},{"arguments",{{"object",box},{"key","side0_length"},{"locked",false}}}}).code=="object_not_found","Assembly edited source Part lock");
     run(host,"save");const auto native_assembly=assembly::AssemblyDocument::load(dir/"assembly-locks.asmz");
     require(native_assembly.find_occurrence(first)->value_locks.contains("placement:x")&&native_assembly.find_occurrence(first)->placement_references[0].offset_locked&&
         !native_assembly.find_occurrence(second)->value_locks.contains("placement:x")&&native_assembly.find_construction(assembly_plane)->value_locks.contains("offset"),"Native Assembly lost occurrence-specific locks");

@@ -79,7 +79,27 @@ async function main() {
         const expectedRows = topic.display_row_count ?? (topic.rows.length + (topic.sections || []).reduce((n, block) => n + block.rows.length, 0));
         if (metrics.language !== language || metrics.rows !== expectedRows)
           throw Error(`Rendered content mismatch: ${topic.path}/${language}`);
+        if (topic.hide_child_navigation && await page.locator('.topics').count())
+          throw Error(`Redundant child navigation remains: ${topic.path}/${language}`);
+        for (const colorScheme of ['light', 'dark']) {
+          await page.emulateMedia({colorScheme});
+          const rows = page.locator('tbody tr').filter({visible:true});
+          const count = await rows.count();
+          for (const i of [...new Set([0, Math.min(1, count - 1)])]) {
+            await rows.nth(i).locator('th,td').first().click();
+            const selected = await page.evaluate(() => {
+              const row = document.querySelector('tr.reference-selected-row');
+              return document.querySelectorAll('tr.reference-selected-row').length === 1 &&
+                [...row.cells].every(c => getComputedStyle(c).backgroundColor === 'rgb(0, 209, 255)' &&
+                  getComputedStyle(c).color === 'rgb(16, 35, 44)');
+            });
+            if (!selected) throw Error(`Reading marker incomplete: ${topic.path}/${language}/${colorScheme}`);
+          }
+        }
         await page.emulateMedia({ media: 'print' });
+        if (await page.locator('tr.reference-selected-row').evaluateAll(rows => rows.some(row =>
+          [...row.cells].some(c => getComputedStyle(c).backgroundColor === 'rgb(0, 209, 255)'))))
+          throw Error(`Reading marker leaked into print: ${topic.path}/${language}`);
         const printHeader = await page.evaluate(() => {
           const title = document.querySelector('.reference-header h1');
           return title && title.getBoundingClientRect().height > 0 &&
@@ -88,6 +108,12 @@ async function main() {
         });
         if (!printHeader) throw Error(`Printed reference title missing or navigation visible: ${topic.path}/${language}`);
         await page.emulateMedia({ media: 'screen' });
+        await page.emulateMedia({colorScheme:'light'});
+        await page.evaluate(() => {
+          document.querySelectorAll('.reference-selected-row').forEach(row => row.classList.remove('reference-selected-row'));
+          document.querySelectorAll('.table-scroll').forEach(region => {region.scrollTop=0;region.scrollLeft=0;});
+          window.scrollTo(0,0);
+        });
         if (checkOnly && process.argv.includes('--capture-evidence'))
           await page.screenshot({ path: path.join(evidence,
             (topic.path || 'root').replaceAll('/', '_') + `_${language}_${viewportWidth}.png`) });

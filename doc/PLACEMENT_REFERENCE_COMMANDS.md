@@ -45,12 +45,10 @@ commands block mutation.
 Results match `placement.get` plus `changed`. Formats and Part/Assembly start
 templates are unchanged. Reference state and calculated data remain in native files.
 
-At this stage, Assembly profile cuts use `extrusion/revolution.reference.set` and
-sections use `section.reference.set`; the general entry does not yet include them.
-Further adapters, particularly imported geometry, remain. Curve-point references
-are prepared on local branch `codex/curve-reference-pending` with a stale-position
-reproduction. The shared reference-solving repair and shared reference-removal
-extraction await separate explicit user approvals at this historical stage.
+Current Part Defaults and Assembly profile cuts use this same general reference
+entry and removal path. Sheet operations retain their typed aliases. See
+[profile placement references](PROFILE_REFERENCE_COMMANDS.md). The original
+primitive-stage results below are historical implementation evidence.
 
 ## Original primitive-stage verification
 

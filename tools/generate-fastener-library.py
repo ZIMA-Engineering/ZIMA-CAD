@@ -28,7 +28,9 @@ class Native:
         evidence.mkdir(parents=True, exist_ok=True)
         self.log = (evidence / 'commands.jsonl').open('w', encoding='utf-8')
         self.errors = (evidence / 'stderr.log').open('w', encoding='utf-8')
-        self.process = subprocess.Popen([str(executable), '--stdin'], stdin=subprocess.PIPE,
+        settings = evidence / 'authoring.ini'
+        settings.write_text('[DocumentNames]\nUppercase=false\nRemoveDiacritics=false\nReplaceSpaces=false\n', encoding='utf-8')
+        self.process = subprocess.Popen([str(executable), '--config', str(settings.resolve()), '--stdin'], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=self.errors, text=True, encoding='utf-8', env=os.environ.copy())
 
     def run(self, command, **arguments):
@@ -120,8 +122,11 @@ def author(native, variant, output, template):
             points=[center], geometry=['sketch_axis:x'], value=variant['head_height_mm']/2)
         native.run('sketch.dimension.create', sketch=sketch, kind='diameter',
             geometry=[hole], value=variant['locking_hole_diameter_mm'])
-        native.run('extrusion.create', sketch=sketch, combine='subtract', extent='symmetric',
-            length_forward_mm=variant['across_flats_mm'])
+        sides = [dict(operation='extrusion', length=variant['across_flats_mm'],
+            extrusion_extent='through_all', angle_degrees=90, rotation_extent='angle',
+            draft_angle_degrees=0, targets=[]) for _ in range(2)]
+        native.run('feature.create', sketch=sketch, combine='subtract',
+            parameters=dict(type='modeling', symmetric=False, sides=sides))
     finalize(native, variant, output)
 
 

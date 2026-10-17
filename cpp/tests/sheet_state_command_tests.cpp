@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/document_session.hpp>
@@ -100,14 +101,13 @@ int main() {
         // XZ uses local +Y along global -Z; the developed region extends in +Z.
         for(const auto& segment:std::array<std::array<double,4>,4>{{{10,-5,16,-5},{16,-5,16,-10},{16,-10,10,-10},{10,-10,10,-5}}})
             run(host,"sketch.segment.create",{{"sketch",cut_sketch},{"first",{segment[0],segment[1]}},{"second",{segment[2],segment[3]}},{"snap_mm",.000001}});
-        run(host,"extrusion.create",{{"sketch",cut_sketch},{"combine","subtract"},{"extent","two_sides"},
-            {"end_forward","through_all"},{"end_reverse","through_all"}});
+        run(host,"feature.create",{{"sketch",cut_sketch},{"combine","subtract"},{"parameters",zima::test::through_all_feature_parameters()}});
         const double attached_volume=attached->session.calculated_boundaries().back().volume;
         check(attached_volume<uncut_volume-1,"Workspace extrusion did not cut the developed material.");
         const auto sheet_cut_sketch=run(host,"sketch.create",{{"name","Developed Sheet Cut"},{"plane","XZ"}}).data.at("sketch").get<std::string>();
         for(const auto& segment:std::array<std::array<double,4>,4>{{{24,-5,30,-5},{30,-5,30,-10},{30,-10,24,-10},{24,-10,24,-5}}})
             run(host,"sketch.segment.create",{{"sketch",sheet_cut_sketch},{"first",{segment[0],segment[1]}},{"second",{segment[2],segment[3]}},{"snap_mm",.000001}});
-        run(host,"extrusion.create",{{"sketch",sheet_cut_sketch},{"sheet_cut",true},{"combine","subtract"},{"extent","two_sides"},
+        run(host,"sheet_cut.create",{{"sketch",sheet_cut_sketch},{"combine","subtract"},{"extent","two_sides"},
             {"end_forward","through_all"},{"end_reverse","through_all"}});
         const double sheet_cut_volume=attached->session.calculated_boundaries().back().volume;
         check(sheet_cut_volume<attached_volume-1,"Sheet Cut did not cut the developed material.");
@@ -128,11 +128,12 @@ int main() {
         auto* box=live.open_part(live.active_document_id());
         check(document::sheet_metal_defaults(box->session.document()).thickness_mm==6.0,
             "Box fixture lost its authored 6 mm sheet thickness");
-        const auto box_before=box->session.document();const double box_volume=box->session.calculated_boundaries().back().volume;
+        const auto box_before=box->session.document();auto box_measured=box->session.calculated_boundaries().back();kernel.ensure_body_properties(box_measured);const double box_volume=box_measured.volume;
         run(host,"unbend.create");
         check(box->session.calculated_boundaries().back().calculation_errors.empty(),"Box unfolding failed.");
         run(host,"bend_back.create");
-        check(std::abs(box->session.calculated_boundaries().back().volume-box_volume)<1e-5,"Box return changed its original material.");
+        box_measured=box->session.calculated_boundaries().back();kernel.ensure_body_properties(box_measured);
+        check(std::abs(box_measured.volume-box_volume)<1e-5,"Box return changed its original material.");
         for(const auto& original:box_before.history)check(*box->session.document().find_container(original.id)==original,"Box state operation modified an original feature or placement.");
         std::cout<<"Tilted cone with adjacent bends: cold native regeneration"<<std::endl;
         auto cone=document::PartDocument::load("cpp/tests/fixtures/sheet/tilted-cone-with-bends.prtz");

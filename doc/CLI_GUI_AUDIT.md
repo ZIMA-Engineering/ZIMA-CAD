@@ -21,7 +21,7 @@ Remaining direct writes have these counterparts:
 | `sketch_drag.cpp`, corner fillet | `sketch.corner_fillet.create` | Pointer-derived radius, native `Sketch::add_corner_fillet`, commit result |
 | `sketch_drag.cpp`, dimension placement | `sketch.dimension.set` with `position` | Store label placement; this is not a new value manipulator |
 | `sketch_drag.cpp`, existing reference drag | `component.set` with `placement_references` | Project linear/angular offset, apply limits, solve native mates, publish preview |
-| `primitive_properties.cpp` / `sketch_document.cpp`, owned profile | `extrusion/revolution.create/set/sketch.edit` | Switch between Properties and owned Sketch, temporary wrapper, return to feature editor; shared operation commits the resulting profile |
+| `primitive_properties.cpp` / `sketch_document.cpp`, owned profile | `feature.create/set/sketch.edit` | Switch between Properties and owned Sketch, temporary wrapper, return to feature editor; shared operation commits the resulting profile |
 | Sweep and section Sketches | Sweep commands and `section.sketch.edit` | Independent Sketch proposal passed to the owning operation's OK |
 
 These inputs need no commands simulating button presses, cursor positions, or

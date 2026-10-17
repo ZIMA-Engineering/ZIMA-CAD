@@ -1,3 +1,4 @@
+#include "native_property_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include "assembly_profile_test_support.hpp"
 #include <zima/document/dimension_layout_json.hpp>
@@ -245,7 +246,7 @@ int main(int argc,char** argv){
                 "--command","rename_file renamed-dirty.prtz", "--command","documents"});
             const auto records = dirty.results();
             require(dirty.exit_code == 0 && records.size() == 5 && records.back().at("data")[0].at("dirty") == true &&
-                document::PartDocument::load(rename_directory / "renamed-dirty.prtz").history.empty(),
+                zima::test::load_part_with_properties(rename_directory / "renamed-dirty.prtz").history.empty(),
                 "Rename process silently saved or discarded a pending feature");
         }
         auto result=launch(executable,root,{"--help"});require(result.exit_code==0&&result.output.contains("--stdin")&&result.diagnostics.isEmpty(),"CLI help failed");
@@ -317,13 +318,13 @@ int main(int argc,char** argv){
                 "--command",command({{"command","construction.reference.set"},{"arguments",{{"construction",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",6}}}}),
                 "--command",command({{"command","placement.set"},{"arguments",{{"object",object},{"values",{{"reference_offset:0",8}}}}}}),"--command","undo","--command","redo","--command","save"});
             require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==false,"CLI construction reference or Undo/Redo failed");
-            const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
+            const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:zima::test::load_part_with_properties(project/(name+suffix)).constructions;
             const auto found=std::ranges::find(values,object,&document::ConstructionObject::id);require(found!=values.end()&&found->origin.z==8&&found->references.front().owner_id==document+":origin"&&found->references.front().offset==8,"CLI native save lost reference owner or calculated position");
             result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",name+suffix}}}}),
                 "--command",command({{"command","placement.reference.remove"},{"arguments",{{"object",object},{"index",0}}}}),
                 "--command","undo","--command","redo","--command","save"});
             require(result.exit_code==0&&result.results()[1].at("data").at("changed")==true&&result.results()[1].at("data").at("body_calculated")==false,"CLI process could not remove the original reference");
-            const auto removed=assembly_mode?*assembly::AssemblyDocument::load(project/(name+suffix)).find_construction(object):*document::PartDocument::load(project/(name+suffix)).find_construction(object);
+            const auto removed=assembly_mode?*assembly::AssemblyDocument::load(project/(name+suffix)).find_construction(object):*zima::test::load_part_with_properties(project/(name+suffix)).find_construction(object);
             require(removed.references.empty()&&removed.origin.z==8,"CLI save did not persist removal at its last position");
 
         }
@@ -338,7 +339,7 @@ int main(int argc,char** argv){
                 "--command",command({{"command","construction.reference.set"},{"arguments",{{"construction",point},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",6},{"derive_orientation",false}}}}),
                 "--command",command({{"command","placement.set"},{"arguments",{{"object",point},{"values",{{"reference_offset:0",8}}}}}}),"--command","undo","--command","redo","--command","save"});
             require(result.exit_code==0&&result.results()[1].at("data").at("coordinate_owner")==curve,"CLI curve reference or Undo/Redo failed");
-            const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
+            const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:zima::test::load_part_with_properties(project/(name+suffix)).constructions;
             const auto found=std::ranges::find(values,curve,&document::ConstructionObject::id);require(found!=values.end(),"CLI save lost curve identity");const auto& child=found->curve_points[1];
             require(child.id==point&&child.references.front().owner_id==document+":origin"&&std::abs(child.origin.x-10)<1e-7&&std::abs(child.origin.y-12)<1e-7,"CLI native save lost child reference or local coordinates");
         }
@@ -349,7 +350,7 @@ int main(int argc,char** argv){
                 "--command",command({{"command","placement.reference.set"},{"arguments",{{"object",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",6}}}}),
                 "--command",command({{"command","placement.set"},{"arguments",{{"object",object},{"values",{{"reference_offset:0",8}}}}}}),"--command","undo","--command","redo","--command","save"});
             require(result.exit_code==0&&result.results()[1].at("data").at("placement").at("z")==6,"CLI primitive reference or Undo/Redo failed");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"primitive-reference.prtz",&cache);const auto* found=saved.find_container(object);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/"primitive-reference.prtz",&cache);const auto* found=saved.find_container(object);
             require(found&&found->placement.z==8&&found->placement.references.front().owner_id==document+":origin"&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"CLI native save lost primitive source, placement or geometry");
         }
         for(bool extrusion:{true,false}) {
@@ -363,12 +364,13 @@ int main(int argc,char** argv){
             result=launch(executable,root,arguments);require(result.exit_code==0,"Cannot create CLI profile curves");
             arguments=common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",path}}}})};
             if(!extrusion)arguments+=QStringList{"--command",command({{"command","sketch.segment.centerline"},{"arguments",{{"sketch",sketch},{"segment",result.results()[5].at("data").at("geometry")},{"centerline",true}}}})};
-            Json create={{"sketch",sketch}};if(extrusion)create["length_forward_mm"]=5;
-            arguments+=QStringList{"--command",command({{"command",prefix+".create"},{"arguments",create}}),"--command","save"};
+            auto values=zima::test::feature_profile_parameters(5);if(!extrusion){values["sides"][0]["operation"]="revolution";values["sides"][0]["angle_degrees"]=360;}
+            Json create={{"sketch",sketch},{"parameters",values}};
+            arguments+=QStringList{"--command",command({{"command","feature.create"},{"arguments",create}}),"--command","save"};
             result=launch(executable,root,arguments);require(result.exit_code==0,"Cannot calculate CLI profile fixture");const auto made=result.results()[extrusion?1:2].at("data");const auto object=made.at("container").get<std::string>(),document=made.at("document").get<std::string>();
             result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",path}}}}),
-                "--command",command({{"command",prefix+".reference.set"},{"arguments",{{"container",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",8}}}}),"--command","undo","--command","redo","--command","save"});
-            require(result.exit_code==0,"CLI profile reference or Undo/Redo failed");std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/path,&cache);const auto* found=saved.find_container(object);
+                "--command",command({{"command","placement.reference.set"},{"arguments",{{"object",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",8}}}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0,"CLI profile reference or Undo/Redo failed");std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/path,&cache);const auto* found=saved.find_container(object);
             require(found&&found->placement.z==8&&found->placement.references.front().owner_id==document+":origin"&&!cache.empty()&&std::abs(cache.back().volume-(extrusion?30:36*std::acos(-1.0)))<1e-6,"CLI profile reference lost native geometry or owner");
             require(std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->owner_container_id==object,"CLI profile reference lost owned Sketch");
         }
@@ -397,12 +399,12 @@ int main(int argc,char** argv){
             if(hole)create["diameter_mm"]=10;else {create["type"]="metric";create["designation"]="M10";create["thread_length_mm"]=5;create["chamfer_enabled"]=false;create["drill_point_enabled"]=false;}
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("new part "+name),"--command","@fixture.rectangular 40 40 40",
                 "--command",command({{"command",prefix+".create"},{"arguments",create}}),"--command","save"});require(result.exit_code==0,"CLI drill reference fixture failed");
-            const auto original=document::PartDocument::load(project/(name+".prtz"));const auto target=original.history.back().id,owner=original.document_id+":origin";
+            const auto original=zima::test::load_part_with_properties(project/(name+".prtz"));const auto target=original.history.back().id,owner=original.document_id+":origin";
             Json reference={{"container",target},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:xy"}}},{"offset_mm",hole?-20:20}};
             auto lateral=reference;lateral["index"]=1;lateral["reference"]["key"]="origin:plane:yz";lateral["offset_mm"]=3;
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+name+".prtz"),"--command",command({{"command",prefix+".reference.set"},{"arguments",reference}}),
                 "--command",command({{"command",prefix+".reference.set"},{"arguments",lateral}}),"--command","undo","--command","redo","--command","save"});require(result.exit_code==0,"CLI drill reference transaction failed");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/(name+".prtz"),&cache);const auto* f=saved.find_container(target);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/(name+".prtz"),&cache);const auto* f=saved.find_container(target);
             require(f,"CLI saved document lost the drill feature");const auto r=hole?5.:f->thread.profile_diameter/2;
             require(f->placement.x==3&&f->placement.z==(hole?-20:20)&&f->placement.references.front().owner_id==owner&&f->hole.sketch_id==original.history.back().hole.sketch_id&&!cache.empty()&&std::abs(cache.back().volume-(64000-std::acos(-1.0)*r*r*10))<1e-5,"CLI drill reference lost native geometry or profile identity");
         }
@@ -416,20 +418,24 @@ int main(int argc,char** argv){
             "--command","shell.create","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("total")==6,"CLI Shell creation/input face query failed");
         require(result.results()[2].at("data").at("total")==12&&result.results()[3].at("data").at("edges").size()==1,"Actual CLI edge/route queries failed");
-        const auto lock_path=project/fs::path(u8"zámky CLI.prtz");shell_fixture.save(lock_path,shell_kernel.evaluate_history(shell_fixture.kernel_operations()));
+        const auto lock_path=project/fs::path(u8"zámky CLI.prtz");
+        auto lock_fixture=shell_fixture;auto* lock_feature=lock_fixture.find_container(shell_box.id);
+        lock_feature->feature_kind=document::FeatureKind::Feature;lock_feature->feature.sketch_id=shell_box.extrusion.sketch_id;
+        lock_feature->feature.symmetric=true;lock_feature->feature.sides[0].length=5;lock_feature->extrusion={};
+        lock_fixture.save(lock_path,shell_kernel.evaluate_history(lock_fixture.kernel_operations()));
         const auto lock_open=command({{"command","open"},{"arguments",{{"path",qpath(lock_path).toStdString()}}}});
-        const auto lock_command=[&](bool locked){return command({{"command","value_lock.set"},{"arguments",{{"object",shell_box.id},{"key","length_forward"},{"locked",locked}}}});};
+        const auto lock_command=[&](bool locked){return command({{"command","value_lock.set"},{"arguments",{{"object",shell_box.id},{"key","side0_length"},{"locked",locked}}}});};
         const auto lock_list=command({{"command","value_lock.list"},{"arguments",{{"object",shell_box.id}}}});
         result=launch(executable,root,common+QStringList{"--command",lock_open,"--command",lock_command(true),"--command",lock_list,"--command","save"});
-        require(result.exit_code==0&&result.results()[2].at("data").at("items").size()>=12&&document::PartDocument::load(lock_path).find_container(shell_box.id)->value_locks.contains("length_forward"),
+        require(result.exit_code==0&&result.results()[2].at("data").at("items").size()>=12&&zima::test::load_part_with_properties(lock_path).find_container(shell_box.id)->value_locks.contains("side0_length"),
             "CLI lock list/set did not persist on a Unicode path");
-        const auto lock_edit=command({{"command","extrusion.set"},{"arguments",{{"container",shell_box.id},{"length_forward_mm",5.5}}}});
+        const auto lock_edit=command({{"command","feature.set"},{"arguments",{{"container",shell_box.id},{"parameters",zima::test::feature_profile_parameters(5.5,true)}}}});
         result=launch(executable,root,common+QStringList{"--command",lock_open,"--command",lock_edit});
         require(result.exit_code==1&&result.results().back().at("code")=="value_locked","Cold CLI process bypassed persisted lock");
         result=launch(executable,root,common+QStringList{"--command",lock_open,"--command",lock_command(false),"--command",lock_edit,"--command",lock_command(true),
             "--command","undo","--command","redo","--command","save"});
-        std::vector<kernel::BodyResult> lock_cache;const auto lock_saved=document::PartDocument::load(lock_path,&lock_cache);
-        require(result.exit_code==0&&zima::test::profile_dimension(lock_saved,*lock_saved.find_container(shell_box.id),2)==11&&lock_saved.find_container(shell_box.id)->value_locks.contains("length_forward")&&
+        std::vector<kernel::BodyResult> lock_cache;const auto lock_saved=zima::test::load_part_with_properties(lock_path,&lock_cache);
+        require(result.exit_code==0&&lock_saved.find_container(shell_box.id)->feature.sides[0].length==5.5&&lock_saved.find_container(shell_box.id)->value_locks.contains("side0_length")&&
             std::abs(lock_cache.back().volume-1100)<1e-6,"CLI unlock/edit/relock/Undo lost values or geometry");
         const auto copy_fixture=test::copy_query_fixture();const auto copy_path=project/fs::path(u8"kopie příkazy.prtz");
         copy_fixture.document.save(copy_path,shell_kernel.evaluate_history(copy_fixture.document.kernel_operations()));
@@ -458,7 +464,7 @@ int main(int argc,char** argv){
             "--command",edit_mirror,"--command",create_pattern,"--command",edit_pattern,"--command","save"});
         const auto edited_records=result.results();
         require(result.exit_code==0&&edited_records.size()==7,"Actual CLI could not create/edit Mirror and Pattern");
-        std::vector<kernel::BodyResult> copied_cache;const auto copy_saved=document::PartDocument::load(copy_path,&copied_cache);
+        std::vector<kernel::BodyResult> copied_cache;const auto copy_saved=zima::test::load_part_with_properties(copy_path,&copied_cache);
         const auto new_mirror=edited_records[1].at("data").at("object").get<std::string>();
         const auto new_pattern=edited_records[4].at("data").at("object").get<std::string>();
         require(copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x==-4&&
@@ -468,13 +474,13 @@ int main(int argc,char** argv){
             std::abs(copied_cache.back().body_outputs.at(new_mirror)->volume-60)<1e-6&&
             std::abs(copied_cache.back().body_outputs.at(new_pattern)->volume-120)<1e-6,
             "CLI copy properties or independent Boolean-source copy volumes did not persist");
-        const auto shell_created=document::PartDocument::load(shell_path).history.back();
+        const auto shell_created=zima::test::load_part_with_properties(shell_path).history.back();
         const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
             {"faces",Json::array({Json{{"owner",shell_box.id},{"key",test::profile_key(shell_fixture,shell_box,"z_max")}}})}}}});
         result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",qpath(shell_path).toStdString()}}}}),
             "--command",shell_edit,"--command","undo","--command","redo","--command","save","--command","shell.get "+QString::fromStdString(shell_created.id)});
         require(result.exit_code==0&&result.results().back().at("data").at("thickness_mm")==2,"CLI Shell properties/Undo failed");
-        std::vector<kernel::BodyResult> shell_cache;const auto shell_saved=document::PartDocument::load(shell_path,&shell_cache);
+        std::vector<kernel::BodyResult> shell_cache;const auto shell_saved=zima::test::load_part_with_properties(shell_path,&shell_cache);
         require(shell_saved.history.back().feature_id==shell_created.feature_id&&shell_saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{shell_box.id,test::profile_key(shell_fixture,shell_box,"z_max"),{}}}&&
             std::abs(shell_cache.back().volume-712)<1e-6,"CLI Shell lost identities or saved a wrong material volume");
         for(const bool fillet:{true,false}) {
@@ -485,13 +491,13 @@ int main(int argc,char** argv){
             result=launch(executable,root,common+QStringList{"--command",open,"--command",
                 command({{"command",prefix+".create"},{"arguments",{{"routes",routes},{fillet?"radius_mm":"distance_a_mm",2}}}}),"--command","save"});
             require(result.exit_code==0,"Standalone edge treatment creation failed");
-            const auto created=document::PartDocument::load(path).history.back();
+            const auto created=zima::test::load_part_with_properties(path).history.back();
             const auto get=command({{"command",prefix+".get"},{"arguments",{{"container",created.id}}}});
             result=launch(executable,root,common+QStringList{"--command",open,"--command",get,"--command",
                 command({{"command",prefix+".set"},{"arguments",{{"container",created.id},{fillet?"radius_mm":"distance_a_mm",3},{"name","Úprava žluťoučká"}}}}),
                 "--command","undo","--command","redo","--command","save","--command",get});
             require(result.exit_code==0&&result.results().size()==7&&result.results().back().at("data").at("name")=="Úprava žluťoučká","Standalone edge treatment edit/query/Undo/Unicode failed");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(path,&cache);
             const auto expected=1000-90*(fillet?1-std::acos(-1.)/4:.5);
             require(saved.history.back().feature_id==created.feature_id&&saved.history.back().edge_treatment.routes==created.edge_treatment.routes&&!cache.empty()&&std::abs(cache.back().volume-expected)<1e-5,
                 "Standalone edge treatment lost input identity or saved incorrect volume");
@@ -501,7 +507,7 @@ int main(int argc,char** argv){
                 "--command","redo","--command","save"});
             require(result.exit_code==0&&result.results()[1].at("data").at("removed")==true&&result.results()[3].at("data").at("feature")==created.feature_id,
                 "Standalone last-route removal or Undo failed");
-            std::vector<kernel::BodyResult> restored_input;const auto removed=document::PartDocument::load(path,&restored_input);
+            std::vector<kernel::BodyResult> restored_input;const auto removed=zima::test::load_part_with_properties(path,&restored_input);
             require(!removed.find_container(created.id)&&std::abs(restored_input.back().volume-1000)<1e-5,"CLI last-route removal did not persist the real input body");
         }
         const auto drill_path=project/"drill-cli.prtz";const auto drill_fixture=test::drill_point_fixture();
@@ -510,14 +516,14 @@ int main(int argc,char** argv){
         const auto make_drill=command({{"command","drill_point.create"},{"arguments",{{"faces",Json::array({drill_face(1),drill_face(2)})}}}});
         result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",make_drill,"--command","save"});
         require(result.exit_code==0,"CLI drill-point creation failed");
-        const auto drill_created=document::PartDocument::load(drill_path).history.back();
+        const auto drill_created=zima::test::load_part_with_properties(drill_path).history.back();
         require(drill_created.name=="Drill point","CLI drill point name was not translated");
         const auto edit_drill=command({{"command","drill_point.set"},{"arguments",{{"container",drill_created.id},{"angle_degrees",120},{"faces",Json::array({drill_face(2)})}}}});
         result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",edit_drill,"--command","undo","--command","redo",
             "--command","save","--command","drill_point.get "+QString::fromStdString(drill_created.id)});
         require(result.exit_code==0&&result.results()[5].at("data").at("faces").size()==1&&result.results()[5].at("data").at("angle_degrees")==120,
             "CLI drill-point reference edit/Undo/Redo failed");
-        std::vector<kernel::BodyResult> drill_cache;const auto drill_saved=document::PartDocument::load(drill_path,&drill_cache);
+        std::vector<kernel::BodyResult> drill_cache;const auto drill_saved=zima::test::load_part_with_properties(drill_path,&drill_cache);
         const auto drill_parent=drill_saved.history.back().drill_point.bottom_faces.front();
         require(drill_saved.history.back().feature_id==drill_created.feature_id&&std::abs(drill_cache.back().volume-test::drilled_block_volume(120,false,true))<1e-5&&
             std::ranges::any_of(drill_cache.back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==drill_created.id&&ref.semantic_key==kernel::drill_point_key("side",drill_parent);}),
@@ -526,8 +532,8 @@ int main(int argc,char** argv){
         const auto appearance_style=command({{"command","appearance.set"},{"arguments",{{"style",{{"color","#5588CC"},{"roughness",.123456789},{"metallic",.75}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part appearance-cli","--command","@fixture.rectangular 10 20 30",
             "--command","appearance.faces","--command",appearance_style,"--command","undo","--command","redo","--command","save","--command","appearance.get"});
-        require(result.exit_code==0&&result.results()[2].at("data").at("total")==6&&result.results()[7].at("data").at("style").at("roughness")==.123456789,"CLI appearance faces/edit/Undo/Redo failed");
-        std::vector<kernel::BodyResult> appearance_cache;const auto appearance_saved=document::PartDocument::load(project/"appearance-cli.prtz",&appearance_cache);
+        require(result.exit_code==0&&result.results()[2].at("data").at("total")==10&&result.results()[7].at("data").at("style").at("roughness")==.123456789,"CLI appearance faces/edit/Undo/Redo failed");
+        std::vector<kernel::BodyResult> appearance_cache;const auto appearance_saved=zima::test::load_part_with_properties(project/"appearance-cli.prtz",&appearance_cache);
         require(appearance_saved.appearance.bodies.at(appearance_saved.body_history.active_body_id()).color=="#5588CC"&&
             std::abs(appearance_cache.back().volume-6000)<1e-6,"CLI appearance persistence changed geometry");
 
@@ -561,7 +567,7 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results()[7]["data"]["name"]=="Changed"&&
             std::abs(result.results()[7]["data"]["distance"]["value"]["value"].get<double>()-15)<1e-8,
             "CLI measurement edit/delete/Undo/Redo lost values");
-        require(document::PartDocument::load(project/"measurement-cli.prtz").measurements.size()==2,"CLI measurement history lost the existing record");
+        require(zima::test::load_part_with_properties(project/"measurement-cli.prtz").measurements.size()==2,"CLI measurement history lost the existing record");
 
         auto section_source=appearance_saved;auto section=document::create_section();
         static_cast<void>(section.sketch.add_segment(-20,0,20,0));
@@ -582,19 +588,19 @@ int main(int argc,char** argv){
             "--command","section.list","--command","undo","--command","save"});
         require(result.exit_code==0&&result.results()[2].at("data").at("show_cut")==true&&result.results()[5].at("data").at("total")==0,
             "CLI Section activation/normal/removal failed");
-        const auto restored_section=document::PartDocument::load(section_path);
+        const auto restored_section=zima::test::load_part_with_properties(section_path);
         require(restored_section.sections.size()==1&&restored_section.sections.front().id==section.id&&!restored_section.sections.front().show_cut,
             "CLI Section Undo did not persist the same inactive definition");
 
         const auto create_section=command({{"command","section.create"},{"arguments",{{"path_mm",Json::array({Json::array({-20,0}),Json::array({20,0})})},{"name","CLI section"},{"show_cut",true}}}});
         result=launch(executable,root,common+QStringList{"--command","open section-cli.prtz","--command",create_section,"--command","save"});
         require(result.exit_code==0,"CLI Section creation failed");
-        const auto created_section=document::PartDocument::load(section_path).sections.back();
+        const auto created_section=zima::test::load_part_with_properties(section_path).sections.back();
         const auto edit_section=command({{"command","section.set"},{"arguments",{{"object",created_section.id},{"name","CLI edited"},{"reversed",true},{"placement",{{"y",2}}},
             {"components",Json::array({{{"component",appearance_saved.body_history.active_body_id()},{"hatch",{{"angle_degrees",12.3456789},{"spacing_mm",2.3456789}}}}})}}}});
         result=launch(executable,root,common+QStringList{"--command","open section-cli.prtz","--command",edit_section,"--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0,"CLI Section properties/Undo/Redo failed");
-        std::vector<kernel::BodyResult> section_cache;const auto edited_section=document::PartDocument::load(section_path,&section_cache).sections.back();
+        std::vector<kernel::BodyResult> section_cache;const auto edited_section=zima::test::load_part_with_properties(section_path,&section_cache).sections.back();
         require(edited_section.id==created_section.id&&edited_section.sketch.id==created_section.sketch.id&&edited_section.name=="CLI edited"&&edited_section.reversed&&
             edited_section.placement.y==2&&edited_section.components.at(appearance_saved.body_history.active_body_id()).hatch.angle==12.3456789&&
             std::abs(section_cache.back().volume-6000)<1e-6,"CLI Section properties lost identity, precision or cached geometry");
@@ -607,7 +613,7 @@ int main(int argc,char** argv){
         const auto edit_section_sketch=command({{"command","section.sketch.edit"},{"arguments",{{"object",created_section.id},{"operations",section_operations}}}});
         result=launch(executable,root,common+QStringList{"--command","open section-cli.prtz","--command",edit_section_sketch,"--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("results").size()==2,"CLI Section Sketch batch/Undo/Redo failed");
-        const auto edited_trace=document::PartDocument::load(section_path).sections.back();
+        const auto edited_trace=zima::test::load_part_with_properties(section_path).sections.back();
         require(edited_trace.sketch.id==created_section.sketch.id&&edited_trace.sketch.find_point(created_section.sketch.points.front().id)->y==1&&
             edited_trace.sketch.find_point(created_section.sketch.points.back().id)->y==1,"CLI native Section lost batched point edits");
 
@@ -615,14 +621,14 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","@fixture.rectangular 40 40 40",
             "--command",make_hole,"--command","save"});
         require(result.exit_code==0,"CLI native Hole creation failed");
-        const auto hole_path=project/"native-hole-cli.prtz";const auto hole_created=document::PartDocument::load(hole_path).history.back();
+        const auto hole_path=project/"native-hole-cli.prtz";const auto hole_created=zima::test::load_part_with_properties(hole_path).history.back();
         require(hole_created.feature_kind==document::FeatureKind::Hole&&hole_created.name=="Hole","CLI native Hole kind or translation is wrong");
         const auto hole_id=QString::fromStdString(hole_created.id);
         const auto resize_hole=command({{"command","hole.set"},{"arguments",{{"container",hole_created.id},{"diameter_mm",8},{"entrance_chamfer_mm",1}}}});
         result=launch(executable,root,common+QStringList{"--command","open native-hole-cli.prtz","--command","hole.get "+hole_id,
             "--command",resize_hole,"--command","undo","--command","redo","--command","save","--command","hole.get "+hole_id});
         require(result.exit_code==0&&result.results()[6].at("data").at("diameter_mm")==8,"CLI native Hole edit/history failed");
-        std::vector<kernel::BodyResult> hole_cache;const auto hole_saved=document::PartDocument::load(hole_path,&hole_cache);
+        std::vector<kernel::BodyResult> hole_cache;const auto hole_saved=zima::test::load_part_with_properties(hole_path,&hole_cache);
         require(hole_saved.history.back().hole.circle_id==hole_created.hole.circle_id&&
             std::abs(hole_cache.back().volume-(64000-std::acos(-1.0)*(160+4+1.0/3)))<1e-5,"CLI native Hole lost identity or saved wrong chamfer geometry");
 
@@ -630,7 +636,7 @@ int main(int argc,char** argv){
         const auto target_hole=command({{"command","hole.set"},{"arguments",{{"container",hole_created.id},{"bore_end","up_to"},{"bore_targets",hole_targets}}}});
         result=launch(executable,root,common+QStringList{"--command","open native-hole-cli.prtz","--command",target_hole,"--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0,"CLI native Hole original target/history failed");
-        const auto targeted_hole=document::PartDocument::load(hole_path,&hole_cache);
+        const auto targeted_hole=zima::test::load_part_with_properties(hole_path,&hole_cache);
         require(targeted_hole.history.back().hole.bore_end_targets.front().reference.owner_id==hole_saved.document_id+":origin"&&
             std::abs(hole_cache.back().volume-(64000-std::acos(-1.0)*(320+4+1.0/3)))<1e-5,"CLI native Hole saved stale target geometry");
 
@@ -639,14 +645,14 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","new part opening-cli","--command","@fixture.rectangular 40 40 40",
             "--command",make_opening,"--command","save"});
         require(result.exit_code==0,"CLI opening creation failed");
-        const auto opening_path=project/"opening-cli.prtz";const auto opening_created=document::PartDocument::load(opening_path).history.back();
+        const auto opening_path=project/"opening-cli.prtz";const auto opening_created=zima::test::load_part_with_properties(opening_path).history.back();
         require(opening_created.name=="Hole","CLI opening default name was not translated");
         const auto opening_id=QString::fromStdString(opening_created.id);
         const auto resize_opening=command({{"command","opening.set"},{"arguments",{{"container",opening_created.id},{"bore_length_mm",25}}}});
         result=launch(executable,root,common+QStringList{"--command","open opening-cli.prtz","--command","opening.get "+opening_id,
             "--command",resize_opening,"--command","undo","--command","redo","--command","save","--command","opening.get "+opening_id});
         require(result.exit_code==0&&result.results()[6].at("data").at("bore_length_mm")==25,"CLI opening query/edit/Undo/Redo failed");
-        std::vector<kernel::BodyResult> opening_cache;const auto opening_saved=document::PartDocument::load(opening_path,&opening_cache);
+        std::vector<kernel::BodyResult> opening_cache;const auto opening_saved=zima::test::load_part_with_properties(opening_path,&opening_cache);
         require(opening_saved.history.back().hole.circle_id==opening_created.hole.circle_id&&
             std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*25))<1e-5,"CLI opening lost source identity or saved the wrong volume");
 
@@ -656,7 +662,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open opening-cli.prtz","--command",limit_opening,
             "--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0,"CLI original opening end references failed");
-        opening_cache.clear();const auto limited_opening=document::PartDocument::load(opening_path,&opening_cache);
+        opening_cache.clear();const auto limited_opening=zima::test::load_part_with_properties(opening_path,&opening_cache);
         require(limited_opening.history.back().thread.end_targets_forward.front().reference.owner_id==opening_saved.document_id+":origin"&&
             std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*20))<1e-5,"CLI opening target lost its identity or depth");
 
@@ -672,7 +678,7 @@ int main(int argc,char** argv){
             require(result.exit_code==0,"CLI component removal or history failed");
             const auto rows=result.results().back().at("data").at("items");
             require(std::ranges::none_of(rows,[](const auto& row){return row.at("role")=="thread";}),"CLI still reports removed thread");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(native?hole_path:opening_path,&cache);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(native?hole_path:opening_path,&cache);
             const auto& feature=*saved.find_container(container);
             require((native?!feature.hole.thread_enabled:!feature.thread.enabled)&&feature.hole.circle_id==(native?hole_created.hole.circle_id:opening_created.hole.circle_id),"CLI removed original profile identity");
             require(std::abs(cache.back().volume-(native?hole_cache.back().volume:opening_cache.back().volume))<1e-5,"CLI thread removal changed bore volume");
@@ -681,12 +687,12 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","new part shaft-cli","--command","@fixture.circular 5 30","--command","save"});
         require(result.exit_code==0,"CLI shaft fixture failed");
         const auto shaft_path=project/"shaft-cli.prtz";
-        const auto shaft_owner=document::PartDocument::load(shaft_path).history.front().id;
-        const auto make_shaft=command({{"command","shaft_thread.create"},{"arguments",{{"cylinder",{{"owner",shaft_owner},{"key",test::profile_key(document::PartDocument::load(shaft_path),shaft_owner,"side")}}},
-            {"start",{{"owner",shaft_owner},{"key",test::profile_key(document::PartDocument::load(shaft_path),shaft_owner,"z_min")}}},{"designation","M10"},{"length_mm",15}}}});
+        const auto shaft_owner=zima::test::load_part_with_properties(shaft_path).history.front().id;
+        const auto make_shaft=command({{"command","shaft_thread.create"},{"arguments",{{"cylinder",{{"owner",shaft_owner},{"key",test::profile_key(zima::test::load_part_with_properties(shaft_path),shaft_owner,"side")}}},
+            {"start",{{"owner",shaft_owner},{"key",test::profile_key(zima::test::load_part_with_properties(shaft_path),shaft_owner,"z_min")}}},{"designation","M10"},{"length_mm",15}}}});
         result=launch(executable,root,common+QStringList{"--command","open shaft-cli.prtz","--command",make_shaft,"--command","save"});
         require(result.exit_code==0,"CLI shaft creation failed");
-        const auto shaft_created=document::PartDocument::load(shaft_path).history.back();
+        const auto shaft_created=zima::test::load_part_with_properties(shaft_path).history.back();
         require(shaft_created.name=="External thread","CLI shaft name was not translated");
         const auto shaft_id=QString::fromStdString(shaft_created.id);
         const auto resize_shaft=command({{"command","shaft_thread.set"},{"arguments",{{"container",shaft_created.id},{"length_mm",20},{"root_diameter_mm",8.05}}}});
@@ -694,7 +700,7 @@ int main(int argc,char** argv){
             "--command","undo","--command","redo","--command","save","--command","shaft_thread.get "+shaft_id});
         require(result.exit_code==0&&result.results()[5].at("data").at("length_mm")==20&&result.results()[5].at("data").at("root_diameter_mm")==8.05,
             "CLI shaft query/edit/Undo/Redo failed");
-        std::vector<kernel::BodyResult> shaft_cache;const auto shaft_saved=document::PartDocument::load(shaft_path,&shaft_cache);
+        std::vector<kernel::BodyResult> shaft_cache;const auto shaft_saved=zima::test::load_part_with_properties(shaft_path,&shaft_cache);
         require(shaft_saved.history.back().feature_id==shaft_created.feature_id&&shaft_saved.history.back().shaft_thread.cylinder==shaft_created.shaft_thread.cylinder&&
             std::abs(shaft_cache.back().volume-750*std::acos(-1.0))<1e-6,"CLI shaft changed original identity or solid volume");
 
@@ -702,7 +708,7 @@ int main(int argc,char** argv){
             "--command", "@fixture.rectangular 10 20 30", "--command", "save"});
         require(result.exit_code == 0, "CLI placement fixture failed");
         const auto placement_path = project / "placement-cli.prtz";
-        const auto placement_native = document::PartDocument::load(placement_path);
+        const auto placement_native = zima::test::load_part_with_properties(placement_path);
         const auto placement_object = placement_native.history.front().id;
         const auto placement_patch = command({{"command", "placement.set"}, {"arguments",
             {{"object", placement_object}, {"values", {{"x", 5}, {"y", 7}, {"rotation_z", 90}}}}}});
@@ -711,23 +717,23 @@ int main(int argc,char** argv){
             "--command", "placement.get " + QString::fromStdString(placement_object)});
         require(result.exit_code == 0 && result.results()[5].at("data").at("placement").at("x") == 5, "CLI placement transaction failed");
         std::vector<kernel::BodyResult> placed_bodies;
-        const auto placed_native = document::PartDocument::load(placement_path, &placed_bodies);
+        const auto placed_native = zima::test::load_part_with_properties(placement_path, &placed_bodies);
         require(placed_native.history.front().placement.rotation_z == 90 && std::abs(placed_bodies.back().volume - 6000) < 1e-7,
             "CLI placement lost its saved angle or changed solid volume");
 
         result=launch(executable,root,common+QStringList{"--command","new part cli-body-references","--command","@fixture.rectangular 10 10 10","--command","body.create Follower","--command","@fixture.rectangular 2 3 4","--command","save"});
         require(result.exit_code==0,"CLI Body reference fixture failed");
-        const auto body_reference_path=project/"cli-body-references.prtz";const auto body_reference_fixture=document::PartDocument::load(body_reference_path);
+        const auto body_reference_path=project/"cli-body-references.prtz";const auto body_reference_fixture=zima::test::load_part_with_properties(body_reference_path);
         const auto body_reference_source=body_reference_fixture.body_history.bodies().front().origin().id,body_reference_target=body_reference_fixture.body_history.bodies().back().scope.id;
         const auto body_reference_command=command({{"command","body.reference.set"},{"arguments",{{"body",body_reference_target},{"index",0},{"reference",{{"owner",body_reference_source},{"key","origin:plane:xy"}}},{"offset_mm",7}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-body-references.prtz","--command",body_reference_command,"--command","undo","--command","redo","--command","save","--command","body.get "+QString::fromStdString(body_reference_target)});
         require(result.exit_code==0&&result.results()[5].at("data").at("placement").at("z")==7,"CLI Body reference or history failed");
-        const auto referenced_body=document::PartDocument::load(body_reference_path).body_history.find(body_reference_target)->scope.placement;
+        const auto referenced_body=zima::test::load_part_with_properties(body_reference_path).body_history.find(body_reference_target)->scope.placement;
         require(referenced_body.z==7&&referenced_body.references[0].owner_id==body_reference_source&&referenced_body.references[0].offset==7,"CLI lost native Body source or offset");
 
         result=launch(executable,root,common+QStringList{"--command","new part cli-cut-source","--command","@fixture.rectangular 10 10 10","--command","save"});
         require(result.exit_code==0,"CLI cut source creation failed");
-        const auto cut_source=document::PartDocument::load(project/"cli-cut-source.prtz");
+        const auto cut_source=zima::test::load_part_with_properties(project/"cli-cut-source.prtz");
         const auto insert_cut_source=command({{"command","component.insert"},{"arguments",{{"source",cut_source.document_id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-cut-source.prtz","--command","new assembly cli-profile-cuts","--command",insert_cut_source,"--command",insert_cut_source,"--command","sketch.create CutProfile XY","--command","save"});
         require(result.exit_code==0,"CLI cut Assembly creation failed");
@@ -736,7 +742,7 @@ int main(int argc,char** argv){
         QStringList cut_commands{"--command","open cli-profile-cuts.asmz"};
         for(const auto& points:std::vector<std::array<double,4>>{{-1,-1.5,1,-1.5},{1,-1.5,1,1.5},{1,1.5,-1,1.5},{-1,1.5,-1,-1.5}})
             cut_commands<<"--command"<<command({{"command","sketch.segment.create"},{"arguments",{{"sketch",cut_sketch},{"first",{points[0],points[1]}},{"second",{points[2],points[3]}},{"snap_mm",0.000001}}}});
-        cut_commands<<"--command"<<command({{"command","extrusion.create"},{"arguments",{{"sketch",cut_sketch},{"length_forward_mm",4},{"targets",{cut_target}}}}})
+        cut_commands<<"--command"<<command({{"command","feature.create"},{"arguments",{{"sketch",cut_sketch},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{cut_target}}}}})
                     <<"--command"<<"undo"<<"--command"<<"redo"<<"--command"<<"save"<<"--command"<<"assembly.cut.list";
         result=launch(executable,root,common+cut_commands);
         require(result.exit_code==0&&result.results().back().at("data").at("total")==1,"CLI Assembly cut or history failed");
@@ -750,7 +756,7 @@ int main(int argc,char** argv){
             cut_batch.push_back({{"command","sketch.point.move"},{"arguments",{{"point",point.id},{"position",{2,point.y}}}}});
         require(cut_batch.size()==2,"CLI batch fixture lacks two right vertices");
         result=launch(executable,root,common+QStringList{"--command","open cli-profile-cuts.asmz",
-            "--command",command({{"command","extrusion.sketch.edit"},{"arguments",{{"container",cut_id},{"operations",cut_batch}}}}),
+            "--command",command({{"command","feature.sketch.edit"},{"arguments",{{"container",cut_id},{"operations",cut_batch}}}}),
             "--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==true,"CLI profile batch or history failed");
         const auto batched_cut=assembly::AssemblyDocument::load(cut_path);
@@ -772,13 +778,13 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","new part construction-created","--command",create_plane,"--command","save"});
         require(result.exit_code==0,"CLI construction creation failed");
         const auto construction_created_path=project/"construction-created.prtz";
-        const auto created_plane=document::PartDocument::load(construction_created_path).constructions.front();
+        const auto created_plane=zima::test::load_part_with_properties(construction_created_path).constructions.front();
         require(created_plane.name=="CLI rovina žluťoučká"&&std::abs(created_plane.entity_origin.y-12)<1e-7,"CLI plane has incorrect saved geometry/name");
         const auto update_plane=command({{"command","construction.set"},{"arguments",{{"construction",created_plane.id},{"offset_mm",15}}}});
         result=launch(executable,root,common+QStringList{"--command","open construction-created.prtz","--command",update_plane,
             "--command","undo","--command","redo","--command","save","--command","construction.get "+QString::fromStdString(created_plane.id)});
         require(result.exit_code==0&&result.results()[5].at("data").at("offset_mm")==15,"CLI construction set/Undo/Redo failed");
-        const auto saved_plane=document::PartDocument::load(construction_created_path).constructions.front();
+        const auto saved_plane=zima::test::load_part_with_properties(construction_created_path).constructions.front();
         require(saved_plane.entity_id==created_plane.entity_id&&std::abs(saved_plane.entity_origin.y-17)<1e-7,"CLI edit changed plane identity or lost geometry");
         result=launch(executable,root,common+QStringList{"--stdin"},
             "new assembly construction-created\nconstruction.create axis \"CLI osa\"\nsave\n");
@@ -792,7 +798,7 @@ int main(int argc,char** argv){
                 "--command","undo","--command","redo","--command","save","--command","construction.list"});
             require(result.exit_code==0&&result.results()[1].at("data").at("removed").get<bool>()&&
                 result.results().back().at("data").at("total")==0,"CLI construction removal/Undo/Redo failed");
-            require(file.ends_with("prtz")?document::PartDocument::load(project/file).constructions.empty():
+            require(file.ends_with("prtz")?zima::test::load_part_with_properties(project/file).constructions.empty():
                 assembly::AssemblyDocument::load(project/file).constructions.empty(),"CLI construction deletion did not persist in the native document");
         }
         const auto construction_native = test::construction_query_fixture();
@@ -815,7 +821,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","new part \"díl z příkazů\"","--command","save","--command","tree"});
         require(result.exit_code==0&&result.results().size()==3,"Repeated UTF-8 command arguments failed");
         const auto part_path=project/fs::path(u8"díl z příkazů.prtz");
-        auto part=document::PartDocument::load(part_path);
+        auto part=zima::test::load_part_with_properties(part_path);
         require(part.name=="díl z příkazů"&&part.document_units.at("Length")=="cm"&&part.body_history.bodies().size()==1,"CLI lost config units, template body or Unicode name");
         {
             QSettings names(qpath(base),QSettings::IniFormat);
@@ -823,7 +829,7 @@ int main(int argc,char** argv){
             names.sync();
             result=launch(executable,root,common+QStringList{"--command","new part \"Příruba čelní\"","--command","save","--command","rename_file \"Držák přední.PRTZ\"","--command","save_as \"Kopie dílu.prtz\""});
             require(result.exit_code==0&&fs::exists(project/"DRZAK_PREDNI.prtz")&&fs::exists(project/"KOPIE_DILU.prtz"),"CLI New/Rename/Save As did not share the naming policy");
-            require(document::PartDocument::load(project/"DRZAK_PREDNI.prtz").name=="DRZAK_PREDNI","Normalized filename and document name differ");
+            require(zima::test::load_part_with_properties(project/"DRZAK_PREDNI.prtz").name=="DRZAK_PREDNI","Normalized filename and document name differ");
             result=launch(executable,root,common+QStringList{"--command","new part \"Drzak predni\""});
             require(result.exit_code!=0,"Normalization collision overwrote an existing Part");
             names.remove("DocumentNames");names.sync();
@@ -844,13 +850,13 @@ int main(int argc,char** argv){
             local.setValue("Paths/Images",QByteArray("unused GUI-only setting"));local.sync();
         }
         result=launch(executable,root,common+QStringList{"--command","new part local","--command","save"});
-        require(result.exit_code==0&&document::PartDocument::load(project/"local.prtz").document_units.at("Length")=="m","Project config layer or relative template path ignored");
-        require(document::PartDocument::load(project/"local.prtz").body_history.bodies().front().name=="Body from context","Body name did not use the GUI factory's translation context");
+        require(result.exit_code==0&&zima::test::load_part_with_properties(project/"local.prtz").document_units.at("Length")=="m","Project config layer or relative template path ignored");
+        require(zima::test::load_part_with_properties(project/"local.prtz").body_history.bodies().front().name=="Body from context","Body name did not use the GUI factory's translation context");
         result=launch(executable,root,common+QStringList{"--command","save"});
         require(result.exit_code==1&&result.results().front().at("message")=="Context-specific empty document","Command translation context differs from GUI");
         result=launch(executable,root,common+QStringList{"--stdin"},
             "new part json-names\n@fixture.rectangular 2 3 4\nsave\nnew drawing json-sheet\nsave\n");
-        require(result.exit_code==0 && document::PartDocument::load(project/"json-names.prtz").history.back().name=="Extrusion from JSON" &&
+        require(result.exit_code==0 && zima::test::load_part_with_properties(project/"json-names.prtz").history.back().name=="Extrusion from JSON" &&
             drawing::DrawingDocument::load(project/"json-sheet.drwz").sheets.front().name=="Sheet from JSON 1",
             "CLI supplemental catalog did not localize new feature and sheet names");
         fs::remove(project/"config.ini");
@@ -900,7 +906,7 @@ int main(int argc,char** argv){
         auto model=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(model,{10,20,30});model.history={box};
         kernel::OcctKernel kernel;const auto calculated=workspace::calculate_part(kernel,model);model.save(project/"box.prtz",calculated);
         result=launch(executable,root,common+QStringList{"--stdin"},"open box.prtz\nregenerate\nsave\n");
-        std::vector<kernel::BodyResult> reloaded;const auto after=document::PartDocument::load(project/"box.prtz",&reloaded);
+        std::vector<kernel::BodyResult> reloaded;const auto after=zima::test::load_part_with_properties(project/"box.prtz",&reloaded);
         require(result.exit_code==0&&result.results().size()==3&&after.history==model.history&&!reloaded.empty()&&std::abs(reloaded.back().volume-6000)<1e-6,"CLI regeneration/save changed geometry");
         const auto& old_refs=calculated.back().mesh.original_references.triangle_references;
         const auto& new_refs=reloaded.back().mesh.original_references.triangle_references;
@@ -909,16 +915,16 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--stdin"},"new part commanded-box\n@fixture.rectangular 10 20 30\nsave\n");
         require(result.exit_code==0 && result.results().size()==3,"CLI could not calculate a new Box");
         const auto box_id=result.results()[1].at("data").at("container").get<std::string>();
-        const auto new_box=document::PartDocument::load(project/"commanded-box.prtz",&reloaded);
+        const auto new_box=zima::test::load_part_with_properties(project/"commanded-box.prtz",&reloaded);
         require(new_box.find_container(box_id) && std::abs(reloaded.back().volume-6000)<1e-6,"CLI Box creation did not persist real geometry");
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString("open commanded-box.prtz\nreference.list "+box_id+" face\n"));
-        require(result.exit_code==0 && result.results().back().at("data").at("total")==6,"CLI could not list original faces");
+        require(result.exit_code==0 && result.results().back().at("data").at("total")==12,"CLI could not list original faces");
         const auto original_face=result.results().back().at("data").at("items")[0];
         result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",command({{"command","reference.get"},{"arguments",original_face}})});
         require(result.exit_code==0 && result.results().back().at("data").at("surface").at("kind")=="plane" &&
             result.results().back().at("data").at("triangle_count")==2,"CLI lost persisted analytic face details");
         {
-            const Json ref={{"owner",box_id},{"key","parameter:length_forward"}};
+            const Json ref={{"owner",box_id},{"key","parameter:side0_length"}};
             const auto get=command({{"command","dimension.layout.get"},{"arguments",{{"reference",ref}}}});
             result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",get});
             require(result.exit_code==0&&result.results().back().at("data").at("has_override")==false,"Standalone CLI could not read a native model dimension");
@@ -927,20 +933,20 @@ int main(int argc,char** argv){
             const auto set=command({{"command","dimension.layout.set"},{"arguments",{{"reference",ref},{"layout",layout}}}});
             result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",set,"--command","undo","--command","redo","--command","save","--command",get});
             require(result.exit_code==0&&result.results().back().at("data").at("layout")==layout,"Standalone dimension edit lost complete appearance through Undo/Redo");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"commanded-box.prtz",&cache);
-            const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{box_id,"parameter:length_forward",{}});
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/"commanded-box.prtz",&cache);
+            const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{box_id,"parameter:side0_length",{}});
             require(stored&&document::dimension_layout_json(*stored)==layout&&*saved.find_container(box_id)==*new_box.find_container(box_id)&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Standalone dimension save changed the model or lost native layout");
         }
         {
             const auto create=command({{"command","section.create"},{"arguments",{{"path_mm",{{-50,0},{50,0}}},{"plane","XY"},{"show_cut",true}}}});
             result=launch(executable,root,common+QStringList{"--command","new part cli-section-reference","--command","@fixture.rectangular 10 20 30","--command",create,"--command","save"});
             require(result.exit_code==0,"Standalone CLI could not create a Section reference fixture");
-            const auto fixture=document::PartDocument::load(project/"cli-section-reference.prtz");const auto id=fixture.sections.front().id;
+            const auto fixture=zima::test::load_part_with_properties(project/"cli-section-reference.prtz");const auto id=fixture.sections.front().id;
             const auto set=command({{"command","section.reference.set"},{"arguments",{{"object",id},{"index",0},{"reference",{{"owner",fixture.document_id+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",2}}}});
             const auto get=command({{"command","section.get"},{"arguments",{{"object",id}}}});
             result=launch(executable,root,common+QStringList{"--command","open cli-section-reference.prtz","--command",set,"--command","undo","--command","redo","--command","save","--command",get});
             require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==2,"Standalone Section reference or Undo/Redo failed");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"cli-section-reference.prtz",&cache);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/"cli-section-reference.prtz",&cache);
             require(saved.sections.front().id==id&&saved.sections.front().sketch.id==fixture.sections.front().sketch.id&&saved.sections.front().placement.references.front().owner_id==fixture.document_id+":origin"&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Standalone Section reference save lost original identity or changed the body");
         }
         for(bool extrusion:{true,false}) {
@@ -949,15 +955,16 @@ int main(int argc,char** argv){
             assembly_profile_test::Fixture fixture(kernel,project,name);
             const auto sketch=extrusion?fixture.rectangle(-1,-1.5,2,3):fixture.rectangle(1,0,1,2);
             Json create={{"sketch",sketch},{"targets",{fixture.first}}};
-            if(extrusion)create["length_forward_mm"]=4;
-            else {
+            create["parameters"]=zima::test::feature_profile_parameters(4);
+            if(!extrusion) {
+                create["parameters"]["sides"][0]["operation"]="revolution";create["parameters"]["sides"][0]["angle_degrees"]=360;
                 const auto axis=fixture.line(sketch,0,0,0,4);
                 fixture.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
             }
-            const std::string cut=fixture.run((prefix+".create").c_str(),create).at("container");fixture.run("save");
-            const auto set=command({{"command",prefix+".reference.set"},{"arguments",{{"container",cut},{"index",0},
+            const std::string cut=fixture.run("feature.create",create).at("container");fixture.run("save");
+            const auto set=command({{"command","placement.reference.set"},{"arguments",{{"object",cut},{"index",0},
                 {"reference",{{"owner",fixture.owner+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}}}});
-            const auto get=command({{"command",prefix+".get"},{"arguments",{{"container",cut}}}});
+            const auto get=command({{"command","feature.get"},{"arguments",{{"container",cut}}}});
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+name+".asmz"),
                 "--command",set,"--command","undo","--command","redo","--command","save","--command",get});
             require(result.exit_code==0&&result.results().back().at("data").at("reference_valid")==true&&
@@ -970,11 +977,11 @@ int main(int argc,char** argv){
                 std::abs(saved.find_occurrence(fixture.second)->calculated_source->volume-1000)<1e-6,
                 "Standalone Assembly reference lost native identity or changed the wrong body");
         }
-        const auto batch="open commanded-box.prtz\n"+Json{{"command","extrusion.set"},{"arguments",{{"container",box_id},{"length_forward_mm",22.5}}}}.dump()+"\nextrusion.get "+box_id+"\nundo\nextrusion.get "+box_id+"\nredo\nsave\n";
+        const auto batch="open commanded-box.prtz\n"+Json{{"command","feature.set"},{"arguments",{{"container",box_id},{"parameters",zima::test::feature_profile_parameters(22.5,true)}}}}.dump()+"\nfeature.get "+box_id+"\nundo\nfeature.get "+box_id+"\nredo\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(batch));
         const auto edits=result.results();
-        require(result.exit_code==0 && edits.size()==7 && edits[2].at("data").at("length_forward_mm")==22.5 && edits[4].at("data").at("length_forward_mm")==15,"CLI Box patch/query/Undo/Redo failed");
-        const auto resized=document::PartDocument::load(project/"commanded-box.prtz",&reloaded);
+        require(result.exit_code==0 && edits.size()==7 && edits[2].at("data").at("parameters").at("sides")[0].at("length")==22.5 && edits[4].at("data").at("parameters").at("sides")[0].at("length")==15,"CLI Box patch/query/Undo/Redo failed");
+        const auto resized=zima::test::load_part_with_properties(project/"commanded-box.prtz",&reloaded);
         require(resized.find_container(box_id)->feature_id==new_box.find_container(box_id)->feature_id && std::abs(reloaded.back().volume-9000)<1e-6,"CLI Box resize replaced identity or saved wrong geometry");
         for(const auto* removed:{"box.create","cylinder.create","sphere.create","cone.create","pyramid.create","wedge.create"}) {
             result=launch(executable,root,common+QStringList{"--command",removed});
@@ -983,7 +990,7 @@ int main(int argc,char** argv){
 
         result=launch(executable,root,common+QStringList{"--stdin"},"open commanded-box.prtz\nsave_as independent.prtz\nclose\nopen independent.prtz\ndocuments\nclose\n");
         require(result.exit_code==0 && result.results().size()==6 && result.results().back().at("data").empty(),"CLI copy/open/close lifecycle failed");
-        const auto independent=document::PartDocument::load(project/"independent.prtz");
+        const auto independent=zima::test::load_part_with_properties(project/"independent.prtz");
         require(independent.document_id!=new_box.document_id,"CLI copy reused original identity");
         result=launch(executable,root,common+QStringList{"--stdin","--keep-going"},"new drawing unsaved\nclose\n{\"command\":\"close\",\"arguments\":{\"discard\":true}}\ndocuments\n");
         const auto closed=result.results();
@@ -996,13 +1003,13 @@ int main(int argc,char** argv){
         const auto boolean_script="open commanded-bodies.prtz\nbody.boolean.create subtract "+first_body+" "+tool_body+"\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(boolean_script));
         require(result.exit_code==0 && result.results().size()==3,"CLI could not calculate a Body Boolean");
-        const auto bodies=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
+        const auto bodies=zima::test::load_part_with_properties(project/"commanded-bodies.prtz",&reloaded);
         require(bodies.body_history.booleans().size()==1 && bodies.body_history.booleans().front().target_id==first_body &&
             bodies.body_history.booleans().front().tool_id==tool_body && std::abs(reloaded.back().volume-936)<1e-6,"CLI Boolean saved wrong ownership or volume");
         const auto boolean_id=bodies.body_history.booleans().front().id;
         const auto history_script="open commanded-bodies.prtz\nhistory.delete "+boolean_id+"\nhistory.move "+tool_body+" "+first_body+"\nhistory.list\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(history_script));
-        const auto history_result=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
+        const auto history_result=zima::test::load_part_with_properties(project/"commanded-bodies.prtz",&reloaded);
         require(result.exit_code==0 && result.results().size()==5 && history_result.body_history.booleans().empty() &&
             history_result.body_history.order().front()==tool_body && !reloaded.empty(),"CLI history did not persist deleted Boolean/reordered Bodies");
         const auto dxf_source=project/fs::path(u8"obrys český.dxf");
@@ -1010,7 +1017,7 @@ int main(int argc,char** argv){
         const auto dxf_import=command({{"command","import.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf_source)}}}});
         result=launch(executable,root,common+QStringList{"--command","new part cli-dxf","--command",dxf_import,"--command","save"});
         require(result.exit_code==0 && result.results()[1].at("data").at("imported_entities")==1,"CLI DXF import failed");
-        const auto dxf_native=document::PartDocument::load(project/"cli-dxf.prtz");
+        const auto dxf_native=zima::test::load_part_with_properties(project/"cli-dxf.prtz");
         require(dxf_native.sketches.back().segments.size()==1 && dxf_native.sketches.back().name=="obrys český","CLI DXF lost native geometry or UTF-8 metadata");
         auto owned_dxf_document=document::PartDocument::create_default();auto owned_dxf_profile=sketcher::Sketch::create_default();
         auto owned_dxf_feature=document::PartDocument::create_sweep3d_container();
@@ -1021,7 +1028,7 @@ int main(int argc,char** argv){
         owned_dxf_document.history={owned_dxf_feature};owned_dxf_document.set_body_history(std::move(owned_dxf_history));owned_dxf_document.save(project/"cli-owned-dxf.prtz");
         const auto owned_dxf_import=command({{"command","import.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf_source)},{"sketch",owned_dxf_profile.id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-owned-dxf.prtz","--command",owned_dxf_import,"--command","undo","--command","redo","--command","save"});
-        require(result.exit_code==0&&sketcher::Sketch::from_serialized(document::PartDocument::load(project/"cli-owned-dxf.prtz").history.front().sweep3d.profiles.front().sketch_serialized).segments.size()==1,"CLI embedded DXF import did not persist");
+        require(result.exit_code==0&&sketcher::Sketch::from_serialized(zima::test::load_part_with_properties(project/"cli-owned-dxf.prtz").history.front().sweep3d.profiles.front().sketch_serialized).segments.size()==1,"CLI embedded DXF import did not persist");
         const auto exported_dxf=project/fs::path(u8"exportovaný obrys.dxf");
         const auto dxf_export=command({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(exported_dxf)},{"sketch",dxf_native.sketches.back().id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-dxf.prtz","--command",dxf_export});
@@ -1033,7 +1040,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","new part cli-points","--command","import.dxf only-points.dxf","--command","undo","--command","redo","--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0&&result.results().size()==5&&result.results()[1]["data"]["imported_entities"]==3&&result.results()[1]["data"]["warnings"].empty(),"Standalone CLI POINT import or history failed");
-        const auto points_native=document::PartDocument::load(project/"cli-points.prtz");
+        const auto points_native=zima::test::load_part_with_properties(project/"cli-points.prtz");
         require(points_native.sketches.back().points.size()==3&&points_native.sketches.back().import_blocks.size()==1&&points_native.sketches.back().import_blocks[0].geometry_ids.empty(),"CLI lost point-only native block");
         const auto points_export=command({{"command","export.dxf"},{"arguments",{{"path","only-points-roundtrip.dxf"},{"sketch",points_native.sketches.back().id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-points.prtz","--command",points_export});
@@ -1044,7 +1051,7 @@ int main(int argc,char** argv){
         test::write_unclamped_dxf(project/"unclamped-splines.dxf");
         result=launch(executable,root,common+QStringList{"--command","new part cli-unclamped-splines","--command","import.dxf unclamped-splines.dxf","--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("imported_entities")==4,"Standalone CLI unclamped spline import failed");
-        const auto splines_native=document::PartDocument::load(project/"cli-unclamped-splines.prtz");test::check_unclamped_dxf_sketch(splines_native.sketches.back());
+        const auto splines_native=zima::test::load_part_with_properties(project/"cli-unclamped-splines.prtz");test::check_unclamped_dxf_sketch(splines_native.sketches.back());
         const auto splines_export=command({{"command","export.dxf"},{"arguments",{{"path","unclamped-roundtrip.dxf"},{"sketch",splines_native.sketches.back().id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-unclamped-splines.prtz","--command",splines_export});
         require(result.exit_code==0,"CLI native spline DXF export failed");auto splines_roundtrip=sketcher::Sketch::create_default();static_cast<void>(interchange::import_dxf(project/"unclamped-roundtrip.dxf",splines_roundtrip));test::check_unclamped_dxf_sketch(splines_roundtrip);
@@ -1056,7 +1063,7 @@ int main(int argc,char** argv){
         const auto step_import=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new part cli-step","--command",step_import,"--command","save"});
         require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI STEP import failed or mixed OCCT diagnostics into protocol");
-        std::vector<kernel::BodyResult> step_bodies;const auto step_native=document::PartDocument::load(project/"cli-step.prtz",&step_bodies);
+        std::vector<kernel::BodyResult> step_bodies;const auto step_native=zima::test::load_part_with_properties(project/"cli-step.prtz",&step_bodies);
         require(!step_bodies.empty() && std::abs(step_bodies.back().volume-6000)<1e-5 && step_native.history.back().imported_step.mesh_deflection==2.0,"CLI STEP lost volume or selected precision");
         const auto step_output=project/fs::path(u8"exportovaný kvádr.step"),stl_output=project/fs::path(u8"exportovaný kvádr.stl");
         const auto step_export=command({{"command","export.step"},{"arguments",{{"path",document::path_to_utf8(step_output)}}}});
@@ -1069,11 +1076,11 @@ int main(int argc,char** argv){
         const auto iges_import=command({{"command","import.iges"},{"arguments",{{"path",document::path_to_utf8(iges_source)}}}});
         result=launch(executable,root,common+QStringList{"--command","new part cli-iges","--command",iges_import,"--command","save"});
         require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI IGES import failed");
-        std::vector<kernel::BodyResult> iges_bodies;static_cast<void>(document::PartDocument::load(project/"cli-iges.prtz",&iges_bodies));
+        std::vector<kernel::BodyResult> iges_bodies;static_cast<void>(zima::test::load_part_with_properties(project/"cli-iges.prtz",&iges_bodies));
         require(!iges_bodies.empty() && std::abs(iges_bodies.back().volume-1000)<1e-4,"CLI IGES changed native scale");
         for (const std::string native_name : {"cli-step.prtz", "cli-iges.prtz"}) {
             std::vector<kernel::BodyResult> before_cache;
-            const auto before = document::PartDocument::load(project/native_name, &before_cache);
+            const auto before = zima::test::load_part_with_properties(project/native_name, &before_cache);
             const auto& imported = before.history.back();
             const auto feature_get = command({{"command","import.get"},{"arguments",{{"container",imported.id}}}});
             const auto feature_set = command({{"command","import.set"},{"arguments",{{"container",imported.id},
@@ -1087,7 +1094,7 @@ int main(int argc,char** argv){
             require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==7,
                 "Real CLI imported feature properties or reference assignment failed");
             std::vector<kernel::BodyResult> after_cache;
-            const auto after=document::PartDocument::load(project/native_name,&after_cache);
+            const auto after=zima::test::load_part_with_properties(project/native_name,&after_cache);
             require(after.find_container(imported.id)->imported_step==imported.imported_step&&
                 after.find_container(imported.id)->name=="Upravený import"&&
                 after.find_container(imported.id)->placement.references.front().offset==7&&
@@ -1099,7 +1106,7 @@ int main(int argc,char** argv){
         const auto settings_set=command({{"command","document.settings.set"},{"arguments",{{"units",{{"Length","m"}}},{"precision",{{"mesh_deflection",2},{"decimal_places",6}}}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",metadata_set,"--command",settings_set,"--command","save"});
         require(result.exit_code==0 && result.results().size()==4,"CLI document metadata update failed");
-        std::vector<kernel::BodyResult> metadata_bodies;const auto metadata_part=document::PartDocument::load(project/"cli-step.prtz",&metadata_bodies);
+        std::vector<kernel::BodyResult> metadata_bodies;const auto metadata_part=zima::test::load_part_with_properties(project/"cli-step.prtz",&metadata_bodies);
         require(metadata_part.user_parameter_values.at("NAME").at("cs")=="Český díl" && !metadata_part.user_parameters.contains("NAME") && metadata_part.document_units.at("Length")=="m" && metadata_part.document_precision.at("decimal_places")=="6" && std::abs(metadata_bodies.back().volume-6000)<1e-5,"CLI metadata update changed geometry or lost localization");
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.parameters.get","--command","document.settings.get"});
         require(result.exit_code==0 && result.results()[1].at("data").at("parameters")[1].at("values")==metadata_entries[1].at("values") && result.results()[2].at("data").at("units").at("Length")=="m","CLI metadata readback failed");
@@ -1113,7 +1120,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",engineering_material,"--command",engineering_relations,"--command",engineering_family,"--command","regenerate","--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0 && result.results().size()==6,"CLI engineering metadata update failed");
-        const auto engineering_native=document::PartDocument::load(project/"cli-step.prtz");
+        const auto engineering_native=zima::test::load_part_with_properties(project/"cli-step.prtz");
         const auto stored_family=Json::parse(engineering_native.family_table);
         require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.2" &&
             stored_family.at("bindings").at("Stock").at("owner")==metadata_part.history.front().id &&
@@ -1193,7 +1200,7 @@ int main(int argc,char** argv){
             result.results()[2].at("data").at("active_occurrence")==fixed_path&&
             result.results()[8].at("data").at("active_document")==component_native.document_id&&
             result.results()[8].at("data").at("active_occurrence")=="","CLI activation did not retain exact context while editing its source");
-        require(document::PartDocument::load(project/"cli-step.prtz").document_precision.at("decimal_places")=="5"&&
+        require(zima::test::load_part_with_properties(project/"cli-step.prtz").document_precision.at("decimal_places")=="5"&&
             assembly::AssemblyDocument::load(project/"cli-components.asmz").components[1].name=="Šroub CLI",
             "CLI activation saved metadata to the wrong native document");
         const auto component_clear=command({{"command","component.set"},{"arguments",{{"instance_path",property_path},{"placement_references",Json::array()}}}});
@@ -1218,7 +1225,7 @@ int main(int argc,char** argv){
         require(saved_sheets.sheets.size()==2 && saved_sheets.find_sheet(sheet_id)->name=="Český list" && saved_sheets.find_sheet(sheet_id)->default_scale==.5 && !saved_sheets.find_sheet(sheet_id)->frame_lines.empty(),"CLI sheet or embedded frame did not persist");
         result=launch(executable,root,common+QStringList{"--command","open cli-sheets.drwz","--command","drawing.sheet.list"});
         require(result.exit_code==0 && result.results()[1].at("data").at("items")[1].at("locale")=="en","CLI drawing sheet readback failed");
-        std::vector<kernel::BodyResult> drawing_source_cache;auto drawing_source=document::PartDocument::load(project/"cli-step.prtz",&drawing_source_cache);
+        std::vector<kernel::BodyResult> drawing_source_cache;auto drawing_source=zima::test::load_part_with_properties(project/"cli-step.prtz",&drawing_source_cache);
         // Show/Erase needs authored annotation geometry; document Origins are
         // intentionally excluded from Drawing annotations.
         auto annotation_owner=document::PartDocument::create_sketch_container();
@@ -1268,7 +1275,7 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results().size()==8&&
             std::ranges::any_of(result.results()[1]["data"]["items"],[&](const auto& row){return row.at("component")==hatch_component;})&&
             result.results()[2]["data"]["source_changed"]==true,"Standalone CLI hatch query/edit or history failed");
-        require(document::PartDocument::load(project/"cli-hatch.prtz").sections.front().components.at(hatch_component).hatch.spacing_mm==3.125&&drawing::DrawingDocument::load(project/"cli-hatch.drwz").find_view(hatch_view.id)->hidden_hatch_components.contains(hatch_component),"Standalone hatch persistence lost source style or view visibility");
+        require(zima::test::load_part_with_properties(project/"cli-hatch.prtz").sections.front().components.at(hatch_component).hatch.spacing_mm==3.125&&drawing::DrawingDocument::load(project/"cli-hatch.drwz").find_view(hatch_view.id)->hidden_hatch_components.contains(hatch_component),"Standalone hatch persistence lost source style or view visibility");
         auto measured_doc=drawing::DrawingDocument::create_default();auto measured_view=native_view;
         const auto measured_curves=drawing::projected_measurement_curves(measured_view);
         const auto measured_curve=std::ranges::find_if(measured_curves,[](const auto& c){return c.line&&c.points.size()>1&&std::hypot(c.points.back().x-c.points.front().x,c.points.back().y-c.points.front().y)>1e-6;});
@@ -1308,7 +1315,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-title.drwz","--command",get_title,"--command",set_title,"--command","save","--command",save_source,"--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0&&result.results()[2].at("data").at("source_changed")==true,"Standalone CLI title write failed");
-        require(document::PartDocument::load(project/"cli-step.prtz").user_parameters.at("name")=="CLI český název"&&drawing::DrawingDocument::load(project/"cli-title.drwz").sheets.front().local_parameters.at("note")=="Poznámka","CLI title/source explicit save did not persist UTF-8 parameters");
+        require(zima::test::load_part_with_properties(project/"cli-step.prtz").user_parameters.at("name")=="CLI český název"&&drawing::DrawingDocument::load(project/"cli-title.drwz").sheets.front().local_parameters.at("note")=="Poznámka","CLI title/source explicit save did not persist UTF-8 parameters");
         const auto pdf_path=project/fs::path(u8"výkres CLI.pdf");
         const auto pdf_command=command({{"command","export.pdf"},{"arguments",{{"path",document::path_to_utf8(pdf_path)}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",pdf_command});
@@ -1338,7 +1345,7 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results().size()==4,"CLI Assembly IGES/DXF import failed");
         assembly_imported=assembly::AssemblyDocument::load(project/"cli-import-owner.asmz");
         require(assembly_imported.components.size()==3 && std::abs(assembly_imported.components[1].calculated_source->volume-1000)<1e-4,"CLI Assembly import did not persist independent components");
-        const auto imported_profile=document::PartDocument::load(assembly_imported.components[2].source_path);
+        const auto imported_profile=zima::test::load_part_with_properties(assembly_imported.components[2].source_path);
         require(imported_profile.sketches.back().segments.size()==1,"CLI Assembly DXF lost its source sketch");
         result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-sketch\nsketch.create Spline XY\nsave\n");
         require(result.exit_code==0 && result.results().size()==3,"CLI could not create an owned Sketch");
@@ -1346,21 +1353,21 @@ int main(int argc,char** argv){
         const auto spline_request=command({{"command","sketch.bspline.create"},{"arguments",{{"sketch",sketch_id},{"points",{{0,0},{3,8},{7,-3},{10,0}}},{"degree",3}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",spline_request,"--command","save"});
         require(result.exit_code==0,"CLI failed to persist B-spline");
-        const auto sketch_document=document::PartDocument::load(project/"cli-sketch.prtz");
+        const auto sketch_document=zima::test::load_part_with_properties(project/"cli-sketch.prtz");
         require(sketch_document.sketches.back().id==sketch_id && sketch_document.sketches.back().bsplines.size()==1 &&
             sketch_document.sketches.back().bsplines.front().degree==3,"CLI B-spline lost exact degree or owning Sketch");
         const auto spline_id=sketch_document.sketches.back().bsplines.front().id;
         const auto spline_patch=command({{"command","sketch.bspline.set"},{"arguments",{{"sketch",sketch_id},{"geometry",spline_id},{"points",{{0,0},{3,10},{7,2},{10,0}}}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",spline_patch,"--command","save"});
         require(result.exit_code==0,"CLI spline property edit failed");
-        const auto spline_edited=document::PartDocument::load(project/"cli-sketch.prtz");
+        const auto spline_edited=zima::test::load_part_with_properties(project/"cli-sketch.prtz");
         const auto& edited_curve=spline_edited.sketches.back().bsplines.front();
         require(edited_curve.id==spline_id && edited_curve.control_point_ids==sketch_document.sketches.back().bsplines.front().control_point_ids &&
             spline_edited.sketches.back().find_point(edited_curve.control_point_ids[1])->y==10,"CLI spline edit changed IDs or lost pole coordinates");
         const auto offset_request=command({{"command","sketch.offset.create"},{"arguments",{{"sketch",sketch_id},{"source",spline_id},{"distance_mm",.1}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",offset_request,"--command","save"});
         require(result.exit_code==0,"CLI failed to calculate/persist a native spline offset");
-        const auto offset_document=document::PartDocument::load(project/"cli-sketch.prtz");
+        const auto offset_document=zima::test::load_part_with_properties(project/"cli-sketch.prtz");
         require(offset_document.sketches.back().offsets.size()==1 && offset_document.sketches.back().offsets.front().source_id==spline_id &&
             std::abs(offset_document.sketches.back().offsets.front().distance-.1)<1e-12,"CLI offset lost source identity or distance");
         result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-relations\nsketch.create Relations XY\nsave\n");
@@ -1370,32 +1377,32 @@ int main(int argc,char** argv){
         require(result.exit_code==0,"CLI relation fixture segment failed");const auto relation_line=result.results()[1].at("data").at("geometry").get<std::string>();
         const auto relation_request=command({{"command","sketch.constraint.create"},{"arguments",{{"sketch",relation_sketch},{"kind","horizontal"},{"geometry",{relation_line}}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-relations.prtz","--command",relation_request,"--command","save"});
-        require(result.exit_code==0,"CLI relation command failed");const auto relations=document::PartDocument::load(project/"cli-relations.prtz");const auto& rs=relations.sketches.back();
+        require(result.exit_code==0,"CLI relation command failed");const auto relations=zima::test::load_part_with_properties(project/"cli-relations.prtz");const auto& rs=relations.sketches.back();
         require(rs.constraints.size()==1 && rs.constraints.front().kind==sketcher::ConstraintKind::Horizontal &&
             std::abs(rs.find_point(rs.segments[0].first_point_id)->y-rs.find_point(rs.segments[0].second_point_id)->y)<1e-7,"CLI did not save the solved horizontal relation");
         const auto dimension_request=command({{"command","sketch.dimension.create"},{"arguments",{{"sketch",relation_sketch},{"kind","distance"},{"geometry",{relation_line}},{"value",25},{"locked",true},{"layout",{{"text_along",2}}}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-relations.prtz","--command",dimension_request,"--command","save"});
-        require(result.exit_code==0,"CLI dimension command failed");const auto dimension_document=document::PartDocument::load(project/"cli-relations.prtz");const auto& ds=dimension_document.sketches.back();
+        require(result.exit_code==0,"CLI dimension command failed");const auto dimension_document=zima::test::load_part_with_properties(project/"cli-relations.prtz");const auto& ds=dimension_document.sketches.back();
         require(ds.dimensions.size()==1 && ds.dimensions.front().locked && std::abs(ds.dimensions.front().value-25)<1e-7 &&
             std::abs(std::hypot(ds.find_point(ds.segments[0].first_point_id)->x-ds.find_point(ds.segments[0].second_point_id)->x,
                                ds.find_point(ds.segments[0].first_point_id)->y-ds.find_point(ds.segments[0].second_point_id)->y)-25)<1e-6 &&
             dimension_document.dimension_layouts.back().layout.text_along==2,"CLI dimension did not persist solved length, lock and label together");
         result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-projection\n@fixture.rectangular 10 10 10\nsketch.create Projection XY\nsave\n");
         require(result.exit_code==0,"CLI projection fixture failed");const auto projection_sketch=result.results()[2].at("data").at("sketch").get<std::string>();
-        std::vector<kernel::BodyResult> projection_cache;const auto projection_document=document::PartDocument::load(project/"cli-projection.prtz",&projection_cache);
-        const auto& projection_edges=projection_cache.back().mesh.original_references.edges;
-        const auto projection_edge=std::ranges::find_if(projection_edges,[](const auto& e){return e.points.size()>=2 && std::hypot(e.points.front().x-e.points.back().x,e.points.front().y-e.points.back().y)>1;});
+        std::vector<kernel::BodyResult> projection_cache;const auto projection_document=zima::test::load_part_with_properties(project/"cli-projection.prtz",&projection_cache);
+        const auto& projection_edges=projection_cache.back().mesh.edges;
+        const auto projection_edge=std::ranges::find_if(projection_edges,[](const auto& e){return e.reference.valid()&&e.points.size()>=2 && std::hypot(e.points.front().x-e.points.back().x,e.points.front().y-e.points.back().y)>1;});
         require(projection_edge!=projection_edges.end(),"CLI fixture has no projectable original edge");
         const auto projection_request=command({{"command","sketch.reference.create"},{"arguments",{{"sketch",projection_sketch},{"kind","edge"},{"owner",projection_edge->reference.owner_id},{"key",projection_edge->reference.semantic_key},{"profile",true}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",projection_request,"--command","save"});
         require(result.exit_code==0,"CLI projection command failed");const auto projection_id=result.results()[1].at("data").at("reference").get<std::string>();
-        const auto projected=document::PartDocument::load(project/"cli-projection.prtz");
+        const auto projected=zima::test::load_part_with_properties(project/"cli-projection.prtz");
         const auto& projection=projected.sketches.back();
         require(projection.external_references.size()==3 && projection.segments.size()==1 &&
             std::ranges::count_if(projection.external_references,[](const auto& reference){return sketcher::is_external_endpoint_kind(reference.kind);})==2,
             "CLI projection did not persist edge, endpoint references and native line");
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",QString::fromStdString("sketch.reference.delete "+projection_sketch+" "+projection_id),"--command","save"});
-        require(result.exit_code==0,"CLI reference detach failed");const auto detached=document::PartDocument::load(project/"cli-projection.prtz");
+        require(result.exit_code==0,"CLI reference detach failed");const auto detached=zima::test::load_part_with_properties(project/"cli-projection.prtz");
         require(detached.sketches.back().external_references.empty() && detached.sketches.back().segments==projected.sketches.back().segments,"CLI detach destroyed native projection");
         {
             test_support::ContextReferenceFixture context(kernel,project);
@@ -1411,7 +1418,7 @@ int main(int argc,char** argv){
             require(result.exit_code==0,"CLI contextual reference refresh failed");
             const auto records=result.results();require(records.size()==4&&records[2].at("data").at("changed").get<bool>()&&
                 !records[2].at("data").at("body_calculated").get<bool>()&&records[2].at("data").at("broken_references").empty(),"CLI contextual refresh did not report its exact noncalculating transaction");
-            const auto saved=document::PartDocument::load(project/"context-target.prtz");const auto& sketch=saved.sketches.front();
+            const auto saved=zima::test::load_part_with_properties(project/"context-target.prtz");const auto& sketch=saved.sketches.front();
             const auto p=kernel::bspline_value(sketch.supporting_curve(context.curve_id),0);
             require(sketch.external_references.size()==4&&std::abs(p.x-8)<1e-8&&std::abs(p.y-18.02)<1e-8&&
                 sketch.external_references.front().context_instance_path==context.target_path.encoded(),"CLI contextual refresh lost exact poles or native occurrence identity");
@@ -1429,7 +1436,7 @@ int main(int argc,char** argv){
             result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_owner,"--command",rename_context,
                 "--command",activate_context,"--command",create_context,"--command","save","--command",activate_owner,"--command","undo","--command","save"});
             require(result.exit_code==0,"CLI context creation, Assembly Undo and owner save failed");
-            const auto created=result.results()[4].at("data");const auto projected_context=document::PartDocument::load(project/"context-target.prtz");
+            const auto created=result.results()[4].at("data");const auto projected_context=zima::test::load_part_with_properties(project/"context-target.prtz");
             require(projected_context.sketches.front().external_references.size()==1&&
                 assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.size()==1&&
                 assembly::AssemblyDocument::load(project/"context-inner.asmz").components.front().name==context.inner.components.front().name,
@@ -1438,7 +1445,7 @@ int main(int argc,char** argv){
             result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_owner,"--command",rename_context,
                 "--command",activate_context,"--command",detach_context,"--command","save","--command",activate_owner,"--command","undo","--command","save"});
             require(result.exit_code==0,"CLI context detach and owner save failed");
-            const auto detached_context=document::PartDocument::load(project/"context-target.prtz");
+            const auto detached_context=zima::test::load_part_with_properties(project/"context-target.prtz");
             require(detached_context.sketches.front().external_references.empty()&&
                 assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.empty(),"CLI detach left a native dependency");
             for(unsigned sample=0;sample<=256;++sample) {
@@ -1449,12 +1456,12 @@ int main(int argc,char** argv){
                 context.source_path.occurrence_ids.back(),assembly::ComponentDependencyKind::ExternalSketchReference));
             test_support::install_owned_helical_reference(context,kernel);
             std::vector<kernel::BodyResult> before_owned;
-            static_cast<void>(document::PartDocument::load(project/"context-target.prtz",&before_owned));
+            static_cast<void>(zima::test::load_part_with_properties(project/"context-target.prtz",&before_owned));
             result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,
                 "--command","component.deactivate","--command","regenerate","--command",activate_context,"--command","save"});
             require(result.exit_code==0,"CLI Assembly regeneration failed for an owned Helical reference");
             std::vector<kernel::BodyResult> after_owned;
-            const auto owned=document::PartDocument::load(project/"context-target.prtz",&after_owned);
+            const auto owned=zima::test::load_part_with_properties(project/"context-target.prtz",&after_owned);
             require(owned.sketches.empty() && owned.history.front().feature_kind==document::FeatureKind::HelicalSweep,
                 "Owned regeneration fixture unexpectedly has a root Sketch");
             const auto base=sketcher::Sketch::from_serialized(owned.history.front().helical.sketches[0]);
@@ -1468,7 +1475,7 @@ int main(int argc,char** argv){
         }
         const auto text_request=command({{"command","sketch.text.create"},{"arguments",{{"sketch",projection_sketch},{"value","Řez Ø10"},{"position",{20,30}},{"height_mm",3},{"modeling_geometry",false}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",text_request,"--command","save"});
-        require(result.exit_code==0,"Qt-free CLI text generation failed");const auto text_document=document::PartDocument::load(project/"cli-projection.prtz");
+        require(result.exit_code==0,"Qt-free CLI text generation failed");const auto text_document=zima::test::load_part_with_properties(project/"cli-projection.prtz");
         require(text_document.sketches.back().texts.size()==1 && text_document.sketches.back().texts.front().value=="Řez Ø10" && !text_document.sketches.back().texts.front().contours.empty() && !text_document.sketches.back().texts.front().modeling_geometry,"CLI text lost Unicode, glyph outlines or annotation mode");
         const auto curve_create=command({{"command","construction.create"},{"arguments",{{"kind","curve3d"},{"name","Spline CLI"},
             {"curve_type","interpolating_spline"},{"points",Json::array({Json{{"values",{{"x",0},{"y",0}}},{"tangent","+y"}},
@@ -1487,7 +1494,7 @@ int main(int argc,char** argv){
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+curve_file),"--command",curve_update,
                 "--command","undo","--command","redo","--command","save"});
             require(result.exit_code==0,"Standalone CLI curve point edit/Undo/Redo failed");
-            const auto curves=std::string(type)=="part"?document::PartDocument::load(project/curve_file).constructions
+            const auto curves=std::string(type)=="part"?zima::test::load_part_with_properties(project/curve_file).constructions
                 :assembly::AssemblyDocument::load(project/curve_file).constructions;
             const auto& curve=curves.back();
             require(curve.id==curve_id && curve.curve_points[1].id==children[1].get<std::string>() && curve.curve_points[1].curve_radius==2 &&
@@ -1512,40 +1519,45 @@ int main(int argc,char** argv){
             const auto axis=result.results()[2].at("data").at("geometry");
             const auto centerline=command({{"command","sketch.segment.centerline"},{"arguments",{{"sketch",sketch},{"segment",axis},{"centerline",true}}}});
             Json args={{"sketch",sketch},{"name","Profil žluťoučký"}};
-            if(kind=="extrusion")args["length_forward_mm"]=5;else args["axis"]=axis;
+            args["parameters"]=zima::test::feature_profile_parameters(kind=="extrusion"?5:360,false,kind=="extrusion"?std::string{}:axis.get<std::string>());
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",centerline,
-                "--command",command({{"command",kind+".create"},{"arguments",args}}),"--command","save"});
+                "--command",command({{"command","feature.create"},{"arguments",args}}),"--command","save"});
             require(result.exit_code==0,"CLI profile creation failed");
             const auto id=result.results()[2].at("data").at("container").get<std::string>();
-            Json patch={{"container",id},{kind=="extrusion"?"length_forward_mm":"angle_degrees",kind=="extrusion"?8:90}};
+            auto parameters=args.at("parameters");parameters["sides"][0][kind=="extrusion"?"length":"angle_degrees"]=kind=="extrusion"?8:90;
+            Json patch={{"container",id},{"parameters",parameters}};
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
-                "--command",command({{"command",kind+".set"},{"arguments",patch}}),"--command","undo","--command","redo",
-                "--command","save","--command",command({{"command",kind+".get"},{"arguments",{{"container",id}}}})});
+                "--command",command({{"command","feature.set"},{"arguments",patch}}),"--command","undo","--command","redo",
+                "--command","save","--command",command({{"command","feature.get"},{"arguments",{{"container",id}}}})});
             require(result.exit_code==0 && result.results()[5].at("data").at("sketch")==sketch,"CLI profile set/get/Undo/Redo failed");
-            std::vector<kernel::BodyResult> cache;const auto native=document::PartDocument::load(project/file,&cache);
+            std::vector<kernel::BodyResult> cache;const auto native=zima::test::load_part_with_properties(project/file,&cache);
             require(native.history.front().id==id && native.history.front().name=="Profil žluťoučký" &&
                 std::abs(cache.back().volume-(kind=="extrusion"?160:30*std::acos(-1.0)))<1e-6,"CLI profile persistence lost its solid or identity");
-            const auto thin=command({{"command",kind+".set"},{"arguments",{{"container",id},{"result_type","thin"},{"thin_thickness_mm",.25},{"thin_mode","symmetric"}}}});
+            const auto thin=command({{"command","feature.set"},{"arguments",{{"container",id},{"parameters",{{"result_type","thin"},{"thin_thickness",.25},{"thin_mode","symmetric"}}}}}});
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",thin,
                 "--command","undo","--command","redo","--command","save"});
             require(result.exit_code==0,"CLI Thin profile set/Undo/Redo failed");
-            cache.clear();const auto thin_document=document::PartDocument::load(project/file,&cache);
+            cache.clear();const auto thin_document=zima::test::load_part_with_properties(project/file,&cache);
             require(thin_document.history.front().id==id && std::abs(cache.back().volume-(kind=="extrusion"?48:9*std::acos(-1.0)))<1e-6,
                 "CLI Thin profile did not persist the calculated wall");
             if(kind=="extrusion") {
                 const auto upper=setup[1].at("data").at("entity"),lower=setup[2].at("data").at("entity");
-                const auto targets=command({{"command","extrusion.set"},{"arguments",{{"container",id},{"result_type","solid"},{"extent","two_sides"},
-                    {"end_forward","up_to"},{"end_reverse","up_to"},{"targets_forward",Json::array({{{"owner",upper},{"key","plane"},{"label","Horní rovina žluťoučká"}}})},
-                    {"targets_reverse",Json::array({{{"owner",lower},{"key","plane"}}})}}}});
+                document::FeatureParameters bounded_parameters;bounded_parameters.sides[0].extrusion_extent=document::EndCondition::UpTo;
+                bounded_parameters.sides[1].operation=document::FeatureSideOperation::Extrusion;bounded_parameters.sides[1].extrusion_extent=document::EndCondition::UpTo;
+                document::ExtrusionParameters::EndTarget upper_target;upper_target.kind=document::EndTargetKind::Plane;upper_target.reference={upper.get<std::string>(),"plane",{}};upper_target.label="Horní rovina žluťoučká";
+                auto lower_target=upper_target;lower_target.reference.owner_id=lower.get<std::string>();lower_target.label.clear();
+                bounded_parameters.sides[0].targets={upper_target};bounded_parameters.sides[1].targets={lower_target};
+                auto bounded_values=document::serialize_feature_parameters(bounded_parameters);bounded_values.erase("sketch_id");
+                const auto targets=command({{"command","feature.set"},{"arguments",{{"container",id},{"parameters",bounded_values}}}});
                 result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",targets,
                     "--command","undo","--command","redo","--command","save"});
                 require(result.exit_code==0,"CLI target references failed");cache.clear();
-                const auto bounded=document::PartDocument::load(project/file,&cache);
-                require(std::abs(cache.back().volume-200)<1e-6 && bounded.history.front().extrusion.end_targets_forward.front().label=="Horní rovina žluťoučká",
+                const auto bounded=zima::test::load_part_with_properties(project/file,&cache);
+                require(std::abs(cache.back().volume-200)<1e-6 && bounded.history.front().feature.sides[0].targets.front().label=="Horní rovina žluťoučká",
                     "CLI target reference roundtrip lost geometry or Unicode metadata");
                 result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",
-                    command({{"command","extrusion.set"},{"arguments",{{"container",id},{"extent","symmetric"}}}}),"--command","save"});
-                require(result.exit_code==0,"CLI symmetric target failed");cache.clear();static_cast<void>(document::PartDocument::load(project/file,&cache));
+                    command({{"command","feature.set"},{"arguments",{{"container",id},{"parameters",{{"symmetric",true}}}}}}),"--command","save"});
+                require(result.exit_code==0,"CLI symmetric target failed");cache.clear();static_cast<void>(zima::test::load_part_with_properties(project/file,&cache));
                 require(std::abs(cache.back().volume-280)<1e-6,"CLI symmetric target produced an asymmetric solid");
             }
         }
@@ -1569,7 +1581,7 @@ int main(int argc,char** argv){
                 "--command",command({{"command",prefix+".set"},{"arguments",patch}}),"--command","undo","--command","redo","--command","save","--command",get});
             require(result.exit_code==0&&result.results().size()==7,"Standalone CLI Sweep get/set or Undo/Redo failed");
             require(result.results().back().at("data").at("name")=="Tažení žluťoučké","Sweep CLI lost UTF-8 name");
-            std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(project/file,&cache);
+            std::vector<kernel::BodyResult> cache;const auto reopened=zima::test::load_part_with_properties(project/file,&cache);
             require(reopened.history.front().id==feature.id&&reopened.history.front().name=="Tažení žluťoučké"&&!cache.empty(),"Sweep CLI lost native ownership or body cache");
             const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):(kind==document::FeatureKind::Sweep3D?60:40)*pi;
             require(std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),"Standalone CLI Sweep saved incorrect volume");
@@ -1580,7 +1592,7 @@ int main(int argc,char** argv){
                 "--command",reference,"--command","undo","--command","redo","--command","save","--command",placement});
             require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==3,
                 "Standalone Sweep reference or Undo/Redo failed");
-            cache.clear();const auto referenced=document::PartDocument::load(project/file,&cache);
+            cache.clear();const auto referenced=zima::test::load_part_with_properties(project/file,&cache);
             require(referenced.history.front().id==feature.id&&referenced.history.front().placement.references.front().owner_id==native.document_id+":origin"&&
                 referenced.history.front().placement.x==3&&!cache.empty()&&
                 std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),
@@ -1593,7 +1605,7 @@ int main(int argc,char** argv){
                     "--command",assign,"--command","undo","--command","redo","--command","save"});
                 require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==true,
                     "Standalone CLI owned Sweep Point reference failed");
-                cache.clear();const auto point_saved=document::PartDocument::load(project/file,&cache);
+                cache.clear();const auto point_saved=zima::test::load_part_with_properties(project/file,&cache);
                 const auto& last=point_saved.history.front().sweep3d.path.curve_points.back();
                 require(last.id==point&&last.references.front().owner_id==native.document_id+":origin"&&
                     std::abs(last.origin.z-35)<1e-7&&!cache.empty()&&std::abs(cache.back().volume-70*pi)<1e-5,
@@ -1618,7 +1630,7 @@ int main(int argc,char** argv){
             require(result.exit_code==0&&result.results().size()==6,"Standalone Sweep creation failed");
             const auto id=result.results()[1].at("data").at("container");
             require(result.results().back().at("data").at(planar?"owner":"owning_feature")==id,"Standalone creation lost path ownership");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/file,&cache);
             const auto& profiles=planar?saved.history.front().sweep2d.profiles:saved.history.front().sweep3d.profiles;
             require(saved.history.size()==1&&saved.sketches.empty()&&saved.constructions.empty()&&
                 profiles.front().sketch_id==sketch&&!cache.empty()&&
@@ -1646,7 +1658,7 @@ int main(int argc,char** argv){
                 "--command",set,"--command","save","--command",get});
             require(result.exit_code==0&&result.results().size()==4&&result.results().back().at("data").at("base_offset_mm")==7,
                 "Standalone Helical offset edit failed");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/file,&cache);
             const double pi=std::acos(-1.0),expected=pi*.25*std::hypot(2*pi*10,10);
             require(saved.sketches.empty()&&saved.history.size()==1&&!cache.empty()&&std::abs(cache.back().volume-expected)<expected*.001,
                 "Standalone Helical creation duplicated inputs or saved incorrect geometry");
@@ -1674,7 +1686,7 @@ int main(int argc,char** argv){
                 command({{"command",prefix+".get"},{"arguments",{{"container",feature.id}}}})});
             require(result.exit_code==0&&result.results().size()==6,"Standalone profile adoption failed");
             require(result.results().back().at("data").at("profiles")[1].at("sketch")==sketch.id,"Standalone profile adoption lost Sketch ID");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            std::vector<kernel::BodyResult> cache;const auto saved=zima::test::load_part_with_properties(project/file,&cache);
             require(saved.history.size()==1&&saved.sketches.empty()&&!cache.empty()&&std::abs(cache.back().volume-380*std::acos(-1.0)/3)<1e-4,
                 "Standalone profile adoption duplicated inputs or saved incorrect frustum volume");
             if(planar) {
@@ -1682,7 +1694,7 @@ int main(int argc,char** argv){
                     {"path_plane",{{"owner",feature.container_origin.id},{"key","origin:plane:xy"},{"offset_mm",7}}}}}});
                 result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",set_plane,"--command","save"});
                 require(result.exit_code==0&&result.results().size()==3,"Standalone path plane assignment failed");
-                cache.clear();const auto with_plane=document::PartDocument::load(project/file,&cache);
+                cache.clear();const auto with_plane=zima::test::load_part_with_properties(project/file,&cache);
                 const auto path_sketch=sketcher::Sketch::from_serialized(with_plane.history.front().sweep2d.path_sketch);
                 require(with_plane.history.front().sweep2d.path_plane->owner_id==feature.container_origin.id&&
                     std::abs(path_sketch.resolved_origin.z-7)<1e-8&&!cache.empty()&&std::abs(cache.back().volume-380*std::acos(-1.0)/3)<1e-4,

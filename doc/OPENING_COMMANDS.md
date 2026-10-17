@@ -20,7 +20,7 @@ Create a centered 40 x 40 mm Sketch and extrude 20 mm on each side. Replace
 ```json
 {"command":"sketch.create","arguments":{"name":"Block profile","plane":"XY"}}
 {"command":"sketch.rectangle.create","arguments":{"sketch":"SKETCH-ID","first":[-20,-20],"second":[20,20]}}
-{"command":"extrusion.create","arguments":{"sketch":"SKETCH-ID","extent":"symmetric","length_forward_mm":20}}
+{"command":"feature.create","arguments":{"sketch":"SKETCH-ID","parameters":{"symmetric":true,"sides":[{"operation":"extrusion","length":20,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]},{"operation":"none","length":20,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]}]}}}
 {"command":"opening.create","arguments":{"type":"metric","designation":"M10","bore_length_mm":20,"thread_length_mm":10,"chamfer_enabled":false,"drill_point_enabled":false,"placement":{"z":-20}}}
 ```
 

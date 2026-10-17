@@ -33,6 +33,10 @@ thead th { background:var(--head); font-weight:600; }
 tbody th { font-weight:500; }
 tbody tr:nth-child(even) { background:var(--stripe); }
 .table-scroll table tbody tr.preferred-row > * { background:color-mix(in srgb,var(--paper) 86%,var(--link)); font-weight:600; }
+/* Opaque cell backgrounds also cover sticky first-column and preferred cells. */
+@media screen {
+  .table-scroll table tbody tr.reference-selected-row > * { background:#00d1ff; color:#10232c; }
+}
 .row-legend { margin:0 0 8px; color:var(--muted); }
 .reference-profile { margin:0 0 12px; }
 .reference-profile summary { cursor:pointer; color:var(--link); }
@@ -40,6 +44,7 @@ tbody tr:nth-child(even) { background:var(--stripe); }
 .reference-diagram { display:block; width:220px; height:130px; margin:0 0 10px; }
 .reference-figure { margin:8px 0 14px; text-align:left; font-size:13px; }
 .reference-figure img { display:block; max-width:min(100%,720px); max-height:25vh; width:auto; height:auto; margin:0 0 6px; background:white; object-fit:contain; object-position:left; }
+.reference-figure--wide img { max-width:100%; }
 sup { font-size:.74em; line-height:0; }
 sub { font-size:.74em; line-height:0; }
 .review-status { padding:8px 10px; border:2px solid var(--line); background:var(--head); font-size:13px; margin:0 0 12px; }

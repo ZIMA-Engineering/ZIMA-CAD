@@ -114,7 +114,7 @@ document::HistoryContainer prepare_assembly_profile_reference(Workspace& live,co
     const auto* cut=state->session.document().find_cut(container);
     if(!cut)reject("container_not_found","The requested container does not exist.");
     const auto& value=cut->definition;
-    const auto& sketch=value.feature_kind==document::FeatureKind::Extrusion
+    const auto& sketch=value.feature_kind==document::FeatureKind::Feature?value.feature.sketch_id:value.feature_kind==document::FeatureKind::Extrusion
         ? value.extrusion.sketch_id:value.revolution.sketch_id;
     if(source.instance_path.empty()&&(source.owner_id==value.id||source.owner_id==value.feature_id||
         source.owner_id==value.container_origin.id||source.owner_id==sketch))

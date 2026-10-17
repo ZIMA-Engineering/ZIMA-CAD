@@ -151,20 +151,6 @@ Point2 projected(const zima::kernel::Vec3& point, ViewOrientation orientation) {
     return projected_with_depth(point, standard_camera(orientation)).paper;
 }
 
-bool point_in_triangle(Point2 point, Point2 a, Point2 b, Point2 c,
-                       double* wa, double* wb, double* wc) {
-    const double denominator = (b.y - c.y) * (a.x - c.x) +
-                               (c.x - b.x) * (a.y - c.y);
-    if (std::abs(denominator) < 1e-12) return false;
-    *wa = ((b.y - c.y) * (point.x - c.x) +
-           (c.x - b.x) * (point.y - c.y)) / denominator;
-    *wb = ((c.y - a.y) * (point.x - c.x) +
-           (a.x - c.x) * (point.y - c.y)) / denominator;
-    *wc = 1.0 - *wa - *wb;
-    constexpr double tolerance = 1e-8;
-    return *wa >= -tolerance && *wb >= -tolerance && *wc >= -tolerance;
-}
-
 void require_finite(double value, const char* field) {
     if (!std::isfinite(value)) throw std::runtime_error(std::string(field) + " must be finite");
 }

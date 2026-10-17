@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
@@ -91,15 +92,19 @@ void verify(kernel::OcctKernel& kernel,fs::path directory,const std::string& kin
     workspace::Workspace live;const auto file=directory/(kind+".prtz");live.add_part(doc,std::move(calculated),file);live.activate(id);
     command_host::Host host(live,kernel,directory);
     const auto current=[&]{return workspace::document_sketch(live,id,sketch.id);};
-    const auto reference=[&](const char* plane) {run(host,"sketch.reference.set",{{"sketch",sketch.id},{"index",0},{"reference",{{"owner",id+":origin"},{"key",plane}}}});};
+    const auto reference=[&](const char* plane) {
+        if(live.open_part(id)->session.document().find_container(container.id)->feature_kind==document::FeatureKind::Feature)
+            run(host,"placement.reference.set",{{"object",container.id},{"index",0},{"reference",{{"owner",id+":origin"},{"key",plane}}}});
+        else run(host,"sketch.reference.set",{{"sketch",sketch.id},{"index",0},{"reference",{{"owner",id+":origin"},{"key",plane}}}});
+    };
     reference("origin:plane:xy");
     check(current().plane_auto,"New Sketch should follow first plane");near(std::abs(current().resolved_normal.z),1);
     if(kind=="holes")run(host,"holes.create",{{"sketch",sketch.id},{"diameter_mm",4}});
-    if(kind=="extrusion")run(host,"extrusion.create",{{"sketch",sketch.id},{"length_forward_mm",5}});
-    if(kind=="revolution")run(host,"revolution.create",{{"sketch",sketch.id},{"angle_degrees",360},{"axis",axis}});
+    if(kind=="extrusion")run(host,"feature.create",{{"sketch",sketch.id},{"parameters",zima::test::feature_profile_parameters(5)}});
+    if(kind=="revolution")run(host,"feature.create",{{"sketch",sketch.id},{"parameters",zima::test::feature_profile_parameters(360,false,axis)}});
     const bool profile=kind=="extrusion"||kind=="revolution";
     const auto set=[&](const char* plane) {
-        if(profile)run(host,kind+".set",{{"container",container.id},{"profile_plane",plane},{"profile_offset_mm",3}});
+        if(profile)run(host,"feature.set",{{"container",container.id},{"profile_plane",plane},{"parameters",{{"profile_plane_offset",3}}}});
         else run(host,"sketch.set",{{"sketch",sketch.id},{"plane",plane},{"plane_offset_mm",3}});
     };
     const auto automatic=current();set("XY");const auto manual=current();

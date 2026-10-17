@@ -344,9 +344,8 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
             ? tr("Symbol nelze načíst. Zkontrolujte jeho definici.") : QString::fromUtf8(error.what()));
         return false;
     }
-    if (!opened_path.parent_path().empty()) {
-        change_working_directory(opened_path.parent_path());
-    }
+    // Shell startup chooses its directory before constructing the window.
+    // Opening another document in this session must keep that working root.
     update_status_operation(tr("Připravuji strom a View…"));
     finish_document_switch(true);
     finish_status_operation(tr("Otevřeno: %1").arg(

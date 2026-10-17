@@ -1,3 +1,48 @@
+int verify_locking_hole_ui(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        const auto source=std::filesystem::path(qEnvironmentVariable("ZIMA_BOLT_SOURCE").toStdString());
+        const auto path=directory/"locking-hole-default-regression.prtz";
+        std::filesystem::copy_file(source,path,std::filesystem::copy_options::overwrite_existing);
+        const auto initial=document::PartDocument::load(path);const auto hole=initial.history.back();
+        check(hole.feature_kind==document::FeatureKind::Feature&&hole.combine_mode==document::CombineMode::Subtract,"Factory hole is not a current Default");
+        check(window.open_document_path(QString::fromStdString(path.string())),"Locking-hole Part did not open");window.resize(1200,900);window.show();flush();
+        const auto call=[&](const char* name,commands::Json args=commands::Json::object()){
+            auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",name},{"arguments",std::move(args)}}.dump()));
+            if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);flush();return result.data;
+        };
+        const auto get=[&]{return call("feature.get",{{"container",hole.id}});};
+        const auto edit=[&]{
+            QTreeWidgetItem* row{};for(QTreeWidgetItemIterator i(window.findChild<QTreeWidget*>("documentTree"));*i;++i)
+                if((*i)->data(0,Qt::UserRole).toString().toStdString()==hole.id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+            check(row,"Locking-hole Tree row missing");window.show_tree_item_properties(row);flush();
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QComboBox*>("featureSideMode0"))return dialog;
+            throw std::runtime_error("Locking hole opened an obsolete Properties dialog");
+        };
+        const auto before=get();auto* dialog=edit();
+        for(int side=0;side<2;++side){
+            check(dialog->findChild<QComboBox*>(QString("featureSideMode%1").arg(side))->currentIndex()==1,"Locking-hole side is not extrusion");
+            check(dialog->findChild<QComboBox*>(QString("featureSideEnd%1").arg(side))->currentIndex()==2,"Locking-hole side is not Through All");
+        }
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(get()==before,"Locking-hole Cancel changed the document");
+        dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(get()==before,"Unchanged locking-hole OK created a transaction");
+        dialog=edit();dialog->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(0);
+        dialog->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(20);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto changed=get();check(changed.at("parameters")["sides"][0]["extrusion_extent"]=="length"&&changed.at("parameters")["sides"][1]["extrusion_extent"]=="through_all","Locking-hole GUI edit did not preserve independent sides");
+        call("undo");check(get().at("parameters")==before.at("parameters"),"Locking-hole Undo lost the authored definition");
+        call("redo");check(get().at("parameters")==changed.at("parameters"),"Locking-hole Redo lost the edited definition");
+        call("undo");call("save");const auto saved=document::PartDocument::load(path);
+        check(saved.find_container(hole.id)&&saved.find_container(hole.id)->feature==hole.feature&&saved.find_container(hole.id)->feature_id==hole.feature_id,"Locking-hole native save lost definition or identity");
+        call("close",{{"discard",true}});check(window.open_document_path(QString::fromStdString(path.string())),"Locking-hole native reopen failed");flush();
+        dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        std::cout<<"Factory locking-hole GUI: current Default, both Through All sides, Cancel, unchanged OK, edit, Undo/Redo and native reopen passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
 int verify_bolt_sketch_ui(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     using namespace zima;
     try {

@@ -122,18 +122,6 @@ QQuaternion default_camera_orientation() {
         QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, 215.264F);
 }
 
-double screen_segment_distance(const QPointF& point, const QPointF& first,
-    const QPointF& second) {
-    const QPointF delta = second - first;
-    const double squared = delta.x() * delta.x() + delta.y() * delta.y();
-    if (squared <= 1.0e-12) return QLineF(point, first).length();
-    const QPointF relative = point - first;
-    const double parameter = std::clamp(
-        (relative.x() * delta.x() + relative.y() * delta.y()) / squared,
-        0.0, 1.0);
-    return QLineF(point, first + delta * parameter).length();
-}
-
 bool is_screen_constant_plane(const std::string& semantic_key) {
     return semantic_key == "border" || semantic_key == "plane:end" ||
         semantic_key.starts_with("origin:plane:");

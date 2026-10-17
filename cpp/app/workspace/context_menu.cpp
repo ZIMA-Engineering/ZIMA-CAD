@@ -248,7 +248,6 @@ bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_
                 reading=true;begin_status_operation(tr("Otevírám %1…").arg(QString::fromStdString(zima::document::path_to_utf8(path.filename()))));
             });
         workspace_.activate(opened.document_id);workspace_.display_top_level(opened.document_id);
-        if(!opened.path.empty())working_directory_=opened.path.parent_path();
         viewer_->clear_selection();finish_document_switch(true);
         if(reading)finish_status_operation(tr("Otevřeno: %1").arg(QString::fromStdString(zima::document::path_to_utf8(opened.path.filename()))));
         return true;

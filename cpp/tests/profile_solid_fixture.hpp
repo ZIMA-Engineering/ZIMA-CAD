@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <utility>
 #include <zima/kernel/dimension_layout.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 
 namespace zima::test {
 // Fixture geometry is authored as a real Sketch and ordinary profile feature.
@@ -91,25 +92,34 @@ inline document::HistoryContainer spherical_feature(document::PartDocument& doc,
 inline std::string profile_key(const document::PartDocument& doc,
         const std::string& owner,const std::string& selector) {
     const auto* feature=doc.find_container(owner);
-    if(!feature||feature->feature_kind!=document::FeatureKind::Extrusion)
+    if(!feature||(feature->feature_kind!=document::FeatureKind::Extrusion&&feature->feature_kind!=document::FeatureKind::Feature))
         throw std::runtime_error("Profile fixture owner missing: "+owner);
-    const auto source=std::ranges::find(doc.sketches,feature->extrusion.sketch_id,&sketcher::Sketch::id);
+    const bool unified=feature->feature_kind==document::FeatureKind::Feature;
+    const auto source=std::ranges::find(doc.sketches,unified?feature->feature.sketch_id:feature->extrusion.sketch_id,&sketcher::Sketch::id);
     if(source==doc.sketches.end())throw std::runtime_error("Profile fixture Sketch missing");
     auto local=document::PartDocument::create_default();auto value=*feature;
     value.placement={};value.combine_mode=document::CombineMode::Add;
     value.extrusion.end_condition_forward=document::EndCondition::Length;
     value.extrusion.end_condition_reverse=document::EndCondition::Length;
     value.extrusion.end_targets_forward.clear();value.extrusion.end_targets_reverse.clear();
+    if(unified)for(auto& side:value.feature.sides){side.extrusion_extent=document::EndCondition::Length;side.targets.clear();}
     local.history={value};local.sketches={*source};local.resolve_constructions();
     const auto operations=local.kernel_operations();
     const kernel::ExtrusionRequest* request{};
-    for(const auto& op:operations)if(op.owner_id==owner)request=std::get_if<kernel::ExtrusionRequest>(&op.primitive);
+    const bool start_side=unified&&selector.find("z_min")!=std::string::npos&&
+        (feature->feature.symmetric||feature->feature.sides[1].operation==document::FeatureSideOperation::Extrusion);
+    for(const auto& op:operations)if(op.owner_id==owner){
+        request=std::get_if<kernel::ExtrusionRequest>(&op.primitive);
+        if(const auto* group=std::get_if<kernel::FeatureGroupRequest>(&op.primitive);group&&!group->children.empty())
+            request=std::get_if<kernel::ExtrusionRequest>(&group->children.at(start_side?1:0));
+    }
     if(!request)throw std::runtime_error("Profile fixture request missing");
-    const auto role=[](const std::string& location){return location.find("z_max")!=std::string::npos?std::string("end"):std::string("start");};
+    const auto role=[&](const std::string& location){return location.find("z_max")!=std::string::npos||start_side?std::string("end"):std::string("start");};
+    const auto parent=[&](std::string id){return unified?kernel::feature_side_parent_key({feature->feature_id,start_side?kernel::FeatureSide::Start:kernel::FeatureSide::End,std::move(id)}):id;};
     if(selector=="z_min"||selector=="z_max")return role(selector)+":from:"+
         std::to_string(request->profile_region_id.size())+":"+request->profile_region_id;
     if(!source->circles.empty()) {
-        const auto id=source->circles.front().id;
+        const auto id=parent(source->circles.front().id);
         if(selector=="side")return "generated:"+id;
         if(selector.starts_with("circle:z_"))return role(selector)+":"+id;
     }
@@ -118,10 +128,10 @@ inline std::string profile_key(const document::PartDocument& doc,
         const sketcher::SketchPoint* chosen{};
         for(const auto& p:source->points)
             if(!chosen||(right?p.x:-p.x)+(top?p.y:-p.y)>(right?chosen->x:-chosen->x)+(top?chosen->y:-chosen->y))chosen=&p;
-        if(!chosen)throw std::runtime_error("Fixture corner missing");return chosen->id;
+        if(!chosen)throw std::runtime_error("Fixture corner missing");return parent(chosen->id);
     };
     const auto segment=[&](const std::string& a,const std::string& b)->std::string {
-        for(const auto& e:source->segments)if((e.first_point_id==a&&e.second_point_id==b)||(e.first_point_id==b&&e.second_point_id==a))return e.id;
+        for(const auto& e:source->segments)if((parent(e.first_point_id)==a&&parent(e.second_point_id)==b)||(parent(e.first_point_id)==b&&parent(e.second_point_id)==a))return parent(e.id);
         throw std::runtime_error("Fixture edge missing");
     };
     if(selector=="x_min"||selector=="x_max")return "generated:"+segment(point(selector+":y_min"),point(selector+":y_max"));

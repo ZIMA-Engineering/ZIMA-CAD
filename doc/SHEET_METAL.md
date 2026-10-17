@@ -845,8 +845,9 @@ additive and Part-owned, including when editing a Part within an Assembly.
 Assembly cutter creation cannot reinterpret it as a subtraction. Principal
 faces and thickness faces carry sheet roles derived from authored thin-profile
 ancestry; the viewer does not classify them through live kernel traversal.
-The CLI `revolution.create` and `revolution.set` expose `sheet_metal` and
-`thickness_override` alongside the existing profile/axis/angle arguments.
+The CLI `sheet_revolution.create` and `sheet_revolution.set` always author a
+Sheet Revolution and expose `thickness_override` alongside the existing
+profile/axis/angle arguments. There is no public `sheet_metal` toggle.
 
 Current native versions are Part INI 38 / JSON 62 and Assembly INI 32 / JSON 44.
 Both start templates are updated. Drawing remains INI 18 / JSON 10. No required
@@ -1055,9 +1056,10 @@ or input-edge parents. Subsequent history operations preserve the earlier cut
 records. These are original cut definitions, not a second independently editable
 model or a promise that later arbitrary solid machining remains developable.
 
-The native Extrusion definition carries `sheet_cut`; the command host exposes it
-through `extrusion.create` and `extrusion.set`. Enabling it selects subtraction
-and a solid profile while retaining the ordinary Extrusion range parameters.
+The native Extrusion definition carries `sheet_cut`; the command host enforces it
+through `sheet_cut.create` and `sheet_cut.set`. Creation selects subtraction
+and a solid profile while retaining the established sheet range parameters.
+There is no public `sheet_cut` enable/disable toggle.
 The `sheet_cut_clearance` parameter selects Profile clearance; false selects
 By surface. The mode is persisted and included in the geometry fingerprint.
 Native versions are

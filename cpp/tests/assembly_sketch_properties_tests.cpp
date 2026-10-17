@@ -158,16 +158,19 @@ void conversion(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     const auto definition=workspace::document_sketch(f.live,f.owner,sketch);
     f.run("value_lock.set",{{"object",definition.owner_container_id},{"key","profile_offset"},{"locked",true}});
     const auto owner=*f.doc().find_sketch_container(definition.owner_container_id);
-    auto proposed=workspace::profile_from_sketch(f.doc(),sketch,extrusion?document::FeatureKind::Extrusion:document::FeatureKind::Revolution);
+    auto proposed=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
     require(proposed.combine_mode==document::CombineMode::Subtract,"Assembly profile factory offered addition");
+    if(!extrusion){proposed.feature.sides[0].operation=document::FeatureSideOperation::Revolution;proposed.feature.sides[0].angle_degrees=360;}
     proposed.combine_mode=document::CombineMode::Add;
     const auto revision=f.state().session.revision();
     bool rejected=false;
     try{workspace::commit_assembly_profile(f.live,kernel,f.owner,proposed,{f.first},workspace::ProfileEditMode::TransformSketch);}
     catch(const workspace::ProfileOperationError&){rejected=true;}
     require(rejected&&f.state().session.revision()==revision&&f.doc().find_sketch_container(owner.id),"Domain accepted addition or changed rejected Sketch");
-    Json args={{"sketch",sketch},{"targets",{f.first}}};if(extrusion)args["length_forward_mm"]=2;
-    const std::string command=extrusion?"extrusion.create":"revolution.create";
+    auto parameters=proposed.feature;parameters.sides[0].length=2;
+    auto values=document::serialize_feature_parameters(parameters);values.erase("sketch_id");
+    Json args={{"sketch",sketch},{"targets",{f.first}},{"parameters",values}};
+    const std::string command="feature.create";
     require(f.run(command.c_str(),args).at("container")==owner.id,"Conversion replaced owning container");
     const auto* cut=f.doc().find_cut(owner.id);
     require(cut&&cut->definition.container_origin==owner.container_origin&&cut->definition.combine_mode==document::CombineMode::Subtract&&
@@ -175,7 +178,7 @@ void conversion(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     near(f.volume(f.first),1000-(extrusion?2:6)*std::numbers::pi);near(f.volume(f.second),1000);
     require(cut->definition.value_locks.contains("profile_offset")&&!cut->definition.placement.value_locks.contains("profile_offset"),
         "Conversion lost or duplicated the offset lock");
-    f.reject(extrusion?"extrusion.set":"revolution.set",{{"container",owner.id},{"profile_offset_mm",1}},"value_locked");
+    f.reject_feature(owner.id,[](auto& p){p["profile_plane_offset"]=1;},"value_locked");
     f.reject("sketch.set",{{"sketch",sketch},{"plane_offset_mm",1}},"parameter_not_editable");
     require(f.run("sketch.set",{{"sketch",sketch},{"name",definition.name}}).at("changed")==false,"Owned locked Sketch no-op calculated");
 

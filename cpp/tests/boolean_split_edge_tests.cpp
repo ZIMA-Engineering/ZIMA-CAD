@@ -1,6 +1,7 @@
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <algorithm>
@@ -20,15 +21,16 @@
 #include <TopoDS.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <sstream>
+#include <source_location>
 
 using namespace zima;
 using commands::Json;
 namespace fs = std::filesystem;
 namespace {
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
-void near(double value, double expected, double tolerance = 1e-5) {
+void near(double value, double expected, double tolerance = 1e-5, const std::source_location where=std::source_location::current()) {
     if (!std::isfinite(value) || std::abs(value - expected) > tolerance)
-        throw std::runtime_error("Expected " + std::to_string(expected) + ", got " + std::to_string(value));
+        throw std::runtime_error("Line "+std::to_string(where.line())+": Expected " + std::to_string(expected) + ", got " + std::to_string(value));
 }
 using Key = std::pair<std::string, std::string>;
 Key key(const kernel::EdgeReference& ref) { return {ref.owner_id, ref.semantic_key}; }
@@ -53,12 +55,15 @@ struct Fixture {
         return value;
     }
     Json run(const char* command, Json args = Json::object()) {
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"Fragment command: "<<command<<'\n';
         const auto result = host.execute({{"command", command}, {"arguments", args}});
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"Fragment command completed: "<<command<<" "<<result.code<<'\n';
         if (!result.ok) throw std::runtime_error(std::string(command) + ": " + result.code + ": " + result.message);
         return result.data;
     }
     workspace::PartState& state() { return *live.open_part(live.active_document_id()); }
     const kernel::BodyResult& result() { return state().session.calculated_boundaries().back(); }
+    double volume(){auto measured=result();kernel.ensure_body_properties(measured);return measured.volume;}
     void box(double length, double width, double height, double y, double z, bool subtract) {
         auto fixture=state().session.document();
         auto value = zima::test::rectangular_feature(fixture,{length,width,height}); value.placement.y = y; value.placement.z = z;
@@ -80,13 +85,21 @@ struct Fixture {
                 box(88, 68, closed ? 38 : 50, name == "offset" ? 2 : 0, closed ? 0 : 6, true);
             }
         }
-        near(result().volume, name == "three-solids" ? 90000 : name == "solid" ? 400000 : name == "closed" ? 172608 : 136704);
+        near(volume(), name == "three-solids" ? 90000 : name == "solid" ? 400000 : name == "closed" ? 172608 : 136704);
         sketch = run("sketch.create", {{"plane", "XZ"}, {"name", "Through profile"}}).at("sketch");
         // Local XZ Sketch Y is world -Z. Cut world X=-26..26, Z=-4..25.
         run("sketch.rectangle.create", {{"sketch", sketch}, {"first", {-26, -25}}, {"second", {26, 4}}});
-        extrusion = run("extrusion.create", {{"sketch", sketch}, {"combine", "subtract"}, {"extent", "two_sides"},
-            {"end_forward", "through_all"}, {"end_reverse", "through_all"}}).at("container");
-        near(result().volume, name == "three-solids" ? 62856 : name == "solid" ? 279360 : name == "closed" ? 133296 : 118608);
+        // This fixture exercises disconnected fragments of one kernel sweep.
+        // Two independent Default sides own distinct End/Start source identities
+        // and would additionally split connected edges at the Sketch plane.
+        auto cutter=workspace::profile_from_sketch(state().session.document(),sketch,document::FeatureKind::Extrusion);
+        cutter.combine_mode=document::CombineMode::Subtract;
+        cutter.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
+        cutter.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
+        cutter.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
+        extrusion=cutter.id;
+        workspace::commit_profile(live,kernel,live.active_document_id(),cutter,workspace::ProfileEditMode::TransformSketch);
+        near(volume(), name == "three-solids" ? 62856 : name == "solid" ? 279360 : name == "closed" ? 133296 : 118608);
     }
     std::vector<kernel::ViewerEdge> longitudinal_edges() {
         std::vector<kernel::ViewerEdge> edges;
@@ -114,9 +127,13 @@ void siblings_survive(Fixture& f, const std::vector<kernel::ViewerEdge>& source,
 }
 void exercise(fs::path directory, const std::string& name) {
     Fixture f(directory); f.create(name); unique_edges(f.result());
-    const auto original_volume = f.result().volume;
+    const auto original_volume = f.volume();
     const auto edges = f.longitudinal_edges();
-    require(edges.size() == (name == "three-solids" ? 12 : name == "solid" ? 4 : 8), "Unexpected count of real longitudinal fragments");
+    const std::size_t expected_edges=name=="three-solids"?12:name=="solid"?4:8;
+    if(edges.size()!=expected_edges){
+        for(const auto& edge:edges){const auto a=edge.points.front(),b=edge.points.back();std::cerr<<name<<" edge ("<<a.x<<","<<a.y<<","<<a.z<<")--("<<b.x<<","<<b.y<<","<<b.z<<") "<<edge.reference.semantic_key<<'\n';}
+        throw std::runtime_error(name+": expected "+std::to_string(expected_edges)+" real longitudinal fragments, got "+std::to_string(edges.size()));
+    }
     if (name == "three-solids") {
         auto operations = f.state().session.document().kernel_operations();
         std::reverse(operations.begin(), operations.begin() + 3);
@@ -135,9 +152,9 @@ void exercise(fs::path directory, const std::string& name) {
         for (const bool fillet : {true, false}) {
             const auto id = f.run(fillet ? "fillet.create" : "chamfer.create", {
                 {fillet ? "radius_mm" : "distance_a_mm", .5}, {"routes", Json::array({Json{{"edges", Json::array({ref(edge.reference)})}}})}}).at("container");
-            require(std::abs(f.result().volume - original_volume) > .01, "Treatment did not change the calculated solid");
+            require(std::abs(f.volume() - original_volume) > .01, "Treatment did not change the calculated solid");
             siblings_survive(f, edges, edge.reference);
-            f.run("undo"); near(f.result().volume, original_volume);
+            f.run("undo"); near(f.volume(), original_volume);
             require(!f.state().session.document().find_container(id), "Treatment did not undo in one step");
         }
     }
@@ -148,10 +165,13 @@ void exercise(fs::path directory, const std::string& name) {
     const auto fillet = f.run("fillet.create", {{"mode", "linear"}, {"radius_mm", .25}, {"radius_end_mm", .5},
         {"routes", Json::array({Json{{"edges", Json::array({ref(selected.reference)})}, {"start", ref(start)}}})}}).at("container").get<std::string>();
     siblings_survive(f, edges, selected.reference);
-    const auto value = f.result().volume;
+    for(const auto& [owner,error]:f.result().calculation_errors)throw std::runtime_error(name+" variable Fillet "+owner+": "+error);
+    require(f.volume()>0,"Variable Fillet lost its solid result");
+    const auto value = f.volume();
     f.run("save");
     std::vector<kernel::BodyResult> saved;
     const auto loaded = document::PartDocument::load(directory / (name + ".prtz"), &saved);
+    f.kernel.ensure_body_properties(saved.back());
     near(saved.back().volume, value);
     const auto* treatment = loaded.find_container(fillet);
     require(treatment && treatment->edge_treatment.routes[0][0] == selected.reference && treatment->edge_treatment.route_start_vertices[0] == start,
@@ -159,11 +179,17 @@ void exercise(fs::path directory, const std::string& name) {
     kernel::OcctKernel cold;
     const auto rebuilt = cold.evaluate_history(loaded.kernel_operations());
     near(rebuilt.back().volume, value);
-    f.run("regenerate"); near(f.result().volume, value);
+    f.run("regenerate"); near(f.volume(), value);
     require(f.state().session.document().find_container(fillet)->edge_treatment.routes[0][0] == selected.reference, "Regeneration replaced a selected fragment");
     if (!f.cavity.empty() && name != "shell") {
         const auto input_before = f.run("edge_treatment.edges", {{"container", fillet}}).at("items");
-        zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return f.run(n,std::move(a));},{{"container", f.cavity}, {"width_mm", "64"}});
+        const auto cavity=*f.state().session.document().find_container(f.cavity);
+        auto profile=workspace::document_sketch(f.live,f.live.active_document_id(),cavity.extrusion.sketch_id);
+        double low=profile.points.front().y,high=low;
+        for(const auto& point:profile.points){low=std::min(low,point.y);high=std::max(high,point.y);}
+        const auto center=(low+high)/2;
+        for(auto& point:profile.points)point.y=center+(point.y-center)*64/(high-low);
+        workspace::commit_profile(f.live,f.kernel,f.live.active_document_id(),cavity,workspace::ProfileEditMode::Replace,profile);
         const auto input_after = f.run("edge_treatment.edges", {{"container", fillet}}).at("items");
         require(input_before.size() == input_after.size(), "Resizing cavity changed fragment count");
         for (std::size_t i = 0; i < input_before.size(); ++i)
@@ -226,10 +252,11 @@ void assembly_targets(const fs::path& directory) {
     f.run("component.set", {{"instance_path", second_path}, {"placement", {{"y_mm", 100}}}});
     const auto sketch = f.run("sketch.create", {{"plane", "XZ"}, {"name", "Assembly through profile"}}).at("sketch");
     f.run("sketch.rectangle.create", {{"sketch", sketch}, {"first", {-26, -25}}, {"second", {26, 4}}});
-    const auto cut = f.run("extrusion.create", {{"sketch", sketch}, {"targets", {first, second}}, {"extent", "two_sides"},
-        {"end_forward", "through_all"}, {"end_reverse", "through_all"}}).at("container");
+    const auto cut = f.run("feature.create", {{"sketch", sketch}, {"targets", {first, second}}, {"parameters",zima::test::through_all_feature_parameters()}}).at("container");
     auto* state = f.live.open_assembly(assembly_id);
     const auto check = [&](const assembly::AssemblyDocument& doc) {
+        require(doc.find_occurrence(first)&&doc.find_occurrence(second),"Assembly cut lost a target occurrence");
+        require(doc.find_occurrence(first)->calculated_source.operator->()!=nullptr&&doc.find_occurrence(second)->calculated_source.operator->()!=nullptr,"Assembly cut lost calculated target geometry");
         near(doc.find_occurrence(first)->calculated_source->volume, 118608);
         near(doc.find_occurrence(second)->calculated_source->volume, 118608);
         require(doc.find_cut(cut)->target_occurrence_ids.size() == 2, "Assembly cut lost one target");
@@ -240,7 +267,7 @@ void assembly_targets(const fs::path& directory) {
     };
     check(state->session.document()); f.run("save");
     check(assembly::AssemblyDocument::load(directory / "assembly-split.asmz"));
-    f.run("regenerate"); check(state->session.document());
+    f.run("regenerate");state=f.live.open_assembly(assembly_id);check(state->session.document());
     require(f.live.open_part(source)->session.revision() == source_revision, "Assembly cut changed source Part history");
     near(f.live.open_part(source)->session.calculated_boundaries().back().volume, 136704);
     std::cout << "Assembly: one through cut across two separated hollow occurrences, save/reload and source ownership passed\n";
@@ -351,19 +378,19 @@ void form_case(const fs::path& directory) {
         for(const double radius:{.05,.1}) {
             const auto id=f.run("fillet.create",{{"radius_mm",radius},
                 {"routes",Json::array({Json{{"edges",Json::array({ref(edge.reference)})}}})}}).at("container").get<std::string>();
-            require(std::abs(f.result().volume-input.volume)>1e-6,"FORM Fillet did not alter geometry");
+            require(std::abs(f.volume()-input.volume)>1e-6,"FORM Fillet did not alter geometry");
             require(f.result().calculation_errors.empty(),"FORM Fillet calculation failed");
-            const auto treated_volume=f.result().volume;
-            f.run("undo");near(f.result().volume,input.volume);require(form_edges(f.result())==ids,"Fillet Undo lost input identity");
-            f.run("redo");near(f.result().volume,treated_volume);
+            const auto treated_volume=f.volume();
+            f.run("undo");near(f.volume(),input.volume);require(form_edges(f.result())==ids,"Fillet Undo lost input identity");
+            f.run("redo");near(f.volume(),treated_volume);
             f.run("save");std::vector<kernel::BodyResult> saved;
             const auto reopened=document::PartDocument::load(file,&saved);
             require(reopened.find_container(id)->edge_treatment.routes[0][0]==edge.reference,"Saved FORM Fillet lost its selected edge");
             near(saved.back().volume,treated_volume);
             const auto revision=f.state().session.revision();
-            f.run("regenerate");near(f.result().volume,treated_volume);
+            f.run("regenerate");near(f.volume(),treated_volume);
             if(f.state().session.revision()!=revision)f.run("undo");
-            f.run("undo");near(f.result().volume,input.volume);
+            f.run("undo");near(f.volume(),input.volume);
         }
     }
     require(std::ranges::all_of(counts,[](int count){return count==2;}),"FORM no longer covers all twelve formerly ambiguous edges");
@@ -376,18 +403,18 @@ void form_case(const fs::path& directory) {
     require(faces.size()==2,"FORM does not expose both disconnected front faces");
     for(const auto& [id,face]:faces) {
         const auto shell=f.run("surface_shell.create",{{"faces",Json::array({Json{{"owner",face.owner_id},{"key",face.semantic_key}}})}}).at("container").get<std::string>();
-        near(f.result().volume,0);
+        near(f.volume(),0);
         require(f.result().surface_area<input.surface_area,"FORM surface extraction did not remove its selected front face");
         f.run("save");std::vector<kernel::BodyResult> saved;
         const auto reopened=document::PartDocument::load(file,&saved);
         require(reopened.find_container(shell)->shell.removed_faces==std::vector<kernel::FaceReference>{face},"FORM saved the wrong front face");
-        const auto area=f.result().surface_area;f.run("undo");near(f.result().volume,input.volume);
+        const auto area=f.result().surface_area;f.run("undo");near(f.volume(),input.volume);
         f.run("redo");near(f.result().surface_area,area);f.run("undo");
     }
     auto changed=*f.state().session.document().find_container(cutter);
     changed.feature.sides[1].length=51.;
     workspace::commit_profile(f.live,f.kernel,f.live.active_document_id(),changed,workspace::ProfileEditMode::Replace);
-    near(f.result().volume,input.volume);require(form_edges(f.result())==ids,"Changing cutter length replaced surviving FORM edge identities");
+    near(f.volume(),input.volume);require(form_edges(f.result())==ids,"Changing cutter length replaced surviving FORM edge identities");
     f.run("undo");require(form_edges(f.result())==ids,"Length Undo changed FORM edge identities");
     std::cout<<"FORM: valid B-Rep, all face/edge identities, twelve edges at two radii, front-face extraction, native reload, regeneration, Undo/Redo and feature length passed\n";
 }
@@ -396,6 +423,10 @@ int main(int argc, char** argv) { try {
     const auto root = fs::canonical(fs::temp_directory_path());
     const auto directory = root / ("zima-boolean-fragments-" + document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory), "Cannot create test directory");
+    if(argc>1&&std::string(argv[1])=="--assembly-only") {
+        assembly_targets(directory);
+        require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
+    }
     if(argc>1&&std::string(argv[1])=="--form-only") {
         form_case(directory);
         require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;

@@ -262,8 +262,9 @@ and data tree are shared. I/O, config, exit codes, and batch boundaries are in
 
 ## Profile-based modeling
 
-Create a Sketch, author its geometry, then use `extrusion.create` or
-`revolution.create` with the returned Sketch ID. Profile `.get`/`.set` commands
+Create a Sketch, author its geometry, then use `feature.create`
+with the returned Sketch ID and [typed side parameters](PROFILE_COMMANDS.md).
+`feature.get`/`feature.set` commands
 inspect and edit the same persisted model as Properties, with native locks,
 references, atomic calculation and Undo/Redo.
 

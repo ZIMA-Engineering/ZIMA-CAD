@@ -54,7 +54,7 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
 void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-extrusion");const auto sketch=f.rectangle(-1,-1.5,2,3);
     const auto source_revision=f.live.open_part(f.source)->session.revision();
-    const auto made=f.run("extrusion.create",{{"sketch",sketch},{"length_forward_mm",4},{"targets",{f.first}}});
+    const auto made=f.run("feature.create",{{"sketch",sketch},{"parameters",zima::test::feature_profile_parameters(4)},{"targets",{f.first}}});
     const std::string cut=made.at("container");near(f.volume(f.first),976);near(f.volume(f.second),1000);
     near(f.doc().find_cut(cut)->input_component_bodies.at(f.first).volume,1000);
     const auto packet=f.doc().serialized();
@@ -68,52 +68,51 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     f.run("redo");near(f.volume(f.first),976);
     const auto generation=f.state().session.data_generation();
     require(f.run("assembly.cut.list").at("items").front().at("targets")==Json::array({f.first}),"Cut query lost target identity");
-    require(f.run("extrusion.get",{{"container",cut}}).at("sketch")==sketch&&f.state().session.data_generation()==generation,"Cut query calculated geometry");
-    f.run("extrusion.set",{{"container",cut},{"length_forward_mm",2},{"targets",{f.first,f.second}}});near(f.volume(f.first),988);near(f.volume(f.second),988);
-    f.reject("extrusion.set",{{"container",cut},{"targets",{f.first,f.first}}},"duplicate_target");
-    f.reject("extrusion.set",{{"container",cut},{"targets",{"missing"}}},"invalid_cut_target");
-    f.reject("extrusion.set",{{"container",cut},{"targets",{27}}},"invalid_arguments");
-    f.reject("extrusion.set",{{"container",cut},{"combine","add"}},"invalid_arguments");
-    f.reject("extrusion.create",{{"sketch",sketch}},"profile_owned");
-    f.reject("revolution.get",{{"container",cut}},"wrong_feature");
-    f.interaction.editing=true;f.reject("extrusion.set",{{"container",cut},{"length_forward_mm",3}},"editing_in_progress");f.interaction={};
+    require(f.run("feature.get",{{"container",cut}}).at("sketch")==sketch&&f.state().session.data_generation()==generation,"Cut query calculated geometry");
+    f.set_feature(cut,[](auto& p){p["sides"][0]["length"]=2;},{{"targets",{f.first,f.second}}});near(f.volume(f.first),988);near(f.volume(f.second),988);
+    f.reject("feature.set",{{"container",cut},{"targets",{f.first,f.first}}},"duplicate_target");
+    f.reject("feature.set",{{"container",cut},{"targets",{"missing"}}},"invalid_cut_target");
+    f.reject("feature.set",{{"container",cut},{"targets",{27}}},"invalid_arguments");
+    f.reject("feature.set",{{"container",cut},{"combine","add"}},"invalid_arguments");
+    f.reject("feature.create",{{"sketch",sketch}},"profile_owned");
+    f.interaction.editing=true;f.reject_feature(cut,[](auto& p){p["sides"][0]["length"]=3;},"editing_in_progress");f.interaction={};
     // Resolve a source cap through its exact occurrence path and persisted metadata.
     const auto geometry=f.doc().build_scene().original_references;
     const auto face=std::ranges::find_if(geometry.triangle_references,[&](const auto& ref){return ref.instance_path==assembly::InstancePath{}.child(f.first).encoded()&&ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&ref.surface->axis.z>0.99&&!ref.surface->reversed;});
     require(face!=geometry.triangle_references.end(),"Missing original cap");
-    f.run("extrusion.set",{{"container",cut},{"end_forward","up_to"},{"targets_forward",Json::array({{{"owner",face->owner_id},{"key",face->semantic_key},{"instance_path",face->instance_path}}})}});
+    f.set_feature(cut,[&](auto& p){p["sides"][0]["extrusion_extent"]="up_to";p["sides"][0]["targets"]=Json::array({{{"kind","face"},{"owner",face->owner_id},{"key",face->semantic_key},{"instance_path",face->instance_path},{"label",""},{"origin",{0,0,0}},{"normal",{0,0,1}},{"triangles",Json::array()}}});});
     near(f.volume(f.first),970);near(f.volume(f.second),970);
-    require(f.doc().find_cut(cut)->definition.extrusion.end_targets_forward.front().reference.instance_path==face->instance_path,"End target lost occurrence identity");
-    f.reject("extrusion.set",{{"container",cut},{"targets_forward",Json::array({{{"owner",face->owner_id},{"key","missing"},{"instance_path",face->instance_path}}})}},"missing_reference");
-    f.run("extrusion.set",{{"container",cut},{"end_forward","length"},{"length_forward_mm",2}});
+    require(f.doc().find_cut(cut)->definition.feature.sides[0].targets.front().reference.instance_path==face->instance_path,"End target lost occurrence identity");
+    f.reject_feature(cut,[](auto& p){p["sides"][0]["targets"][0]["key"]="missing";},"missing_reference");
+    f.set_feature(cut,[](auto& p){p["sides"][0]["extrusion_extent"]="length";p["sides"][0]["length"]=2;});
     auto draft=f.doc().sketches.front();for(auto& point:draft.points)point.x*=2;
     workspace::commit_assembly_profile(f.live,kernel,f.owner,f.doc().find_cut(cut)->definition,{f.first},workspace::ProfileEditMode::Replace,draft);
     near(f.volume(f.first),976);near(f.volume(f.second),1000);f.run("undo");near(f.volume(f.first),988);
     f.run("save");const auto loaded=assembly::AssemblyDocument::load(directory/"assembly-extrusion.asmz");
     require(loaded.cuts==f.doc().cuts&&loaded.sketches.front().serialized()==f.doc().sketches.front().serialized(),"Native cut lost definition or owned profile");near(loaded.find_occurrence(f.first)->calculated_source->volume,988);
-    f.run("extrusion.set",{{"container",cut},{"extent","two_sides"},{"length_forward_mm",2},{"length_reverse_mm",1}});near(f.volume(f.first),982);
-    f.run("extrusion.set",{{"container",cut},{"extent","symmetric"},{"length_forward_mm",2}});near(f.volume(f.first),976);
-    f.run("extrusion.set",{{"container",cut},{"extent","one_side"},{"end_forward","through_all"}});near(f.volume(f.first),970);
-    f.run("extrusion.set",{{"container",cut},{"extent","two_sides"},{"end_reverse","through_all"}});near(f.volume(f.first),940);
-    f.run("extrusion.set",{{"container",cut},{"end_forward","length"},{"extent","one_side"},{"result_type","thin"},{"thin_thickness_mm",.25},{"thin_mode","symmetric"},{"length_forward_mm",2}});near(f.volume(f.first),995);
+    f.set_feature(cut,[](auto& p){p["sides"][0]["length"]=2;p["sides"][1]["operation"]="extrusion";p["sides"][1]["length"]=1;});near(f.volume(f.first),982);
+    f.set_feature(cut,[](auto& p){p["symmetric"]=true;p["sides"][0]["length"]=2;});near(f.volume(f.first),976);
+    f.set_feature(cut,[](auto& p){p["symmetric"]=false;p["sides"][1]["operation"]="none";p["sides"][0]["extrusion_extent"]="through_all";});near(f.volume(f.first),970);
+    f.set_feature(cut,[](auto& p){p["sides"][1]["operation"]="extrusion";p["sides"][1]["extrusion_extent"]="through_all";});near(f.volume(f.first),940);
+    f.set_feature(cut,[](auto& p){p["sides"][0]["extrusion_extent"]="length";p["sides"][0]["length"]=2;p["sides"][1]["operation"]="none";p["result_type"]="thin";p["thin_thickness"]=.25;p["thin_mode"]="symmetric";});near(f.volume(f.first),995);
     f.run("save");const auto thin=assembly::AssemblyDocument::load(directory/"assembly-extrusion.asmz");
-    require(thin.find_cut(cut)->definition.extrusion==f.doc().find_cut(cut)->definition.extrusion,"Thin or extent parameters lost in Assembly format");
-    f.run("extrusion.set",{{"container",cut},{"result_type","solid"}});
+    require(thin.find_cut(cut)->definition.feature==f.doc().find_cut(cut)->definition.feature,"Thin or extent parameters lost in Assembly format");
+    f.set_feature(cut,[](auto& p){p["result_type"]="solid";});
     // The source may change without saving; failed edits must not expose a refresh.
     f.run("activate",{{"document",f.source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return f.run(n,std::move(a));},{{"container",f.box},{"height_mm","20"}});f.run("activate",{{"document",f.owner}});
-    f.reject("extrusion.set",{{"container",cut},{"length_forward_mm",-1}},"invalid_arguments");
-    f.run("extrusion.set",{{"container",cut},{"length_forward_mm",3}});near(f.volume(f.first),1982);
+    f.reject_feature(cut,[](auto& p){p["sides"][0]["length"]=-1;},"invalid_arguments");
+    f.set_feature(cut,[](auto& p){p["sides"][0]["length"]=3;});near(f.volume(f.first),1982);
     near(f.live.open_part(f.source)->session.calculated_boundaries().back().volume,2000);
     const std::string open=f.run("sketch.create",{{"name","Open profile"},{"plane","XY"}}).at("sketch");f.line(open,0,0,2,0);
-    f.reject("extrusion.create",{{"sketch",open},{"targets",{f.first}}},"profile_rejected");
+    f.reject("feature.create",{{"sketch",open},{"targets",{f.first}}},"profile_rejected");
     f.run("new",{{"type","assembly"},{"name","nested-cut-target"}});const auto nested=f.live.active_document_id();
     const auto leaf=f.run("component.insert",{{"source",f.source}}).at("occurrence");f.run("save");f.run("activate",{{"document",f.owner}});
     const auto nested_occurrence=f.run("component.insert",{{"source",nested}}).at("occurrence");
-    f.reject("extrusion.set",{{"container",cut},{"targets",{nested_occurrence}}},"invalid_cut_target");
-    f.reject("extrusion.set",{{"container",cut},{"targets",{leaf}}},"invalid_cut_target");
-    auto locked=f.doc().find_cut(cut)->definition;locked.value_locks.insert("length_forward");locked.placement.value_locks.insert("x");
+    f.reject("feature.set",{{"container",cut},{"targets",{nested_occurrence}}},"invalid_cut_target");
+    f.reject("feature.set",{{"container",cut},{"targets",{leaf}}},"invalid_cut_target");
+    auto locked=f.doc().find_cut(cut)->definition;locked.value_locks.insert("side0_length");locked.placement.value_locks.insert("x");
     workspace::commit_assembly_profile(f.live,kernel,f.owner,locked,{f.first},workspace::ProfileEditMode::Replace);
-    f.reject("extrusion.set",{{"container",cut},{"length_forward_mm",4}},"value_locked");
+    f.reject_feature(cut,[](auto& p){p["sides"][0]["length"]=4;},"value_locked");
     f.run("save");const auto locked_saved=assembly::AssemblyDocument::load(directory/"assembly-extrusion.asmz");
     require(locked_saved.find_cut(cut)->definition.value_locks==locked.value_locks&&locked_saved.find_cut(cut)->definition.placement.value_locks==locked.placement.value_locks,"Assembly format lost profile or placement locks");
 
@@ -128,17 +127,18 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     // This scenario follows reference planes; explicit XY in the generic
     // rectangle fixture now deliberately means a persistent manual plane.
     Json create={{"sketch",sketch},{"targets",{f.first}},{"profile_plane","AUTO"}};
-    if(extrusion)create["length_forward_mm"]=4;
-    else {
+    create["parameters"]=zima::test::feature_profile_parameters(4);
+    if(!extrusion){create["parameters"]["sides"][0]["operation"]="revolution";create["parameters"]["sides"][0]["angle_degrees"]=360;}
+    if(!extrusion) {
         const auto axis=f.line(sketch,0,0,0,4);
         f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     }
-    const std::string cut=f.run((prefix+".create").c_str(),create).at("container");
-    const auto command=prefix+".reference.set";
+    const std::string cut=f.run("feature.create",create).at("container");
+    const std::string command="placement.reference.set";
     const auto source_revision=f.live.open_part(f.source)->session.revision();
     const auto* source_cache=f.live.open_part(f.source)->session.calculated_boundaries().data();
     const auto initial=*f.doc().find_cut(cut);
-    Json request={{"container",cut},{"index",0},{"reference",{{"owner",f.owner+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}};
+    Json request={{"object",cut},{"index",0},{"reference",{{"owner",f.owner+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}};
     require(f.run(command.c_str(),request).at("changed")==true,"Assembly profile reference did not report its commit");
     near(f.doc().find_cut(cut)->definition.placement.z,1);
     near(f.volume(f.first),1000-(extrusion?24:6*std::numbers::pi));near(f.volume(f.second),1000);
@@ -170,11 +170,11 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,3);
     near(f.volume(f.first),1000-(extrusion?12:6*std::numbers::pi));near(f.volume(f.second),1000);
     if (extrusion) {
-        f.run("extrusion.set",{{"container",cut},{"profile_plane","XY"}});
+        f.run("feature.set",{{"container",cut},{"profile_plane","XY"}});
         near(f.volume(f.first),976);
-        require(f.run("extrusion.get",{{"container",cut}}).at("profile_plane_auto")==false,
+        require(f.run("feature.get",{{"container",cut}}).at("profile_plane_auto")==false,
             "Assembly cut did not retain its manual work plane");
-        f.run("extrusion.set",{{"container",cut},{"profile_plane","AUTO"}});
+        f.run("feature.set",{{"container",cut},{"profile_plane","AUTO"}});
         near(f.volume(f.first),988);
     }
     require(f.doc().find_cut(cut)->definition.placement.references.front().instance_path==second_path,
@@ -183,7 +183,6 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     bad=request;bad["reference"]={{"owner",sketch},{"key","sketch_origin"}};f.reject(command.c_str(),bad,"reference_not_available");
     bad=request;bad["index"]=1;f.reject(command.c_str(),bad,"duplicate_reference");
     bad=request;bad["index"]=4294967296LL;f.reject(command.c_str(),bad,"invalid_arguments");
-    f.reject(extrusion?"revolution.reference.set":"extrusion.reference.set",request,"wrong_feature");
     f.interaction.editing=true;f.reject(command.c_str(),request,"editing_in_progress");f.interaction={};
     // The same leaf ID beneath two instances of a subassembly is not one
     // reference. Both path levels must participate in lookup and persistence.
@@ -238,15 +237,18 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
 }
 void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-revolution");const auto sketch=f.rectangle(1,0,1,4);
-    f.reject("revolution.create",{{"sketch",sketch}},"profile_rejected");
+    document::FeatureParameters parameters;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;parameters.sides[0].angle_degrees=360;
+    auto initial=document::serialize_feature_parameters(parameters);initial.erase("sketch_id");
+    f.reject("feature.create",{{"sketch",sketch},{"parameters",initial}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
-    const auto made=f.run("revolution.create",{{"sketch",sketch},{"axis",axis},{"angle_degrees",360}});const std::string cut=made.at("container");
+    const auto made=f.create_feature(sketch,parameters);const std::string cut=made.at("container");
     near(f.volume(f.first),1000-12*std::numbers::pi);near(f.volume(f.second),1000-12*std::numbers::pi);
-    f.run("revolution.set",{{"container",cut},{"angle_degrees",180},{"targets",{f.second}}});near(f.volume(f.first),1000);near(f.volume(f.second),1000-6*std::numbers::pi);
-    f.reject("revolution.set",{{"container",cut},{"axis","missing"}},"invalid_reference");
-    f.reject("revolution.set",{{"container",cut},{"angle_degrees",361}},"invalid_arguments");
+    f.set_feature(cut,[](auto& p){p["sides"][0]["angle_degrees"]=180;},{{"targets",{f.second}}});near(f.volume(f.first),1000);near(f.volume(f.second),1000-6*std::numbers::pi);
+    const auto revision=f.state().session.revision();
+    require(!f.set_feature(cut,[](auto& p){p["axis_segment_id"]="missing";}).at("changed").get<bool>()&&f.state().session.revision()==revision,"Resolving the same construction axis committed a change");
+    f.reject_feature(cut,[](auto& p){p["sides"][0]["angle_degrees"]=361;},"invalid_arguments");
     f.run("save");const auto loaded=assembly::AssemblyDocument::load(directory/"assembly-revolution.asmz");
-    require(loaded.find_cut(cut)->definition.revolution.axis_segment_id==axis,"Native revolution lost axis");near(loaded.find_occurrence(f.second)->calculated_source->volume,1000-6*std::numbers::pi);
+    require(loaded.find_cut(cut)->definition.feature.axis_segment_id==axis,"Native revolution lost axis");near(loaded.find_occurrence(f.second)->calculated_source->volume,1000-6*std::numbers::pi);
 }
 }
 int main(){try{

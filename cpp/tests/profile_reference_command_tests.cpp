@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <cmath>
 #include <numbers>
@@ -16,14 +17,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool extrusion) 
     const auto sketch=run("sketch.create",{{"name","Profile"},{"plane","XY"}}).at("sketch").get<std::string>();
     const auto line=[&](double x1,double y1,double x2,double y2){return run("sketch.segment.create",{{"sketch",sketch},{"first",{x1,y1}},{"second",{x2,y2}},{"snap_mm",0.000001}}).at("geometry").get<std::string>();};
     line(2,1,4,1);line(4,1,4,4);line(4,4,2,4);line(2,4,2,1);
-    if(!extrusion){const auto axis=line(0,0,0,5);run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});}
-    Json create={{"sketch",sketch}};if(extrusion)create["length_forward_mm"]=5;
-    const auto target=run(prefix+".create",create).at("container").get<std::string>();
+    std::string axis;if(!extrusion){axis=line(0,0,0,5);run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});}
+    Json create={{"sketch",sketch},{"parameters",test::feature_profile_parameters(extrusion?5:360,false,axis)}};
+    const auto target=run("feature.create",create).at("container").get<std::string>();
     const auto feature=[&](){return *state->session.document().find_container(target);};
     const auto owned=[&](){const auto& sketches=state->session.document().sketches;return *std::ranges::find(sketches,sketch,&sketcher::Sketch::id);};
     const auto volume=[&](){return state->session.calculated_boundaries().back().volume;};const double expected=extrusion?30:36*std::numbers::pi;near(volume(),expected);
-    const auto request=[&](int index,const std::string& owner,const std::string& key,double offset=0){return Json{{"container",target},{"index",index},{"reference",{{"owner",owner},{"key",key}}},{"offset_mm",offset}};};
-    const auto set=[&](Json args){return run(prefix+".reference.set",std::move(args));};
+    const auto request=[&](int index,const std::string& owner,const std::string& key,double offset=0){return Json{{"object",target},{"index",index},{"reference",{{"owner",owner},{"key",key}}},{"offset_mm",offset}};};
+    const auto set=[&](Json args){return run("placement.reference.set",std::move(args));};
     const auto reject=[&](const std::string& command,Json args,const char* code){const auto before=feature();const auto sketch_before=owned().serialized();const auto rev=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
         if(result.ok||result.code!=code)throw std::runtime_error(command+" expected "+code+", got "+result.code+": "+result.message);
         require(feature()==before&&owned().serialized()==sketch_before&&state->session.revision()==rev&&state->session.calculated_boundaries().data()==cache&&!host.change(),"Rejected reference altered profile, owned Sketch or body");};
@@ -34,10 +35,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool extrusion) 
     const auto first_mesh=state->session.calculated_boundaries().back().mesh;set(request(0,source_entity,"plane",4));near(feature().placement.z,9);near(volume(),expected);
     const auto min_z=[](const auto& mesh){return std::ranges::min(mesh.vertices,{},&kernel::Vec3::z).z;};near(min_z(state->session.calculated_boundaries().back().mesh)-min_z(first_mesh),2);
     auto facade=request(0,source_entity,"plane",6);facade.erase("container");facade["object"]=target;run("placement.reference.set",facade);near(feature().placement.z,11);near(volume(),expected);
-    reject(prefix+".reference.set",request(0,sketch,"anything"),"reference_not_available");reject(prefix+".reference.set",request(0,target,"anything"),"reference_not_available");
-    reject(extrusion?"revolution.reference.set":"extrusion.reference.set",request(0,source_entity,"plane"),"wrong_feature");
-    reject(prefix+".reference.set",request(9,source_entity,"plane"),"invalid_arguments");reject(prefix+".reference.set",request(0,source_entity,"missing"),"reference_not_found");
-    interaction.editing=true;reject(prefix+".reference.set",request(0,source_entity,"plane"),"editing_in_progress");interaction={};
+    reject("placement.reference.set",request(0,sketch,"anything"),"reference_not_available");reject("placement.reference.set",request(0,target,"anything"),"reference_not_available");
+
+    reject("placement.reference.set",request(9,source_entity,"plane"),"invalid_arguments");reject("placement.reference.set",request(0,source_entity,"missing"),"reference_not_found");
+    interaction.editing=true;reject("placement.reference.set",request(0,source_entity,"plane"),"editing_in_progress");interaction={};
     const auto bound=feature();const auto bound_sketch=owned().serialized();
     require(run("placement.reference.remove",{{"object",target},{"index",0}}).at("body_calculated")==true,"Profile removal did not use its body transaction");
     require(feature().placement.references.empty(),"Profile removal retained paired orientation");near(volume(),expected);

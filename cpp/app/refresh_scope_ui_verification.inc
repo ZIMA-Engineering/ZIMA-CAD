@@ -2,7 +2,7 @@ int verify_refresh_scope(QApplication& application, zima::app::AssemblyWorkspace
     const std::filesystem::path& directory) {
     using namespace zima;
     auto part=document::PartDocument::create_default();
-    part.history.push_back(test::rectangular_feature(part,{10,10,10}));
+    part.history.push_back(test::rectangular_default(part,{10,10,10}));
     kernel::OcctKernel kernel;
     const auto bodies=kernel.evaluate_history(part.kernel_operations());
     const auto part_path=directory/"refresh-scope.prtz";
@@ -117,8 +117,8 @@ int verify_refresh_scope(QApplication& application, zima::app::AssemblyWorkspace
                 for(int j=0;j<3;++j)high=std::max(high,mesh.vertices[mesh.triangles[i*3+j]].z);
         return high;
     };
-    const commands::Json resize{{"command","extrusion.set"},{"arguments",{
-        {"container",part.history.front().id},{"length_forward_mm",15}}}};
+    const commands::Json resize{{"command","feature.set"},{"arguments",{
+        {"container",part.history.front().id},{"parameters",test::feature_profile_parameters(15,true)}}}};
     if(!verify(window.execute_console_command(QString::fromStdString(resize.dump())).ok&&std::abs(source_height()-15)<1e-7,
         "Source edit was not immediately displayed in repeated occurrences"))return 1;
     window.deactivate_active_occurrence_for_test();

@@ -2,6 +2,7 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/feature_serialization.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <chrono>
 #include <iostream>
@@ -28,10 +29,24 @@ struct Fixture {
     }
     workspace::PartState& part(){return *live.open_part(live.active_document_id());}
     const document::PartDocument& doc(){return part().session.document();}
+    Json create_feature(const std::string& sketch,document::FeatureParameters parameters={},Json extra=Json::object()){
+        auto values=document::serialize_feature_parameters(parameters);values.erase("sketch_id");
+        extra["sketch"]=sketch;extra["parameters"]=std::move(values);
+        return run("feature.create",std::move(extra));
+    }
+    template<class Edit> Json set_feature(const std::string& id,Edit edit,Json extra=Json::object()){
+        auto values=document::serialize_feature_parameters(doc().find_container(id)->feature);edit(values);
+        extra["container"]=id;extra["parameters"]=std::move(values);return run("feature.set",std::move(extra));
+    }
+    template<class Edit> void reject_feature(const std::string& id,Edit edit,const char* code,Json extra=Json::object()){
+        auto values=document::serialize_feature_parameters(doc().find_container(id)->feature);edit(values);
+        extra["container"]=id;extra["parameters"]=std::move(values);reject("feature.set",std::move(extra),code);
+    }
     void reject(const char* command,Json args,const char* code){
         const auto before=doc();const auto revision=part().session.revision();const auto* cache=part().session.calculated_boundaries().data();
+        const auto input=args.dump();
         const auto r=host.execute({{"command",command},{"arguments",std::move(args)}});
-        if(r.ok||r.code!=code)throw std::runtime_error(std::string(command)+" expected "+code+", got "+r.code+": "+r.message);
+        if(r.ok||r.code!=code)throw std::runtime_error(std::string(command)+" "+input+" expected "+code+", got "+r.code+": "+r.message);
         require(doc().history==before.history&&doc().history_order==before.history_order&&doc().history_cursor==before.history_cursor&&
             doc().body_history==before.body_history&&doc().constructions==before.constructions&&doc().sketches.size()==before.sketches.size()&&
             part().session.revision()==revision&&part().session.calculated_boundaries().data()==cache&&!host.change(),"Rejected profile changed document/history/cache");
@@ -42,10 +57,17 @@ struct Fixture {
     std::string rectangle(double x,double y,double width,double height){const auto id=sketch();line(id,x,y,x+width,y);line(id,x+width,y,x+width,y+height);line(id,x+width,y+height,x,y+height);line(id,x,y+height,x,y);return id;}
     Json stock(double x,double y,double z) {
         const auto profile=rectangle(-x/2,-y/2,x,y);
-        return run("extrusion.create",{{"sketch",profile},{"extent","symmetric"},{"length_forward_mm",z/2}});
+        document::FeatureParameters p;p.symmetric=true;p.sides[0].length=z/2;return create_feature(profile,p);
     }
     double volume(){require(!part().session.calculated_boundaries().empty(),"Missing calculated body");return part().session.calculated_boundaries().back().volume;}
 };
+void retired_profile_commands(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory);
+    for(const auto* prefix:{"extrusion","revolution"})for(const auto* action:{"create","get","set","reference.set","sketch.edit"}) {
+        const auto result=f.host.execute({{"command",std::string(prefix)+"."+action},{"arguments",Json::object()}});
+        require(!result.ok&&result.code=="unknown_command","Retired ordinary profile command remains registered");
+    }
+}
 void imported_datums(const fs::path& path,const fs::path& directory,bool large_probe=false) {
     using document::FeatureType;
     for(const auto [type,profile]:std::array<std::pair<FeatureType,int>,6>{{
@@ -130,15 +152,14 @@ void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const bool revolve:{false,true}) {
         Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name",revolve?"surface-cli-revolve":"surface-cli-extrude"}});
         const auto sketch=f.sketch();f.line(sketch,5,0,5,10);
-        if(revolve){const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});}
-        const auto* create=revolve?"revolution.create":"extrusion.create";const auto* set=revolve?"revolution.set":"extrusion.set";
-        const auto made=f.run(create,{{"sketch",sketch},{"result_type","surface"}});const auto id=made.at("container").get<std::string>();near(f.volume(),0);
-        require(made.at("result_type")=="surface"&&f.doc().find_container(id)->is_surface_result(),"CLI lost surface result type");
-        f.reject(set,{{"container",id},{"combine","subtract"}},"invalid_arguments");
-        f.run(set,{{"container",id},{"result_type","thin"},{"thin_thickness_mm",1}});require(f.volume()>0,"Surface to Thin did not produce material");
+        document::FeatureParameters parameters;parameters.result_type=document::ProfileResultType::Surface;
+        if(revolve){const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});parameters.axis_segment_id=axis;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;}
+        const auto made=f.create_feature(sketch,parameters);const auto id=made.at("container").get<std::string>();near(f.volume(),0);
+        require(made.at("parameters").at("result_type")=="surface"&&f.doc().find_container(id)->is_surface_result(),"CLI lost surface result type");
+        f.reject("feature.set",{{"container",id},{"combine","subtract"}},"invalid_arguments");
+        f.set_feature(id,[](auto& p){p["result_type"]="thin";p["thin_thickness"]=1;});require(f.volume()>0,"Surface to Thin did not produce material");
         f.run("undo");near(f.volume(),0);f.run("redo");require(f.volume()>0,"Surface type Redo did not restore Thin");
-        f.run(set,{{"container",id},{"result_type","surface"}});near(f.volume(),0);
-        f.run("save");
+        f.set_feature(id,[](auto& p){p["result_type"]="surface";});near(f.volume(),0);f.run("save");
     }
 }
 
@@ -405,24 +426,24 @@ void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","sheet-cut-methods"}});
     f.run("flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",1.}});
     const auto sketch=f.rectangle(5,5,6,4);
-    const auto created=f.run("extrusion.create",{{"sketch",sketch},{"sheet_cut",true},
+    const auto created=f.run("sheet_cut.create",{{"sketch",sketch},
         {"sheet_cut_clearance",true},{"extent","two_sides"},{"end_forward","through_all"},{"end_reverse","through_all"}});
     const auto id=created.at("container").get<std::string>();
     require(created.at("sheet_cut_clearance")==true,"Sheet Cut create lost profile-clearance mode");near(f.volume(),1176.);
     const auto clearance_operations=f.doc().kernel_operations();
     const auto clearance_fingerprint=kernel::history_fingerprint(clearance_operations,clearance_operations.size());
-    const auto surface=f.run("extrusion.set",{{"container",id},{"sheet_cut_clearance",false}});
+    const auto surface=f.run("sheet_cut.set",{{"container",id},{"sheet_cut_clearance",false}});
     require(surface.at("sheet_cut_clearance")==false,"Sheet Cut edit did not select surface mode");near(f.volume(),1176.);
     const auto surface_operations=f.doc().kernel_operations();
     require(clearance_fingerprint!=kernel::history_fingerprint(surface_operations,surface_operations.size()),
         "Sheet Cut calculation method did not invalidate its geometry fingerprint");
-    f.run("undo");require(f.run("extrusion.get",{{"container",id}}).at("sheet_cut_clearance")==true,
+    f.run("undo");require(f.run("sheet_cut.get",{{"container",id}}).at("sheet_cut_clearance")==true,
         "Undo did not restore Sheet Cut profile-clearance mode");
-    f.run("redo");require(f.run("extrusion.get",{{"container",id}}).at("sheet_cut_clearance")==false,
+    f.run("redo");require(f.run("sheet_cut.get",{{"container",id}}).at("sheet_cut_clearance")==false,
         "Redo did not restore Sheet Cut surface mode");
-    f.reject("extrusion.set",{{"container",id},{"sheet_cut_clearance","invalid"}},"invalid_arguments");
+    f.reject("sheet_cut.set",{{"container",id},{"sheet_cut_clearance","invalid"}},"invalid_arguments");
     for(const bool clearance:{false,true}) {
-        f.run("extrusion.set",{{"container",id},{"sheet_cut_clearance",clearance}});f.run("save");
+        f.run("sheet_cut.set",{{"container",id},{"sheet_cut_clearance",clearance}});f.run("save");
         std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"sheet-cut-methods.prtz",&cache);
         require(reopened.find_container(id)->extrusion.sheet_cut_clearance==clearance,
             "Native Sheet Cut calculation method was lost on reopen");near(cache.back().volume,1176.);
@@ -447,36 +468,37 @@ void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
 }
 void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-extrusion"}});
-    const auto sketch=f.rectangle(0,0,10,20);const auto profile=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
-    const auto source=*f.doc().find_container(profile.owner_container_id);const auto history_count=f.doc().history.size();
-    const auto created=f.run("extrusion.create",{{"sketch",sketch},{"length_forward_mm",5},{"name","Vytažení CLI"}});
-    const auto id=created.at("container").get<std::string>();const auto feature=created.at("feature").get<std::string>();
+    const auto sketch=f.rectangle(-5,-10,10,20);
+    const auto source=*f.doc().find_container(f.doc().sketches.back().owner_container_id);
+    const auto history_count=f.doc().history.size();
+    document::FeatureParameters parameters;parameters.sides[0].length=5;
+    const auto created=f.create_feature(sketch,parameters,{{"name","Vytažení CLI"}});
+    const auto id=created.at("container").get<std::string>(),feature=created.at("feature").get<std::string>();
     require(id==source.id&&feature!=source.feature_id&&f.doc().history.size()==history_count,"Sketch conversion changed container or history position");
     require(f.doc().find_container(id)->container_origin==source.container_origin&&f.doc().find_container(id)->feature_parent_id==id,"Conversion lost native ancestry");
-    require(created.at("sketch")==sketch&&created.at("profile_source")=="internal","Conversion lost owned profile");near(f.volume(),1000);
-    f.reject("extrusion.set",{{"container",id},{"sheet_cut_clearance",true}},"invalid_arguments");
-    const auto get_revision=f.part().session.revision();const auto* get_cache=f.part().session.calculated_boundaries().data();f.run("extrusion.get",{{"container",id}});
+    require(created.at("sketch")==sketch&&created.at("parameters").at("profile_source")=="internal","Conversion lost owned profile");near(f.volume(),1000);
+    f.reject("feature.set",{{"container",id},{"sheet_cut_clearance",true}},"invalid_arguments");
+    const auto get_revision=f.part().session.revision();const auto* get_cache=f.part().session.calculated_boundaries().data();f.run("feature.get",{{"container",id}});
     require(f.part().session.revision()==get_revision&&f.part().session.calculated_boundaries().data()==get_cache&&!f.host.change(),"Profile query changed state");
     f.run("undo");require(*f.doc().find_container(id)==source,"Conversion Undo lost original Sketch container");f.run("redo");near(f.volume(),1000);require(f.doc().find_container(id)->feature_id==feature,"Conversion Redo changed feature identity");
-    f.run("extrusion.set",{{"container",id},{"length_forward_mm",10}});near(f.volume(),2000);f.run("undo");near(f.volume(),1000);f.run("redo");
-    f.run("extrusion.set",{{"container",id},{"extent","two_sides"},{"length_forward_mm",3},{"length_reverse_mm",7}});near(f.volume(),2000);
-    f.run("extrusion.set",{{"container",id},{"extent","symmetric"},{"length_forward_mm",5}});near(f.volume(),2000);require(f.doc().find_container(id)->extrusion.length_reverse==5,"Symmetric reverse extent not synchronized");
-    f.run("extrusion.set",{{"container",id},{"extent","one_side"},{"direction","reverse"},{"length_forward_mm",6}});near(f.volume(),1200);
-    f.run("extrusion.set",{{"container",id},{"profile_offset_mm",2},{"placement",{{"x",3},{"rotation_z",90}}}});near(f.volume(),1200);
+    f.set_feature(id,[](auto& p){p["sides"][0]["length"]=10;});near(f.volume(),2000);f.run("undo");near(f.volume(),1000);f.run("redo");
+    f.set_feature(id,[](auto& p){p["sides"][0]["length"]=3;p["sides"][1]["operation"]="extrusion";p["sides"][1]["length"]=7;});near(f.volume(),2000);
+    f.set_feature(id,[](auto& p){p["symmetric"]=true;p["sides"][0]["length"]=5;});near(f.volume(),2000);
+    require(f.doc().find_container(id)->feature.effective_side(1).length==5&&f.doc().find_container(id)->feature.sides[1].length==7,"Symmetry changed independent Start settings");
+    f.set_feature(id,[](auto& p){p["symmetric"]=false;p["sides"][0]["operation"]="none";p["sides"][1]["length"]=6;});near(f.volume(),1200);
+    f.set_feature(id,[](auto& p){p["profile_plane_offset"]=2;},{{"placement",{{"x",3},{"rotation_z",90}}}});near(f.volume(),1200);
     require(std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->plane_offset==2,"Profile offset not synchronized to owned Sketch");
-    for(const Json bad:{Json(-1),Json(0),Json(1000001),Json(true),Json("4")})f.reject("extrusion.set",{{"container",id},{"name","partial"},{"length_forward_mm",bad}},"invalid_arguments");
-    f.reject("extrusion.set",{{"container",id},{"extent","symmetric"},{"length_forward_mm",3},{"length_reverse_mm",4}},"invalid_arguments");
-    f.reject("extrusion.set",{{"container",id},{"end_forward","through_all"}},"invalid_arguments");
-    f.reject("extrusion.set",{{"container",id},{"end_forward","up_to"}},"missing_reference");
-    f.reject("extrusion.set",{{"container",id},{"extent","wrong"}},"invalid_arguments");
-    f.reject("revolution.get",{{"container",id}},"wrong_feature");
-    f.reject("extrusion.create",{{"sketch",sketch}},"profile_owned");
-    auto locked=f.doc();locked.find_container(id)->value_locks.insert("length_forward");locked.find_container(id)->value_locks.insert("profile_offset");
+    for(const Json bad:{Json(-1),Json(0),Json(true),Json("4")})f.reject_feature(id,[&](auto& p){p["sides"][1]["length"]=bad;},"invalid_arguments",{{"name","partial"}});
+    f.reject_feature(id,[](auto& p){p["sides"][1]["extrusion_extent"]="through_all";},"invalid_arguments");
+    f.reject_feature(id,[](auto& p){p["sides"][1]["extrusion_extent"]="up_to";},"missing_reference");
+    f.reject_feature(id,[](auto& p){p["sides"][1]["operation"]="wrong";},"invalid_arguments");
+    f.reject("feature.create",{{"sketch",sketch}},"profile_owned");
+    auto locked=f.doc();locked.find_container(id)->value_locks.insert("side1_length");locked.find_container(id)->value_locks.insert("profile_offset");
     f.part().session.commit(std::move(locked),f.part().session.calculated_boundaries());
-    f.reject("extrusion.set",{{"container",id},{"length_forward_mm",8}},"value_locked");
-    f.reject("extrusion.set",{{"container",id},{"profile_offset_mm",8}},"value_locked");
-    f.interaction.editing=true;f.reject("extrusion.set",{{"container",id},{"name","blocked"}},"editing_in_progress");f.interaction={};
-    f.run("body.activate");f.reject("extrusion.set",{{"container",id},{"name","blocked"}},"inactive_body");f.run("body.activate",{{"body",created.at("body")}});
+    f.reject_feature(id,[](auto& p){p["sides"][1]["length"]=8;},"value_locked");
+    f.reject_feature(id,[](auto& p){p["profile_plane_offset"]=8;},"value_locked");
+    f.interaction.editing=true;f.reject("feature.set",{{"container",id},{"name","blocked"}},"editing_in_progress");f.interaction={};
+    f.run("body.activate");f.reject("feature.set",{{"container",id},{"name","blocked"}},"inactive_body");f.run("body.activate",{{"body",created.at("body")}});
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-extrusion.prtz",&cache);
     require(*reopened.find_container(id)==*f.doc().find_container(id),"Native profile parameters or identities lost");near(cache.back().volume,1200);
     // GUI can commit a changed owned Sketch with unchanged feature parameters.
@@ -486,7 +508,7 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     near(f.volume(),2400);f.run("undo");near(f.volume(),1200);
     // An owned draft cannot conceal that the existing Sketch belongs elsewhere.
     auto stolen=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
-    auto other=document::PartDocument::create_extrusion_container(sketch);stolen.owner_container_id=other.id;
+    auto other=document::PartDocument::create_feature_container(sketch);stolen.owner_container_id=other.id;
     const auto original=f.doc();const auto revision=f.part().session.revision();
     bool rejected=false;
     try {workspace::commit_profile(f.live,kernel,f.doc().document_id,other,workspace::ProfileEditMode::Create,stolen);}
@@ -496,17 +518,17 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
 void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-thin"}});
     const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
-    const auto made=f.run("extrusion.create",{{"sketch",sketch},{"result_type","thin"},{"thin_thickness_mm",1},{"length_forward_mm",3}});
-    near(f.volume(),27*std::numbers::pi);
-    f.run("extrusion.set",{{"container",made.at("container")},{"thin_mode","other_side"}});near(f.volume(),33*std::numbers::pi);
+    document::FeatureParameters parameters;parameters.result_type=document::ProfileResultType::Thin;parameters.thin_thickness=1;parameters.sides[0].length=3;
+    const auto made=f.create_feature(sketch,parameters);const auto id=made.at("container").get<std::string>();near(f.volume(),27*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["thin_mode"]="other_side";});near(f.volume(),33*std::numbers::pi);
     f.run("undo");near(f.volume(),27*std::numbers::pi);f.run("redo");near(f.volume(),33*std::numbers::pi);
-    f.reject("extrusion.set",{{"container",made.at("container")},{"thin_mode","one_side"},{"thin_thickness_mm",8}},"profile_rejected");
-    f.run("extrusion.set",{{"container",made.at("container")},{"result_type","solid"}});near(f.volume(),75*std::numbers::pi);
+    f.reject_feature(id,[](auto& p){p["thin_mode"]="one_side";p["thin_thickness"]=8;},"profile_rejected");
+    f.set_feature(id,[](auto& p){p["result_type"]="solid";});near(f.volume(),75*std::numbers::pi);
     f.run("new",{{"type","part"},{"name","profile-cut"}});f.stock(10,10,10);
-    const auto cut_sketch=f.rectangle(2,2,2,2);
-    const auto cut=f.run("extrusion.create",{{"sketch",cut_sketch},{"combine","subtract"},{"end_forward","through_all"}});near(f.volume(),980);
-    // The native Box is centred at the Origin; one side cuts only half its depth.
-    f.run("extrusion.set",{{"container",cut.at("container")},{"extent","two_sides"},{"end_reverse","through_all"}});near(f.volume(),960);
+    const auto cut_sketch=f.rectangle(2,2,2,2);parameters={};parameters.sides[0].extrusion_extent=document::EndCondition::ThroughAll;
+    const auto cut=f.create_feature(cut_sketch,parameters,{{"combine","subtract"}});const auto cut_id=cut.at("container").get<std::string>();near(f.volume(),980);
+    // Stock is centred at the Origin; one side cuts only half its depth.
+    f.set_feature(cut_id,[](auto& p){p["sides"][1]["operation"]="extrusion";p["sides"][1]["extrusion_extent"]="through_all";});near(f.volume(),960);
     f.run("undo");near(f.volume(),980);f.run("redo");near(f.volume(),960);
 }
 #include "profile_point_end_verification.inc"
@@ -514,39 +536,37 @@ void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-targets"}});
     const auto upper=f.run("construction.create",{{"kind","plane"},{"name","Upper"},{"base_plane","xy"},{"offset_mm",7}});
     const auto lower=f.run("construction.create",{{"kind","plane"},{"name","Lower"},{"base_plane","xy"},{"offset_mm",-3}});
-    const Json up={{"owner",upper.at("entity")},{"key","plane"},{"label","Horní konec"}};
-    const Json down={{"owner",lower.at("entity")},{"key","plane"}};
     const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
-    const auto made=f.run("extrusion.create",{{"sketch",sketch},{"extent","two_sides"},{"end_forward","up_to"},{"end_reverse","up_to"},
-        {"targets_forward",Json::array({up})},{"targets_reverse",Json::array({down})}});
-    const auto id=made.at("container").get<std::string>();near(f.volume(),250*std::numbers::pi);
-    require(made.at("targets_forward")[0].at("owner")==upper.at("entity") && made.at("targets_forward")[0].at("kind")=="plane","Original target identity was not resolved");
-    f.run("extrusion.set",{{"container",id},{"extent","symmetric"}});near(f.volume(),350*std::numbers::pi);
+    document::FeatureParameters parameters;
+    document::ExtrusionParameters::EndTarget target;target.reference={upper.at("entity"),"plane",{}};target.label="Horní konec";
+    parameters.sides[0].extrusion_extent=document::EndCondition::UpTo;parameters.sides[0].targets={target};
+    target.reference.owner_id=lower.at("entity");target.label.clear();parameters.sides[1].operation=document::FeatureSideOperation::Extrusion;
+    parameters.sides[1].extrusion_extent=document::EndCondition::UpTo;parameters.sides[1].targets={target};
+    const auto made=f.create_feature(sketch,parameters);const auto id=made.at("container").get<std::string>();near(f.volume(),250*std::numbers::pi);
+    require(made.at("parameters").at("sides")[0].at("targets")[0].at("owner")==upper.at("entity"),"Original target identity was not resolved");
+    f.set_feature(id,[](auto& p){p["symmetric"]=true;});near(f.volume(),350*std::numbers::pi);
     f.run("undo");near(f.volume(),250*std::numbers::pi);f.run("redo");near(f.volume(),350*std::numbers::pi);
-    f.run("extrusion.set",{{"container",id},{"extent","two_sides"}});near(f.volume(),250*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["symmetric"]=false;});near(f.volume(),250*std::numbers::pi);
     f.run("construction.set",{{"construction",upper.at("construction")},{"offset_mm",9}});near(f.volume(),250*std::numbers::pi);
     f.run("regenerate");near(f.volume(),300*std::numbers::pi);
-    const auto& target=f.doc().find_container(id)->extrusion.end_targets_forward.front();near(target.fallback_origin.z,9);
-    f.reject("extrusion.set",{{"container",id},{"name","partial"},{"targets_forward",Json::array({up,up})}},"invalid_arguments");
-    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",upper.at("entity")},{"key","missing"}}})}},"missing_reference");
-    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",upper.at("entity")},{"key","plane"},{"instance_path","/unrelated"}}})}},"invalid_reference");
-    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",upper.at("entity")},{"key","plane"},{"surprise",true}}})}},"invalid_arguments");
-    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({down})}},"profile_rejected");
+    near(f.doc().find_container(id)->feature.sides[0].targets.front().fallback_origin.z,9);
+    f.reject_feature(id,[](auto& p){auto t=p["sides"][0]["targets"][0];p["sides"][0]["targets"].push_back(t);},"missing_reference",{{"name","partial"}});
+    f.reject_feature(id,[](auto& p){p["sides"][0]["targets"][0]["key"]="missing";},"missing_reference");
+    f.reject_feature(id,[](auto& p){p["sides"][0]["targets"][0]["instance_path"]="/unrelated";},"invalid_reference");
+    f.reject_feature(id,[](auto& p){p["sides"][0]["targets"][0]["surprise"]=true;},"invalid_arguments");
+    f.reject_feature(id,[&](auto& p){p["sides"][0]["targets"]=p["sides"][1]["targets"];},"profile_rejected");
     const auto later=f.run("construction.create",{{"kind","plane"},{"name","Later"},{"base_plane","xy"},{"offset_mm",12}});
-    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",later.at("entity")},{"key","plane"}}})}},"invalid_reference_source");
+    f.reject_feature(id,[&](auto& p){p["sides"][0]["targets"][0]["owner"]=later.at("entity");},"invalid_reference_source");
     f.reject("history.move",{{"object",id},{"before",upper.at("construction")}},"history_dependency");
     const auto removed=f.host.execute({{"command","history.delete"},{"arguments",{{"object",upper.at("construction")}}}});
-    require(!removed.ok&&removed.code=="calculation_errors"&&f.doc().find_construction(upper.at("construction"))==nullptr,
-        "Deleting an earlier reference did not preserve the edit with downstream diagnostics");
+    require(!removed.ok&&removed.code=="calculation_errors"&&f.doc().find_construction(upper.at("construction"))==nullptr,"Deleting an earlier reference did not preserve the edit with downstream diagnostics");
     require(f.part().session.calculated_boundaries().back().calculation_errors.contains(id),"Dependent profile has no missing-target diagnostic");
     f.run("undo");near(f.volume(),300*std::numbers::pi);
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-targets.prtz",&cache);
-    require(reopened.find_container(id)->extrusion==f.doc().find_container(id)->extrusion,"End target native data changed on reopen");near(cache.back().volume,300*std::numbers::pi);
-    f.run("extrusion.set",{{"container",id},{"extent","one_side"},{"end_forward","length"},{"end_reverse","length"},
-        {"length_forward_mm",5},{"targets_forward",Json::array()},{"targets_reverse",Json::array()}});near(f.volume(),125*std::numbers::pi);
+    require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"End target native data changed on reopen");near(cache.back().volume,300*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["sides"][0]["extrusion_extent"]="length";p["sides"][0]["length"]=5;p["sides"][0]["targets"]=Json::array();p["sides"][1]["operation"]="none";p["sides"][1]["targets"]=Json::array();});near(f.volume(),125*std::numbers::pi);
     f.run("undo");near(f.volume(),300*std::numbers::pi);
-    f.run("extrusion.set",{{"container",id},{"extent","one_side"},{"direction","reverse"},{"placement",{{"z",4}}},
-        {"targets_forward",Json::array({{{"owner",f.doc().document_id+":origin"},{"key","origin:plane:xy"}}})}});
+    f.set_feature(id,[&](auto& p){p["sides"][0]["operation"]="none";p["sides"][1]["targets"][0]["owner"]=f.doc().document_id+":origin";p["sides"][1]["targets"][0]["key"]="origin:plane:xy";},{{"placement",{{"z",4}}}});
     near(f.volume(),100*std::numbers::pi);
 }
 void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path directory) {
@@ -565,53 +585,51 @@ void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path dir
     const auto profile_body=f.run("body.create",{{"name","Dependent"}}).at("body").get<std::string>();
     f.run("placement.set",{{"object",profile_body},{"values",{{"reference_offset:0",5}}}});
     const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
-    const auto profile=f.run("extrusion.create",{{"sketch",sketch},{"end_forward","up_to"},
-        {"targets_forward",Json::array({{{"owner",face->owner_id},{"key",face->semantic_key}}})}}).at("container").get<std::string>();
+    document::FeatureParameters parameters;parameters.sides[0].extrusion_extent=document::EndCondition::UpTo;
+    document::ExtrusionParameters::EndTarget target;target.reference={face->owner_id,face->semantic_key,{}};parameters.sides[0].targets={target};
+    const auto profile=f.create_feature(sketch,parameters).at("container").get<std::string>();
     near(f.volume(),8000+375*std::numbers::pi);
-    near(f.doc().find_container(profile)->extrusion.end_targets_forward.front().fallback_origin.z,15);
-    f.run("body.activate",{{"body",source_body}});f.run("extrusion.set",{{"container",stock},{"length_forward_mm",11}});
+    near(f.doc().find_container(profile)->feature.sides[0].targets.front().fallback_origin.z,15);
+    f.run("body.activate",{{"body",source_body}});f.set_feature(stock,[](auto& p){p["sides"][0]["length"]=11;});
     near(f.volume(),8800+400*std::numbers::pi);
-    near(f.doc().find_container(profile)->extrusion.end_targets_forward.front().fallback_origin.z,16);
+    near(f.doc().find_container(profile)->feature.sides[0].targets.front().fallback_origin.z,16);
     f.run("undo");near(f.volume(),8000+375*std::numbers::pi);f.run("redo");near(f.volume(),8800+400*std::numbers::pi);
     f.run("save");std::vector<kernel::BodyResult> cache;
     auto reopened=document::PartDocument::load(directory/"profile-body-target.prtz",&cache);
     near(cache.back().volume,8800+400*std::numbers::pi);
     kernel::OcctKernel cold;
-    reopened.find_container(profile)->extrusion.extent_mode=document::ProfileExtentMode::Symmetric;
+    reopened.find_container(profile)->feature.symmetric=true;
     near(cold.evaluate_history_incremental(reopened.kernel_operations(),cache).back().volume,8800+800*std::numbers::pi);
 }
 void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-revolution"}});
-    const auto sketch=f.rectangle(2,0,2,10);
-    f.reject("revolution.create",{{"sketch",sketch}},"profile_rejected");
+    const auto sketch=f.rectangle(2,0,2,10);document::FeatureParameters parameters;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;parameters.sides[0].angle_degrees=360;
+    auto invalid=document::serialize_feature_parameters(parameters);invalid.erase("sketch_id");f.reject("feature.create",{{"sketch",sketch},{"parameters",invalid}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
-    const auto second_axis=f.line(sketch,-8,0,-8,10);
-    f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",second_axis},{"centerline",true}});
-    const auto made=f.run("revolution.create",{{"sketch",sketch}});const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
-    require(made.at("axis")==axis,"Revolution did not use exact native centerline identity");
-    auto hidden_axis=f.doc();
-    auto& hidden_sketch=*std::ranges::find(hidden_axis.sketches,sketch,&sketcher::Sketch::id);
-    hidden_sketch.set_geometry_visible_in_3d(axis,false);
-    require(workspace::revolution_axis_segment_id(hidden_sketch)==axis,"Hiding first construction axis selected another axis");
-    hidden_axis.find_container(id)->revolution.axis_segment_id.clear();
+    const auto second_axis=f.line(sketch,-8,0,-8,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",second_axis},{"centerline",true}});
+    const auto made=f.create_feature(sketch,parameters);const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
+    require(made.at("parameters").at("axis_segment_id")==axis,"Revolution did not use exact native centerline identity");
+    auto hidden_axis=f.doc();auto& hidden_sketch=*std::ranges::find(hidden_axis.sketches,sketch,&sketcher::Sketch::id);hidden_sketch.set_geometry_visible_in_3d(axis,false);
+    require(workspace::revolution_axis_segment_id(hidden_sketch)==axis,"Hiding first construction axis selected another axis");hidden_axis.find_container(id)->feature.axis_segment_id.clear();
     near(kernel.evaluate_history(hidden_axis.kernel_operations()).back().volume,120*std::numbers::pi);
-    f.run("revolution.set",{{"container",id},{"result_type","thin"},{"thin_thickness_mm",.25},{"thin_mode","symmetric"}});near(f.volume(),36*std::numbers::pi);
-    f.run("revolution.set",{{"container",id},{"result_type","solid"}});near(f.volume(),120*std::numbers::pi);
-    f.run("revolution.set",{{"container",id},{"angle_degrees",90}});near(f.volume(),30*std::numbers::pi);
-    f.run("revolution.set",{{"container",id},{"extent","two_sides"},{"angle_degrees",60},{"angle_reverse_degrees",30}});near(f.volume(),30*std::numbers::pi);
-    f.run("revolution.set",{{"container",id},{"extent","symmetric"},{"angle_degrees",45}});near(f.volume(),30*std::numbers::pi);
-    f.run("revolution.set",{{"container",id},{"direction","reverse"}});near(f.volume(),30*std::numbers::pi);
-    f.reject("revolution.set",{{"container",id},{"angle_degrees",361}},"invalid_arguments");
-    f.reject("revolution.set",{{"container",id},{"axis","missing"}},"invalid_reference");
-    auto locked=f.doc();locked.find_container(id)->value_locks.insert("angle");f.part().session.commit(std::move(locked),f.part().session.calculated_boundaries());
-    f.reject("revolution.set",{{"container",id},{"angle_degrees",30}},"value_locked");
+    f.set_feature(id,[](auto& p){p["result_type"]="thin";p["thin_thickness"]=.25;p["thin_mode"]="symmetric";});near(f.volume(),36*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["result_type"]="solid";});near(f.volume(),120*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["sides"][0]["angle_degrees"]=90;});near(f.volume(),30*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["sides"][0]["angle_degrees"]=60;p["sides"][1]["operation"]="revolution";p["sides"][1]["angle_degrees"]=30;});near(f.volume(),30*std::numbers::pi);
+    f.set_feature(id,[](auto& p){p["symmetric"]=true;p["sides"][0]["angle_degrees"]=45;});near(f.volume(),30*std::numbers::pi);
+    f.reject_feature(id,[](auto& p){p["sides"][0]["angle_degrees"]=361;},"invalid_arguments");
+    const auto axis_revision=f.part().session.revision();
+    require(!f.set_feature(id,[](auto& p){p["axis_segment_id"]="missing";}).at("changed").get<bool>(),"Resolving the same native construction axis committed a change");
+    require(f.part().session.revision()==axis_revision&&f.doc().find_container(id)->feature.axis_segment_id==axis,"Construction axis fallback changed identity");
+    auto locked=f.doc();locked.find_container(id)->value_locks.insert("side0_angle");f.part().session.commit(std::move(locked),f.part().session.calculated_boundaries());
+    f.reject_feature(id,[](auto& p){p["sides"][0]["angle_degrees"]=30;},"value_locked");
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-revolution.prtz",&cache);
-    require(reopened.find_container(id)->revolution==f.doc().find_container(id)->revolution,"Revolution native persistence lost axis or parameters");near(cache.back().volume,30*std::numbers::pi);
+    require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"Revolution native persistence lost axis or parameters");near(cache.back().volume,30*std::numbers::pi);
 }
 void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","retained-feature-definitions"}});
     const auto empty_cut_sketch=f.rectangle(100,100,10,10);
-    const auto empty_cut=f.run("extrusion.create",{{"sketch",empty_cut_sketch},{"combine","subtract"},{"length_forward_mm",10}}).at("container").get<std::string>();
+    const auto empty_cut=f.create_feature(empty_cut_sketch,document::FeatureParameters{},{{"combine","subtract"}}).at("container").get<std::string>();
     near(f.volume(),0);
     require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Valid first cut acquired a calculation error");
     require(f.doc().find_container(empty_cut)->combine_mode==document::CombineMode::Subtract,"First cut changed operation");
@@ -622,7 +640,7 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     require(empty_rebuilt.back().calculation_errors.empty()&&empty_rebuilt.back().mesh.triangles.empty(),"Native empty cut introduced material or failed on reopening");
     f.stock(10,10,10);near(f.volume(),1000);
     const auto miss_sketch=f.rectangle(150,150,10,10);
-    const auto miss=f.run("extrusion.create",{{"sketch",miss_sketch},{"combine","subtract"},{"length_forward_mm",10}}).at("container").get<std::string>();
+    const auto miss=f.create_feature(miss_sketch,document::FeatureParameters{},{{"combine","subtract"}}).at("container").get<std::string>();
     near(f.volume(),1000);require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Disjoint cut was rejected");
     f.run("undo");near(f.volume(),1000);f.run("redo");require(f.doc().find_container(miss),"No-op cut Redo lost definition");
     const auto input=f.part().session.calculated_boundaries().back();
@@ -646,10 +664,10 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     require(failed_native.find_container(failed_id)->edge_treatment==fillet.edge_treatment&&failed_cache.back().calculation_errors.contains(failed_id),"Native reopen lost failed parameters or diagnostics");
     auto failed_rebuilt=workspace::calculate_part_with_resolved_references(cold,failed_native,&failed_cache);
     require(failed_rebuilt.back().calculation_errors.contains(failed_id)&&std::abs(failed_rebuilt.back().volume-1000)<1e-8,"Cold failed regeneration lost preceding geometry");
-    auto downstream=document::PartDocument::create_extrusion_container("unused");
+    auto downstream=document::PartDocument::create_feature_container("unused");
     auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
     static_cast<void>(sketch.add_rectangle(20,20,25,25));
-    downstream.extrusion.sketch_id=sketch.id;downstream.extrusion.length_forward=5;sketch.owner_container_id=downstream.id;
+    downstream.feature.sketch_id=sketch.id;downstream.feature.sides[0].length=5;sketch.owner_container_id=downstream.id;
     workspace::commit_profile(f.live,kernel,f.doc().document_id,downstream,workspace::ProfileEditMode::Create,sketch);
     require(f.doc().find_container(downstream.id)&&f.part().session.calculated_boundaries().back().calculation_errors.contains(downstream.id),"Dependent failure was lost or executed against invalid input");
     near(f.volume(),1000);
@@ -666,7 +684,7 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
 int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");
     if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
-    kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    kernel::OcctKernel kernel;retired_profile_commands(kernel,directory);front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     point_end_targets(kernel,directory);
     directed_rotation_targets(kernel,directory);
     retained_definitions(kernel,directory);

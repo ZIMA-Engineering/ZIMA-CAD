@@ -24,6 +24,7 @@ using commands::Json;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double a,double b){if(std::abs(a-b)>1e-5)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));}
+kernel::BodyResult analyzed_body(const kernel::OcctKernel& kernel,kernel::BodyResult body){kernel.ensure_body_properties(body);return body;}
 void near_clearance_volume(double actual,double expected) {
     if(std::abs(actual-expected)>1e-3)
         throw std::runtime_error("Expected clearance volume "+std::to_string(expected)+", got "+std::to_string(actual));
@@ -182,7 +183,7 @@ void verify_sheet_attachment(std::filesystem::path directory) {
     run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}});
     const auto* state=live.open_part(live.active_document_id());
     const auto source=state->session.document();
-    const auto original=state->session.calculated_boundaries().back();
+    const auto original=analyzed_body(kernel,state->session.calculated_boundaries().back());
     const auto restored=document::load_body_result(document::serialize_body_result(original));
     const auto geometry=restored.mesh.original_references;
     unsigned boundary_count=0;
@@ -264,9 +265,9 @@ void verify_sheet_attachment(std::filesystem::path directory) {
     for(const auto& sketch:state->session.document().sketches)if(sketch.owner_container_id==owner)
         for(const auto& reference:sketch.external_references)
             check(reference.source_document_id==state->session.document().document_id,"Attachment points refer to a temporary Body document");
-    near(state->session.calculated_boundaries().back().volume,2400+40*std::numbers::pi/2*12);
+    near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,2400+40*std::numbers::pi/2*12);
     run(host,"bend.set",{{"container",owner},{"origin_last",true}});
-    near(state->session.calculated_boundaries().back().volume,2400+40*std::numbers::pi/2*12);
+    near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,2400+40*std::numbers::pi/2*12);
     const auto profile_id=state->session.document().find_container(owner)->bend.sketch_id;
     check(workspace::mutate_document_sketch(live,live.active_document_id(),profile_id,[&](auto& sketch) {
         check(sketch.set_dimension_value(profile_id+":position:first",3),"Cannot set first attachment offset");
@@ -302,7 +303,7 @@ void verify_sheet_attachment(std::filesystem::path directory) {
         for(std::size_t i=0;i<2;++i)check(std::ranges::find(sketch.dimensions,profile_id+(i?":position:last":":position:first"),&sketcher::SketchDimension::id)->second_point_id==endpoint_ids[i],
             "Changing the boundary exchanged profile point identities");
     }
-    auto reversed_geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    auto reversed_geometry=analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references;
     for(auto& edge:reversed_geometry.edges) {
         std::ranges::reverse(edge.points);std::ranges::reverse(edge.edge_treatment_endpoint_references);
         if(edge.exact_spline) {std::ranges::reverse(edge.exact_spline->poles);kernel::reverse_bspline_parameters(edge.exact_spline->knots,edge.exact_spline->weights);}
@@ -519,7 +520,7 @@ void verify(std::filesystem::path directory) {
     const auto id=live.active_document_id();
     const auto created=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data;
     const auto owner=created.at("container").get<std::string>();auto* state=live.open_part(id);
-    const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};
+    const auto volume=[&]{return analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;};
     const double pi=std::numbers::pi;
     const double initial_k=created.at("k_factor");
     near(volume(),40*pi/2*(36-25)/2); // Annular sector: width * angle * (Ro²-Ri²)/2.
@@ -528,7 +529,7 @@ void verify(std::filesystem::path directory) {
         const auto corner_volume=volume();check(corner_volume>0,"Corner command produced an empty body");
         const auto details=run(host,"bend.get",{{"container",owner}}).data;
         check(details.at("corner_first")==true&&details.at("corner_last")==false,"Corner command lost independent ends");
-        for(const auto& edge:state->session.calculated_boundaries().back().mesh.original_references.edges)
+        for(const auto& edge:analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references.edges)
             check(edge.reference.semantic_key.find("transient-corner")==std::string::npos,"Corner sampling leaked into persistent identity");
         run(host,"undo");run(host,"redo");near(volume(),corner_volume);
     }
@@ -543,10 +544,10 @@ void verify(std::filesystem::path directory) {
     {
         const auto unchanged=*state->session.document().find_container(owner);
         const auto unchanged_profile=workspace::document_sketch(live,id,unchanged.bend.sketch_id);
-        const auto calculated_shape=state->session.calculated_boundaries().back().kernel_shape;
+        const auto calculated_shape=analyzed_body(kernel,state->session.calculated_boundaries().back()).kernel_shape;
         const auto revision=state->session.revision();
         check(!workspace::commit_bend(live,kernel,id,unchanged,unchanged_profile)&&
-            state->session.revision()==revision&&state->session.calculated_boundaries().back().kernel_shape==calculated_shape,
+            state->session.revision()==revision&&analyzed_body(kernel,state->session.calculated_boundaries().back()).kernel_shape==calculated_shape,
             "Unchanged Bend confirmation recalculated geometry or created an Undo transaction");
         state->session.update_calculated_boundaries({});
         static_cast<void>(workspace::commit_bend(live,kernel,id,unchanged,unchanged_profile));
@@ -571,7 +572,7 @@ void verify(std::filesystem::path directory) {
     check(run(host,"bend.get",{{"container",owner}}).data.at("radius_mm")==2.,"Unlinking radius changed its effective value");
     run(host,"bend.set",{{"container",owner},{"radius_mm",5.},{"thickness_override",false}});
     near(volume(),40*pi/2*(36-25)/2);
-    const auto bent_body=state->session.calculated_boundaries().back();
+    const auto bent_body=analyzed_body(kernel,state->session.calculated_boundaries().back());
     const auto bent_faces=faces(bent_body,owner);
     // Exercise the actual Drawing measuring contract against calculated body
     // edges, not merely the stored Bend radius parameter or a preview.
@@ -619,9 +620,9 @@ void verify(std::filesystem::path directory) {
     run(host,"bend.set",{{"container",owner},{"thickness_mm",1.5},{"k_factor",.3}});near(volume(),40*pi/2*(6.5*6.5-25)/2);
     run(host,"bend.set",{{"container",owner},{"thickness_override",false},{"k_factor_override",false}});near(volume(),40*pi/2*(49-25)/2);
     run(host,"bend.set",{{"container",owner},{"angle_degrees",180.}});near(volume(),40*pi*(49-25)/2);
-    check(faces(state->session.calculated_boundaries().back(),owner)==bent_faces,"180-degree Bend changed face identity");
+    check(faces(analyzed_body(kernel,state->session.calculated_boundaries().back()),owner)==bent_faces,"180-degree Bend changed face identity");
     run(host,"bend.set",{{"container",owner},{"angle_degrees",0.}});near(volume(),0);
-    check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Zero angle produced a calculation error");
+    check(analyzed_body(kernel,state->session.calculated_boundaries().back()).calculation_errors.empty(),"Zero angle produced a calculation error");
     run(host,"bend.set",{{"container",owner},{"angle_degrees",90.}});
     run(host,"bend.set",{{"container",owner},{"first_extension_mm",3.},{"last_extension_mm",10.}});
     // Linear width transition: average width times the annular-sector area.
@@ -634,7 +635,7 @@ void verify(std::filesystem::path directory) {
     check(radius_annotation!=drawing_view.model_annotations.end()&&!radius_annotation->unresolved,
         "Variable-width Bend lost its authored Drawing radius annotation");
     near(radius_annotation->value,7.);
-    check(faces(state->session.calculated_boundaries().back(),owner)==bent_faces,"End profile widths changed face identity");
+    check(faces(analyzed_body(kernel,state->session.calculated_boundaries().back()),owner)==bent_faces,"End profile widths changed face identity");
     run(host,"bend.set",{{"container",owner},{"first_extension_mm",-3.},{"last_extension_mm",-10.}});
     near(volume(),33.5*pi/2*(49-25)/2);
     const auto rejected_revision=state->session.revision();
@@ -644,7 +645,7 @@ void verify(std::filesystem::path directory) {
     run(host,"bend.set",{{"container",owner},{"first_extension_mm",0.},{"last_extension_mm",0.}});
     run(host,"bend.set",{{"container",owner},{"radius_mm",0.},{"angle_degrees",180.}});
     near(volume(),40*pi*4/2);
-    const auto zero_faces=faces(state->session.calculated_boundaries().back(),owner);
+    const auto zero_faces=faces(analyzed_body(kernel,state->session.calculated_boundaries().back()),owner);
     check(zero_faces.size()==5&&std::ranges::all_of(zero_faces,[&](const auto& key){return bent_faces.contains(key);}),
         "R=0 replaced surviving face identities or kept a degenerate inner face");
     const auto zero_revision=state->session.revision();
@@ -653,7 +654,7 @@ void verify(std::filesystem::path directory) {
     check(state->session.revision()==zero_revision,"Rejected R=0 transition changed history");
     for(double angle:{45.,90.,180.}) {
         run(host,"bend.set",{{"container",owner},{"angle_degrees",angle}});near(volume(),40*angle*pi/180*4/2);
-        check(faces(state->session.calculated_boundaries().back(),owner)==zero_faces,"Zero-radius angle changed surviving face identities");
+        check(faces(analyzed_body(kernel,state->session.calculated_boundaries().back()),owner)==zero_faces,"Zero-radius angle changed surviving face identities");
     }
     run(host,"bend.set",{{"container",owner},{"radius_mm",5.},{"angle_degrees",90.}});
     run(host,"save");std::vector<kernel::BodyResult> cached;
@@ -680,7 +681,7 @@ void verify(std::filesystem::path directory) {
     const auto zero=workspace::open_family_instance(live,kernel,id,"Zero",false);
     near(live.open_part(zero)->session.calculated_boundaries().back().volume,0);
     const auto wide=workspace::open_family_instance(live,kernel,id,"Wide",false);
-    near(live.open_part(wide)->session.calculated_boundaries().back().volume,41.5*pi/2*(81-49)/2);
+    near(analyzed_body(kernel,live.open_part(wide)->session.calculated_boundaries().back()).volume,41.5*pi/2*(81-49)/2);
     run(host,"new",{{"type","assembly"},{"name","no-bend"}});
     check(!host.execute({{"command","bend.create"},{"arguments",Json::object()}}).ok,"Assembly accepted Bend");
 }
@@ -705,7 +706,7 @@ void verify_arc_only(std::filesystem::path directory) {
     check(rejected&&feature.bend.auxiliary_sketches==before,"Rejected straight trajectory changed the Bend");
     for(double angle:{45.,180.,0.,90.}) {
         run(host,"bend.set",{{"container",owner},{"angle_degrees",angle}});
-        near(state->session.calculated_boundaries().back().volume,40*angle*std::numbers::pi/180*(36-25)/2);
+        near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,40*angle*std::numbers::pi/180*(36-25)/2);
     }
     run(host,"save");
     auto saved=document::PartDocument::load(directory/"bend-arc-only.prtz");
@@ -713,8 +714,8 @@ void verify_arc_only(std::filesystem::path directory) {
     check(reopened.arcs.front().id==path.arcs.front().id&&reopened.segments.empty(),"Arc identity or trajectory changed on reopen");
     const auto calculated=kernel.evaluate_history(saved.kernel_operations());
     near(calculated.back().volume,40*std::numbers::pi/2*(36-25)/2);
-    run(host,"undo");near(state->session.calculated_boundaries().back().volume,0.);
-    run(host,"redo");near(state->session.calculated_boundaries().back().volume,calculated.back().volume);
+    run(host,"undo");near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,0.);
+    run(host,"redo");near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,calculated.back().volume);
 }
 void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     if(rotated) {directory/="rotated-origin";std::filesystem::create_directories(directory);}
@@ -740,7 +741,7 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
     cut.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
     workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-    const auto& result=state->session.calculated_boundaries().back();
+    auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     for(const auto& [failed,message]:result.calculation_errors)throw std::runtime_error("Sheet Cut calculation: "+message);
     // Side A has radius 10 and y=10-10*cos(angle). Project y=[1,5]
     // onto that skin, then carry exactly that angular domain through r=[9,10].
@@ -763,22 +764,22 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     if(rotated) {
         const double volume=result.volume;
         run(host,"unbend.create");
-        check(state->session.calculated_boundaries().back().calculation_errors.empty()&&
-            !state->session.calculated_boundaries().back().sheet_cuts.empty(),"Rotated cut was lost during unfolding");
+        check(analyzed_body(kernel,state->session.calculated_boundaries().back()).calculation_errors.empty()&&
+            !analyzed_body(kernel,state->session.calculated_boundaries().back()).sheet_cuts.empty(),"Rotated cut was lost during unfolding");
         run(host,"save");
         auto unfolded=document::PartDocument::load(directory/"sheet-cut-cylinder.prtz");
         const auto cold=workspace::calculate_part_with_resolved_references(fresh_kernel,unfolded);
         check(cold.back().calculation_errors.empty(),"Unfolded rotated cut failed after reopen");
         run(host,"bend_back.create");
-        check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Rotated cut cannot bend back");
-        near(state->session.calculated_boundaries().back().volume,volume);
+        check(analyzed_body(kernel,state->session.calculated_boundaries().back()).calculation_errors.empty(),"Rotated cut cannot bend back");
+        near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,volume);
         return;
     }
-    run(host,"undo");near(state->session.calculated_boundaries().back().volume,190*std::numbers::pi);
-    run(host,"redo");near(state->session.calculated_boundaries().back().volume,190*std::numbers::pi-removed);
+    run(host,"undo");near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,190*std::numbers::pi);
+    run(host,"redo");near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,190*std::numbers::pi-removed);
     // A normal cut differs from a spatial prism, including on the inner skin.
     bool cut_wall=false;
-    for(const auto& face:state->session.calculated_boundaries().back().mesh.triangle_references) {
+    for(const auto& face:analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.triangle_references) {
         check(face.valid(),"Sheet Cut created an anonymous result face");
         if(face.owner_id==cut.id) {cut_wall=true;check(face.sheet_role==kernel::SheetFaceRole::ThicknessFace,"Cut wall lost its sheet role");}
     }
@@ -787,7 +788,7 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     auto second=document::PartDocument::create_extrusion_container(circle.id);
     second.combine_mode=document::CombineMode::Subtract;second.extrusion=cut.extrusion;second.extrusion.sketch_id=circle.id;
     workspace::commit_profile(live,kernel,id,second,workspace::ProfileEditMode::Create,circle);
-    const auto circle_result=state->session.calculated_boundaries().back();
+    const auto circle_result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     check(circle_result.volume<recalculated.volume&&circle_result.calculation_errors.empty(),"Circular normal cut failed");
     check(std::ranges::any_of(circle_result.sheet_cuts,[&](const auto& r){return r.cut_owner==cut.id;})&&
         std::ranges::any_of(circle_result.sheet_cuts,[&](const auto& r){return r.cut_owner==second.id;}),"Second cut lost an earlier material region");
@@ -798,12 +799,12 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     const auto history_size=state->session.document().history.size();
     workspace::commit_profile(live,kernel,id,missing,workspace::ProfileEditMode::Create,outside);
     check(state->session.document().history.size()==history_size+1&&state->session.document().find_container(missing.id)&&
-        state->session.calculated_boundaries().back().calculation_errors.empty(),"Nonintersecting Sheet Cut did not retain a valid no-op definition");
-    near(state->session.calculated_boundaries().back().volume,circle_result.volume);
-    check(document::serialize_body_result(state->session.calculated_boundaries().back(),false).value("sheet_cuts",Json::array())==
+        analyzed_body(kernel,state->session.calculated_boundaries().back()).calculation_errors.empty(),"Nonintersecting Sheet Cut did not retain a valid no-op definition");
+    near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,circle_result.volume);
+    check(document::serialize_body_result(analyzed_body(kernel,state->session.calculated_boundaries().back()),false).value("sheet_cuts",Json::array())==
         document::serialize_body_result(circle_result,false).value("sheet_cuts",Json::array()),"Nonintersecting Sheet Cut changed prior material cuts");
     run(host,"undo");check(!state->session.document().find_container(missing.id),"Missed Sheet Cut Undo retained its definition");
-    run(host,"redo");check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Missed Sheet Cut Redo failed");
+    run(host,"redo");check(analyzed_body(kernel,state->session.calculated_boundaries().back()).calculation_errors.empty(),"Missed Sheet Cut Redo failed");
     for(const std::string kind:{"flat","bend","cone"}) {
         run(host,"new",{{"type","part"},{"name","sheet-cut-"+kind}});
         const auto document_id=live.active_document_id();state=live.open_part(document_id);
@@ -819,13 +820,13 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
             source_sketch.find_point(axis->second_point_id)->y=20.;
             workspace::commit_profile(live,kernel,document_id,source,workspace::ProfileEditMode::Create,source_sketch);
         }
-        const double before=state->session.calculated_boundaries().back().volume;
+        const double before=analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;
         sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(10,1,20,kind=="bend"?3:5));
         auto next=document::PartDocument::create_extrusion_container(sketch.id);next.combine_mode=document::CombineMode::Subtract;
         next.extrusion.sheet_cut=true;next.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
         next.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;next.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
         workspace::commit_profile(live,kernel,document_id,next,workspace::ProfileEditMode::Create,sketch);
-        const auto& after=state->session.calculated_boundaries().back();
+        const auto& after=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(after.calculation_errors.empty(),"Sheet Cut returned a failed feature");
         for(const auto& face:after.mesh.triangle_references) {
             check(face.valid(),"Normal cut created an anonymous face");
@@ -847,7 +848,7 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
             ring_cut.combine_mode=document::CombineMode::Subtract;ring_cut.extrusion=next.extrusion;
             ring_cut.extrusion.sketch_id=ring.id;
             workspace::commit_profile(live,kernel,document_id,ring_cut,workspace::ProfileEditMode::Create,ring);
-            const auto& ring_result=state->session.calculated_boundaries().back();
+            const auto& ring_result=analyzed_body(kernel,state->session.calculated_boundaries().back());
             check(ring_result.calculation_errors.empty(),"Sheet Cut with an inner profile loop failed");
             near(ring_result.volume,before_ring-(12.*12-6.*6));
             check(std::ranges::any_of(ring_result.sheet_cuts,[&](const auto& region){
@@ -859,7 +860,7 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
         run(host,"save");
         std::vector<kernel::BodyResult> restored;
         static_cast<void>(document::PartDocument::load(directory/("sheet-cut-"+kind+".prtz"),&restored));
-        check(document::serialize_body_result(state->session.calculated_boundaries().back()).at("sheet_cuts")==
+        check(document::serialize_body_result(analyzed_body(kernel,state->session.calculated_boundaries().back())).at("sheet_cuts")==
             document::serialize_body_result(restored.back()).at("sheet_cuts"),
             "Native roundtrip changed sheet region frames or trimming curves");
         for(const auto& region:restored.back().sheet_cuts) {
@@ -878,7 +879,7 @@ void verify_sheet_cut_across_attachment(std::filesystem::path directory) {
     run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",1.}});
     const auto id=live.active_document_id();auto* state=live.open_part(id);
     const auto flat_id=state->session.document().history.front().id;
-    const auto geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto geometry=analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references;
     const auto edge=std::ranges::find_if(geometry.edges,[](const auto& e){return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
         std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z-1.)<1e-7;});});
     check(edge!=geometry.edges.end(),"Sheet Cut attachment boundary missing");
@@ -898,14 +899,14 @@ void verify_sheet_cut_across_attachment(std::filesystem::path directory) {
         feature.placement.references=document::bend_sheet_references(*edge);
         static_cast<void>(workspace::commit_bend(live,kernel,id,feature,profile));
     }
-    const auto before=state->session.calculated_boundaries().back().volume;
+    const auto before=analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;
     auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(10,-3,20,3));
     auto cut=document::PartDocument::create_extrusion_container(sketch.id);cut.combine_mode=document::CombineMode::Subtract;
     cut.extrusion.sheet_cut=true;cut.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
     cut.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
     cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
     workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-    const auto& result=state->session.calculated_boundaries().back();
+    auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     check(result.calculation_errors.empty()&&result.volume>0&&result.volume<before,"Sheet Cut across an attachment failed");
     std::set<std::string> owners;
     for(const auto& region:result.sheet_cuts) {
@@ -943,7 +944,7 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
         // authored Side A; reversing the axis plus sweep direction changes none.
         const double thickness_sign=reverse_profile?-1:1;
         const double expected=angle*(600/cosine+thickness_sign*20);
-        near(state->session.calculated_boundaries().back().volume,expected);
+        near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,expected);
         auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(10,-30,20,30));
         auto cut=document::PartDocument::create_extrusion_container(sketch.id);
         cut.combine_mode=document::CombineMode::Subtract;cut.extrusion.sheet_cut=true;
@@ -952,7 +953,7 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
         cut.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
         cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
         workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-        const auto& result=state->session.calculated_boundaries().back();
+        auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(result.calculation_errors.empty(),"Sheet Cut failed on a reversed cone generator or axis");
         // The projection selects x=[10,20] on Side A. The normal cut must carry
         // that whole interval across thickness, not leave a tapered membrane.
@@ -984,7 +985,7 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
             circular.combine_mode=document::CombineMode::Subtract;circular.extrusion=cut.extrusion;
             circular.extrusion.sketch_id=round.id;
             workspace::commit_profile(live,kernel,id,circular,workspace::ProfileEditMode::Create,round);
-            const auto& perforated=state->session.calculated_boundaries().back();
+            const auto& perforated=analyzed_body(kernel,state->session.calculated_boundaries().back());
             check(perforated.volume<before_round,"Conical circular cut removed no material");
             // Independent disk/normal-depth integration, including reversed
             // material side. Axis reversal cannot change the physical result.
@@ -1005,7 +1006,7 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
                 elliptic.combine_mode=document::CombineMode::Subtract;elliptic.extrusion=cut.extrusion;
                 elliptic.extrusion.sketch_id=ellipse.id;
                 workspace::commit_profile(live,kernel,id,elliptic,workspace::ProfileEditMode::Create,ellipse);
-                const auto& cleared=state->session.calculated_boundaries().back();
+                const auto& cleared=analyzed_body(kernel,state->session.calculated_boundaries().back());
                 check(cleared.calculation_errors.empty()&&cleared.volume<before_ellipse&&
                     before_ellipse-cleared.volume<10,"Elliptic clearance cut has an invalid material volume");
                 near_clearance_volume(before_ellipse-cleared.volume,4.482372048838405);
@@ -1038,7 +1039,7 @@ void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool cle
         feature.placement.z=z;sketch.owner_container_id=feature.id;
         static_cast<void>(workspace::commit_flat(live,kernel,id,feature,sketch));sheets.push_back(feature.id);
     }
-    near(state->session.calculated_boundaries().back().volume,2400.);
+    near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,2400.);
     const auto target=run(host,"construction.create",{{"kind","plane"},{"name","Cut limit"},{"base_plane","xy"},{"offset_mm",20.}});
     auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(2,2,6,6));
     auto cut=document::PartDocument::create_extrusion_container(sketch.id);
@@ -1049,7 +1050,7 @@ void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool cle
     cut.extrusion.end_condition_reverse=document::EndCondition::Length;
     workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
     const auto verify=[&](std::set<std::string> expected) {
-        const auto& result=state->session.calculated_boundaries().back();
+        auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(result.calculation_errors.empty(),"Bounded or directional Sheet Cut failed");
         // Projection reaches only 0.5 mm into the first 2 mm sheet, but Sheet
         // Cut removes its entire normal thickness after selecting its Side A.
@@ -1061,13 +1062,13 @@ void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool cle
         check(owners==expected,"Sheet Cut projection ignored a side or selected an unreachable sheet");
     };
     verify({sheets[1]});
-    run(host,"extrusion.set",{{"container",cut.id},{"direction","reverse"}});verify({sheets[0]});
-    run(host,"extrusion.set",{{"container",cut.id},{"direction","forward"},{"extent","two_sides"}});verify({sheets[0],sheets[1]});
-    run(host,"extrusion.set",{{"container",cut.id},{"extent","symmetric"}});verify({sheets[0],sheets[1]});
-    run(host,"extrusion.set",{{"container",cut.id},{"extent","one_side"},{"end_forward","through_all"}});verify({sheets[1],sheets[2]});
-    run(host,"extrusion.set",{{"container",cut.id},{"direction","reverse"}});verify({sheets[0]});
-    run(host,"extrusion.set",{{"container",cut.id},{"direction","forward"},{"extent","two_sides"},{"end_reverse","through_all"}});verify({sheets[0],sheets[1],sheets[2]});
-    run(host,"extrusion.set",{{"container",cut.id},{"extent","one_side"},{"end_forward","up_to"},
+    run(host,"sheet_cut.set",{{"container",cut.id},{"direction","reverse"}});verify({sheets[0]});
+    run(host,"sheet_cut.set",{{"container",cut.id},{"direction","forward"},{"extent","two_sides"}});verify({sheets[0],sheets[1]});
+    run(host,"sheet_cut.set",{{"container",cut.id},{"extent","symmetric"}});verify({sheets[0],sheets[1]});
+    run(host,"sheet_cut.set",{{"container",cut.id},{"extent","one_side"},{"end_forward","through_all"}});verify({sheets[1],sheets[2]});
+    run(host,"sheet_cut.set",{{"container",cut.id},{"direction","reverse"}});verify({sheets[0]});
+    run(host,"sheet_cut.set",{{"container",cut.id},{"direction","forward"},{"extent","two_sides"},{"end_reverse","through_all"}});verify({sheets[0],sheets[1],sheets[2]});
+    run(host,"sheet_cut.set",{{"container",cut.id},{"extent","one_side"},{"end_forward","up_to"},
         {"targets_forward",Json::array({{{"owner",target.data.at("entity")},{"key","plane"}}})}});verify({sheets[1]});
     run(host,"save");std::vector<kernel::BodyResult> boundaries;
     const auto loaded=document::PartDocument::load(directory/(name+".prtz"),&boundaries);
@@ -1079,7 +1080,7 @@ void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool cle
     if(clearance) {
         // Approach from the opposite skin (z=12), ending at z=11.5 inside
         // the sheet, before reaching Side A at z=10. The whole wall is cut.
-        run(host,"extrusion.set",{{"container",cut.id},{"end_forward","length"},{"targets_forward",Json::array()},
+        run(host,"sheet_cut.set",{{"container",cut.id},{"end_forward","length"},{"targets_forward",Json::array()},
             {"direction","reverse"},{"profile_offset_mm",13.},{"length_forward_mm",1.5}});
         verify({sheets[1]});
     }
@@ -1098,7 +1099,7 @@ void verify_sheet_cut_skin_to_skin(std::filesystem::path directory) {
             flat.placement.rotation_z=flat.placement.absolute_rotation_z=47;
         }
         check(workspace::commit_flat(live,kernel,id,flat,outline),"Cannot create skin-to-skin cut source");
-        auto* state=live.open_part(id);const auto input=state->session.calculated_boundaries().back();
+        auto* state=live.open_part(id);const auto input=analyzed_body(kernel,state->session.calculated_boundaries().back());
         std::optional<kernel::FaceReference> target,start;kernel::Vec3 target_point;
         const double start_z=from_top?2.:0.,end_z=from_top?0.:2.;
         const double k=std::numbers::pi/180.,rx=flat.placement.rotation_x*k,ry=flat.placement.rotation_y*k,rz=flat.placement.rotation_z*k;
@@ -1126,7 +1127,7 @@ void verify_sheet_cut_skin_to_skin(std::filesystem::path directory) {
         end.fallback_origin=target_point;end.fallback_normal=normal;cut.extrusion.end_targets_forward={end};
         std::cout<<"Sheet cut skin-to-skin: "<<(from_top?"top to bottom":"bottom to top")<<", clearance="<<clearance<<", tilted="<<tilted<<std::endl;
         workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-        const auto& result=state->session.calculated_boundaries().back();
+        auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(result.calculation_errors.empty()&&!result.sheet_cuts.empty(),"Skin-to-skin cut did not retain material-space regions");
         // Independent scale check: 20*20*2 stock minus 4*4*2 aperture.
         near(result.volume,768.);
@@ -1170,7 +1171,7 @@ void verify_sheet_cut_rotated_origin(std::filesystem::path directory) {
         cut.placement.rotation_y=cut.placement.absolute_rotation_y=ry;
         cut.placement.rotation_z=cut.placement.absolute_rotation_z=rz;
         workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-        const auto* state=live.open_part(id);const auto& result=state->session.calculated_boundaries().back();
+        const auto* state=live.open_part(id);auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(result.calculation_errors.empty(),"Sheet Cut with rotated Origin failed");
         near(result.volume,20000-48/nz);
         check(!result.sheet_cuts.empty(),"Rotated cut lost persisted trim regions");
@@ -1201,7 +1202,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     cut.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
     cut.extrusion.end_condition_forward=cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
     workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-    auto result=state->session.calculated_boundaries().back();
+    auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     // Fibre r=[9,10] reaches y=[2,5] iff theta lies between acos(8/9)
     // and acos(1/2), so the inside opening admits the full requested prism.
     near_clearance_volume(result.volume,190*std::numbers::pi-95*(std::acos(.5)-std::acos(8./9)));
@@ -1213,10 +1214,10 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     const auto mode_profile=workspace::document_sketch(live,id,mode_value.extrusion.sketch_id);
     mode_value.extrusion.sheet_cut_clearance=false;
     workspace::commit_profile(live,kernel,id,mode_value,workspace::ProfileEditMode::Replace,mode_profile);
-    near(state->session.calculated_boundaries().back().volume,190*std::numbers::pi-95*(std::acos(.5)-std::acos(.8)));
+    near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,190*std::numbers::pi-95*(std::acos(.5)-std::acos(.8)));
     mode_value.extrusion.sheet_cut_clearance=true;
     workspace::commit_profile(live,kernel,id,mode_value,workspace::ProfileEditMode::Replace,mode_profile);
-    result=state->session.calculated_boundaries().back();
+    result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     near_clearance_volume(result.volume,190*std::numbers::pi-95*(std::acos(.5)-std::acos(8./9)));
     verify_clearance_passage(kernel,result,10,2,10,3);
     run(host,"save");std::vector<kernel::BodyResult> saved;
@@ -1232,7 +1233,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     circular_cut.extrusion.sketch_id=circle.id;
     const double before_circle=result.volume;
     workspace::commit_profile(live,kernel,id,circular_cut,workspace::ProfileEditMode::Create,circle);
-    result=state->session.calculated_boundaries().back();
+    result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     // Independent integration: 9.5 * integral[-.15,.15] of
     // acos((7-sqrt(.15^2-x^2))/10)-acos((7+sqrt(.15^2-x^2))/9).
     near_clearance_volume(before_circle-result.volume,.4366419320123114);
@@ -1249,7 +1250,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     elliptic.combine_mode=document::CombineMode::Subtract;elliptic.extrusion=cut.extrusion;
     elliptic.extrusion.sketch_id=ellipse.id;
     workspace::commit_profile(live,kernel,id,elliptic,workspace::ProfileEditMode::Create,ellipse);
-    result=state->session.calculated_boundaries().back();
+    result=analyzed_body(kernel,state->session.calculated_boundaries().back());
     // Independent integration of the ideal extreme-radius envelope. The
     // generic envelope can expand by at most the Sheet Cut deviation. Its four
     // monotone boundary branches have perimeter <= 4*a+2*R*angular_span;
@@ -1278,7 +1279,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     near(kernel.subtract_bodies(result,kernel.evaluate_history({ellipse_probe}).back(),{},{},1e-7).volume,result.volume);
     const auto ellipse_volume=result.volume;
     run(host,"regenerate");
-    result=state->session.calculated_boundaries().back();near(result.volume,ellipse_volume);
+    result=analyzed_body(kernel,state->session.calculated_boundaries().back());near(result.volume,ellipse_volume);
     std::set<std::pair<std::string,std::string>> regenerated_ellipse_identities;
     for(const auto& region:result.sheet_cuts)if(region.cut_owner==elliptic.id)
         for(const auto& loop:region.loops)for(const auto& curve:loop)
@@ -1294,7 +1295,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
         source.flat.sketch_id=profile.id;source.flat.thickness=2;source.flat.thickness_override=true;
         source.placement.absolute_rotation_y=source.placement.rotation_y=45.;profile.owner_container_id=source.id;
         static_cast<void>(workspace::commit_flat(live,kernel,id,source,profile));
-        near(state->session.calculated_boundaries().back().volume,3200.);
+        near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,3200.);
         sketch=sketcher::Sketch::create_default();
         if(island) {
             static_cast<void>(sketch.add_rectangle(-5,-5,5,5));
@@ -1305,7 +1306,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
         cut.extrusion.extent_mode=document::ProfileExtentMode::TwoSides;
         cut.extrusion.end_condition_forward=cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
         workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-        result=state->session.calculated_boundaries().back();
+        result=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(result.calculation_errors.empty(),"Oblique sheet clearance cut failed");
         const double cosine=std::sqrt(.5),shift=2.; // t*tan(45 degrees) in material coordinates.
         const double area=island?10*(10/cosine+shift)-4*(4/cosine-shift):4*(.2/cosine+shift);
@@ -1329,7 +1330,7 @@ void verify_sheet_cut_bounded_bend_thickness(std::filesystem::path directory) {
         run(host,"new",{{"type","part"},{"name",clearance?"bend-bounded-clearance-thickness":"bend-bounded-normal-thickness"}});
         run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}});
         const auto id=live.active_document_id();auto* state=live.open_part(id);
-        const double before=state->session.calculated_boundaries().back().volume;
+        const double before=analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;
         near(before,110*std::numbers::pi);
         auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(10,1,20,3));
         auto cut=document::PartDocument::create_extrusion_container(sketch.id);
@@ -1338,7 +1339,7 @@ void verify_sheet_cut_bounded_bend_thickness(std::filesystem::path directory) {
         cut.extrusion.extent_mode=document::ProfileExtentMode::OneSide;
         cut.extrusion.end_condition_forward=document::EndCondition::Length;
         workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
-        const auto& result=state->session.calculated_boundaries().back();
+        auto result=analyzed_body(kernel,state->session.calculated_boundaries().back());
         check(result.calculation_errors.empty(),"Bounded Bend cut failed");
         // Side A obeys y=6-6*cos(theta), z=6*sin(theta). The old method
         // selects the reached skin patch. Clearance uses length to select a
@@ -1384,26 +1385,26 @@ void verify_sheet_revolution(std::filesystem::path directory) {
     auto sketch=sketcher::Sketch::create_default();auto feature=document::PartDocument::create_revolution_container(sketch.id);
     document::initialize_sheet_revolution(feature,sketch,document::sheet_metal_defaults(state->session.document()));
     workspace::commit_profile(live,kernel,id,feature,workspace::ProfileEditMode::Create,sketch);
-    const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};
+    const auto volume=[&]{return analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;};
     const auto owner=feature.id;const double pi=std::numbers::pi;
     near(volume(),190*pi);
     check(state->session.document().sketches.size()==1,"Sheet Revolution created auxiliary Sketches");
     bool first=false,second=false,cap=false;
-    for(const auto& face:state->session.calculated_boundaries().back().mesh.original_references.triangle_references) {
+    for(const auto& face:analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references.triangle_references) {
         first|=face.sheet_role==kernel::SheetFaceRole::SideA;second|=face.sheet_role==kernel::SheetFaceRole::SideB;cap|=face.sheet_role==kernel::SheetFaceRole::ThicknessFace;
         check(face.sheet_role!=kernel::SheetFaceRole::Unknown,"Sheet Revolution lost a sheet face role");
     }
     check(first&&second&&cap,"Sheet Revolution has no principal sides or caps");
     for(double angle:{180.,360.,90.}) {
-        run(host,"revolution.set",{{"container",owner},{"angle_degrees",angle}});
+        run(host,"sheet_revolution.set",{{"container",owner},{"angle_degrees",angle}});
         near(volume(),190*pi*angle/90.);
     }
     run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",2.}}}});near(volume(),360*pi);
-    run(host,"revolution.set",{{"container",owner},{"thin_mode","other_side"}});near(volume(),440*pi);
-    run(host,"revolution.set",{{"container",owner},{"thin_mode","symmetric"}});near(volume(),400*pi);
-    run(host,"revolution.set",{{"container",owner},{"extent","two_sides"},{"angle_degrees",30.},{"angle_reverse_degrees",60.}});near(volume(),400*pi);
-    run(host,"revolution.set",{{"container",owner},{"extent","symmetric"},{"angle_degrees",45.},{"direction","reverse"}});near(volume(),400*pi);
-    run(host,"revolution.set",{{"container",owner},{"extent","one_side"},{"angle_degrees",90.},{"thin_mode","one_side"},{"direction","forward"}});
+    run(host,"sheet_revolution.set",{{"container",owner},{"thin_mode","other_side"}});near(volume(),440*pi);
+    run(host,"sheet_revolution.set",{{"container",owner},{"thin_mode","symmetric"}});near(volume(),400*pi);
+    run(host,"sheet_revolution.set",{{"container",owner},{"extent","two_sides"},{"angle_degrees",30.},{"angle_reverse_degrees",60.}});near(volume(),400*pi);
+    run(host,"sheet_revolution.set",{{"container",owner},{"extent","symmetric"},{"angle_degrees",45.},{"direction","reverse"}});near(volume(),400*pi);
+    run(host,"sheet_revolution.set",{{"container",owner},{"extent","one_side"},{"angle_degrees",90.},{"thin_mode","one_side"},{"direction","forward"}});
     feature=*state->session.document().find_container(owner);sketch=workspace::document_sketch(live,id,feature.revolution.sketch_id);
     const auto axis=*std::ranges::find(sketch.segments,feature.revolution.axis_segment_id,&sketcher::SketchSegment::id);
     sketch.find_point(axis.second_point_id)->y=20;
@@ -1412,12 +1413,12 @@ void verify_sheet_revolution(std::filesystem::path directory) {
     run(host,"save");const auto saved=document::PartDocument::load(directory/"sheet-revolution.prtz");
     check(saved.history.front().revolution.sheet_metal&&saved.sketches.size()==1,"Sheet Revolution did not persist its single Sketch and sheet mode");
     const auto before=state->session.document().serialized();
-    check(!host.execute({{"command","revolution.set"},{"arguments",{{"container",owner},{"combine","subtract"}}}}).ok,"Sheet Revolution accepted subtraction");
+    check(!host.execute({{"command","sheet_revolution.set"},{"arguments",{{"container",owner},{"combine","subtract"}}}}).ok,"Sheet Revolution accepted subtraction");
     check(state->session.document().serialized()==before,"Rejected Sheet Revolution changed the document");
     run(host,"new",{{"type","part"},{"name","sheet-revolution-attached"}});
     run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}});
     const auto attached_id=live.active_document_id();state=live.open_part(attached_id);
-    const auto geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto geometry=analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references;
     const auto edge=std::ranges::find_if(geometry.edges,[](const auto& e){return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
         std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z-2)<1e-7;});});
     check(edge!=geometry.edges.end(),"Sheet Revolution attachment edge missing");
