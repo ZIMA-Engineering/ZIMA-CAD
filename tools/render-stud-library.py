@@ -21,10 +21,10 @@ def reference(native,v,source,target):
     identifier=next(d['id'] for d in native.run('open',path=str(source)) if d['active'])
     native.run('new',type='drawing',name=target.stem)
     sheet=native.run('drawing.sheet.list')['items'][0];sid=sheet['sheet']
-    scale=130/v['total_length_mm'];half=v['total_length_mm']/2
+    scale=130/v['total_length_mm'];left_end=-v['metal_length_mm'];right_end=v['length_mm']
     view=native.run('drawing.view.create',sheet=sid,source=identifier,
-        camera=dict(horizontal=[0,0,1],vertical=[0,1,0],depth=[1,0,0]),
-        x_mm=105,y_mm=242,scale=scale,display_style='hidden_edges')['view']
+        camera=dict(horizontal=[0,0,-1],vertical=[0,1,0],depth=[-1,0,0]),
+        x_mm=105+scale*(right_end+left_end)/2,y_mm=242,scale=scale,display_style='hidden_edges')['view']
     curves=native.run('drawing.view.references',view=view,kind='curve')['items']
     circles=[r for r in curves if r.get('circle')]
     def circle(z,thread=False):
@@ -33,18 +33,18 @@ def reference(native,v,source,target):
         assert candidates,(z,thread)
         return min(candidates,key=lambda r:len(r['key']))
     dims={}
-    for symbol,left,right,height in [('e',-half,-half+v['metal_length_mm'],-9),
-            ('b',half-v['thread_length_mm'],half,-9),
-            ('l',-half+v['metal_length_mm'],half,-18)]:
-        a=circle(left,thread=symbol in ('l',) or symbol=='b')
-        b=circle(right,thread=symbol=='e')
+    for symbol,left,right,height in [('e',left_end,0,-9),
+            ('b',right_end-v['thread_length_mm'],right_end,-9),
+            ('l',0,right_end,-18)]:
+        a=circle(-left,thread=symbol in ('l',) or symbol=='b')
+        b=circle(-right,thread=symbol=='e')
         dims[symbol]=native.run('drawing.dimension.create',view=view,kind='linear',direction='horizontal',
             attachments=[attachment(a),attachment(b)],style=dict(text_override=symbol),
             placements=[[(left+right)/2,-v['diameter_mm']/2+height/scale]])['dimension']
     rim=next(r for r in circles if abs(r['circle']['radius_mm']-v['diameter_mm']/2)<1e-6)
     dims['d']=native.run('drawing.dimension.create',view=view,kind='linear',direction='vertical',
         attachments=[attachment(rim,'curve_point',.25),attachment(rim,'curve_point',.75)],
-        style=dict(text_override='d'),placements=[[half+9/scale,0]])['dimension']
+        style=dict(text_override='d'),placements=[[right_end+9/scale,0]])['dimension']
     measured=native.run('drawing.dimension.list',view=view)['items']
     expected=dict(e=v['metal_length_mm'],b=v['thread_length_mm'],l=v['length_mm'],d=v['diameter_mm'])
     for d in measured:
@@ -81,11 +81,11 @@ def main():
             try:
                 source=next(d['id'] for d in native.run('open',path=str(path)) if d['active'])
                 native.run('new',type='drawing',name='stud-preview');sheet=native.run('drawing.sheet.list')['items'][0]
-                camera=dict(horizontal=[-1/math.sqrt(6),-1/math.sqrt(6),math.sqrt(2/3)],
-                    vertical=[1/math.sqrt(2),-1/math.sqrt(2),0],depth=[-1/math.sqrt(3)]*3)
+                camera=dict(horizontal=[1/math.sqrt(6),1/math.sqrt(6),-math.sqrt(2/3)],
+                    vertical=[1/math.sqrt(2),-1/math.sqrt(2),0],depth=[1/math.sqrt(3)]*3)
                 scale=min(85/(v['total_length_mm']+v['diameter_mm']),55/(1.5*v['diameter_mm']))
                 native.run('drawing.view.create',sheet=sheet['sheet'],source=source,camera=camera,
-                    x_mm=105,y_mm=148.5,scale=scale,display_style='shaded_with_edges')
+                    x_mm=105-scale*math.sqrt(2/3)*(v['metal_length_mm']-v['length_mm'])/2,y_mm=148.5,scale=scale,display_style='shaded_with_edges')
                 native.run('export.image',path=str(out/(path.name+'.png')),sheet=sheet['sheet'],dpi=81.28,crop_mm=[55,111,100,75])
                 native.run('close',discard=True);native.run('close')
             finally:native.close()

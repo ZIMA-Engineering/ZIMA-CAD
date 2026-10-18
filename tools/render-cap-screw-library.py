@@ -2,6 +2,7 @@
 import argparse
 import importlib.util
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,7 +36,7 @@ def reference(native,v,source,target):
         dimensions[symbol]=native.run('drawing.dimension.create',view=owner,kind='linear',direction=direction,
             attachments=attachments,style=dict(text_override=symbol),placements=[position])['dimension'];expected[symbol]=measured
     for symbol,a,b,y,value in [('k',-k,0,-dk/2-7/scale,k),('l',0,l,-dk/2-7/scale,l),
-            ('b',l-v['thread_length_mm'],l,-dk/2-15/scale,v['thread_length_mm'])]:
+            ('b',l-v['thread_length_mm'],l,dk/2+8/scale,v['thread_length_mm'])]:
         linear(symbol,[art.attachment(circle(a)),art.attachment(circle(b))],[(a+b)/2,y],'horizontal',value)
     for symbol,z,radius,x in [('dk',0,dk/2,-k-8/scale),('d',l,d/2,l+7/scale)]:
         rim=circle(z,radius)
@@ -54,6 +55,12 @@ def reference(native,v,source,target):
         sides.append(min(candidates,key=lambda r:len(r['key'])))
     linear('s' if v['socket'] else 'n',[art.attachment(r,'curve_point',.5) for r in sides],
         [dk/2+7/scale,0],'vertical',v['drive_width_mm'],owner=end)
+    if v['socket']:
+        vertices=[(r,parameter,r[key]) for r in end_curves if r.get('line')
+            for parameter,key in ((0,'first'),(1,'last')) if abs(r[key][2]-floor)<1e-6]
+        left=min(vertices,key=lambda item:item[2][0]);right=max(vertices,key=lambda item:item[2][0])
+        linear('e',[art.attachment(item[0],'curve_point',item[1]) for item in (left,right)],
+            [0,dk/2+8/scale],'horizontal',2*v['drive_width_mm']/math.sqrt(3),owner=end)
     for dim in native.run('drawing.dimension.list',sheet=sid)['items']:
         assert dim['state']=='resolved',dim
         symbol=next(k for k,value in dimensions.items() if value==dim['dimension'])
@@ -67,9 +74,10 @@ def notes(v,lang):
     labels.update(dk=dict(zip(caps.LANGUAGES,('průměr hlavy','head diameter','Kopfdurchmesser','diamètre de tête','диаметр головки'))),
         t=dict(zip(caps.LANGUAGES,('hloubka otvoru nebo drážky','drive depth','Antriebstiefe','profondeur d’empreinte','глубина гнезда или шлица'))),
         n=dict(zip(caps.LANGUAGES,('šířka drážky','slot width','Schlitzbreite','largeur de fente','ширина шлица'))),
-        s=dict(zip(caps.LANGUAGES,('vnitřní šestihran přes plochy','hexagon socket across flats','Innensechskant-Schlüsselweite','six pans creux sur plats','размер внутреннего шестигранника под ключ'))))
+        s=dict(zip(caps.LANGUAGES,('vnitřní šestihran přes plochy','hexagon socket across flats','Innensechskant-Schlüsselweite','six pans creux sur plats','размер внутреннего шестигранника под ключ'))),
+        e=dict(zip(caps.LANGUAGES,('vnitřní šestihran přes vrcholy','hexagon socket across corners','Innensechskant-Eckmaß','six pans creux sur angles','размер внутреннего шестигранника по вершинам'))))
     text=[dict(text=v['standard']+' · '+v['designation']+' · '+v['names'][lang],x_mm=190,y_mm=198,height_mm=2.5)]
-    for i,symbol in enumerate(('l','k','d','dk','b','t','s' if v['socket'] else 'n')):
+    for i,symbol in enumerate(('l','k','d','dk','b','t','s','e') if v['socket'] else ('l','k','d','dk','b','t','n')):
         text.append(dict(text=symbol+' — '+labels[symbol][lang],x_mm=190 if i%2==0 else 103,
             y_mm=188-5*(i//2),height_mm=2.2))
     return dict(locale=lang,texts=text)

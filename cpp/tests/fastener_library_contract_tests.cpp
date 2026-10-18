@@ -32,6 +32,28 @@ void near(double actual,double expected,const char* message){
     if(std::abs(actual-expected)>1e-6*std::max(1.,std::abs(expected)))
         throw std::runtime_error(std::string(message)+": "+std::to_string(actual)+" != "+std::to_string(expected));
 }
+template<class Sketch> void verify_profile_dragging(Sketch sketch) {
+    const auto baseline=sketch;
+    for(const bool locked:{false,true}) {
+      sketch=baseline;if(locked)for(auto& dimension:sketch.dimensions)dimension.locked=true;
+      const auto points=sketch.points;
+      for(const auto& point:points)for(const auto delta:std::array<std::array<double,2>,3>{{{.2,.3},{-.3,.1},{.1,-.2}}}) {
+        static_cast<void>(sketch.move_point(point.id,point.x+delta[0],point.y+delta[1]));
+        const auto solved=sketch.solve();
+        require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Factory profile escaped constraints during repeated dragging");
+        for(const auto& original:points) {
+            const auto* current=sketch.find_point(original.id);require(current,"Factory dragging lost native point identity");
+            // Unlocked driving dimensions are existing direct-manipulation
+            // handles: they may change value while retaining their equations.
+            if(locked){near(current->x,original.x,"Locked factory point X moved");near(current->y,original.y,"Locked factory point Y moved");}
+        }
+        for(const auto& c:sketch.constraints)if(!c.suppressed&&c.kind==sketcher::ConstraintKind::PointReference&&c.second_point_id=="sketch_origin") {
+            const auto* origin=sketch.find_point(c.first_point_id);require(origin,"Factory origin contact missing");
+            near(origin->x,0,"Factory origin contact X escaped");near(origin->y,0,"Factory origin contact Y escaped");
+        }
+      }
+    }
+}
 void verify(const fs::path& path,const Json& expected) {
     workspace::Workspace live;
     const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
@@ -175,10 +197,11 @@ int main(int argc,char** argv) {
                 const double d=expected.at("diameter_mm"),l=expected.at("length_mm"),k=expected.at("head_height_mm");
                 const double radius=expected.at("head_diameter_mm").get<double>()/2;
                 const double width=expected.at("drive_width_mm"),depth=expected.at("drive_depth_mm");
+                const bool entry=expected.contains("socket_entry_radius_mm")&&!expected.at("socket_entry_radius_mm").is_null();
                 Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
                 near(x0,-radius,"Cap screw left");near(x1,radius,"Cap screw right");near(y0,-radius,"Cap screw lower");near(y1,radius,"Cap screw upper");
                 near(z0,-k,"Cap screw head height");near(z1,l,"Cap screw length");
-                int walls=0;bool floor=false,shaft=false,round=false,head_round=false,tip=false;
+                int walls=0;bool floor=false,shaft=false,round=false,head_round=false,tip=false,entry_cone=false;
                 for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
                     const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
                     if(surface.GetType()==GeomAbs_Plane) {
@@ -189,25 +212,42 @@ int main(int argc,char** argv) {
                     else if(surface.GetType()==GeomAbs_Torus) {
                         round|=std::abs(surface.Torus().MinorRadius()-expected.at("underhead_radius_mm").get<double>())<1e-6;
                         head_round|=std::abs(surface.Torus().MinorRadius()-expected.at("head_edge_radius_mm").get<double>())<1e-6;
-                    } else if(surface.GetType()==GeomAbs_Cone)tip=true;
+                    } else if(surface.GetType()==GeomAbs_Sphere&&expected.value("head_profile",std::string{})=="spherical_crown") {
+                        near(surface.Sphere().Radius(),expected.at("head_edge_radius_mm"),"Button crown radius");
+                        near(surface.Sphere().Location().Z(),expected.at("crown_center_z_mm"),"Button crown center");
+                        head_round=true;
+                    } else if(surface.GetType()==GeomAbs_Cone) {
+                        tip|=surface.Cone().Location().Z()>0;
+                        entry_cone|=surface.Cone().Location().Z()<0&&std::abs(std::abs(surface.Cone().SemiAngle())-std::acos(-1.)/4)<1e-7;
+                    }
                 }
                 require(floor,"Drive floor is missing or at the wrong offset");
+                require(k-depth>=expected.value("head_floor_min_mm",0.)-1e-8,"Socket violates minimum head-floor thickness");
                 require(walls==(expected.at("socket").get<bool>()?6:2),"Incorrect drive wall count or across-flats width");
                 require(shaft&&round&&head_round&&tip,"Shaft, head rounding, underhead radius or tip chamfer missing");
-                const auto& opening=doc.history.back();
+                const auto& opening=doc.history.at(doc.history.size()-(entry?2:1));
                 require(opening.feature_kind==document::FeatureKind::Feature&&opening.combine_mode==document::CombineMode::Subtract,"Drive must be an ordinary subtractive Default");
                 near(opening.feature.profile_plane_offset,-k+depth,"Drive Sketch plane offset");
                 require(opening.feature.sides[0].operation==document::FeatureSideOperation::None&&
                     opening.feature.sides[1].extrusion_extent==document::EndCondition::ThroughAll,"Drive must cut through the head in the negative direction only");
+                if(entry) {
+                    require(entry_cone,"Socket entrance has no real 45-degree conical cut");
+                    const auto& mouth=doc.history.back();
+                    require(mouth.feature_kind==document::FeatureKind::Feature&&mouth.combine_mode==document::CombineMode::Subtract&&
+                        mouth.feature.sides[0].operation==document::FeatureSideOperation::Revolution&&mouth.feature.sides[0].rotation_extent==document::FeatureRotationExtent::Full,
+                        "Socket entrance must use a current full-revolution subtractive Default");
+                    near(depth-(expected.at("socket_entry_radius_mm").get<double>()-width/2),expected.at("socket_effective_depth_mm"),"Socket effective key depth after entrance cut");
+                }
                 for(auto sketch:doc.sketches) {
                     const auto solved=sketch.solve();require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Cap screw Sketch is not fully constrained");
+                    verify_profile_dragging(sketch);
                 }
                 GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
-                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-properties.Mass()*7.85e-6)<=.50001e-6,"Cap screw BOM mass");
-                const auto& thread=doc.history.at(doc.history.size()-2).shaft_thread;
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-properties.Mass()*expected.value("density_kg_mm3",7.85e-6))<=.50001e-6,"Cap screw BOM mass");
+                const auto& thread=doc.history.at(doc.history.size()-(entry?3:2)).shaft_thread;
                 near(thread.nominal_diameter,d,"Cap screw thread diameter");near(thread.pitch,expected.at("pitch_mm"),"Cap screw pitch");
                 near(thread.length,expected.at("thread_length_mm"),"Cap screw thread length");
-                require(thread.length+2*thread.pitch+expected.at("underhead_radius_mm").get<double>()<=l,"Thread enters the head or underhead fillet");
+                require(thread.length+2*thread.pitch+expected.at("underhead_radius_mm").get<double>()<=l+1e-8,"Thread enters the head or underhead fillet");
             }
             std::cout<<manifest.at("variants").size()<<" cap screws: valid solids, exact dimensions, rounded heads, real drive walls/floors, constrained Sketches, mass and thread limits passed\n";return 0;
         }
@@ -231,7 +271,7 @@ int main(int argc,char** argv) {
                 const double length=expected.at("total_length_mm"),cut=.5*expected.at("metal_pitch_mm").get<double>();
                 Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
                 near(x0,-radius,"Stud left");near(x1,radius,"Stud right");near(y0,-radius,"Stud lower");near(y1,radius,"Stud upper");
-                near(z0,-length/2,"Stud symmetric start");near(z1,length/2,"Stud symmetric end");
+                near(z0,-expected.at("length_mm").get<double>(),"Stud nominal end from seating origin");near(z1,expected.at("metal_length_mm"),"Stud metal end from seating origin");
                 for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
                     const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()==GeomAbs_Cone)++cones;
                 }
@@ -240,9 +280,12 @@ int main(int argc,char** argv) {
                 near(properties.Mass(),std::acos(-1.)*(radius*radius*length-2*(radius*cut*cut-cut*cut*cut/3)),"Stud exact chamfered volume");
                 require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-properties.Mass()*7.85e-6)<=.50001e-6,"Stud BOM mass");
                 require(doc.history.size()==4&&doc.sketches.size()==1,"Stud authored history must be extrusion, chamfer and two threads");
-                require(doc.history.front().feature.symmetric,"Stud extrusion must remain symmetric");
+                require(!doc.history.front().feature.symmetric,"Stud extrusion must have independent nominal/metal sides");
+                near(doc.history.front().feature.sides[0].length,expected.at("metal_length_mm"),"Stud first metal side");
+                near(doc.history.front().feature.sides[1].length,expected.at("length_mm"),"Stud second nominal side");
                 auto sketch=doc.sketches.front();const auto solved=sketch.solve();
                 require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Stud profile is not anchored and dimensioned");
+                verify_profile_dragging(sketch);
                 near(sketch.points.front().x,0,"Stud center X");near(sketch.points.front().y,0,"Stud center Y");
                 for(std::size_t i=0;i<2;++i) {
                     const auto& thread=doc.history.at(i+2).shaft_thread;
@@ -252,7 +295,7 @@ int main(int argc,char** argv) {
                     require(thread.end_condition==document::EndCondition::Length&&thread.runout_enabled,"Stud thread limit/runout");
                 }
             }
-            std::cout<<manifest.at("variants").size()<<" studs: valid BReps, symmetric extents, analytical volumes/masses, origin constraints and two independent thread bands passed\n";
+            std::cout<<manifest.at("variants").size()<<" studs: valid BReps, independent l/e extents, analytical volumes/masses, origin constraints and two independent thread bands passed\n";
             return 0;
         }
         if(argc==4&&std::string(argv[1])=="--audit-projected-faces") {

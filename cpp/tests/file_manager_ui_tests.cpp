@@ -248,7 +248,7 @@ int main(int argc,char** argv){
     try{
         if(argc==2&&std::string(argv[1])=="--factory-fasteners") {
             for(const auto* leaf:{"04-SCREWS/01-HEX-HEAD/07-SMALL-HEX","04-SCREWS/02-FITTED","04-SCREWS/03-STUDS",
-                    "04-SCREWS/04-CAP-HEAD/01-SOCKET","04-SCREWS/04-CAP-HEAD/02-SLOTTED","04-SCREWS/04-CAP-HEAD/03-LARGE"})
+                    "04-SCREWS/04-CAP-HEAD/01-SOCKET","04-SCREWS/04-CAP-HEAD/02-SLOTTED","04-SCREWS/04-CAP-HEAD/03-LARGE","04-SCREWS/04-CAP-HEAD/04-BUTTON-A2"})
                 verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS",leaf,6);
             return 0;
         }

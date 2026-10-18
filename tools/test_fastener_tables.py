@@ -195,13 +195,13 @@ class MergedFastenerReferences(unittest.TestCase):
     def test_thread_rows_preserve_every_dimension_and_length_table(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[page for page in data['pages'] if page.get('thread_dimension_rows')]
-        self.assertEqual(len(pages),10)
+        self.assertEqual(len(pages),11)
         for page in pages:
             blocks=generator.screen_table_blocks(page)
             combined=next(block for block in blocks if block['headers'][0]=='symbol_d')
             self.assertEqual(combined['headers'][0],'symbol_d')
             self.assertEqual(sum(len(block['rows']) for block in blocks),page['display_row_count'])
-            for source in generator.table_blocks(page):
+            for source in generator.presentation_table_blocks(page):
                 if source['headers'][0]!='parameter':
                     self.assertIn(source,blocks)
                     continue
@@ -215,6 +215,36 @@ class MergedFastenerReferences(unittest.TestCase):
                 for column,thread in enumerate(source['headers'][1:],1):
                     expected=[row[column] for row in source['rows']]
                     self.assertTrue(any(row[0]=={'key':thread} and [row[i] for i in positions]==expected for row in combined['rows']), (page['path'],thread))
+
+    def test_stud_availability_matches_every_source_cell(self):
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        page=next(p for p in data['pages'] if p['path']=='04-SCREWS/03-STUDS')
+        blocks=generator.screen_table_blocks(page)
+        for source in generator.table_blocks(page):
+            if not source.get('stud_length_availability'):continue
+            actual=next(b for b in blocks if b.get('source_table')==source['source_table'])
+            expected=[r for r in source['rows'] if isinstance(r[0],str) and r[0].isdigit()]
+            self.assertEqual([r[0] for r in actual['rows']],[r[0] for r in expected])
+            for before,after in zip(expected,actual['rows']):
+                self.assertEqual(after[1:],['—' if c in ('','—','–','-') else '✓' for c in before[1:]])
+        first=next(b for b in blocks if b.get('stud_length_availability'))
+        self.assertEqual([int(r[0]) for r in first['rows'] if r[1]=='✓'],[12,14,16,18,20,22,25,28])
+        for language in data['languages']:
+            text=generator.render(data,page,language)
+            self.assertIn('✓',text)
+            self.assertNotIn(data['labels']['mass_Přibližná hmotnost šroubu podle ČSN 01 1174 [g]'][data['languages'].index(language)],text)
+
+    def test_approximate_mass_sections_are_not_published(self):
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        for page in data['pages']:
+            for block in generator.presentation_table_blocks(page):
+                self.assertFalse(block.get('approximate_mass_only'))
+                self.assertFalse(any(isinstance(c,dict) and c.get('key','').startswith('mass_') for row in block['rows'] for c in row))
+        socket=next(p for p in data['pages'] if p['path']=='04-SCREWS/04-CAP-HEAD/01-SOCKET')
+        for language in data['languages']:
+            text=generator.render(data,socket,language)
+            self.assertNotIn('kg/1000',text)
+            self.assertIn('+ / +',text)
 
     def test_original_cells_survive_join_and_transpose(self):
         from lxml import html

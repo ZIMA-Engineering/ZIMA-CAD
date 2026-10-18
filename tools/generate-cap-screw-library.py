@@ -50,6 +50,11 @@ def variants():
             # dimension rather than a geometrically undersized nominal hexagon.
             drive=(number(dims[14][col]) if dims[17][col]=='–' else number(dims[17][col])) if socket else number(dims[11][col])
             depth=number(dims[18 if socket else (14 if standard=='ISO 1580' else 13)][col])
+            entry=drive/2+.1*pitch if socket else None
+            engagement=entry-drive/2 if socket else 0
+            depth+=engagement
+            floor_min=number(dims[21][col]) if socket else 0
+            assert k-depth>=floor_min-1e-8,(standard,d,'socket floor wall')
             v=number(dims[19][col]) if socket else min(.1*d,k/4)
             edge_radius=min(v/2,k/5)
             if standard=='ISO 1580':edge_radius=number(dims[13][col])
@@ -65,6 +70,8 @@ def variants():
                 head_diameter_mm=dk,head_height_mm=k,underhead_radius_mm=r,head_edge_radius_mm=edge_radius,
                 drive_width_mm=drive,drive_depth_mm=depth,socket=socket,length_mm=length,thread_length_mm=thread,
                 full_thread=full_thread,
+                socket_entry_radius_mm=entry,socket_effective_depth_mm=depth-engagement,
+                head_floor_min_mm=floor_min,
                 property_class='8.8' if socket else '4.8',names=names,preferred=not title.startswith('(')))
     return result
 
@@ -150,12 +157,34 @@ def relations(native,path,shaft):
     native.run('document.relations.set',relations=f'stock = "M" & d{diameter} & "x" & d{length}\nmass = model.mass\n')
 
 
-def author(native,v,path):
+def socket_entry(native,v):
+    """A small authored 45-degree revolved ring, wholly inside the drive void."""
+    sk=native.run('sketch.create',name='Socket entrance profile',plane='XZ')['sketch']
+    inner=v['drive_width_mm']/2-.05*v['pitch_mm'];outer=v['socket_entry_radius_mm'];depth=outer-inner;k=v['head_height_mm']
+    points=[[inner,k],[outer,k],[inner,k-depth]];edges=[]
+    for a,b in zip(points,points[1:]+points[:1]):edges.append(native.run('sketch.segment.create',sketch=sk,first=a,second=b)['geometry'])
+    axis=native.run('sketch.segment.create',sketch=sk,first=[0,0],second=[0,k],construction=True)['geometry']
+    native.run('sketch.segment.centerline',sketch=sk,segment=axis,centerline=True)
+    entity=lambda g:native.run('sketch.entity.get',sketch=sk,entity=g)['entity']
+    origin=entity(axis)['first'];first=entity(edges[0])['first'];lower=entity(edges[2])['first']
+    native.run('sketch.constraint.create',sketch=sk,kind='point_reference',points=[origin,'sketch_origin'])
+    for kind,g in [('horizontal',edges[0]),('vertical',edges[2]),('vertical',axis)]:native.run('sketch.constraint.create',sketch=sk,kind=kind,geometry=[g])
+    native.run('sketch.dimension.create',sketch=sk,kind='distance_y',points=[lower],geometry=['sketch_axis:x'],value=k-depth)
+    for direction,value in [('x',inner),('y',k)]:native.run('sketch.dimension.create',sketch=sk,kind='distance_'+direction,points=[first],geometry=['sketch_axis:'+('y' if direction=='x' else 'x')],value=value)
+    for g,value in [(edges[0],depth),(axis,k)]:native.run('sketch.dimension.create',sketch=sk,kind='distance',geometry=[g],value=value)
+    rotation=side(operation='revolution');rotation.update(rotation_extent='full',angle_degrees=360)
+    return native.run('feature.create',sketch=sk,combine='subtract',parameters=dict(axis_segment_id=axis,symmetric=False,sides=[rotation,side(operation='none')]))['container']
+
+
+def author(native,v,path,head_builder=None):
     native.run('new',type='part',name=path.stem)
     shaft=disk(native,v['diameter_mm'],v['length_mm'])
-    head=disk(native,v['head_diameter_mm'],v['head_height_mm'],True)
-    top=circular_edge(native,head,-v['head_height_mm'],v['head_diameter_mm']/2)
-    rounded=native.run('fillet.create',radius_mm=v['head_edge_radius_mm'],routes=[dict(edges=[top])])['container']
+    if head_builder:
+        head=head_builder(native,v);rounded=head
+    else:
+        head=disk(native,v['head_diameter_mm'],v['head_height_mm'],True)
+        top=circular_edge(native,head,-v['head_height_mm'],v['head_diameter_mm']/2)
+        rounded=native.run('fillet.create',radius_mm=v['head_edge_radius_mm'],routes=[dict(edges=[top])])['container']
     under=circular_edge(native,shaft,0,v['diameter_mm']/2)
     fillet=native.run('fillet.create',radius_mm=v['underhead_radius_mm'],routes=[dict(edges=[under])])['container']
     tip=circular_edge(native,shaft,v['length_mm'],v['diameter_mm']/2)
@@ -167,7 +196,8 @@ def author(native,v,path):
     thread=native.run('shaft_thread.create',cylinder=studs.ref(cylinder),start=studs.ref(start),chamfer=studs.ref(cone),
         designation=v['designation'],length_mm=v['thread_length_mm'],end_condition='length',runout_enabled=True,runout_pitch_factor=2)['container']
     opening=drive(native,v)
-    native.run('document.material.load',path=str(ROOT/f'config/materials/01_steels/fasteners/Steel-{v["property_class"]}.matz'))
+    entry=socket_entry(native,v) if v.get('socket_entry_radius_mm') else None
+    native.run('document.material.load',path=str(ROOT/v.get('material_file',f'config/materials/01_steels/fasteners/Steel-{v["property_class"]}.matz')))
     params=native.run('document.parameters.get')['parameters']
     values=dict(name=v['names'],standard={'':v['standard']},stock={'':v['designation'].replace(',','.')+f'x{v["length_mm"]:g}'},
         material={'':v['property_class']},quantity={'':'-'})
@@ -181,17 +211,19 @@ def author(native,v,path):
     native.run('regenerate');assert not native.run('history.list')['calculation_errors']
     relations(native,path,shaft)
     native.run('save');native.run('close')
-    return dict(shaft=shaft,head=head,rounded=rounded,fillet=fillet,chamfer=chamfer,thread=thread,opening=opening)
+    return dict(shaft=shaft,head=head,rounded=rounded,fillet=fillet,chamfer=chamfer,thread=thread,opening=opening,entry=entry)
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--stage',type=Path,required=True);p.add_argument('--filename')
     p.add_argument('--refresh-relations',action='store_true')
     p.add_argument('--refresh-thread-limits',action='store_true')
+    p.add_argument('--standard')
     p.add_argument('--cli',type=Path,default=ROOT/'build/cpp-windows-release/zima-cad-cli.exe');args=p.parse_args()
     out=args.stage.resolve();out.mkdir(parents=True,exist_ok=True);rows=variants()
     (out/'manifest.json').write_text(json.dumps(dict(variants=rows),ensure_ascii=False,indent=2),encoding='utf-8')
     for v in rows:
+        if args.standard and args.standard!=v['standard']:continue
         if args.filename and args.filename!=v['filename']:continue
         path=out/v['filename']
         if path.exists():

@@ -1,4 +1,4 @@
-"""Author historical table studs with a centered symmetric native extrusion.
+"""Author historical table studs from their metal-end seating plane.
 
 Fine pitch applies only to the nut end. Nominal length excludes the metal end.
 Candidates are staged; installation requires separate verification and artwork.
@@ -34,8 +34,8 @@ def variants():
             for standard,row,material in [('021174',3,'steel'),('021176',4,'cast iron'),('021178',5,'aluminium')]:
                 if not dimensions[row][column]:continue
                 e=number(dimensions[row][column])
-                # Keep both complete thread/runout bands on their own symmetric
-                # source half and avoid the historical short-length exceptions.
+                # Retain established representative lengths and avoid the
+                # historical short-length exceptions.
                 length=next(l for l in lengths if l>=min(50,max(lengths)) and (l+e)/2>=b+2*max(pitches)+1)
                 for pitch in pitches:
                     fine_pitch=pitch!=COARSE[d]
@@ -72,10 +72,9 @@ def relations(native,v,path,identity):
     entries=json.loads(data['Document']['dimension_identifiers'])['entries']
     def symbol(owner,key):return 'd'+str(next(e['number'] for e in entries if e['owner']==owner and e['key']==key))
     diameter=symbol(identity['sketch'],'dimension:'+identity['diameter']['dimension'])
-    half=symbol(identity['shaft'],'parameter:side0_length')
-    metal=symbol(identity['threads'][0],'parameter:length')
+    length=symbol(identity['shaft'],'parameter:side1_length')
     pitch=f'x{v["pitch_mm"]:g}' if v['fine_pitch'] else ''
-    native.run('document.relations.set',relations=f'stock = "M" & {diameter} & "{pitch}x" & (2*{half}-{metal})\nmass = model.mass\n')
+    native.run('document.relations.set',relations=f'stock = "M" & {diameter} & "{pitch}x" & {length}\nmass = model.mass\n')
 
 
 def author(native,v,path):
@@ -85,22 +84,23 @@ def author(native,v,path):
     center=native.run('sketch.entity.get',sketch=sk,entity=circle)['entity']['center']
     native.run('sketch.constraint.create',sketch=sk,kind='point_reference',points=[center,'sketch_origin'])
     diameter=native.run('sketch.dimension.create',sketch=sk,kind='diameter',geometry=[circle],value=v['diameter_mm'])
-    half=v['total_length_mm']/2
-    side=dict(operation='extrusion',length=half,extrusion_extent='length',angle_degrees=90,
+    side=dict(operation='extrusion',length=v['length_mm'],extrusion_extent='length',angle_degrees=90,
         rotation_extent='angle',draft_angle_degrees=0,targets=[])
-    shaft=native.run('feature.create',sketch=sk,parameters=dict(symmetric=True,sides=[side,side]))['container']
+    metal_side={**side,'length':v['metal_length_mm']}
+    shaft=native.run('feature.create',sketch=sk,parameters=dict(symmetric=False,sides=[metal_side,side]))['container']
     ends=[]
     for r in native.run('reference.list',kind='edge',owner=shaft)['items']:
         g=native.run('reference.get',kind='edge',**ref(r),limit=1)
-        if abs(g['segments'][0]['points'][0][2])>half-1e-6:ends.append(ref(r))
+        if any(abs(g['segments'][0]['points'][0][2]-z)<1e-6 for z in (v['metal_length_mm'],-v['length_mm'])):ends.append(ref(r))
     assert len(ends)==2
     chamfer=native.run('chamfer.create',mode='equal_distance',distance_a_mm=.5*v['metal_pitch_mm'],
         routes=[dict(edges=[r]) for r in ends])['container']
     source=faces(native,shaft);cones=faces(native,chamfer);threads=[]
-    for sign,designation,length,pitch in ((-1,v['metal_designation'],v['metal_length_mm'],v['metal_pitch_mm']),
-                                         (1,v['designation'],v['thread_length_mm'],v['pitch_mm'])):
+    for sign,designation,length,pitch in ((1,v['metal_designation'],v['metal_length_mm'],v['metal_pitch_mm']),
+                                         (-1,v['designation'],v['thread_length_mm'],v['pitch_mm'])):
         cylinder=next(r for r,s in source if s and s['kind']=='cylinder' and s['axis'][2]*sign<0)
-        start=next(r for r,s in source if s and s['kind']=='plane' and s['origin'][2]*sign>half-.001)
+        end=v['metal_length_mm'] if sign>0 else -v['length_mm']
+        start=next(r for r,s in source if s and s['kind']=='plane' and abs(s['origin'][2]-end)<.001)
         cone=next(r for r,s in cones if s and s['kind']=='cone' and s['origin'][2]*sign>0)
         thread=native.run('shaft_thread.create',cylinder=ref(cylinder),start=ref(start),chamfer=ref(cone),
             designation=designation,length_mm=length,end_condition='length',runout_enabled=True,runout_pitch_factor=2)

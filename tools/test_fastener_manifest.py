@@ -11,7 +11,7 @@ manifest=importlib.util.module_from_spec(spec);spec.loader.exec_module(manifest)
 
 class FastenerManifest(unittest.TestCase):
     def test_stud_and_cap_finite_filename_order(self):
-        for script,count in [('generate-stud-library.py',74),('generate-cap-screw-library.py',40)]:
+        for script,count in [('generate-stud-library.py',74),('generate-cap-screw-library.py',40),('generate-button-screw-library.py',7)]:
             spec=importlib.util.spec_from_file_location('factory_'+str(count),ROOT/'tools'/script)
             factory=importlib.util.module_from_spec(spec);spec.loader.exec_module(factory)
             rows=factory.variants();self.assertEqual(len(rows),count)
@@ -37,6 +37,18 @@ class FastenerManifest(unittest.TestCase):
             self.assertEqual([(v['diameter_mm'],v['pitch_mm']) for v in fine],
                 sorted((v['diameter_mm'],v['pitch_mm']) for v in fine))
 
+    def test_button_reviewed_limits_and_catalogue_defaults(self):
+        values=json.loads((ROOT/'tools/data/button-screw-reviewed-dimensions.json').read_text(encoding='utf-8'))
+        self.assertEqual(values['diameters_mm'],[3,4,5,6,8,10,12])
+        self.assertEqual(values['socket_depth_min_mm'][0],1.04)
+        self.assertEqual(values['socket_depth_max_mm'][0],1.2)
+        for i,length in enumerate(values['default_lengths_mm']):
+            self.assertIn(length,values['catalogue_lengths_mm'][i])
+            self.assertLessEqual(values['socket_depth_min_mm'][i],values['socket_depth_max_mm'][i])
+            self.assertGreater(values['socket_width_min_mm'][i],values['socket_width_nominal_mm'][i])
+        self.assertNotIn(35,values['catalogue_lengths_mm'][0])
+        self.assertNotIn(14,values['catalogue_lengths_mm'][4])
+
     def test_padding_changes_only_filenames(self):
         for variant in manifest.prepare()['variants']:
             self.assertNotRegex(variant['designation'],r'M0')
@@ -55,7 +67,7 @@ class FastenerManifest(unittest.TestCase):
         generator=importlib.util.module_from_spec(spec);spec.loader.exec_module(generator)
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[p for p in data['pages'] if p.get('localized_illustrations')]
-        self.assertEqual(len(pages),12)
+        self.assertEqual(len(pages),13)
         from lxml import html
         for page in pages:
             folder=ROOT/data['root']/page['path']/'0000-index'

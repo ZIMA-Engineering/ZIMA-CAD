@@ -21,8 +21,33 @@ def table_blocks(page):
     yield from page.get('sections', [])
 
 
+def presentation_table_blocks(page):
+    """Keep archived source cells intact while omitting optional mass estimates."""
+    for block in table_blocks(page):
+        if block.get('superseded_display'):
+            continue
+        if not page.get('omit_approximate_mass'):
+            yield block
+            continue
+        if block.get('stud_length_availability'):
+            fine=block['rows'][0]
+            headers=[{'literal':'l [mm]'}]
+            for coarse,alternative in zip(block['headers'][1:],fine[1:]):
+                headers.append({'literal':coarse.removeprefix('symbol_')+
+                    (' / '+alternative if isinstance(alternative,str) and alternative not in ('','—','–','-') else '')})
+            rows=[[row[0],*['—' if cell in ('','—','–','-') else '✓' for cell in row[1:]]]
+                  for row in block['rows'] if isinstance(row[0],str) and row[0].isdigit()]
+            yield {**block,'headers':headers,'rows':rows,'heading':'stud_length_availability','preferred_rows':[]}
+            continue
+        if block.get('approximate_mass_only'):
+            continue
+        rows=[row for row in block['rows'] if not any(isinstance(cell,dict) and cell.get('key','').startswith('mass_') for cell in row)]
+        if rows:
+            yield {**block,'rows':rows}
+
+
 def screen_table_blocks(page):
-    blocks = list(table_blocks(page))
+    blocks = list(presentation_table_blocks(page))
     if not page.get('thread_dimension_rows'):
         return blocks
     dimensions = [block for block in blocks if block['headers'][0] == 'parameter']

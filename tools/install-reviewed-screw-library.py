@@ -29,13 +29,13 @@ def read(p):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--kind',choices=('studs','caps'),required=True)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--kind',choices=('studs','caps','buttons'),required=True)
     p.add_argument('--replace-receipt',type=Path,help='Explicitly replace only unchanged files from a previous installation receipt')
     for name in ('models','verification','thumbnails','references'):p.add_argument('--'+name,type=Path,required=True)
     args=p.parse_args();rows=json.loads((args.models/'manifest.json').read_text(encoding='utf-8'))['variants']
     cases={v['filename']:v for v in json.loads(args.verification.read_text(encoding='utf-8'))}
-    assert len(rows)==len(cases)==(74 if args.kind=='studs' else 40)
-    references=json.loads((args.references/'illustrations.json').read_text(encoding='utf-8'));assert len(references)==3
+    assert len(rows)==len(cases)=={'studs':74,'caps':40,'buttons':7}[args.kind]
+    references=json.loads((args.references/'illustrations.json').read_text(encoding='utf-8'));assert len(references)==(1 if args.kind=='buttons' else 3)
     previous={}
     if args.replace_receipt:
         previous={row['path']:row['sha256'] for row in json.loads(args.replace_receipt.read_text(encoding='utf-8'))}
@@ -77,7 +77,7 @@ def main():
         metadata.write_text(metadata.read_text(encoding='utf-8').replace('Parameters="'+', '.join(FIELDS)+'"','Parameters='+', '.join(FIELDS)),encoding='utf-8')
     receipt=[dict(path=p.relative_to(ROOT).as_posix(),sha256=digest(p)) for _,p in copies]
     (args.models/'installed.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
-    print('Installed or verified '+str(len(rows))+' native screws with metadata, thumbnails and three localized native Drawing pairs')
+    print('Installed or verified '+str(len(rows))+' native screws with metadata, thumbnails and '+str(len(references))+' localized native Drawing pairs')
 
 
 if __name__=='__main__':main()

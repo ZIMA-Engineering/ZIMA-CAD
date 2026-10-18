@@ -478,25 +478,25 @@
       "Цилиндрическая головка, внутренний шестигранник · ISO 4762 · M24-M64"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_02-SLOTTED": [
-      "Šrouby s válcovou hlavou s drážkou",
-      "Slotted cylindrical head screws — grade A",
-      "Zylinderschrauben mit Schlitz — Produktklasse A",
-      "Vis à tête cylindrique fendue — grade A",
-      "Винты с цилиндрической головкой и шлицем — класс A"
+      "Šrouby s válcovou hlavou s drážkou · ISO 1207",
+      "Slotted cylindrical head screws — grade A · ISO 1207",
+      "Zylinderschrauben mit Schlitz — Produktklasse A · ISO 1207",
+      "Vis à tête cylindrique fendue — grade A · ISO 1207",
+      "Винты с цилиндрической головкой и шлицем — класс A · ISO 1207"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_03-LARGE": [
-      "Šrouby s velkou válcovou hlavou",
-      "Large cylindrical head screws — grade A",
-      "Schrauben mit großem Zylinderkopf — Produktklasse A",
-      "Vis à grande tête cylindrique — grade A",
-      "Винты с большой цилиндрической головкой — класс A"
+      "Šrouby s velkou válcovou hlavou · ISO 1580",
+      "Large cylindrical head screws — grade A · ISO 1580",
+      "Schrauben mit großem Zylinderkopf — Produktklasse A · ISO 1580",
+      "Vis à grande tête cylindrique — grade A · ISO 1580",
+      "Винты с большой цилиндрической головкой — класс A · ISO 1580"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2": [
-      "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2",
-      "Hexagon socket button head screws — A2",
-      "Schrauben mit Flachrundkopf und Innensechskant — A2",
-      "Vis à tête bombée à six pans creux — A2",
-      "Винты с полукруглой головкой и внутренним шестигранником — A2"
+      "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2 · ISO 7380-1",
+      "Hexagon socket button head screws — A2 · ISO 7380-1",
+      "Schrauben mit Flachrundkopf und Innensechskant — A2 · ISO 7380-1",
+      "Vis à tête bombée à six pans creux — A2 · ISO 7380-1",
+      "Винты с полукруглой головкой и внутренним шестигранником — A2 · ISO 7380-1"
     ],
     "directory_04-SCREWS_05-SUNK-HEAD": [
       "Zápustné šrouby",
@@ -11662,6 +11662,62 @@
       "ISO 4762 legt Produktklasse A und metrisches Regelgewinde fest. Festigkeitsklassen unter M3 bedürfen einer Vereinbarung.",
       "ISO 4762 définit le grade A et le pas métrique gros. Les classes de qualité sous M3 nécessitent un accord.",
       "ISO 4762 устанавливает класс точности A и крупный метрический шаг. Классы прочности для размеров менее M3 согласовываются отдельно."
+    ],
+    "stud_length_availability": [
+      "Tabulkové délky l [mm] podle závitu",
+      "Tabulated lengths l [mm] by thread",
+      "Tabellierte Längen l [mm] nach Gewinde",
+      "Longueurs tabulées l [mm] par filetage",
+      "Табличные длины l [мм] по резьбе"
+    ],
+    "stud_availability_legend": [
+      "✓ — kombinace závitu a délky uvedená v historických podkladech; — — kombinace neuvedena. Sdružené označení závitů platí pro oba uvedené závity. Nejde o údaj o skladové dostupnosti.",
+      "✓ — thread/length combination listed in the historical source; — — combination not listed. Grouped thread designations apply to both listed threads. This is not stock availability.",
+      "✓ — Gewinde/Längen-Kombination in der historischen Quelle aufgeführt; — — nicht aufgeführt. Zusammengefasste Gewindebezeichnungen gelten für beide aufgeführten Gewinde. Keine Angabe zur Lagerverfügbarkeit.",
+      "✓ — combinaison filetage/longueur indiquée dans la source historique ; — — combinaison non indiquée. Les désignations groupées concernent les deux filetages indiqués. Il ne s’agit pas de disponibilité en stock.",
+      "✓ — сочетание резьбы и длины указано в историческом источнике; — — не указано. Объединённые обозначения относятся к обеим указанным резьбам. Это не сведения о наличии на складе."
+    ],
+    "button_dimensions_reviewed": [
+      "Rozměry ISO 7380-1:2022",
+      "ISO 7380-1:2022 dimensions",
+      "Maße nach ISO 7380-1:2022",
+      "Dimensions ISO 7380-1:2022",
+      "Размеры ISO 7380-1:2022"
+    ],
+    "button_length_heading": [
+      "Katalogové kombinace závitu a délky l [mm]",
+      "Catalogue thread/length combinations l [mm]",
+      "Katalogkombinationen Gewinde/Länge l [mm]",
+      "Combinaisons catalogue filetage/longueur l [mm]",
+      "Каталожные сочетания резьбы и длины l [мм]"
+    ],
+    "button_review_note": [
+      "Rozměry jsou z tabulky 1 ISO 7380-1:2022 pro zde uvedené M3–M12. Nejde o úplný rozsah normy M3–M16.",
+      "Dimensions follow ISO 7380-1:2022 Table 1 for the M3–M12 sizes shown here. This is not the complete M3–M16 scope of the standard.",
+      "Maße aus ISO 7380-1:2022, Tabelle 1, für die hier aufgeführten M3–M12. Der vollständige Normbereich M3–M16 ist nicht enthalten.",
+      "Dimensions du tableau 1 ISO 7380-1:2022 pour les M3–M12 présentés. Ce n’est pas toute la gamme normative M3–M16.",
+      "Размеры по таблице 1 ISO 7380-1:2022 для показанных M3–M12. Полный диапазон стандарта M3–M16 не представлен."
+    ],
+    "button_catalogue_note": [
+      "✓ — kombinace uvedená v katalogu Bossard BN 1593 (A2, 2016); — — neuvedena. (14) je v katalogu nepřednostní délka. Nejde o aktuální skladovou dostupnost ani úplnou normovou řadu délek.",
+      "✓ — combination listed in Bossard BN 1593 (A2, 2016); — — not listed. (14) is a non-preferred catalogue length. This is neither current stock nor the complete normative length series.",
+      "✓ — Kombination in Bossard BN 1593 (A2, 2016); — — nicht aufgeführt. (14) ist eine nicht bevorzugte Kataloglänge. Keine aktuelle Lagerverfügbarkeit oder vollständige Normlängenreihe.",
+      "✓ — combinaison du catalogue Bossard BN 1593 (A2, 2016) ; — — non indiquée. (14) est une longueur non préférentielle du catalogue. Ni disponibilité actuelle ni série normative complète.",
+      "✓ — сочетание из каталога Bossard BN 1593 (A2, 2016); — — не указано. (14) — непредпочтительная каталожная длина. Это не текущие остатки и не полный нормативный ряд длин."
+    ],
+    "button_load_note": [
+      "Půlkulatá hlava má podle ISO 7380-1 sníženou únosnost. Materiál A2 sám o sobě neurčuje pevnostní třídu. Částečné závitování není podle katalogu vždy zaručeno; modely používají plný závit s výběhem pod hlavou.",
+      "ISO 7380-1 button heads have reduced loadability. A2 alone does not specify a property class. The catalogue does not always guarantee partial threading; models use full threading with an underhead runout.",
+      "Flachrundköpfe nach ISO 7380-1 haben reduzierte Belastbarkeit. A2 allein bezeichnet keine Festigkeitsklasse. Teilgewinde ist laut Katalog nicht immer gewährleistet; Modelle verwenden Vollgewinde mit Auslauf unter dem Kopf.",
+      "Les têtes ISO 7380-1 ont une capacité de charge réduite. A2 seul ne définit pas la classe de résistance. Le catalogue ne garantit pas toujours le filetage partiel ; les modèles ont un filetage complet avec sortie sous tête.",
+      "Головки ISO 7380-1 имеют пониженную несущую способность. A2 само по себе не задаёт класс прочности. Неполная резьба не всегда гарантируется каталогом; модели имеют полную резьбу со сбегом под головкой."
+    ],
+    "native_reference_iso7380_1": [
+      "ISO 7380-1 · Šroub s půlkulatou hlavou a vnitřním šestihranem",
+      "ISO 7380-1 · Hexagon socket button head screw",
+      "ISO 7380-1 · Schraube mit Flachrundkopf und Innensechskant",
+      "ISO 7380-1 · Vis à tête bombée à six pans creux",
+      "ISO 7380-1 · Винт с полукруглой головкой и внутренним шестигранником"
     ]
   },
   "sources": {
@@ -11856,6 +11912,14 @@
     "iso1207_2011_preview": {
       "label": "ISO 1207:2011 · Table 1",
       "url": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    "button_dimensions_preview": {
+      "label": "ISO 7380-1:2022 · Table 1 preview",
+      "url": "https://cdn.standards.iteh.ai/samples/78699/a175805085534f98983d6c8aa583a5b0/ISO-7380-1-2022.pdf"
+    },
+    "button_catalogue_lengths": {
+      "label": "Bossard BN 1593 · A2 · 2016",
+      "url": "https://www.tme.eu/Document/1300c42edc34d0b58933bd30eeddc6e2/BN1593.pdf"
     }
   },
   "pages": [
@@ -11866,7 +11930,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "05f4b512-f6de-5dae-9ec9-861f415a72f8"
+      "id": "05f4b512-f6de-5dae-9ec9-861f415a72f8",
+      "omit_approximate_mass": true
     },
     {
       "path": "01-CAPACITY",
@@ -13224,7 +13289,8 @@
         "symbol_P [mm]",
         "symbol_I / II / III"
       ],
-      "display_row_count": 61
+      "display_row_count": 61,
+      "omit_approximate_mass": true
     },
     {
       "path": "02-HOLES",
@@ -14186,7 +14252,8 @@
       ],
       "transpose_table": true,
       "transpose_header": "symbol_d",
-      "display_row_count": 32
+      "display_row_count": 32,
+      "omit_approximate_mass": true
     },
     {
       "path": "03-MECHANIC",
@@ -14222,7 +14289,8 @@
       "id": "f7f66723-f357-5041-90b1-ef6dfdb9450d",
       "heading": "grades_title",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS",
@@ -14272,7 +14340,8 @@
       "id": "88e1d9c3-4b7c-53b5-8e18-d7929c345dde",
       "heading": "drawing_04-SCREWS",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD",
@@ -14283,7 +14352,8 @@
         "product_grade_explanation"
       ],
       "sources": [],
-      "id": "012cbbdf-a921-596f-a5f1-dff5cee3b5c9"
+      "id": "012cbbdf-a921-596f-a5f1-dff5cee3b5c9",
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD/01-GRADE-AB",
@@ -16116,7 +16186,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "display_row_count": 90,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD/02-GRADE-C",
@@ -17649,7 +17720,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "display_row_count": 72,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD/03-FULL-AB",
@@ -19390,7 +19462,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "display_row_count": 90,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD/04-FULL-C",
@@ -20942,7 +21015,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "display_row_count": 84,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD/05-FINE-AB",
@@ -22707,7 +22781,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "display_row_count": 95,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/01-HEX-HEAD/06-FULL-FINE",
@@ -25310,7 +25385,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "display_row_count": 157,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "figures_side_by_side": true,
@@ -26245,11 +26321,13 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/01-HEX-HEAD/07-SMALL-HEX_1_2_0",
-          "source_path": "04-SCREWS/01-HEX-HEAD/07-SMALL-HEX/02-C03-R001"
+          "source_path": "04-SCREWS/01-HEX-HEAD/07-SMALL-HEX/02-C03-R001",
+          "approximate_mass_only": true
         }
       ],
       "freeze_header": true,
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "figures_side_by_side": true,
@@ -26925,7 +27003,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/02-FITTED_1_1_0",
-          "source_path": "04-SCREWS/02-FITTED/02-C02-R001"
+          "source_path": "04-SCREWS/02-FITTED/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
       "freeze_header": true,
@@ -26953,7 +27032,8 @@
           }
         }
       ],
-      "localized_illustrations": true
+      "localized_illustrations": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/03-STUDS",
@@ -27040,7 +27120,8 @@
         "units",
         "pair_order",
         "brackets",
-        "stud_fine_end_note"
+        "stud_fine_end_note",
+        "stud_availability_legend"
       ],
       "sources": [
         "iso8992_2005"
@@ -27572,7 +27653,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/03-STUDS/01-M3-M16_1_1_0",
-          "source_path": "04-SCREWS/03-STUDS/01-M3-M16/02-C02-R001"
+          "source_path": "04-SCREWS/03-STUDS/01-M3-M16/02-C02-R001",
+          "stud_length_availability": true
         },
         {
           "path": "04-SCREWS/03-STUDS",
@@ -28015,14 +28097,16 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/03-STUDS/02-M16-M30_1_1_0",
-          "source_path": "04-SCREWS/03-STUDS/02-M16-M30/02-C02-R001"
+          "source_path": "04-SCREWS/03-STUDS/02-M16-M30/02-C02-R001",
+          "stud_length_availability": true
         }
       ],
       "freeze_header": true,
       "thread_dimension_rows": true,
       "localized_illustrations": true,
       "figures_side_by_side": true,
-      "display_row_count": 30
+      "display_row_count": 74,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD",
@@ -28031,7 +28115,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "fd9f7ad5-1ba9-5e1f-a6d0-a0668e2dcc50"
+      "id": "fd9f7ad5-1ba9-5e1f-a6d0-a0668e2dcc50",
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/01-SOCKET",
@@ -30153,7 +30238,8 @@
           "review": "historical",
           "heading": "logical_page_04-SCREWS/04-CAP-HEAD/01-SOCKET/03-M1.6-M20_0_1_0",
           "source_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/03-M1.6-M20/01-C02-R001",
-          "id": "202e4289-0410-50bb-b8a1-80223ba2aa3b"
+          "id": "202e4289-0410-50bb-b8a1-80223ba2aa3b",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/04-CAP-HEAD/01-SOCKET",
@@ -30426,13 +30512,15 @@
           "review": "historical",
           "heading": "logical_page_04-SCREWS/04-CAP-HEAD/01-SOCKET/04-M24-M64_0_1_0",
           "source_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/04-M24-M64/01-C02-R001",
-          "id": "59f0a618-25d5-571f-b9f1-7ec467c59f77"
+          "id": "59f0a618-25d5-571f-b9f1-7ec467c59f77",
+          "approximate_mass_only": true
         }
       ],
       "freeze_header": true,
       "thread_dimension_rows": true,
       "localized_illustrations": true,
-      "display_row_count": 128
+      "display_row_count": 74,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/02-SLOTTED",
@@ -31069,7 +31157,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/04-CAP-HEAD/02-SLOTTED_1_2_0",
-          "source_path": "04-SCREWS/04-CAP-HEAD/02-SLOTTED/02-C03-R001"
+          "source_path": "04-SCREWS/04-CAP-HEAD/02-SLOTTED/02-C03-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/04-CAP-HEAD/02-SLOTTED",
@@ -31115,7 +31204,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "localized_illustrations": true,
-      "display_row_count": 36
+      "display_row_count": 13,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/03-LARGE",
@@ -31778,7 +31868,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/04-CAP-HEAD/03-LARGE_1_2_0",
-          "source_path": "04-SCREWS/04-CAP-HEAD/03-LARGE/02-C03-R001"
+          "source_path": "04-SCREWS/04-CAP-HEAD/03-LARGE/02-C03-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/04-CAP-HEAD/03-LARGE",
@@ -31824,7 +31915,8 @@
       "freeze_header": true,
       "thread_dimension_rows": true,
       "localized_illustrations": true,
-      "display_row_count": 37
+      "display_row_count": 13,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
@@ -31835,35 +31927,462 @@
       ],
       "rows": [
         [
-          "ISO",
           {
-            "key": "scope_note"
-          }
+            "key": "reference"
+          },
+          "ISO 7380-1:2022"
         ],
         [
-          "—",
           {
-            "key": "pending"
-          }
+            "key": "product_grade"
+          },
+          "A"
         ]
       ],
       "notes": [
         "units",
-        "supplier_values"
+        "button_review_note",
+        "button_catalogue_note",
+        "button_load_note"
       ],
       "sources": [
-        "iso7380-1_2022"
+        "iso7380-1_2022",
+        "button_dimensions_preview",
+        "button_catalogue_lengths"
       ],
       "figures": [
         {
-          "path": "../../../../../0000-index/diagrams/button-screw.svg",
-          "caption": "own_schematic"
+          "path": "BHCS-ISO7380-1-M08x035-REFERENCE.png",
+          "caption": "native_reference_iso7380_1",
+          "localized_paths": {
+            "cs": "BHCS-ISO7380-1-M08x035-REFERENCE_cs.png",
+            "en": "BHCS-ISO7380-1-M08x035-REFERENCE_en.png",
+            "de": "BHCS-ISO7380-1-M08x035-REFERENCE_de.png",
+            "fr": "BHCS-ISO7380-1-M08x035-REFERENCE_fr.png",
+            "ru": "BHCS-ISO7380-1-M08x035-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2/00-CONTEXT",
       "id": "e3083691-aeb2-5628-8778-19bb34a4da44",
       "heading": "context_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
       "sections": [
+        {
+          "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
+          "title": "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2",
+          "preferred_rows": [],
+          "heading": "button_dimensions_reviewed",
+          "headers": [
+            "parameter",
+            "symbol_M3",
+            "symbol_M4",
+            "symbol_M5",
+            "symbol_M6",
+            "symbol_M8",
+            "symbol_M10",
+            "symbol_M12"
+          ],
+          "rows": [
+            [
+              "P",
+              "0.5",
+              "0.7",
+              "0.8",
+              "1",
+              "1.25",
+              "1.5",
+              "1.75"
+            ],
+            [
+              "da max.",
+              "3.6",
+              "4.7",
+              "5.7",
+              "6.8",
+              "9.2",
+              "11.2",
+              "13.7"
+            ],
+            [
+              "dk max.",
+              "5.7",
+              "7.6",
+              "9.5",
+              "10.5",
+              "14",
+              "17.5",
+              "21"
+            ],
+            [
+              "dk min.",
+              "5.4",
+              "7.24",
+              "9.14",
+              "10.07",
+              "13.57",
+              "17.07",
+              "20.48"
+            ],
+            [
+              "dL ref.",
+              "2.6",
+              "3.8",
+              "5",
+              "6",
+              "7.7",
+              "10",
+              "12"
+            ],
+            [
+              "ds max.",
+              "3",
+              "4",
+              "5",
+              "6",
+              "8",
+              "10",
+              "12"
+            ],
+            [
+              "ds min.",
+              "2.86",
+              "3.82",
+              "4.82",
+              "5.82",
+              "7.78",
+              "9.78",
+              "11.73"
+            ],
+            [
+              "dw min.",
+              "4.97",
+              "6.66",
+              "8.41",
+              "9.26",
+              "12.48",
+              "15.7",
+              "18.84"
+            ],
+            [
+              "k max.",
+              "1.65",
+              "2.2",
+              "2.75",
+              "3.3",
+              "4.4",
+              "5.5",
+              "6.6"
+            ],
+            [
+              "k min.",
+              "1.4",
+              "1.95",
+              "2.5",
+              "3",
+              "4.1",
+              "5.2",
+              "6.24"
+            ],
+            [
+              "rf min.",
+              "3.3",
+              "4.2",
+              "5.25",
+              "5.65",
+              "7.45",
+              "9.2",
+              "10.5"
+            ],
+            [
+              "rf max.",
+              "3.7",
+              "4.6",
+              "5.75",
+              "6.15",
+              "7.95",
+              "9.8",
+              "11.2"
+            ],
+            [
+              "rs min.",
+              "0.1",
+              "0.2",
+              "0.2",
+              "0.25",
+              "0.4",
+              "0.4",
+              "0.6"
+            ],
+            [
+              "rt min.",
+              "0.3",
+              "0.4",
+              "0.45",
+              "0.5",
+              "0.7",
+              "0.7",
+              "1.1"
+            ],
+            [
+              "s nom.",
+              "2",
+              "2.5",
+              "3",
+              "4",
+              "5",
+              "6",
+              "8"
+            ],
+            [
+              "s min.",
+              "2.02",
+              "2.52",
+              "3.02",
+              "4.02",
+              "5.02",
+              "6.02",
+              "8.025"
+            ],
+            [
+              "s max.",
+              "2.08",
+              "2.58",
+              "3.08",
+              "4.095",
+              "5.14",
+              "6.14",
+              "8.175"
+            ],
+            [
+              "e min.",
+              "2.3",
+              "2.87",
+              "3.44",
+              "4.58",
+              "5.72",
+              "6.86",
+              "9.15"
+            ],
+            [
+              "t min.",
+              "1.04",
+              "1.3",
+              "1.56",
+              "2.08",
+              "2.6",
+              "3.12",
+              "4.16"
+            ],
+            [
+              "t max.",
+              "1.2",
+              "1.65",
+              "2.12",
+              "2.26",
+              "3.05",
+              "3.75",
+              "4.61"
+            ],
+            [
+              "wb min.",
+              "0.2",
+              "0.3",
+              "0.38",
+              "0.74",
+              "1.05",
+              "1.45",
+              "1.63"
+            ]
+          ]
+        },
+        {
+          "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
+          "title": "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2",
+          "preferred_rows": [],
+          "heading": "button_length_heading",
+          "headers": [
+            "symbol_l [mm]",
+            "symbol_M3",
+            "symbol_M4",
+            "symbol_M5",
+            "symbol_M6",
+            "symbol_M8",
+            "symbol_M10",
+            "symbol_M12"
+          ],
+          "rows": [
+            [
+              "5",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "6",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "8",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "10",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "12",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—"
+            ],
+            [
+              "(14)",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "16",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "20",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "25",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "30",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "35",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "40",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "45",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "50",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "55",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "60",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "—"
+            ],
+            [
+              "80",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "—"
+            ]
+          ]
+        },
         {
           "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
           "title": "page_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2_0_1_0",
@@ -31946,10 +32465,15 @@
           ],
           "review": "historical",
           "source_path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2/01-C02-R001",
-          "heading": "page_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2_0_1_0"
+          "heading": "page_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2_0_1_0",
+          "superseded_display": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "display_row_count": 26
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD",
@@ -31958,7 +32482,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "990af484-ba5c-5a9e-88fc-253f4ef76bd6"
+      "id": "990af484-ba5c-5a9e-88fc-253f4ef76bd6",
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/01-CONICAL",
@@ -32230,7 +32755,8 @@
           "heading": "context_04-SCREWS/05-SUNK-HEAD/01-CONICAL"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/02-RAISED",
@@ -32859,7 +33385,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/05-SUNK-HEAD/02-RAISED_1_2_0",
-          "source_path": "04-SCREWS/05-SUNK-HEAD/02-RAISED/02-C03-R001"
+          "source_path": "04-SCREWS/05-SUNK-HEAD/02-RAISED/02-C03-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/05-SUNK-HEAD/02-RAISED",
@@ -32902,7 +33429,8 @@
           "heading": "context_04-SCREWS/05-SUNK-HEAD/02-RAISED"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/03-CROSS-48",
@@ -33475,7 +34003,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/05-SUNK-HEAD/03-CROSS-48_1_2_0",
-          "source_path": "04-SCREWS/05-SUNK-HEAD/03-CROSS-48/02-C03-R001"
+          "source_path": "04-SCREWS/05-SUNK-HEAD/03-CROSS-48/02-C03-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/05-SUNK-HEAD/03-CROSS-48",
@@ -33518,7 +34047,8 @@
           "heading": "context_04-SCREWS/05-SUNK-HEAD/03-CROSS-48"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/04-CROSS-88",
@@ -34195,7 +34725,8 @@
           "heading": "context_04-SCREWS/05-SUNK-HEAD/04-CROSS-88"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/05-TAPPING",
@@ -34724,7 +35255,8 @@
           "heading": "context_04-SCREWS/05-SUNK-HEAD/05-TAPPING"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/06-CROSS-UP",
@@ -35336,7 +35868,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/05-SUNK-HEAD/06-CROSS-UP_1_2_0",
-          "source_path": "04-SCREWS/05-SUNK-HEAD/06-CROSS-UP/02-C03-R001"
+          "source_path": "04-SCREWS/05-SUNK-HEAD/06-CROSS-UP/02-C03-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/05-SUNK-HEAD/06-CROSS-UP",
@@ -35379,7 +35912,8 @@
           "heading": "context_04-SCREWS/05-SUNK-HEAD/06-CROSS-UP"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/05-SUNK-HEAD/07-SOCKET",
@@ -35416,7 +35950,8 @@
       "id": "099a8ae9-24e8-565f-a66b-0f248a4639a6",
       "heading": "context_04-SCREWS/05-SUNK-HEAD/07-SOCKET",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/06-PAN-HEAD",
@@ -35425,7 +35960,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "9faeb1b0-088d-52fc-a712-2f03ccbfebbc"
+      "id": "9faeb1b0-088d-52fc-a712-2f03ccbfebbc",
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/06-PAN-HEAD/01-CROSS-A",
@@ -35462,7 +35998,8 @@
       "id": "1ed66225-d55b-59a2-abc0-95bc9dbe127b",
       "heading": "context_04-SCREWS/06-PAN-HEAD/01-CROSS-A",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/06-PAN-HEAD/01-CROSS",
@@ -36116,7 +36653,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/06-PAN-HEAD/01-CROSS_1_2_0",
-          "source_path": "04-SCREWS/06-PAN-HEAD/01-CROSS/02-C03-R001"
+          "source_path": "04-SCREWS/06-PAN-HEAD/01-CROSS/02-C03-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/06-PAN-HEAD/01-CROSS",
@@ -36159,7 +36697,8 @@
           "heading": "context_04-SCREWS/06-PAN-HEAD/01-CROSS"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/06-PAN-HEAD/02-TAPPING",
@@ -36749,7 +37288,8 @@
           "heading": "context_04-SCREWS/06-PAN-HEAD/02-TAPPING-02"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/07-T-HEAD",
@@ -37370,7 +37910,9 @@
           "heading": "page_04-SCREWS/07-T-HEAD_2_1_0"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "approximate_mass_only": true
     },
     {
       "path": "04-SCREWS/08-CLAMPING",
@@ -37379,7 +37921,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "39fd629f-9ff0-5c65-a28e-77f2d73d8636"
+      "id": "39fd629f-9ff0-5c65-a28e-77f2d73d8636",
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/08-CLAMPING/01-T-SLOTS",
@@ -37656,10 +38199,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/08-CLAMPING/01-T-SLOTS_1_1_0",
-          "source_path": "04-SCREWS/08-CLAMPING/01-T-SLOTS/02-C02-R001"
+          "source_path": "04-SCREWS/08-CLAMPING/01-T-SLOTS/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/08-CLAMPING/02-SLOTS",
@@ -37971,7 +38516,8 @@
           "heading": "page_04-SCREWS/08-CLAMPING/02-SLOTS_1_1_0"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/08-CLAMPING/03-SHOULDER",
@@ -38368,10 +38914,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/08-CLAMPING/03-SHOULDER_1_1_0",
-          "source_path": "04-SCREWS/08-CLAMPING/03-SHOULDER/02-C02-R001"
+          "source_path": "04-SCREWS/08-CLAMPING/03-SHOULDER/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/08-CLAMPING/04-ROUND",
@@ -38676,10 +39224,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/08-CLAMPING/04-ROUND_1_1_0",
-          "source_path": "04-SCREWS/08-CLAMPING/04-ROUND/02-C02-R001"
+          "source_path": "04-SCREWS/08-CLAMPING/04-ROUND/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET",
@@ -38688,7 +39238,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "298244bb-50e1-57b9-bc6d-82804f866806"
+      "id": "298244bb-50e1-57b9-bc6d-82804f866806",
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/01-FLAT",
@@ -39296,10 +39847,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/09-SET/01-FLAT_1_1_0",
-          "source_path": "04-SCREWS/09-SET/01-FLAT/02-C02-R001"
+          "source_path": "04-SCREWS/09-SET/01-FLAT/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/02-CUP",
@@ -39817,10 +40370,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/09-SET/02-CUP_1_1_0",
-          "source_path": "04-SCREWS/09-SET/02-CUP/02-C02-R001"
+          "source_path": "04-SCREWS/09-SET/02-CUP/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/03-DOG",
@@ -40339,10 +40894,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/09-SET/03-DOG_1_1_0",
-          "source_path": "04-SCREWS/09-SET/03-DOG/02-C02-R001"
+          "source_path": "04-SCREWS/09-SET/03-DOG/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/04-CONE",
@@ -40867,10 +41424,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/09-SET/04-CONE_1_1_0",
-          "source_path": "04-SCREWS/09-SET/04-CONE/02-C02-R001"
+          "source_path": "04-SCREWS/09-SET/04-CONE/02-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/05-SOCKET",
@@ -41405,7 +41964,8 @@
       "source_path": "04-SCREWS/09-SET/05-SOCKET/01-C02-R001",
       "id": "230bb688-0bcf-545a-9dac-025ea112e6ba",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/XX-CONE",
@@ -41442,7 +42002,8 @@
       "id": "f04046e3-790b-535d-9537-483538e0295b",
       "heading": "context_04-SCREWS/09-SET/XX-CONE",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/XX-DIN-913",
@@ -41479,7 +42040,8 @@
       "id": "b9c0ddf9-f871-502f-a737-0a40974c39a4",
       "heading": "context_04-SCREWS/09-SET/XX-DIN-913",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/XX-DIN-914",
@@ -41516,7 +42078,8 @@
       "id": "d187c7c6-f71d-5c4c-ba90-be986357525e",
       "heading": "context_04-SCREWS/09-SET/XX-DIN-914",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/XX-DIN-915",
@@ -41553,7 +42116,8 @@
       "id": "bc4a6355-ecaf-58eb-a2db-9ca0a952ef87",
       "heading": "context_04-SCREWS/09-SET/XX-DIN-915",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/09-SET/XX-DOG",
@@ -41590,7 +42154,8 @@
       "id": "72c0bb79-05bb-58b5-8b16-529349840877",
       "heading": "context_04-SCREWS/09-SET/XX-DOG",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/10-EYE",
@@ -42187,7 +42752,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/10-EYE_2_1_0",
-          "source_path": "04-SCREWS/10-EYE/03-C02-R001"
+          "source_path": "04-SCREWS/10-EYE/03-C02-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/10-EYE",
@@ -42396,10 +42962,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/10-EYE_3_1_0",
-          "source_path": "04-SCREWS/10-EYE/04-C02-R001"
+          "source_path": "04-SCREWS/10-EYE/04-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/11-ANCHORS",
@@ -42906,7 +43474,8 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/11-ANCHORS_2_1_0",
-          "source_path": "04-SCREWS/11-ANCHORS/03-C02-R001"
+          "source_path": "04-SCREWS/11-ANCHORS/03-C02-R001",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/11-ANCHORS",
@@ -43064,7 +43633,8 @@
           ],
           "review": "historical",
           "source_path": "04-SCREWS/11-ANCHORS/04-C02-R001",
-          "heading": "page_04-SCREWS/11-ANCHORS_3_1_0"
+          "heading": "page_04-SCREWS/11-ANCHORS_3_1_0",
+          "approximate_mass_only": true
         },
         {
           "path": "04-SCREWS/11-ANCHORS",
@@ -43295,10 +43865,12 @@
           ],
           "review": "historical",
           "heading": "logical_page_04-SCREWS/11-ANCHORS_4_1_0",
-          "source_path": "04-SCREWS/11-ANCHORS/05-C02-R001"
+          "source_path": "04-SCREWS/11-ANCHORS/05-C02-R001",
+          "approximate_mass_only": true
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/11-ANCHORS/01-FORMS-AD",
@@ -43329,7 +43901,8 @@
       "id": "7539d4fd-91c8-5cd2-b0a0-d886e5c71905",
       "heading": "context_04-SCREWS/11-ANCHORS/01-FORMS-AD",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/11-ANCHORS/02-FORMS-BC",
@@ -43360,7 +43933,8 @@
       "id": "65f7240e-5f0e-55a0-9568-e843ffed977a",
       "heading": "context_04-SCREWS/11-ANCHORS/02-FORMS-BC",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "04-SCREWS/11-ANCHORS/03-FORM-E",
@@ -43391,7 +43965,8 @@
       "id": "5c3f5cb3-13ff-5d0b-a4ba-f40bf45d9fa9",
       "heading": "context_04-SCREWS/11-ANCHORS/03-FORM-E",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS",
@@ -43438,7 +44013,8 @@
       "id": "b552921b-caa1-56f1-bdf4-1f666dd79b9f",
       "heading": "drawing_05-NUTS",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON",
@@ -43447,7 +44023,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "91ac6806-3f5b-52be-b10a-aa3d9f85b881"
+      "id": "91ac6806-3f5b-52be-b10a-aa3d9f85b881",
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/01-TYPE1-AB",
@@ -44142,7 +44719,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/01-TYPE1-AB"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/02-TYPE1-F",
@@ -44692,7 +45270,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/02-TYPE1-F"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/03-LOW",
@@ -45273,7 +45852,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/03-LOW"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/04-LOW-FINE",
@@ -45733,7 +46313,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/04-LOW-FINE"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/05-NO-CHAMF",
@@ -45913,7 +46494,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/05-NO-CHAMF"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/06-TYPE2-AB",
@@ -46172,7 +46754,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/06-TYPE2-AB"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/07-TYPE2-F",
@@ -46546,7 +47129,8 @@
           "heading": "context_05-NUTS/01-HEXAGON/07-TYPE2-F"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/01-HEXAGON/08-GRADE-C",
@@ -46733,7 +47317,8 @@
       "source_path": "05-NUTS/01-HEXAGON/08-GRADE-C/01-C02-R001",
       "id": "78f2ab39-018a-560c-905a-023f2e65f5bc",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/02-CASTLE",
@@ -46742,7 +47327,8 @@
       "rows": [],
       "notes": [],
       "sources": [],
-      "id": "66182c18-ea91-5b36-a397-dc881e5dcb3e"
+      "id": "66182c18-ea91-5b36-a397-dc881e5dcb3e",
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/02-CASTLE/01-CSN-1411",
@@ -47066,7 +47652,8 @@
           "source_path": "05-NUTS/02-CASTLE/01-CSN-1411/02-C02-R001"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/02-CASTLE/02-LOW",
@@ -47390,7 +47977,8 @@
           "source_path": "05-NUTS/02-CASTLE/02-LOW/02-C02-R001"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/03-SMALL",
@@ -47570,7 +48158,8 @@
       "source_path": "05-NUTS/03-SMALL/01-C02-R001",
       "id": "7b09bcb6-0ed6-52fe-bc87-836967b072c2",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/04-CAP",
@@ -47737,7 +48326,8 @@
       "source_path": "05-NUTS/04-CAP/01-C02-R001",
       "id": "51c73d20-77f8-5622-a01e-eb6165e6e166",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/05-WELD",
@@ -47908,7 +48498,8 @@
       "source_path": "05-NUTS/05-WELD/01-C02-R001",
       "id": "65ab5ea0-f271-597a-a6a3-d0736407a1e7",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/06-TWO-PART",
@@ -48104,7 +48695,8 @@
           "source_path": "05-NUTS/06-TWO-PART/02-C02-R001"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/07-LOCKING",
@@ -48235,7 +48827,8 @@
       "source_path": "05-NUTS/07-LOCKING/01-C02-R001",
       "id": "5b3253da-e1d1-5720-8c74-09622975ffa9",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/08-KNURLED",
@@ -48444,7 +49037,8 @@
       "source_path": "05-NUTS/08-KNURLED/01-C02-R001",
       "id": "018e8704-cd5f-57ff-b835-e6d8d615cee0",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "05-NUTS/09-WING",
@@ -48666,7 +49260,8 @@
       "source_path": "05-NUTS/09-WING/01-C02-R001",
       "id": "9ce04893-be66-5dab-99b5-33af4c5290e6",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS",
@@ -48695,7 +49290,8 @@
       "id": "84c880dd-2007-5a5a-be5b-e7bbd5c63e9a",
       "heading": "drawing_06-WASHERS",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS/01-HEXAGON",
@@ -49222,7 +49818,8 @@
       "source_path": "06-WASHERS/01-HEXAGON/01-C02-R001",
       "id": "bcc341d1-5974-555b-90ce-9d617591fe3c",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS/02-CAP-HEAD",
@@ -49394,7 +49991,8 @@
       "id": "09072e10-3cbd-5038-beec-3706f8f41b9b",
       "heading": "page_06-WASHERS/02-CAP-HEAD_0_1_0",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS/03-SPRING",
@@ -49742,7 +50340,8 @@
       "source_path": "06-WASHERS/03-SPRING/01-C02-R001",
       "id": "93c44978-8d88-56a4-a50a-f1e5ada0732c",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS/04-TOOTHED",
@@ -49958,7 +50557,8 @@
       "source_path": "06-WASHERS/04-TOOTHED/01-C02-R001",
       "id": "461c5fec-16dd-5403-a06f-ab58194ed62b",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS/05-LOCK",
@@ -50341,7 +50941,8 @@
       "source_path": "06-WASHERS/05-LOCK/01-C02-R001",
       "id": "94299486-b943-5c67-a917-4960d7211739",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "06-WASHERS/06-DIN",
@@ -50379,7 +50980,8 @@
       "id": "b2cce3cb-0d35-5930-9950-37b518ad7fad",
       "heading": "context_06-WASHERS/06-DIN/01-STAINLESS",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     },
     {
       "path": "03-MECHANIC/01-CURRENT",
@@ -50413,7 +51015,8 @@
         "iso3506-2_2020"
       ],
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "omit_approximate_mass": true
     }
   ],
   "original_source_sha256": {

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ caps=importlib.util.module_from_spec(spec);spec.loader.exec_module(caps)
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--stage',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--standard')
+    p.add_argument('--head-radius',action='store_true',help='Also edit the spherical button crown radius repeatedly')
     p.add_argument('--cli',type=Path,default=ROOT/'build/cpp-windows-release/zima-cad-cli.exe')
     p.add_argument('--checker',type=Path,default=ROOT/'build/cpp-windows-release/fastener-runtime/zima_cpp_fastener_library_contract_tests.exe');args=p.parse_args()
     source=args.stage.resolve();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
@@ -46,14 +48,33 @@ def main():
                 case=copy.deepcopy(v);case['length_mm']=value
                 (out/'manifest.json').write_text(json.dumps(dict(variants=[case])),encoding='utf-8')
                 subprocess.run([str(args.checker.resolve()),'--caps',str(out)],check=True,stdout=subprocess.DEVNULL)
+            if args.head_radius:
+                sk=native.run('feature.get',container=ids['head'])['sketch']
+                dimensions=[native.run('sketch.dimension.get',sketch=sk,dimension=e['id'])
+                    for e in native.run('sketch.entities',sketch=sk)['items'] if e['kind']=='dimension']
+                dimension=next(d['dimension'] for d in dimensions if d['kind']=='radius')
+                base=v['head_edge_radius_mm']
+                for value in (base+.02,base-.02,base):
+                    before=native.run('sketch.dimension.get',sketch=sk,dimension=dimension)['value']
+                    native.run('sketch.dimension.set',sketch=sk,dimension=dimension,value=value)
+                    native.run('undo');assert abs(native.run('sketch.dimension.get',sketch=sk,dimension=dimension)['value']-before)<1e-8
+                    native.run('redo');assert abs(native.run('sketch.dimension.get',sketch=sk,dimension=dimension)['value']-value)<1e-8
+                    native.run('regenerate');assert not native.run('history.list')['calculation_errors']
+                    current=native.run('reference.list',kind='face')['items']
+                    assert {(r['owner'],r['key']) for r in references}=={(r['owner'],r['key']) for r in current}
+                    native.run('save');native.run('close');native.run('open',path=str(target))
+                    case=copy.deepcopy(v);case['head_edge_radius_mm']=value
+                    case['crown_center_z_mm']=-v['head_height_mm']+math.sqrt(value*value-(v['top_diameter_mm']/2)**2)
+                    (out/'manifest.json').write_text(json.dumps(dict(variants=[case])),encoding='utf-8')
+                    subprocess.run([str(args.checker.resolve()),'--caps',str(out)],check=True,stdout=subprocess.DEVNULL)
             native.run('close')
         finally:native.close()
         assert hashlib.sha256(original.read_bytes()).hexdigest()==digest
         report.append(dict(filename=v['filename'],source_sha256=digest,successive_edits=3,undo_redo=True,save_reopen=True,
-            exact_geometry_after_each_edit=True,thread_references_retained=True))
+            exact_geometry_after_each_edit=True,thread_references_retained=True,head_radius_edits=3 if args.head_radius else 0))
         (out/'results.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
         print('Verified repeated edits '+original.name,flush=True)
-    print(str(len(report))+' cylindrical-head screws, '+str(3*len(report))+' independently checked edits')
+    print(str(len(report))+' cylindrical-head screws, '+str((6 if args.head_radius else 3)*len(report))+' independently checked edits')
 
 
 if __name__=='__main__':main()
