@@ -1,5 +1,19 @@
 # Application updates
 
+Signed Windows [2026101802](releases/2026101802.md#windows-publication-acceptance)
+was published at `2026-10-18T14:02:18Z` from immutable source
+`5d7b07ffe7b095af2d2de3b559d7d571c0ae7ca5`. Drawing format changes select the embedded frame Family
+and preserve the title block, views and dimensions. Engineering Tables add
+74 studs and 40 cylindrical-head screws, with native histories, thumbnails,
+five-language artwork and metadata. Fitted and small-hex artwork is contiguous.
+Clean candidate/signed smoke, 398 native factory loads,
+5,238 factory comparisons, packaged GUI/native checks,
+eight reference Drawings, production trust and public downloads pass.
+All 13,073 packaged checksums remain intact.
+Trusted 1703 offers the update without installation. Shared C++, native schema,
+Qt 6.11.0, OCCT 8.0.0 and the development BAT remain. Linked broader GUI and
+Linux verification limits remain explicit.
+
 Signed Windows [2026101703](releases/2026101703.md#windows-publication-acceptance)
 was published at `2026-10-17T17:48:00Z` from source
 `f179b5939bf2eaeb8e48a848fbcbd674972231a4`. It converts 26 factory locking holes to current Defaults,
