@@ -350,6 +350,27 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
         view.show(); view.raise();
         application.processEvents();
         const auto idle = view.grabFramebuffer();
+        if(kind!=3) {
+            const auto count_colour=[&](const QImage& image,const QColor& color){
+                int count=0;for(int y=10;y<image.height()-10;++y)for(int x=10;x<image.width()-10;++x) {
+                    const auto p=image.pixelColor(x,y);if(std::abs(p.red()-color.red())<25&&std::abs(p.green()-color.green())<25&&std::abs(p.blue()-color.blue())<25)++count;
+                }return count;
+            };
+            require(count_colour(idle,QColor("#4DD811"))>80,"Active construction geometry is not green");
+            for(const auto& owner:{std::string{},std::string{"another-sketch"}}) {
+                view.set_active_sketch_owner(owner);application.processEvents();const auto passive=view.grabFramebuffer();
+                require(count_colour(passive,QColor(kind==2?"#AD6E2E":"#8066C2"))>80&&count_colour(passive,QColor("#4DD811"))==0,
+                    "Finished/passive construction geometry retained active Sketch green");
+            }
+            auto property_mesh=mesh;
+            for(auto& edge:property_mesh.edges)if(edge.construction)edge.color="#4dd811";
+            view.set_active_sketch_owner({});view.set_mesh(property_mesh);
+            view.set_feature_preview_owners({sketch.id});application.processEvents();
+            require(count_colour(view.grabFramebuffer(),QColor("#4DD811"))>80,"Editing-profile construction preview is not green");
+            view.set_feature_preview_owners({});view.set_mesh(mesh);
+            view.set_active_sketch_owner(sketch.id);application.processEvents();
+            require(count_colour(view.grabFramebuffer(),QColor("#4DD811"))>80,"Re-entering Sketcher did not restore construction green");
+        }
         std::optional<QPointF> pointer;
         for (int y = 20; y < view.height() - 20 && !pointer; y += 3)
             for (int x = 20; x < view.width() - 20; x += 3)
@@ -384,7 +405,7 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
             int original = 0, highlighted = 0, common = 0;
             for (int y = 10; y < idle.height() - 10; ++y)
                 for (int x = 10; x < idle.width() - 10; ++x) {
-                    const bool a = colored(idle.pixelColor(x, y), (kind==3?zima::viewer::view_theme(view.palette()).foreground:QColor("#AD6E2E")));
+                    const bool a = colored(idle.pixelColor(x, y), (kind==3?zima::viewer::view_theme(view.palette()).foreground:QColor("#4DD811")));
                     const bool b = colored(frame.pixelColor(x, y), color);
                     original += a; highlighted += b; common += a && b;
                 }
@@ -1285,6 +1306,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_END_PLANES_ONLY"))return verify_end_plane_picker(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_MARKERS_ONLY")){verify_point_marker_colours(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_FILL_ONLY")) {verify_face_fill(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}
         {
@@ -1372,7 +1394,6 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
         for (const auto kind : {zima::document::FeatureKind::Fillet,
                 zima::document::FeatureKind::Chamfer, zima::document::FeatureKind::Shell,
                 zima::document::FeatureKind::DrillPoint}) for (const bool edit_mode : {false, true}) {

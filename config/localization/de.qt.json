@@ -1682,7 +1682,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Abstand paralleler Geraden: Gesteuerte Strecke auswählen.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Bemaßung: LMB in freien Bereich klicken, um die Maßlinie zu positionieren.",
   "Reference → obrys: vyberte hranu tělesa.": "Referenz → Profil: Körperkante auswählen.",
-  "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Externe Referenz: Gespeicherte ursprüngliche Fläche, Kante, Eckpunkt oder Achse auswählen. RMB wechselt Kandidaten.",
+  "Externí reference: vyberte původní hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Externe Referenz: ursprüngliche Kante, Umrisskurve, Eckpunkt oder Achse auswählen. Mit der rechten Maustaste die Kandidaten wechseln.",
   "Režim externích referencí byl ukončen.": "Modus für externe Referenzen beendet.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Externe Referenz ohne OCCT-Aufruf gespeichert. Weitere Quelle auswählen.",
   "Externí referenci nelze vytvořit: %1": "Externe Referenz kann nicht erstellt werden: %1",

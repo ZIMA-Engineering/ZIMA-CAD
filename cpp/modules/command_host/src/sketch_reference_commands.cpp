@@ -29,6 +29,17 @@ void Host::register_sketch_reference_commands() {
     add_sketch_command({"sketch.reference.project",tr("Create native profile geometry linked to an existing projected edge."),{{"reference",true}}},[](Sketch& s,const Json& a) {
         const auto id=a["reference"].get<std::string>();return Json{{"reference",id},{"geometry",s.add_external_profile_geometry(id)}};
     });
+    add_sketch_command({"sketch.reference.replace",tr("Replace an external reference source while preserving its contacts and identity."),
+        {{"reference",true},{"kind",true},{"owner",true},{"key",true},{"instance_path",false}}},[this](Sketch& s,const Json& a) {
+        const auto id=a["reference"].get<std::string>();
+        const auto before=reference(s,id);
+        auto value=workspace::prepare_sketch_external_reference(workspace_,workspace_.active_document_id(),s,
+            kind(a["kind"].get<std::string>()),a["owner"].get<std::string>(),a["key"].get<std::string>(),
+            a.value("instance_path",std::string{}),{},false,before.body_edge);
+        value.id=id;
+        *std::ranges::find(s.external_references,id,&sketcher::SketchExternalReference::id)=std::move(value);
+        return Json{{"reference",id}};
+    });
     add_sketch_command({"sketch.reference.delete",tr("Detach an external reference while preserving its native profile curves."),{{"reference",true}}},[](Sketch& s,const Json& a) {
         const auto id=a["reference"].get<std::string>();
         static_cast<void>(reference(s,id));

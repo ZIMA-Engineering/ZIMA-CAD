@@ -1,3 +1,4 @@
+#include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <cmath>

@@ -1682,7 +1682,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Distance entre parallèles : sélectionnez le segment piloté.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Cote : cliquez LMB dans l’espace vide pour placer la ligne de cote.",
   "Reference → obrys: vyberte hranu tělesa.": "Référence → contour : sélectionnez une arête du corps.",
-  "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Référence externe : sélectionnez une face, arête, sommet ou axe d’origine persistant. RMB parcourt les candidats.",
+  "Externí reference: vyberte původní hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Référence externe : sélectionnez une arête d’origine, une courbe de contour, un sommet ou un axe. Le bouton droit fait défiler les candidats.",
   "Režim externích referencí byl ukončen.": "Mode de références externes terminé.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Référence externe enregistrée sans appel à OCCT. Sélectionnez une autre source.",
   "Externí referenci nelze vytvořit: %1": "Impossible de créer la référence externe : %1",

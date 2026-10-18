@@ -5,6 +5,39 @@ Sketch::external_face_reference_paths(const zima::kernel::ViewerReferenceGeometr
     const zima::kernel::FaceReference& face) const {
     using P=std::array<double,2>;
     using V=zima::kernel::Vec3;
+    if(is_face_curve_key(face.semantic_key)) {
+        auto support=face;support.semantic_key=face_curve_source_key(face.semantic_key);
+        const auto paths=external_face_reference_paths(source,support);
+        // A certified side-on complete band has the four analytical sides
+        // emitted below. Fail closed when trimming removes that support.
+        const auto surface=std::ranges::find_if(source.triangle_references,[&](const auto& r){
+            return r.owner_id==support.owner_id&&r.semantic_key==support.semantic_key&&r.instance_path==support.instance_path;});
+        const auto support_surface=surface==source.triangle_references.end()?nullptr:
+            (surface->contour_surface?surface->contour_surface:surface->surface);
+        if(!support_surface||
+            (support_surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder&&support_surface->kind!=kernel::SurfaceGeometry::Kind::Cone)||
+            !paths||paths->size()!=1||paths->front().size()!=5)return std::nullopt;
+        const auto& p=paths->front();
+        const auto o=world_point(0,0),x=world_point(1,0),y=world_point(0,1);
+        const V a{x.x-o.x,x.y-o.y,x.z-o.z},b{y.x-o.x,y.y-o.y,y.z-o.z};
+        const V n{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
+        const auto& s=*support_surface;
+        if(std::abs(n.x*s.axis.x+n.y*s.axis.y+n.z*s.axis.z)>1e-10)return std::nullopt;
+        V radial{n.y*s.axis.z-n.z*s.axis.y,n.z*s.axis.x-n.x*s.axis.z,n.x*s.axis.y-n.y*s.axis.x};
+        const double length=std::hypot(radial.x,radial.y,radial.z);if(length<1e-12)return std::nullopt;
+        radial={radial.x/length,radial.y/length,radial.z/length};
+        for(unsigned i=0;i<4;++i) {
+            const double z=(i==0||i==3)?s.axial_min:s.axial_max,side=i<2?-1.:1.;
+            const double r=s.radius+(s.kind==kernel::SurfaceGeometry::Kind::Cone?z*std::tan(s.semi_angle):0.);
+            const auto expected=local_point({s.origin.x+z*s.axis.x+side*r*radial.x,
+                s.origin.y+z*s.axis.y+side*r*radial.y,s.origin.z+z*s.axis.z+side*r*radial.z});
+            if(std::hypot(expected[0]-p[i][0],expected[1]-p[i][1])>1e-8)return std::nullopt;
+        }
+        const auto tag=std::string_view(face.semantic_key).substr(face_curve_prefix.size(),face.semantic_key.find(':',face_curve_prefix.size())-face_curve_prefix.size());
+        if(tag=="negative")return std::vector<std::vector<P>>{{p[0],p[1]}};
+        if(tag=="positive")return std::vector<std::vector<P>>{{p[3],p[2]}};
+        return std::nullopt;
+    }
     if(!face.valid() || source.triangles.size()!=3*source.triangle_references.size())return std::nullopt;
     const auto dot=[](V a,V b){return a.x*b.x+a.y*b.y+a.z*b.z;};
     const auto sub=[](V a,V b){return V{a.x-b.x,a.y-b.y,a.z-b.z};};
@@ -27,7 +60,7 @@ Sketch::external_face_reference_paths(const zima::kernel::ViewerReferenceGeometr
     bool found=false;
     for(std::size_t i=0;i<source.triangle_references.size();++i) {
         const auto& ref=source.triangle_references[i];if(ref!=face)continue;
-        found=true;if(ref.surface)surface=ref.surface.get();
+        found=true;if(ref.contour_surface||ref.surface)surface=(ref.contour_surface?ref.contour_surface:ref.surface).get();
         std::array<std::uint32_t,3> indices;
         for(int j=0;j<3;++j) {
             const auto index=source.triangles[3*i+j];if(index>=source.vertices.size())return std::nullopt;
@@ -123,4 +156,52 @@ Sketch::external_face_reference_paths(const zima::kernel::ViewerReferenceGeometr
         }
     }
     return paths;
+}
+
+std::vector<kernel::ViewerEdge> external_face_curve_edges(
+    const kernel::ViewerReferenceGeometry& source,kernel::Vec3 origin,
+    kernel::Vec3 x_axis,kernel::Vec3 y_axis) {
+    Sketch frame;frame.owner_container_id="projection-frame";
+    frame.resolved_origin=origin;frame.resolved_x_axis=x_axis;frame.resolved_y_axis=y_axis;
+    frame.resolved_normal={x_axis.y*y_axis.z-x_axis.z*y_axis.y,
+        x_axis.z*y_axis.x-x_axis.x*y_axis.z,x_axis.x*y_axis.y-x_axis.y*y_axis.x};
+    using Identity=std::tuple<std::string,std::string,std::string>;
+    std::map<Identity,std::vector<std::size_t>> groups;
+    for(std::size_t i=0;i<source.triangle_references.size();++i) {
+        const auto& face=source.triangle_references[i];
+        const auto support=face.contour_surface?face.contour_surface:face.surface;
+        if(!support || (support->kind!=kernel::SurfaceGeometry::Kind::Cylinder&&
+            support->kind!=kernel::SurfaceGeometry::Kind::Cone))continue;
+        if(std::abs(support->axis.x*frame.resolved_normal.x+
+            support->axis.y*frame.resolved_normal.y+support->axis.z*frame.resolved_normal.z)>1e-10)continue;
+        groups[{face.owner_id,face.semantic_key,face.instance_path}].push_back(i);
+    }
+    std::vector<kernel::ViewerEdge> result;
+    for(const auto& [identity,slots]:groups) {
+        // Bound work to each face, not all triangles for every candidate face.
+        kernel::ViewerReferenceGeometry band;std::map<std::uint32_t,std::uint32_t> indices;
+        for(const auto slot:slots) {
+            if(3*slot+2>=source.triangles.size())continue;
+            bool valid=true;for(unsigned j=0;j<3;++j)valid&=source.triangles[3*slot+j]<source.vertices.size();
+            if(!valid)continue;
+            band.triangle_references.push_back(source.triangle_references[slot]);
+            for(unsigned j=0;j<3;++j) {
+                const auto old=source.triangles[3*slot+j];
+                auto [it,added]=indices.try_emplace(old,static_cast<std::uint32_t>(band.vertices.size()));
+                if(added)band.vertices.push_back(source.vertices[old]);
+                band.triangles.push_back(it->second);
+            }
+        }
+        if(band.triangle_references.empty())continue;
+        const auto& face=band.triangle_references.front();
+        for(const int side:{-1,1}) {
+            auto reference=face;reference.semantic_key=face_curve_key(face.semantic_key,side);
+            if(const auto paths=frame.external_face_reference_paths(band,reference)) {
+                kernel::ViewerEdge edge;edge.reference={reference.owner_id,reference.semantic_key,reference.instance_path};
+                for(const auto& p:paths->front())edge.points.push_back(frame.world_point(p[0],p[1]));
+                edge.overlay=true;result.push_back(std::move(edge));
+            }
+        }
+    }
+    return result;
 }

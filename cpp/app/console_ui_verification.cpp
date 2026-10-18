@@ -1,4 +1,5 @@
 #include "../tests/native_property_fixture.hpp"
+#include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/document/feature_serialization.hpp>
 #include "feature_parameter_panel.hpp"
 #include "resource_icon.hpp"
@@ -463,6 +464,41 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
             check(open,"Sketch editor button missing");open->click();flush();
         }
         QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_CONSTRUCTION_ONLY")) {
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Construction reference View missing");
+            view->fit_all();flush();
+            const auto source=document::PartDocument::load(std::filesystem::u8path(fixture.toStdString()));
+            const auto profile=std::ranges::find(source.sketches,sketch,&sketcher::Sketch::id);check(profile!=source.sketches.end(),"Construction fixture Sketch missing");
+            const auto axis=std::ranges::find_if(profile->segments,[](const auto& line){return line.construction&&line.centerline;});
+            check(axis!=profile->segments.end(),"Construction fixture has no native axis");
+            const auto wanted=[&](const auto& c){return c.kind==viewer::CandidateKind::SketchSegment&&c.owner_id==sketch&&c.semantic_key=="segment:"+axis->id;};
+            const auto pick_axis=[&](bool cycle) {
+                std::optional<QPointF> hit;
+                for(int y=20;y<view->height()-20&&!hit;y+=3)for(int x=20;x<view->width()-20&&!hit;x+=3) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    if(std::ranges::any_of(candidates,wanted)&&(cycle||wanted(candidates.front())))hit=QPointF(x,y);
+                }
+                check(hit.has_value(),"Native construction axis is not pickable");
+                const auto mouse=[&](QEvent::Type type,Qt::MouseButton button){
+                    QMouseEvent event(type,*hit,view->mapToGlobal(hit->toPoint()),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&event);flush();
+                };
+                mouse(QEvent::MouseMove,Qt::NoButton);
+                const auto count=view->selection_candidates_at(*hit).size();
+                for(std::size_t i=0;cycle&&i<count&&(!view->offered_candidate()||!wanted(*view->offered_candidate()));++i) {
+                    mouse(QEvent::MouseButtonPress,Qt::RightButton);mouse(QEvent::MouseButtonRelease,Qt::RightButton);
+                }
+                check(view->offered_candidate()&&wanted(*view->offered_candidate()),"Construction axis hover/cycling does not match picking");
+                mouse(QEvent::MouseButtonPress,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton);
+                check(view->confirmed_candidate()&&wanted(*view->confirmed_candidate()),"Construction axis LMB selection failed");
+                view->clear_selection();flush();
+            };
+            pick_axis(true);
+            const auto edge=std::ranges::find_if(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==sketch&&e.reference.semantic_key=="segment:"+axis->id;});
+            check(edge!=view->mesh().edges.end(),"Construction display edge missing");view->fit_points(edge->points);flush();
+            pick_axis(false);
+            std::cout<<"Actual last-revolution construction axis: RMB overlap cycling, zoomed hover and LMB selection passed\n";return 0;
+        }
         auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");check(external&&external->isEnabled(),"Thread external reference command unavailable");external->trigger();flush();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Thread reference View missing");view->fit_all();flush();
         const auto pick_reference=[&](viewer::CandidateKind kind,const std::string& key) {
@@ -473,6 +509,13 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
         for(int y=20;y<view->height()-20&&!hit;y+=4)for(int x=20;x<view->width()-20&&!hit;x+=4) {
             const auto candidates=view->selection_candidates_at(QPointF(x,y));
             if(std::ranges::any_of(candidates,wanted))hit=QPointF(x,y);
+        }
+        if(!hit) {
+            std::cerr<<"Missing outline key="<<key<<" original edges="<<view->mesh().original_references.edges.size()<<'\n';
+            for(const auto& edge:view->mesh().original_references.edges)if(sketcher::is_face_curve_key(edge.reference.semantic_key))std::cerr<<"Offered outline "<<edge.reference.owner_id<<" "<<edge.reference.semantic_key<<'\n';
+            for(const auto& face:view->mesh().original_references.triangle_references)if(face.owner_id==source_thread&&face.semantic_key=="thread:surface:root") {
+                std::cerr<<"Root face analytical="<<bool(face.surface)<<" kind="<<(face.surface?int(face.surface->kind):-1)<<" axial="<<(face.surface?face.surface->axial_min:0)<<","<<(face.surface?face.surface->axial_max:0)<<'\n';break;
+            }
         }
         check(hit.has_value(),"Thread surface/rim is unavailable for GUI external references");
         const auto offered=view->selection_candidates_at(*hit);
@@ -492,7 +535,8 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
         check(view->offered_candidate()&&wanted(*view->offered_candidate()),"Thread surface/rim cannot be offered with RMB cycling");
         mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
         };
-        pick_reference(viewer::CandidateKind::Face,"thread:surface:root");
+        pick_reference(viewer::CandidateKind::Edge,sketcher::face_curve_key("thread:surface:root",-1));
+        pick_reference(viewer::CandidateKind::Edge,sketcher::face_curve_key("thread:surface:root",1));
         check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch&&edge.reference.semantic_key.starts_with("external_");}),"Thread face click failed to create its longitudinal external reference");
         if(displaced_sketch) {
             bool checked=false;
@@ -516,7 +560,7 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
         if(!properties)properties=window.findChild<QPushButton*>("primitiveOwnSketchButton");
         check(properties,"Sketch Properties did not resume");
         auto* dialog=properties->window();auto* actions=dialog->findChild<QDialogButtonBox*>();check(actions,"Sketch Properties actions missing");actions->button(QDialogButtonBox::Cancel)->click();flush();
-        std::cout<<"Shaft thread GUI: reference rows, OK/Cancel, Undo/Redo, cylinder identity and actual root-face/end-rim external-reference picking passed\n";return 0;
+        std::cout<<"Shaft thread GUI: reference rows, OK/Cancel, Undo/Redo, cylinder identity and both individual root outlines/end-rim external-reference picking passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
@@ -3370,7 +3414,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             action->trigger();flush();dialog=dialog_open();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             std::vector<kernel::BodyResult> calculated;auto saved=zima::test::load_part_with_properties(file,&calculated);
             check(saved.history.size()==2&&saved.history.back().feature_kind==document::FeatureKind::Shell&&std::abs(calculated.back().volume-488)<1e-6,"GUI closed Shell creation failed");
-            const auto id=saved.history.back().id;const auto face=[&](const char* key){return commands::Json{{"owner",box},{"key",test::profile_key(saved,box,key)}};};
+            const auto id=saved.history.back().id;const auto face=[&](const std::string& key){return commands::Json{{"owner",box},{"key",test::profile_key(saved,box,key)}};};
             json_run("shell.set",{{"container",id},{"faces",commands::Json::array({face("z_max"),face("x_max")})}});flush();
             const auto get=[&]{return json_run("shell.get",{{"container",id}}).data;};
             const auto edit=[&]() {

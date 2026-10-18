@@ -4712,7 +4712,9 @@ if (impl_->show_origins) {
                         : QPen(theme.foreground,
                             impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
                 if (!edge.color.empty()) {const QColor color(QString::fromStdString(edge.color));edge_pen.setColor(color==QColor(Qt::white)?theme.foreground:color);}
-                if (edge.construction && !external && !external_face)
+                if (edge.construction && !external && !external_face &&
+                    edge.reference.owner_id==impl_->active_sketch_owner_id &&
+                    edge.reference.instance_path==impl_->editing_curve_path)
                     edge_pen.setColor(interaction::sketch_construction);
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
@@ -4740,7 +4742,10 @@ if (impl_->show_origins) {
                 } else if (hovered) {
                     edge_pen.setColor(interaction::hover);
                     if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
-                } else if (preview) {
+                } else if (preview && !(edge.construction && !external && !external_face &&
+                    edge.color == interaction::sketch_construction.name().toStdString())) {
+                    // Editing-profile annotations retain their explicit green;
+                    // the feature's ordinary preview wires remain cyan.
                     edge_pen.setColor(interaction::selected);
                 }
                 if (edge.construction && !edge.dash_dot) {

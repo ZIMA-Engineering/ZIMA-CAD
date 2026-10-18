@@ -1682,7 +1682,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Расстояние между параллельными прямыми: выберите управляемый отрезок.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Размер: нажмите LMB в свободном месте для задания положения размерной линии.",
   "Reference → obrys: vyberte hranu tělesa.": "Ссылка → контур: выберите ребро тела.",
-  "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Внешняя ссылка: выберите сохранённую исходную грань, ребро, вершину или ось. RMB переключает варианты.",
+  "Externí reference: vyberte původní hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Внешняя ссылка: выберите исходное ребро, контурную кривую, вершину или ось. Правая кнопка мыши переключает кандидатов.",
   "Režim externích referencí byl ukončen.": "Режим внешних ссылок завершён.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Внешняя ссылка сохранена без вызова OCCT. Выберите другой источник.",
   "Externí referenci nelze vytvořit: %1": "Не удалось создать внешнюю ссылку: %1",

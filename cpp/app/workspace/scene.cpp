@@ -22,12 +22,48 @@
 #include "../surface_trim_dialog.hpp"
 #include <QElapsedTimer>
 #include <cstdio>
+#include "../../common/interaction_colors.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
+    const auto publish_mesh=[&](zima::kernel::ViewerMesh mesh,bool fit=true) {
+        if(properties_dialog_&&active_sketch_id_.empty()) {
+            std::set<std::string> editing_profiles;
+            if(property_owned_sketch_draft_)editing_profiles.insert(property_owned_sketch_draft_->id);
+            if(!sketch_properties_preview_id_.empty())editing_profiles.insert(sketch_properties_preview_id_);
+            if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+                const auto& document=part->session.document();
+                std::string edited=construction_dimension_object_id_;
+                if(part_rollback_&&part_rollback_->part_document_id==document.document_id&&part_rollback_->history_limit<document.history.size())
+                    edited=document.history[part_rollback_->history_limit].id;
+                for(const auto& sketch:document.sketches)if(sketch.id==edited||sketch.owner_container_id==edited)
+                    editing_profiles.insert(sketch.id);
+            }
+            for(auto& edge:mesh.edges)if(edge.construction&&editing_profiles.contains(edge.reference.owner_id)&&
+                edge.reference.instance_path==workspace_.active_occurrence_path()&&
+                !edge.reference.semantic_key.starts_with("external_"))edge.color=zima::interaction::sketch_construction.name().toStdString();
+        }
+        if(sketch_external_reference_active_&&!sketch_external_profile_active_)if(const auto* sketch=active_sketch()) {
+            zima::kernel::ViewerMesh basis;
+            zima::kernel::ViewerEdge axes;axes.points={sketch->world_point(0,0),sketch->world_point(1,0),sketch->world_point(0,1)};
+            basis.edges.push_back(std::move(axes));basis=place_sketch_mesh(*sketch,std::move(basis));
+            auto points=basis.edges.front().points;
+            if(workspace_.open_assembly(workspace_.displayed_document_id())) {
+                const auto path=workspace_.active_occurrence_path();
+                if(!path.empty())for(auto& point:points)point=workspace_.occurrence_point_to_scene(
+                    workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),point);
+            }
+            const auto sub=[](auto a,auto b){return zima::kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+            auto curves=zima::sketcher::external_face_curve_edges(mesh.original_references,
+                points[0],sub(points[1],points[0]),sub(points[2],points[0]));
+            mesh.original_references.edges.insert(mesh.original_references.edges.end(),
+                std::make_move_iterator(curves.begin()),std::make_move_iterator(curves.end()));
+        }
+        viewer_->set_mesh(std::move(mesh),fit);
+    };
     QElapsedTimer timer;timer.start();
     const auto phase=[&](const char* name) {
         if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Workspace scene %s: %.3f ms\n",name,timer.nsecsElapsed()/1e6);
@@ -38,7 +74,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if (defer_reference_scene_refresh_) {
         // These command previews previously published their override after the
         // deferred refresh returned. Preserve that command-local behavior.
-        if (assembly_preview) viewer_->set_mesh(assembly_preview());
+        if (assembly_preview) publish_mesh(assembly_preview());
         return;
     }
     if (!sweep_profile_sketch_draft_ || active_sketch_id_!=sweep_profile_sketch_draft_->id) {
@@ -58,7 +94,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         else if(const auto* assembly=std::get_if<workspace::AssemblyState>(&state))add_marks(assembly->session.document());
     }
     viewer_->set_dimension_relations(std::move(relation_marks));
-    viewer_->set_original_face_selection(sketch_external_reference_active_&&!sketch_external_profile_active_);
+    viewer_->set_original_face_selection(false);
     viewer_->set_document_origin(workspace_.displayed_document_id()+":origin");
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
@@ -1087,7 +1123,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         workspace_stack_->setCurrentWidget(model_workspace_);
         operation_activity_->set_view(viewer_);
         tree_->setHeaderLabels({QString{}});
-        viewer_->set_mesh({});
+        publish_mesh({});
         close_document_action_->setEnabled(false);
         save_action_->setEnabled(false);
         save_as_action_->setEnabled(false);
@@ -1154,7 +1190,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if (assembly == nullptr) {
         const auto* part = workspace_.open_part(workspace_.displayed_document_id());
         if (part == nullptr) {
-            viewer_->set_mesh({});
+            publish_mesh({});
             state_->setText(tr("Není vybrán zobrazovaný dokument."));
             rebuild_application_toolbar();
             return;
@@ -1245,8 +1281,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                               zima::viewer::CandidateKind::SketchCurve,
                               zima::viewer::CandidateKind::SketchPoint,
                               zima::viewer::CandidateKind::Vertex,
-                              zima::viewer::CandidateKind::Axis,
-                              zima::viewer::CandidateKind::Face}
+                              zima::viewer::CandidateKind::Axis}
             : sketch_rectangle_axis_selecting_
                 ? std::vector{zima::viewer::CandidateKind::SketchSegment}
             : sketch_trim_active_
@@ -1735,7 +1770,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
             phase("display preparation");
-            viewer_->set_mesh(std::move(display),
+            publish_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             phase("viewer publication");
             preserve_view_on_refresh_ = false;
@@ -1894,7 +1929,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
             phase("display preparation");
-            viewer_->set_mesh(std::move(display),
+            publish_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             phase("viewer publication");
             preserve_view_on_refresh_ = false;
@@ -2234,8 +2269,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchPoint,
                           zima::viewer::CandidateKind::Vertex,
-                          zima::viewer::CandidateKind::Axis,
-                          zima::viewer::CandidateKind::Face}
+                          zima::viewer::CandidateKind::Axis}
         : sketch_placement_active
             ? std::vector{zima::viewer::CandidateKind::SketchAxis,
                           zima::viewer::CandidateKind::SketchSegment,
@@ -2324,7 +2358,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         // Nested copy/scale commands already own the exact input scene. Build
         // and publish it once instead of discarding a general scene first.
         // These commands previously used set_mesh's default fitting policy.
-        viewer_->set_mesh(assembly_preview());
+        publish_mesh(assembly_preview());
     } else if (assembly_cut_rollback_ &&
         assembly_cut_rollback_->assembly_document_id == document.document_id) {
         auto rollback_document = document;
@@ -2340,7 +2374,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         if(active_assembly_sketch) {
             if(const auto* sketch=active_sketch()) append_mesh(display,sketch_viewer_mesh(*sketch));
         }
-        viewer_->set_mesh(std::move(display), fit_assembly_view);
+        publish_mesh(std::move(display), fit_assembly_view);
     } else if (part_rollback_ && !part_rollback_->instance_path.empty()) {
         const auto* active_part =
             workspace_.open_part(part_rollback_->part_document_id);
@@ -2352,7 +2386,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 boundary.mesh=sketch_input_mesh(active_part->session);
                 append_mesh(boundary.mesh,sketch_viewer_mesh(*editing_sketch));
             }
-            viewer_->set_mesh(workspace_.build_scene_with_part_override(
+            publish_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(part_rollback_->instance_path),
                 std::move(boundary)), fit_assembly_view);
@@ -2376,7 +2410,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     append_mesh(display, std::move(mesh));
                 }
             }
-            viewer_->set_mesh(std::move(display), fit_assembly_view);
+            publish_mesh(std::move(display), fit_assembly_view);
         }
     } else {
         const auto* active_assembly =
@@ -2385,7 +2419,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             active_assembly->session.document().document_id != document.document_id &&
             !workspace_.active_occurrence_path().empty()) {
             const auto display = active_assembly_display(active_assembly->session.document());
-            viewer_->set_mesh(workspace::build_scene_with_assembly_override(workspace_,
+            publish_mesh(workspace::build_scene_with_assembly_override(workspace_,
                 document.document_id,
                 zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()),
                 active_assembly->session.document(), &display), fit_assembly_view);
@@ -2441,14 +2475,14 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             }
             if(!properties_dialog_&&active_sketch_id_.empty())
                 filter_hidden_body_geometry(live_source.mesh,active_part->session.document());
-            viewer_->set_mesh(workspace_.build_scene_with_part_override(
+            publish_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(*active_part_occurrence),
                 std::move(live_source)), fit_assembly_view);
         } else {
             auto display = active_assembly_display(document);
             if(section_dialog_&&sweep_profile_sketch_draft_)append_mesh(display,sketch_viewer_mesh(*sweep_profile_sketch_draft_));
-            viewer_->set_mesh(std::move(display), fit_assembly_view);
+            publish_mesh(std::move(display), fit_assembly_view);
         }
     }
     state_->setText(document.components.empty()

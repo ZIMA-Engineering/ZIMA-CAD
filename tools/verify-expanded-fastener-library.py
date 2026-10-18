@@ -53,7 +53,7 @@ def main():
         native = author.Native(args.cli.resolve(), output/'evidence'/source.stem)
         try:
             native.run('open', path=str(target))
-            before_thread = native.run('shaft_thread.get', container=author.THREAD)
+            before_thread = native.run('shaft_thread.get', container=variant.get("thread_container",author.THREAD))
             def length():
                 return native.run('feature.get', container=author.SHAFT)['parameters']['sides'][0]['length']
             original = variant['length_mm']
@@ -68,7 +68,7 @@ def main():
                 native.run('redo'); assert abs(length()-value)<1e-8
                 native.run('regenerate')
                 assert not native.run('history.list')['calculation_errors']
-                thread = native.run('shaft_thread.get', container=author.THREAD)
+                thread = native.run('shaft_thread.get', container=variant.get("thread_container",author.THREAD))
                 for field in ('cylinder','start','end','chamfer','designation','pitch_mm','end_condition'):
                     assert thread[field] == before_thread[field], (source.name, field)
                 params = {p['key']:p for p in native.run('document.parameters.get')['parameters']}

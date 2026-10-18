@@ -516,3 +516,13 @@ approved persistent Assembly Sketch container, conversion to cuts and shared
 deletion remained in the [plan](SKETCH_PROPERTIES_CLI_PLAN.md); later completed
 behavior is described at the start of this document. CLI completion is assessed
 in the current coverage overview, not inferred from this historical count.
+
+
+### External reference replacement
+
+`sketch.reference.replace` accepts `sketch`, `reference`, `kind`, `owner`, `key`
+and optional `instance_path`. It keeps the existing native reference identity and
+its attached constraints. Source resolution and transaction validation are shared
+with creation; an invalid replacement leaves the document unchanged. The ordinary
+GUI offers individual physical or apparent-outline curves rather than whole
+Faces. See [Projected references](SKETCH_PROJECTED_FACE_REFERENCES.md).

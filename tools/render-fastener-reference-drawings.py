@@ -120,9 +120,20 @@ def create(native,original,part,variant,target,pattern):
         native.run('drawing.dimension.create',view=parent['view'],kind='diameter',
             attachments=[attachment(hole)],style=dict(text_override='d1'),
             placements=[[-k-5/scale,-s*.15]])
+    if 'fitted_diameter_mm' in variant:
+        depth=variant['tip_chamfer']['distance_a_mm']
+        native.run('drawing.dimension.set',dimension=dims['z1']['dimension'],
+            attachments=[attachment(plane(l-depth,d/2)),attachment(plane(l,d/2-variant['tip_chamfer_parameters']['distance_a_mm']))])
+        fitted=[r for r in circles if abs(r['circle']['normal'][2])>.999 and
+            abs(r['circle']['radius_mm']-variant['fitted_diameter_mm']/2)<1e-6 and r['circle']['center'][2]>=-1e-6]
+        if not fitted:raise RuntimeError('Actual fitted-shank boundary circle missing')
+        native.run('drawing.dimension.create',view=parent['view'],kind='linear',direction='vertical',
+            attachments=[attachment(min(fitted,key=lambda r:r['circle']['center'][2]),'curve_point',t) for t in (0,.5)],
+            style=dict(text_override='ds n6'),placements=[[l*.25,-s/2-8/scale]])
     dims=measure_map(native,sid)
     expected={'l':l,'k':k,'d':d,'s':s,'(e)':2*s/math.sqrt(3),radius_symbol:variant['underhead_radius_mm'],
         'z1' if historical else 'u':variant['tip_chamfer']['distance_a_mm']}
+    if 'fitted_diameter_mm' in variant:expected['ds n6']=variant['fitted_diameter_mm']
     if raised:expected.update(c=variant['bearing_height_mm'],dw=variant['bearing_diameter_mm'])
     if not variant['full_thread']:expected['b']=variant['thread_length_mm']
     if 'locking_hole_diameter_mm' in variant:expected['d1']=variant['locking_hole_diameter_mm']
@@ -142,10 +153,13 @@ def illustration_texts(variant,details,language,labels):
     title=variant['standard']+' · '+variant['designation']+' · '+variant['names'][language]
     # Long translated standard names must retain a white right margin too.
     texts=[dict(text=title,x_mm=width-20,y_mm=height-97,height_mm=2.0 if len(title)>100 else 2.5)]
-    ordered=[s for s in ('l','k','d','s','(e)','r','R','c','dw','u','z1','b','d1') if s in details['expected']]
+    ordered=[s for s in ('l','k','d','s','(e)','r','R','c','dw','u','z1','b','d1','ds n6') if s in details['expected']]
     for index,symbol in enumerate(ordered):
-        key='e' if symbol=='(e)' else 'r' if symbol=='R' else symbol
-        text=symbol+' — '+labels[key][language]
+        key='ds' if symbol=='ds n6' else 'e' if symbol=='(e)' else 'r' if symbol=='R' else symbol
+        label=labels[key][language]
+        if symbol=='R' and 'fitted_diameter_mm' in variant:
+            label=dict(cs='poloměr odlehčení pod hlavou',en='underhead relief radius',de='Radius des Unterkopffreistichs',fr='rayon du dégagement sous tête',ru='радиус разгрузочной канавки под головкой')[language]
+        text=symbol+' — '+label
         texts.append(dict(text=text,x_mm=width-(20 if index%2==0 else 108),
             y_mm=height-(104+4.4*(index//2)),height_mm=2.2))
     return dict(locale=language,texts=texts)
@@ -159,11 +173,12 @@ def main():
     parser.add_argument('--pattern',type=Path,default=DEFAULT_PATTERN)
     args=parser.parse_args();manifest=json.loads(args.manifest.read_text(encoding='utf-8'))
     labels=json.loads((ROOT/'tools/data/hex-fastener-illustrations.json').read_text(encoding='utf-8'))['legend']
+    labels['ds']={'cs':'průměr lícovaného dříku','en':'fitted shank diameter','de':'Passschaftdurchmesser','fr':'diamètre de la tige ajustée','ru':'диаметр посадочного стержня'}
     pattern=args.pattern.resolve();pattern_hash=hashlib.sha256(pattern.read_bytes()).hexdigest()
     accepted=[]
     for standard in sorted({v['standard'] for v in manifest['variants']}):
         if args.standard and standard!=args.standard:continue
-        variant=next(v for v in manifest['variants'] if v['standard']==standard and v['diameter_mm']==8)
+        variant=next(v for v in manifest['variants'] if v['standard']==standard and v['diameter_mm']==(10 if 'fitted_diameter_mm' in v else 8))
         matches=[p.resolve()/variant['filename'] for p in args.stage if (p/variant['filename']).is_file()]
         if len(matches)!=1:raise RuntimeError('Expected one verified source for '+standard)
         source=matches[0];digest=hashlib.sha256(source.read_bytes()).hexdigest()

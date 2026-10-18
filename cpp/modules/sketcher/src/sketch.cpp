@@ -4,6 +4,7 @@
 #include "rectilinear_template_solver.hpp"
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/kernel/stable_id.hpp>
 
@@ -8257,7 +8258,8 @@ bool Sketch::refresh_external_references(
     bool changed = false;
     const auto same_source = [](const auto& reference, const auto& candidate) {
         return candidate.owner_id == reference.source_owner_id &&
-            candidate.semantic_key == reference.source_semantic_key &&
+            candidate.semantic_key == (reference.kind==ExternalReferenceKind::Face
+                ? face_curve_source_key(reference.source_semantic_key):reference.source_semantic_key) &&
             candidate.instance_path == reference.source_instance_path;
     };
     for (auto& reference : next.external_references) {
@@ -8329,12 +8331,13 @@ bool Sketch::refresh_external_references(
                 ++match_count;
             }
             if (match_count > 0) {
+                if(is_face_curve_key(reference.source_semantic_key))match.semantic_key=reference.source_semantic_key;
                 const auto paths = next.external_face_reference_paths(source_geometry, match);
                 if (paths) {
                     face_projection_resolved = true;
                     auto projected=reference;projected.broken=false;projected.infinite=false;
                     projected.cached_paths=*paths;projected.cached_points.clear();
-                    if(const auto line=external_reference_line(projected)) {
+                    if(const auto line=external_reference_line(projected);line&&!is_face_curve_key(reference.source_semantic_key)) {
                         projected.cached_points={line->first,{line->first[0]+line->second[0],line->first[1]+line->second[1]}};
                         projected.cached_paths.clear();projected.infinite=true;
                     }
@@ -9680,6 +9683,28 @@ SolveResult Sketch::solve_impl(
     const auto original_ellipses = ellipses;
     const auto original_elliptical_arcs = elliptical_arcs;
     const auto original_dimensions = dimensions;
+    // A moving source contact can cross the old free endpoint before the
+    // angular correction runs. Retain the incoming branch of a chamfer
+    // coupled to a symmetric wall instead of choosing its supplement from
+    // that transient, partly corrected geometry.
+    std::map<std::string,std::pair<double,double>> coupled_angle_branches;
+    for(const auto& angle:dimensions)if(!angle.suppressed&&angle.driving&&angle.kind==DimensionKind::AngleBetween) {
+        const auto line=std::ranges::find(segments,angle.second_geometry_id,&SketchSegment::id);
+        if(line==segments.end())continue;
+        const bool coupled=std::ranges::any_of(dimensions,[&](const auto& width){
+            return !width.suppressed&&width.driving&&width.kind==DimensionKind::DistanceLineSymmetric&&
+                (geometry_owns_point(*this,width.second_geometry_id,line->first_point_id)||
+                 geometry_owns_point(*this,width.second_geometry_id,line->second_point_id)||
+                 (!width.third_geometry_id.empty()&&(geometry_owns_point(*this,width.third_geometry_id,line->first_point_id)||
+                  geometry_owns_point(*this,width.third_geometry_id,line->second_point_id))));});
+        if(!coupled)continue;
+        const auto reference=angle_dimension_lines(*this,angle);
+        const auto* a=find_point(line->first_point_id);const auto* b=find_point(line->second_point_id);
+        if(!reference||!a||!b)continue;
+        const double rx=reference->first.second[0],ry=reference->first.second[1],dx=b->x-a->x,dy=b->y-a->y;
+        const double length=std::hypot(rx,ry)*std::hypot(dx,dy);if(length<=1e-12)continue;
+        coupled_angle_branches[angle.id]={std::acos(std::clamp((rx*dx+ry*dy)/length,-1.,1.))*180/std::acos(-1.),rx*dy-ry*dx<0?-1.:1.};
+    }
     seed_rectilinear_equations(*this,preferred_point_ids);
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
@@ -11934,15 +11959,18 @@ SolveResult Sketch::solve_impl(
                     // current geometry; this is stable while editing another
                     // dimension and follows a direct edit to the nearby
                     // angular value.
+                    const auto branch=coupled_angle_branches.find(dimension.id);
+                    const double branch_measurement=branch==coupled_angle_branches.end()?measured:branch->second.first;
                     const double solver_target = dimension.angle_sector == 1 &&
-                            std::abs(measured - supplementary_target) <
-                                std::abs(measured - displayed_magnitude)
+                            std::abs(branch_measurement - supplementary_target) <
+                                std::abs(branch_measurement - displayed_magnitude)
                         ? supplementary_target : displayed_magnitude;
                     const double residual = measured - solver_target;
                     maximum_residual = std::max(maximum_residual, std::abs(residual));
                     if (std::abs(residual) > tolerance) {
                         const double reference_angle = std::atan2(ry, rx);
-                        const double orientation = rx * dy - ry * dx < 0.0 ? -1.0 : 1.0;
+                        const double orientation = branch==coupled_angle_branches.end()
+                            ? (rx * dy - ry * dx < 0.0 ? -1.0 : 1.0):branch->second.second;
                         const double target = reference_angle + orientation *
                             solver_target * 3.14159265358979323846 / 180.0;
                         const double target_dx = driven_length * std::cos(target);

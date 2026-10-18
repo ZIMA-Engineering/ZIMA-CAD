@@ -1682,7 +1682,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Parallel line distance: select the driven segment.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Dimension: click LMB in empty space to position the dimension line.",
   "Reference → obrys: vyberte hranu tělesa.": "Reference → profile: select a body edge.",
-  "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "External reference: select a persisted original face, edge, vertex or axis. RMB cycles candidates.",
+  "Externí reference: vyberte původní hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "External reference: select an original edge, outline curve, vertex or axis. RMB cycles candidates.",
   "Režim externích referencí byl ukončen.": "External reference mode finished.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "External reference saved without invoking OCCT. Select another source.",
   "Externí referenci nelze vytvořit: %1": "Cannot create external reference: %1",

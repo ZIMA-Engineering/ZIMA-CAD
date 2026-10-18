@@ -113,6 +113,12 @@ int main() {
             count(result.back().mesh,"thread:surface:runout:end")>0 &&
             count(result.back().mesh,"thread:surface:nominal")==0,
             "Shaft thread did not create the root sheet and runout or duplicated the outer cylinder");
+        for(const auto& ref:result.back().mesh.original_references.triangle_references)if(ref.owner_id==feature.id) {
+            require(!ref.surface&&ref.contour_surface,
+                "Thread outlines lost analytic data or became placement supports");
+            if(ref.semantic_key=="thread:surface:root")require(ref.contour_surface->kind==kernel::SurfaceGeometry::Kind::Cylinder,
+                "Thread root outline is not an analytic cylinder");
+        }
         for(const auto& [key,z]:std::vector<std::pair<std::string,double>>{
                 {"thread:boundary:root:start",0},{"thread:boundary:root:end",15},
                 {"thread:boundary:runout:end:end",18}}) {

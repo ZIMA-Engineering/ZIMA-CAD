@@ -1,3 +1,4 @@
+#include <zima/sketcher/face_curve_reference.hpp>
 #include "profile_command_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
@@ -193,7 +194,49 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(sketch.solve().status!=sketcher::SolveStatus::Conflicting,"Reference retirement left conflicting equations");
     }
     {
-        workspace::Workspace live;command_host::Options options;
+        {
+        workspace::Workspace curves;command_host::Options curve_options;
+        curve_options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
+        command_host::Host curve_host(curves,kernel,directory,curve_options);
+        run(curve_host,"new",{{"type","part"},{"name","individual-outlines"}});
+        const auto cylinder=zima::test::circular_commands([&](const char* n,Json a){return run(curve_host,n,std::move(a));},{{"radius_mm",5},{"height_mm",30}}).data.at("container").get<std::string>();
+        const auto doc=curves.active_document_id();
+        const auto refs=curves.open_part(doc)->session.calculated_boundaries().back().mesh.original_references;
+        const auto face=std::ranges::find_if(refs.triangle_references,[&](const auto& r){return r.owner_id==cylinder&&r.surface&&r.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;});
+        require(face!=refs.triangle_references.end(),"Individual outline fixture cylinder missing");
+        const auto sketch=run(curve_host,"sketch.create",{{"plane","XZ"},{"name","Individual generators"}}).data.at("sketch").get<std::string>();
+        const auto current=[&]{return workspace::document_sketch(curves,doc,sketch);};
+        for(int side:{-1,1})run(curve_host,"sketch.reference.create",{{"sketch",sketch},{"kind","face"},{"owner",cylinder},{"key",sketcher::face_curve_key(face->semantic_key,side)}});
+        require(current().external_references.size()==2,"Opposite outline identities were merged");
+        for(const auto& ref:current().external_references)require(!ref.broken&&!ref.infinite&&ref.cached_paths.size()==1&&ref.cached_paths.front().size()==2,"Individual outline contains the whole source face");
+        run(curve_host,"undo");require(current().external_references.size()==1,"Outline creation Undo failed");
+        run(curve_host,"redo");require(current().external_references.size()==2,"Outline creation Redo failed");
+        const auto original=current().external_references.front();
+        const auto point=run(curve_host,"sketch.point.create",{{"sketch",sketch},{"position",{5,-6}}}).data.at("point");
+        run(curve_host,"sketch.constraint.create",{{"sketch",sketch},{"kind","point_on_line"},{"points",{point}},{"geometry",{original.id}}});
+        const auto contacts=current().constraints;
+        const auto stable=current().serialized();
+        require(!curve_host.execute({{"command","sketch.reference.replace"},{"arguments",{{"sketch",sketch},{"reference",original.id},
+            {"kind","face"},{"owner",cylinder},{"key","missing"}}}}).ok&&current().serialized()==stable,
+            "Invalid reference replacement changed native geometry or contacts");
+        run(curve_host,"sketch.reference.replace",{{"sketch",sketch},{"reference",original.id},{"kind","face"},{"owner",cylinder},{"key",face->semantic_key}});
+        run(curve_host,"sketch.reference.replace",{{"sketch",sketch},{"reference",original.id},{"kind","face"},{"owner",cylinder},{"key",original.source_semantic_key}});
+        require(current().constraints==contacts&&current().external_references.front()==original,"Reference replacement lost contacts or selected side");
+        run(curve_host,"undo");run(curve_host,"redo");
+        require(current().constraints==contacts&&current().external_references.front()==original,"Reference replacement Undo/Redo lost identity");
+        const auto identities=current().external_references;
+        for(double offset:{100.,-100.,0.}) {
+            run(curve_host,"sketch.set",{{"sketch",sketch},{"plane_offset_mm",offset}});
+            run(curve_host,"regenerate");
+            const auto refreshed=current();
+            for(std::size_t i=0;i<2;++i)require(refreshed.external_references[i]==identities[i],"Normal frame displacement or regeneration changed an individual outline identity/cache");
+        }
+        const auto file=directory/"individual-outlines-roundtrip.prtz";run(curve_host,"save_as",{{"path",file.string()}});
+        const auto reopened=document::PartDocument::load(file);
+        auto persisted=identities;for(auto& reference:persisted)reference.source_document_id=reopened.document_id;
+        require(reopened.sketches.back().external_references==persisted,"Individual outlines failed native save/reopen");
+    }
+    workspace::Workspace live;command_host::Options options;
         options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
         command_host::Host host(live,kernel,directory,options);
         run(host,"new",{{"type","part"},{"name","body-edge-projection"}});

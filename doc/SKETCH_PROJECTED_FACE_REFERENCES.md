@@ -28,7 +28,56 @@ source topology ID, source geometry, side identity or native serialization schem
 was changed. Unsupported or degenerate projection is rejected instead of binding
 to an unrelated face or a stale intersection.
 
-## Verification
+## Individual curve selection (2026-10-18)
+
+The ordinary Sketch reference command now offers real edges, vertices, axes and
+individual apparent-outline curves. Whole Face picking is disabled in this UI.
+A complete side-on cylindrical or conical band exposes both generators as two
+independent finite curves. Their source Face identity and occurrence path remain
+explicit; the `sketch-outline:negative:` / `sketch-outline:positive:` semantic
+prefix selects one analytic generator, never a triangle or a screen-space guess.
+The labels follow the Sketch normal/source-axis cross product and survive source
+edits and normal displacement. Physical circular rims retain their own Edge IDs.
+
+Cosmetic shaft-thread root and runout surfaces now persist exact analytic support
+in the existing `contour_surface` field during explicit kernel calculation. Their
+placement `surface` field remains empty: this does not expose new container
+placement supports or change solving, offsets or orientation. Hover and picking
+consume calculated data; neither invokes OCCT. Trimmed or unsupported apparent
+bands fail closed; this is not complete analytic outline coverage for arbitrary
+oblique, spherical, toroidal or NURBS surfaces.
+
+The native `sketch.reference.replace` command changes a reference's source while
+preserving its ID and attached contacts. It uses the existing transaction and
+source-validation paths, including atomic failure, Undo/Redo and persistence.
+Existing authored whole-Face references remain readable; disabling their UI
+creation does not delete them. Fitted factory profiles are explicitly reauthored
+to individual shaft/root outlines and the exact runout-end Edge.
+
+The expanded matrix passes 240 surface/contour-only, whole/individual, plane,
+offset and side configurations with repeated source edits, dimensions and drags.
+The reference-command suite verifies replacement identity, failed replacement,
+Undo/Redo, source displacement and save/reopen. Actual GUI picking confirms both
+root outlines and the physical end rim in a Sketch displaced 100 mm from the
+source. Native Sketcher, dimension and thread suites pass. All five translation
+catalogs and their actual language-switching GUI checks pass.
+
+Construction and helper curves are green only in their active Sketch or the
+editing feature's profile annotations. Finished and passive profiles retain the
+established brown centerline/purple helper styles. Selection and hover remain
+azure; ordinary feature-preview wires remain azure. Targeted framebuffer tests
+cover active/passive/re-entry and explicitly green editing-preview annotations.
+The user's last Revolution has a 1 mm axis inside overlapping origin/endpoint
+hit regions at whole-model fit: actual RMB cycling and zoomed direct LMB picking
+both pass. Origin selection priority is unchanged.
+
+A fresh cold factory calculation verifies all 212 affected Parts, preserving
+BRep volume/area, authored history, role Bodies and reference identities before
+save/reopen. The factory audit deliberately does not reuse saved calculation
+boundaries. Current evidence is under `build/individual-thread-factory/`,
+`build/individual-*-final*` and `build/individual-face-curves-final-ui.*`.
+
+## Previous projection acceptance
 
 - 60 side-on cylinder/cone configurations: XY/XZ/YZ frames, offsets -100,
   -10, 0, 10 and 100 mm, and both sides. Analytic generators remain exact

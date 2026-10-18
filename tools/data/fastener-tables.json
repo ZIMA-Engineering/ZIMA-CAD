@@ -11592,6 +11592,20 @@
       "ČSN 02 1208 · Bemaßte native Ansichten aus der Referenzzeichnung.",
       "ČSN 02 1208 · Vues natives cotées issues du dessin de référence.",
       "ČSN 02 1208 · Нативные виды с размерами из эталонного чертежа."
+    ],
+    "native_reference_csn021111": [
+      "ČSN 02 1111 · Kótované nativní pohledy podle vzorového výkresu.",
+      "ČSN 02 1111 · Dimensioned native views from the reference Drawing.",
+      "ČSN 02 1111 · Bemaßte native Ansichten aus der Referenzzeichnung.",
+      "ČSN 02 1111 · Vues natives cotées du dessin de référence.",
+      "ČSN 02 1111 · Нативные виды с размерами из образцового чертежа."
+    ],
+    "native_reference_csn021112": [
+      "ČSN 02 1112 · Kótované nativní pohledy podle vzorového výkresu.",
+      "ČSN 02 1112 · Dimensioned native views from the reference Drawing.",
+      "ČSN 02 1112 · Bemaßte native Ansichten aus der Referenzzeichnung.",
+      "ČSN 02 1112 · Vues natives cotées du dessin de référence.",
+      "ČSN 02 1112 · Нативные виды с размерами из образцового чертежа."
     ]
   },
   "sources": {
@@ -26844,7 +26858,32 @@
           "source_path": "04-SCREWS/02-FITTED/02-C02-R001"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "figures": [
+        {
+          "path": "HFB-CSN021111-M10x050-REFERENCE.png",
+          "caption": "native_reference_csn021111",
+          "localized_paths": {
+            "cs": "HFB-CSN021111-M10x050-REFERENCE_cs.png",
+            "en": "HFB-CSN021111-M10x050-REFERENCE_en.png",
+            "de": "HFB-CSN021111-M10x050-REFERENCE_de.png",
+            "fr": "HFB-CSN021111-M10x050-REFERENCE_fr.png",
+            "ru": "HFB-CSN021111-M10x050-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "HFB-CSN021112-M10x050-REFERENCE.png",
+          "caption": "native_reference_csn021112",
+          "localized_paths": {
+            "cs": "HFB-CSN021112-M10x050-REFERENCE_cs.png",
+            "en": "HFB-CSN021112-M10x050-REFERENCE_en.png",
+            "de": "HFB-CSN021112-M10x050-REFERENCE_de.png",
+            "fr": "HFB-CSN021112-M10x050-REFERENCE_fr.png",
+            "ru": "HFB-CSN021112-M10x050-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "localized_illustrations": true
     },
     {
       "path": "04-SCREWS/03-STUDS",

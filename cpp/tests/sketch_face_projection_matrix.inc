@@ -1,7 +1,7 @@
 void verify_face_projection_matrix() {
     using namespace zima::sketcher;
     using V=zima::kernel::Vec3;
-    for(auto plane:{SketchPlane::XY,SketchPlane::XZ,SketchPlane::YZ})
+    for(bool contour_only:{false,true})for(bool individual:{false,true})for(auto plane:{SketchPlane::XY,SketchPlane::XZ,SketchPlane::YZ})
     for(bool cone:{false,true})for(double side:{-1.,1.}) {
         auto frame=Sketch::create_default();frame.plane=plane;frame.refresh_default_frame();
         const auto origin=frame.world_point(0,0),x=frame.world_point(1,0),y=frame.world_point(0,1);
@@ -23,7 +23,7 @@ void verify_face_projection_matrix() {
             }
             for(unsigned i=0;i<count;++i) {
                 g.triangles.insert(g.triangles.end(),{2*i,2*i+2,2*i+3,2*i,2*i+3,2*i+1});
-                for(int j=0;j<2;++j){zima::kernel::FaceReference ref{"source","side",{}};ref.surface=analytic;g.triangle_references.push_back(ref);}
+                for(int j=0;j<2;++j){zima::kernel::FaceReference ref{"source","side",{}};if(contour_only)ref.contour_surface=analytic;else ref.surface=analytic;g.triangle_references.push_back(ref);}
             }
             return g;
         };
@@ -36,7 +36,17 @@ void verify_face_projection_matrix() {
             require(projected==baseline,"Normal displacement changed the projected face boundary");
             auto ref=Sketch::create_external_reference(ExternalReferenceKind::Face);
             ref.source_document_id="source-document";ref.source_owner_id="source";ref.source_semantic_key="side";
-            ref.cached_paths=*projected;const auto id=ref.id;s.add_external_reference(ref);
+            if(individual) {
+                const auto edges=external_face_curve_edges(g,s.world_point(0,0),s.resolved_x_axis,s.resolved_y_axis);
+                require(edges.size()==2,"Both cylinder/cone generators must be independently selectable");
+                const auto chosen=std::ranges::find_if(edges,[&](const auto& edge){return s.local_point(edge.points.front())[0]*side>0;});
+                require(chosen!=edges.end(),"Requested outline side is missing");
+                ref.source_semantic_key=chosen->reference.semantic_key;
+                const auto path=s.external_face_reference_paths(g,{"source",ref.source_semantic_key,{}});
+                require(path&&path->size()==1&&path->front().size()==2,"A selected generator contains another boundary");
+                ref.cached_paths=*path;
+            } else ref.cached_paths=*projected;
+            const auto id=ref.id;s.add_external_reference(ref);
             const auto point=s.add_point(side*(5+(cone?.6:0)),6);
             static_cast<void>(s.add_point_on_line_constraint(point,id));
             auto d=s.create_point_dimension("sketch_origin",point,DimensionKind::DistanceY);
@@ -94,5 +104,5 @@ void verify_face_projection_matrix() {
                 "Projected line lost its persisted side at zero distance");
         }
     }
-    std::cout<<"Projected cylinder/cone boundaries: 60 plane/offset/side matrices, source edits and dependent dimensions passed\n";
+    std::cout<<"Projected cylinder/cone boundaries: 240 surface/contour whole-face/individual-curve plane/offset/side matrices, source edits and dependent dimensions passed\n";
 }

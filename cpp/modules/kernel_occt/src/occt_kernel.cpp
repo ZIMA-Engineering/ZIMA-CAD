@@ -6343,7 +6343,18 @@ void append_technological_surface(ViewerMesh& target, const TopoDS_Shape& shape,
     if (shape.IsNull()) return;
     auto source = make_result(shape, {}, {}, {}, false, false, false, {}, mesh_deflection).mesh;
     const FaceReference face_reference{owner, "thread:surface:" + role, {}};
-    for (auto& reference : source.triangle_references) reference = face_reference;
+    std::shared_ptr<const SurfaceGeometry> analytic_contour;
+    for(TopExp_Explorer faces(shape,TopAbs_FACE);faces.More();faces.Next())
+        if(const auto support=analytic_surface(TopoDS::Face(faces.Current()));support&&
+            (support->kind==SurfaceGeometry::Kind::Cylinder||support->kind==SurfaceGeometry::Kind::Cone)) {
+            analytic_contour=std::make_shared<const SurfaceGeometry>(*support);break;
+        }
+    for (auto& reference : source.triangle_references) {
+        reference=face_reference;
+        // Keep the already calculated analytic outline without exposing these
+        // cosmetic technological surfaces as placement supports.
+        reference.contour_surface=analytic_contour;
+    }
     double minimum=std::numeric_limits<double>::infinity(),maximum=-minimum;
     for(const auto& edge:source.edges)for(const auto& p:edge.points) {
         const double t=(p.x-bounds.first.x)*bounds.first_normal.x+

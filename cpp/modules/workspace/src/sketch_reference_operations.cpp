@@ -1,6 +1,7 @@
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/document_dependencies.hpp>
+#include <zima/sketcher/face_curve_reference.hpp>
 #include <map>
 #include <set>
 #include <tuple>
@@ -124,7 +125,7 @@ void populate_external_reference_cache(
         reference.cached_paths = *projected;
         reference.cached_points.clear();
         reference.infinite = false;
-        if(const auto line=sketcher::external_reference_line(reference)) {
+        if(const auto line=sketcher::external_reference_line(reference);line&&!sketcher::is_face_curve_key(reference.source_semantic_key)) {
             reference.cached_points={line->first,{line->first[0]+line->second[0],line->first[1]+line->second[1]}};
             reference.cached_paths.clear();reference.infinite=true;
         }
@@ -142,7 +143,8 @@ kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string&
     const sketcher::Sketch& sketch,const std::vector<Reference>& wanted,
     const std::string& draft_body_id = {}) {
     std::set<Key> keys;
-    for(const auto& r:wanted)keys.emplace(source_kind(r.kind),r.source_owner_id,r.source_semantic_key,r.source_instance_path);
+    for(const auto& r:wanted)keys.emplace(source_kind(r.kind),r.source_owner_id,
+        r.kind==Kind::Face?sketcher::face_curve_source_key(r.source_semantic_key):r.source_semantic_key,r.source_instance_path);
     kernel::ViewerReferenceGeometry result;
     if(keys.empty())return result;
     visit_original_references(live,doc,[&](const auto& source,const ReferenceFrame& frame) {
@@ -212,7 +214,8 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
             [&](OriginalReferenceKind candidate,const auto& candidate_owner,const auto& candidate_key,const auto& candidate_path) {
                 const auto requested=kind==Kind::Face?OriginalReferenceKind::Face:source_kind(kind)==Kind::Edge?OriginalReferenceKind::Edge:
                     kind==Kind::Point?OriginalReferenceKind::Point:OriginalReferenceKind::Axis;
-                return candidate==requested&&candidate_owner==owner&&candidate_key==key&&candidate_path==path;
+                return candidate==requested&&candidate_owner==owner&&candidate_key==
+                    (kind==Kind::Face?sketcher::face_curve_source_key(key):key)&&candidate_path==path;
             });
         geometry=!draft_body_id.empty() && !part->session.document().body_owner_for_object(sketch.owner_container_id)
             ? part->session.document().construction_reference_geometry_for(draft_body_id,std::move(geometry))
@@ -269,7 +272,8 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
         for(const auto& reference:references) {
             const auto address=live.resolve_occurrence(top,assembly::InstancePath::decode(reference.source_instance_path));
             if(address&&address->source_kind==assembly::ComponentSourceKind::Part&&address->source_document_id==source)
-                keys.emplace(source_kind(reference.kind),reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path);
+                keys.emplace(source_kind(reference.kind),reference.source_owner_id,
+                    reference.kind==Kind::Face?sketcher::face_curve_source_key(reference.source_semantic_key):reference.source_semantic_key,reference.source_instance_path);
         }
         kernel::ViewerReferenceGeometry current;
         if(!keys.empty())try {

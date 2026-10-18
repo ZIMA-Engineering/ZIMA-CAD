@@ -54,12 +54,18 @@ void verify(const fs::path& path,const Json& expected) {
     near(z0,-k,"Head height");near(z1,l,"Length from bearing plane");
     near(x0,-s/std::sqrt(3.),"Centered hexagon left extent");near(x1,s/std::sqrt(3.),"Centered hexagon right extent");
     near(y0,-s/2,"Centered hexagon lower extent");near(y1,s/2,"Centered hexagon upper extent");
-    bool shaft=false,fillet=false,bearing=false,hole=false,tip=false;
+    bool shaft=false,fillet=false,bearing=false,hole=false,tip=false,fitted=false,shoulder=false;
     for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
         const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
         if(surface.GetType()==GeomAbs_Cylinder) {
             const double radius=surface.Cylinder().Radius();
             shaft|=std::abs(radius-d/2)<1e-6;
+            if(expected.contains("fitted_diameter_mm")&&std::abs(radius-expected.at("fitted_diameter_mm").get<double>()/2)<1e-6) {
+                const auto cylinder=surface.Cylinder();
+                require(std::abs(cylinder.Axis().Direction().Z())>1.-1e-8&&std::hypot(cylinder.Location().X(),cylinder.Location().Y())<1e-8,
+                    "Fitted shank is not concentric with the nominal thread");
+                fitted=true;
+            }
             bearing|=std::abs(radius-expected.at("bearing_diameter_mm").get<double>()/2)<1e-6;
             if(expected.contains("locking_hole_diameter_mm")&&
                std::abs(radius-expected.at("locking_hole_diameter_mm").get<double>()/2)<1e-6) {
@@ -73,6 +79,11 @@ void verify(const fs::path& path,const Json& expected) {
         if(surface.GetType()==GeomAbs_Cone) {
             Bnd_Box face_box;BRepBndLib::AddOptimal(it.Current(),face_box,false,false);
             double a,b,c,e,f,g;face_box.Get(a,b,c,e,f,g);
+            if(expected.contains("fitted_diameter_mm")&&c>0&&g<l-1e-6&&std::abs(std::abs(surface.Cone().SemiAngle())-std::acos(-1.)/6)<1e-7) {
+                const double end=l-expected.at("thread_length_mm").get<double>()-expected.at("runout_mm").get<double>();
+                const double depth=(expected.at("fitted_diameter_mm").get<double>()-d)/2/std::tan(std::acos(-1.)/6);
+                near(g,end,"Fitted shoulder follows thread runout");near(g-c,depth,"Fitted shoulder chamfer depth");shoulder=true;
+            }
             if(c>0&&std::abs(g-l)<1e-6) {
                 const bool explicit_tip=expected.contains("tip_chamfer");
                 const double angle=explicit_tip?expected.at("tip_chamfer").at("angle_degrees").get<double>():45.;
@@ -88,6 +99,7 @@ void verify(const fs::path& path,const Json& expected) {
         }
     }
     require(shaft&&fillet,"Actual shaft cylinder or underhead fillet missing");
+    if(expected.contains("fitted_diameter_mm"))require(fitted&&shoulder,"Actual fitted cylinder or 30-degree shoulder is missing");
     const bool raised=expected.value("bearing_face",expected.at("product_grade").get<std::string>()!="C");
     require(bearing==raised,"Bearing-face geometry disagrees with the selected variant");
     require(hole==expected.contains("locking_hole_diameter_mm"),"Locking hole radius, axis or head-center position disagrees");
@@ -129,7 +141,7 @@ void verify(const fs::path& path,const Json& expected) {
             }
         }
     }
-    const auto* feature=document.find_container("01a14429e3207acba34fc9c038cdccfe");
+    const auto* feature=document.find_container(expected.value("thread_container",std::string{"01a14429e3207acba34fc9c038cdccfe"}));
     require(feature,"Thread feature missing");const auto& thread=feature->shaft_thread;
     near(thread.nominal_diameter,d,"Thread nominal diameter");near(thread.pitch,expected.at("pitch_mm"),"Thread pitch");
     require(thread.designation==expected.at("designation").get<std::string>(),"Thread designation changed");
@@ -154,7 +166,8 @@ int main(int argc,char** argv) {
                 const auto relative=fs::u8path(row.at("file").get<std::string>());
                 std::vector<kernel::BodyResult> previous;auto doc=document::PartDocument::load(relative,&previous);
                 const auto before=doc;
-                auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc,&previous);
+                // Factory conversion must execute this runtime, not reuse saved boundaries.
+                auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc,nullptr);
                 require(!calculated.empty()&&calculated.back().calculation_errors.empty()&&doc.reference_errors.empty(),
                     "Projected factory references failed regeneration");
                 const auto authored=[](auto&& self,Json value)->Json {
@@ -253,6 +266,13 @@ int main(int argc,char** argv) {
                                 }
                                 if(ref.semantic_key=="thread:surface:runout:end")runout_end=std::max(runout_end,t);
                             }
+                        }
+                        for(const auto& key:{std::string{"thread:surface:root"},std::string{"thread:surface:runout:end"}}) {
+                            if(key.ends_with("end")&&request.runout_end<=1e-9)continue;
+                            const auto found=std::ranges::find_if(mesh.original_references.triangle_references,[&](const auto& ref){
+                                return ref.owner_id==container.id&&ref.semantic_key==key;});
+                            require(found!=mesh.original_references.triangle_references.end()&&found->contour_surface&&!found->surface,
+                                "Factory thread lost its exact outline-only surface metadata");
                         }
                         near(low,request.start_offset,"Thread start/entrance chamfer");
                         near(high,request.start_offset+request.length-request.runout_end,"Full thread end");
