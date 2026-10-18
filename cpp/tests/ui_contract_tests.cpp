@@ -1444,7 +1444,7 @@ int main(int argc, char* argv[]) {
                 std::ranges::count_if(wire.edges,[](const auto& edge) { return edge.points.size()==3; })==1,
                 "Thread preview must have three circles and one continuous generator");
             const auto exit=std::ranges::find_if(wire.edges,[](const auto& edge) {
-                return edge.reference.semantic_key=="thread:boundary:runout:end";
+                return edge.reference.semantic_key=="thread:boundary:runout:end:end";
             });
             require(exit!=wire.edges.end() && exit->points.size()==65 &&
                 std::abs(exit->points.front().z-22)<1e-8 && std::abs(exit->points.front().x-5)<1e-8,

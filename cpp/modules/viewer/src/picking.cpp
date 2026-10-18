@@ -839,7 +839,6 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 continue;
             }
             if (edge.edge < source.edges.size() &&
-                !source.edges[edge.edge].reference.valid() &&
                 !source.edges[edge.edge].display_owner_id.empty() &&
                 (source.edges[edge.edge].reference.semantic_key.starts_with(
                      "thread:wire:") ||

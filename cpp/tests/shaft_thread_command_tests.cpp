@@ -117,11 +117,91 @@ void verify_chamfer(const kernel::OcctKernel& kernel,fs::path directory) {
         "Shaft accepted the entrance chamfer as its end");
     run(host,"shaft_thread.set",{{"container",id},{"chamfer",Json::object()}});
     require(!state->session.document().find_container(id)->shaft_thread.chamfer,"Clearing the shaft entrance chamfer failed");
+    double untrimmed_low=1e20;
+    const auto& untrimmed=state->session.calculated_boundaries().back().mesh;
+    for(std::size_t i=0;i<untrimmed.triangle_references.size();++i) {
+        const auto& ref=untrimmed.triangle_references[i];
+        if(ref.owner_id!=id||ref.semantic_key!="thread:surface:root")continue;
+        for(std::size_t j=0;j<3;++j)
+            untrimmed_low=std::min(untrimmed_low,untrimmed.vertices.at(untrimmed.triangles.at(i*3+j)).z);
+    }
+    near(untrimmed_low,0);
+}
+void verify_rim_reference(const kernel::OcctKernel& kernel,fs::path directory) {
+    for(const bool reverse:{false,true})for(const double side:{-1.,1.}) {
+        workspace::Workspace live;command_host::Options options;
+        options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return settings;};
+        command_host::Host host(live,kernel,directory,options);
+        const auto name=std::string("rim-reference-")+(reverse?"reverse-":"forward-")+(side<0?"left":"right");
+        run(host,"new",{{"type","part"},{"name",name}});
+        const auto shaft=test::circular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
+            {{"radius_mm",5},{"height_mm",30}}).data.at("container").get<std::string>();
+        auto* state=live.open_part(live.active_document_id());
+        const auto face=[&](const char* key){return Json{{"owner",shaft},{"key",test::profile_key(state->session.document(),shaft,key)}};};
+        const auto thread=run(host,"shaft_thread.create",{{"cylinder",face("side")},{"start",face(reverse?"z_max":"z_min")},
+            {"designation","M10"},{"length_mm",15}}).data.at("container").get<std::string>();
+        const auto sketch=run(host,"sketch.create",{{"name","Rim contact"},{"plane","XZ"}}).data.at("sketch").get<std::string>();
+        const auto reference=run(host,"sketch.reference.create",{{"sketch",sketch},{"kind","edge"},{"owner",thread},
+            {"key","thread:boundary:root:end"}}).data.at("reference").get<std::string>();
+        const auto current=[&]()->const sketcher::Sketch& {
+            return *std::ranges::find(state->session.document().sketches,sketch,&sketcher::Sketch::id);
+        };
+        const auto initial=current().local_point({side,0,15});
+        const auto point=run(host,"sketch.point.create",{{"sketch",sketch},{"position",initial},{"snap_mm",1e-8}}).data.at("point").get<std::string>();
+        run(host,"sketch.constraint.create",{{"sketch",sketch},{"kind","point_on_line"},{"points",Json::array({point})},{"geometry",Json::array({reference})}});
+        const auto dimension=run(host,"sketch.dimension.create",{{"sketch",sketch},{"kind","distance_x"},
+            {"points",Json::array({point})},{"geometry",Json::array({"sketch_axis:y"})}}).data.at("dimension").get<std::string>();
+        run(host,"sketch.dimension.create",{{"sketch",sketch},{"kind","distance_y"},{"driving",false},
+            {"points",Json::array({point})},{"geometry",Json::array({"sketch_axis:x"})}});
+        const auto geometry=[&](double length,double x) {
+            const auto* p=current().find_point(point);require(p,"Rim contact point disappeared");
+            const auto world=current().world_point(p->x,p->y);near(world.x,x);near(world.y,0);near(world.z,reverse?30-length:length);
+            const auto& ref=current().external_references.front();
+            require(ref.id==reference&&!ref.broken&&ref.source_owner_id==thread&&ref.source_semantic_key=="thread:boundary:root:end",
+                "Rim reference changed identity or broke");
+            const auto& edges=state->session.calculated_boundaries().back().mesh.original_references.edges;
+            const auto source=std::ranges::find_if(edges,[&](const auto& e){return e.reference.owner_id==thread&&e.reference.semantic_key==ref.source_semantic_key;});
+            require(source!=edges.end(),"Rim source disappeared");
+            for(const auto& q:source->points){near(q.z,reverse?30-length:length);near(std::hypot(q.x,q.y),4.08);}
+        };
+        for(const double value:{side*1.25,side*2,side}) {
+            run(host,"sketch.dimension.set",{{"sketch",sketch},{"dimension",dimension},{"value",value}});geometry(15,value);
+        }
+        run(host,"sketch.dimension.set",{{"sketch",sketch},{"dimension",dimension},{"locked",true}});
+        // Lock constrains dragging; explicit dimension Properties edits remain
+        // allowed and retain the lock under the established Sketcher contract.
+        run(host,"sketch.dimension.set",{{"sketch",sketch},{"dimension",dimension},{"value",side*2}});geometry(15,side*2);
+        require(run(host,"sketch.dimension.get",{{"sketch",sketch},{"dimension",dimension}}).data.at("locked").get<bool>(),
+            "Explicit rim dimension edit removed its lock");
+        run(host,"sketch.dimension.set",{{"sketch",sketch},{"dimension",dimension},{"value",side}});geometry(15,side);
+        const auto revision=state->session.revision();
+        require(!host.execute({{"command","sketch.point.move"},{"arguments",{{"sketch",sketch},{"point",point},{"position",Json::array({10,10})}}}}).ok&&
+            state->session.revision()==revision,"Locked rim contact escaped during dragging");
+        run(host,"sketch.dimension.set",{{"sketch",sketch},{"dimension",dimension},{"locked",false}});
+        double previous=15;
+        for(const double length:{16.,17.,15.}) {
+            run(host,"shaft_thread.set",{{"container",thread},{"length_mm",length}});geometry(length,side);
+            run(host,"undo");geometry(previous,side);run(host,"redo");geometry(length,side);
+            run(host,"regenerate");geometry(length,side);previous=length;
+        }
+        run(host,"sketch.dimension.set",{{"sketch",sketch},{"dimension",dimension},{"locked",true}});
+        const auto fixed_revision=state->session.revision();
+        require(!host.execute({{"command","sketch.point.move"},{"arguments",{{"sketch",sketch},{"point",point},{"position",Json::array({10,10})}}}}).ok&&
+            state->session.revision()==fixed_revision,"Fully constrained rim contact escaped during dragging");
+        geometry(15,side);
+        run(host,"sketch.dimension.delete",{{"sketch",sketch},{"dimension",dimension}});
+        const auto moved=current().local_point({side*2.5,0,15});
+        run(host,"sketch.point.move",{{"sketch",sketch},{"point",point},{"position",moved}});geometry(15,side*2.5);
+        run(host,"save");const auto saved=document::PartDocument::load(directory/(name+".prtz"));
+        const auto s=std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id);
+        require(s!=saved.sketches.end()&&s->external_references==current().external_references,"Rim source did not round-trip");
+        const auto* p=s->find_point(point);require(p,"Saved rim contact disappeared");near(s->world_point(p->x,p->y).z,15);
+    }
 }
 }
 int main(){try {
     kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-shaft-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);verify_chamfer(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);verify_chamfer(kernel,directory);verify_rim_reference(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Shaft thread commands: unchanged solid, exact sheet radii/extents, references, catalog, errors, locks, Undo and native round trip passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

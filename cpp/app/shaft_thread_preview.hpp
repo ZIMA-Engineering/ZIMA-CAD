@@ -40,7 +40,7 @@ inline kernel::ViewerMesh shaft_thread_preview(const document::HistoryContainer&
     }
     if (request.runout_end>0) {
         kernel::ViewerEdge edge;
-        edge.reference={container.id,"thread:boundary:runout:end",{}};
+        edge.reference={container.id,"thread:boundary:runout:end:end",{}};
         for (int i=0;i<=64;++i)
             edge.points.push_back(point(last+request.runout_end,request.nominal_radius,
                 2*std::numbers::pi*i/64));

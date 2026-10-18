@@ -48,7 +48,11 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     for(const auto& p:vertices)coordinate_scale=std::max({coordinate_scale,std::abs(p.p.x),std::abs(p.p.y)});
     const double roundoff=64*std::numeric_limits<double>::epsilon()*coordinate_scale;
     const auto& source_edges=mesh.edges.empty()?mesh.original_references.edges:mesh.edges;
-    const auto is_thread=[](const auto& ref){return ref.semantic_key.starts_with("thread:boundary:");};
+    const auto is_thread=[](const auto& ref){return ref.semantic_key.starts_with("thread:boundary:")||ref.semantic_key.starts_with("thread:wire:");};
+    const auto thread_cylinder_boundary=[](const auto& ref) {
+        return ref.semantic_key.starts_with("thread:boundary:root:")||
+            ref.semantic_key.starts_with("thread:boundary:nominal:");
+    };
     using Owner=std::pair<std::string,std::string>;
     const auto owner=[](const auto& ref){return Owner{ref.owner_id,ref.instance_path};};
     // Saved display meshes keep analytic surfaces in original references rather
@@ -72,7 +76,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     // persisted viewer samples. Never infer topology identities or call OCCT.
     for(const auto& edge:source_edges) {
         const auto& semantic=edge.reference.semantic_key;
-        if(semantic!="thread:boundary:nominal"&&semantic!="thread:boundary:root")continue;
+        if(!thread_cylinder_boundary(edge.reference)||edge.parameter_seam)continue;
         if(edge.points.size()<9)continue;
         const auto a=project(edge.points.front()),b=project(edge.points[edge.points.size()/3]),c=project(edge.points[2*edge.points.size()/3]);
         const auto last=project(edge.points.back());
@@ -427,8 +431,12 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         zima::kernel::EdgeReference reference;
         if(edge.thread)for(const auto& original:source_edges)
             if(is_thread(original.reference)&&owner(original.reference)==std::get<2>(key)&&
-               (original.reference.semantic_key=="thread:boundary:nominal"||original.reference.semantic_key=="thread:boundary:root")) {
-                reference=original.reference;break;
+               thread_cylinder_boundary(original.reference)) {
+                // A projected generator belongs to the cylindrical sheet, not
+                // to either of its now individually selectable terminal rims.
+                reference=original.reference;
+                reference.semantic_key.resize(reference.semantic_key.rfind(':'));
+                break;
             }
         append(std::array{edge.a,edge.b},reference,true,false,edge.thread);
     }

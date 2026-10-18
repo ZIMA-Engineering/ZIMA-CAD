@@ -6328,14 +6328,48 @@ TopoDS_Shape make_thread_cone_face(const ThreadSurfaceRequest& request,
     return technological_lateral_face(solid, GeomAbs_Cone);
 }
 
+struct ThreadSurfaceBoundaries {
+    Vec3 first, first_normal, last, last_normal;
+    std::string first_key,last_key;
+};
+struct ThreadRimRegistry {
+    using Keys=std::set<std::tuple<std::string,std::string,std::string>>;
+    Keys display,original;
+};
+
 void append_technological_surface(ViewerMesh& target, const TopoDS_Shape& shape,
-        const std::string& owner, const std::string& role, double mesh_deflection) {
+        const std::string& owner, const std::string& role,
+        const ThreadSurfaceBoundaries& bounds, ThreadRimRegistry& rims, double mesh_deflection) {
     if (shape.IsNull()) return;
     auto source = make_result(shape, {}, {}, {}, false, false, false, {}, mesh_deflection).mesh;
     const FaceReference face_reference{owner, "thread:surface:" + role, {}};
     for (auto& reference : source.triangle_references) reference = face_reference;
+    double minimum=std::numeric_limits<double>::infinity(),maximum=-minimum;
+    for(const auto& edge:source.edges)for(const auto& p:edge.points) {
+        const double t=(p.x-bounds.first.x)*bounds.first_normal.x+
+            (p.y-bounds.first.y)*bounds.first_normal.y+(p.z-bounds.first.z)*bounds.first_normal.z;
+        minimum=std::min(minimum,t);maximum=std::max(maximum,t);
+    }
+    const auto axial_plane=[&](double t) {return Vec3{bounds.first.x+bounds.first_normal.x*t,
+        bounds.first.y+bounds.first_normal.y*t,bounds.first.z+bounds.first_normal.z*t};};
     for (auto& edge : source.edges) {
-        edge.reference = {owner, "thread:boundary:" + role, {}};
+        const auto on_plane=[&](const Vec3& origin,const Vec3& normal) {
+            return edge.points.size()>1 && std::ranges::all_of(edge.points,[&](const auto& p) {
+                return std::abs((p.x-origin.x)*normal.x+(p.y-origin.y)*normal.y+
+                    (p.z-origin.z)*normal.z)<=1e-7;
+            });
+        };
+        // Identity follows the authored cap roles, including a cap shortened by
+        // an explicit cut, never OCCT edge order or the tessellation seam.
+        // Keep other unclassified trimming wires cosmetic.
+        const auto end=edge.parameter_seam ? "seam" :
+            (on_plane(bounds.first,bounds.first_normal)||on_plane(axial_plane(minimum),bounds.first_normal))
+            ? "start" : (on_plane(bounds.last,bounds.last_normal)||on_plane(axial_plane(maximum),bounds.first_normal)) ? "end" : "trimmed";
+        const auto boundary=end==std::string_view("start") ? bounds.first_key :
+            end==std::string_view("end") ? bounds.last_key : role+":"+end;
+        const bool cosmetic=edge.parameter_seam||end==std::string_view("trimmed");
+        edge.reference = {owner, std::string(cosmetic
+            ? "thread:wire:" : "thread:boundary:") + boundary, {}};
         edge.display_owner_id = owner;
     }
     const auto vertex_base = static_cast<std::uint32_t>(target.vertices.size());
@@ -6345,7 +6379,19 @@ void append_technological_surface(ViewerMesh& target, const TopoDS_Shape& shape,
         target.triangles.push_back(vertex_base + index);
     target.triangle_references.insert(target.triangle_references.end(),
         source.triangle_references.begin(), source.triangle_references.end());
-    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+    const auto append_edge=[](auto& edges,ViewerEdge edge,ThreadRimRegistry::Keys& closed_rims) {
+        const auto closed=[](const auto& e) {
+            if(e.points.size()<4)return false;
+            const auto& a=e.points.front();const auto& b=e.points.back();
+            return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<=1e-7;
+        };
+        // A complete conic rim shared by the root and its runout has one
+        // identity. Retain separate open fragments after subsequent trimming.
+        if(edge.reference.semantic_key.starts_with("thread:boundary:")&&closed(edge)&&!closed_rims.emplace(edge.reference.owner_id,
+            edge.reference.semantic_key,edge.reference.instance_path).second)return;
+        edges.push_back(std::move(edge));
+    };
+    for(const auto& edge:source.edges)append_edge(target.edges,edge,rims.display);
 
     const auto reference_base = static_cast<std::uint32_t>(
         target.original_references.vertices.size());
@@ -6358,9 +6404,10 @@ void append_technological_surface(ViewerMesh& target, const TopoDS_Shape& shape,
         target.original_references.triangle_references.end(),
         source.triangle_references.begin(), source.triangle_references.end());
     for (const auto& edge : source.edges) {
+        if(edge.reference.semantic_key.starts_with("thread:wire:"))continue;
         auto persisted = edge;
         persisted.display_owner_id.clear();
-        target.original_references.edges.push_back(std::move(persisted));
+        append_edge(target.original_references.edges,std::move(persisted),rims.original);
     }
 }
 
@@ -7726,12 +7773,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             TopoDS_Shape shape;
             std::string owner;
             std::string role;
+            ThreadSurfaceBoundaries bounds;
         };
         std::vector<TechnologicalSurface> technological_surfaces;
         const auto append_technological_surfaces = [&](BodyResult& boundary, double mesh_deflection) {
+            ThreadRimRegistry rims;
             for (const auto& surface : technological_surfaces) {
                 append_technological_surface(boundary.mesh, surface.shape,
-                    surface.owner, surface.role, mesh_deflection);
+                    surface.owner, surface.role, surface.bounds, rims, mesh_deflection);
             }
         };
         std::unordered_map<std::string, StepDocumentCache> step_documents;
@@ -9326,7 +9375,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
                 auto shaft_request=*thread;
                 if (thread->shaft_face) {
-                    const auto resolve=[&](FaceReference& reference) {
+                    const auto resolve=[&](FaceReference& reference, bool shaft_support=false) {
                         const auto found=std::ranges::find_if(owned_topology->faces,[&](const auto& face) {
                             return face.reference==reference;
                         });
@@ -9341,13 +9390,33 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         for (TopExp_Explorer faces(result_shape,TopAbs_FACE);faces.More();faces.Next()) {
                             if (!faces.Current().IsSame(found->shape)) continue;
                             if (const auto surface=analytic_surface(TopoDS::Face(faces.Current()))) {
+                                // The selected original cylinder defines the axial
+                                // support, shared with the command preview. A
+                                // chamfer shortens its visible fragment, not the
+                                // authored thread. Only an explicitly selected
+                                // entrance chamfer clips the root sheet. Retain
+                                // the current material side for shaft validation.
+                                if (shaft_support && reference.surface &&
+                                    reference.surface->kind==SurfaceGeometry::Kind::Cylinder &&
+                                    surface->kind==SurfaceGeometry::Kind::Cylinder) {
+                                    const auto original=std::ranges::find_if(
+                                        original_references.triangle_references,[&](const auto& candidate) {
+                                            return candidate==reference && candidate.surface &&
+                                                candidate.surface->kind==SurfaceGeometry::Kind::Cylinder;
+                                        });
+                                    auto support=original!=original_references.triangle_references.end()
+                                        ? *original->surface : *reference.surface;
+                                    support.reversed=surface->reversed;
+                                    reference.surface=std::make_shared<const SurfaceGeometry>(std::move(support));
+                                    break;
+                                }
                                 auto& target=surface->kind==SurfaceGeometry::Kind::Torus?reference.contour_surface:reference.surface;
                                 target=std::make_shared<const SurfaceGeometry>(*surface);
                             }
                             break;
                         }
                     };
-                    resolve(*shaft_request.shaft_face);resolve(shaft_request.shaft_start);
+                    resolve(*shaft_request.shaft_face,true);resolve(shaft_request.shaft_start);
                     if (shaft_request.shaft_chamfer) resolve(*shaft_request.shaft_chamfer);
                     if (shaft_request.shaft_end) resolve(*shaft_request.shaft_end);
                     shaft_request=resolve_shaft_thread(std::move(shaft_request));
@@ -9543,34 +9612,51 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const double interrupted_radius = external_thread
                         ? thread_geometry->root_radius
                         : thread_geometry->nominal_radius;
-                    if (!thread->cuts_before && !thread->shaft_face) technological_surfaces.push_back({
+                    const auto add_surface=[&](TopoDS_Shape shape,std::string role,double first,double last) {
+                        const auto station=[&](double t) {return Vec3{thread_geometry->origin.x+thread_geometry->axis_direction.x*t,
+                            thread_geometry->origin.y+thread_geometry->axis_direction.y*t,thread_geometry->origin.z+thread_geometry->axis_direction.z*t};};
+                        const auto axis=thread_geometry->axis_direction;
+                        auto first_key=role+":start",last_key=role+":end";
+                        const std::string interrupted_role=external_thread?"root":"nominal";
+                        const std::string continuous_role=external_thread?"nominal":"root";
+                        const bool continuous=!thread->cuts_before&&!thread->shaft_face;
+                        if(role=="runout:start") {
+                            last_key=interrupted_role+":start";
+                            if(continuous)first_key=continuous_role+":start";
+                        } else if(role=="runout:end") {
+                            first_key=interrupted_role+":end";
+                            if(continuous)last_key=continuous_role+":end";
+                        }
+                        technological_surfaces.push_back({std::move(shape),operation.owner_id,std::move(role),
+                            {station(first),axis,thread->end_plane_origin.value_or(station(last)),
+                                thread->end_plane_origin?thread->end_plane_normal:axis,std::move(first_key),std::move(last_key)}});
+                    };
+                    if (!thread->cuts_before && !thread->shaft_face) add_surface(
                         make_thread_cylinder_face(*thread_geometry,
                             continuous_radius, start,
                             thread_geometry->length),
-                        operation.owner_id,
-                        external_thread ? "nominal" : "root"});
+                        external_thread ? "nominal" : "root",start,start+thread_geometry->length);
                     const double interrupted_start = start + start_runout;
                     const double interrupted_length = std::max(
                         0.0, thread_geometry->length - start_runout - end_runout);
-                    technological_surfaces.push_back({
+                    add_surface(
                         make_thread_cylinder_face(*thread_geometry,
                             interrupted_radius, interrupted_start,
                             interrupted_length),
-                        operation.owner_id,
-                        external_thread ? "root" : "nominal"});
+                        external_thread ? "root" : "nominal",interrupted_start,interrupted_start+interrupted_length);
                     if (start_runout > 1.0e-9) {
-                        technological_surfaces.push_back({
+                        add_surface(
                             make_thread_cone_face(*thread_geometry,
                                 continuous_radius, interrupted_radius,
                                 start, start_runout),
-                            operation.owner_id, "runout:start"});
+                            "runout:start",start,start+start_runout);
                     }
                     if (end_runout > 1.0e-9) {
-                        technological_surfaces.push_back({
+                        add_surface(
                             make_thread_cone_face(*thread_geometry,
                                 interrupted_radius, continuous_radius,
                                 end - end_runout,
-                                end_runout), operation.owner_id, "runout:end"});
+                                end_runout), "runout:end",end-end_runout,end);
                     }
                     // Shaft thread dimensions are independent of the solid.
                     // Keep the sheet even when a later shaft diameter change
@@ -11054,13 +11140,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if (existing == original_references.points.end()) original_references.points.push_back(point);
                 else *existing = point;
             }
+            ViewerMesh persisted_surfaces;
+            ThreadRimRegistry persisted_rims;
             for (const auto& surface : technological_surfaces) {
-                ViewerMesh persisted_surface;
-                append_technological_surface(persisted_surface, surface.shape,
-                    surface.owner, surface.role, operations.back().mesh_deflection);
-                append_reference_geometry(original_references,
-                    std::move(persisted_surface.original_references));
+                append_technological_surface(persisted_surfaces, surface.shape,
+                    surface.owner, surface.role, surface.bounds, persisted_rims, operations.back().mesh_deflection);
             }
+            append_reference_geometry(original_references,
+                std::move(persisted_surfaces.original_references));
             // Original geometry retains the source extents, but material
             // sidedness belongs to the calculated body. A subtractive tool
             // has the opposite material side from its standalone operand.

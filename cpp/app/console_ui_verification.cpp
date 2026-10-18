@@ -426,7 +426,76 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
         }
         call("undo");check(get().at("length_mm")==15,"Shaft thread Undo failed");call("redo");
         check(get().at("length_mm")==20&&get().at("cylinder").at("owner")==shaft,"Shaft thread Redo lost parameters or face identity");call("save");
-        std::cout<<"Shaft thread GUI: no Origin button, four face-reference rows, OK/Cancel, Undo/Redo and original cylinder identity passed\n";return 0;
+        std::string source_thread=id,sketch;
+        const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_SHAFT_THREAD_FILE");
+        if(!fixture.isEmpty()) {
+            const auto opened=call("open",{{"path",fixture.toStdString()}}).data;
+            check(std::ranges::any_of(opened,[&](const commands::Json& item) {
+                return item.value("active",false)&&std::filesystem::equivalent(
+                    std::filesystem::u8path(item.at("path").get<std::string>()),std::filesystem::u8path(fixture.toStdString()));
+            }),"Thread GUI verification did not activate its isolated fixture copy");
+            const auto source=document::PartDocument::load(std::filesystem::u8path(fixture.toStdString()));
+            const auto thread=std::ranges::find(source.history,document::FeatureKind::ShaftThread,&document::HistoryContainer::feature_kind);
+            check(thread!=source.history.end()&&!source.sketches.empty(),"Thread reference fixture is incomplete");
+            source_thread=thread->id;sketch=source.sketches.back().id;
+            const auto* body=source.body_owner_for_object(sketch);check(body,"Thread Sketch Body missing");
+            call("body.activate",{{"body",body->scope.id}});
+            call("regenerate");
+        } else sketch=call("sketch.create",{{"name","Thread end reference"},{"plane","XZ"}}).data.at("sketch").get<std::string>();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* sketch_row{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch &&
+                (*i)->data(0,Qt::UserRole+3).toString()=="part-sketch"){sketch_row=*i;break;}
+        check(sketch_row,"Longitudinal thread reference Sketch missing");window.show_tree_item_properties(sketch_row);flush();
+        auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+        if(!open)open=window.findChild<QPushButton*>("featureSketchButton");
+        if(!open)open=window.findChild<QPushButton*>("primitiveOwnSketchButton");
+        const auto* finish=window.findChild<QAction*>("finishSketchAction");
+        if(!finish||!finish->isEnabled()) {
+            check(open,"Sketch editor button missing");open->click();flush();
+        }
+        QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();
+        auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");check(external&&external->isEnabled(),"Thread external reference command unavailable");external->trigger();flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Thread reference View missing");view->fit_all();flush();
+        const auto pick_reference=[&](viewer::CandidateKind kind,const std::string& key) {
+        auto* filter=window.findChild<QComboBox*>("selectionFilterCombo");check(filter,"Reference selection filter missing");
+        filter->setCurrentIndex(kind==viewer::CandidateKind::Face?1:5);flush();
+        const auto wanted=[&](const auto& candidate){return candidate.kind==kind&&candidate.owner_id==source_thread&&candidate.semantic_key==key;};
+        std::optional<QPointF> hit;
+        for(int y=20;y<view->height()-20&&!hit;y+=4)for(int x=20;x<view->width()-20&&!hit;x+=4) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(std::ranges::any_of(candidates,wanted))hit=QPointF(x,y);
+        }
+        check(hit.has_value(),"Thread surface/rim is unavailable for GUI external references");
+        const auto offered=view->selection_candidates_at(*hit);
+        check(std::ranges::count_if(offered,wanted)==1,"One reference rim was offered more than once");
+        check(std::ranges::none_of(offered,[&](const auto& c) {
+            return kind==viewer::CandidateKind::Face?c.kind==viewer::CandidateKind::Edge:c.kind==viewer::CandidateKind::Face;
+        }),"Reference selection ignored the face/curve filter");
+        const auto mouse=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons){
+            QMouseEvent event(type,*hit,view->mapToGlobal(hit->toPoint()),button,buttons,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+        const auto count=view->selection_candidates_at(*hit).size();
+        for(std::size_t i=0;i<count&&(!view->offered_candidate()||!wanted(*view->offered_candidate()));++i) {
+            mouse(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);mouse(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+        }
+        check(view->offered_candidate()&&wanted(*view->offered_candidate()),"Thread surface/rim cannot be offered with RMB cycling");
+        mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+        };
+        pick_reference(viewer::CandidateKind::Face,"thread:surface:root");
+        check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch&&edge.reference.semantic_key.starts_with("external_");}),"Thread face click failed to create its longitudinal external reference");
+        pick_reference(viewer::CandidateKind::Edge,"thread:boundary:root:end");
+        check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch&&edge.reference.semantic_key.starts_with("external_edge:");}),"Thread end-rim click failed to create its exact external reference");
+        window.findChild<QComboBox*>("selectionFilterCombo")->setCurrentIndex(0);flush();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        auto* properties=window.findChild<QPushButton*>("sketchOpenButton");
+        if(!properties)properties=window.findChild<QPushButton*>("featureSketchButton");
+        if(!properties)properties=window.findChild<QPushButton*>("primitiveOwnSketchButton");
+        check(properties,"Sketch Properties did not resume");
+        auto* dialog=properties->window();auto* actions=dialog->findChild<QDialogButtonBox*>();check(actions,"Sketch Properties actions missing");actions->button(QDialogButtonBox::Cancel)->click();flush();
+        std::cout<<"Shaft thread GUI: reference rows, OK/Cancel, Undo/Redo, cylinder identity and actual root-face/end-rim external-reference picking passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {

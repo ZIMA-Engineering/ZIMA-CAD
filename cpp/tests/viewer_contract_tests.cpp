@@ -485,6 +485,14 @@ int main() {
                         cosmetic_thread_mesh, "thread-container").has_value(),
                 "Cosmetic Thread cylindrical envelope was not selectable as "
                 "its parent Container or leaked as a topological Edge");
+        for(auto& edge:cosmetic_thread_mesh.edges)edge.reference.owner_id="thread-container";
+        const auto labelled_cosmetic=zima::viewer::ordered_viewer_candidates(
+            cosmetic_thread_mesh,{0,-1,0},{0,0,1},.01);
+        require(std::ranges::any_of(labelled_cosmetic,[](const auto& c) {
+            return c.kind==zima::viewer::CandidateKind::Container&&c.owner_id=="thread-container";
+        })&&std::ranges::none_of(labelled_cosmetic,[](const auto& c) {
+            return c.kind==zima::viewer::CandidateKind::Edge;
+        }),"A persisted cosmetic wire label was offered as a real boundary edge");
         const zima::viewer::ViewerCandidate face_overlay{
             zima::viewer::CandidateKind::Face, 0.0, 0,
             "source", "step:face:#42", "5:first",

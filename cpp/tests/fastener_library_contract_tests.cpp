@@ -1,6 +1,7 @@
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
+#include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <nlohmann/json.hpp>
@@ -144,6 +145,70 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==4&&std::string(argv[1])=="--audit-shaft-threads") {
+            const auto root=fs::canonical(fs::u8path(argv[2]));
+            const auto output=fs::absolute(fs::u8path(argv[3]));
+            fs::create_directories(output);kernel::OcctKernel kernel;Json report=Json::array();
+            for(const auto& entry:fs::recursive_directory_iterator(root)) {
+                if(!entry.is_regular_file()||entry.path().extension()!=".prtz")continue;
+                std::vector<kernel::BodyResult> saved;auto doc=document::PartDocument::load(entry.path(),&saved);
+                if(std::ranges::none_of(doc.history,[](const auto& c){return c.feature_kind==document::FeatureKind::ShaftThread||
+                    (c.feature_kind==document::FeatureKind::Thread&&c.thread.enabled)||
+                    (c.feature_kind==document::FeatureKind::Hole&&c.hole.thread_enabled);} ))continue;
+                const auto fresh=kernel.evaluate_history(doc.kernel_operations());
+                require(!fresh.empty()&&fresh.back().calculation_errors.empty(),"Fastener regeneration failed");
+                for(const auto& sketch:doc.sketches)for(const auto& reference:sketch.external_references)
+                    require(reference.source_semantic_key!="thread:boundary:root"&&
+                        reference.source_semantic_key!="thread:boundary:nominal"&&
+                        reference.source_semantic_key!="thread:boundary:runout:end",
+                        "Factory Sketch uses an ambiguous thread rim reference; reauthor it explicitly");
+                Json threads=Json::array();
+                for(const auto& container:doc.history) {
+                    if(container.feature_kind!=document::FeatureKind::ShaftThread||container.suppressed)continue;
+                    const auto request=kernel::resolve_shaft_thread(document::PartDocument::shaft_thread_request(
+                        container,&fresh.back().mesh.original_references));
+                    const auto check=[&](const auto& mesh) {
+                        double low=1e30,high=-1e30,runout_end=-1e30;
+                        for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
+                            const auto& ref=mesh.triangle_references[i];if(ref.owner_id!=container.id)continue;
+                            for(std::size_t j=0;j<3;++j) {
+                                const auto& p=mesh.vertices.at(mesh.triangles.at(i*3+j));
+                                const double x=p.x-request.origin.x,y=p.y-request.origin.y,z=p.z-request.origin.z;
+                                const auto& a=request.axis_direction;const double t=x*a.x+y*a.y+z*a.z;
+                                if(ref.semantic_key=="thread:surface:root") {
+                                    near(std::sqrt(std::max(0.,x*x+y*y+z*z-t*t)),request.root_radius,"Thread root radius");
+                                    low=std::min(low,t);high=std::max(high,t);
+                                }
+                                if(ref.semantic_key=="thread:surface:runout:end")runout_end=std::max(runout_end,t);
+                            }
+                        }
+                        near(low,request.start_offset,"Thread start/entrance chamfer");
+                        near(high,request.start_offset+request.length-request.runout_end,"Full thread end");
+                        if(request.runout_end>1e-9)near(runout_end,request.start_offset+request.length,"Thread runout end");
+                        else require(runout_end==-1e30,"Unexpected thread runout");
+                    };
+                    require(!saved.empty(),"Saved fastener geometry missing");check(saved.back().mesh);check(fresh.back().mesh);
+                    for(const auto* end:{"start","end"}) {
+                        const std::string key=std::string("thread:boundary:root:")+end;
+                        require(std::ranges::any_of(fresh.back().mesh.original_references.edges,[&](const auto& edge){
+                            return edge.reference.owner_id==container.id&&edge.reference.semantic_key==key&&!edge.parameter_seam;
+                        }),"Calculated factory thread lost its unique start/end rim");
+                    }
+                    threads.push_back({{"owner",container.id},{"explicit_chamfer",container.shaft_thread.chamfer.has_value()},
+                        {"start_offset_mm",request.start_offset},{"full_end_mm",request.start_offset+request.length-request.runout_end},
+                        {"runout_mm",request.runout_end}});
+                }
+                const auto target=output/fs::relative(entry.path(),root);fs::create_directories(target.parent_path());
+                doc.save(target,fresh);std::vector<kernel::BodyResult> reopened;
+                const auto restored=document::PartDocument::load(target,&reopened);
+                require(restored.history==doc.history&&!reopened.empty(),"Fastener round trip changed authored history");
+                report.push_back({{"file",fs::relative(entry.path(),root).generic_string()},{"threads",threads},
+                    {"saved_and_regenerated_extents",true},{"unique_start_end_rims",true},{"save_reopen",true}});
+                std::ofstream(output/"report.json")<<report.dump(2);
+                std::cout<<report.size()<<" "<<entry.path().filename().string()<<std::endl;
+            }
+            require(!report.empty(),"No shaft-thread fasteners found");return 0;
+        }
         if(argc==3&&std::string(argv[1])=="--verify-fitted-starter") {
             std::vector<kernel::BodyResult> cache;
             const auto part=document::PartDocument::load(fs::u8path(argv[2]),&cache);

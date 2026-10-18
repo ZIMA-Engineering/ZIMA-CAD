@@ -113,6 +113,21 @@ int main() {
             count(result.back().mesh,"thread:surface:runout:end")>0 &&
             count(result.back().mesh,"thread:surface:nominal")==0,
             "Shaft thread did not create the root sheet and runout or duplicated the outer cylinder");
+        for(const auto& [key,z]:std::vector<std::pair<std::string,double>>{
+                {"thread:boundary:root:start",0},{"thread:boundary:root:end",15},
+                {"thread:boundary:runout:end:end",18}}) {
+            const auto& edges=result.back().mesh.original_references.edges;
+            const auto rim=std::ranges::find_if(edges,[&](const auto& e){return e.reference.owner_id==feature.id&&e.reference.semantic_key==key;});
+            require(rim!=edges.end()&&!rim->parameter_seam&&rim->points.size()>3,
+                "Thread rim did not retain its distinct authored start/end identity");
+            require(std::ranges::count_if(edges,[&](const auto& e){return e.reference==rim->reference;})==1,
+                "A shared root/runout rim was offered twice");
+            for(const auto& p:rim->points)require(std::abs(p.z-z)<1e-7,
+                "Thread rim identity selected the opposite end or a seam");
+        }
+        require(std::ranges::none_of(result.back().mesh.original_references.edges,[&](const auto& e) {
+            return e.reference.owner_id==feature.id&&e.parameter_seam;
+        }),"A periodic thread seam was published as a reference edge");
         for (const auto& ref : result.back().mesh.triangle_references)
             if (ref.owner_id==feature.id)
                 require(ref.is_thread_surface()==(ref.semantic_key=="thread:surface:root"),
@@ -205,6 +220,28 @@ int main() {
                 count(output.back().mesh,"thread:surface:root")>0 &&
                 std::abs(output.back().volume-input.back().volume)<1e-6,
                 "Up-to chamfer changed material, retained runout or lost the thread");
+            auto untrimmed=beveled;
+            auto& untrimmed_parameters=untrimmed.history.back().shaft_thread;
+            untrimmed_parameters.end_condition=document::EndCondition::Length;
+            untrimmed_parameters.end.reset();untrimmed_parameters.chamfer.reset();
+            auto entrance=document::PartDocument::create_chamfer_container(
+                {{shaft.id,test::profile_key(doc,shaft,reversed ? "circle:z_max" : "circle:z_min"),{}}});
+            entrance.edge_treatment.primary_size=1;
+            untrimmed.history.insert(untrimmed.history.end()-1,std::move(entrance));
+            const auto untrimmed_output=kernel.evaluate_history(untrimmed.kernel_operations());
+            double first=1e30,last=-1e30;
+            const auto& untrimmed_mesh=untrimmed_output.back().mesh;
+            for(std::size_t i=0;i<untrimmed_mesh.triangle_references.size();++i) {
+                const auto& ref=untrimmed_mesh.triangle_references[i];
+                if(ref.owner_id!=feature.id||ref.semantic_key!="thread:surface:root")continue;
+                for(std::size_t j=0;j<3;++j) {
+                    const auto z=untrimmed_mesh.vertices.at(untrimmed_mesh.triangles.at(i*3+j)).z;
+                    const double station=reversed?30-z:z;
+                    first=std::min(first,station);last=std::max(last,station);
+                }
+            }
+            require(std::abs(first)<1e-7&&std::abs(last-15)<1e-7,
+                "Unselected chamfer shifted a thread starting at either end");
             beveled.history.back().shaft_thread.root_diameter=7;
             const auto shallow=kernel::resolve_shaft_thread(document::PartDocument::shaft_thread_request(
                 beveled.history.back(),&input.back().mesh.original_references));

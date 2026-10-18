@@ -70,7 +70,7 @@ bool commit_shaft_thread(Workspace& live,const kernel::OcctKernel& kernel,const 
     else {next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);next.history.push_back(std::move(feature));}
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(stored->id);}
-    auto calculated=calculate_part(kernel,next,&state->session.calculated_boundaries(),policy);
+    auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     state->session.commit(std::move(next),std::move(calculated));return true;
 }
 } // namespace zima::workspace
