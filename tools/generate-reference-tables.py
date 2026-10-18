@@ -195,13 +195,23 @@ def render(data, page, language, illustrations_only=False):
     if page["rows"]:
         if page.get('row_legend'):
             parts.append('<p class="row-legend">' + tr(page['row_legend']) + '</p>')
+        figure_group = page.get('figures_side_by_side') and len(page.get('figures', [])) > 1
+        if figure_group:
+            parts.append('<div class="reference-figures-side-by-side">')
         for figure in page.get('figures', []):
             image = figure.get('localized_paths', {}).get(language, figure['path'])
             if not (root / page['path'] / '0000-index' / image).is_file():
                 image = figure['path']
             figure_class = 'reference-figure reference-figure--wide' if figure.get('wide') else 'reference-figure'
-            parts.append('<figure class="' + figure_class + '"><img src="' + html.escape(image, quote=True)
+            figure_style = ''
+            if figure.get('aspect_ratio'):
+                width,height=figure['aspect_ratio']
+                assert 0<width<10000 and 0<height<10000
+                figure_style=' style="--reference-figure-ratio:'+format(width/height,'.8g')+'"'
+            parts.append('<figure class="' + figure_class + '"'+figure_style+'><img src="' + html.escape(image, quote=True)
                          + '" alt="' + tr(figure['caption']) + '"><figcaption>' + tr(figure['caption']) + '</figcaption></figure>')
+        if figure_group:
+            parts.append('</div>')
         if illustrations_only:
             return '\n'.join(parts + ['</main></body></html>', ''])
         if page.get('diagram'):

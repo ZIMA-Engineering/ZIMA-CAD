@@ -1,0 +1,8 @@
+{
+  "ISO 1207": {
+    "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf",
+    "table": "Table 1, head height k, nominal = maximum",
+    "diameters_mm": [1.6, 2, 2.5, 3, 3.5, 4, 5, 6, 8, 10],
+    "head_heights_mm": [1.1, 1.4, 1.8, 2, 2.4, 2.6, 3.3, 3.9, 5, 6]
+  }
+}

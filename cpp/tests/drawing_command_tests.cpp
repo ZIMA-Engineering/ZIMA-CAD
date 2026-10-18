@@ -2,6 +2,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <iostream>
 #include <fstream>
@@ -35,9 +36,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     rejected("drawing.frame.load",{{"sheet",first},{"path",document::path_to_utf8(bad)}});
     rejected("drawing.frame.load",{{"sheet",second},{"path",document::path_to_utf8(frame)}});
     require(!state->document().find_sheet(first)->frame_lines.empty(),"Failed template load erased existing frame");
-    auto next=state->document();auto* decorated=next.find_sheet(first);decorated->title_block_circles.push_back({{1,2},3});decorated->title_block_images.emplace_back();decorated->repeat_regions.emplace_back();state->commit(std::move(next));
+    auto next=state->document();auto* decorated=next.find_sheet(first);decorated->title_block_circles.push_back({{1,2},3});auto& image=decorated->title_block_images.emplace_back();image.id="retained-image";image.format="svg";image.pixel_width=image.pixel_height=1;image.data_base64="PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg==";decorated->repeat_regions.emplace_back().id="retained-region";state->commit(std::move(next));
     run(host,"drawing.title_block.clear",{{"sheet",first}});require(state->document().find_sheet(first)->title_block_images.empty()&&state->document().find_sheet(first)->repeat_regions.empty()&&state->document().find_sheet(first)->title_block_circles.empty(),"Clearing title block left images, circles or regions");run(host,"undo");
-    run(host,"drawing.sheet.set",{{"sheet",first},{"format","A2"}});const auto* clean=state->document().find_sheet(first);require(clean->frame_lines.empty()&&clean->title_block_images.empty()&&clean->repeat_regions.empty(),"Format change kept incompatible template objects");
+    rejected("drawing.sheet.set",{{"sheet",first},{"format","A2"}});
+    run(host,"drawing.frame.clear",{{"sheet",first}});
+    run(host,"drawing.sheet.set",{{"sheet",first},{"format","A2"}});const auto* clean=state->document().find_sheet(first);require(clean->frame_lines.empty()&&!clean->title_block_images.empty()&&!clean->repeat_regions.empty(),"Format change erased the retained title block");
     run(host,"drawing.sheet.delete",{{"sheet",second}});require(state->document().sheets.size()==1,"Sheet deletion failed");rejected("drawing.sheet.delete",{{"sheet",first}});run(host,"undo");require(state->document().find_sheet(second),"Sheet deletion Undo lost its identity");
     run(host,"save");const auto path=state->path;const auto loaded=drawing::DrawingDocument::load(path);require(loaded.sheets.size()==2&&loaded.find_sheet(first)->format==drawing::SheetFormat::A2&&loaded.find_sheet(second)->default_scale==2,"Sheet settings did not persist");
     // Saving an earlier history state must not hide new identifier allocations.
@@ -45,6 +48,62 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     require(workspace::complete_document_save(live,job.write())&&state->is_dirty(),"Concurrent Undo and dimension allocation fooled save completion");
     const auto allocated=state->document().dimension_identifiers.identifier(id,"dimension:retired-test");require(!allocated.empty(),"Undo lost retired dimension allocation");
     next=state->document();dimension.id="new-test";next.sheets.front().dimensions.push_back(dimension);state->commit(std::move(next));require(!state->can_redo()&&state->document().dimension_identifiers.identifier(id,"dimension:new-test")!=allocated,"New history branch reused a dimension identifier");
+}
+void embedded_formats(const kernel::OcctKernel& kernel,fs::path dir) {
+    auto doc=drawing::DrawingDocument::create_default();const auto sid=doc.sheets.front().id;
+    auto source=document::PartDocument::create_default();source.history={zima::test::rectangular_feature(source,{10,10,10})};
+    const auto boundary=kernel.evaluate_history(source.kernel_operations()).back();
+    auto view=drawing::DrawingDocument::create_view(source.document_id,dir/"unavailable-format-source.prtz",boundary.mesh);
+    view.x=83;view.y=73;view.scale=.6;view.use_sheet_scale=false;
+    const auto curve=std::ranges::find_if(view.projected_edges,[](const auto& edge){return edge.points.size()>1&&
+        std::hypot(edge.points.back().x-edge.points.front().x,edge.points.back().y-edge.points.front().y)>5;});
+    require(curve!=view.projected_edges.end(),"Format fixture has no real measuring curve");
+    const auto reference=Json{{"owner",curve->source.owner_id},{"key",curve->source.semantic_key},{"instance_path",curve->source.instance_path}};
+    doc.sheets.front().views.push_back(view);
+    workspace::load_drawing_template(doc,sid,fs::absolute("config/formats/ZE-DRAWING-FRAME.frmz"),false,nullptr,{},"ze-frame-variant-A4");
+    workspace::load_drawing_template(doc,sid,fs::absolute("config/formats/ZE-TITLE-BLOCK.tblz"),true,nullptr,{},"ze-title-block-variant-CS");
+    doc.sheets.front().local_parameters["custom-note"]="Retain authored title data";
+    workspace::Workspace live;live.add_drawing(doc,dir/"embedded-formats.drwz");live.activate(doc.document_id);live.display_top_level(doc.document_id);
+    command_host::Host host(live,kernel,dir);auto* state=live.open_drawing(doc.document_id);
+    run(host,"drawing.dimension.create",{{"view",view.id},{"kind","linear"},{"attachments",Json::array({
+        Json{{"kind","curve_point"},{"reference",reference},{"parameter",0}},
+        Json{{"kind","curve_point"},{"reference",reference},{"parameter",1}}})},{"placements",Json::array({Json::array({0,-10})})}});
+    const auto bytes=[](const fs::path& path){std::ifstream input(path,std::ios::binary);return std::string(std::istreambuf_iterator<char>(input),{});};
+    for(const auto* from:{"A4","A3","A2","A1","A0"})for(const auto* to:{"A4","A3","A2","A1","A0"}) {
+        run(host,"drawing.sheet.set",{{"sheet",sid},{"format",from}});
+        const auto before=state->document();const auto revision=state->revision();
+        run(host,"drawing.sheet.set",{{"sheet",sid},{"format",to}});
+        const auto after=state->document();const auto& sheet=after.sheets.front();
+        require(!sheet.frame_lines.empty()&&sheet.frame_variant==std::string("ze-frame-variant-")+to,"Sheet format did not select its embedded Family frame");
+        auto normalized=after;auto& comparable=normalized.sheets.front();const auto& original=before.sheets.front();
+        comparable.format=original.format;comparable.frame_lines=original.frame_lines;comparable.frame_texts=original.frame_texts;
+        comparable.frame_circles=original.frame_circles;comparable.frame_trimming_marks=original.frame_trimming_marks;comparable.frame_variant=original.frame_variant;
+        before.save(dir/"before-format.drwz");normalized.save(dir/"after-format.drwz");
+        require(bytes(dir/"before-format.drwz")==bytes(dir/"after-format.drwz"),"Format change altered title-block geometry, fields, data, anchor or other sheet contents");
+        if(std::string(from)!=to) {
+            require(state->revision()==revision+1,"Format change did not create exactly one transaction");
+            run(host,"undo");require(state->document().sheets.front().frame_variant==std::string("ze-frame-variant-")+from,"Format Undo lost the old frame");
+            run(host,"redo");require(state->document().sheets.front().frame_variant==sheet.frame_variant,"Format Redo lost the new frame");
+        } else require(state->revision()==revision,"Unchanged format created a transaction");
+        run(host,"save");const auto loaded=drawing::DrawingDocument::load(state->path);
+        require(loaded.sheets.front().frame_variant==sheet.frame_variant&&loaded.sheets.front().title_block_definition==doc.sheets.front().title_block_definition,
+            "Save/reopen lost the selected frame or embedded title block");
+    }
+    for(bool duplicate:{false,true}) {
+        auto rejected=state->document();auto& value=rejected.sheets.front();
+        auto definition=document::PartDocument::from_serialized(Json::parse(value.frame_definition));
+        auto table=document::parse_family_table(definition.family_table);
+        if(duplicate) {
+            auto row=table.instances.front();row.id="duplicate-a4";row.name="Duplicate A4";table.instances.push_back(row);
+        } else std::erase_if(table.instances,[](const auto& row){return row.id=="ze-frame-variant-A4";});
+        definition.family_table=document::serialize_family_table(table);value.frame_definition=definition.serialized().dump();
+        auto settings=workspace::sheet_settings(value);settings.format=drawing::SheetFormat::A4;
+        const auto frame=value.frame_variant,title=value.title_block_definition,embedded=value.frame_definition;
+        bool failed=false;try{workspace::set_drawing_sheet(rejected,sid,settings);}catch(const workspace::DrawingOperationError& error){failed=error.code=="frame_variant_unavailable";}
+        require(failed&&value.format==drawing::SheetFormat::A0&&value.frame_variant==frame&&
+            value.title_block_definition==title&&value.frame_definition==embedded,"Missing/ambiguous embedded Family variant partially changed the sheet");
+    }
+    std::cout<<"25 embedded format pairs: Family selection, unchanged title block/data/anchor, Undo/Redo and persistence passed\n";
 }
 void projections(const kernel::OcctKernel& kernel,fs::path dir){
     auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};auto boundaries=kernel.evaluate_history(part.kernel_operations());const auto mesh=boundaries.back().mesh;
@@ -88,4 +147,4 @@ void projections(const kernel::OcctKernel& kernel,fs::path dir){
     auto other=part;other.document_id="wrong-source";other.save(dir/"source.prtz",boundaries);bool mismatch=false;try{workspace::read_drawing_source(&live,dir/"source.prtz",part.document_id);}catch(const workspace::DrawingOperationError& e){mismatch=e.code=="source_identity";}require(mismatch,"Wrong source identity accepted");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-drawing-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);projections(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing sheets, templates, atomic errors, history, native persistence and paper hatch pitch passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-drawing-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);projections(kernel,dir);embedded_formats(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing sheets, templates, atomic errors, history, native persistence and paper hatch pitch passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

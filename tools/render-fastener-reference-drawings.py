@@ -129,7 +129,7 @@ def create(native,original,part,variant,target,pattern):
         if not fitted:raise RuntimeError('Actual fitted-shank boundary circle missing')
         native.run('drawing.dimension.create',view=parent['view'],kind='linear',direction='vertical',
             attachments=[attachment(min(fitted,key=lambda r:r['circle']['center'][2]),'curve_point',t) for t in (0,.5)],
-            style=dict(text_override='ds n6'),placements=[[l*.25,-s/2-8/scale]])
+            style=dict(text_override='ds n6'),placements=[[l*.25,s/2+8/scale]])
     dims=measure_map(native,sid)
     expected={'l':l,'k':k,'d':d,'s':s,'(e)':2*s/math.sqrt(3),radius_symbol:variant['underhead_radius_mm'],
         'z1' if historical else 'u':variant['tip_chamfer']['distance_a_mm']}
@@ -202,7 +202,8 @@ def main():
                 native.run('open',path=str(working));dimensions=native.run('drawing.dimension.list',sheet=details['sheet'])['items']
                 assert all(v['state']=='resolved' for v in dimensions)
                 image=folder/(target.stem+'_'+language+'.png')
-                native.run('export.image',path=str(image),sheet=details['sheet'],dpi=150,crop_mm=[15,15,180,118])
+                crop_width=160 if variant['standard'] in ('ČSN 02 1207','ČSN 02 1208') else 180
+                native.run('export.image',path=str(image),sheet=details['sheet'],dpi=150,crop_mm=[15,15,crop_width,118])
                 native.run('close')
             finally:native.close()
         shutil.copyfile(folder/(target.stem+'_en.png'),target.with_suffix('.png'))

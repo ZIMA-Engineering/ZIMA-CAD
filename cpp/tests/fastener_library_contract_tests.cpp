@@ -157,6 +157,104 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==3&&std::string(argv[1])=="--caps") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));
+            Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());
+                workspace::Workspace live;
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Cap screw is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Cap screw Body calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid cap screw BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                require(solids==1,"Cap screw must contain one connected solid");
+                const double d=expected.at("diameter_mm"),l=expected.at("length_mm"),k=expected.at("head_height_mm");
+                const double radius=expected.at("head_diameter_mm").get<double>()/2;
+                const double width=expected.at("drive_width_mm"),depth=expected.at("drive_depth_mm");
+                Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+                near(x0,-radius,"Cap screw left");near(x1,radius,"Cap screw right");near(y0,-radius,"Cap screw lower");near(y1,radius,"Cap screw upper");
+                near(z0,-k,"Cap screw head height");near(z1,l,"Cap screw length");
+                int walls=0;bool floor=false,shaft=false,round=false,head_round=false,tip=false;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                    if(surface.GetType()==GeomAbs_Plane) {
+                        const auto plane=surface.Plane();const auto normal=plane.Axis().Direction();
+                        if(std::abs(normal.Z())>1-1e-8&&std::abs(plane.Location().Z()+k-depth)<1e-6)floor=true;
+                        if(std::abs(normal.Z())<1e-8&&std::abs(plane.Distance(gp_Pnt(0,0,0))-width/2)<1e-6)++walls;
+                    } else if(surface.GetType()==GeomAbs_Cylinder)shaft|=std::abs(surface.Cylinder().Radius()-d/2)<1e-6;
+                    else if(surface.GetType()==GeomAbs_Torus) {
+                        round|=std::abs(surface.Torus().MinorRadius()-expected.at("underhead_radius_mm").get<double>())<1e-6;
+                        head_round|=std::abs(surface.Torus().MinorRadius()-expected.at("head_edge_radius_mm").get<double>())<1e-6;
+                    } else if(surface.GetType()==GeomAbs_Cone)tip=true;
+                }
+                require(floor,"Drive floor is missing or at the wrong offset");
+                require(walls==(expected.at("socket").get<bool>()?6:2),"Incorrect drive wall count or across-flats width");
+                require(shaft&&round&&head_round&&tip,"Shaft, head rounding, underhead radius or tip chamfer missing");
+                const auto& opening=doc.history.back();
+                require(opening.feature_kind==document::FeatureKind::Feature&&opening.combine_mode==document::CombineMode::Subtract,"Drive must be an ordinary subtractive Default");
+                near(opening.feature.profile_plane_offset,-k+depth,"Drive Sketch plane offset");
+                require(opening.feature.sides[0].operation==document::FeatureSideOperation::None&&
+                    opening.feature.sides[1].extrusion_extent==document::EndCondition::ThroughAll,"Drive must cut through the head in the negative direction only");
+                for(auto sketch:doc.sketches) {
+                    const auto solved=sketch.solve();require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Cap screw Sketch is not fully constrained");
+                }
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-properties.Mass()*7.85e-6)<=.50001e-6,"Cap screw BOM mass");
+                const auto& thread=doc.history.at(doc.history.size()-2).shaft_thread;
+                near(thread.nominal_diameter,d,"Cap screw thread diameter");near(thread.pitch,expected.at("pitch_mm"),"Cap screw pitch");
+                near(thread.length,expected.at("thread_length_mm"),"Cap screw thread length");
+                require(thread.length+2*thread.pitch+expected.at("underhead_radius_mm").get<double>()<=l,"Thread enters the head or underhead fillet");
+            }
+            std::cout<<manifest.at("variants").size()<<" cap screws: valid solids, exact dimensions, rounded heads, real drive walls/floors, constrained Sketches, mass and thread limits passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--studs") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));
+            Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());
+                workspace::Workspace live;
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Stud is not a Part");
+                const auto& doc=state->session.document();
+                const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Stud Body calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid stud BRep");
+                int solids=0,cones=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                require(solids==1,"Stud must be a connected solid");
+                const double radius=expected.at("diameter_mm").get<double>()/2;
+                const double length=expected.at("total_length_mm"),cut=.5*expected.at("metal_pitch_mm").get<double>();
+                Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+                near(x0,-radius,"Stud left");near(x1,radius,"Stud right");near(y0,-radius,"Stud lower");near(y1,radius,"Stud upper");
+                near(z0,-length/2,"Stud symmetric start");near(z1,length/2,"Stud symmetric end");
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()==GeomAbs_Cone)++cones;
+                }
+                require(cones==2,"Stud must have two real tip chamfers");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
+                near(properties.Mass(),std::acos(-1.)*(radius*radius*length-2*(radius*cut*cut-cut*cut*cut/3)),"Stud exact chamfered volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-properties.Mass()*7.85e-6)<=.50001e-6,"Stud BOM mass");
+                require(doc.history.size()==4&&doc.sketches.size()==1,"Stud authored history must be extrusion, chamfer and two threads");
+                require(doc.history.front().feature.symmetric,"Stud extrusion must remain symmetric");
+                auto sketch=doc.sketches.front();const auto solved=sketch.solve();
+                require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Stud profile is not anchored and dimensioned");
+                near(sketch.points.front().x,0,"Stud center X");near(sketch.points.front().y,0,"Stud center Y");
+                for(std::size_t i=0;i<2;++i) {
+                    const auto& thread=doc.history.at(i+2).shaft_thread;
+                    near(thread.nominal_diameter,2*radius,"Stud thread diameter");
+                    near(thread.pitch,expected.at(i==0?"metal_pitch_mm":"pitch_mm"),"Stud end pitch");
+                    near(thread.length,expected.at(i==0?"metal_length_mm":"thread_length_mm"),"Stud end thread length");
+                    require(thread.end_condition==document::EndCondition::Length&&thread.runout_enabled,"Stud thread limit/runout");
+                }
+            }
+            std::cout<<manifest.at("variants").size()<<" studs: valid BReps, symmetric extents, analytical volumes/masses, origin constraints and two independent thread bands passed\n";
+            return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--audit-projected-faces") {
             std::ifstream input(fs::u8path(argv[2]));Json inventory;input>>inventory;
             const auto output=fs::absolute(fs::u8path(argv[3]));fs::create_directories(output);

@@ -50,9 +50,13 @@ required source rejects the entire edit. Sources/Assemblies do not regenerate;
 sheet changes use no OCCT. Projection-method edits change sheet settings;
 explicit view regeneration updates existing projected cameras, as in GUI.
 
-Format changes clear old frame/title-block contents, including circles, images
-and repeat regions, while retaining views/dimensions. Clearing a title block
-retains local parameters and BOM rows that are not its drawing geometry.
+Format changes select the matching Family variant from the frame definition
+already embedded in the Drawing. They preserve the title block, its selected
+variant, fields, images, symbols, repeat regions, authored values and right/bottom
+anchor, together with views and dimensions. Missing or ambiguous frame variants
+reject the change atomically; the existing sheet remains intact. A sheet without
+a frame can change format directly. Clearing a title block retains local
+parameters and BOM rows that are not its drawing geometry.
 `.frmz` format must match sheet format. Templates embed in `.drwz`; their original
 files are unnecessary after saving. Invalid imports preserve the sheet. The
 last sheet cannot be deleted, nor a sheet whose view has a dependent view on

@@ -10,6 +10,18 @@ manifest=importlib.util.module_from_spec(spec);spec.loader.exec_module(manifest)
 
 
 class FastenerManifest(unittest.TestCase):
+    def test_stud_and_cap_finite_filename_order(self):
+        for script,count in [('generate-stud-library.py',74),('generate-cap-screw-library.py',40)]:
+            spec=importlib.util.spec_from_file_location('factory_'+str(count),ROOT/'tools'/script)
+            factory=importlib.util.module_from_spec(spec);spec.loader.exec_module(factory)
+            rows=factory.variants();self.assertEqual(len(rows),count)
+            self.assertEqual(len({v['filename'].casefold() for v in rows}),count)
+            for standard in {v['standard'] for v in rows}:
+                family=[v for v in rows if v['standard']==standard]
+                self.assertEqual([v['diameter_mm'] for v in sorted(family,key=lambda v:v['filename'])],
+                    sorted(v['diameter_mm'] for v in family))
+            for v in rows:self.assertEqual(set(v['names']),{'cs','en','de','fr','ru'})
+
     def test_one_length_per_standard_diameter_and_pitch(self):
         variants=manifest.prepare()['variants']
         self.assertEqual(len(variants),200)
@@ -43,7 +55,7 @@ class FastenerManifest(unittest.TestCase):
         generator=importlib.util.module_from_spec(spec);spec.loader.exec_module(generator)
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[p for p in data['pages'] if p.get('localized_illustrations')]
-        self.assertEqual(len(pages),8)
+        self.assertEqual(len(pages),12)
         from lxml import html
         for page in pages:
             folder=ROOT/data['root']/page['path']/'0000-index'

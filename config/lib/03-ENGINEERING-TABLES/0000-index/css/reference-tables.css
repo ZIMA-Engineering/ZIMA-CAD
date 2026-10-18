@@ -92,3 +92,9 @@ footer p { margin:5px 0 0; }
   .table-scroll--frozen thead th, .table-scroll--frozen tbody th { position:static; }
   aside { font-size:9pt; } footer { font-size:8pt; } a { text-decoration:none; }
 }
+
+/* Paired standard variants share one illustration row. */
+.reference-figures-side-by-side { display:flex; flex-wrap:nowrap; gap:0; align-items:flex-start; }
+.reference-figures-side-by-side .reference-figure { flex:0 1 auto; width:calc(25vh * var(--reference-figure-ratio,1.525424)); min-width:0; }
+.reference-figures-side-by-side img { width:100%; max-width:100%; max-height:none; }
+@media print { .reference-figures-side-by-side .reference-figure { width:calc(60mm * var(--reference-figure-ratio,1.525424)); } }

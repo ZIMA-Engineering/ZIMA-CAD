@@ -18,8 +18,8 @@ def thumbnail(native, path, variant, output):
     native.run('new', type='drawing', name='fastener-preview')
     sheet = native.run('drawing.sheet.list')['items'][0]
     width, height = sheet['width_mm'], sheet['height_mm']
-    r = variant['across_flats_mm'] / math.sqrt(3)
-    half_flats = variant['across_flats_mm'] / 2
+    r = variant['head_diameter_mm']/2 if 'head_diameter_mm' in variant else variant['across_flats_mm'] / math.sqrt(3)
+    half_flats = r if 'head_diameter_mm' in variant else variant['across_flats_mm'] / 2
     horizontal = math.sqrt(2/3) * (variant['length_mm'] + variant['head_height_mm'] + r + half_flats)
     vertical = math.sqrt(2) * (r + half_flats)
     scale = min(90/horizontal, 65/vertical)

@@ -157,6 +157,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             "Cannot initialize document fingerprint",
             "Cannot finish document fingerprint",
             "Calculated history boundary does not match its parameters",
+            "The embedded frame has no unique Family variant for this sheet format. Select a matching frame variant first.",
             "Model export supports STEP, IGES, STL and DXF.",
             "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
             "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.",

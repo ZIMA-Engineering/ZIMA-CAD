@@ -54,6 +54,39 @@ bool clear(drawing::DrawingSheet& s,bool title){
     s.title_block_lines.clear();s.title_block_texts.clear();s.title_block_fields.clear();s.title_block_circles.clear();s.title_block_images.clear();s.repeat_regions.clear();s.title_block_symbols.clear();
     s.title_block_definition.clear();s.title_block_variant.clear();s.title_block_repeat_bindings.clear();return changed;
 }
+void adapt_frame_format(drawing::DrawingSheet& target,drawing::SheetFormat requested) {
+    const auto unavailable=[] {
+        throw DrawingOperationError("frame_variant_unavailable","The embedded frame has no unique Family variant for this sheet format. Select a matching frame variant first.");
+    };
+    if(target.frame_definition.empty()) {
+        if(!target.frame_lines.empty()||!target.frame_texts.empty()||!target.frame_circles.empty()||target.frame_trimming_marks)unavailable();
+        return;
+    }
+    const auto definition=document::PartDocument::from_serialized(nlohmann::json::parse(target.frame_definition));
+    const auto table=document::parse_family_table(definition.family_table);
+    document::validate_family_table(table,definition.name);
+    std::vector<std::string> variants;
+    for(const auto& row:table.instances)variants.push_back(row.id);
+    if(variants.empty())variants.emplace_back();
+    std::optional<drawing::DrawingSheet> selected;
+    bool ambiguous=false;
+    for(const auto& variant:variants) {
+        // Evaluate only the embedded frame through the existing Family path.
+        // Do not copy/reproject model views or load the original library file.
+        auto draft=drawing::DrawingDocument::create_default();
+        auto& candidate=draft.sheets.front();candidate.id=target.id;
+        candidate.frame_definition=target.frame_definition;
+        set_frame_variant(draft,target.id,variant);
+        if(candidate.format!=requested||(candidate.frame_lines.empty()&&candidate.frame_texts.empty()&&candidate.frame_circles.empty()&&!candidate.frame_trimming_marks))continue;
+        if(variant==target.frame_variant){selected=std::move(candidate);ambiguous=false;break;}
+        if(selected)ambiguous=true;
+        else selected=std::move(candidate);
+    }
+    if(!selected||ambiguous)unavailable();
+    target.frame_lines=std::move(selected->frame_lines);target.frame_texts=std::move(selected->frame_texts);
+    target.frame_circles=std::move(selected->frame_circles);target.frame_trimming_marks=selected->frame_trimming_marks;
+    target.frame_variant=std::move(selected->frame_variant);
+}
 }
 SheetSettings sheet_settings(const drawing::DrawingSheet& s){return {s.name,s.format,s.projection_method,s.default_scale,s.thick_line_mm,s.thin_line_mm,s.red_line_mm,s.title_block_locale};}
 void validate_sheet_settings(const SheetSettings& v){
@@ -76,7 +109,7 @@ void delete_drawing_sheet(drawing::DrawingDocument& doc,const std::string& id){
 }
 bool set_drawing_sheet(drawing::DrawingDocument& doc,const std::string& id,const SheetSettings& settings,const DrawingSourceReader& source){
     validate_sheet_settings(settings);auto& target=sheet(doc,id);if(sheet_settings(target)==settings)return false;
-    auto next=target;if(next.format!=settings.format){clear(next,false);clear(next,true);}assign(next,settings);
+    auto next=target;if(next.format!=settings.format)adapt_frame_format(next,settings.format);assign(next,settings);
     for(auto& view:next.views)if(view.use_sheet_scale&&view.scale!=settings.scale){
         view.scale=settings.scale;
         if(!view.section_id.empty()){

@@ -11,7 +11,7 @@ from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
 LIBRARY=ROOT/'config/lib/03-ENGINEERING-TABLES/05-FASTENERS/04-SCREWS/02-FITTED'
 LANGUAGES=('cs','en','de','fr','ru')
-FIELDS=('name','standard','stock','fit','material','quantity','mass')
+FIELDS=('name','standard','stock','material','quantity','mass')
 spec=importlib.util.spec_from_file_location('installer',ROOT/'tools/install-fastener-library.py')
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
 

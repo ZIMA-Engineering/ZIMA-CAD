@@ -75,6 +75,7 @@ class Fasteners(unittest.TestCase):
                     'https://www.fabory.com/nl_BE/zeskanttapbout-iso-4017-din-933-staal-elektrolytisch-verzinkt-8-8-m4x20/p/01210040020',
                     'https://nahledy.normy.biz/n.php?i=220',
                     'https://nahledy.normy.biz/n.php?i=223',
+                    'https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf',
                 })
                 before[numeric_cell(correction['before'])]-=1
                 before[numeric_cell(correction['after'])]+=1
@@ -194,13 +195,13 @@ class MergedFastenerReferences(unittest.TestCase):
     def test_thread_rows_preserve_every_dimension_and_length_table(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[page for page in data['pages'] if page.get('thread_dimension_rows')]
-        self.assertEqual(len(pages),6)
+        self.assertEqual(len(pages),10)
         for page in pages:
             blocks=generator.screen_table_blocks(page)
-            combined=blocks[1]
+            combined=next(block for block in blocks if block['headers'][0]=='symbol_d')
             self.assertEqual(combined['headers'][0],'symbol_d')
             self.assertEqual(sum(len(block['rows']) for block in blocks),page['display_row_count'])
-            for source in page['sections']:
+            for source in generator.table_blocks(page):
                 if source['headers'][0]!='parameter':
                     self.assertIn(source,blocks)
                     continue

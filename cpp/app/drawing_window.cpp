@@ -2456,7 +2456,7 @@ void DrawingWindow::create_layout() {
     connect(remove_title, &QPushButton::clicked, this, [this] { remove_title_block(); });
     connect(sheet_format_, &QComboBox::currentIndexChanged, this, [this](int index) {
         auto* sheet=active_sheet();if(!sheet||index<0)return;auto value=zima::workspace::sheet_settings(*sheet);value.format=static_cast<zima::drawing::SheetFormat>(index);
-        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));refresh(false);}
+        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){set_status_message(tr(e.what()));refresh(false);}
     });
     const auto change_scale=[this]{
         auto* sheet=active_sheet();if(!sheet)return;auto value=zima::workspace::sheet_settings(*sheet);value.scale=scale_numerator_->value()/scale_denominator_->value();

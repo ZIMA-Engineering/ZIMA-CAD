@@ -11606,6 +11606,62 @@
       "ČSN 02 1112 · Bemaßte native Ansichten aus der Referenzzeichnung.",
       "ČSN 02 1112 · Vues natives cotées du dessin de référence.",
       "ČSN 02 1112 · Нативные виды с размерами из образцового чертежа."
+    ],
+    "native_reference_csn021174": [
+      "ČSN 02 1174 · Závrtný šroub do oceli",
+      "ČSN 02 1174 · Stud for steel",
+      "ČSN 02 1174 · Stiftschraube für Stahl",
+      "ČSN 02 1174 · Goujon pour acier",
+      "ČSN 02 1174 · Шпилька для стали"
+    ],
+    "native_reference_csn021176": [
+      "ČSN 02 1176 · Závrtný šroub do litiny",
+      "ČSN 02 1176 · Stud for cast iron",
+      "ČSN 02 1176 · Stiftschraube für Gusseisen",
+      "ČSN 02 1176 · Goujon pour fonte",
+      "ČSN 02 1176 · Шпилька для чугуна"
+    ],
+    "native_reference_csn021178": [
+      "ČSN 02 1178 · Závrtný šroub do hliníku",
+      "ČSN 02 1178 · Stud for aluminium",
+      "ČSN 02 1178 · Stiftschraube für Aluminium",
+      "ČSN 02 1178 · Goujon pour aluminium",
+      "ČSN 02 1178 · Шпилька для алюминия"
+    ],
+    "stud_fine_end_note": [
+      "Jemné stoupání je pouze na maticovém konci; závrtný konec zachovává hrubé stoupání. Jmenovitá délka l nezahrnuje závrtný konec e.",
+      "Fine pitch applies only to the nut end; the metal end retains coarse pitch. Nominal length l excludes metal end e.",
+      "Feingewinde nur am Mutternende; das Einschraubende behält Regelgewinde. Die Nennlänge l schließt das Einschraubende e nicht ein.",
+      "Le pas fin concerne uniquement le côté écrou ; le bout implanté conserve le pas gros. La longueur nominale l exclut le bout implanté e.",
+      "Мелкий шаг применяется только на конце под гайку; ввинчиваемый конец сохраняет крупный шаг. Номинальная длина l не включает ввинчиваемый конец e."
+    ],
+    "native_reference_iso1207": [
+      "ISO 1207 · Šroub s válcovou hlavou s drážkou",
+      "ISO 1207 · Slotted cheese head screw",
+      "ISO 1207 · Schlitzschraube mit Zylinderkopf",
+      "ISO 1207 · Vis à tête cylindrique fendue",
+      "ISO 1207 · Винт с цилиндрической головкой и прямым шлицем"
+    ],
+    "native_reference_iso1580": [
+      "ISO 1580 · Šroub s válcovou hlavou s drážkou",
+      "ISO 1580 · Slotted pan head screw",
+      "ISO 1580 · Schlitzschraube mit Flachkopf",
+      "ISO 1580 · Vis à tête cylindrique large fendue",
+      "ISO 1580 · Винт с цилиндрической головкой и прямым шлицем"
+    ],
+    "native_reference_iso4762": [
+      "ISO 4762 · Šroub s válcovou hlavou s vnitřním šestihranem",
+      "ISO 4762 · Hexagon socket head cap screw",
+      "ISO 4762 · Zylinderschraube mit Innensechskant",
+      "ISO 4762 · Vis à tête cylindrique à six pans creux",
+      "ISO 4762 · Винт с цилиндрической головкой и внутренним шестигранником"
+    ],
+    "iso4762_grade_a_note": [
+      "ISO 4762 stanoví výrobní třídu A a hrubé metrické stoupání. Pevnostní třída šroubů menších než M3 se sjednává dohodou.",
+      "ISO 4762 specifies product grade A and coarse metric pitch. Property classes below M3 require agreement.",
+      "ISO 4762 legt Produktklasse A und metrisches Regelgewinde fest. Festigkeitsklassen unter M3 bedürfen einer Vereinbarung.",
+      "ISO 4762 définit le grade A et le pas métrique gros. Les classes de qualité sous M3 nécessitent un accord.",
+      "ISO 4762 устанавливает класс точности A и крупный метрический шаг. Классы прочности для размеров менее M3 согласовываются отдельно."
     ]
   },
   "sources": {
@@ -11796,6 +11852,10 @@
     "iso4042_2022": {
       "label": "ISO 4042:2022 + Amd 1:2026",
       "url": "https://www.iso.org/standard/77913.html"
+    },
+    "iso1207_2011_preview": {
+      "label": "ISO 1207:2011 · Table 1",
+      "url": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
     }
   },
   "pages": [
@@ -25253,6 +25313,7 @@
       "localized_illustrations": true
     },
     {
+      "figures_side_by_side": true,
       "path": "04-SCREWS/01-HEX-HEAD/07-SMALL-HEX",
       "title": "directory_04-SCREWS_01-HEX-HEAD_07-SMALL-HEX",
       "headers": [
@@ -25402,7 +25463,11 @@
             "de": "HHS-CSN021208-M08x016-REFERENCE_de.png",
             "fr": "HHS-CSN021208-M08x016-REFERENCE_fr.png",
             "ru": "HHS-CSN021208-M08x016-REFERENCE_ru.png"
-          }
+          },
+          "aspect_ratio": [
+            160,
+            118
+          ]
         },
         {
           "path": "HHS-CSN021207-M08x016-REFERENCE.png",
@@ -25413,7 +25478,11 @@
             "de": "HHS-CSN021207-M08x016-REFERENCE_de.png",
             "fr": "HHS-CSN021207-M08x016-REFERENCE_fr.png",
             "ru": "HHS-CSN021207-M08x016-REFERENCE_ru.png"
-          }
+          },
+          "aspect_ratio": [
+            160,
+            118
+          ]
         },
         {
           "path": "HHB-CSN021205-M08x040-REFERENCE.png",
@@ -26183,6 +26252,7 @@
       "localized_illustrations": true
     },
     {
+      "figures_side_by_side": true,
       "path": "04-SCREWS/02-FITTED",
       "title": "directory_04-SCREWS_02-FITTED",
       "headers": [
@@ -26969,7 +27039,8 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "stud_fine_end_note"
       ],
       "sources": [
         "iso8992_2005"
@@ -26995,8 +27066,37 @@
       "heading": "logical_page_04-SCREWS/03-STUDS/01-M3-M16_0_1_0",
       "figures": [
         {
-          "path": "../../../../0000-index/diagrams/stud.svg",
-          "caption": "own_schematic"
+          "path": "STD-CSN021174-M10x050-REFERENCE.png",
+          "caption": "native_reference_csn021174",
+          "localized_paths": {
+            "cs": "STD-CSN021174-M10x050-REFERENCE_cs.png",
+            "en": "STD-CSN021174-M10x050-REFERENCE_en.png",
+            "de": "STD-CSN021174-M10x050-REFERENCE_de.png",
+            "fr": "STD-CSN021174-M10x050-REFERENCE_fr.png",
+            "ru": "STD-CSN021174-M10x050-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "STD-CSN021176-M10x050-REFERENCE.png",
+          "caption": "native_reference_csn021176",
+          "localized_paths": {
+            "cs": "STD-CSN021176-M10x050-REFERENCE_cs.png",
+            "en": "STD-CSN021176-M10x050-REFERENCE_en.png",
+            "de": "STD-CSN021176-M10x050-REFERENCE_de.png",
+            "fr": "STD-CSN021176-M10x050-REFERENCE_fr.png",
+            "ru": "STD-CSN021176-M10x050-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "STD-CSN021178-M10x050-REFERENCE.png",
+          "caption": "native_reference_csn021178",
+          "localized_paths": {
+            "cs": "STD-CSN021178-M10x050-REFERENCE_cs.png",
+            "en": "STD-CSN021178-M10x050-REFERENCE_en.png",
+            "de": "STD-CSN021178-M10x050-REFERENCE_de.png",
+            "fr": "STD-CSN021178-M10x050-REFERENCE_fr.png",
+            "ru": "STD-CSN021178-M10x050-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "04-SCREWS/03-STUDS/01-M3-M16/01-C02-R001",
@@ -27918,7 +28018,11 @@
           "source_path": "04-SCREWS/03-STUDS/02-M16-M30/02-C02-R001"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "figures_side_by_side": true,
+      "display_row_count": 30
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD",
@@ -27947,7 +28051,7 @@
           {
             "key": "product_grade"
           },
-          "—"
+          "A"
         ],
         [
           {
@@ -27963,7 +28067,8 @@
         "historical_requirements",
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "iso4762_grade_a_note"
       ],
       "sources": [
         "iso4762_2004",
@@ -27971,8 +28076,15 @@
       ],
       "figures": [
         {
-          "path": "../../../../../0000-index/diagrams/socket-screw.svg",
-          "caption": "own_schematic"
+          "path": "SHCS-ISO4762-M08.0x035-REFERENCE.png",
+          "caption": "native_reference_iso4762",
+          "localized_paths": {
+            "cs": "SHCS-ISO4762-M08.0x035-REFERENCE_cs.png",
+            "en": "SHCS-ISO4762-M08.0x035-REFERENCE_en.png",
+            "de": "SHCS-ISO4762-M08.0x035-REFERENCE_de.png",
+            "fr": "SHCS-ISO4762-M08.0x035-REFERENCE_fr.png",
+            "ru": "SHCS-ISO4762-M08.0x035-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "04-SCREWS/04-CAP-HEAD/01-SOCKET/00-CONTEXT",
@@ -30317,7 +30429,10 @@
           "id": "59f0a618-25d5-571f-b9f1-7ec467c59f77"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "display_row_count": 128
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/02-SLOTTED",
@@ -30418,16 +30533,16 @@
         ],
         [
           "k _max.",
-          "1",
-          "1,2",
-          "1,5",
-          "1,65",
-          "2,35",
-          "2,7",
-          "2,7",
+          "1,1",
+          "1,4",
+          "1,8",
+          "2",
+          "2,4",
+          "2,6",
           "3,3",
-          "4,65",
-          "5"
+          "3,9",
+          "5",
+          "6"
         ],
         [
           "k _min.",
@@ -30544,7 +30659,8 @@
       ],
       "sources": [
         "iso1207_2011",
-        "iso4759-1_2000"
+        "iso4759-1_2000",
+        "iso1207_2011_preview"
       ],
       "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
       "source_rows": [
@@ -30568,8 +30684,15 @@
       "heading": "logical_page_04-SCREWS/04-CAP-HEAD/02-SLOTTED_0_1_0",
       "figures": [
         {
-          "path": "../../../../../0000-index/diagrams/slotted-screw.svg",
-          "caption": "own_schematic"
+          "path": "SCHS-ISO1207-M08.0x035-REFERENCE.png",
+          "caption": "native_reference_iso1207",
+          "localized_paths": {
+            "cs": "SCHS-ISO1207-M08.0x035-REFERENCE_cs.png",
+            "en": "SCHS-ISO1207-M08.0x035-REFERENCE_en.png",
+            "de": "SCHS-ISO1207-M08.0x035-REFERENCE_de.png",
+            "fr": "SCHS-ISO1207-M08.0x035-REFERENCE_fr.png",
+            "ru": "SCHS-ISO1207-M08.0x035-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "04-SCREWS/04-CAP-HEAD/02-SLOTTED/01-C02-R001",
@@ -30989,7 +31112,10 @@
           "heading": "context_04-SCREWS/04-CAP-HEAD/02-SLOTTED"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "display_row_count": 36
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/03-LARGE",
@@ -31253,8 +31379,15 @@
       "heading": "logical_page_04-SCREWS/04-CAP-HEAD/03-LARGE_0_1_0",
       "figures": [
         {
-          "path": "../../../../../0000-index/diagrams/slotted-screw.svg",
-          "caption": "own_schematic"
+          "path": "SCHS-ISO1580-M08.0x035-REFERENCE.png",
+          "caption": "native_reference_iso1580",
+          "localized_paths": {
+            "cs": "SCHS-ISO1580-M08.0x035-REFERENCE_cs.png",
+            "en": "SCHS-ISO1580-M08.0x035-REFERENCE_en.png",
+            "de": "SCHS-ISO1580-M08.0x035-REFERENCE_de.png",
+            "fr": "SCHS-ISO1580-M08.0x035-REFERENCE_fr.png",
+            "ru": "SCHS-ISO1580-M08.0x035-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "04-SCREWS/04-CAP-HEAD/03-LARGE/01-C02-R001",
@@ -31688,7 +31821,10 @@
           "heading": "context_04-SCREWS/04-CAP-HEAD/03-LARGE"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "display_row_count": 37
     },
     {
       "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
@@ -66433,16 +66569,16 @@
         ],
         [
           "k _max.",
-          "1",
-          "1,2",
-          "1,5",
-          "1,65",
-          "2,35",
-          "2,7",
-          "2,7",
+          "1,1",
+          "1,4",
+          "1,8",
+          "2",
+          "2,4",
+          "2,6",
           "3,3",
-          "4,65",
-          "5"
+          "3,9",
+          "5",
+          "6"
         ],
         [
           "k _min.",
@@ -82473,6 +82609,86 @@
       "before": "0,5",
       "after": "1",
       "source": "https://nahledy.normy.biz/n.php?i=223"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 1,
+      "before": "1",
+      "after": "1,1",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 2,
+      "before": "1,2",
+      "after": "1,4",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 3,
+      "before": "1,5",
+      "after": "1,8",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 4,
+      "before": "1,65",
+      "after": "2",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 5,
+      "before": "2,35",
+      "after": "2,4",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 6,
+      "before": "2,7",
+      "after": "2,6",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 7,
+      "before": "2,7",
+      "after": "3,3",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 8,
+      "before": "3,3",
+      "after": "3,9",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 9,
+      "before": "4,65",
+      "after": "5",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "04-SCREWS/04-CAP-HEAD/02-SLOTTED#0",
+      "row": 6,
+      "column": 10,
+      "before": "5",
+      "after": "6",
+      "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
     }
   ],
   "reviewed_header_corrections": [

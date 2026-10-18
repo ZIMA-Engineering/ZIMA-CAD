@@ -1392,6 +1392,55 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
 
+int verify_drawing_format_controls(QApplication& application,zima::app::DrawingWindow& editor,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto verify=[](bool value,const char* message){if(!value)std::cerr<<"Format GUI: "<<message<<'\n';return value;};
+    const auto title_definition=editor.document_for_test().sheets.front().title_block_definition;
+    const auto title_field_count=editor.document_for_test().sheets.front().title_block_fields.size();
+    auto* format_combo=editor.findChild<QComboBox*>("drawingFormatCombo");
+    if(!verify(format_combo,"Bottom sheet format selector is missing"))return 1;
+    for(int format:{0,4,2,1}) {
+        format_combo->setCurrentIndex(format);flush();const auto& sheet=editor.document_for_test().sheets.front();
+        if(!verify(sheet.format==static_cast<drawing::SheetFormat>(format)&&!sheet.frame_lines.empty()&&
+                sheet.frame_variant==std::string("ze-frame-variant-")+format_combo->currentText().toStdString()&&
+                sheet.title_block_definition==title_definition&&sheet.title_block_variant=="ze-title-block-variant-CS"&&
+                sheet.title_block_fields.size()==title_field_count,"Bottom format change lost its Family frame or title block"))return 1;
+    }
+    auto* sheet_action=editor.findChild<QAction*>("editDrawingSheetAction");sheet_action->trigger();flush();
+    auto* sheet_dialog=editor.findChild<QDialog*>("drawingSheetProperties");
+    if(!verify(sheet_dialog,"Sheet Properties did not open"))return 1;
+    sheet_dialog->findChild<QComboBox*>("drawingSheetFormat")->setCurrentIndex(2);
+    sheet_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().format==drawing::SheetFormat::A3,"Sheet Properties Cancel changed its frame"))return 1;
+    sheet_action->trigger();flush();sheet_dialog=editor.findChild<QDialog*>("drawingSheetProperties");
+    sheet_dialog->findChild<QComboBox*>("drawingSheetFormat")->setCurrentIndex(2);
+    sheet_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().format==drawing::SheetFormat::A2&&
+            editor.document_for_test().sheets.front().title_block_definition==title_definition&&
+            !editor.document_for_test().sheets.front().frame_lines.empty(),"Sheet Properties OK lost frame/title block"))return 1;
+    editor.grab().save(QString::fromStdString((directory/"native-format-a2-title.png").string()));
+    return 0;
+}
+int verify_drawing_format_only(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    app::DrawingWindow editor;editor.resize(1250,900);editor.show();flush();
+    editor.load_title_block_for_test("config/formats/ZE-TITLE-BLOCK.tblz");flush();
+    auto* title=editor.findChild<QDialog*>("titleBlockVariantDialog");if(!title)return 1;
+    title->findChild<QTableWidget*>("componentFamilyTable")->selectRow(1);
+    title->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    editor.load_frame_for_test("config/formats/ZE-DRAWING-FRAME.frmz");flush();
+    auto* frame=editor.findChild<QDialog*>("frameVariantDialog");if(!frame)return 1;
+    frame->findChild<QTableWidget*>("componentFamilyTable")->selectRow(2);
+    frame->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(verify_drawing_format_controls(application,editor,directory)!=0)return 1;
+    const auto path=directory/"format-controls.drwz";editor.document_for_test().save(path);
+    const auto reopened=drawing::DrawingDocument::load(path);
+    if(reopened.sheets.front().format!=drawing::SheetFormat::A2||reopened.sheets.front().frame_lines.empty()||
+        reopened.sheets.front().title_block_variant!="ze-title-block-variant-CS")return 1;
+    std::cout<<"Drawing format GUI: bottom selector, Family frames, Sheet Properties OK/Cancel, retained title block and reopen passed\n";return 0;
+}
 int verify_native_title_block(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     using namespace zima;
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -1482,6 +1531,7 @@ int verify_native_title_block(QApplication& application,zima::app::AssemblyWorks
     frame_choice->findChild<QTableWidget*>("componentFamilyTable")->selectRow(1);
     frame_choice->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
     if(!verify(editor.document_for_test().sheets.front().format==drawing::SheetFormat::A3,"Frame Cancel changed sheet format"))return 1;
+    if(verify_drawing_format_controls(application,editor,directory)!=0)return 1;
     editor.document_for_test().save(directory/"native-title-drawing.drwz");
     const auto reopened=drawing::DrawingDocument::load(directory/"native-title-drawing.drwz");
     if(!verify(reopened.sheets.front().title_block_definition==editor.document_for_test().sheets.front().title_block_definition,"Drawing save lost embedded Part"))return 1;
@@ -9353,6 +9403,7 @@ int verify_startup_contract(
         return 0;
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FORMAT_CHANGE_ONLY"))return verify_drawing_format_only(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_TITLE_BLOCK_ONLY"))return verify_native_title_block(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
         return verify_new_document_options(application);

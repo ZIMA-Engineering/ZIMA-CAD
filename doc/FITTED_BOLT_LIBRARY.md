@@ -42,6 +42,9 @@ uses English. Artwork derives from the approved native Drawing pattern, with
 real geometry references and independently checked dimension values. The R
 leader stays above neighboring extension lines. Native names, parameter labels
 and the underhead-relief legend are translated in all five languages.
+Both illustrations share one contiguous HTML row. The `ds n6` label is above
+the fitted cylinder. The directory index omits the redundant shank-tolerance
+column; n6 remains in the native definition and diameter annotation.
 
 `tools/generate-fitted-bolt-library.py` authors candidates using native commands;
 `tools/render-fastener-library.py` and

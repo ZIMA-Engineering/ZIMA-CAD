@@ -216,6 +216,15 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
             check(read("getComputedStyle(document.body).backgroundColor").toString()==QString("rgb(%1, %2, %3)").arg(background.red()).arg(background.green()).arg(background.blue()),"Unit table CSS did not follow the application palette");
             check(read("getComputedStyle(document.querySelector('.reference-brand')).backgroundColor").toString()=="rgba(0, 0, 0, 0)","Reference logo regained an opaque background");
             check(read("getComputedStyle(document.documentElement).colorScheme").toString()==(dark?"dark":"light"),"SVG logo did not inherit the application color scheme");
+            if(leaf.startsWith("04-SCREWS/")) {
+                wait([&]{return read("[...document.querySelectorAll('figure img')].every(i=>i.complete&&i.naturalWidth>0)").toBool();},"Factory fastener illustration did not load");
+                check(read("(() => {const figures=[...document.querySelectorAll('.reference-figures-side-by-side figure')];return figures.every((f,i)=>{const r=f.getBoundingClientRect();if(i===0)return true;const p=figures[i-1].getBoundingClientRect();return Math.abs(r.top-p.top)<1&&Math.abs(r.left-p.right)<1})})()").toBool(),"Paired factory illustrations are not contiguous in one row");
+                check(read("(() => {const regions=[...document.querySelectorAll('.table-scroll--frozen')];return regions.length>0&&regions.every(r=>{if(r.scrollHeight<=r.clientHeight)return true;const h=r.querySelector('thead th'),t=h.getBoundingClientRect().top;r.scrollTop=240;const ok=r.scrollTop>0&&Math.abs(h.getBoundingClientRect().top-t)<1;r.scrollTop=0;return ok})})()").toBool(),"Factory fastener table header moved while scrolling");
+                if(settings.language=="cs"&&!dark) {
+                    QDir().mkpath("build/factory-fastener-ui");auto filename=leaf;filename.replace('/','_');
+                    check(web->grab().save("build/factory-fastener-ui/"+filename+".png"),"Could not save native HTML verification image");
+                }
+            }
             if(leaf=="01-GENERAL") {
                 check(read("document.querySelectorAll('tbody tr').length").toInt()==392&&read("document.querySelectorAll('table').length").toInt()==1,"Merged metric table lost rows or retained split tables");
                 check(read("document.querySelectorAll('tr.preferred-row').length").toInt()==25,"Merged metric table lost first-choice marking");
@@ -237,6 +246,12 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
+        if(argc==2&&std::string(argv[1])=="--factory-fasteners") {
+            for(const auto* leaf:{"04-SCREWS/01-HEX-HEAD/07-SMALL-HEX","04-SCREWS/02-FITTED","04-SCREWS/03-STUDS",
+                    "04-SCREWS/04-CAP-HEAD/01-SOCKET","04-SCREWS/04-CAP-HEAD/02-SLOTTED","04-SCREWS/04-CAP-HEAD/03-LARGE"})
+                verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS",leaf,6);
+            return 0;
+        }
         {
             const QString path=QFileInfo("resources/branding/ZIMA-Engineering.svg").absoluteFilePath();
             QPalette light=application.palette(),dark=light;
