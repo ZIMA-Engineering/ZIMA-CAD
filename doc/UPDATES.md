@@ -1,5 +1,19 @@
 # Application updates
 
+Signed Windows [2026101803](releases/2026101803.md#windows-publication-acceptance)
+was published at `2026-10-18T16:08:59Z` from immutable source
+`33408790b100270a770f08515ddae996f1dc7885`. Studs use the seating-plane origin, ISO 4762 sockets
+have a native revolved entrance, and seven ISO 7380-1 A2 button heads include
+editable spherical crowns. Fastener tables show listed thread/length availability
+and omit approximate mass blocks. Localized artwork, directory names and metadata
+are complete. Clean candidate/signed smoke, 407
+native factory loads, 5,266 factory comparisons, packaged
+GUI/native checks, 384 library edits, nine reference Drawings, production trust
+and public downloads pass. All 13,134 packaged
+checksums remain intact. Trusted 1802 offers the update without installation.
+Shared product C++, native schema, Qt 6.11.0, OCCT 8.0.0 and the development BAT
+remain. Linked broader GUI and Linux verification limits remain explicit.
+
 Signed Windows [2026101802](releases/2026101802.md#windows-publication-acceptance)
 was published at `2026-10-18T14:02:18Z` from immutable source
 `5d7b07ffe7b095af2d2de3b559d7d571c0ae7ca5`. Drawing format changes select the embedded frame Family
