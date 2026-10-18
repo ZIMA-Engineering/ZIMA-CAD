@@ -383,8 +383,11 @@ drafts follow the same rule, committing only on feature OK. Details:
 Command projection copies only the selected edge/point/axis or selected face's
 triangles from borrowed reference data, not an entire Assembly for one edge.
 Exact spline knots, weights and poles project directly; coarse display points
-never replace mathematical support. A planar face can supply an intersection
-line; other intersections use the existing projection of stored face data.
+never replace mathematical support. Faces supply orthographic boundaries
+and apparent contours, independently of whether the Sketch plane intersects the
+source. Complete side-on cylindrical/conical bands use exact analytic generators;
+other outlines consume calculated face data. See
+[projected face references](SKETCH_PROJECTED_FACE_REFERENCES.md).
 Ambiguous sources are rejected.
 
 `profile=true` applies only to an edge. First projection creates our curve linked

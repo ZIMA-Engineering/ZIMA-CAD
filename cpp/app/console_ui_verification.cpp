@@ -442,6 +442,14 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
             call("body.activate",{{"body",body->scope.id}});
             call("regenerate");
         } else sketch=call("sketch.create",{{"name","Thread end reference"},{"plane","XZ"}}).data.at("sketch").get<std::string>();
+        std::optional<sketcher::Sketch> displaced_sketch;
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_OFFSET_ONLY")) {
+            check(fixture.isEmpty(),"Offset test must use its isolated generated document");
+            call("sketch.set",{{"sketch",sketch},{"plane_offset_mm",100.0}});call("save");
+            const auto saved=document::PartDocument::load(directory/(name+".prtz"));
+            const auto found=std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id);
+            check(found!=saved.sketches.end(),"Displaced reference Sketch is missing");displaced_sketch=*found;
+        }
         auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* sketch_row{};
         for(QTreeWidgetItemIterator i(tree);*i;++i)
             if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch &&
@@ -486,6 +494,19 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
         };
         pick_reference(viewer::CandidateKind::Face,"thread:surface:root");
         check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch&&edge.reference.semantic_key.starts_with("external_");}),"Thread face click failed to create its longitudinal external reference");
+        if(displaced_sketch) {
+            bool checked=false;
+            for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==sketch&&edge.reference.semantic_key.starts_with("external_face:")) {
+                for(const auto& p:edge.points) {
+                    const auto local=displaced_sketch->local_point(p);
+                    const auto projected=displaced_sketch->world_point(local[0],local[1]);
+                    check(std::hypot(p.x-projected.x,p.y-projected.y,p.z-projected.z)<1e-7,
+                        "GUI face reference remained on the source instead of the displaced Sketch plane");
+                }
+                checked=true;
+            }
+            check(checked,"Displaced face reference has no projected boundary");
+        }
         pick_reference(viewer::CandidateKind::Edge,"thread:boundary:root:end");
         check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch&&edge.reference.semantic_key.starts_with("external_edge:");}),"Thread end-rim click failed to create its exact external reference");
         window.findChild<QComboBox*>("selectionFilterCombo")->setCurrentIndex(0);flush();

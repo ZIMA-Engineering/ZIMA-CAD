@@ -145,6 +145,78 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==4&&std::string(argv[1])=="--audit-projected-faces") {
+            std::ifstream input(fs::u8path(argv[2]));Json inventory;input>>inventory;
+            const auto output=fs::absolute(fs::u8path(argv[3]));fs::create_directories(output);
+            kernel::OcctKernel kernel;Json report=Json::array();
+            for(const auto& row:inventory) {
+                if(row.at("face_references").empty())continue;
+                const auto relative=fs::u8path(row.at("file").get<std::string>());
+                std::vector<kernel::BodyResult> previous;auto doc=document::PartDocument::load(relative,&previous);
+                const auto before=doc;
+                auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc,&previous);
+                require(!calculated.empty()&&calculated.back().calculation_errors.empty()&&doc.reference_errors.empty(),
+                    "Projected factory references failed regeneration");
+                const auto authored=[](auto&& self,Json value)->Json {
+                    if(value.is_object()) {
+                        if(value.contains("external_references"))for(auto& ref:value["external_references"])
+                            if(ref.value("kind",std::string{})=="face") {
+                                ref.erase("cached_points");ref.erase("cached_paths");ref.erase("infinite");
+                            }
+                        for(auto it=value.begin();it!=value.end();++it) {
+                            if(it.key()=="sketch_serialized"&&it.value().is_string())
+                                it.value()=self(self,Json::parse(it.value().get<std::string>())).dump();
+                            else it.value()=self(self,std::move(it.value()));
+                        }
+                    } else if(value.is_array())for(auto& item:value)item=self(self,std::move(item));
+                    return value;
+                };
+                if(authored(authored,doc.serialized().at("history"))!=authored(authored,before.serialized().at("history")) ||
+                    doc.body_history.serialized()!=before.body_history.serialized()) {
+                    std::ofstream(output/"history-before.json")<<before.serialized().dump(2);
+                    std::ofstream(output/"history-after.json")<<doc.serialized().dump(2);
+                    throw std::runtime_error("Projected factory history difference: "+relative.string());
+                }
+                require(!previous.empty()&&previous.back().body_outputs.size()==calculated.back().body_outputs.size(),
+                    "Projected factory regeneration changed its Body outputs");
+                for(const auto& [id,old_value]:previous.back().body_outputs) {
+                    const auto found=calculated.back().body_outputs.find(id);
+                    require(found!=calculated.back().body_outputs.end(),"Projected factory regeneration lost a Body identity");
+                    const auto& old_body=old_value.get();const auto& body=found->second.get();
+                    const auto properties=[](const auto& value) {
+                        if(value.kernel_shape.empty())return std::array{0.,0.};
+                        TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(value.kernel_shape);BRepTools::Read(shape,stream,builder);
+                        require(!shape.IsNull(),"Factory Body BRep is missing");
+                        GProp_GProps volume,area;BRepGProp::VolumeProperties(shape,volume);BRepGProp::SurfaceProperties(shape,area);
+                        return std::array{volume.Mass(),area.Mass()};
+                    };
+                    const auto old=properties(old_body),now=properties(body);
+                    near(now[0],old[0],"Projected factory references changed volume");
+                    near(now[1],old[1],"Projected factory references changed surface area");
+                }
+                require(doc.sketches.size()==before.sketches.size(),"Projected factory regeneration changed Sketch ownership");
+                for(std::size_t i=0;i<doc.sketches.size();++i) {
+                    const auto& old=before.sketches[i];const auto& sketch=doc.sketches[i];
+                    require(sketch.id==old.id&&sketch.owner_container_id==old.owner_container_id&&sketch.constraints==old.constraints&&
+                        sketch.external_references.size()==old.external_references.size(),"Projected factory references changed native relation identity");
+                    for(std::size_t j=0;j<sketch.external_references.size();++j) {
+                        const auto& a=old.external_references[j];const auto& b=sketch.external_references[j];
+                        require(!b.broken&&a.id==b.id&&a.kind==b.kind&&a.source_owner_id==b.source_owner_id&&
+                            a.source_semantic_key==b.source_semantic_key&&a.source_instance_path==b.source_instance_path,
+                            "Projected factory reference lost source identity");
+                    }
+                }
+                const auto target=output/relative;fs::create_directories(target.parent_path());doc.save(target,calculated);
+                std::vector<kernel::BodyResult> reopened;const auto loaded=document::PartDocument::load(target,&reopened);
+                require(loaded.history==doc.history&&loaded.body_history.serialized()==doc.body_history.serialized()&&!reopened.empty(),
+                    "Projected factory candidate failed save/reopen");
+                report.push_back({{"file",row.at("file")},{"face_references",row.at("face_references").size()},
+                    {"history",true},{"body_properties",true},{"save_reopen",true}});
+                std::ofstream(output/"report.json")<<report.dump(2);
+                std::cout<<relative.string()<<" verified\n";
+            }
+            std::cout<<"Projected factory candidates verified: "<<report.size()<<'\n';return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--audit-shaft-threads") {
             const auto root=fs::canonical(fs::u8path(argv[2]));
             const auto output=fs::absolute(fs::u8path(argv[3]));

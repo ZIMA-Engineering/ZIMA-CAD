@@ -29,13 +29,20 @@ namespace zima::sketcher {
 
 std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
 external_reference_line(const SketchExternalReference& reference) {
-    if (reference.broken || reference.cached_points.size() < 2 ||
+    if (reference.broken ||
         (reference.kind != ExternalReferenceKind::Edge &&
          reference.kind != ExternalReferenceKind::Axis &&
-         !(reference.kind == ExternalReferenceKind::Face && reference.infinite)))
-        return std::nullopt;
-    const auto& first = reference.cached_points.front();
-    const auto& last = reference.cached_points.back();
+         reference.kind != ExternalReferenceKind::Face)) return std::nullopt;
+    const auto* points=&reference.cached_points;
+    std::vector<std::array<double,2>> projected_face_points;
+    if(points->empty() && reference.kind==ExternalReferenceKind::Face) {
+        for(const auto& path:reference.cached_paths)
+            projected_face_points.insert(projected_face_points.end(),path.begin(),path.end());
+        points=&projected_face_points;
+    }
+    if(points->size()<2)return std::nullopt;
+    const auto& first = points->front();
+    const auto& last = *std::ranges::max_element(*points,{},[&](const auto& p){return std::hypot(p[0]-first[0],p[1]-first[1]);});
     const std::array direction{last[0] - first[0], last[1] - first[1]};
     const double length = std::hypot(direction[0], direction[1]);
     if (length <= 1.0e-12) return std::nullopt;
@@ -43,7 +50,7 @@ external_reference_line(const SketchExternalReference& reference) {
         return std::abs((x - first[0]) * direction[1] -
             (y - first[1]) * direction[0]) / length <= 1.0e-8;
     };
-    for (const auto& point : reference.cached_points)
+    for (const auto& point : *points)
         if (!on_line(point[0], point[1])) return std::nullopt;
     if (reference.exact_spline) for (const auto& pole : reference.exact_spline->poles)
         if (!on_line(pole.x, pole.y)) return std::nullopt;
@@ -895,6 +902,9 @@ std::optional<double> measured_dimension_value(
         const auto measure = [&](const auto& line, double length)
                 -> std::optional<double> {
             if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                if (std::abs(axis->second[0] * line.second[1] -
+                             axis->second[1] * line.second[0]) >
+                    axis_length * length * 1.0e-7) return std::nullopt;
                 return std::abs(
                     axis->second[0] * (line.first[1] - axis->first[1]) -
                     axis->second[1] * (line.first[0] - axis->first[0])) /
@@ -4146,10 +4156,23 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // reference dimension, then restore its driving role with the value
     // reached by the drag. Locked dimensions remain hard equations.
     std::unordered_set<std::string> relaxed_dimension_ids;
+    std::unordered_set<std::string> transient_parallel_ids;
     for (auto& dimension : next.dimensions) {
         if (dimension.suppressed || !dimension.driving || dimension.locked) continue;
         relaxed_dimension_ids.insert(dimension.id);
         dimension.driving = false;
+        if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+            for (const auto& line : {dimension.second_geometry_id, dimension.third_geometry_id}) {
+                if (line.empty()) continue;
+                SketchConstraint parallel;
+                parallel.id = make_id();
+                parallel.kind = ConstraintKind::Parallel;
+                parallel.geometry_id = dimension.geometry_id;
+                parallel.second_geometry_id = line;
+                transient_parallel_ids.insert(parallel.id);
+                next.constraints.push_back(std::move(parallel));
+            }
+        }
     }
     // Point coordinates do not change the constraint graph or its rank.
     // Interactive dragging therefore needs equation convergence and final
@@ -4205,6 +4228,9 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         return false;
     }
     if (!refresh_reference_dimensions(next)) return false;
+    std::erase_if(next.constraints, [&](const auto& constraint) {
+        return transient_parallel_ids.contains(constraint.id);
+    });
     for (auto& dimension : next.dimensions) {
         if (relaxed_dimension_ids.contains(dimension.id)) dimension.driving = true;
     }
@@ -4292,10 +4318,23 @@ bool Sketch::translate_selection(
     }
 
     std::unordered_set<std::string> relaxed_dimension_ids;
+    std::unordered_set<std::string> transient_parallel_ids;
     for (auto& dimension : next.dimensions) {
         if (dimension.suppressed || !dimension.driving || dimension.locked) continue;
         relaxed_dimension_ids.insert(dimension.id);
         dimension.driving = false;
+        if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+            for (const auto& line : {dimension.second_geometry_id, dimension.third_geometry_id}) {
+                if (line.empty()) continue;
+                SketchConstraint parallel;
+                parallel.id = make_id();
+                parallel.kind = ConstraintKind::Parallel;
+                parallel.geometry_id = dimension.geometry_id;
+                parallel.second_geometry_id = line;
+                transient_parallel_ids.insert(parallel.id);
+                next.constraints.push_back(std::move(parallel));
+            }
+        }
     }
     std::vector<std::string> transient_dimension_ids;
     const auto preserve_parameter = [&](DimensionKind kind,
@@ -4339,6 +4378,9 @@ bool Sketch::translate_selection(
                 transient_dimension_ids.end();
         }), next.dimensions.end());
     if (!refresh_reference_dimensions(next)) return false;
+    std::erase_if(next.constraints, [&](const auto& constraint) {
+        return transient_parallel_ids.contains(constraint.id);
+    });
     for (auto& dimension : next.dimensions) {
         if (relaxed_dimension_ids.contains(dimension.id)) dimension.driving = true;
     }
@@ -4696,9 +4738,9 @@ std::string Sketch::merge_points(
             "Two independently anchored points cannot be merged");
     }
     // A free segment endpoint selected first keeps its identity, but joining
-    // an existing curve contact must start at that contact's position. Pinning
-    // the survivor at the old endpoint position would instead try to move or
-    // resize the circle, and rejects a valid join to a dimensioned circle.
+    // an existing curve or sliding line contact must start at that contact's
+    // position. Pinning the old free endpoint would instead try to move the
+    // constrained support, rejecting an otherwise valid junction.
     const auto curve_contact = [&](const std::string& id) {
         return std::ranges::any_of(next.arcs,[&](const auto& arc) {
             return arc.start_point_id==id || arc.end_point_id==id;
@@ -4707,7 +4749,15 @@ std::string Sketch::merge_points(
                 constraint.first_point_id==id;
         });
     };
-    if (!anchored(*reference) && curve_contact(removed_id) && !curve_contact(survivor_id) &&
+    const auto line_contact = [&](const std::string& id) {
+        return std::ranges::any_of(next.constraints, [&](const auto& constraint) {
+            return !constraint.suppressed && constraint.kind == ConstraintKind::PointOnLine &&
+                constraint.first_point_id == id;
+        });
+    };
+    if (!anchored(*reference) &&
+        ((curve_contact(removed_id) && !curve_contact(survivor_id)) ||
+         (line_contact(removed_id) && !line_contact(survivor_id))) &&
         std::ranges::any_of(next.segments,[&](const auto& segment) {
             return segment.first_point_id==survivor_id || segment.second_point_id==survivor_id;
         })) {
@@ -7916,122 +7966,7 @@ std::optional<std::vector<std::array<double, 2>>> Sketch::project_external_axis(
     return std::vector<std::array<double, 2>>{first, second};
 }
 
-std::optional<std::vector<std::array<double, 2>>>
-Sketch::project_external_face_plane(
-    const zima::kernel::ViewerReferenceGeometry& source_geometry,
-    const zima::kernel::FaceReference& face) const {
-    if (!face.valid() || source_geometry.triangles.size() % 3 != 0 ||
-        source_geometry.triangle_references.size() !=
-            source_geometry.triangles.size() / 3) return std::nullopt;
-    const auto subtract = [](const auto& left, const auto& right) {
-        return zima::kernel::Vec3{left.x - right.x, left.y - right.y,
-            left.z - right.z};
-    };
-    const auto cross = [](const auto& left, const auto& right) {
-        return zima::kernel::Vec3{
-            left.y * right.z - left.z * right.y,
-            left.z * right.x - left.x * right.z,
-            left.x * right.y - left.y * right.x};
-    };
-    const auto dot = [](const auto& left, const auto& right) {
-        return left.x * right.x + left.y * right.y + left.z * right.z;
-    };
-    const auto length = [&](const auto& value) {
-        return std::sqrt(dot(value, value));
-    };
-    std::optional<zima::kernel::Vec3> face_point;
-    std::optional<zima::kernel::Vec3> face_normal;
-    for (std::size_t triangle = 0;
-         triangle < source_geometry.triangle_references.size(); ++triangle) {
-        if (source_geometry.triangle_references[triangle] != face) continue;
-        const std::array<std::uint32_t, 3> indices{
-            source_geometry.triangles[triangle * 3],
-            source_geometry.triangles[triangle * 3 + 1],
-            source_geometry.triangles[triangle * 3 + 2]};
-        if (std::ranges::any_of(indices, [&](const auto index) {
-                return index >= source_geometry.vertices.size();
-            })) return std::nullopt;
-        const auto& first = source_geometry.vertices[indices[0]];
-        const auto normal = cross(
-            subtract(source_geometry.vertices[indices[1]], first),
-            subtract(source_geometry.vertices[indices[2]], first));
-        const double normal_length = length(normal);
-        if (normal_length <= 1.0e-12) continue;
-        face_point = first;
-        face_normal = {normal.x / normal_length, normal.y / normal_length,
-            normal.z / normal_length};
-        break;
-    }
-    if (!face_point || !face_normal) return std::nullopt;
-    for (std::size_t triangle = 0;
-         triangle < source_geometry.triangle_references.size(); ++triangle) {
-        if (source_geometry.triangle_references[triangle] != face) continue;
-        for (std::size_t corner = 0; corner < 3; ++corner) {
-            const auto index = source_geometry.triangles[triangle * 3 + corner];
-            if (index >= source_geometry.vertices.size() ||
-                std::abs(dot(*face_normal,
-                    subtract(source_geometry.vertices[index], *face_point))) >
-                    1.0e-6) return std::nullopt;
-        }
-    }
-    const auto sketch_origin = world_point(0.0, 0.0);
-    const auto sketch_x = subtract(world_point(1.0, 0.0), sketch_origin);
-    const auto sketch_y = subtract(world_point(0.0, 1.0), sketch_origin);
-    auto sketch_normal = cross(sketch_x, sketch_y);
-    const double sketch_normal_length = length(sketch_normal);
-    if (sketch_normal_length <= 1.0e-12) return std::nullopt;
-    sketch_normal = {sketch_normal.x / sketch_normal_length,
-        sketch_normal.y / sketch_normal_length,
-        sketch_normal.z / sketch_normal_length};
-    auto direction = cross(*face_normal, sketch_normal);
-    const double direction_squared = dot(direction, direction);
-    if (direction_squared <= 1.0e-20) return std::nullopt;
-    const double first_distance = dot(*face_normal, *face_point);
-    const double second_distance = dot(sketch_normal, sketch_origin);
-    const auto second_cross_direction = cross(sketch_normal, direction);
-    const auto direction_cross_first = cross(direction, *face_normal);
-    const zima::kernel::Vec3 point{
-        (first_distance * second_cross_direction.x +
-            second_distance * direction_cross_first.x) / direction_squared,
-        (first_distance * second_cross_direction.y +
-            second_distance * direction_cross_first.y) / direction_squared,
-        (first_distance * second_cross_direction.z +
-            second_distance * direction_cross_first.z) / direction_squared};
-    const double direction_length = std::sqrt(direction_squared);
-    direction = {direction.x / direction_length, direction.y / direction_length,
-        direction.z / direction_length};
-    const auto first = local_point({point.x - direction.x,
-        point.y - direction.y, point.z - direction.z});
-    const auto second = local_point({point.x + direction.x,
-        point.y + direction.y, point.z + direction.z});
-    if (std::hypot(second[0] - first[0], second[1] - first[1]) <= 1.0e-9) {
-        return std::nullopt;
-    }
-    return std::vector<std::array<double, 2>>{first, second};
-}
-
-std::optional<std::vector<std::vector<std::array<double, 2>>>>
-Sketch::external_face_reference_paths(
-    const zima::kernel::ViewerReferenceGeometry& source,
-    const zima::kernel::FaceReference& face) const {
-    if (source.triangles.size()!=source.triangle_references.size()*3) return std::nullopt;
-    bool found=false, coplanar=true;
-    for(std::size_t i=0;i<source.triangle_references.size();++i) {
-        if(source.triangle_references[i]!=face)continue;
-        found=true;
-        for(std::size_t j=0;j<3;++j) {
-            const auto index=source.triangles[i*3+j];
-            if(index>=source.vertices.size())return std::nullopt;
-            const auto& point=source.vertices[index];
-            const auto local=local_point(point);
-            const auto projected=world_point(local[0],local[1]);
-            if(std::hypot(std::hypot(point.x-projected.x,point.y-projected.y),point.z-projected.z)>1e-7)
-                coplanar=false;
-        }
-    }
-    if(found && coplanar)return project_external_face(source,face);
-    return intersect_external_face(source,face);
-}
+#include "external_face_projection.inc"
 
 std::optional<std::vector<std::vector<std::array<double, 2>>>>
 Sketch::intersect_external_face(
@@ -8329,7 +8264,7 @@ bool Sketch::refresh_external_references(
         if (axis_points_only && reference.kind != ExternalReferenceKind::AxisPoint) continue;
         if (!source_document_id.empty() && reference.source_document_id != source_document_id) continue;
         std::optional<std::vector<std::array<double, 2>>> resolved;
-        bool face_intersection_resolved = false;
+        bool face_projection_resolved = false;
         if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
@@ -8394,42 +8329,28 @@ bool Sketch::refresh_external_references(
                 ++match_count;
             }
             if (match_count > 0) {
-                resolved = next.project_external_face_plane(source_geometry, match);
-                if (!resolved) {
-                    const auto intersections =
-                        next.external_face_reference_paths(source_geometry, match);
-                    if (intersections) {
-                        face_intersection_resolved = true;
-                        if (reference.cached_paths != *intersections) {
-                            reference.cached_paths = *intersections;
-                            changed = true;
-                        }
-                        if (!reference.cached_points.empty()) {
-                            reference.cached_points.clear();
-                            changed = true;
-                        }
-                        if (reference.infinite) {
-                            reference.infinite = false;
-                            changed = true;
-                        }
+                const auto paths = next.external_face_reference_paths(source_geometry, match);
+                if (paths) {
+                    face_projection_resolved = true;
+                    auto projected=reference;projected.broken=false;projected.infinite=false;
+                    projected.cached_paths=*paths;projected.cached_points.clear();
+                    if(const auto line=external_reference_line(projected)) {
+                        projected.cached_points={line->first,{line->first[0]+line->second[0],line->first[1]+line->second[1]}};
+                        projected.cached_paths.clear();projected.infinite=true;
+                    }
+                    if(reference.cached_paths!=projected.cached_paths || reference.cached_points!=projected.cached_points ||
+                        reference.infinite!=projected.infinite) {
+                        reference.cached_paths=std::move(projected.cached_paths);
+                        reference.cached_points=std::move(projected.cached_points);
+                        reference.infinite=projected.infinite;changed=true;
                     }
                 }
             }
         }
         const bool broken = !resolved.has_value() &&
-            !face_intersection_resolved;
+            !face_projection_resolved;
         if (resolved && reference.cached_points != *resolved) {
             reference.cached_points = std::move(*resolved);
-            changed = true;
-        }
-        if (reference.kind == ExternalReferenceKind::Face && resolved &&
-            !reference.cached_paths.empty()) {
-            reference.cached_paths.clear();
-            changed = true;
-        }
-        if (reference.kind == ExternalReferenceKind::Face && resolved &&
-            !reference.infinite) {
-            reference.infinite = true;
             changed = true;
         }
         if (reference.broken != broken) {
@@ -12048,6 +11969,26 @@ SolveResult Sketch::solve_impl(
                                 direction_sign = -1.0;
                             }
                         }
+                        // An existing source contact is also a rotational
+                        // anchor even when the reference line does not own it.
+                        // Moving both ends fights its C equations on every pass.
+                        if (shared == nullptr) {
+                            const auto anchored_contact = [&](const auto& point) {
+                                return immutable(point) || std::ranges::any_of(constraints,
+                                    [&](const auto& c) {
+                                        return !c.suppressed && c.first_point_id == point.id &&
+                                            (c.kind == ConstraintKind::PointOnLine ||
+                                             c.kind == ConstraintKind::PointReference);
+                                    });
+                            };
+                            const bool first_anchor = anchored_contact(*driven_first);
+                            const bool second_anchor = anchored_contact(*driven_second);
+                            if (first_anchor != second_anchor) {
+                                shared = first_anchor ? driven_first : driven_second;
+                                free_endpoint = first_anchor ? driven_second : driven_first;
+                                direction_sign = first_anchor ? 1.0 : -1.0;
+                            }
+                        }
                         // A construction radius is an arc arm, not a free
                         // segment: rotate its endpoint about the arc centre.
                         // Translating both ends destroys the opposite radius
@@ -12102,6 +12043,35 @@ SolveResult Sketch::solve_impl(
                                     shared->x + parameter * ray_x,
                                     shared->y + parameter * ray_y};
                                 break;
+                            }
+                            // The other endpoint can slide along a line whose
+                            // support is defined by a symmetric diameter.
+                            // Intersect the angular ray with that exact support;
+                            // preserving the old segment length overconstrains it.
+                            if (!intersection) for (const auto& diameter : dimensions) {
+                                if (diameter.suppressed || !diameter.driving ||
+                                    diameter.kind != DimensionKind::DistanceLineSymmetric) continue;
+                                for (const auto& line_id : {diameter.second_geometry_id, diameter.third_geometry_id}) {
+                                    if (line_id.empty() || !geometry_owns_point(*this,line_id,free_endpoint->id)) continue;
+                                    const auto support = sketch_axis_line(*this,diameter.geometry_id)
+                                        ? sketch_axis_line(*this,diameter.geometry_id)
+                                        : segment_or_external_line(*this,diameter.geometry_id);
+                                    const auto line = segment_or_external_line(*this,line_id);
+                                    if (!support || !line) continue;
+                                    const double sx=support->second[0],sy=support->second[1];
+                                    const double length=std::hypot(sx,sy);
+                                    const double denominator=ray_x*sy-ray_y*sx;
+                                    if (length<=1e-12 || std::abs(denominator)<=1e-12) continue;
+                                    const double signed_distance=(sx*(line->first[1]-support->first[1])-
+                                        sy*(line->first[0]-support->first[0]))/length;
+                                    const double offset=std::copysign(diameter.value*.5,signed_distance);
+                                    const double ox=support->first[0]-sy/length*offset-shared->x;
+                                    const double oy=support->first[1]+sx/length*offset-shared->y;
+                                    const double parameter=(ox*sy-oy*sx)/denominator;
+                                    intersection=std::array{shared->x+parameter*ray_x,shared->y+parameter*ray_y};
+                                    break;
+                                }
+                                if (intersection) break;
                             }
                             if (intersection) {
                                 free_endpoint->x = (*intersection)[0];
@@ -12159,22 +12129,28 @@ SolveResult Sketch::solve_impl(
                         continue;
                     }
                     if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
-                        const double signed_distance =
+                        // A line distance owns the complete parallel line,
+                        // not merely its first endpoint. Both endpoints use
+                        // the same material side of the undirected axis.
+                        const double first_distance =
                             (rx * (driven_first->y - reference->first[1]) -
                              ry * (driven_first->x - reference->first[0])) /
                             reference_length;
-                        const double side = signed_distance < 0.0 ? -1.0 : 1.0;
-                        const double correction = side * target - signed_distance;
-                        maximum_residual = std::max(
-                            maximum_residual, std::abs(correction));
-                        if (std::abs(correction) > tolerance) {
-                            if (immutable(*driven_first) || immutable(*driven_second)) {
+                        const double side = first_distance < 0.0 ? -1.0 : 1.0;
+                        for (auto* endpoint : {driven_first, driven_second}) {
+                            const double distance =
+                                (rx * (endpoint->y - reference->first[1]) -
+                                 ry * (endpoint->x - reference->first[0])) /
+                                reference_length;
+                            const double correction = side * target - distance;
+                            maximum_residual = std::max(
+                                maximum_residual, std::abs(correction));
+                            if (std::abs(correction) <= tolerance) continue;
+                            if (immutable(*endpoint)) {
                                 immovable_conflict = true;
                             } else {
-                                driven_first->x += -ry / reference_length * correction;
-                                driven_first->y += rx / reference_length * correction;
-                                driven_second->x += -ry / reference_length * correction;
-                                driven_second->y += rx / reference_length * correction;
+                                endpoint->x += -ry / reference_length * correction;
+                                endpoint->y += rx / reference_length * correction;
                             }
                         }
                         continue;
@@ -13001,6 +12977,9 @@ SolveResult Sketch::solve_impl(
                              ry * (driven->first[0] - reference->first[0])) /
                             reference_length;
                         result.push_back(std::abs(signed_distance) - target);
+                        // Perpendicular endpoint separation is zero exactly
+                        // when the driven line remains parallel to the axis.
+                        result.push_back((rx * dy - ry * dx) / reference_length);
                     } else {
                         const double cosine = std::clamp(std::abs(
                             (rx * dx + ry * dy) /
@@ -13232,7 +13211,9 @@ SolveResult Sketch::solve_impl(
               dimension.kind == DimensionKind::DistanceLineSymmetric) &&
                     !dimension.third_geometry_id.empty())
                 ? 2 : 1;
-        append_equations(count,
+        const auto equation_count = dimension.kind == DimensionKind::DistanceLineSymmetric
+            ? count * 2 : count;
+        append_equations(equation_count,
             {dimension.first_point_id, dimension.second_point_id,
              dimension.geometry_id, dimension.second_geometry_id,
              dimension.third_geometry_id});
@@ -14640,6 +14621,9 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 const auto driven = segment_or_external_line(
                     *this, dimension.second_geometry_id);
                 if (!driven || reference_length_squared <= 1.0e-12) continue;
+                if (std::abs(rx * driven->second[1] - ry * driven->second[0]) >
+                    std::sqrt(reference_length_squared) *
+                    std::hypot(driven->second[0], driven->second[1]) * 1.0e-7) continue;
                 std::array<double, 2> actual = driven->first;
                 if (dimension.placement) {
                     const double driven_length_squared =
@@ -14742,6 +14726,9 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 const auto driven = segment_or_external_line(*this, driven_line_id);
                 if (!driven) continue;
                 if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+                    if (std::abs(rx * driven->second[1] - ry * driven->second[0]) >
+                        std::sqrt(reference_length_squared) *
+                        std::hypot(driven->second[0], driven->second[1]) * 1.0e-7) continue;
                     const std::array driven_anchor = driven->first;
                     const double factor =
                         ((driven_anchor[0] - reference->first[0]) * rx +

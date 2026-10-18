@@ -2489,5 +2489,6 @@
   "Hidden names and patterns": "Hidden names and patterns",
   "Global file filters": "Global file filters",
   "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.",
-  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only."
+  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.",
+  "Source face cannot be projected into the Sketch plane": "Source face cannot be projected into the Sketch plane"
 }

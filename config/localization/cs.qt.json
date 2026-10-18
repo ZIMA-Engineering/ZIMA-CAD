@@ -2489,5 +2489,6 @@
   "Hidden names and patterns": "Skryté názvy a masky",
   "Global file filters": "Globální filtry souborů",
   "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "Jeden název nebo maska na řádek. Platí pro soubory i adresáře bez rozlišení velikosti písmen.",
-  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Řídicí kóty FORMu mění pouze toto vložení. Referenční kóty jsou jen pro čtení."
+  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Řídicí kóty FORMu mění pouze toto vložení. Referenční kóty jsou jen pro čtení.",
+  "Source face cannot be projected into the Sketch plane": "Zdrojovou plochu nelze promítnout do roviny skici"
 }

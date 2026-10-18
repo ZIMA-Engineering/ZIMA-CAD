@@ -1,4 +1,4 @@
-﻿#include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/viewer/picking.hpp>
@@ -2189,7 +2189,10 @@ int main() {
                     text_sketch.external_references[2].cached_points ==
                         std::vector<std::array<double, 2>>{{-7.0, 8.0}, {13.0, 8.0}} &&
                     text_sketch.external_references[3].cached_points.size() == 2 &&
+                    text_sketch.external_references[3].cached_paths.empty() &&
                     text_sketch.external_references[3].infinite &&
+                    text_sketch.external_references[3].source_owner_id == "container-source" &&
+                    text_sketch.external_references[3].source_semantic_key == "face:stable-source" &&
                     !text_sketch.external_references[0].broken &&
                     !text_sketch.external_references[1].broken &&
                     !text_sketch.external_references[2].broken &&
@@ -8329,6 +8332,99 @@ int main() {
             require(std::abs(s.find_point(end)->y)<1e-8 &&
                 std::abs(s.find_point(end)->x-s.find_point(s.arcs.front().center_point_id)->x)<1e-8,
                 "FORM-like Arc endpoint on the axis did not become its tangent contact");
+        }
+        // Coincidence preserves first-selected identity while starting at
+        // an existing sliding contact instead of pinning a stale free end.
+        for (const bool reversed : {false, true}) {
+            auto s = zima::sketcher::Sketch::create_default();
+            const auto axis = s.add_segment(0, 0, 0, -34, 1e-8, true);
+            const auto endpoint = s.segments.front().second_point_id;
+            const auto edge = s.add_segment(5, -32, 0, -32);
+            const auto anchor = s.segments.back().first_point_id;
+            const auto contact = s.segments.back().second_point_id;
+            s.set_point_fixed(anchor, true);
+            static_cast<void>(s.add_segment_constraint(axis, zima::sketcher::ConstraintKind::Vertical));
+            static_cast<void>(s.add_point_on_line_constraint(contact, axis));
+            static_cast<void>(s.add_segment_pair_constraint(axis, edge,
+                zima::sketcher::ConstraintKind::Perpendicular));
+            const auto survivor = reversed?contact:endpoint;
+            require(s.merge_points(survivor, reversed?endpoint:contact)==survivor,
+                "Contact merge changed the first-selected native identity");
+            require(s.points.size()==3 && std::abs(s.find_point(survivor)->y+32)<1e-7,
+                "Contact merge pinned a free axis endpoint at its old position");
+            const auto reopened=zima::sketcher::Sketch::from_serialized(s.serialized());
+            require(reopened.segments.front().second_point_id==survivor &&
+                reopened.segments.back().second_point_id==survivor,
+                "Merged axis and profile endpoints did not persist as one node");
+        }
+        // A symmetric line distance owns parallelism throughout edits.
+        for (const bool vertical : {false, true}) {
+            for (const double side : {-1.0, 1.0}) {
+                for (const bool reversed : {false, true}) {
+                    auto s = zima::sketcher::Sketch::create_default();
+                    const auto axis = vertical ? "sketch_axis:y" : "sketch_axis:x";
+                    const auto line = vertical
+                        ? s.add_segment(side*4, reversed?10:0, side*4, reversed?0:10)
+                        : s.add_segment(reversed?10:0, side*4, reversed?0:10, side*4);
+                    auto d = s.create_line_symmetric_dimension(axis, line, {},
+                        DimensionKind::DistanceLineSymmetric);
+                    d.locked = true;
+                    s.apply_dimension(d);
+                    const auto first = s.segments.front().first_point_id;
+                    const auto second = s.segments.front().second_point_id;
+                    const auto check = [&] {
+                        const auto* a = s.find_point(first);
+                        const auto* b = s.find_point(second);
+                        require(std::abs(vertical?a->x-b->x:a->y-b->y)<1e-7,
+                            "Symmetric distance allowed a tilted line");
+                        require(std::abs(2*std::abs(vertical?a->x:a->y)-
+                            s.dimensions.front().value)<1e-7,
+                            "Symmetric distance endpoint equation changed");
+                    };
+                    for (const double value : {10.0, 12.0, 8.0}) {
+                        require(s.set_dimension_value(d.id, value),
+                            "Symmetric distance repeated edit failed");
+                        check();
+                        const auto* b = s.find_point(second);
+                        // Tangential dragging remains a real degree of freedom.
+                        const double along = vertical?b->y:b->x;
+                        require(s.move_point(second, vertical?b->x:b->x+1,
+                            vertical?b->y+1:b->y), "Parallel line could not slide");
+                        check();
+                        require(std::abs((vertical?s.find_point(second)->y:
+                            s.find_point(second)->x)-along)>0.5,
+                            "Symmetric distance silently prevented valid movement");
+                    }
+                    auto reopened = zima::sketcher::Sketch::from_serialized(s.serialized());
+                    require(reopened.dimensions.front().locked,
+                        "Symmetric distance lock was not persisted");
+                    s.dimensions.front().locked=false;
+                    const auto* free_end=s.find_point(second);
+                    require(s.move_point(second,free_end->x+(vertical?1:0),
+                        free_end->y+(vertical?0:1)),
+                        "Unlocked symmetric line could not change its offset");
+                    check();
+                    s.dimensions.front().driving=false;
+                    const auto reference_before=s.serialized();
+                    const auto* reference_end=s.find_point(second);
+                    require(!s.move_point(second,reference_end->x+(vertical?1:0),
+                        reference_end->y+(vertical?0:1)) && s.serialized()==reference_before,
+                        "Undefined tilted reference dimension was committed");
+                    s.dimensions.front().driving=true;
+                    s.dimensions.front().locked=true;
+                    s.set_point_fixed(first,true);s.set_point_fixed(second,true);
+                    const auto fixed_before=s.serialized();
+                    require(!s.move_point(second,100,100)&&s.serialized()==fixed_before,
+                        "Fully constrained symmetric line escaped during dragging");
+                    const auto before = s.serialized();
+                    bool rejected = false;
+                    try { static_cast<void>(s.add_segment_constraint(line,
+                        vertical?zima::sketcher::ConstraintKind::Horizontal:zima::sketcher::ConstraintKind::Vertical)); }
+                    catch (const std::exception&) { rejected = true; }
+                    require(rejected && s.serialized()==before,
+                        "Incompatible orientation was not rejected atomically");
+                }
+            }
         }
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;

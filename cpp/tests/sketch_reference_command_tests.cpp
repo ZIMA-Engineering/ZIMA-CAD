@@ -315,7 +315,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(current().external_references.empty() && current().points==points && current().segments.front().id==own,"Detach destroyed projected geometry");run(host,"undo");require(current().external_references.size()==3,"Detach Undo did not restore its dependency");
     const auto face=*std::ranges::find_if(source.triangle_references,[&](const auto& f){return f.owner_id==box && f.surface && std::abs(f.surface->axis.x)>.9;});
     command("sketch.reference.create",{{"kind","face"},{"owner",box},{"key",face.semantic_key}});
-    require(current().external_references.back().infinite && current().external_references.back().cached_points.size()==2,"Planar face did not produce its intersection axis");
+    const auto face_projection=current().external_references.back();
+    require(face_projection.infinite && face_projection.cached_points.size()==2 &&
+        face_projection.cached_paths.empty() && face_projection.source_owner_id==box &&
+        face_projection.source_semantic_key==face.semantic_key,
+        "Edge-on planar face did not retain its projected line support and source identity");
     const auto source_point=*std::ranges::find_if(source.points,[&](const auto& p){return p.reference.owner_id==box;});
     command("sketch.reference.create",{{"kind","point"},{"owner",box},{"key",source_point.reference.semantic_key}});
     require(current().external_references.back().cached_points.front()==current().local_point(source_point.position),"Point projection used wrong frame");

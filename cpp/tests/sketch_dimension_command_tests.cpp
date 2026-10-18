@@ -1,6 +1,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <cmath>
+#include <numbers>
+#include <memory>
 #include <zima/document/relations.hpp>
 #include <iostream>
 #include <fstream>
@@ -234,9 +236,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
 }
 }
 #include "sketch_supported_angle_matrix.inc"
+#include "sketch_symmetric_wall_matrix.inc"
+#include "sketch_face_projection_matrix.inc"
 int main() {
     try {kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto directory=parent/("zima-sketch-dimensions-"+document::PartDocument::create_default().document_id);
-        fs::create_directory(directory);verify_supported_angle_matrix();verify(kernel,directory);require(directory.parent_path()==parent,"Unsafe cleanup");fs::remove_all(directory);
+        fs::create_directory(directory);verify_supported_angle_matrix();verify_symmetric_wall_matrix();verify_face_projection_matrix();verify(kernel,directory);require(directory.parent_path()==parent,"Unsafe cleanup");fs::remove_all(directory);
         std::cout<<"Sketch dimension factories, value policies, labels, atomicity, Undo, persistence and explicit solid regeneration passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

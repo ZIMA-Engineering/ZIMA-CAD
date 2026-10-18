@@ -6150,7 +6150,9 @@ int verify_sketch_coincident_ui(QApplication& application,const std::filesystem:
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        for(int support_kind:{0,1,2,3})for(const bool x_axis:{true,false})for(int order:{0,1,2}) {
+        for(int support_kind:{0,1,2,3,4})for(const bool x_axis:{true,false})for(int order:{0,1,2}) {
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_AXIS_MERGE_ONLY") && support_kind!=4)continue;
+            if(support_kind==4 && (!x_axis || qEnvironmentVariableIsEmpty("ZIMA_VERIFY_SKETCH_AXIS_MERGE_ONLY")))continue;
             // Native curve-first C is outside the existing command contract;
             // native point-to-point merging below exercises both input orders.
             if((support_kind==1||support_kind==2)&&order==1)continue;
@@ -6172,6 +6174,18 @@ int verify_sketch_coincident_ui(QApplication& application,const std::filesystem:
                 static_cast<void>(sketch.add_point_on_line_constraint(point,"sketch_axis:x"));
                 part.sketches.front()=sketch;
                 body=part.body_history.owner(feature.id)->scope.id;
+            }
+            if(support_kind==4) {
+                sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+                const auto axis_line=sketch.add_segment(0,0,0,-34,1e-8,true);
+                point=sketch.segments.front().second_point_id;
+                const auto edge=sketch.add_segment(5,-32,0,-32);
+                support=sketch.segments.back().second_point_id;
+                sketch.set_point_fixed(sketch.segments.back().first_point_id,true);
+                static_cast<void>(sketch.add_segment_constraint(axis_line,sketcher::ConstraintKind::Vertical));
+                static_cast<void>(sketch.add_point_on_line_constraint(support,axis_line));
+                static_cast<void>(sketch.add_segment_pair_constraint(axis_line,edge,sketcher::ConstraintKind::Perpendicular));
+                part.sketches={sketch};part.resolve_constructions();
             }
             const auto path=directory/(std::string("coincident-")+std::to_string(support_kind)+(x_axis?"x-":"y-")+std::to_string(order)+".prtz");part.save(path);
             app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
@@ -6206,13 +6220,13 @@ int verify_sketch_coincident_ui(QApplication& application,const std::filesystem:
                 mouse(*position,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*position,QEvent::MouseButtonRelease,Qt::LeftButton);
             };
             auto* action=window.findChild<QAction*>("sketchCoincidentAction");check(action&&action->isEnabled(),"Coincident command unavailable");
-            const std::string axis=support_kind==3?"point:"+support:support_kind==2?"circle:"+support:support_kind==1?"segment:"+support:x_axis?"sketch_axis:x":"sketch_axis:y",point_key="point:"+point;
+            const std::string axis=support_kind>=3?"point:"+support:support_kind==2?"circle:"+support:support_kind==1?"segment:"+support:x_axis?"sketch_axis:x":"sketch_axis:y",point_key="point:"+point;
             if(order==2)pick(point_key); // A preselected endpoint is also valid input.
             action->trigger();flush();
             if(order==0){pick(point_key);pick(axis);}
             else if(order==1){pick(axis);pick(point_key);}
             else pick(axis);
-            const auto survivor=support_kind==3&&order==1?support:point;
+            const auto survivor=support_kind>=3&&order==1?support:point;
             const auto survivor_key="point:"+survivor;
             const auto moved=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==sketch.id&&p.reference.semantic_key==survivor_key;});
             check(moved!=view->mesh().points.end(),"Coincident lost its native endpoint");
@@ -6234,6 +6248,14 @@ int verify_sketch_coincident_ui(QApplication& application,const std::filesystem:
                     throw std::runtime_error("FORM endpoint C is valid, but feature OK rejected the resulting model: "+error->text().toStdString());}
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto saved=document::PartDocument::load(path);const auto& result=*std::ranges::find(saved.sketches,sketch.id,&sketcher::Sketch::id);
+            if(support_kind==4) {
+                check(result.points.size()+1==sketch.points.size() &&
+                    result.segments.front().second_point_id==survivor &&
+                    result.segments.back().second_point_id==survivor &&
+                    std::abs(result.find_point(survivor)->y+32)<1e-7,
+                    "GUI axis endpoint contact merge lost shared identity or position");
+                continue;
+            }
             check((support_kind==3||result.constraints.size()==sketch.constraints.size()+1)&&std::ranges::any_of(result.constraints,[&](const auto& c){return c.kind==(support_kind>=2?sketcher::ConstraintKind::PointOnCircle:sketcher::ConstraintKind::PointOnLine)&&c.first_point_id==survivor&&c.geometry_id==(support_kind==3?sketch.circles.front().id:support_kind==0?axis:support);}),"Coincident support relation did not persist");
             const auto* endpoint=result.find_point(survivor);
             if(support_kind==3)check(result.points.size()+1==sketch.points.size()&&result.segments.back().second_point_id==survivor&&std::abs(endpoint->x-15)<1e-7&&std::abs(endpoint->y)<1e-7,"FORM endpoint merge identity or position failed");
@@ -6246,7 +6268,10 @@ int verify_sketch_coincident_ui(QApplication& application,const std::filesystem:
                 check(std::abs((endpoint->x-a->x)*(b->y-a->y)-(endpoint->y-a->y)*(b->x-a->x))<1e-7,"Saved endpoint left its segment");
             }
         }
-        std::cout<<"Sketch C: axes, axis-overlapping segments, circles and native point merges with saved equations passed\n";return 0;
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_AXIS_MERGE_ONLY"))
+            std::cout<<"Axis endpoint C: both input orders and preselection, shared native identity and save/reopen passed\n";
+        else std::cout<<"Sketch C: axes, axis-overlapping segments, circles and native point merges with saved equations passed\n";
+        return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
@@ -7753,8 +7778,11 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
         auto calculated=kernel.evaluate_history(document.kernel_operations());
         if(!fixture.isEmpty()) {
             document=PartDocument::load(std::filesystem::path(fixture.toStdWString()),&calculated);
-            const auto found=std::find_if(document.history.rbegin(),document.history.rend(),[](const auto& item){return item.feature_kind==FeatureKind::Extrusion ||
-                (item.feature_kind==FeatureKind::Feature&&item.feature.type==FeatureType::Modeling&&item.feature.effective_side(0).operation==FeatureSideOperation::Extrusion);});
+            const bool last_modeling=qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_LAST_MODELING");
+            const auto found=std::find_if(document.history.rbegin(),document.history.rend(),[&](const auto& item){return item.feature_kind==FeatureKind::Extrusion ||
+                (item.feature_kind==FeatureKind::Feature&&item.feature.type==FeatureType::Modeling&&
+                 (item.feature.effective_side(0).operation==FeatureSideOperation::Extrusion ||
+                  (last_modeling&&item.feature.effective_side(0).operation==FeatureSideOperation::Revolution)));});
             if(!verify(found!=document.history.rend(),"Saved fixture has no Extrusion"))return 1;
             feature=*found;
             const auto profile=std::ranges::find(document.sketches,feature.feature_kind==FeatureKind::Feature?feature.feature.sketch_id:feature.extrusion.sketch_id,&zima::sketcher::Sketch::id);

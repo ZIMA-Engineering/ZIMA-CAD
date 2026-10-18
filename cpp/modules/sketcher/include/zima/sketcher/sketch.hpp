@@ -662,14 +662,9 @@ public:
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis_point(const zima::kernel::ViewerAxis& axis) const;
-    [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
-        project_external_face_plane(
-            const zima::kernel::ViewerReferenceGeometry& source_geometry,
-            const zima::kernel::FaceReference& face) const;
-    // Intersects a persisted (possibly curved) source face mesh with this
-    // Sketch plane.  The result contains one finite path per intersection
-    // branch and never invokes the solid kernel.
-    // Coplanar faces expose their boundary; other faces expose their section.
+    // Orthographically projects the selected face boundary and apparent
+    // contour into this Sketch frame, independently of normal displacement.
+    // Consumes only calculated source geometry; never invokes the solid kernel.
     [[nodiscard]] std::optional<std::vector<std::vector<std::array<double, 2>>>>
         external_face_reference_paths(
             const zima::kernel::ViewerReferenceGeometry& source_geometry,

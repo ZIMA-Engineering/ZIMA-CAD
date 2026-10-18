@@ -2489,5 +2489,6 @@
   "Hidden names and patterns": "Скрытые имена и шаблоны",
   "Global file filters": "Глобальные фильтры файлов",
   "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "Одно имя или шаблон в строке. Применяется к файлам и папкам без учёта регистра.",
-  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Управляющие размеры FORM изменяют только эту вставку. Справочные размеры доступны только для чтения."
+  "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Управляющие размеры FORM изменяют только эту вставку. Справочные размеры доступны только для чтения.",
+  "Source face cannot be projected into the Sketch plane": "Исходную грань невозможно спроецировать на плоскость эскиза"
 }

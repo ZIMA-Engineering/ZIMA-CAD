@@ -117,20 +117,16 @@ void populate_external_reference_cache(
         reference.cached_points = *projected;
         reference.infinite = reference.kind==sketcher::ExternalReferenceKind::Axis;
     } else {
-        const auto projected = sketch.project_external_face_plane(source,
+        const auto projected = sketch.external_face_reference_paths(source,
             {reference.source_owner_id, reference.source_semantic_key,
              reference.source_instance_path});
-        if (projected) {
-            reference.cached_points = *projected;
-            reference.infinite = true;
-        } else if (const auto intersections = sketch.external_face_reference_paths(source,
-                       {reference.source_owner_id, reference.source_semantic_key,
-                        reference.source_instance_path})) {
-            reference.cached_paths = *intersections;
-            reference.infinite = false;
-        } else {
-            throw std::runtime_error(
-                "Source face has no unique intersection with the Sketch plane");
+        if (!projected) throw std::runtime_error("Source face cannot be projected into the Sketch plane");
+        reference.cached_paths = *projected;
+        reference.cached_points.clear();
+        reference.infinite = false;
+        if(const auto line=sketcher::external_reference_line(reference)) {
+            reference.cached_points={line->first,{line->first[0]+line->second[0],line->first[1]+line->second[1]}};
+            reference.cached_paths.clear();reference.infinite=true;
         }
     }
     reference.broken = false;
