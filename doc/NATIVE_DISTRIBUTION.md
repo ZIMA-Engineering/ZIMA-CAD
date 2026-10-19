@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026101903](releases/2026101903.md#windows-publication-acceptance)
+was published at `2026-10-19T12:52:07Z` from immutable source
+`8b31ba63a4e6aef33d6ea41ce15df5cfe215d09f`. It adds Opening settings copying and corrected complete-Origin
+calculation/inspection, repaired localized title blocks with preserved metadata,
+Feature/Bend/Flat UI fixes and the documented fastener, nut and washer families.
+Clean candidate/signed smoke, 984 native factory loads, 6,830 exact
+factory comparisons, 32 packaged functional scenarios, production trust and
+all public asset downloads pass; 16,019 packaged checksums remain intact.
+Trusted 1803 offers the update without installation. Shared C++, native formats,
+Qt 6.11.0, OCCT 8.0.0 and the development BAT remain. The linked pending library
+work and Linux/GUI verification limits remain explicit.
+
+
 Signed Windows [2026101803](releases/2026101803.md#windows-publication-acceptance)
 was published at `2026-10-18T16:08:59Z` from immutable source
 `33408790b100270a770f08515ddae996f1dc7885`. Studs use the seating-plane origin, ISO 4762 sockets
