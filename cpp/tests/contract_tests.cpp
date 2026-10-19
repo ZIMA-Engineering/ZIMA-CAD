@@ -2356,6 +2356,10 @@ int main() {
         axis.direction = {0.0, 0.0, 1.0};
         auto plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
+        // This fixture requires an X-normal plane; do not infer its datum
+        // plane from the construction factory's current default.
+        plane.base_plane = zima::document::LocalDatumPlane::YZ;
+        plane.base_plane_auto = false;
         plane.display_size = 75.0;
         constructions.constructions = {point, axis, plane};
         const auto construction_mesh = constructions.construction_viewer_mesh();
@@ -2771,8 +2775,12 @@ int main() {
                 "Plane reference resolution ignored its placement/orientation split");
         auto inherited_plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
+        // A plane reference supplies its full local frame. Its normal is
+        // local X; explicitly select YZ for this parallel-plane fixture.
+        inherited_plane.base_plane = zima::document::LocalDatumPlane::YZ;
+        inherited_plane.base_plane_auto = false;
         inherited_plane.references = {
-            {{}, plane.entity_id, "plane"}};
+            {{}, plane.entity_id, "plane", 0.0, true}};
         inherited_plane.offset = 12.0;
         constructions.constructions.push_back(inherited_plane);
         constructions.resolve_constructions();
@@ -2796,8 +2804,10 @@ int main() {
                 "the container) along the inherited normal");
         auto inherited_origin_plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
+        inherited_origin_plane.base_plane = zima::document::LocalDatumPlane::YZ;
+        inherited_origin_plane.base_plane_auto = false;
         inherited_origin_plane.references = {
-            {{}, constructions.document_id + ":origin", "origin:plane:xz"}};
+            {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0, true}};
         inherited_origin_plane.offset = 6.0;
         constructions.constructions.push_back(inherited_origin_plane);
         constructions.resolve_constructions();
@@ -2821,6 +2831,8 @@ int main() {
                 "Plane did not inherit frame from the built-in Origin plane");
         auto origin_bulk_fill_plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
+        origin_bulk_fill_plane.base_plane = zima::document::LocalDatumPlane::YZ;
+        origin_bulk_fill_plane.base_plane_auto = false;
         origin_bulk_fill_plane.references = {
             {{}, constructions.document_id + ":origin", "origin:plane:xz", 0.0,
                 false, "front", true},
@@ -3026,6 +3038,11 @@ int main() {
                 {{}, constructions.document_id + ":origin", "origin:plane:yz",
                     0.0, true, "front", true, true}};
             auto origin_sketch = zima::sketcher::Sketch::create_default();
+            // Directly authored fixture: select the same XZ work plane as
+            // reference-based Sketch creation rather than default XY.
+            origin_sketch.plane = zima::sketcher::SketchPlane::XZ;
+            origin_sketch.plane_auto = false;
+            origin_sketch.refresh_default_frame();
             origin_sketch.owner_container_id = sketch_container.id;
             origin_sketch_document.history.push_back(sketch_container);
             origin_sketch_document.sketches.push_back(origin_sketch);

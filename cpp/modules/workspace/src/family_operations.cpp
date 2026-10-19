@@ -236,6 +236,12 @@ template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(con
         };
         if(primitive_definition(f.feature_kind))for(const auto& [key,value]:primitive_dimensions(f))slot(key,value);
         else for(const auto& [key,value]:feature_slots(f))slot(key,*value);
+        if(f.feature_kind==FeatureKind::Thread&&f.thread.enabled) {
+            // Catalog choices are observable in Relations, never assignable
+            // scalar substitutes for selecting a complete thread size.
+            add(f.id,"parameter:thread_designation",f.thread.nominal_diameter,false,false);
+            add(f.id,"parameter:pitch",f.thread.pitch,false,false);
+        }
         if(f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes||f.feature_kind==FeatureKind::Bend)
             for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)slot("profile_offset",sketch.plane_offset);
     };

@@ -105,6 +105,14 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     for(std::size_t i=0;i+2<mesh.triangles.size();i+=3) {
         const auto ia=mesh.triangles[i],ib=mesh.triangles[i+1],ic=mesh.triangles[i+2];
         if(ia>=vertices.size()||ib>=vertices.size()||ic>=vertices.size())continue;
+        const auto& pa=mesh.vertices[ia];const auto& pb=mesh.vertices[ib];const auto& pc=mesh.vertices[ic];
+        const double ux=pb.x-pa.x,uy=pb.y-pa.y,uz=pb.z-pa.z;
+        const double vx=pc.x-pa.x,vy=pc.y-pa.y,vz=pc.z-pa.z;
+        // OCCT pole fans can contain two coincident vertices. A collapsed
+        // 3D triangle has no facing side; counting it as back-facing invents
+        // an internal silhouette beside its valid front-facing neighbour.
+        // Do not discard genuine edge-on or merely small triangles.
+        if(uy*vz-uz*vy==0&&uz*vx-ux*vz==0&&ux*vy-uy*vx==0)continue;
         Triangle t{{vertices[ia],vertices[ib],vertices[ic]},0};
         t.indices={ia,ib,ic};
         const auto& a=t.v[0].p;const auto& b=t.v[1].p;const auto& c=t.v[2].p;

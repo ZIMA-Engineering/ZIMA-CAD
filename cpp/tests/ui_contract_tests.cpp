@@ -1306,6 +1306,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_END_PLANES_ONLY"))return verify_end_plane_picker(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_MARKERS_ONLY")){verify_point_marker_colours(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_FIELD_HEIGHTS_ONLY")) return verify_part_dialog_layout(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_FILL_ONLY")) {verify_face_fill(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}

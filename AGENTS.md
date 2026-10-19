@@ -380,6 +380,11 @@ anchored. The shared properties-window implementation owns this layout policy.
 
 ## File-format compatibility
 
+- Before changing a native document format or its required persisted contracts,
+  inform the user and agree the scope, affected library assets, conversion and
+  verification plan. Do not silently change the format: the factory library now
+  contains many authored models. This requirement was agreed on 2026-10-19.
+
 - All persistent information required by a Part, Assembly or Drawing must live
   exclusively in the native `.prtz`, `.asmz` and `.drwz` document files.
   Dependencies may refer to those native documents. Do not introduce required

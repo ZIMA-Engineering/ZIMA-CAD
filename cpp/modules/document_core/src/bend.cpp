@@ -273,6 +273,15 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
         throw std::invalid_argument("Bend endpoint offsets leave no profile width.");
     sketch.validate();
 }
+sketcher::Sketch bend_offset_dimension_display(sketcher::Sketch sketch) {
+    for(auto& dimension:sketch.dimensions) {
+        const bool endpoint=dimension.id==sketch.id+":position:first"||dimension.id==sketch.id+":position:last"||
+            dimension.id==sketch.id+":difference:first"||dimension.id==sketch.id+":difference:last";
+        if(endpoint&&dimension.placement&&std::abs((*dimension.placement)[1])==8.)
+            (*dimension.placement)[1]=-8.;
+    }
+    return sketch;
+}
 void initialize_bend_start_profile(sketcher::Sketch& sketch,double width) {
     if(!std::isfinite(width)||width<.001||!sketch.points.empty()||!sketch.segments.empty())
         throw std::invalid_argument("A new Bend needs an empty start Sketch and a positive width.");
@@ -605,7 +614,7 @@ kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sk
         {point(last?f.width:0,false,end?1:0),point(last?f.width:0,true,end?1:0)});
     for(std::size_t stage=0;stage<2;++stage) {
         if(stage==0&&p.angle_degrees==0)continue;
-        const auto source=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[stage]).viewer_mesh();
+        const auto source=bend_offset_dimension_display(sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[stage])).viewer_mesh();
         mesh.dimensions.insert(mesh.dimensions.end(),source.dimensions.begin(),source.dimensions.end());
     }
     return mesh;

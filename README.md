@@ -35,7 +35,7 @@ Signed portable releases carry their own native runtime, resources and source.
 Windows and Linux may publish independently; a Windows archive does not provide
 a Linux runtime. User configuration and projects live outside version directories.
 See [native distribution](doc/NATIVE_DISTRIBUTION.md),
-[updates](doc/UPDATES.md) and the [user manual](doc/UZIVATELSKY_MANUAL.md).
+[updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 Signed Windows [2026101103](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026101103)
 includes linked surfaces from a preceding Body, experimental solid-cutter/outward
@@ -100,7 +100,7 @@ See [native architecture](doc/CXX_ARCHITECTURE.md),
 
 Current modeling tools and interaction contracts:
 
-- [User manual](doc/UZIVATELSKY_MANUAL.md)
+- [User manual](doc/USER_MANUAL.md)
 - [Holes from Sketch segments](doc/HOLES.md)
 - [Automatic/manual work planes](doc/WORK_PLANES.md)
 - [Assembly rotation arm](doc/ASSEMBLY_ROTATION_HANDLE.md)

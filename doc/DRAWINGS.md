@@ -1,7 +1,7 @@
 # Drawings
 
 This document describes the current ZIMA-CAD Drawing data and interaction model.
-Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-workflow).
+Basic usage is also in the [user manual](USER_MANUAL.md#basic-drawing-workflow).
 
 View Properties also defines [ordered view descriptions](DRAWING_VIEW_DESCRIPTIONS.md):
 optional name, scale and parameter text rows below the view, with individual

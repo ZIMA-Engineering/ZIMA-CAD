@@ -24,6 +24,7 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
         auto* bend_action=window.findChild<QAction*>("bendAction");check(bend_action&&!bend_action->icon().isNull()&&menu->actions().contains(bend_action),"Bend missing from Sheet Metal toolbar/Insert");
         const auto bend_dialog=[&]{return window.findChild<QDialog*>("bendPropertiesDialog");};
         bend_action->trigger();flush();auto* bend=bend_dialog();check(bend&&bend->windowType()==Qt::SubWindow,"Bend properties did not open internally");
+        check(bend->windowTitle()==QObject::tr("Vlastnosti ohybu"),"Bend properties has a misleading profile title");
         auto* thickness=bend->findChild<QDoubleSpinBox*>("bendThickness");auto* override=bend->findChild<QCheckBox*>("bendThicknessOverride");
         check(thickness&&override&&!override->isChecked()&&!thickness->isEnabled()&&thickness->value()==2.,"Bend did not inherit Part thickness");
         auto* radius_override=bend->findChild<QCheckBox*>("bendRadiusOverride");
@@ -105,7 +106,27 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
         check(std::abs(definition.bend.radius-8)<1e-6&&std::abs(definition.bend.angle_degrees-45)<1e-6,"Bend inline dimensions did not update feature parameters");
         const auto extensions=document::bend_profile_extensions(definition);
         check(std::abs(extensions[0]-3)<1e-6&&std::abs(extensions[1]-10)<1e-6,"Endpoint difference edits did not persist");
+        std::vector<sketcher::Sketch> dimension_profiles{edited_bend.sketches.front()};
+        for(const auto& data:definition.bend.auxiliary_sketches)dimension_profiles.push_back(sketcher::Sketch::from_serialized(data));
+        int outside_offsets=0;
+        const auto& displayed=dynamic_cast<viewer::MeshView*>(model_view)->mesh().dimensions;
+        for(const auto& profile:dimension_profiles)for(const auto& expected:document::bend_offset_dimension_display(profile).viewer_mesh().dimensions) {
+            if(expected.reference.semantic_key.find(":position:")==std::string::npos&&expected.reference.semantic_key.find(":difference:")==std::string::npos)continue;
+            const auto matches=std::ranges::count_if(displayed,[&](const auto& d){return d.reference==expected.reference;});
+            check(matches==1,"Bend offset must appear exactly once in inspection");
+            const auto actual=std::ranges::find(displayed,expected.reference,&kernel::ViewerDimension::reference);
+            const auto gap=std::hypot(actual->line_first.x-expected.line_first.x,actual->line_first.y-expected.line_first.y,actual->line_first.z-expected.line_first.z);
+            if(gap>1e-6)
+                std::cerr<<"Bend offset mismatch "<<expected.reference.semantic_key<<" actual="<<actual->line_first.x<<','<<actual->line_first.y<<','<<actual->line_first.z<<" expected="<<expected.line_first.x<<','<<expected.line_first.y<<','<<expected.line_first.z<<'\n';
+            check(gap<1e-6,"Bend offset is on the old side in inspection");
+            ++outside_offsets;
+        }
+        check(outside_offsets==4,"Bend inspection must show all four outside offsets");
         window.grab().save("build/bend-three-sketch-view.png");
+        auto* annotation_view=dynamic_cast<viewer::MeshView*>(model_view);
+        annotation_view->set_standard_view(viewer::StandardView::Isometric);annotation_view->fit_all();flush();
+        QEventLoop annotation_animation;QTimer::singleShot(950,&annotation_animation,&QEventLoop::quit);annotation_animation.exec();
+        window.grab().save(QString::fromStdString((directory/"bend-offsets-isometric.png").string()));
         check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
         check(!model_view->findChild<QPushButton*>("bendViewStateButton"),"Obsolete Bend state button appeared after inspection");
         // Exercise attached Flat through the real preview/Sketcher/commit path.
@@ -175,12 +196,35 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
         const auto attached=flat->pending_value();
         check(attached.second.references.size()==3&&attached.first.external_references.size()==2,
             "Sheet Profile edge did not auto-fill Flat references and external endpoints");
-        check(flat->mutate_sketch(attached.first.id,[](auto& s) {
-            const auto a=s.external_references[0].cached_points.front(),b=s.external_references[1].cached_points.front();
-            static_cast<void>(s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12));
-        }),"Cannot draw attached Flat rectangle");
+        check(attached.first.segments.size()==4&&attached.first.points.size()==4&&attached.first.dimensions.size()==1,
+            "Attached Flat did not prepare its default rectangle");
+        check(std::abs(attached.first.dimensions.front().value-50)<1e-8&&attached.first.dimensions.front().driving,
+            "Attached Flat did not prepare a driving 50 mm height");
+        check(flat->mutate_sketch(attached.first.id,[&](auto& s) {
+            for(double height:{75.,25.,12.})check(s.set_dimension_value(s.dimensions.front().id,height),"Cannot edit attached Flat height");
+        }),"Cannot edit attached Flat rectangle");
         flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();
         check(!flat->isVisible(),"Attached Flat did not enter Sketcher");
+        QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+        for(double value:{75.,25.,12.}) {
+            const auto& dimensions=flat_view->mesh().dimensions;
+            const auto shown=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==attached.first.id&&
+                d.reference.semantic_key=="dimension:"+attached.first.dimensions.front().id;});
+            check(shown!=dimensions.end(),"Prepared Flat height is missing in Sketcher");
+            viewer::ViewerCandidate c;c.kind=viewer::CandidateKind::Dimension;c.owner_id=shown->reference.owner_id;
+            c.semantic_key=shown->reference.semantic_key;c.geometry_index=std::distance(dimensions.begin(),shown);
+            const auto position=flat_view->candidate_dimension_label_position(c);check(position.has_value(),"Prepared Flat height label is missing");
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease,QEvent::MouseButtonDblClick}) {
+                QMouseEvent event(type,QPointF(*position),QPointF(flat_view->mapToGlobal(*position)),Qt::LeftButton,
+                    type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(flat_view,&event);flush();
+            }
+            auto* editor=flat_view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor,"Prepared Flat height mouse editor did not open");
+            editor->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+            check(flat_view->candidate_dimension_value(c)&&std::abs(*flat_view->candidate_dimension_value(c)-value)<1e-8,"Prepared Flat mouse edit failed");
+            window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(flat_view->candidate_dimension_value(c)&&std::abs(*flat_view->candidate_dimension_value(c)-value)<1e-8,"Prepared Flat height Undo/Redo failed");
+        }
         for(const auto& ref:attached.first.external_references) {
             check(app::workspace_detail::sketch_external_reference_id_from_key("external_point:"+ref.id)==ref.id,
                 "External Flat endpoint key was truncated during snapping");
@@ -196,6 +240,25 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
         const auto attached_part=document::PartDocument::load(bend_path);
         check(attached_part.history.size()==2&&attached_part.history.back().flat.sheet_attachment,
             "Workspace did not persist attached Flat");
+        const auto& saved_profile=*std::ranges::find(attached_part.sketches,attached.first.id,&sketcher::Sketch::id);
+        check(saved_profile.dimensions.size()==1&&std::abs(saved_profile.dimensions.front().value-12)<1e-8,
+            "Prepared Flat height did not persist");
+        auto equations=saved_profile;check(equations.solve().remaining_degrees_of_freedom==0&&equations.solve().maximum_residual<1e-8,
+            "Saved prepared Flat is not fully constrained");
+        const auto before_cancel=window.execute_console_command("documents").data;
+        flat_action->trigger();flush();flat=flat_dialog();check(flat,"Second attached Flat did not open");
+        check(flat->set_reference(0,{flat_edge->reference.instance_path,flat_edge->reference.owner_id,flat_edge->reference.semantic_key},"Bend end"),
+            "Second Flat attachment failed");flush();
+        check(flat->pending_value().first.segments.size()==4,"Second Flat was not seeded before Cancel");
+        flat->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(window.execute_console_command("documents").data==before_cancel,"Cancelling seeded Flat changed the document");
+        QTreeWidgetItem* flat_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==attached_part.history.back().id&&
+            (*it)->data(0,Qt::UserRole+3)=="part-container"){flat_row=*it;break;}
+        check(flat_row,"Saved Flat Tree row missing");window.show_tree_item_properties(flat_row);flush();flat=flat_dialog();
+        check(flat&&std::abs(flat->pending_value().first.dimensions.front().value-12)<1e-8,
+            "Editing an existing Flat replaced its authored height");
+        flat->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         std::cout<<"Arc-only Bend and attached Flat UI passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

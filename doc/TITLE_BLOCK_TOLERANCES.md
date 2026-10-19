@@ -31,3 +31,29 @@ Factory regeneration uses the native symbol catalog and projection generators,
 then `zima_cpp_symbol_integration_tests --update-factory`. The update refreshes
 embedded definitions and editable title fields and saves the native start
 templates. Existing user Drawing files retain their embedded title blocks.
+
+## ISO 13715 indication geometry
+
+The five language Sketches each contain one editable ISO 13715 symbol instance.
+The English, German, French and Russian source templates previously retained
+sixteen authored lines from the superseded edge indication alongside that
+instance. The Czech source had already removed these lines. This caused two
+different indications to overlap within one title block; it was not a second
+title-block insertion.
+
+`zima_cpp_symbol_integration_tests --update-edge-geometry` removes only those
+identified obsolete lines without refreshing unrelated symbol definitions or
+start templates. The native Family tool regenerates the shared title block.
+Its regression checks reject
+their return in every Sketch and require one ISO 13715 instance per language.
+The Windows native checks cover all five variants, A4-to-A3 format changes,
+reinsertion without accumulating symbols or strokes, variant switching and
+Drawing save/reopen. Existing user Drawings retain their embedded definition;
+explicitly reinserting the corrected factory title block replaces it. Linux
+execution has not been verified for this change. No persistent format or UI
+translation keys change.
+
+The focused Drawing renderer check (`ZIMA_VERIFY_TITLE_BLOCK_EDGES` with
+`zima-cad-drawing-harness --verify-ui`) saves and reopens each language Drawing,
+then exports a title-block PNG and a native PDF. All five Windows renders were
+visually checked on 2026-10-19; the obsolete overlapping strokes are absent.

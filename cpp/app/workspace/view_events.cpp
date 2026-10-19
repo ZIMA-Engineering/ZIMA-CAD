@@ -2,9 +2,46 @@
 #include <zima/ui/operation_activity.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/document/relation_program.hpp>
+#include <zima/workspace/opening_copy.hpp>
+#include <QClipboard>
+#include <QMimeData>
 
 namespace zima::app {
 using namespace workspace_detail;
+
+void AssemblyWorkspaceWindow::copy_selected_opening() {
+    if(properties_dialog_||!active_sketch_id_.empty())return;
+    opening_clipboard_.reset();
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(!part)return;
+    std::string id;
+    if(viewer_->hasFocus()) {
+        const auto candidate=viewer_->confirmed_candidate();
+        if(!candidate||candidate->instance_path!=workspace_.active_occurrence_path())return;
+        id=candidate->owner_id;
+    } else {
+        const auto selected=tree_->selectedItems();
+        if(selected.size()!=1||!tree_item_context_menu_enabled(selected.front()))return;
+        id=selected.front()->data(0,Qt::UserRole).toString().toStdString();
+    }
+    const auto* source=part->session.document().find_container(id);
+    if(!source||source->feature_kind!=zima::document::FeatureKind::Thread||!part_element_context_menu_enabled(id))return;
+    opening_clipboard_=zima::workspace::copy_opening_settings(*source);
+    auto* mime=new QMimeData;
+    mime->setData("application/x-zima-opening-settings-token",QByteArray::fromStdString(opening_clipboard_->id));
+    QApplication::clipboard()->setMimeData(mime);
+    state_->setText(tr("Nastavení otvoru zkopírováno."));
+}
+
+void AssemblyWorkspaceWindow::paste_copied_opening() {
+    if(properties_dialog_||!active_sketch_id_.empty()||!opening_clipboard_||!thread_action_->isEnabled())return;
+    if(!workspace_.open_part(workspace_.active_document_id()))return;
+    const auto* mime=QApplication::clipboard()->mimeData();
+    if(!mime||mime->data("application/x-zima-opening-settings-token")!=QByteArray::fromStdString(opening_clipboard_->id))return;
+    opening_paste_seed_=*opening_clipboard_;
+    show_primitive_properties(zima::document::FeatureKind::Thread);
+    opening_paste_seed_.reset();
+}
 
 
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {

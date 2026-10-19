@@ -824,6 +824,136 @@ int main() {
         }
         {
             using namespace zima::sketcher;
+            std::ifstream tab_input(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/tab-washer-tangent-outline.json");
+            const std::string tab_text((std::istreambuf_iterator<char>(tab_input)),{});
+            for(int rotation=0;rotation<4;++rotation)for(bool locked:{false,true})for(bool reverse:{false,true}) {
+                auto tab=Sketch::from_serialized(tab_text);
+                const auto axis=[](std::string& id){if(id=="sketch_axis:x")id="sketch_axis:y";else if(id=="sketch_axis:y")id="sketch_axis:x";};
+                for(int turn=0;turn<rotation;++turn) {
+                    for(auto& p:tab.points){const double x=p.x;p.x=-p.y;p.y=x;}
+                    for(auto& a:tab.arcs){a.start_angle+=std::numbers::pi/2;a.end_angle+=std::numbers::pi/2;}
+                    for(auto& c:tab.constraints) {
+                        if(c.kind==ConstraintKind::Horizontal)c.kind=ConstraintKind::Vertical;
+                        else if(c.kind==ConstraintKind::Vertical)c.kind=ConstraintKind::Horizontal;
+                        axis(c.geometry_id);axis(c.second_geometry_id);
+                    }
+                    for(auto& d:tab.dimensions) {
+                        if(d.kind==DimensionKind::DistanceX)d.kind=DimensionKind::DistanceY;
+                        else if(d.kind==DimensionKind::DistanceY){d.kind=DimensionKind::DistanceX;d.value=-d.value;}
+                        axis(d.geometry_id);axis(d.second_geometry_id);
+                    }
+                }
+                if(reverse)std::ranges::reverse(tab.constraints);
+                for(auto& d:tab.dimensions)d.locked=locked;
+                const auto verify=[&] {
+                    tab.validate();const auto solved=tab.solve();
+                    require(solved.maximum_residual<1e-8&&solved.remaining_degrees_of_freedom==0,"Tab outline lost a driving equation");
+                    for(const auto& a:tab.arcs)for(const auto& id:{a.start_point_id,a.end_point_id}) {
+                        const auto* p=tab.find_point(id);const auto* c=tab.find_point(a.center_point_id);
+                        require(std::abs(std::hypot(p->x-c->x,p->y-c->y)-a.radius)<1e-8,"Tab arc endpoint escaped its circle");
+                    }
+                    tab=Sketch::from_serialized(tab.serialized());
+                };
+                verify();
+                const auto drivers=tab.dimensions;
+                for(const auto& d:drivers)for(double factor:{1.02,1.04,1.}) {
+                    require(tab.set_dimension_value(d.id,d.value*factor),"Tangent tab rejected a feasible numeric edit");verify();
+                }
+                for(const auto& p:tab.points) {
+                    auto dragged=tab;static_cast<void>(dragged.move_point(p.id,p.x+.3,p.y-.2));
+                    const auto checked=dragged.solve();require(checked.maximum_residual<1e-8&&checked.remaining_degrees_of_freedom==0,"Dragging escaped a fully constrained tab");
+                    // Unlocked driving dimensions are direct-manipulation
+                    // handles; their values may follow dragging. Locked
+                    // dimensions must preserve the entire solved profile.
+                    for(const auto& before:tab.points) {
+                        const auto* after=dragged.find_point(before.id);
+                        if(locked&&std::hypot(after->x-before.x,after->y-before.y)>=1e-7)throw std::runtime_error(
+                            "Fully constrained tab moved during dragging: rotation="+std::to_string(rotation)+
+                            " locked="+std::to_string(locked)+" displacement="+
+                            std::to_string(std::hypot(after->x-before.x,after->y-before.y)));
+                    }
+                }
+            }
+            std::cout<<"16 tangent tab cases: rotated axes, constraint order, locked drivers, repeated values, dragging and reopen passed\n";
+            std::ifstream input(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/external-circular-support-cutter.json");
+            const std::string text((std::istreambuf_iterator<char>(input)),{});
+            const auto baseline=Sketch::from_serialized(text);
+            require(baseline.circles.empty()&&baseline.arcs.empty()&&baseline.external_references.size()==2,
+                "External-circle regression must not rely on a native circle proxy");
+            for(const bool swap_axes:{false,true})for(const bool reverse_sources:{false,true})for(const bool locked:{false,true}) {
+                auto profile=baseline;
+                if(swap_axes) {
+                    for(auto& p:profile.points)std::swap(p.x,p.y);
+                    const auto axis=[](std::string& id){if(id=="sketch_axis:x")id="sketch_axis:y";else if(id=="sketch_axis:y")id="sketch_axis:x";};
+                    for(auto& c:profile.constraints) {
+                        if(c.kind==ConstraintKind::Horizontal)c.kind=ConstraintKind::Vertical;
+                        else if(c.kind==ConstraintKind::Vertical)c.kind=ConstraintKind::Horizontal;
+                        axis(c.geometry_id);axis(c.second_geometry_id);
+                    }
+                    for(auto& d:profile.dimensions) {
+                        if(d.kind==DimensionKind::DistanceX)d.kind=DimensionKind::DistanceY;
+                        else if(d.kind==DimensionKind::DistanceY)d.kind=DimensionKind::DistanceX;
+                        axis(d.geometry_id);axis(d.second_geometry_id);
+                    }
+                    for(auto& r:profile.external_references) {
+                        for(auto& p:r.cached_points)std::swap(p[0],p[1]);
+                        for(auto& path:r.cached_paths)for(auto& p:path)std::swap(p[0],p[1]);
+                    }
+                }
+                if(reverse_sources)std::ranges::reverse(profile.external_references);
+                for(auto& d:profile.dimensions)d.locked=locked;
+                std::vector<std::pair<std::string,std::string>> identities;
+                for(const auto& r:profile.external_references)identities.emplace_back(r.id,r.source_semantic_key);
+                const auto verify=[&](double angle) {
+                    const auto solved=profile.solve();require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,
+                        "Refreshed external circles did not solve the coupled native cutter");
+                    for(const auto& c:profile.constraints)if(c.kind==ConstraintKind::PointOnCircle) {
+                        const auto r=std::ranges::find(profile.external_references,c.geometry_id,&SketchExternalReference::id);
+                        const auto circle=external_reference_circle(*r);const auto* p=profile.find_point(c.first_point_id);
+                        require(circle&&std::abs(std::hypot(p->x-(*circle)[0],p->y-(*circle)[1])-(*circle)[2])<1e-8,
+                            "Native anchor escaped the read-only external circle");
+                    }
+                    for(const auto& segment:profile.segments)if(!segment.construction)for(const auto& id:{segment.first_point_id,segment.second_point_id}) {
+                        const auto* p=profile.find_point(id);const double x=swap_axes?p->y:p->x,y=swap_axes?p->x:p->y;
+                        require(std::abs(std::abs(std::atan2(y,x)*180/std::acos(-1.))-angle)<1e-7,
+                            "Refreshed cutter corner lost its angular ray");
+                    }
+                    for(const auto& [id,key]:identities)require(std::ranges::any_of(profile.external_references,[&](const auto& r){return r.id==id&&r.source_semantic_key==key&&!r.broken;}),
+                        "Source refresh changed external reference identity");
+                };
+                for(const auto radii:std::array<std::array<double,2>,3>{{{1.65,2.55},{1.45,2.65},{1.55,2.55}}}) {
+                    zima::kernel::ViewerReferenceGeometry geometry;
+                    for(const auto& r:profile.external_references) {
+                        const auto original=std::ranges::find(baseline.external_references,r.id,&SketchExternalReference::id);
+                        const auto circle=external_reference_circle(*original);const double radius=radii[(*circle)[2]<2?0:1];
+                        zima::kernel::ViewerEdge edge;edge.reference={r.source_owner_id,r.source_semantic_key,{}};
+                        for(int i=0;i<=64;++i) {const double a=2*std::acos(-1.)*i/64;edge.points.push_back({radius*std::cos(a),radius*std::sin(a),.2});}
+                        geometry.edges.push_back(std::move(edge));
+                    }
+                    require(profile.refresh_external_references(profile.external_references.front().source_document_id,geometry),
+                        "External circle radius change was not refreshed");verify(5);
+                    for(const double angle:{7.,3.,5.}) {
+                        const auto d=std::ranges::find(profile.dimensions,DimensionKind::AngleBetween,&SketchDimension::kind);
+                        require(profile.set_dimension_value(d->id,angle),"Refreshed external cutter rejected a feasible angle edit");verify(angle);
+                    }
+                    const auto sources=profile.external_references;
+                    auto dragged=profile;
+                    for(const auto& p:profile.points)for(const auto delta:std::array<std::array<double,2>,3>{{{.2,.3},{-.3,.1},{.1,-.2}}}) {
+                        static_cast<void>(dragged.move_point(p.id,p.x+delta[0],p.y+delta[1]));
+                        require(dragged.solve().maximum_residual<1e-8&&dragged.external_references==sources,
+                            "Dragging the refreshed cutter changed its equations or external source");
+                        if(locked)for(const auto& original:profile.points) {
+                            const auto* current=dragged.find_point(original.id);
+                            require(std::hypot(current->x-original.x,current->y-original.y)<1e-7,"Locked external cutter escaped during dragging");
+                        }
+                    }
+                    profile=Sketch::from_serialized(profile.serialized());verify(5);
+                }
+            }
+            std::cout<<"External-circle-only cutter: 8 axis/order/lock variants, 24 source refreshes, 72 angle edits, repeated drags and serialized reopen passed\n";
+        }
+        {
+            using namespace zima::sketcher;
             auto profile=Sketch::create_default();
             auto edge=Sketch::create_external_reference(ExternalReferenceKind::Edge);
             edge.source_document_id="source";edge.source_owner_id="feature";edge.source_semantic_key="profile-edge";
@@ -3764,6 +3894,78 @@ int main() {
                     std::abs(fixed_merge.find_point(fixed_node_id)->y - 9.0) <
                         1.0e-9,
                 "Point merge did not preserve the fixed topology node");
+        // A profile endpoint can acquire the indirect support of an origin-
+        // anchored centreline. Selection order must not add a hidden fixed
+        // coordinate to the surviving native point (socket-mouth regression).
+        for (const bool reverse : {false,true})
+        for (const bool swap_axes : {false,true})
+        for (const double sx : {-1.,1.})
+        for (const double sy : {-1.,1.})
+        for (const bool external : {false,true})
+        for (const int dimension_state : {0,1,2}) {
+            using namespace zima::sketcher;
+            auto joined=Sketch::create_default();
+            const auto xy=[&](double x,double y) {
+                return swap_axes?std::array{sy*y,sx*x}:std::array{sx*x,sy*y};
+            };
+            const auto a=xy(.067,4),b=xy(1.74,4),c=xy(.067,2.327),o=xy(0,0),e=xy(0,4);
+            const auto top=joined.add_segment(a[0],a[1],b[0],b[1]);
+            const auto diagonal=joined.add_segment(b[0],b[1],c[0],c[1]);
+            const auto upright=joined.add_segment(c[0],c[1],a[0],a[1]);
+            const auto profile=joined.segments.front().first_point_id;
+            const auto corner=joined.segments.front().second_point_id;
+            const auto axis=joined.add_segment(o[0],o[1],e[0],e[1]);
+            joined.segments.back().construction=true;joined.segments.back().centerline=true;
+            const auto origin=joined.segments.back().first_point_id;
+            const auto endpoint=joined.segments.back().second_point_id;
+            static_cast<void>(joined.add_point_reference_constraint(origin,"sketch_origin"));
+            static_cast<void>(joined.add_segment_constraint(axis,swap_axes?ConstraintKind::Horizontal:ConstraintKind::Vertical));
+            static_cast<void>(joined.add_segment_constraint(top,swap_axes?ConstraintKind::Vertical:ConstraintKind::Horizontal));
+            static_cast<void>(joined.add_segment_constraint(upright,swap_axes?ConstraintKind::Horizontal:ConstraintKind::Vertical));
+            const auto equal=joined.add_segment_pair_constraint(top,upright,ConstraintKind::EqualLength);
+            if(external) {
+                auto support=Sketch::create_external_reference(ExternalReferenceKind::Point);
+                support.source_document_id="socket-source";support.source_owner_id="socket-feature";
+                support.source_semantic_key="socket-rim-vertex";support.cached_points={b};
+                const auto id=support.id;joined.add_external_reference(support);
+                static_cast<void>(joined.add_point_reference_constraint(corner,id));
+            } else joined.find_point(corner)->fixed=true;
+            if(dimension_state) {
+                auto dimension=joined.create_segment_dimension(axis);
+                dimension.driving=dimension_state==2;dimension.locked=dimension_state==2;
+                joined.apply_dimension(dimension);
+            }
+            const auto sources=joined.external_references;
+            const auto survivor=joined.merge_points(reverse?endpoint:profile,reverse?profile:endpoint);
+            require(survivor==(reverse?endpoint:profile),"Indirect support changed first-selected point identity");
+            const auto solved=joined.solve();
+            require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Indirect centreline merge did not solve");
+            require(joined.points.size()==4&&joined.find_point(reverse?profile:endpoint)==nullptr,"Centreline junction did not become one native point");
+            require(std::hypot(joined.find_point(survivor)->x-e[0],joined.find_point(survivor)->y-e[1])<1e-8,"Centreline junction missed its supported position");
+            require(joined.external_references==sources,"Merge changed a read-only external source");
+            for(const auto delta:std::array<std::array<double,2>,3>{{{.2,.3},{-.3,.1},{.1,-.2}}}) {
+                static_cast<void>(joined.move_point(survivor,e[0]+delta[0],e[1]+delta[1]));
+                require(std::hypot(joined.find_point(survivor)->x-e[0],joined.find_point(survivor)->y-e[1])<1e-8,"Fully constrained centreline junction escaped during dragging");
+                require(joined.solve().maximum_residual<1e-8&&joined.external_references==sources,"Repeated merge drag changed equations or source");
+            }
+            const auto restored=Sketch::from_serialized(joined.serialized());
+            require(restored.find_point(survivor)&&restored.external_references==sources,"Native merge reopen lost point or external identity");
+            auto editable=joined;editable.remove_constraint(equal);
+            require(editable.solve().remaining_degrees_of_freedom==1,"Removing equal legs did not expose the expected editable degree of freedom");
+            const auto lower=std::ranges::find(editable.segments,upright,&SketchSegment::id)->first_point_id;
+            const auto before=*editable.find_point(lower);const auto drag=xy(0,.2);
+            require(editable.move_point(lower,before.x+drag[0],before.y+drag[1]),"Underconstrained merged profile could not be dragged");
+            require(std::hypot(editable.find_point(lower)->x-before.x,editable.find_point(lower)->y-before.y)>.1,"Merged profile drag reported success without movement");
+            auto leg=editable.create_segment_dimension(upright);editable.apply_dimension(leg);
+            for(const double length:{1.2,1.6,1.74}) {
+                require(editable.set_dimension_value(leg.id,length),"Merged profile rejected a feasible successive dimension edit");
+                const auto* a=editable.find_point(survivor);const auto* b=editable.find_point(lower);
+                require(std::abs(std::hypot(a->x-b->x,a->y-b->y)-length)<1e-8,"Merged profile dimension did not match actual geometry");
+                require(editable.solve().maximum_residual<1e-8&&editable.external_references==sources,"Merged profile edit changed its external source or equations");
+                require(std::hypot(a->x-e[0],a->y-e[1])<1e-8,"Editing the merged profile moved its supported junction");
+            }
+            static_cast<void>(diagonal);
+        }
         auto collapsing_merge = zima::sketcher::Sketch::create_default();
         const auto collapsing_segment =
             collapsing_merge.add_segment(0.0, 0.0, 5.0, 0.0);

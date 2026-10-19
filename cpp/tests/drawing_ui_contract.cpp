@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cmath>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/solid_state_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -440,6 +441,23 @@ int verify_drawing_source_picker() {
 }
 int verify_drawing_ui() {
     try {
+        if(const auto output=qEnvironmentVariable("ZIMA_VERIFY_TITLE_BLOCK_EDGES");!output.isEmpty()) {
+            const auto directory=std::filesystem::path(output.toStdString());std::filesystem::create_directories(directory);
+            for(const auto* language:{"CS","EN","DE","FR","RU"}) {
+                auto document=zima::drawing::DrawingDocument::create_default();auto& sheet=document.sheets.front();
+                zima::workspace::load_drawing_template(document,sheet.id,"config/formats/ZE-TITLE-BLOCK.tblz",true,nullptr,{},std::string("ze-title-block-variant-")+language);
+                const auto path=directory/(std::string(language)+".drwz");document.save(path);
+                document=zima::drawing::DrawingDocument::load(path);
+                const auto& reopened=document.sheets.front();
+                zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&reopened);
+                constexpr double zoom=6.;
+                QImage image(qCeil(reopened.width_mm()*zoom+20),qCeil(reopened.height_mm()*zoom+20),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);
+                {QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);renderer.paint_sheet(painter,zoom,{10,10},true);}
+                require(image.copy(image.width()-1180,image.height()-550,1180,550).save(QString::fromStdString((directory/(std::string(language)+".png")).string())),"Title-block render save failed");
+                zima::drawing_render::export_pdf(document,directory/(std::string(language)+".pdf"),path,nullptr,true);
+            }
+            std::cout<<"Five native title-block language renders and PDF exports passed\n";return 0;
+        }
         if(const auto input=qEnvironmentVariable("ZIMA_VERIFY_SOLID_STATE_DRAWING");!input.isEmpty()) {
             const auto path=std::filesystem::path(input.toStdWString());
             auto drawing=zima::drawing::DrawingDocument::load(path);

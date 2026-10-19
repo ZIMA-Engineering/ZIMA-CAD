@@ -22,23 +22,36 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
     double configured_cut_tolerance=.025;
-    options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
+    const auto templates=dir/"configured-templates";fs::create_directory(templates);
+    auto authored=document::PartDocument::load("config/templates/START_PART_mm.prtz");
+    authored.user_parameters["import_custom"]="Template-owned value";
+    authored.user_parameter_order.push_back("import_custom");
+    authored.user_parameter_labels["import_custom"]={{"cs","Vlastní údaj"},{"en","Custom field"},{"de","Eigenes Feld"},{"fr","Champ personnalisé"},{"ru","Дополнительное поле"}};
+    authored.user_parameter_values["import_custom"]={{"","Template-owned value"}};
+    for(const auto* key:{"name","standard","stock","mass"}) {
+        authored.user_parameters[key]="Template-specific value";
+        authored.user_parameter_values[key]={{"","Template-specific value"},{"cs","Vzorový údaj"}};
+    }
+    authored.save(templates/"CUSTOM_START.prtz");
+    options.settings=[&] {return command_host::Settings{{templates,"CUSTOM_START.prtz",fs::absolute("config/templates/START_ASSEMBLY_mm.asmz"),"Body",configured_cut_tolerance},{{"Length","cm"}}};};
     command_host::Host host(live,kernel,dir,options);
-    const auto expected_material=document::load_material_library("config/materials/01_steels/structural/S235JR.matz");
     const auto verify_defaults=[&](const document::PartDocument& doc) {
         auto template_part=workspace::part_from_template(options.settings().templates);
-        template_part.physical_parameters=expected_material.properties;
-        template_part.physical_parameter_units=expected_material.units;
         template_part.document_units=doc.document_units;
-        // Import preserves authored template values; only explicit Regenerate
-        // evaluates Relations, including the physical-property expressions.
+        for(const auto* key:{"name","standard","stock","material","mass"}) {
+            const std::string value=std::string_view(key)=="name"?doc.name:std::string{};
+            template_part.user_parameters[key]=value;
+            template_part.user_parameter_values[key]={{"",value}};
+        }
+        // Preserve configured definitions and unrelated authored defaults, but
+        // never attach a template's product identity or material to an import.
         require(doc.relations==template_part.relations,"Imported Part lost template parameter relations");
         require(doc.user_parameters==template_part.user_parameters,"Imported Part template parameter values differ");
         require(doc.user_parameter_order==template_part.user_parameter_order,"Imported Part template parameter order differs");
         require(doc.user_parameter_labels==template_part.user_parameter_labels,"Imported Part template parameter labels differ");
         require(doc.user_parameter_values==template_part.user_parameter_values,"Imported Part template localized values differ");
-        require(doc.physical_parameters==expected_material.properties&&doc.physical_parameter_units==expected_material.units&&
-            doc.material_parameter_descriptions==expected_material.descriptions,"Imported Part did not persist S235JR material");
+        require(doc.physical_parameters.empty()&&doc.physical_parameter_units.empty()&&doc.material_parameter_descriptions.empty(),"Imported Part invented a physical material");
+        require(doc.user_parameters.at("import_custom")=="Template-owned value","Import bypassed the configured custom start Part");
     };
     kernel::StepProduct part;part.definition_id="part";part.name="Block";part.body=zima::test::profile_body(kernel,{10,20,30});
     auto second=part;second.name="Block 2";second.translation={50,0,0};
@@ -75,6 +88,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     }
     const auto part_id=result.at("parts")[0].get<std::string>();
     auto* imported_part=live.open_part(part_id);require(imported_part->session.document().document_units.at("Length")=="cm","Imported Part lost owner units");
+    live.activate(part_id);live.display_top_level(part_id);run(host,"regenerate");
+    require(imported_part->session.document().user_parameters.at("mass").empty(),"Unknown material produced a fictitious mass");
+    require(!document::material_density_kg_mm3(imported_part->session.document()),"Unknown imported material retained a density");
+    live.activate(owner);live.display_top_level(owner);
     require(document::sheet_cut_tolerance(imported_part->session.document().document_precision)==.025,
         "STEP Part did not snapshot the configured Sheet Cut tolerance");
     for(const auto& [key,value]:target->session.document().document_precision)

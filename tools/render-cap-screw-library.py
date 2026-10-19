@@ -19,12 +19,15 @@ def reference(native,v,source,target):
     native.run('new',type='drawing',name=target.stem)
     sheet=native.run('drawing.sheet.list')['items'][0];sid=sheet['sheet'];width=sheet['width_mm'];height=sheet['height_mm']
     d,l,k,dk=[v[key] for key in ('diameter_mm','length_mm','head_height_mm','head_diameter_mm')]
-    scale=min(100/(l+k),32/dk)
+    scale=min((88 if 'dh' in v else 100)/(l+k),(28 if 'dh' in v else 32)/dk)
     view=native.run('drawing.view.create',sheet=sid,source=identifier,
         camera=dict(horizontal=[0,0,1],vertical=[0,1,0],depth=[1,0,0]),
-        x_mm=width-(30+k*scale),y_mm=height-55,scale=scale,display_style='hidden_edges')['view']
+        x_mm=width-((38 if 'dh' in v else 30)+k*scale),y_mm=height-55,scale=scale,display_style='hidden_edges')['view']
     end=native.run('drawing.view.create',sheet=sid,parent_view=view,projection_direction='right',
         distance_mm=l*scale+22+dk*scale/2,scale=scale,display_style='hidden_edges')['view']
+    # Explicitly edit the inherited style for the drive end illustration:
+    # hidden shaft/thread circles otherwise obscure the actual drive contour.
+    native.run('drawing.view.set',view=end,display_style='visible_edges')
     curves=native.run('drawing.view.references',view=view,kind='curve')['items'];circles=[r for r in curves if r.get('circle')]
     def circle(z,radius=None):
         candidates=[r for r in circles if abs(r['circle']['center'][2]-z)<1e-6 and
@@ -42,11 +45,39 @@ def reference(native,v,source,target):
         rim=circle(z,radius)
         linear(symbol,[art.attachment(rim,'curve_point',.25),art.attachment(rim,'curve_point',.75)],[x,0],'vertical',2*radius)
     floor=-k+v['drive_depth_mm']
-    edges=[r for r in curves if r.get('line') and abs(r['first'][2]-floor)<1e-6 and abs(r['last'][2]-floor)<1e-6]
+    edges=[r for r in curves if (r.get('line') or r.get('circle')) and abs(r['first'][2]-floor)<1e-6 and abs(r['last'][2]-floor)<1e-6]
     assert edges,'Drive floor boundary is missing'
-    linear('t',[art.attachment(circle(-k)),art.attachment(edges[0],'curve_point',.5)],[-k+v['drive_depth_mm']/2,dk/2+8/scale],
+    linear('t1' if 'dh' in v else 't',[art.attachment(circle(-k)),art.attachment(edges[0],'curve_point',.5)],[-k+v['drive_depth_mm']/2,dk/2+8/scale],
         'horizontal',v['drive_depth_mm'])
     end_curves=native.run('drawing.view.references',view=end,kind='curve')['items']
+    if 'dh' in v:
+        pilot=circle(-k+v['t2'],v['dh']/2)
+        linear('t2',[art.attachment(circle(-k)),art.attachment(pilot)],[-k+v['t2']/2,dk/2+14/scale],'horizontal',v['t2'])
+        linear('dh',[art.attachment(pilot,'curve_point',.25),art.attachment(pilot,'curve_point',.75)],[-k-14/scale,0],'vertical',v['dh'])
+    if 'socket_no' in v:
+        a,b=v['A'],v['B'];re=.1*a;c=a/2-re;cs=math.cos(math.pi/6)
+        ri=(re*re-c*c-(b/2)**2+2*c*(b/2)*cs)/(b-2*c*cs-2*re)
+        def lobe(cx,cy,radius):
+            candidates=[r for r in end_curves if r.get('circle') and
+                abs(r['circle']['center'][0]-cx)<1e-6 and abs(r['circle']['center'][1]-cy)<1e-6 and
+                abs(r['circle']['radius_mm']-radius)<1e-6 and abs(r['first'][2]-floor)<1e-6 and abs(r['last'][2]-floor)<1e-6]
+            assert candidates,(cx,cy,radius)
+            return min(candidates,key=lambda r:len(r['key']))
+        linear('A',[art.attachment(lobe(0,y,re),'curve_point',.5) for y in (-c,c)],
+            [dk/2+7/scale,0],'vertical',a,owner=end)
+        linear('B',[art.attachment(lobe(x,0,ri),'curve_point',.5) for x in (-b/2-ri,b/2+ri)],
+            [0,dk/2+8/scale],'horizontal',b,owner=end)
+    else:
+        drive_dimensions(native,v,end_curves,floor,dk,scale,end,linear)
+    for dim in native.run('drawing.dimension.list',sheet=sid)['items']:
+        assert dim['state']=='resolved',dim
+        symbol=next(k for k,value in dimensions.items() if value==dim['dimension'])
+        assert abs(dim['measurements'][0]['value']-expected[symbol])<1e-6,(symbol,dim)
+    native.run('save_as',path=str(target));native.run('close',discard=True);native.run('close')
+    return sid,expected
+
+
+def drive_dimensions(native,v,end_curves,floor,dk,scale,end,linear):
     sides=[]
     for y in (-v['drive_width_mm']/2,v['drive_width_mm']/2):
         candidates=[r for r in end_curves if r.get('line') and abs(r['first'][1]-y)<1e-6 and abs(r['last'][1]-y)<1e-6
@@ -61,12 +92,6 @@ def reference(native,v,source,target):
         left=min(vertices,key=lambda item:item[2][0]);right=max(vertices,key=lambda item:item[2][0])
         linear('e',[art.attachment(item[0],'curve_point',item[1]) for item in (left,right)],
             [0,dk/2+8/scale],'horizontal',2*v['drive_width_mm']/math.sqrt(3),owner=end)
-    for dim in native.run('drawing.dimension.list',sheet=sid)['items']:
-        assert dim['state']=='resolved',dim
-        symbol=next(k for k,value in dimensions.items() if value==dim['dimension'])
-        assert abs(dim['measurements'][0]['value']-expected[symbol])<1e-6,(symbol,dim)
-    native.run('save_as',path=str(target));native.run('close',discard=True);native.run('close')
-    return sid,expected
 
 
 def notes(v,lang):
@@ -76,8 +101,16 @@ def notes(v,lang):
         n=dict(zip(caps.LANGUAGES,('šířka drážky','slot width','Schlitzbreite','largeur de fente','ширина шлица'))),
         s=dict(zip(caps.LANGUAGES,('vnitřní šestihran přes plochy','hexagon socket across flats','Innensechskant-Schlüsselweite','six pans creux sur plats','размер внутреннего шестигранника под ключ'))),
         e=dict(zip(caps.LANGUAGES,('vnitřní šestihran přes vrcholy','hexagon socket across corners','Innensechskant-Eckmaß','six pans creux sur angles','размер внутреннего шестигранника по вершинам'))))
+    for key,texts in {
+        'A':('šestioblouk přes vrcholy','hexalobular drive across lobes','Sechsrund über die Spitzen','empreinte hexalobulaire sur lobes','шестилучевой профиль по вершинам'),
+        'B':('šestioblouk přes úžlabí','hexalobular drive across roots','Sechsrund über die Täler','empreinte hexalobulaire sur creux','шестилучевой профиль по впадинам'),
+        'dh':('průměr vodicího otvoru','pilot hole diameter','Durchmesser der Führungsbohrung','diamètre du trou de guidage','диаметр направляющего отверстия'),
+        't1':('hloubka šestihranu','hexagon socket depth','Innensechskanttiefe','profondeur des six pans creux','глубина шестигранного гнезда'),
+        't2':('celková hloubka vodicího otvoru','total pilot hole depth','Gesamttiefe der Führungsbohrung','profondeur totale du trou de guidage','полная глубина направляющего отверстия')}.items():
+        labels[key]=dict(zip(caps.LANGUAGES,texts))
     text=[dict(text=v['standard']+' · '+v['designation']+' · '+v['names'][lang],x_mm=190,y_mm=198,height_mm=2.5)]
-    for i,symbol in enumerate(('l','k','d','dk','b','t','s','e') if v['socket'] else ('l','k','d','dk','b','t','n')):
+    symbols=('l','k','d','dk','b','t','A','B') if 'socket_no' in v else ('l','k','d','dk','b','t1','t2','dh','s','e') if 'dh' in v else ('l','k','d','dk','b','t','s','e') if v['socket'] else ('l','k','d','dk','b','t','n')
+    for i,symbol in enumerate(symbols):
         text.append(dict(text=symbol+' — '+labels[symbol][lang],x_mm=190 if i%2==0 else 103,
             y_mm=188-5*(i//2),height_mm=2.2))
     return dict(locale=lang,texts=text)

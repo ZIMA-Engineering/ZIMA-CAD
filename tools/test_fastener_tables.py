@@ -32,6 +32,98 @@ class Fasteners(unittest.TestCase):
         cls.data = generator.load_data(ROOT / 'tools/data/fastener-tables.json')
         cls.original = json.loads((ROOT / 'tools/data/fastener-source-tables.json').read_text(encoding='utf-8'))
 
+    def test_din_cap_nuts_are_separate_and_closed(self):
+        from lxml import html
+        pages={p['path']:p for p in self.data['pages']}
+        page=pages['05-NUTS/04-CAP/02-DIN1587']
+        self.assertEqual(pages['05-NUTS/04-CAP']['source_table'],'05-NUTS/04-CAP#0')
+        self.assertEqual(len(page['rows']),26)
+        rows={row[0]:row for row in page['rows']}
+        self.assertEqual(rows['M10×1.5'][2:5],['16','18','8'])
+        self.assertEqual(rows['M22×2.5'][2],'34')
+        self.assertIn('M10×1',rows)
+        self.assertNotIn('M6×0.75',rows)
+        for row in page['rows']:
+            pitch,h,t,p,minimum,wall=[float(row[i]) for i in (1,3,7,8,9,10)]
+            self.assertGreaterEqual(wall,minimum)
+            self.assertGreater(p,t+.5*pitch)
+            self.assertAlmostEqual(wall,h-p,places=5)
+        self.assertTrue(page['freeze_header'])
+        for language in self.data['languages']:
+            tree=html.fromstring(generator.render(self.data,page,language))
+            self.assertEqual(len(tree.xpath('//div[@class="screen-only"]//table/tbody/tr')),26)
+            self.assertIn('CAD',' '.join(tree.xpath('//thead//text()')))
+            self.assertTrue(all(key in self.data['labels'] for key in page['notes']))
+
+    def test_reviewed_special_families_and_native_washer_art(self):
+        pages={p['path']:p for p in self.data['pages']}
+        reviewed=json.loads((ROOT/'tools/data/special-cap-screw-reviewed-dimensions.json').read_text(encoding='utf-8'))
+        for family in reviewed['families']:
+            page=pages['04-SCREWS/04-CAP-HEAD/'+family['directory']]
+            self.assertEqual(page['review'],'reviewed_catalogue')
+            self.assertEqual(len(page['sections'][0]['rows']),len(family['sizes']))
+            self.assertTrue(page['freeze_header'])
+            self.assertIn('catalogue_range_note',page['notes'])
+            self.assertTrue(all(len(self.data['labels'][key])==5 for key in page['notes']))
+            availability=page['sections'][1]
+            self.assertEqual(len(availability['headers']),len(family['sizes'])+1)
+            for row in availability['rows']:
+                length=float(row[0])
+                self.assertEqual(row[1:],['✓' if length in s['catalogue_lengths'] else '—' for s in family['sizes']])
+        for topic,count in [('01-HEXAGON',3),('02-CAP-HEAD',1),('03-SPRING',2)]:
+            page=pages['06-WASHERS/'+topic]
+            self.assertTrue(page['localized_illustrations'])
+            self.assertEqual(len(page['figures']),count)
+            for figure in page['figures']:
+                self.assertEqual(set(figure['localized_paths']),set(generator.LANGUAGES))
+                folder=ROOT/self.data['root']/page['path']/'0000-index'
+                for image in [figure['path'],*figure['localized_paths'].values()]:
+                    self.assertTrue((folder/image).is_file(),image)
+                self.assertTrue((folder/Path(figure['path']).with_suffix('.prtz')).is_file())
+                self.assertTrue((folder/Path(figure['path']).with_suffix('.drwz')).is_file())
+
+    def test_reviewed_grade_c_nuts_have_feasible_dimensions(self):
+        table=self.data['curated_source_tables']['05-NUTS/01-HEXAGON/08-GRADE-C#0']
+        number=lambda value:float(value.replace(',','.'))
+        for col,header in enumerate(table['headers'][1:],1):
+            diameter=number(header.removeprefix('symbol_M'))
+            corners,maximum,minimum,flats=[number(row[col]) for row in table['rows']]
+            self.assertGreater(flats,diameter,header)
+            self.assertGreaterEqual(maximum,minimum,header)
+            self.assertGreaterEqual(2*flats/math.sqrt(3),corners,header)
+        reviewed=json.loads((ROOT/'tools/data/nut-reviewed-dimensions.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(reviewed['corrections']),10)
+        self.assertEqual(table['rows'][3][2],'10')
+        self.assertEqual(table['rows'][2][2],'4,9')
+        self.assertEqual(table['rows'][3][10],'34')
+
+    def test_iso_washer_ranges_dimensions_and_historical_separation(self):
+        reviewed=json.loads((ROOT/'tools/data/plain-washer-iso-reviewed-dimensions.json').read_text(encoding='utf-8'))
+        counts={'ISO 7089':29,'ISO 7090':23,'ISO 7091':29,'ISO 7092':21}
+        pages={p['path']:p for p in self.data['pages']}
+        for family in reviewed['families']:
+            standard=family['standard'];sizes=family['sizes']
+            self.assertEqual(len(sizes),counts[standard])
+            self.assertEqual(len({s['nominal_mm'] for s in sizes}),len(sizes))
+            self.assertEqual([min(s['nominal_mm'] for s in sizes),max(s['nominal_mm'] for s in sizes)],family['nominal_range_mm'])
+            page=pages['06-WASHERS/'+('02-CAP-HEAD' if standard=='ISO 7092' else '01-HEXAGON')]
+            block=next(b for b in page['sections'] if b.get('iso_washer_standard')==standard)
+            self.assertEqual([float(r[0]) for r in block['rows']],[s['nominal_mm'] for s in sizes])
+            for size,row in zip(sizes,block['rows']):
+                keys=('nominal_mm','bore_mm','bore_max_mm','outside_mm','outside_min_mm','thickness_mm','thickness_max_mm','thickness_min_mm')
+                self.assertEqual([float(v) for v in row],[size[k] for k in keys])
+                self.assertLess(size['bore_mm'],size['outside_mm'])
+                self.assertLessEqual(size['thickness_min_mm'],size['thickness_mm'])
+                self.assertLessEqual(size['thickness_mm'],size['thickness_max_mm'])
+            if standard=='ISO 7090':self.assertTrue(.25<=family['chamfer_depth_fraction']<=.5)
+        historic=next(b for b in pages['06-WASHERS/01-HEXAGON']['sections'] if b.get('heading')=='historical_washer_outside_iso')
+        self.assertEqual(len(historic['rows']),32)
+        self.assertTrue(all(float(r[2])>64 and r[0].startswith('ČSN') for r in historic['rows']))
+        # These differences demonstrate why a label-only CSN conversion is wrong.
+        normal=next(f for f in reviewed['families'] if f['standard']=='ISO 7089')
+        self.assertEqual(next(s for s in normal['sizes'] if s['nominal_mm']==5)['thickness_mm'],1)
+        self.assertEqual(next(s for s in normal['sizes'] if s['nominal_mm']==64)['bore_mm'],70)
+
     def test_all_split_cells_reassemble_without_loss(self):
         restored = {}
         for page in (block for topic in self.data['pages'] for block in generator.table_blocks(topic)):
@@ -76,6 +168,8 @@ class Fasteners(unittest.TestCase):
                     'https://nahledy.normy.biz/n.php?i=220',
                     'https://nahledy.normy.biz/n.php?i=223',
                     'https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf',
+                    'https://encyklopediapoznania.sk/data/eknihy/strojarenstvo/strojnicke_tabulky_z_roku_1965.pdf',
+                    'https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf',
                 })
                 before[numeric_cell(correction['before'])]-=1
                 before[numeric_cell(correction['after'])]+=1
@@ -195,7 +289,7 @@ class MergedFastenerReferences(unittest.TestCase):
     def test_thread_rows_preserve_every_dimension_and_length_table(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[page for page in data['pages'] if page.get('thread_dimension_rows')]
-        self.assertEqual(len(pages),11)
+        self.assertEqual(len(pages),28)
         for page in pages:
             blocks=generator.screen_table_blocks(page)
             combined=next(block for block in blocks if block['headers'][0]=='symbol_d')
@@ -207,7 +301,8 @@ class MergedFastenerReferences(unittest.TestCase):
                     continue
                 positions=[];occurrences={}
                 for row in source['rows']:
-                    name=row[0] if isinstance(row[0],dict) else {'literal':row[0]}
+                    display=source.get('parameter_labels',{}).get(json.dumps(row[0],sort_keys=True),row[0])
+                    name=display if isinstance(display,dict) else {'literal':display}
                     candidates=[i for i,header in enumerate(combined['headers']) if header==name]
                     token=json.dumps(name,sort_keys=True)
                     occurrence=occurrences.get(token,0);occurrences[token]=occurrence+1
@@ -215,6 +310,46 @@ class MergedFastenerReferences(unittest.TestCase):
                 for column,thread in enumerate(source['headers'][1:],1):
                     expected=[row[column] for row in source['rows']]
                     self.assertTrue(any(row[0]=={'key':thread} and [row[i] for i in positions]==expected for row in combined['rows']), (page['path'],thread))
+
+    def test_screw_directory_names_are_descriptive_without_standard_numbers(self):
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        for page in data['pages']:
+            if not page['path'].startswith('04-SCREWS/'):continue
+            for label in data['labels'][page['title']]:
+                self.assertNotRegex(label,r'\b(?:ISO|DIN|ČSN)\s*\d')
+            self.assertTrue(all(data['labels'][page['title']]))
+
+    def test_every_nut_dimension_page_uses_thread_rows_and_frozen_header(self):
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        checked=0
+        for page in data['pages']:
+            if not page['path'].startswith('05-NUTS/'):continue
+            dimensions=[b for b in generator.presentation_table_blocks(page) if b['headers'][0]=='parameter']
+            if not dimensions:continue
+            self.assertTrue(page['thread_dimension_rows'],page['path'])
+            self.assertTrue(page['freeze_header'],page['path'])
+            displayed=[b for b in generator.screen_table_blocks(page) if b['headers'][0]=='symbol_d']
+            self.assertEqual(len(displayed),1,page['path'])
+            checked+=1
+        self.assertEqual(checked,17)
+
+    def test_castle_dimensions_form_one_table_without_duplicate_cotter_columns(self):
+        from lxml import html
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        pages=[p for p in data['pages'] if p['path'].startswith('05-NUTS/02-CASTLE/')]
+        self.assertEqual(len(pages),2)
+        for page in pages:
+            blocks=generator.screen_table_blocks(page)
+            self.assertEqual(len(blocks),1)
+            self.assertEqual(len(blocks[0]['rows']),16)
+            self.assertEqual(blocks[0]['headers'].count({'key':'castle_cotter_d'}),1)
+            self.assertEqual(blocks[0]['headers'].count({'key':'castle_cotter_l'}),1)
+            self.assertEqual(blocks[0]['headers'].count({'key':'castle_fine_thread'}),1)
+            for lang in data['languages']:
+                doc=html.fromstring(generator.render(data,page,lang))
+                tables=doc.xpath('//div[contains(@class,"table-scroll--frozen")]/table')
+                self.assertEqual(len(tables),1)
+                self.assertEqual(len(tables[0].xpath('./tbody/tr')),16)
 
     def test_stud_availability_matches_every_source_cell(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
@@ -245,6 +380,22 @@ class MergedFastenerReferences(unittest.TestCase):
             text=generator.render(data,socket,language)
             self.assertNotIn('kg/1000',text)
             self.assertIn('+ / +',text)
+
+    def test_washer_mass_columns_are_omitted_in_every_language(self):
+        from lxml import html
+        data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
+        for page in data['pages']:
+            if not page['path'].startswith('06-WASHERS/') or not page.get('approximate_mass_columns'):continue
+            original_rows=json.dumps(page['rows'],ensure_ascii=False)
+            for language in data['languages']:
+                document=html.fromstring(generator.render(data,page,language))
+                headings=[' '.join(node.itertext()) for node in document.xpath('//thead//th')]
+                for column in page['approximate_mass_columns']:
+                    label=data['labels'][page['headers'][column]][data['languages'].index(language)]
+                    self.assertNotIn(label,headings)
+                for block in generator.presentation_table_blocks(page):
+                    self.assertTrue(all(len(row)==len(block['headers']) for row in block['rows']))
+            self.assertEqual(json.dumps(page['rows'],ensure_ascii=False),original_rows)
 
     def test_original_cells_survive_join_and_transpose(self):
         from lxml import html

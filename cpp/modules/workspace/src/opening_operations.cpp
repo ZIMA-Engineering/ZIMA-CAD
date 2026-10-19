@@ -1,5 +1,7 @@
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
+#include <zima/document/physical_properties.hpp>
 #include <cmath>
 #include <algorithm>
 
@@ -72,12 +74,22 @@ bool commit_opening(Workspace& workspace,const kernel::OcctKernel& kernel,const 
     prepare(parameters.end_condition_forward,parameters.end_targets_forward,false);
     if(parameters.enabled)prepare(parameters.length_end_condition,parameters.length_end_targets,true);
     if(existing && *next.find_container(container_id)==*existing)return false;
+    if(!next.relations.empty()) {
+        // Resolve derived dimensions on the private draft before an opening's
+        // kernel definition validates its thread/runout against the bore. A
+        // driver edit and its derived bore belong to the same transaction.
+        auto relation_input=previous;
+        if(!relation_input.empty())kernel.ensure_body_properties(relation_input.back());
+        apply_relation_dimensions(next,document::physical_values(before,relation_input));
+        policy.refresh_physical_properties=true;
+    }
     auto references=construction_reference_source_geometry(previous);
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);
     static_cast<void>(refresh_sketch_external_references(next,calculated));
+    apply_relation_parameters(next,document::physical_values(next,calculated));
     state->session.commit(std::move(next),std::move(calculated));return true;
 }
 } // namespace zima::workspace

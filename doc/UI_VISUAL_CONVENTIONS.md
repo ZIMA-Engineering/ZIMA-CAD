@@ -159,7 +159,10 @@ Neutral selected icons use the highlighted-text color. Semantic icon accents,
 Body Origin red and confirmation green retain their meanings.
 Stored reference labels use the table text palette on ordinary backgrounds;
 inspection and error backgrounds keep their explicit contrasting text.
-The Part, Body and Assembly **Insert here** Tree markers use red (`#D03030`).
+The Part, Body and Assembly **Insert here** Tree markers use azure (`#00D1FF`).
+The Assembly marker follows the same appearance as the Part markers in both
+themes, as requested on 2026-10-18. This color change does not alter insertion
+ownership, cursor position or command availability. No visible text changes.
 No labels, reference ownership, insertion behavior or model data are changed.
 
 Verification passed after rebuilding the Windows GUI and Drawing harness:

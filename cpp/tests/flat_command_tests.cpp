@@ -16,6 +16,9 @@ using commands::Json;
 namespace {
 void check(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 void near(double a,double b){if(std::abs(a-b)>1e-5)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));}
+double measured_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);return body.volume;
+}
 commands::Result run(command_host::Host& host,const char* command,Json args=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",args}});
     if(!result.ok)throw std::runtime_error(std::string(command)+" "+args.dump()+": "+result.message);return result;
@@ -30,6 +33,81 @@ std::pair<double,double> span(const std::vector<kernel::Vec3>& vertices,const sk
         const double distance=(p.x-o.x)*n.x+(p.y-o.y)*n.y+(p.z-o.z)*n.z;
         lo=std::min(lo,distance);hi=std::max(hi,distance);
     }return {lo,hi};
+}
+void verify_default_attached_profile() {
+    for(bool reverse:{false,true})for(double start:{-40.,0.,17.}) {
+        auto sketch=sketcher::Sketch::create_default();
+        for(int i=0;i<2;++i) {
+            sketcher::SketchExternalReference ref;
+            ref.id=sketch.id+(i?":flat-attachment:last":":flat-attachment:first");
+            ref.kind=sketcher::ExternalReferenceKind::Point;
+            ref.source_document_id="source-part";ref.source_owner_id="bend";ref.source_semantic_key=i?"end:last":"end:first";
+            ref.cached_points={{{start+(i!=reverse?40:0),0}}};
+            sketch.external_references.push_back(ref);
+        }
+        check(workspace::initialize_attached_flat_profile(sketch),"Empty attached Flat was not initialized");
+        check(sketch.points.size()==4&&sketch.segments.size()==4&&sketch.dimensions.size()==1,"Default Flat is not a dimensioned rectangle");
+        const auto initial=sketch.serialized();
+        check(!workspace::initialize_attached_flat_profile(sketch)&&sketch.serialized()==initial,"Default Flat replaced an existing profile");
+        const auto height=sketch.dimensions.front().id;
+        const auto supports=sketch.external_references;
+        auto equations=[&](auto& s,double expected) {
+            const auto solved=s.solve();check(solved.maximum_residual<1e-8,"Default Flat solve residual");
+            double lo=INFINITY,hi=-INFINITY;
+            for(const auto& p:s.points){lo=std::min(lo,p.y);hi=std::max(hi,p.y);}
+            near(hi-lo,expected);
+            for(const auto& e:s.segments) {
+                const auto *a=s.find_point(e.first_point_id),*b=s.find_point(e.second_point_id);
+                check(std::abs(a->x-b->x)<1e-8||std::abs(a->y-b->y)<1e-8,"Default Flat lost rectangular directions");
+            }
+            for(const auto& c:s.constraints)if(c.kind==sketcher::ConstraintKind::PointReference&&!c.suppressed) {
+                const auto ref=std::ranges::find(s.external_references,c.second_point_id,&sketcher::SketchExternalReference::id);
+                if(ref==s.external_references.end())continue;
+                const auto* point=s.find_point(c.first_point_id);check(point,"Flat contact lost its native point");
+                near(point->x,ref->cached_points.front()[0]);near(point->y,ref->cached_points.front()[1]);
+            }
+            check(s.external_references==supports,"Default Flat changed read-only supports");
+        };
+        equations(sketch,50);
+        check(sketch.solve().remaining_degrees_of_freedom==0,"Dimensioned Flat is not fully constrained");
+        for(double value:{75.,25.,50.}) {
+            check(sketch.set_dimension_value(height,value),"Default Flat height cannot be edited repeatedly");equations(sketch,value);
+            sketch=sketcher::Sketch::from_serialized(sketch.serialized());equations(sketch,value);
+        }
+        for(bool locked:{false,true}) {
+            auto driven=sketch;driven.dimensions.front().locked=locked;
+            for(const auto& p:sketch.points) {
+                auto moved=driven;static_cast<void>(moved.move_point(p.id,p.x+3,p.y+4));
+                if(locked)equations(moved,50);
+                else {check(moved.solve().maximum_residual<1e-8,"Unlocked Flat drag violated its equations");check(moved.external_references==supports,"Drag changed external source");}
+            }
+        }
+        auto free=sketch;free.remove_dimension(height);
+        check(free.solve().remaining_degrees_of_freedom==1,"Flat without height must have one degree of freedom");
+        const auto top=std::ranges::max_element(free.points,{},&sketcher::SketchPoint::y)->id;
+        for(double value:{65.,35.,50.}) {const auto* p=free.find_point(top);check(free.move_point(top,p->x,value),"Underconstrained Flat height cannot be dragged");equations(free,value);}
+        for(bool locked:{false,true}) {
+            auto reference=sketch;reference.dimensions.front().driving=false;reference.dimensions.front().locked=locked;
+            if(locked) {
+                bool rejected=false;try{reference.validate();}catch(const std::exception&){rejected=true;}
+                check(rejected,"Reference height accepted an unsupported value lock");continue;
+            }
+            check(reference.solve().remaining_degrees_of_freedom==1,"Reference height unexpectedly constrains the Flat");
+            for(double value:{70.,30.,50.}) {
+                const auto* p=reference.find_point(top);
+                check(reference.move_point(top,p->x,value),"Reference-dimensioned Flat cannot be dragged");equations(reference,value);
+                near(reference.dimensions.front().value,value);
+            }
+        }
+        for(bool reversed_dimension:{false,true})for(auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::DistanceY}) {
+            auto alternate=free;
+            const auto side=std::ranges::find_if(alternate.segments,[&](const auto& e){return std::abs(alternate.find_point(e.first_point_id)->x-alternate.find_point(e.second_point_id)->x)<1e-8;});
+            auto dimension=alternate.create_point_dimension(reversed_dimension?side->second_point_id:side->first_point_id,
+                reversed_dimension?side->first_point_id:side->second_point_id,kind);
+            alternate.apply_dimension(dimension);
+            for(double value:{60.,40.,50.}){check(alternate.set_dimension_value(dimension.id,value),"Alternate Flat height dimension edit failed");equations(alternate,value);}
+        }
+    }
 }
 void verify_bend_attachment(const std::filesystem::path& directory) {
     kernel::OcctKernel kernel;
@@ -90,6 +168,10 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
                     "Bend change replaced Flat endpoint identity");
             }
             previous=profile.external_references;
+            auto seeded=profile;seeded.points.clear();seeded.segments.clear();seeded.constraints.clear();seeded.dimensions.clear();
+            check(workspace::initialize_attached_flat_profile(seeded),"Real Bend endpoints did not seed a Flat");
+            auto seeded_document=target;seeded_document.sketches.front()=seeded;
+            near(kernel.evaluate_history(seeded_document.kernel_operations()).back().volume,40*50*thickness);
             auto closed=profile;const auto a=closed.local_point(original_points.front()),b=closed.local_point(original_points.back());
             closed.points.clear();closed.segments.clear();closed.constraints.clear();closed.dimensions.clear();
             closed.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12);
@@ -128,8 +210,8 @@ void verify_attached_history(std::filesystem::path directory) {
     check(created.at("sheet_attachment").get<bool>(),"Console Flat did not attach");
     check(workspace::mutate_document_sketch(live,id,sketch_id,[](auto& s) {
         s.points.clear();s.segments.clear();s.constraints.clear();s.dimensions.clear();
-        const auto a=s.external_references[0].cached_points.front(),b=s.external_references[1].cached_points.front();
-        s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12);
+        check(workspace::initialize_attached_flat_profile(s),"Cannot seed the attached profile in its document transaction");
+        check(s.set_dimension_value(s.dimensions.front().id,12),"Cannot edit the seeded height");
     }),"Cannot create rectangle snapped to attached endpoints");
     run(host,"regenerate");
     for(double thickness:{1.,2.}) {
@@ -199,7 +281,7 @@ void verify(std::filesystem::path directory) {
     const auto created=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.}}).data;
     const auto owner=created.at("container").get<std::string>(),sketch_id=created.at("sketch").get<std::string>();
     auto* state=live.open_part(id);
-    const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};
+    const auto volume=[&]{return measured_volume(kernel,state->session.calculated_boundaries().back());};
     const auto sketch=[&]{return workspace::document_sketch(live,id,sketch_id);};
     near(volume(),1200);check(!created.at("thickness_override").get<bool>(),"Flat did not inherit Part thickness");
     {
@@ -293,12 +375,13 @@ void verify(std::filesystem::path directory) {
     }
     auto pending=*state->session.document().find_container(owner);auto profile=sketch();
     profile.plane=sketcher::SketchPlane::YZ;profile.plane_auto=false;
-    check(workspace::commit_flat(live,kernel,id,pending,profile),"Changing Flat plane was ignored");near(volume(),area*4);
+    check(workspace::commit_flat(live,kernel,id,pending,profile),"Changing Flat plane was ignored");
+    near(volume(),area*4);
     const auto yz=span(state->session.calculated_boundaries().back().mesh.vertices,sketch());near(yz.first,-2);near(yz.second,2);
     run(host,"save");std::vector<kernel::BodyResult> saved;
     const auto reopened=document::PartDocument::load(directory/"flat-test.prtz",&saved);
     check(reopened.find_container(owner)->flat==state->session.document().find_container(owner)->flat,"Flat parameters changed after reopen");
-    near(saved.back().volume,area*4);
+    near(measured_volume(kernel,saved.back()),area*4);
     check(verify_axes(saved.back())==axis_keys,"Native reopen changed Flat hole axes");
     run(host,"flat.set",{{"container",owner},{"thickness_mm",5.}});near(volume(),area*5);
     check(verify_axes(state->session.calculated_boundaries().back())==axis_keys,"Flat thickness change replaced hole axes");
@@ -321,7 +404,7 @@ void verify(std::filesystem::path directory) {
     table.instances.push_back({"Thin sheet",{{"Sheet thickness","1.5"}}});
     static_cast<void>(workspace::set_family_table(live,id,table));
     const auto variant=workspace::open_family_instance(live,kernel,id,"Thin sheet",false);
-    near(live.open_part(variant)->session.calculated_boundaries().back().volume,area*1.5);
+    near(measured_volume(kernel,live.open_part(variant)->session.calculated_boundaries().back()),area*1.5);
     run(host,"new",{{"type","assembly"},{"name","no-flat"}});
     check(!host.execute({{"command","flat.create"},{"arguments",Json::object()}}).ok,"Assembly accepted Flat");
 }
@@ -365,6 +448,6 @@ void verify_ellipse_regions() {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-flat-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
+    try{verify_default_attached_profile();verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

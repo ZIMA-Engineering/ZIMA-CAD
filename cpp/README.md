@@ -16,7 +16,7 @@ behavioral authority for current development.
 - [Command coverage](../doc/CAD_COMMAND_COVERAGE.md): current GUI/CLI operations.
 - [CAD console](../doc/CAD_CONSOLE.md) and [CLI](../doc/CAD_COMMAND_LINE.md): usage,
   typed commands, scripts and host boundaries.
-- [User manual](../doc/UZIVATELSKY_MANUAL.md): current modeling workflows.
+- [User manual](../doc/USER_MANUAL.md): current modeling workflows.
 
 `zima-cad-cpp` is the desktop application and `zima-cad-cli` is the command-line
 application. They share model operations. Part and Drawing harness targets are

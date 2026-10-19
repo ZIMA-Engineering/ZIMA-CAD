@@ -31,7 +31,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         {"bore_targets",target(bore)},{"thread_end","up_to"},{"thread_targets",target(thread)},
         {"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-30}}}}).data;
     const auto id=created.at("container").get<std::string>();const double r=8.376/2;
-    const auto volume=[&](double depth){near(state->session.calculated_boundaries().back().volume,216000-std::numbers::pi*r*r*depth);};
+    const auto measured_volume=[&]{auto result=state->session.calculated_boundaries().back();kernel.ensure_body_properties(result);return result.volume;};
+    const auto volume=[&](double depth){near(measured_volume(),216000-std::numbers::pi*r*r*depth);};
     const auto sheet_end=[&](double end) {
         const auto& mesh=state->session.calculated_boundaries().back().mesh;double maximum=-1e20;
         for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
@@ -72,19 +73,19 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"history.suppress",{{"object",bore.at("construction")},{"suppressed",true}});
     require(state->session.document().find_container(id)->suppressed&&
         state->session.calculated_boundaries().back().calculation_errors.empty(),"Suppressing an opening target did not suppress its dependent feature");
-    near(state->session.calculated_boundaries().back().volume,216000);
+    near(measured_volume(),216000);
     run(host,"history.suppress",{{"object",bore.at("construction")},{"suppressed",false}});
     require(state->session.document().find_container(id)->suppressed,"Restoring a target also restored a later dependent opening");
-    near(state->session.calculated_boundaries().back().volume,216000);
+    near(measured_volume(),216000);
     run(host,"history.suppress",{{"object",id},{"suppressed",false}});volume(25);
     run(host,"history.suppress",{{"object",thread.at("construction")},{"suppressed",true}});
     require(state->session.document().find_container(id)->suppressed&&
         state->session.calculated_boundaries().back().calculation_errors.empty(),"Suppressing the thread target left its dependent opening active");
-    near(state->session.calculated_boundaries().back().volume,216000);
+    near(measured_volume(),216000);
     run(host,"undo");volume(25);sheet_end(-12);
     run(host,"redo");require(state->session.document().find_container(id)->suppressed&&
         state->session.calculated_boundaries().back().calculation_errors.empty(),"Redo lost dependent opening suppression");
-    near(state->session.calculated_boundaries().back().volume,216000);
+    near(measured_volume(),216000);
     run(host,"undo");
 
     run(host,"new",{{"type","part"},{"name","opening-faces"}});
@@ -107,7 +108,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","80"}});
     near(state->session.calculated_boundaries().back().volume,288000-std::numbers::pi*r*r*70);
     face_sheet_end(state->session.calculated_boundaries().back(),40);
-    auto cold_face=state->session.document();zima::test::profile_dimension(cold_face,*cold_face.find_container(box.get<std::string>()),2)=100;
+    auto cold_face=state->session.document();
+    cold_face.find_container(box.get<std::string>())->feature.sides[0].length=50;
     const auto face_result=kernel.evaluate_history(cold_face.kernel_operations());
     near(face_result.back().volume,360000-std::numbers::pi*r*r*80);face_sheet_end(face_result.back(),50);
     // Keep the bore reference intact: a missing thread-only face must also fail.

@@ -314,7 +314,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     sketch_offset_drag->baseline_offset + delta));
             }, [] {});
         const auto sheet_defaults=part?zima::document::sheet_metal_defaults(part->session.document()):zima::document::SheetMetalDefaults{};
-        dialog->set_preview_callback([this, owner_id, sketch_offset_drag, prepared_sketch, sketch_feature, sheet_defaults](
+        auto flat_profile_seeded=std::make_shared<bool>(false);
+        dialog->set_preview_callback([this, dialog, edit_mode, flat_profile_seeded, owner_id, sketch_offset_drag, prepared_sketch, sketch_feature, sheet_defaults](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
@@ -404,6 +405,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 geometric_placement.z + resolved_sketch.resolved_normal.z *
                     resolved_sketch.plane_offset};
             static_cast<void>(resolved_sketch.refresh_external_references({},primitive_reference_geometry_,true));
+            if(!edit_mode&&!*flat_profile_seeded&&sketch_feature&&sketch_feature->feature_kind==zima::document::FeatureKind::Flat&&
+                sketch_feature->flat.sheet_attachment&&placement_valid&&
+                workspace::initialize_attached_flat_profile(resolved_sketch)) {
+                // Store only the transient draft. Its next ordinary preview
+                // consumes the seeded profile; no calculation or Undo entry.
+                *flat_profile_seeded=true;dialog->set_pending_sketch(resolved_sketch);return;
+            }
             *prepared_sketch = resolved_sketch;
             // A Bend draft has no meaningful wire until its attachment frame
             // is defined. Two independent manual references can fix rotation

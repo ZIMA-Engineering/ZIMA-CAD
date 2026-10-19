@@ -8,9 +8,13 @@
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAdaptor_Curve2d.hxx>
 #include <BRepGProp.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -21,6 +25,7 @@
 #include <cmath>
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <set>
 
 using namespace zima;
@@ -41,6 +46,7 @@ template<class Sketch> void verify_profile_dragging(Sketch sketch) {
         static_cast<void>(sketch.move_point(point.id,point.x+delta[0],point.y+delta[1]));
         const auto solved=sketch.solve();
         require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Factory profile escaped constraints during repeated dragging");
+        require(sketch.external_references==baseline.external_references,"Factory dragging changed a read-only external source");
         for(const auto& original:points) {
             const auto* current=sketch.find_point(original.id);require(current,"Factory dragging lost native point identity");
             // Unlocked driving dimensions are existing direct-manipulation
@@ -179,6 +185,541 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==4&&std::string(argv[1])=="--audit-native-properties") {
+            const auto root=fs::absolute(fs::u8path(argv[2]));
+            Json report={{"checked_parts",0},{"trimmed_cylindrical_bodies",0},{"stale",Json::array()},{"errors",Json::array()}};
+            for(const auto& entry:fs::recursive_directory_iterator(root)) {
+                if(!entry.is_regular_file()||entry.path().extension()!=".prtz")continue;
+                const auto filename=entry.path().lexically_relative(root).generic_string();
+                try {
+                    workspace::Workspace live;
+                    const auto id=workspace::insert_native_document(live,workspace::read_native_document(entry.path()));
+                    const auto* state=live.open_part(id);require(state,"Property audit expected a native Part");
+                    report["checked_parts"]=report["checked_parts"].get<int>()+1;
+                    const auto& boundaries=state->session.calculated_boundaries();
+                    if(boundaries.empty())continue;
+                    for(const auto& [body_id,output]:boundaries.back().body_outputs) {
+                        const auto& result=output.get();if(result.kernel_shape.empty())continue;
+                        TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                        require(!shape.IsNull(),"Property audit could not read BRep");
+                        // FORM definitions may intentionally contain open role
+                        // surfaces. A volume integral over them is not a solid
+                        // volume and must not invalidate their zero-volume cache.
+                        if(!TopExp_Explorer(shape,TopAbs_SOLID).More())continue;
+                        bool trimmed_cylinder=false;
+                        for(TopExp_Explorer face(shape,TopAbs_FACE);face.More()&&!trimmed_cylinder;face.Next()) {
+                            const auto support=TopoDS::Face(face.Current());BRepAdaptor_Surface surface(support);
+                            if(surface.GetType()!=GeomAbs_Cylinder)continue;
+                            for(TopExp_Explorer edge(support,TopAbs_EDGE);edge.More();edge.Next()) {
+                                BRepAdaptor_Curve2d curve(TopoDS::Edge(edge.Current()),support);
+                                if(curve.GetType()!=GeomAbs_Line) {trimmed_cylinder=true;break;}
+                                const auto tangent=curve.Line().Direction();
+                                if(std::abs(tangent.X())>1e-12&&std::abs(tangent.Y())>1e-12) {trimmed_cylinder=true;break;}
+                            }
+                        }
+                        if(!trimmed_cylinder)continue;
+                        report["trimmed_cylindrical_bodies"]=report["trimmed_cylindrical_bodies"].get<int>()+1;
+                        GProp_GProps properties;const auto error=BRepGProp::VolumeProperties(shape,properties,1e-12);
+                        require(std::isfinite(error)&&error>=0,"Independent property integration failed");
+                        const double exact=properties.Mass(),difference=result.volume-exact;
+                        if(std::abs(difference)>1e-9*std::max(1.,std::abs(exact)))
+                            report["stale"].push_back({{"path",filename},{"body",body_id},{"cached_volume",result.volume},{"adaptive_volume",exact},{"difference_mm3",difference}});
+                    }
+                    require(!state->session.is_dirty()&&!state->session.can_undo(),"Property audit changed the source session");
+                } catch(const std::exception& error) {report["errors"].push_back({{"path",filename},{"error",error.what()}});}
+            }
+            std::ofstream output(fs::u8path(argv[3]));output<<report.dump(2)<<'\n';require(output.good(),"Cannot save property audit");
+            std::cout<<report.at("checked_parts")<<" native Parts inspected; "<<report.at("trimmed_cylindrical_bodies")
+                <<" trimmed cylindrical bodies; "<<report.at("stale").size()<<" stale volumes; "<<report.at("errors").size()<<" errors\n";
+            return report.at("stale").empty()&&report.at("errors").empty()?0:1;
+        }
+        if(argc==3&&std::string(argv[1])=="--hex-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            std::size_t checked=0;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Nut is not a native Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Nut calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid nut BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Nut must have one connected solid");
+                const double s=expected.at("across_flats_mm"),m=expected.at("height_mm"),d=expected.at("diameter_mm"),
+                    pitch=expected.at("pitch_mm"),r=expected.at("bore_mm").get<double>()/2,c=expected.at("mouth_chamfer_mm"),
+                    beta=expected.at("chamfer_degrees");
+                const double pi=std::acos(-1.),q=pi/6,a=s/2,sec=1/std::cos(q),t=std::tan(q);
+                // Integrate each conically trimmed hexagon corner in polar
+                // coordinates; this is independent of the author's BRep path.
+                const double corner_integral=(sec*t+std::log(sec+t))/3-t+q/3;
+                const double removed=12*std::tan(beta*pi/180)*a*a*a*corner_integral;
+                const double volume=std::sqrt(3.)*s*s*m/2-removed-pi*r*r*m-2*pi*(r*c*c+c*c*c/3);
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-11);
+                near(properties.Mass(),volume,"Nut independent analytical volume");near(result.volume,volume,"Nut cached volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Nut BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Nut seating plane");near(z1,m,"Nut height");near(x0,-s/std::sqrt(3.),"Nut negative corner");near(x1,s/std::sqrt(3.),"Nut positive corner");
+                near(y0,-s/2,"Nut lower flat");near(y1,s/2,"Nut upper flat");
+                int bores=0,outer_cones=0,mouth_cones=0;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                    if(surface.GetType()==GeomAbs_Cylinder){near(surface.Cylinder().Radius(),r,"Nut bore radius");++bores;}
+                    if(surface.GetType()==GeomAbs_Cone) {
+                        const double angle=std::abs(surface.Cone().SemiAngle());
+                        if(std::abs(angle-pi/4)<1e-8)++mouth_cones;
+                        else {near(angle,pi/2-beta*pi/180,"Nut outer chamfer slope");++outer_cones;}
+                    }
+                }
+                require(bores>=1&&mouth_cones==2,"Nut bore or its two entrance chamfers are missing");
+                require(beta>0?outer_cones>=2:outer_cones==0,"Nut outside chamfer form is wrong");
+                require(doc.history.size()==(beta>0?5u:3u),"Nut authored history differs from prism, optional bevels, thread and exit chamfer");
+                const auto& prism=doc.history.front();require(prism.feature_kind==document::FeatureKind::Feature&&
+                    prism.feature.sides[0].operation==document::FeatureSideOperation::Extrusion&&prism.feature.sides[1].operation==document::FeatureSideOperation::None,
+                    "Nut must extrude one-sided from its seating plane");
+                const auto thread=std::ranges::find(doc.history,document::FeatureKind::Thread,&document::HistoryContainer::feature_kind);
+                require(thread!=doc.history.end()&&thread->thread.enabled,"Native internal thread missing");
+                near(thread->thread.nominal_diameter,d,"Nut thread nominal diameter");near(thread->thread.pitch,pitch,"Nut thread pitch");
+                near(thread->thread.length_forward,m,"Nut full thread length");
+                require(thread->thread.end_condition_forward==document::EndCondition::ThroughAll&&!thread->hole.drill_point_enabled,"Nut opening is not Through All");
+                for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Nut inspection modified native state");++checked;
+            }
+            std::cout<<checked<<" hex nuts: Origin seating, one solid, conical bevels, native internal threads, analytical volume and mass passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--weld-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            std::size_t checked=0;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/fs::u8path(expected.at("filename").get<std::string>())));
+                const auto* state=live.open_part(id);require(state,"Weld nut is not an ordinary Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Weld nut calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Weld nut BRep is invalid");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                require(solids==1,"Weld projections are disconnected from the nut");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);
+                const double volume=expected.at("independent_volume_mm3");
+                require(std::abs(properties.Mass()-volume)<=std::max(1e-6,volume*1e-8),"Weld nut independent volume");
+                require(std::abs(result.volume-volume)<=std::max(1e-6,volume*1e-8),"Weld nut cached volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Weld nut derived mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                const double h=expected.at("projection_height_mm"),m=expected.at("height_mm"),start=expected.at("bore_start_mm");
+                const bool din=expected.at("kind")=="din";
+                const double overall=din?m:m+h;
+                near(z0,0,"Weld projection contact plane");near(z1,overall,"Weld nut overall height");
+                BRepClass3d_SolidClassifier classifier(shape);
+                for(const double z:{start+(m-start)*.25,start+(m-start)*.75}) {
+                    classifier.Perform(gp_Pnt(0,0,z),1e-8);require(classifier.State()==TopAbs_OUT,"Weld nut thread bore obstructed");
+                }
+                const double r=expected.at("across_flats_mm").get<double>()/std::sqrt(3),b=expected.at("projection_depth_mm");
+                double contact_area=0;
+                if(din) {
+                for(int corner=0;corner<6;++corner) {
+                    const double angle=corner*std::acos(-1.)/3;
+                    classifier.Perform(gp_Pnt((r-b/2)*std::cos(angle),(r-b/2)*std::sin(angle),h/2),1e-8);
+                    require(classifier.State()==(corner%2?TopAbs_OUT:TopAbs_IN),"Weld nut does not have three alternating corner projections");
+                }
+                const double pilot=expected.at("pilot_diameter_mm").get<double>()/2,core=expected.at("bore_mm").get<double>()/2;
+                classifier.Perform(gp_Pnt((pilot+core)/2,0,(start+h)/2),1e-8);require(classifier.State()==TopAbs_IN,"Weld nut pilot missing");
+                contact_area=3*std::sqrt(3)*b*b;
+                } else {
+                    require(expected.at("kind")=="iso","Unknown weld-nut family");
+                    const double R=expected.at("flange_diameter_mm").get<double>()/2;
+                    const double rounding=expected.at("projection_radius_mm"),half=expected.at("projection_width_mm").get<double>()/2;
+                    for(int corner=0;corner<6;++corner) {
+                        const double angle=-std::acos(-1.)/2+corner*std::acos(-1.)/3;
+                        classifier.Perform(gp_Pnt((R-b/2)*std::cos(angle),(R-b/2)*std::sin(angle),h/2),1e-8);
+                        require(classifier.State()==(corner%2?TopAbs_OUT:TopAbs_IN),"Flange weld projections missing or incorrectly spaced");
+                    }
+                    const auto strip_primitive=[half](double radius){return radius*radius*std::asin(half/radius)+half*std::sqrt(radius*radius-half*half);};
+                    contact_area=3*(strip_primitive(R-rounding)-strip_primitive(R-b+rounding));
+                }
+                double seating_area=0;int seats=0;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const auto face=TopoDS::Face(it.Current());const BRepAdaptor_Surface surface(face);
+                    if(surface.GetType()!=GeomAbs_Plane||std::abs(surface.Plane().Location().Z())>1e-7||std::abs(surface.Plane().Axis().Direction().Z())<.999)continue;
+                    GProp_GProps face_properties;BRepGProp::SurfaceProperties(face,face_properties);seating_area+=face_properties.Mass();++seats;
+                }
+                require(seats==3,"Weld nut projection contact faces missing");near(seating_area,contact_area,"Weld projection contact area");
+                for(const auto& sketch:doc.sketches)verify_profile_dragging(sketch);
+                const auto opening=std::ranges::find(doc.history,document::FeatureKind::Thread,&document::HistoryContainer::feature_kind);
+                require(opening!=doc.history.end()&&opening->placement.reference_valid&&!opening->placement.references.empty(),"Weld nut opening lost its actual pilot-face support");
+                near(opening->placement.z,start,"Weld opening start face");near(opening->thread.length_forward,overall-start,"Weld thread length");
+                ++checked;
+            }
+            require(checked>0,"No weld nuts verified");std::cout<<checked<<" weld nuts: valid connected solids, three projections, pilot support, independent volume/mass and constrained dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--cap-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/fs::u8path(expected.at("filename").get<std::string>())));
+                const auto* state=live.open_part(id);require(state,"Cap nut is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Cap nut calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid cap nut BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Cap nut must contain one solid");
+                const double h=expected.at("height_mm"),depth=expected.at("bore_depth_mm"),radius=expected.at("dome_radius_mm");
+                BRepClass3d_SolidClassifier classifier(shape);
+                for(const double z:{depth*.25,depth*.75}) {classifier.Perform(gp_Pnt(0,0,z),1e-8);require(classifier.State()==TopAbs_OUT,"Cap nut bore is obstructed");}
+                classifier.Perform(gp_Pnt(0,0,(depth+h)/2),1e-8);require(classifier.State()==TopAbs_IN,"Cap nut blind bore broke through its end wall");
+                classifier.Perform(gp_Pnt(0,0,h+.1),1e-8);require(classifier.State()==TopAbs_OUT,"Cap nut crown exceeds its height");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);
+                const double volume=expected.at("independent_volume_mm3");
+                require(std::abs(properties.Mass()-volume)<=std::max(1e-6,volume*1e-8),"Cap nut independent section volume");
+                require(std::abs(result.volume-volume)<=std::max(1e-6,volume*1e-8),"Cap nut persisted volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Cap nut derived BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Cap nut seating plane");near(z1,h,"Cap nut height");int crowns=0;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                    if(surface.GetType()!=GeomAbs_Sphere&&surface.GetType()!=GeomAbs_SurfaceOfRevolution)continue;
+                    ++crowns;
+                    for(const double u:{.25,.5,.75})for(const double v:{.25,.5,.75}) {
+                        const auto p=surface.Value(surface.FirstUParameter()+u*(surface.LastUParameter()-surface.FirstUParameter()),
+                            surface.FirstVParameter()+v*(surface.LastVParameter()-surface.FirstVParameter()));
+                        near(p.X()*p.X()+p.Y()*p.Y()+std::pow(p.Z()-h+radius,2),radius*radius,"Cap nut crown sphere equation");
+                    }
+                }
+                require(crowns>0,"Cap nut spherical crown missing");std::size_t retained=0;
+                auto axial_section=document::create_section();
+                static_cast<void>(axial_section.sketch.add_segment(0,-2*radius,0,2*radius));
+                for(const bool reverse:{false,true}) {
+                    axial_section.reversed=reverse;
+                    for(const auto& patch:document::calculate_section(result.mesh,axial_section).patches)
+                        for(const double angle:{45.,135.})for(const double scale:{.5,1.,2.})
+                            for(const auto& edge:document::section_hatch_lines(patch,patch.frame,{angle,1,.25,0},scale))
+                                for(const double t:{.125,.5,.875}) {
+                                    const auto a=edge.points.front(),b=edge.points.back();
+                                    const gp_Pnt sample(a.x+t*(b.x-a.x),a.y+t*(b.y-a.y),a.z+t*(b.z-a.z));
+                                    classifier.Perform(sample,1e-7);
+                                    if(classifier.State()==TopAbs_OUT) {
+                                        // Sections consume the display triangulation. At
+                                        // a concave bore/chamfer its chord lies inside
+                                        // the analytic cavity by up to the existing
+                                        // native mesher's 0.1 mm deflection. Check this
+                                        // boundary independently; never allow an open
+                                        // runout sheet to hatch across the cavity.
+                                        BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(sample).Vertex(),shape);
+                                        require(distance.IsDone()&&distance.Value()<=.1+1e-7,
+                                            "Cap nut section hatched beyond native mesh deflection outside BRep material");
+                                    }
+                                }
+                }
+                drawing::DrawingView projection;const double q=std::sqrt(.5);
+                projection.camera={{1,0,0},{0,-q,q},{0,q,q}};drawing::refresh_view_geometry(projection,result.mesh);
+                for(const auto& edge:projection.projected_edges)if(edge.silhouette&&!edge.hidden)
+                    for(std::size_t i=1;i<edge.points.size();++i) {
+                        const auto a=edge.points[i-1],b=edge.points[i];
+                        const double x=(a.x+b.x)/2,y=(a.y+b.y)/2;
+                        if(expected.contains("hex_height_mm")) {
+                            // A full hemisphere's real outer contour passes
+                            // near the projected pole. The shallow historical
+                            // cap's empty-pole-neighbourhood gate is not valid
+                            // here. Check the actual projected sphere outline;
+                            // exact BRep sphere equations remain checked above.
+                            if(std::hypot(x,y-h*q)<expected.at("across_flats_mm").get<double>()*.25)
+                                require(std::abs(std::hypot(x,y-(h-radius)*q)-radius)<radius*.02,
+                                    "DIN crown silhouette leaves its projected sphere outline");
+                        } else require(std::hypot(x,y-h*q)>=expected.at("across_flats_mm").get<double>()*.25,
+                            "A collapsed pole triangle invented a contour inside the cap crown");
+                    }
+                for(std::size_t i=0;i<result.mesh.triangle_references.size();++i)if(result.mesh.triangle_references[i].semantic_key.starts_with("thread:surface:")) {
+                    const double extent=expected.at("thread_length_mm").get<double>()+
+                        expected.value("runout_pitch_factor",0.)*expected.at("pitch_mm").get<double>();
+                    require(extent<=depth+1e-6,"Cap nut run-out exceeds its blind bore");
+                    ++retained;for(int j=0;j<3;++j)require(result.mesh.vertices.at(result.mesh.triangles.at(i*3+j)).z<=extent+1e-6,
+                        "Cap nut thread display exceeds its specified length and run-out");
+                }
+                require(retained>0,"Cap nut lost its internal thread display");
+                if(expected.value("diagnostic_mesh",false)) {
+                    Json packet={{"vertices",Json::array()},{"triangles",result.mesh.triangles},{"faces",Json::array()},{"edges",Json::array()}};
+                    auto section=document::create_section();
+                    static_cast<void>(section.sketch.add_segment(0,-20,0,20));
+                    packet["section_patches"]=Json::array();
+                    for(const auto& patch:document::calculate_section(result.mesh,section).patches) {
+                        Json boundary=Json::array(),hatches=Json::array();
+                        for(const auto& edge:patch.boundary)boundary.push_back({{edge[0].x,edge[0].y,edge[0].z},{edge[1].x,edge[1].y,edge[1].z}});
+                        for(const auto& edge:document::section_hatch_lines(patch,patch.frame,{45,2,0,0},42/(2*expected.at("across_flats_mm").get<double>()/std::sqrt(3))))
+                            hatches.push_back({{edge.points[0].x,edge.points[0].y,edge.points[0].z},{edge.points[1].x,edge.points[1].y,edge.points[1].z}});
+                        packet["section_patches"].push_back({{"boundary",boundary},{"hatches",hatches}});
+                    }
+                    for(const auto& p:result.mesh.vertices)packet["vertices"].push_back({p.x,p.y,p.z});
+                    for(const auto& ref:result.mesh.triangle_references)packet["faces"].push_back({ref.owner_id,ref.semantic_key,ref.instance_path});
+                    for(const auto& edge:result.mesh.edges) {
+                        Json points=Json::array();for(const auto& p:edge.points)points.push_back({p.x,p.y,p.z});
+                        packet["edges"].push_back({{"points",std::move(points)},{"key",edge.reference.semantic_key},{"seam",edge.parameter_seam}});
+                    }
+                    drawing::DrawingView view;const double q=std::sqrt(.5);view.camera={{1,0,0},{0,-q,q},{0,q,q}};
+                    drawing::refresh_view_geometry(view,result.mesh);packet["projected_edges"]=Json::array();
+                    for(const auto& edge:view.projected_edges) {
+                        Json points=Json::array();for(const auto& p:edge.points)points.push_back({p.x,p.y});
+                        packet["projected_edges"].push_back({{"points",std::move(points)},{"key",edge.source.semantic_key},
+                            {"hidden",edge.hidden},{"silhouette",edge.silhouette},{"thread",edge.thread}});
+                    }
+                    std::ofstream output(folder/"cap-mesh-diagnostic.json");output<<packet.dump();
+                }
+                for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
+            }
+            std::cout<<manifest.at("variants").size()<<" cap nuts: valid solid, blind bore/end wall, spherical crown, independent volume/mass, thread extent and constrained dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--knurled-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/fs::u8path(expected.at("filename").get<std::string>())));
+                const auto* state=live.open_part(id);require(state,"Knurled nut is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Knurled nut calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid knurled nut BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Knurled nut must contain one solid");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);
+                near(properties.Mass(),expected.at("independent_volume_mm3"),"Knurled nut independent section volume");
+                near(result.volume,expected.at("independent_volume_mm3"),"Knurled nut persisted volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-
+                    expected.at("independent_volume_mm3").get<double>()*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Knurled nut derived BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Knurled nut seating plane");near(z1,expected.at("height_mm"),"Knurled nut height");
+                int flanks=0,roots=0;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                    if(surface.GetType()==GeomAbs_Plane&&std::abs(surface.Plane().Axis().Direction().Z())<1e-8)++flanks;
+                    if(surface.GetType()==GeomAbs_Torus) {
+                        near(surface.Torus().MinorRadius(),expected.at("root_radius_mm"),"Knurled nut shoulder radius");++roots;
+                    }
+                }
+                const int teeth=static_cast<int>(std::round(std::acos(-1.)*expected.at("outside_mm").get<double>()/expected.at("knurl_pitch_mm").get<double>()));
+                require(flanks==2*teeth,"Knurled nut must retain two real planar flanks per groove");
+                require(roots>0,"Knurled nut lost its rounded shoulder");
+                std::size_t retained=0;const auto& mesh=result.mesh;const double floor=expected.at("clearance_depth_mm");
+                for(std::size_t i=0;i<mesh.triangle_references.size();++i)if(mesh.triangle_references[i].semantic_key.starts_with("thread:surface:")) {
+                    ++retained;for(int j=0;j<3;++j)require(mesh.vertices.at(mesh.triangles.at(i*3+j)).z>=floor-1e-6,"Thread display enters unthreaded hub clearance");
+                }
+                require(retained>0,"Knurled nut lost its internal thread display");
+                for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
+            }
+            std::cout<<manifest.at("variants").size()<<" knurled nuts: valid solid, independent volume/mass, real groove flanks, shoulder radius, trimmed thread and constrained dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--castle-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/fs::u8path(expected.at("filename").get<std::string>())));
+                const auto* state=live.open_part(id);require(state,"Castle nut is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Castle nut calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid castle nut BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Castle nut must contain one solid");
+                const double m=expected.at("height_mm"),h=expected.at("slot_floor_mm"),radius=expected.at("slot_width_mm").get<double>()/2;
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);
+                near(properties.Mass(),expected.at("independent_volume_mm3"),"Castle nut independent section volume");
+                near(result.volume,expected.at("independent_volume_mm3"),"Castle nut persisted volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-
+                    expected.at("independent_volume_mm3").get<double>()*expected.at("density_kg_mm3").get<double>())<=.50001e-6,
+                    "Castle nut derived BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Castle nut seating plane");near(z1,m,"Castle nut height");
+                int roots=0;for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()!=GeomAbs_Cylinder)continue;
+                    const auto cylinder=surface.Cylinder();if(std::abs(cylinder.Axis().Direction().Z())>1e-7)continue;
+                    near(cylinder.Radius(),radius,"Castle nut slot-root radius");near(cylinder.Location().Z(),h+radius,"Castle nut slot-root height");++roots;
+                }
+                require(roots>=6,"Castle nut lost one of its six round-root slots");
+                const auto in_gap=[&](const auto& p) {
+                    if(p.z<=h+1e-6)return false;
+                    for(int i=0;i<3;++i) {
+                        const double angle=i*std::acos(-1.)/3;
+                        const double cross=p.x*std::cos(angle)+p.y*std::sin(angle);
+                        if(std::abs(cross)>=radius-1e-6)continue;
+                        const double floor=h+radius-std::sqrt(std::max(0.,radius*radius-cross*cross));
+                        if(p.z>floor+1e-6)return true;
+                    }return false;
+                };
+                std::size_t retained=0;const auto& mesh=result.mesh;
+                for(std::size_t i=0;i<mesh.triangle_references.size();++i)if(mesh.triangle_references[i].semantic_key.starts_with("thread:surface:")) {
+                    ++retained;for(int j=0;j<3;++j)require(!in_gap(mesh.vertices.at(mesh.triangles.at(i*3+j))),"Thread display surface bridges a castle slot");
+                }
+                require(retained>0,"Castle slots erased the complete thread display");
+                for(const auto& edge:mesh.edges)if(edge.reference.semantic_key.starts_with("thread:"))
+                    for(std::size_t i=1;i<edge.points.size();++i) {
+                        const auto& a=edge.points[i-1];const auto& b=edge.points[i];
+                        const kernel::Vec3 mid{(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2};
+                        require(!in_gap(a)&&!in_gap(b),"Thread display edge vertex enters a castle slot");
+                        // A tessellated circular boundary's chord cuts inside
+                        // its exact arc. Check the midpoint only in the straight
+                        // slot region, where no chord-deflection allowance is needed.
+                        if(mid.z>h+radius+1e-6)
+                            require(!in_gap(mid),"Thread display edge bridges a castle slot");
+                    }
+                for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
+            }
+            std::cout<<manifest.at("variants").size()<<" castle nuts: valid solid, independent volume, six round roots, trimmed thread surfaces/edges and constrained dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--tab-washers") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/fs::u8path(expected.at("filename").get<std::string>())));
+                const auto* state=live.open_part(id);require(state,"Tab washer is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Tab washer calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid tab washer BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Tab washer must contain one solid");
+                const double r=expected.at("outside_mm").get<double>()/2,f=expected.at("root_radius_mm"),b=expected.at("tab_width_mm"),l=expected.at("tab_length_mm"),t=expected.at("thickness_mm"),d=expected.at("bore_mm");
+                const double cy=b/2+f,cx=-std::sqrt((r+f)*(r+f)-cy*cy),px=cx*r/(r+f);
+                const auto integral=[](double u,double radius){return (u*std::sqrt(radius*radius-u*u)+radius*radius*std::asin(u/radius))/2;};
+                const double area=b*(l+cx)+2*cy*(px-cx)-2*integral(px-cx,f)+std::acos(-1.)*r*r/2-2*integral(px,r);
+                const double volume=t*(area-std::acos(-1.)*d*d/4);
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-10);
+                near(properties.Mass(),volume,"Tab washer analytical volume");near(result.volume,volume,"Native tab washer volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Tab washer BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(x0,-l,"Tab washer tab end");near(x1,r,"Tab washer outer radius");near(y0,-r,"Tab washer lower radius");near(y1,r,"Tab washer upper radius");near(z0,0,"Tab washer seating plane");near(z1,t,"Tab washer thickness");
+                require(doc.history.size()==1&&doc.sketches.size()==1,"Tab washer must retain its single authored extrusion");
+                const auto& profile=doc.sketches.front();
+                require(profile.arcs.size()==3&&profile.circles.size()==1,"Tab washer outline must retain three exact arcs and its bore");
+                verify_profile_dragging(profile);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Tab washer inspection changed native state");
+            }
+            std::cout<<manifest.at("variants").size()<<" tab washers: valid solid, independent tangent-outline volume, seating bounds, mass and constrained dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--plain-washers") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());workspace::Workspace live;
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Plain washer is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Plain washer calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid plain washer BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Plain washer must contain one solid");
+                const double bore=expected.at("bore_mm"),outside=expected.at("outside_mm"),t=expected.at("thickness_mm"),c=expected.at("chamfer_mm");
+                const double volume=std::acos(-1.)*((outside*outside-bore*bore)*t/4-c*c*(outside/2-c/3));
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-10);
+                near(properties.Mass(),volume,"Plain washer analytical volume");near(result.volume,volume,"Native plain washer volume");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Plain washer BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Plain washer seating plane");near(z1,t,"Plain washer thickness");
+                near(x0,-outside/2,"Plain washer negative radius");near(x1,outside/2,"Plain washer positive radius");
+                near(y0,-outside/2,"Plain washer lower radius");near(y1,outside/2,"Plain washer upper radius");
+                require(doc.sketches.size()==1&&doc.history.size()==(c>0?2u:1u),"Plain washer authored history differs from annulus and optional chamfer");
+                const auto& annulus=doc.history.front();
+                require(annulus.feature_kind==document::FeatureKind::Feature&&annulus.feature.sides[0].operation==document::FeatureSideOperation::Extrusion&&
+                    annulus.feature.sides[1].operation==document::FeatureSideOperation::None,"Plain washer must extrude one-sided from the seating plane");
+                auto profile=doc.sketches.front();require(profile.circles.size()==2&&profile.circles[0].center_point_id==profile.circles[1].center_point_id,"Plain washer lost its shared native center");
+                const auto* center=profile.find_point(profile.circles[0].center_point_id);near(center->x,0,"Plain washer origin X");near(center->y,0,"Plain washer origin Y");
+                std::vector<double> diameters;for(const auto& circle:profile.circles)diameters.push_back(2*circle.radius);std::ranges::sort(diameters);
+                near(diameters[0],bore,"Plain washer bore diameter");near(diameters[1],outside,"Plain washer outside diameter");
+                verify_profile_dragging(profile);
+            }
+            std::cout<<manifest.at("variants").size()<<" plain washers: valid solids, shared origin, one-sided thickness, exact chamfer volume, mass and constrained dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--spring-washers") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));
+            Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());
+                workspace::Workspace live;
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Spring washer is not a Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Spring washer calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid spring washer BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                require(solids==1,"Compressed spring washer must remain one connected solid");
+                const double bore=expected.at("bore_mm"),outside=expected.at("outside_mm"),thickness=expected.at("thickness_mm");
+                const double width=expected.at("width_mm"),round=expected.at("corner_radius_mm"),gap=expected.at("split_gap_mm");
+                near(expected.at("split_angle_degrees"),45,"Axial spring washer cut angle");
+                near(outside-bore,2*width,"Spring washer radial section width");
+                require(expected.at("state")=="compressed","Spring washer default state is not compressed");
+                require(expected.at("free_height_mm").get<double>()>thickness,"Free and compressed heights were confused");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Spring washer seating plane");near(z1,thickness,"Compressed spring washer thickness");
+                near(x0,-outside/2,"Spring washer negative radius");near(y0,-outside/2,"Spring washer lower radius");near(x1,outside/2,"Spring washer positive radius");
+                require(y1>0&&y1<=outside/2+1e-7,"Axial split has invalid radial bounds");
+                std::vector<double> cut_planes;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()!=GeomAbs_Plane)continue;
+                    const auto plane=surface.Plane();auto n=plane.Axis().Direction();
+                    if(std::abs(n.Y())<1e-8&&std::abs(std::abs(n.X())-std::sqrt(.5))<1e-8&&std::abs(std::abs(n.Z())-std::sqrt(.5))<1e-8) {
+                        if(n.X()<0)n.Reverse();require(n.Z()>0,"Axial cut planes have the wrong inclination");
+                        cut_planes.push_back(n.X()*plane.Location().X()+n.Z()*plane.Location().Z());
+                    }
+                }
+                require(cut_planes.size()==2,"Axial split must have two real parallel 45-degree walls");
+                near(std::abs(cut_planes[0]-cut_planes[1]),gap,"Axial split perpendicular gap");
+                // Integrate a straight strip through the exact rounded annular
+                // sections independently from OCCT and the authored Sketch.
+                const double section=width*thickness-(4-std::acos(-1.))*round*round;
+                const double uncut=2*std::acos(-1.)*(outside+bore)/4*section;
+                const auto removed=[&](double z) {
+                    const double edge=std::min(z,thickness-z);
+                    const double delta=edge<round?round-std::sqrt(std::max(0.,round*round-(round-edge)*(round-edge))):0;
+                    const double ri=bore/2+delta,ro=outside/2-delta,c=thickness/2-z,h=gap/std::sqrt(2.);
+                    require(std::max(std::abs(c-h),std::abs(c+h))<ri,"Axial cutter starts outside the bore");
+                    const auto primitive=[](double r,double x){return .5*(x*std::sqrt(r*r-x*x)+r*r*std::asin(x/r));};
+                    return primitive(ro,c+h)-primitive(ro,c-h)-primitive(ri,c+h)+primitive(ri,c-h);
+                };
+                std::function<double(double,double,double,double,double,double,double,int)> integrate;
+                integrate=[&](double a,double b,double fa,double fm,double fb,double whole,double eps,int depth) {
+                    const double m=(a+b)/2,fl=removed((a+m)/2),fr=removed((m+b)/2);
+                    const double left=(m-a)*(fa+4*fl+fm)/6,right=(b-m)*(fm+4*fr+fb)/6,delta=left+right-whole;
+                    if(depth==0||std::abs(delta)<15*eps)return left+right+delta/15;
+                    return integrate(a,m,fa,fl,fm,left,eps/2,depth-1)+integrate(m,b,fm,fr,fb,right,eps/2,depth-1);
+                };
+                double cut_volume=0;const std::array<double,4> levels{0,round,thickness-round,thickness};
+                for(std::size_t i=1;i<levels.size();++i) {
+                    const double a=levels[i-1],b=levels[i];if(b<=a)continue;
+                    const double fa=removed(a),fm=removed((a+b)/2),fb=removed(b);
+                    cut_volume+=integrate(a,b,fa,fm,fb,(b-a)*(fa+4*fm+fb)/6,uncut*1e-11,30);
+                }
+                const double volume=uncut-cut_volume;
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-10);
+                near(properties.Mass(),volume,"Rounded split washer analytical volume");
+                require(std::abs(result.volume-volume)<=1e-8*std::max(1.,volume),"Native rounded split washer volume lost integration precision");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Spring washer BOM mass");
+                require(doc.history.size()==3&&doc.sketches.size()==2,"Spring washer editable history differs from annulus, round and split");
+                const auto& annulus=doc.history.front();
+                require(annulus.feature_kind==document::FeatureKind::Feature&&annulus.feature.sides[0].operation==document::FeatureSideOperation::Extrusion&&
+                    annulus.feature.sides[1].operation==document::FeatureSideOperation::None,"Washer must extrude one-sided from the seating plane");
+                require(doc.history.back().combine_mode==document::CombineMode::Subtract&&
+                    doc.history.back().feature.sides[0].extrusion_extent==document::EndCondition::ThroughAll,"Spring washer split must be a native Through All cut");
+                for(auto sketch:doc.sketches) {
+                    const auto solved=sketch.solve();require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Spring washer Sketch is not fully constrained");
+                    verify_profile_dragging(sketch);
+                }
+                const auto& profile=doc.sketches.front();
+                require(profile.circles.size()==2&&profile.circles[0].center_point_id==profile.circles[1].center_point_id,"Washer circles must share their native center point");
+                const auto* center=profile.find_point(profile.circles[0].center_point_id);
+                near(center->x,0,"Spring washer origin X");near(center->y,0,"Spring washer origin Y");
+                const auto& split=doc.sketches.back();
+                require(split.external_references.size()==2,"Spring washer split must reference both actual end planes");
+                std::vector<double> support_heights;
+                for(const auto& support:split.external_references) {
+                    require(!support.broken&&support.kind==sketcher::ExternalReferenceKind::Face&&support.source_owner_id==annulus.id,
+                        "Spring washer split lost its original extrusion end-plane identity");
+                    require(std::ranges::count_if(split.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::PointOnLine&&c.geometry_id==support.id;})==2,
+                        "Both cutter corners must contact each external end plane");
+                    const auto line=sketcher::external_reference_line(support);require(line.has_value(),"End plane has no axial reference line");
+                    near(line->second[1],0,"Axial end reference is not horizontal");support_heights.push_back(line->first[1]);
+                }
+                std::ranges::sort(support_heights);near(support_heights[0],-thickness,"External upper end plane");near(support_heights[1],0,"External seating end plane");
+            }
+            std::cout<<manifest.at("variants").size()<<" compressed spring washers: valid solids, seating origin, exact rounded-section volume, native split, mass and constrained dragging passed\n";return 0;
+        }
         if(argc==3&&std::string(argv[1])=="--caps") {
             const auto folder=fs::absolute(fs::u8path(argv[2]));
             Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
@@ -193,22 +734,39 @@ int main(int argc,char** argv) {
                 TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
                 require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid cap screw BRep");
                 int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
-                require(solids==1,"Cap screw must contain one connected solid");
+                require(solids==1,("Cap screw must contain one connected solid: "+path.filename().string()+" ("+std::to_string(solids)+" solids)").c_str());
                 const double d=expected.at("diameter_mm"),l=expected.at("length_mm"),k=expected.at("head_height_mm");
                 const double radius=expected.at("head_diameter_mm").get<double>()/2;
                 const double width=expected.at("drive_width_mm"),depth=expected.at("drive_depth_mm");
                 const bool entry=expected.contains("socket_entry_radius_mm")&&!expected.at("socket_entry_radius_mm").is_null();
+                const bool lobed=expected.contains("socket_no");
+                const bool pilot=expected.contains("dh");
+                double re=0,ri=0,outer_center=0,inner_center=0;
+                if(lobed) {
+                    const double A=expected.at("A"),B=expected.at("B"),b=B/2,cs=std::cos(std::acos(-1.)/6);
+                    re=.1*A;outer_center=A/2-re;
+                    ri=(re*re-outer_center*outer_center-b*b+2*outer_center*b*cs)/(2*b-2*outer_center*cs-2*re);inner_center=b+ri;
+                }
                 Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
                 near(x0,-radius,"Cap screw left");near(x1,radius,"Cap screw right");near(y0,-radius,"Cap screw lower");near(y1,radius,"Cap screw upper");
                 near(z0,-k,"Cap screw head height");near(z1,l,"Cap screw length");
-                int walls=0;bool floor=false,shaft=false,round=false,head_round=false,tip=false,entry_cone=false;
+                int walls=0,lobe_outer=0,lobe_inner=0;bool pilot_wall=false,pilot_floor=false;
+                bool floor=false,shaft=false,round=false,head_round=false,tip=false,entry_cone=false;
                 for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
                     const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
                     if(surface.GetType()==GeomAbs_Plane) {
                         const auto plane=surface.Plane();const auto normal=plane.Axis().Direction();
                         if(std::abs(normal.Z())>1-1e-8&&std::abs(plane.Location().Z()+k-depth)<1e-6)floor=true;
+                        if(pilot&&std::abs(normal.Z())>1-1e-8&&std::abs(plane.Location().Z()+k-expected.at("t2").get<double>())<1e-6)pilot_floor=true;
                         if(std::abs(normal.Z())<1e-8&&std::abs(plane.Distance(gp_Pnt(0,0,0))-width/2)<1e-6)++walls;
-                    } else if(surface.GetType()==GeomAbs_Cylinder)shaft|=std::abs(surface.Cylinder().Radius()-d/2)<1e-6;
+                    } else if(surface.GetType()==GeomAbs_Cylinder) {
+                        const auto cylinder=surface.Cylinder();const double r=cylinder.Radius();
+                        shaft|=std::abs(r-d/2)<1e-6;
+                        const double center=std::hypot(cylinder.Location().X(),cylinder.Location().Y());
+                        if(pilot&&center<1e-7&&std::abs(r-expected.at("dh").get<double>()/2)<1e-7)pilot_wall=true;
+                        if(lobed&&std::abs(r-re)<1e-7){near(center,outer_center,"Hexalobular convex centre");++lobe_outer;}
+                        if(lobed&&std::abs(r-ri)<1e-7){near(center,inner_center,"Hexalobular concave centre");++lobe_inner;}
+                    }
                     else if(surface.GetType()==GeomAbs_Torus) {
                         round|=std::abs(surface.Torus().MinorRadius()-expected.at("underhead_radius_mm").get<double>())<1e-6;
                         head_round|=std::abs(surface.Torus().MinorRadius()-expected.at("head_edge_radius_mm").get<double>())<1e-6;
@@ -223,9 +781,14 @@ int main(int argc,char** argv) {
                 }
                 require(floor,"Drive floor is missing or at the wrong offset");
                 require(k-depth>=expected.value("head_floor_min_mm",0.)-1e-8,"Socket violates minimum head-floor thickness");
-                require(walls==(expected.at("socket").get<bool>()?6:2),"Incorrect drive wall count or across-flats width");
+                if(lobed)require(lobe_outer==6&&lobe_inner==6,"Hexalobular drive must have six convex and six concave exact circular walls");
+                else require(walls==(expected.at("socket").get<bool>()?6:2),"Incorrect drive wall count or across-flats width");
+                if(pilot)require(pilot_wall&&pilot_floor,"DIN 6912 pilot diameter or total depth missing");
+                if(expected.contains("socket_depth_max_mm"))require(depth<=expected.at("socket_depth_max_mm").get<double>()+1e-8,"Button socket exceeds maximum depth");
                 require(shaft&&round&&head_round&&tip,"Shaft, head rounding, underhead radius or tip chamfer missing");
-                const auto& opening=doc.history.at(doc.history.size()-(entry?2:1));
+                const auto opening_it=std::ranges::find_if(doc.history,[&](const auto& feature){return feature.feature_kind==document::FeatureKind::Feature&&feature.combine_mode==document::CombineMode::Subtract&&
+                    feature.feature.sides[1].operation==document::FeatureSideOperation::Extrusion&&std::abs(feature.feature.profile_plane_offset+k-depth)<1e-7;});
+                require(opening_it!=doc.history.end(),"Drive Default not found");const auto& opening=*opening_it;
                 require(opening.feature_kind==document::FeatureKind::Feature&&opening.combine_mode==document::CombineMode::Subtract,"Drive must be an ordinary subtractive Default");
                 near(opening.feature.profile_plane_offset,-k+depth,"Drive Sketch plane offset");
                 require(opening.feature.sides[0].operation==document::FeatureSideOperation::None&&
@@ -236,7 +799,15 @@ int main(int argc,char** argv) {
                     require(mouth.feature_kind==document::FeatureKind::Feature&&mouth.combine_mode==document::CombineMode::Subtract&&
                         mouth.feature.sides[0].operation==document::FeatureSideOperation::Revolution&&mouth.feature.sides[0].rotation_extent==document::FeatureRotationExtent::Full,
                         "Socket entrance must use a current full-revolution subtractive Default");
-                    near(depth-(expected.at("socket_entry_radius_mm").get<double>()-width/2),expected.at("socket_effective_depth_mm"),"Socket effective key depth after entrance cut");
+                    if(expected.value("socket_entry_kind",Json{})=="geometry_corner") {
+                        const auto sk=std::ranges::find(doc.sketches,mouth.feature.sketch_id,&sketcher::Sketch::id);
+                        require(sk!=doc.sketches.end()&&!sk->external_references.empty(),"Socket entrance lost actual rim reference");
+                        const auto axis=std::ranges::find(sk->segments,mouth.feature.axis_segment_id,&sketcher::SketchSegment::id);
+                        require(axis!=sk->segments.end(),"Socket entrance axis missing");
+                        require(std::ranges::any_of(sk->segments,[&](const auto& segment){return !segment.construction&&(segment.first_point_id==axis->second_point_id||segment.second_point_id==axis->second_point_id);}),"Socket cutter and axis do not share their top point");
+                        for(const auto& segment:sk->segments)if(!segment.construction)for(const auto& id:{segment.first_point_id,segment.second_point_id})
+                            require(sk->find_point(id)->y>=k-depth-1e-7,"Socket cutter deepens the existing broach floor");
+                    }else near(depth-(expected.at("socket_entry_radius_mm").get<double>()-width/2),expected.at("socket_effective_depth_mm"),"Socket effective key depth after entrance cut");
                 }
                 for(auto sketch:doc.sketches) {
                     const auto solved=sketch.solve();require(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Cap screw Sketch is not fully constrained");
@@ -244,7 +815,8 @@ int main(int argc,char** argv) {
                 }
                 GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
                 require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-properties.Mass()*expected.value("density_kg_mm3",7.85e-6))<=.50001e-6,"Cap screw BOM mass");
-                const auto& thread=doc.history.at(doc.history.size()-(entry?3:2)).shaft_thread;
+                const auto thread_it=std::ranges::find_if(doc.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::ShaftThread;});
+                require(thread_it!=doc.history.end(),"Shaft thread missing");const auto& thread=thread_it->shaft_thread;
                 near(thread.nominal_diameter,d,"Cap screw thread diameter");near(thread.pitch,expected.at("pitch_mm"),"Cap screw pitch");
                 near(thread.length,expected.at("thread_length_mm"),"Cap screw thread length");
                 require(thread.length+2*thread.pitch+expected.at("underhead_radius_mm").get<double>()<=l+1e-8,"Thread enters the head or underhead fillet");

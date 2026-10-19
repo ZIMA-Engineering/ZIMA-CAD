@@ -1,5 +1,6 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include "workspace_internal.hpp"
+#include <zima/document/bend.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
 #include "../sketch_external_reference_kind.hpp"
@@ -390,6 +391,10 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
         return place_sketch_mesh(sketch, pending_presentation(preview.viewer_mesh(),key));
     }
     if (sketch.id != active_sketch_id_ || !pending_point_dimension_cursor_) {
+        if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
+            if(const auto* owner=part->session.document().find_container(sketch.owner_container_id);
+                owner&&owner->feature_kind==zima::document::FeatureKind::Bend)
+                return place_sketch_mesh(sketch,zima::document::bend_offset_dimension_display(sketch).viewer_mesh());
         return place_sketch_mesh(sketch, sketch.viewer_mesh());
     }
     auto preview = sketch;

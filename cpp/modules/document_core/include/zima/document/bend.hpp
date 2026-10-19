@@ -18,6 +18,8 @@ void validate_sheet_revolution(const HistoryContainer&,const sketcher::Sketch&);
 [[nodiscard]] std::optional<double> bend_attachment_profile_direction(
     const std::vector<ConstructionReference>&, const kernel::ViewerReferenceGeometry&);
 void initialize_bend_start_profile(sketcher::Sketch&, double width);
+// Display-only default layout; never changes equations or persisted side choices.
+[[nodiscard]] sketcher::Sketch bend_offset_dimension_display(sketcher::Sketch);
 // Creation-time layout only; preserve the width and all authored identities.
 void orient_bend_start_toward_edge(sketcher::Sketch&, const Placement&, const kernel::ViewerReferenceGeometry&);
 [[nodiscard]] BendParameters resolved_bend_parameters(const HistoryContainer&, const SheetMetalDefaults&);

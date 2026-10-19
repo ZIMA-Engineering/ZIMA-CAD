@@ -1,4 +1,5 @@
 #include <zima/document/feature_parameter_dimensions.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/document/relation_program.hpp>
 #include <zima/document/pattern_dimensions.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -480,7 +481,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         primitive_origin_preview_mesh_->dimensions,[&](const auto& dimension) {
                             return dimension.reference.owner_id==sketch.id;
                         }))return;
-                    auto display=sketch.viewer_mesh();
+                    auto display=container->feature_kind==zima::document::FeatureKind::Bend
+                        ?zima::document::bend_offset_dimension_display(sketch).viewer_mesh():sketch.viewer_mesh();
                     const auto* body=document.body_owner_for_object(container->id);
                     const auto body_id=body?body->scope.id:document.body_history.active_body_id();
                     if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
@@ -1056,6 +1058,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 const auto& shown = property_owned_sketch_draft_ && property_owned_sketch_draft_->id == sketch->id
                     ? *property_owned_sketch_draft_ : *sketch;
                 auto sketch_mesh = shown.viewer_mesh();
+                if constexpr(requires { document.find_container(shown.owner_container_id); })
+                    if(const auto* owner=document.find_container(shown.owner_container_id);
+                        owner&&owner->feature_kind==zima::document::FeatureKind::Bend)
+                        sketch_mesh=zima::document::bend_offset_dimension_display(shown).viewer_mesh();
                 if constexpr(requires { document.body_history; })
                     if(const auto* body=document.body_owner_for_object(shown.owner_container_id.empty()?shown.id:shown.owner_container_id))
                         sketch_mesh=document.place_body_mesh(std::move(sketch_mesh),body->scope.id);

@@ -24,6 +24,8 @@ def variants():
             head_profile='spherical_crown',crown_center_z_mm=center,top_diameter_mm=2*top,
             drive_width_mm=d['socket_width_min_mm'][i],drive_depth_mm=d['socket_depth_min_mm'][i],
             head_floor_min_mm=d['head_floor_min_mm'][i],
+            socket_depth_max_mm=d['socket_depth_max_mm'][i],
+            socket_entry_kind='geometry_corner',socket_entry_radius_mm=d['socket_width_min_mm'][i]/math.sqrt(3),
             socket=True,length_mm=length,thread_length_mm=length-d['underhead_radius_full_min_mm'][i]-2*pitch,full_thread=True,
             material_file='config/materials/01_steels/stainless/1.4301_AISI304.matz',density_kg_mm3=7.9e-6,
             property_class='A2',preferred=True,names=dict(zip(caps.LANGUAGES,(

@@ -1,0 +1,26 @@
+{
+  "scope": "Corrections to inconsistent cells in the repository historical table; not a replacement for an entire standard edition.",
+  "sources": [
+    "tools/data/fastener-source-tables.json#06-WASHERS/03-SPRING",
+    "https://encyklopediapoznania.sk/data/eknihy/strojarenstvo/strojnicke_tabulky_z_roku_1965.pdf"
+  ],
+  "corroborating_scan": "PDF page 90, printed page 183; both corrected nominal values visually verified. Other dimensions in this older excerpt differ and are not substituted.",
+  "corrections": [
+    {
+      "standard": "021740",
+      "nominal_mm": 10,
+      "column": 4,
+      "old_cell": "2 &pm;0,15",
+      "nominal_mm_corrected": 2.5,
+      "reason": "The archived bore 10.2 and outside diameter 15.2 imply a 2.5 mm square section, also confirmed by its 5 mm free height. The historical printed table independently lists a 2.5 mm square section. Only the nominal cell is corrected; no tolerance is inferred from another edition."
+    },
+    {
+      "standard": "021740",
+      "nominal_mm": 24,
+      "column": 3,
+      "old_cell": "31,5",
+      "nominal_mm_corrected": 35.5,
+      "reason": "The archived bore 24.5 and square section 5.5 require a 35.5 mm outside diameter. The historical printed table independently lists 35.5 mm."
+    }
+  ]
+}

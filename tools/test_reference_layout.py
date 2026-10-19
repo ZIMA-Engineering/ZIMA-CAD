@@ -88,7 +88,9 @@ class LogicalReferences(unittest.TestCase):
                     text=generator.render(data,topic,lang)
                     document=html.fromstring(text)
                     screen_tables=document.xpath('//table[not(ancestor::div[contains(concat(" ",normalize-space(@class)," ")," print-only ")])]')
-                    blocks=list(generator.table_blocks(topic))
+                    # Archived mass-only blocks remain source evidence, but
+                    # the agreed presentation omits them from screen tables.
+                    blocks=list(generator.presentation_table_blocks(topic))
                     expected_tables=len(blocks)
                     if topic.get('thread_dimension_rows'):
                         # Size ranges share one dimensional matrix; context and
@@ -101,7 +103,9 @@ class LogicalReferences(unittest.TestCase):
                     self.assertIn(f'<html lang="{lang}">',text)
                     for figure in topic.get('figures',[]):
                         self.assertLess(text.index('<figure'),text.index('<table>'))
-        self.assertEqual(pages,281)
+        # 281 original logical tables, three special cap-screw families and
+        # the separate DIN 1587 cap-nut family.
+        self.assertEqual(pages,285)
         self.assertGreater(sections,pages)
 
     def test_analytical_examples_and_unit_factors(self):

@@ -2490,5 +2490,10 @@
   "Global file filters": "Globale Dateifilter",
   "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "Ein Name oder Platzhaltermuster pro Zeile. Gilt für Dateien und Ordner ohne Beachtung der Groß-/Kleinschreibung.",
   "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Steuernde FORM-Bemaßungen ändern nur diese Einfügung. Referenzbemaßungen sind schreibgeschützt.",
-  "Source face cannot be projected into the Sketch plane": "Die Quellfläche kann nicht in die Skizzenebene projiziert werden"
+  "Source face cannot be projected into the Sketch plane": "Die Quellfläche kann nicht in die Skizzenebene projiziert werden",
+  "RAL": "RAL",
+  "Approximate screen color. Use a physical RAL sample for paint matching.": "Ungefähre Bildschirmfarbe. Verwenden Sie zur Lackabstimmung ein physisches RAL-Farbmuster.",
+  "Fluorescent appearance is not simulated.": "Das fluoreszierende Erscheinungsbild wird nicht simuliert.",
+  "Vlastnosti ohybu": "Biegungseigenschaften",
+  "Nastavení otvoru zkopírováno.": "Öffnungseinstellungen kopiert."
 }

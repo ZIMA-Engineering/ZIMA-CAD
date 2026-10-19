@@ -1,0 +1,707 @@
+{
+  "arcs": [],
+  "bsplines": [],
+  "circles": [],
+  "constraints": [
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2c4",
+      "geometry": "",
+      "id": "01a1502c3d257a8e9611c4ba5450d2c5",
+      "kind": "point_reference",
+      "second": "sketch_origin",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2c7",
+      "geometry": "sketch_axis:x",
+      "id": "01a1502c3d257a8e9611c4ba5450d2c8",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2c7",
+      "geometry": "01a1502c3d257a8e9611c4ba5450d2c6",
+      "id": "01a1502c3d257a8e9611c4ba5450d2c9",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2cb",
+      "geometry": "sketch_axis:x",
+      "id": "01a1502c3d257a8e9611c4ba5450d2cc",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2cb",
+      "geometry": "01a1502c3d257a8e9611c4ba5450d2ca",
+      "id": "01a1502c3d257a8e9611c4ba5450d2cd",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2d3",
+      "geometry": "01a1502c3d257a8e9611c4ba5450d2d5",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d6",
+      "kind": "vertical",
+      "second": "01a1502c3d257a8e9611c4ba5450d2ce",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "",
+      "geometry": "01a1502c3d257a8e9611c4ba5450d2d0",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d8",
+      "kind": "parallel",
+      "second": "",
+      "second_geometry": "01a1502c3d257a8e9611c4ba5450d2d7",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "",
+      "geometry": "01a1502c3d257a8e9611c4ba5450d2d4",
+      "id": "01a1502c3d257a8e9611c4ba5450d2da",
+      "kind": "parallel",
+      "second": "",
+      "second_geometry": "01a1502c3d257a8e9611c4ba5450d2d9",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a1502c3d257a8e9611c4ba5450d2cf",
+      "geometry": "sketch_axis:x",
+      "id": "01a1502c3d257a8e9611c4ba5450d2db",
+      "kind": "symmetric",
+      "second": "01a1502c3d257a8e9611c4ba5450d2d1",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    }
+  ],
+  "corner_radii": [],
+  "curve_supports": [],
+  "curve_trims": [],
+  "dimension_layouts": [],
+  "dimensions": [
+    {
+      "angle_presentation_reversed": false,
+      "angle_sector": -1,
+      "annotation_decimals": 3,
+      "display_text_override": "",
+      "driving": true,
+      "first": "",
+      "geometry": "sketch_axis:x",
+      "id": "01a1502c3d257a8e9611c4ba5450d2dc",
+      "keep_trailing_zeros": false,
+      "kind": "angle_between",
+      "locked": false,
+      "lower_tolerance": "",
+      "prefix": "",
+      "second": "",
+      "second_geometry": "01a1502c3d257a8e9611c4ba5450d2d0",
+      "single_tolerance": "",
+      "solution_side": 1,
+      "suffix": "",
+      "suppressed": false,
+      "symmetric_tolerance": "",
+      "third_geometry": "",
+      "tolerance_mode": "",
+      "upper_tolerance": "",
+      "value": 5.0,
+      "value_unit": ""
+    },
+    {
+      "angle_presentation_reversed": false,
+      "angle_sector": -1,
+      "annotation_decimals": 3,
+      "display_text_override": "",
+      "driving": true,
+      "first": "01a1502c3d257a8e9611c4ba5450d2ce",
+      "geometry": "",
+      "id": "01a1502c3d257a8e9611c4ba5450d2dd",
+      "keep_trailing_zeros": false,
+      "kind": "distance_x",
+      "locked": false,
+      "lower_tolerance": "",
+      "prefix": "",
+      "second": "01a1502c3d257a8e9611c4ba5450d2c7",
+      "second_geometry": "",
+      "single_tolerance": "",
+      "solution_side": 1,
+      "suffix": "",
+      "suppressed": false,
+      "symmetric_tolerance": "",
+      "third_geometry": "",
+      "tolerance_mode": "",
+      "upper_tolerance": "",
+      "value": 0.775,
+      "value_unit": ""
+    },
+    {
+      "angle_presentation_reversed": false,
+      "angle_sector": -1,
+      "annotation_decimals": 3,
+      "display_text_override": "",
+      "driving": true,
+      "first": "01a1502c3d257a8e9611c4ba5450d2cb",
+      "geometry": "",
+      "id": "01a1502c3d257a8e9611c4ba5450d2de",
+      "keep_trailing_zeros": false,
+      "kind": "distance_x",
+      "locked": false,
+      "lower_tolerance": "",
+      "prefix": "",
+      "second": "01a1502c3d257a8e9611c4ba5450d2cf",
+      "second_geometry": "",
+      "single_tolerance": "",
+      "solution_side": 1,
+      "suffix": "",
+      "suppressed": false,
+      "symmetric_tolerance": "",
+      "third_geometry": "",
+      "tolerance_mode": "",
+      "upper_tolerance": "",
+      "value": 1.0,
+      "value_unit": ""
+    }
+  ],
+  "ellipses": [],
+  "elliptical_arcs": [],
+  "external_references": [
+    {
+      "body_edge": false,
+      "broken": false,
+      "cached_paths": [],
+      "cached_points": [
+        [
+          1.55,
+          0.0
+        ],
+        [
+          1.5049598170103806,
+          0.3709392796457145
+        ],
+        [
+          1.3724568397624755,
+          0.7203209166678413
+        ],
+        [
+          1.1601916596652069,
+          1.0278401202732323
+        ],
+        [
+          0.8805003574332917,
+          1.2756249921351674
+        ],
+        [
+          0.5496375749159305,
+          1.4492751761623928
+        ],
+        [
+          0.186831854395751,
+          1.5386987548519837
+        ],
+        [
+          -0.18683185439575048,
+          1.5386987548519837
+        ],
+        [
+          -0.54963757491593,
+          1.449275176162393
+        ],
+        [
+          -0.8805003574332914,
+          1.2756249921351674
+        ],
+        [
+          -1.1601916596652064,
+          1.027840120273233
+        ],
+        [
+          -1.3724568397624748,
+          0.720320916667842
+        ],
+        [
+          -1.5049598170103804,
+          0.37093927964571577
+        ],
+        [
+          -1.55,
+          1.566496804403034e-15
+        ],
+        [
+          -1.5049598170103813,
+          -0.3709392796457127
+        ],
+        [
+          -1.3724568397624763,
+          -0.7203209166678393
+        ],
+        [
+          -1.1601916596652084,
+          -1.0278401202732308
+        ],
+        [
+          -0.8805003574332939,
+          -1.275624992135166
+        ],
+        [
+          -0.5496375749159332,
+          -1.4492751761623919
+        ],
+        [
+          -0.18683185439575428,
+          -1.5386987548519833
+        ],
+        [
+          0.18683185439574687,
+          -1.5386987548519842
+        ],
+        [
+          0.5496375749159262,
+          -1.4492751761623945
+        ],
+        [
+          0.8805003574332877,
+          -1.2756249921351699
+        ],
+        [
+          1.1601916596652035,
+          -1.0278401202732361
+        ],
+        [
+          1.372456839762473,
+          -0.7203209166678458
+        ],
+        [
+          1.5049598170103793,
+          -0.37093927964571993
+        ],
+        [
+          1.55,
+          0.0
+        ]
+      ],
+      "context_assembly_document_id": "",
+      "context_instance_path": "",
+      "exact_spline": {
+        "degree": 2,
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          2.0943951023931953,
+          2.0943951023931953,
+          4.1887902047863905,
+          4.1887902047863905,
+          6.283185307179586,
+          6.283185307179586,
+          6.283185307179586
+        ],
+        "poles": [
+          [
+            1.55,
+            0.0,
+            0.0
+          ],
+          [
+            1.55,
+            2.684678751731759,
+            0.0
+          ],
+          [
+            -0.7749999999999997,
+            1.34233937586588,
+            0.0
+          ],
+          [
+            -3.099999999999999,
+            3.7964050773567944e-16,
+            0.0
+          ],
+          [
+            -0.7750000000000007,
+            -1.3423393758658797,
+            0.0
+          ],
+          [
+            1.5499999999999976,
+            -2.6846787517317603,
+            0.0
+          ],
+          [
+            1.55,
+            -3.796405077356795e-16,
+            0.0
+          ]
+        ],
+        "weights": [
+          1.0,
+          0.5000000000000001,
+          1.0,
+          0.5000000000000001,
+          1.0,
+          0.5000000000000001,
+          1.0
+        ]
+      },
+      "id": "01a1502c3d257a8e9611c4ba5450d2c6",
+      "infinite": false,
+      "kind": "edge",
+      "source_document_id": "01a1502c3d257a8e9611c4ba5450d2e1",
+      "source_instance_path": "",
+      "source_owner_id": "01a1502c3d257a8e9611c4ba5450d2bf",
+      "source_semantic_key": "fillet:edge:from:parent:132:32:01a1502c3d257a8e9611c4ba5450d2b592:end:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2b80::context-digest:c0cb7c3b643f4b9:f9a9d56009fa46de:between:parent:138:32:01a1502c3d257a8e9611c4ba5450d2b598:generated:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2bb0::context-digest:55e677663d3b0e5b:be3b330b1f7af4e0:ends:parent:396:138:32:01a1502c3d257a8e9611c4ba5450d2b598:generated:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2bb0:250:32:01a1502c3d257a8e9611c4ba5450d2bf209:fillet:face:from:parent:132:32:01a1502c3d257a8e9611c4ba5450d2b594:start:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2bb:context-digest:4ebb2df134ef7f27:36829701b96a142c0::context-digest:7ea217e408ae4993:53e71501eb71be48"
+    },
+    {
+      "body_edge": false,
+      "broken": false,
+      "cached_paths": [],
+      "cached_points": [
+        [
+          2.55,
+          0.0
+        ],
+        [
+          2.4759016344364326,
+          0.6102549439332722
+        ],
+        [
+          2.257912865415685,
+          1.1850440887116096
+        ],
+        [
+          1.908702407836308,
+          1.6909627785140273
+        ],
+        [
+          1.4485651041644474,
+          2.0986088580288236
+        ],
+        [
+          0.9042424619584662,
+          2.3842914188478073
+        ],
+        [
+          0.3073685346510742,
+          2.5314076289500376
+        ],
+        [
+          -0.30736853465107333,
+          2.5314076289500376
+        ],
+        [
+          -0.9042424619584654,
+          2.3842914188478077
+        ],
+        [
+          -1.448565104164447,
+          2.098608858028824
+        ],
+        [
+          -1.908702407836307,
+          1.6909627785140282
+        ],
+        [
+          -2.257912865415684,
+          1.185044088711611
+        ],
+        [
+          -2.4759016344364317,
+          0.6102549439332743
+        ],
+        [
+          -2.55,
+          2.577139904017894e-15
+        ],
+        [
+          -2.4759016344364335,
+          -0.6102549439332692
+        ],
+        [
+          -2.257912865415687,
+          -1.1850440887116065
+        ],
+        [
+          -1.9087024078363104,
+          -1.6909627785140244
+        ],
+        [
+          -1.4485651041644512,
+          -2.098608858028821
+        ],
+        [
+          -0.9042424619584707,
+          -2.3842914188478055
+        ],
+        [
+          -0.3073685346510796,
+          -2.5314076289500367
+        ],
+        [
+          0.3073685346510674,
+          -2.5314076289500385
+        ],
+        [
+          0.9042424619584593,
+          -2.3842914188478104
+        ],
+        [
+          1.448565104164441,
+          -2.098608858028828
+        ],
+        [
+          1.9087024078363022,
+          -1.6909627785140335
+        ],
+        [
+          2.257912865415681,
+          -1.1850440887116171
+        ],
+        [
+          2.4759016344364304,
+          -0.6102549439332811
+        ],
+        [
+          2.55,
+          0.0
+        ]
+      ],
+      "context_assembly_document_id": "",
+      "context_instance_path": "",
+      "exact_spline": {
+        "degree": 2,
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          2.0943951023931953,
+          2.0943951023931953,
+          4.1887902047863905,
+          4.1887902047863905,
+          6.283185307179586,
+          6.283185307179586,
+          6.283185307179586
+        ],
+        "poles": [
+          [
+            2.55,
+            0.0,
+            0.0
+          ],
+          [
+            2.55,
+            4.416729559300635,
+            0.0
+          ],
+          [
+            -1.2749999999999992,
+            2.2083647796503185,
+            0.0
+          ],
+          [
+            -5.099999999999999,
+            6.2456986756515e-16,
+            0.0
+          ],
+          [
+            -1.275000000000001,
+            -2.208364779650318,
+            0.0
+          ],
+          [
+            2.549999999999996,
+            -4.416729559300638,
+            0.0
+          ],
+          [
+            2.55,
+            -6.245698675651501e-16,
+            0.0
+          ]
+        ],
+        "weights": [
+          1.0,
+          0.5000000000000001,
+          1.0,
+          0.5000000000000001,
+          1.0,
+          0.5000000000000001,
+          1.0
+        ]
+      },
+      "id": "01a1502c3d257a8e9611c4ba5450d2ca",
+      "infinite": false,
+      "kind": "edge",
+      "source_document_id": "01a1502c3d257a8e9611c4ba5450d2e1",
+      "source_instance_path": "",
+      "source_owner_id": "01a1502c3d257a8e9611c4ba5450d2bf",
+      "source_semantic_key": "fillet:edge:from:parent:132:32:01a1502c3d257a8e9611c4ba5450d2b592:end:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2b80::context-digest:c0cb7c3b643f4b9:f9a9d56009fa46de:between:parent:138:32:01a1502c3d257a8e9611c4ba5450d2b598:generated:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2b80::context-digest:b23aadcabb380f9f:30956bc1c9550910:ends:parent:396:138:32:01a1502c3d257a8e9611c4ba5450d2b598:generated:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2b80:250:32:01a1502c3d257a8e9611c4ba5450d2bf209:fillet:face:from:parent:132:32:01a1502c3d257a8e9611c4ba5450d2b594:start:feature-side:32:01a1502c3d257a8e9611c4ba5450d2be:end:32:01a1502c3d257a8e9611c4ba5450d2b8:context-digest:4ebb57f134efc685:3ea341baa10d52de0::context-digest:448659a1f57f3597:98bf443f0f5a54f8"
+    }
+  ],
+  "format": "zima-cad-cpp-sketch",
+  "id": "01a1502c3d257a8e9611c4ba5450d2c1",
+  "import_blocks": [],
+  "name": "Split profile",
+  "offsets": [],
+  "owner_container_id": "01a1502c3d257a8e9611c4ba5450d2c2",
+  "plane": "xy",
+  "plane_auto": false,
+  "plane_offset": 0.0,
+  "plane_reference_owner_id": "",
+  "points": [
+    {
+      "centerline": false,
+      "construction": true,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2c4",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": true,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2c7",
+      "visible_in_3d": true,
+      "x": 1.55,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": true,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2cb",
+      "visible_in_3d": true,
+      "x": 2.55,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2ce",
+      "visible_in_3d": true,
+      "x": 0.775,
+      "y": -0.06780371423259111
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2cf",
+      "visible_in_3d": true,
+      "x": 3.55,
+      "y": -0.3105847555170302
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2d1",
+      "visible_in_3d": true,
+      "x": 3.55,
+      "y": 0.3105847555170302
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a1502c3d257a8e9611c4ba5450d2d3",
+      "visible_in_3d": true,
+      "x": 0.775,
+      "y": 0.06780371423259111
+    }
+  ],
+  "resolved_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "resolved_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "resolved_x_axis": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "resolved_y_axis": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "segments": [
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a1502c3d257a8e9611c4ba5450d2ce",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d0",
+      "second": "01a1502c3d257a8e9611c4ba5450d2cf",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a1502c3d257a8e9611c4ba5450d2cf",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d2",
+      "second": "01a1502c3d257a8e9611c4ba5450d2d1",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a1502c3d257a8e9611c4ba5450d2d1",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d4",
+      "second": "01a1502c3d257a8e9611c4ba5450d2d3",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a1502c3d257a8e9611c4ba5450d2d3",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d5",
+      "second": "01a1502c3d257a8e9611c4ba5450d2ce",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": true,
+      "first": "01a1502c3d257a8e9611c4ba5450d2c4",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d7",
+      "second": "01a1502c3d257a8e9611c4ba5450d2cf",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": true,
+      "first": "01a1502c3d257a8e9611c4ba5450d2c4",
+      "id": "01a1502c3d257a8e9611c4ba5450d2d9",
+      "second": "01a1502c3d257a8e9611c4ba5450d2d1",
+      "visible_in_3d": true
+    }
+  ],
+  "suppressed": false,
+  "symbols": [],
+  "texts": [],
+  "version": 35
+}

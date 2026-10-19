@@ -1,0 +1,25 @@
+{
+  "scope": "Targeted transcription corrections to the repository ISO 4034 table, independently checked against the public 2012 preview, Tables 1 and 2. The archived input is preserved.",
+  "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf",
+  "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+  "corrections": [
+    {"row": 2, "column": 2, "thread": "M6", "before": "13", "after": "4,9"},
+    {"row": 3, "column": 2, "thread": "M6", "before": "5,1", "after": "10"},
+    {"row": 0, "column": 10, "thread": "M22", "before": "32,95", "after": "37,29"},
+    {"row": 1, "column": 10, "thread": "M22", "before": "19,0", "after": "20,2"},
+    {"row": 2, "column": 10, "thread": "M22", "before": "16,9", "after": "18,1"},
+    {"row": 3, "column": 10, "thread": "M22", "before": "30", "after": "34"},
+    {"row": 3, "column": 12, "thread": "M27", "before": "46", "after": "41"},
+    {"row": 1, "column": 15, "thread": "M36", "before": "31,5", "after": "31,9"},
+    {"row": 2, "column": 15, "thread": "M36", "before": "28,0", "after": "29,4"},
+    {"row": 0, "column": 17, "thread": "M42", "before": "72,02", "after": "71,3"}
+  ],
+  "authoring": {
+    "outer_chamfer_beta_degrees": 30,
+    "thread_mouth_included_angle_degrees": 90,
+    "seating_plane_z_mm": 0,
+    "material_direction": "+Z",
+    "regular_nut_chamfer_source": "https://cdn.standards.iteh.ai/samples/61668/93b89b8502a943499386155c44018aaa/ISO-4032-2012.pdf",
+    "note": "Use ordinary nuts without optional washer faces. Geometry is not a manufacturing-gauge or load-rating certification. Historic table edition and current ISO edition are not interchangeable."
+  }
+}

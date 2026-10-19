@@ -6,6 +6,43 @@
 #include <algorithm>
 
 namespace zima::workspace {
+bool initialize_attached_flat_profile(sketcher::Sketch& sketch) {
+    if(!sketch.points.empty()||!sketch.segments.empty()||!sketch.circles.empty()||
+       !sketch.arcs.empty()||!sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
+       !sketch.bsplines.empty()||!sketch.texts.empty())return false;
+    const auto endpoint=[&](const char* suffix) {
+        return std::ranges::find(sketch.external_references,sketch.id+suffix,&sketcher::SketchExternalReference::id);
+    };
+    auto first=endpoint(":flat-attachment:first"),last=endpoint(":flat-attachment:last");
+    if(first==sketch.external_references.end()||last==sketch.external_references.end()||
+       first->broken||last->broken||first->cached_points.size()!=1||last->cached_points.size()!=1)return false;
+    if(first->cached_points.front()[0]>last->cached_points.front()[0])std::swap(first,last);
+    const auto a=first->cached_points.front(),b=last->cached_points.front();
+    if(std::abs(a[1]-b[1])>1e-8||b[0]-a[0]<=1e-8)return false;
+    auto draft=sketch;
+    const auto base=draft.add_segment(a[0],a[1],b[0],b[1],0);
+    const auto right=draft.add_segment(b[0],b[1],b[0],b[1]+50);
+    const auto top=draft.add_segment(b[0],b[1]+50,a[0],a[1]+50);
+    const auto left=draft.add_segment(a[0],a[1]+50,a[0],a[1]);
+    const auto segment=[&](const auto& id){return *std::ranges::find(draft.segments,id,&sketcher::SketchSegment::id);};
+    const auto bottom=segment(base),r=segment(right),t=segment(top),l=segment(left);
+    const auto contact=[&](const auto& point,const auto& support) {
+        if(!std::ranges::any_of(draft.constraints,[&](const auto& c){return !c.suppressed&&
+            c.kind==sketcher::ConstraintKind::PointReference&&c.first_point_id==point&&c.second_point_id==support;}))
+            static_cast<void>(draft.add_point_reference_constraint(point,support));
+    };
+    contact(bottom.first_point_id,first->id);contact(bottom.second_point_id,last->id);
+    static_cast<void>(draft.add_point_pair_constraint(r.first_point_id,r.second_point_id,sketcher::ConstraintKind::Vertical));
+    static_cast<void>(draft.add_point_pair_constraint(t.first_point_id,t.second_point_id,sketcher::ConstraintKind::Horizontal));
+    static_cast<void>(draft.add_point_pair_constraint(l.first_point_id,l.second_point_id,sketcher::ConstraintKind::Vertical));
+    // The two external contacts already determine the base direction; an
+    // additional horizontal equation there would be redundant.
+    auto height=draft.create_point_dimension(r.first_point_id,r.second_point_id,sketcher::DimensionKind::DistanceY);
+    height.placement=std::array<double,2>{b[0]+10,b[1]+25};
+    draft.apply_dimension(std::move(height));
+    sketch=std::move(draft);return true;
+}
+
 bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,
     document::HistoryContainer feature,sketcher::Sketch sketch) {
     auto* state=live.open_part(id);

@@ -18315,7 +18315,7 @@
     "text": "Šrouby s velkou válcovou hlavou s drážkou Šrouby s velkou válcovou hlavou s drážkou výrobní třída A podle ISO 1580 | Příklad označení šroubu s velkou válcovou hlavou se závitem M5, jmenovité délky l = 20 mm, pevnostní třídy 4.8: ŠROUB S VELKOU VÁLCOVOU HLAVOU ISO 1580 – M5×20 – 4.8 Rozměry šroubů od M1,6 do M10 s válcovou hlavou Rozměry v milimetrech závity uvedené v závorkách nejsou doporučeny. Délky šroubů od M1,6 do M10 s válcovou hlavou Hodnoty uvedené v závorkách nejsou doporučeny. Šrouby se jmenovitou délkou uvedené v šedém poli mají závit k hlavě ( b = l−a ). Rozsah obchodně dohodnutých délek leží mezi lomenými čarami. Mechanické vlastnosti, a úpravy povrchu šroubů s válcovou hlavou",
     "sha256": "7f4d6fa0b7dde09191973175b0fa9215477db58025e3ad88943ccf89690ace00"
   },
-  "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2": {
+  "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2": {
     "file": "index.html",
     "tables": [],
     "images": [

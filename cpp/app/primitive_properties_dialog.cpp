@@ -759,15 +759,22 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             feature_scroll->setMaximumHeight(visible?natural+4:0);
             if(layout())layout()->activate();
             if(isVisible()) {
-                const int overhead=minimumSizeHint().height()-(visible?feature_scroll->minimumHeight():0);
                 const int available=parentWidget()?parentWidget()->height()-20:1000;
-                const int viewport=visible?std::max(feature_scroll->minimumHeight(),
-                    std::min(natural+4,available-overhead)):0;
-                // The shared properties layout anchors forms at the top. Reserve
-                // the available viewport explicitly so its bottom spacer cannot
-                // consume space while modeling controls remain behind a scrollbar.
-                feature_scroll->setMinimumHeight(viewport);
-                resize(std::max(width(),minimumSizeHint().width()),overhead+viewport);
+                // The shared outer scroll area's minimum hint excludes most
+                // form content. Measure the complete natural form instead;
+                // subtracting this inner viewport from minimumSizeHint() used
+                // to discard the header and placement rows from the height.
+                feature_scroll->setMinimumHeight(visible?natural+4:0);
+                content_layout()->invalidate();content_layout()->activate();
+                if(layout()){layout()->invalidate();layout()->activate();}
+                const int desired=sizeHint().height();
+                if(visible&&desired>available) {
+                    feature_scroll->setMinimumHeight(std::max(std::min(180,natural+4),
+                        natural+4-(desired-available)));
+                    content_layout()->invalidate();content_layout()->activate();
+                    if(layout()){layout()->invalidate();layout()->activate();}
+                }
+                resize(std::max(width(),minimumSizeHint().width()),std::min(available,sizeHint().height()));
             }
         };
         connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,
@@ -1266,7 +1273,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             shell_source_eye_->setToolTip(tr("Zobrazit zdrojové těleso"));
             shell_source_table_->setCellWidget(0,3,zima::ui::centered_cell_widget(shell_source_eye_));
             shell_source_table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Fixed);shell_source_table_->setColumnWidth(0,28);
-            shell_source_table_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Fixed);shell_source_table_->setColumnWidth(3,28);
+            shell_source_table_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Fixed);shell_source_table_->setColumnWidth(3,34);
             connect(shell_source_table_,&QTableWidget::cellPressed,this,[this](int,int column){if(column==2&&request_shell_source_)request_shell_source_();});
             set_shell_source(initial.shell.source_body,QString::fromStdString(initial.shell.source_body));
             form->addRow(shell_source_table_);

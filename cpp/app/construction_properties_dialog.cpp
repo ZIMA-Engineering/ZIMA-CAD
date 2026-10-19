@@ -638,6 +638,9 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     sweep_profiles_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     sweep_profiles_table_->setMinimumHeight(90);
     content_layout()->setStretchFactor(curve_points_table_,0);
+    // In Sweep, extra height belongs to the lower profile table. A zero
+    // stretch alone still lets the upper point table grow toward sizeHint().
+    curve_points_table_->setFixedHeight(curve_points_table_->minimumHeight());
     content_layout()->addWidget(sweep_profiles_table_,1);
     auto* operation_row = new QWidget(this);
     auto* operation_layout = new QHBoxLayout(operation_row);

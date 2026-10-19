@@ -22,6 +22,21 @@ void require(bool condition, const char* message) {
 
 int main(int argc,char** argv) {
     try {
+        for(const double scale:{1e-4,1.,1000.})for(const double shift:{0.,1e6}) {
+            zima::kernel::ViewerMesh mesh;
+            mesh.vertices={{shift,0,0},{shift+scale,0,0},{shift+scale,scale,0},{shift,scale,0},{shift,0,0}};
+            mesh.triangles={0,1,2,4,2,3};
+            const zima::drawing::ProjectionCamera camera{{1,0,0},{0,1,0},{0,0,1}};
+            const auto baseline=zima::drawing::project_edges(mesh,camera);
+            require(baseline.size()==4,"Collapsed-triangle fixture must retain its four real boundaries");
+            mesh.triangles.insert(mesh.triangles.end(),{0,4,2});
+            const auto collapsed=zima::drawing::project_edges(mesh,camera);
+            require(collapsed.size()==baseline.size(),"A duplicate pole triangle invented an internal silhouette");
+            for(std::size_t i=0;i<baseline.size();++i)
+                require(collapsed[i].points==baseline[i].points&&collapsed[i].hidden==baseline[i].hidden&&
+                    collapsed[i].silhouette==baseline[i].silhouette&&collapsed[i].source==baseline[i].source,
+                    "Ignoring a collapsed triangle changed real drawing boundaries");
+        }
         {
             using namespace zima;
             kernel::ViewerMesh mesh;

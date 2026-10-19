@@ -1,7 +1,9 @@
 #include <cmath>
+#include <initializer_list>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <stdexcept>
+#include <utility>
 #include <zima/document/appearance.hpp>
 namespace zima::document {
 using nlohmann::json;
@@ -129,6 +131,16 @@ std::vector<kernel::NamedStyle> default_surface_palette() {
   add("bronze-polished", "Bronz leštěný", "Kovy", "#AD7945", .12, 1);
   add("brass", "Mosaz", "Kovy", "#C6A55F", .23, 1);
   add("copper", "Měď", "Kovy", "#C57D5C", .24, 1);
+  // Indicative screen swatches, not licensed RAL Digital colorimetry. See
+  // doc/RAL_APPEARANCE_PALETTE.md for sources and the selected industrial set.
+  for(const auto& [code,color]:std::initializer_list<std::pair<const char*,const char*>>{
+      {"1015","#E6D2B5"},{"1016","#F1DD38"},{"1021","#F6B600"},{"1023","#F7B500"},
+      {"2004","#E75B12"},{"3000","#AB2524"},{"3001","#A02128"},{"3024","#F70000"},
+      {"5002","#2B2C7C"},{"5005","#154889"},{"5010","#13447C"},{"5015","#2874B2"},
+      {"6011","#68825B"},{"6013","#797C5A"},{"6019","#B7D9B1"},
+      {"7016","#373F43"},{"7032","#B9B9A8"},{"7035","#CBD0CC"},{"7040","#9DA3A6"},
+      {"9003","#F4F8F4"},{"9005","#0A0A0D"},{"9010","#F7F9EF"},{"9016","#F7FBF5"}})
+    add(std::string("ral-")+code,std::string("RAL ")+code,"RAL",color,.35,0);
   return p;
 }
 } // namespace zima::document

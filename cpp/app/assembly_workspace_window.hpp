@@ -438,6 +438,8 @@ private:
     // its internal Sketch is being edited. OCCT is not called until the
     // reopened feature Properties dialog is confirmed with OK.
     std::optional<zima::document::HistoryContainer> pending_profile_feature_;
+    std::optional<zima::document::HistoryContainer> opening_clipboard_;
+    std::optional<zima::document::HistoryContainer> opening_paste_seed_;
     // Geometry edited from a profile's Properties or its Sketcher remains
     // pending until the owning container is confirmed.
     std::optional<zima::sketcher::Sketch> property_owned_sketch_draft_;
@@ -719,6 +721,8 @@ private:
 
     void create_layout();
     void create_actions();
+    void copy_selected_opening();
+    void paste_copied_opening();
     void new_document();
     [[nodiscard]] QString create_document(
         const QString& document_type, const QString& file_stem,

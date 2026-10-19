@@ -20,6 +20,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <filesystem>
@@ -45,6 +46,11 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 std::unique_ptr<ui::PropertiesSubWindow> dialog(raw);dialog->setAttribute(Qt::WA_DeleteOnClose,false);
                 dialog->show();flush();++count;
                 QStringList errors;
+                if(name.startsWith("default-")) {
+                    auto* scroll=dialog->findChild<QScrollArea*>("propertiesContentScrollArea");
+                    if(scroll&&scroll->verticalScrollBar()->maximum()>0&&dialog->height()<available.height()-30)
+                        errors<<"initial Feature height hides content while parent space is available";
+                }
                 std::vector<std::pair<QWidget*,int>> anchored;
                 for(auto* field:dialog->findChildren<QTableWidget*>())if(field->isVisible())
                     anchored.emplace_back(field,field->mapTo(dialog.get(),QPoint{}).y());
@@ -63,6 +69,16 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                     if(gained<growth/2)errors<<"extra window height did not reach the reference table";
                 }
                 dialog->resize(original_size);flush();
+                if(name=="revolution"&&available.width()==1366) {
+                    auto* scroll=dialog->findChild<QScrollArea*>("propertiesContentScrollArea");
+                    if(!scroll||scroll->verticalScrollBar()->maximum()<=0)errors<<"tall properties have no scrollable content";
+                    else {
+                        const auto confirmation=dialog->buttons()->mapTo(dialog.get(),QPoint{});
+                        scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());flush();
+                        if(dialog->buttons()->mapTo(dialog.get(),QPoint{})!=confirmation)errors<<"scrolling moved confirmation controls";
+                        scroll->verticalScrollBar()->setValue(0);flush();
+                    }
+                }
                 auto* status=dialog->findChild<QLabel*>("containerPlacementStatusLabel");
                 auto* dof=dialog->findChild<QLabel*>("containerPlacementDofLabel");
                 if(status&&dof&&status->isVisible()&&dof->isVisible()&&
@@ -73,6 +89,8 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                     if(!widget->isVisible() || !widget->parentWidget())continue;
                     const bool editor=qobject_cast<QAbstractSpinBox*>(widget)||qobject_cast<QLineEdit*>(widget)||
                         qobject_cast<QComboBox*>(widget)||qobject_cast<QAbstractButton*>(widget);
+                    if(qobject_cast<QAbstractSpinBox*>(widget)&&widget->height()<widget->minimumSizeHint().height())
+                        errors<<widget->objectName()+QString(": numeric editor height %1 is below its minimum hint %2").arg(widget->height()).arg(widget->minimumSizeHint().height());
                     auto* owner=widget->parentWidget();
                     const bool viewport=owner->parentWidget()&&qobject_cast<QAbstractScrollArea*>(owner->parentWidget());
                     if(editor&&!viewport&&!owner->rect().contains(widget->geometry()))
@@ -98,6 +116,11 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 dialog->hide();
             };
             using Part=document::PartDocument;
+            for(bool revolve:{false,true}) {
+                auto feature=Part::create_feature_container("profile");
+                feature.feature.sides[0].operation=revolve?document::FeatureSideOperation::Revolution:document::FeatureSideOperation::Extrusion;
+                check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),revolve?"default-revolution":"default-extrusion");
+            }
             const std::array factories{&Part::create_hole_container,&Part::create_thread_container,&Part::create_drill_point_container,&Part::create_twisted_sheet_container};
             for(const auto factory:factories) {
                 auto feature=factory();check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),QString::number(static_cast<int>(feature.feature_kind)));

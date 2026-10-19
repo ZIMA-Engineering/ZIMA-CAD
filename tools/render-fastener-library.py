@@ -18,6 +18,34 @@ def thumbnail(native, path, variant, output):
     native.run('new', type='drawing', name='fastener-preview')
     sheet = native.run('drawing.sheet.list')['items'][0]
     width, height = sheet['width_mm'], sheet['height_mm']
+    if 'height_mm' in variant and 'across_flats_mm' in variant:
+        variant={**variant,'outside_mm':max(2*variant['across_flats_mm']/math.sqrt(3),variant.get('flange_diameter_mm',0)),
+            'thickness_mm':variant.get('overall_height_mm',variant['height_mm'])}
+    elif 'height_mm' in variant and 'knurl_pitch_mm' in variant:
+        variant={**variant,'thickness_mm':variant['height_mm']}
+    if 'outside_mm' in variant and 'thickness_mm' in variant:
+        # Washers rest on XY. The axial split is on the viewer-facing side.
+        q = math.sqrt(.5)
+        r = variant['outside_mm']/2
+        xmin,xmax,ymin,ymax,zmin,zmax = variant.get('bounds_mm',
+            [-r,r,-r,r,0,variant['thickness_mm']])
+        scale = min(90/(xmax-xmin),65/(q*(ymax-ymin+zmax-zmin)))
+        center_x = (xmin+xmax)/2
+        center_y = q*(zmin+zmax-ymin-ymax)/2
+        camera={'horizontal':[1,0,0], 'vertical':[0,-q,q], 'depth':[0,q,q]}
+        if variant.get('seating_thumbnail'):
+            camera={'horizontal':[1,0,0], 'vertical':[0,q,q], 'depth':[0,q,-q]}
+        native.run('drawing.view.create', sheet=sheet['sheet'], source=source,
+            camera=camera,
+            x_mm=width/2+center_x*scale, y_mm=height/2-center_y*scale,
+            scale=scale, display_style='shaded_with_edges')
+        native.run('export.image', path=str(output), sheet=sheet['sheet'], dpi=81.28,
+            crop_mm=[width/2-50, height/2-37.5, 100, 75])
+        native.run('close', discard=True)
+        native.run('close')
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise RuntimeError('Thumbnail rendering changed its native source')
+        return
     r = variant['head_diameter_mm']/2 if 'head_diameter_mm' in variant else variant['across_flats_mm'] / math.sqrt(3)
     half_flats = r if 'head_diameter_mm' in variant else variant['across_flats_mm'] / 2
     horizontal = math.sqrt(2/3) * (variant['length_mm'] + variant['head_height_mm'] + r + half_flats)

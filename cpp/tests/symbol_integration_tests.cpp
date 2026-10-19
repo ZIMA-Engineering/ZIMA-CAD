@@ -17,10 +17,16 @@ sketcher::SymbolInstance projection() {
     const auto definition=symbols::projection_method();sketcher::SymbolInstance i;
     i.id="test-projection";i.definition=definition.serialized();i.variant=definition.default_variant;i.use_cad_variant=true;return i;
 }
-void factory(const std::filesystem::path& root) {
+void factory(const std::filesystem::path& root,bool edge_geometry_only=false) {
     for(const auto* language:{"CS","EN","DE","FR","RU"}) {
         const auto path=root/"tests/fixtures/drawing-library"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz");
         auto sketch=drawing::load_template_sketch(path,[](auto& text){sketcher::rebuild_text_contours(text,true);});
+        // These authored lines are the superseded edge indication, not frame
+        // geometry. The editable ISO 13715 instance now owns that indication.
+        bool removed_edges=false;
+        for(const auto* id:{"g1","g2","g5","g7","g8","g9","g10","g11","g14","g15","g16","g17","g18","g19","g20","g22"})
+            if(std::ranges::find(sketch.segments,std::string(id),&sketcher::SketchSegment::id)!=sketch.segments.end()){sketch.remove_geometry(id);removed_edges=true;}
+        if(edge_geometry_only){if(removed_edges)drawing::save_template_sketch(sketch,path);continue;}
         std::erase_if(sketch.points,[](const auto& v){return v.id.starts_with("projection:");});
         std::erase_if(sketch.segments,[](const auto& v){return v.id.starts_with("projection:");});
         std::erase_if(sketch.constraints,[](const auto& v){return v.id.starts_with("projection:");});
@@ -47,6 +53,7 @@ void factory(const std::filesystem::path& root) {
         }
         drawing::save_template_sketch(sketch,path);
     }
+    if(edge_geometry_only)return;
     for(const auto* filename:{"START_PART_mm.prtz","START_SKELETON_mm.prtz"}) {
         const auto path=root/"config/templates"/filename;auto part=document::PartDocument::load(path);
         for(const auto* key:{"general_tolerance","tolerancing"}){part.user_parameters.erase(key);part.user_parameter_values.erase(key);part.user_parameter_labels.erase(key);std::erase(part.user_parameter_order,key);}
@@ -108,6 +115,7 @@ int main(int argc,char** argv) {
         }
 
         if(argc==2&&std::string(argv[1])=="--update-factory"){factory(root);return 0;}
+        if(argc==2&&std::string(argv[1])=="--update-edge-geometry"){factory(root,true);return 0;}
         {
             // An arbitrary user-authored definition exercises the same policy;
             // no catalog ID or roughness-specific rendering is involved.

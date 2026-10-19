@@ -1692,11 +1692,11 @@
   "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/02-Podlozky pro srouby s valcovou pulkulatou hlavou": {
     "storage": "02-CAP-HEAD",
     "labels": {
-      "cs": "Podložky pod válcové a pulkulové hlavy šroubů podle ČSN 02 1703",
-      "en": "Washers for cylindrical and pan heads — ČSN 02 1703",
-      "de": "Scheiben für Zylinder- und Flachrundköpfe — ČSN 02 1703",
-      "fr": "Rondelles pour têtes cylindriques et bombées — ČSN 02 1703",
-      "ru": "Шайбы под цилиндрические и полукруглые головки — ČSN 02 1703"
+      "cs": "Podložky pro válcové a půlkulaté hlavy",
+      "en": "Washers for cylindrical and pan heads",
+      "de": "Scheiben für Zylinder- und Flachrundköpfe",
+      "fr": "Rondelles pour têtes cylindriques et bombées",
+      "ru": "Шайбы под цилиндрические и полукруглые головки"
     }
   },
   "05-SROUBY, MATICE A PODLOZKY/06-Podlozky/03-Pruzne podlozky": {
@@ -2489,7 +2489,7 @@
       "ru": "Винты с большой цилиндрической головкой — класс A"
     }
   },
-  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/04-Srouby s valcovou hlavou/04-SROUBY_S_PULKULATOU_HLAVOU_S_VNITRNIM_6HR-A2": {
+  "05-SROUBY, MATICE A PODLOZKY/04-Srouby/06-Srouby s pulkulatou hlavou/04-SROUBY_S_PULKULATOU_HLAVOU_S_VNITRNIM_6HR-A2": {
     "storage": "04-BUTTON-A2",
     "labels": {
       "cs": "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2",
@@ -2862,11 +2862,11 @@
   "05-SROUBY, MATICE A PODLOZKY/05-Matice/02-Korunove_matice/01-Korunove matice CSN 02 1411": {
     "storage": "01-CSN-1411",
     "labels": {
-      "cs": "Korunové matice ČSN 02 1411",
-      "en": "Castellated nuts — ČSN 02 1411",
-      "de": "Kronenmuttern — ČSN 02 1411",
-      "fr": "Écrous à créneaux — ČSN 02 1411",
-      "ru": "Корончатые гайки — ČSN 02 1411"
+      "cs": "Korunové matice",
+      "en": "Castle nuts",
+      "de": "Kronenmuttern",
+      "fr": "Écrous à créneaux",
+      "ru": "Корончатые гайки"
     }
   },
   "05-SROUBY, MATICE A PODLOZKY/05-Matice/02-Korunove_matice/02-Korunove matice nizke": {

@@ -226,11 +226,11 @@
       "Винты и болты с шестигранной головкой"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_01-GRADE-AB": [
-      "Částečný závit · ISO 4014 · výrobní třída A/B",
-      "Partial thread · ISO 4014 · product grade A/B",
-      "Teilgewinde · ISO 4014 · Produktklasse A/B",
-      "Filetage partiel · ISO 4014 · grade de produit A/B",
-      "Неполная резьба · ISO 4014 · класс точности изготовления A/B"
+      "Částečný závit· výrobní třída A/B",
+      "Partial thread· product grade A/B",
+      "Teilgewinde· Produktklasse A/B",
+      "Filetage partiel· grade de produit A/B",
+      "Неполная резьба· класс точности изготовления A/B"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_01-GRADE-AB_01-M1.6-M10": [
       "Částečný závit · ISO 4014 · výrobní třída A/B · M1,6-M10",
@@ -254,11 +254,11 @@
       "Неполная резьба · ISO 4014 · класс точности изготовления A/B · M36-M64"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_02-GRADE-C": [
-      "Částečný závit · ISO 4016 · výrobní třída C",
-      "Partial thread · ISO 4016 · product grade C",
-      "Teilgewinde · ISO 4016 · Produktklasse C",
-      "Filetage partiel · ISO 4016 · grade de produit C",
-      "Неполная резьба · ISO 4016 · класс точности изготовления C"
+      "Částečný závit· výrobní třída C",
+      "Partial thread· product grade C",
+      "Teilgewinde· Produktklasse C",
+      "Filetage partiel· grade de produit C",
+      "Неполная резьба· класс точности изготовления C"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_02-GRADE-C_01-M5-M27": [
       "Částečný závit · ISO 4016 · výrobní třída C · M5-M27",
@@ -275,11 +275,11 @@
       "Неполная резьба · ISO 4016 · класс точности изготовления C · M30-M64"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_03-FULL-AB": [
-      "Závit k hlavě · ISO 4017 · výrobní třída A/B",
-      "Full thread · ISO 4017 · product grade A/B",
-      "Vollgewinde · ISO 4017 · Produktklasse A/B",
-      "Filetage intégral · ISO 4017 · grade de produit A/B",
-      "Резьба до головки · ISO 4017 · класс точности изготовления A/B"
+      "Závit k hlavě· výrobní třída A/B",
+      "Full thread· product grade A/B",
+      "Vollgewinde· Produktklasse A/B",
+      "Filetage intégral· grade de produit A/B",
+      "Резьба до головки· класс точности изготовления A/B"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_03-FULL-AB_01-M1.6-M10": [
       "Závit k hlavě · ISO 4017 · výrobní třída A/B · M1,6-M10",
@@ -303,11 +303,11 @@
       "Резьба до головки · ISO 4017 · класс точности изготовления A/B · M36-M64"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_04-FULL-C": [
-      "Závit k hlavě · ISO 4018 · výrobní třída C",
-      "Full thread · ISO 4018 · product grade C",
-      "Vollgewinde · ISO 4018 · Produktklasse C",
-      "Filetage intégral · ISO 4018 · grade de produit C",
-      "Резьба до головки · ISO 4018 · класс точности изготовления C"
+      "Závit k hlavě· výrobní třída C",
+      "Full thread· product grade C",
+      "Vollgewinde· Produktklasse C",
+      "Filetage intégral· grade de produit C",
+      "Резьба до головки· класс точности изготовления C"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_04-FULL-C_01-M5-M27": [
       "Závit k hlavě · ISO 4018 · výrobní třída C · M5-M27",
@@ -324,11 +324,11 @@
       "Резьба до головки · ISO 4018 · класс точности изготовления C · M30-M64"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_05-FINE-AB": [
-      "Jemný částečný závit · ISO 8765",
-      "Fine partial thread · ISO 8765",
-      "Feines Teilgewinde · ISO 8765",
-      "Pas fin, filetage partiel · ISO 8765",
-      "Мелкая неполная резьба · ISO 8765"
+      "Jemný částečný závit",
+      "Fine partial thread",
+      "Feines Teilgewinde",
+      "Pas fin, filetage partiel",
+      "Мелкая неполная резьба"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_05-FINE-AB_01-SIZES": [
       "Jemný částečný závit · ISO 8765 · SIZES",
@@ -359,11 +359,11 @@
       "Мелкая неполная резьба · ISO 8765 · SIZES"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_06-FULL-FINE": [
-      "Jemný závit k hlavě · ISO 8676",
-      "Fine full thread · ISO 8676",
-      "Feines Vollgewinde · ISO 8676",
-      "Pas fin, filetage intégral · ISO 8676",
-      "Мелкая резьба до головки · ISO 8676"
+      "Jemný závit k hlavě",
+      "Fine full thread",
+      "Feines Vollgewinde",
+      "Pas fin, filetage intégral",
+      "Мелкая резьба до головки"
     ],
     "directory_04-SCREWS_01-HEX-HEAD_06-FULL-FINE_01-SIZES": [
       "Jemný závit k hlavě · ISO 8676 · SIZES",
@@ -443,11 +443,11 @@
       "Винты с цилиндрической головкой"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_01-SOCKET": [
-      "Válcová hlava, vnitřní šestihran · ISO 4762",
-      "Socket head cap screws · ISO 4762",
-      "Zylinderkopf mit Innensechskant · ISO 4762",
-      "Tête cylindrique à six pans creux · ISO 4762",
-      "Цилиндрическая головка, внутренний шестигранник · ISO 4762"
+      "Válcová hlava, vnitřní šestihran",
+      "Socket head cap screws",
+      "Zylinderkopf mit Innensechskant",
+      "Tête cylindrique à six pans creux",
+      "Цилиндрическая головка, внутренний шестигранник"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_01-SOCKET_01-M1.6-M12": [
       "Válcová hlava, vnitřní šestihran · ISO 4762 · M1.6-M12",
@@ -478,25 +478,25 @@
       "Цилиндрическая головка, внутренний шестигранник · ISO 4762 · M24-M64"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_02-SLOTTED": [
-      "Šrouby s válcovou hlavou s drážkou · ISO 1207",
-      "Slotted cylindrical head screws — grade A · ISO 1207",
-      "Zylinderschrauben mit Schlitz — Produktklasse A · ISO 1207",
-      "Vis à tête cylindrique fendue — grade A · ISO 1207",
-      "Винты с цилиндрической головкой и шлицем — класс A · ISO 1207"
+      "Šrouby s válcovou hlavou s drážkou",
+      "Slotted cylindrical head screws — grade A",
+      "Zylinderschrauben mit Schlitz — Produktklasse A",
+      "Vis à tête cylindrique fendue — grade A",
+      "Винты с цилиндрической головкой и шлицем — класс A"
     ],
     "directory_04-SCREWS_04-CAP-HEAD_03-LARGE": [
-      "Šrouby s velkou válcovou hlavou · ISO 1580",
-      "Large cylindrical head screws — grade A · ISO 1580",
-      "Schrauben mit großem Zylinderkopf — Produktklasse A · ISO 1580",
-      "Vis à grande tête cylindrique — grade A · ISO 1580",
-      "Винты с большой цилиндрической головкой — класс A · ISO 1580"
+      "Šrouby s velkou válcovou hlavou",
+      "Large cylindrical head screws — grade A",
+      "Schrauben mit großem Zylinderkopf — Produktklasse A",
+      "Vis à grande tête cylindrique — grade A",
+      "Винты с большой цилиндрической головкой — класс A"
     ],
-    "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2": [
-      "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2 · ISO 7380-1",
-      "Hexagon socket button head screws — A2 · ISO 7380-1",
-      "Schrauben mit Flachrundkopf und Innensechskant — A2 · ISO 7380-1",
-      "Vis à tête bombée à six pans creux — A2 · ISO 7380-1",
-      "Винты с полукруглой головкой и внутренним шестигранником — A2 · ISO 7380-1"
+    "directory_04-SCREWS_06-PAN-HEAD_04-BUTTON-A2": [
+      "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2",
+      "Hexagon socket button head screws — A2",
+      "Schrauben mit Flachrundkopf und Innensechskant — A2",
+      "Vis à tête bombée à six pans creux — A2",
+      "Винты с полукруглой головкой и внутренним шестигранником — A2"
     ],
     "directory_04-SCREWS_05-SUNK-HEAD": [
       "Zápustné šrouby",
@@ -681,25 +681,25 @@
       "Установочные винты с внутренним шестигранником и коническим концом"
     ],
     "directory_04-SCREWS_09-SET_XX-DIN-913": [
-      "Stavěcí šrouby s vnitřním šestihranem a plochým koncem — DIN 913",
-      "Hexagon socket set screws with flat point — DIN 913",
-      "Gewindestifte mit Innensechskant und flacher Spitze — DIN 913",
-      "Vis sans tête à six pans creux à bout plat — DIN 913",
-      "Установочные винты с внутренним шестигранником и плоским концом — DIN 913"
+      "Stavěcí šrouby s vnitřním šestihranem a plochým koncem",
+      "Hexagon socket set screws with flat point",
+      "Gewindestifte mit Innensechskant und flacher Spitze",
+      "Vis sans tête à six pans creux à bout plat",
+      "Установочные винты с внутренним шестигранником и плоским концом"
     ],
     "directory_04-SCREWS_09-SET_XX-DIN-914": [
-      "Stavěcí šrouby s vnitřním šestihranem a hrotem — DIN 914",
-      "Hexagon socket set screws with cone point — DIN 914",
-      "Gewindestifte mit Innensechskant und Kegelkuppe — DIN 914",
-      "Vis sans tête à six pans creux à pointe conique — DIN 914",
-      "Установочные винты с внутренним шестигранником и коническим концом — DIN 914"
+      "Stavěcí šrouby s vnitřním šestihranem a hrotem",
+      "Hexagon socket set screws with cone point",
+      "Gewindestifte mit Innensechskant und Kegelkuppe",
+      "Vis sans tête à six pans creux à pointe conique",
+      "Установочные винты с внутренним шестигранником и коническим концом"
     ],
     "directory_04-SCREWS_09-SET_XX-DIN-915": [
-      "Stavěcí šrouby s vnitřním šestihranem a čípkem — DIN 915",
-      "Hexagon socket set screws with dog point — DIN 915",
-      "Gewindestifte mit Innensechskant und Zapfen — DIN 915",
-      "Vis sans tête à six pans creux à téton — DIN 915",
-      "Установочные винты с внутренним шестигранником и цилиндрическим концом — DIN 915"
+      "Stavěcí šrouby s vnitřním šestihranem a čípkem",
+      "Hexagon socket set screws with dog point",
+      "Gewindestifte mit Innensechskant und Zapfen",
+      "Vis sans tête à six pans creux à téton",
+      "Установочные винты с внутренним шестигранником и цилиндрическим концом"
     ],
     "directory_04-SCREWS_09-SET_XX-DOG": [
       "Stavěcí šrouby s vnitřním šestihranem a čípkem",
@@ -821,17 +821,17 @@
       "Корончатые гайки"
     ],
     "directory_05-NUTS_02-CASTLE_01-CSN-1411": [
-      "Korunové matice ČSN 02 1411",
-      "Castellated nuts — ČSN 02 1411",
-      "Kronenmuttern — ČSN 02 1411",
-      "Écrous à créneaux — ČSN 02 1411",
-      "Корончатые гайки — ČSN 02 1411"
+      "Korunové matice",
+      "Castle nuts",
+      "Kronenmuttern",
+      "Écrous à créneaux",
+      "Корончатые гайки"
     ],
     "directory_05-NUTS_02-CASTLE_02-LOW": [
       "Nízké korunové matice",
-      "Thin castellated nuts",
-      "Kronenmuttern niedrige Form",
-      "Écrous à créneaux bas",
+      "Thin castle nuts",
+      "Niedrige Kronenmuttern",
+      "Écrous bas à créneaux",
       "Низкие корончатые гайки"
     ],
     "directory_05-NUTS_03-SMALL": [
@@ -898,11 +898,11 @@
       "Шайбы под шестигранные гайки и головки болтов"
     ],
     "directory_06-WASHERS_02-CAP-HEAD": [
-      "Podložky pod válcové a pulkulové hlavy šroubů podle ČSN 02 1703",
-      "Washers for cylindrical and pan heads — ČSN 02 1703",
-      "Scheiben für Zylinder- und Flachrundköpfe — ČSN 02 1703",
-      "Rondelles pour têtes cylindriques et bombées — ČSN 02 1703",
-      "Шайбы под цилиндрические и полукруглые головки — ČSN 02 1703"
+      "Podložky pro válcové a půlkulaté hlavy",
+      "Washers for cylindrical and pan heads",
+      "Scheiben für Zylinder- und Flachrundköpfe",
+      "Rondelles pour têtes cylindriques et bombées",
+      "Шайбы под цилиндрические и полукруглые головки"
     ],
     "directory_06-WASHERS_03-SPRING": [
       "Pružné podložky",
@@ -10158,7 +10158,7 @@
       "Valeur indicative d’origine F = 0,8 S Re/μ, μ = 1,5 / 2 / 3 pour I / II / III. Matières historiques; emploi jusqu’à 300 °C non vérifié. Pas un calcul complet de précharge, fatigue ou assemblage.",
       "Исходно F = 0,8 S Re/μ, μ = 1,5 / 2 / 3 для I / II / III. Исторические материалы; применение до 300 °C не проверено. Не полный расчёт преднатяга, усталости или соединения."
     ],
-    "context_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2": [
+    "context_04-SCREWS/06-PAN-HEAD/04-BUTTON-A2": [
       "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2 · Normový kontext",
       "Hexagon socket button head screws — A2 · Standards context",
       "Schrauben mit Flachrundkopf und Innensechskant — A2 · Normkontext",
@@ -10480,7 +10480,7 @@
       "s [mm]",
       "s [mm]"
     ],
-    "page_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2_0_1_0": [
+    "page_04-SCREWS/06-PAN-HEAD/04-BUTTON-A2_0_1_0": [
       "Šrouby s půlkulatou hlavou a vnitřním šestihranem — A2 · Rozměry · M3–M12",
       "Hexagon socket button head screws — A2 · Dimensions · M3–M12",
       "Schrauben mit Flachrundkopf und Innensechskant — A2 · Maße · M3–M12",
@@ -11718,6 +11718,650 @@
       "ISO 7380-1 · Schraube mit Flachrundkopf und Innensechskant",
       "ISO 7380-1 · Vis à tête bombée à six pans creux",
       "ISO 7380-1 · Винт с полукруглой головкой и внутренним шестигранником"
+    ],
+    "reviewed_catalogue": [
+      "Prověřený výběr katalogových podkladů",
+      "Reviewed catalogue selection",
+      "Geprüfte Katalogauswahl",
+      "Sélection de catalogue vérifiée",
+      "Проверенная выборка каталогов"
+    ],
+    "catalogue_range_note": [
+      "Rozměry a délky vybraného katalogového rozsahu. ✓ znamená uvedenou kombinaci, nikoli aktuální skladovou dostupnost nebo úplný rozsah normy.",
+      "Dimensions and lengths of the reviewed catalogue range. ✓ marks a listed combination, not current stock or the complete standard range.",
+      "Maße und Längen des geprüften Katalogbereichs. ✓ kennzeichnet eine aufgeführte Kombination, keinen aktuellen Lagerbestand oder vollständigen Normumfang.",
+      "Dimensions et longueurs de la gamme de catalogue vérifiée. ✓ indique une combinaison répertoriée, sans garantir le stock ni couvrir toute la norme.",
+      "Размеры и длины проверенного каталожного диапазона. ✓ обозначает указанное сочетание, а не наличие на складе или полный диапазон стандарта."
+    ],
+    "catalogue_model_note": [
+      "Tabulka uvádí rozměry nativních modelů. s je jmenovitá velikost klíče, s CAD skutečná šířka modelovaného otvoru. Výchozí pevnostní třída je uvedena samostatně.",
+      "The table gives native model dimensions. s is the nominal key size; s CAD is the modeled socket width. The default property class is listed separately.",
+      "Die Tabelle enthält Maße der nativen Modelle. s ist die Nennschlüsselweite, s CAD die modellierte Öffnungsweite. Die voreingestellte Festigkeitsklasse ist gesondert angegeben.",
+      "Le tableau indique les dimensions des modèles natifs. s est la taille nominale de clé, s CAD la largeur modélisée de l’empreinte. La classe de qualité par défaut est indiquée séparément.",
+      "В таблице приведены размеры нативных моделей. s — номинальный размер ключа, s CAD — ширина смоделированного гнезда. Класс прочности по умолчанию указан отдельно."
+    ],
+    "hexalobular_cad_note": [
+      "Šestioblouk používá jmenovitý CAD obrys podle přílohy A ISO 10664:1999 a rozměry A/B podle ISO 10664:2014. Model nenahrazuje výrobní kontrolu kalibry.",
+      "The hexalobular drive uses the nominal CAD contour of ISO 10664:1999 Annex A and A/B dimensions from ISO 10664:2014. The model does not replace manufacturing gauge inspection.",
+      "Der Sechsrund verwendet die nominale CAD-Kontur nach ISO 10664:1999 Anhang A und A/B-Maße nach ISO 10664:2014. Das Modell ersetzt keine Fertigungsprüfung mit Lehren.",
+      "L’empreinte hexalobulaire utilise le contour CAO nominal de l’annexe A d’ISO 10664:1999 et les dimensions A/B d’ISO 10664:2014. Le modèle ne remplace pas le contrôle de fabrication par calibres.",
+      "Шестилучевой профиль использует номинальный контур САПР из приложения A ISO 10664:1999 и размеры A/B по ISO 10664:2014. Модель не заменяет производственный контроль калибрами."
+    ],
+    "catalogue_lengths": [
+      "Katalogové délky",
+      "Catalogue lengths",
+      "Kataloglängen",
+      "Longueurs de catalogue",
+      "Каталожные длины"
+    ],
+    "default_model_property_class": [
+      "Výchozí pevnostní třída modelů",
+      "Default model property class",
+      "Voreingestellte Modell-Festigkeitsklasse",
+      "Classe de qualité des modèles par défaut",
+      "Класс прочности моделей по умолчанию"
+    ],
+    "symbol_P": [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    "symbol_dk": [
+      "dk",
+      "dk",
+      "dk",
+      "dk",
+      "dk"
+    ],
+    "symbol_k": [
+      "k",
+      "k",
+      "k",
+      "k",
+      "k"
+    ],
+    "symbol_s": [
+      "s",
+      "s",
+      "s",
+      "s",
+      "s"
+    ],
+    "symbol_s CAD": [
+      "s CAD",
+      "s CAD",
+      "s CAD",
+      "s CAD",
+      "s CAD"
+    ],
+    "symbol_t": [
+      "t",
+      "t",
+      "t",
+      "t",
+      "t"
+    ],
+    "symbol_r": [
+      "r",
+      "r",
+      "r",
+      "r",
+      "r"
+    ],
+    "symbol_b": [
+      "b",
+      "b",
+      "b",
+      "b",
+      "b"
+    ],
+    "symbol_dh": [
+      "dh",
+      "dh",
+      "dh",
+      "dh",
+      "dh"
+    ],
+    "symbol_t2": [
+      "t2",
+      "t2",
+      "t2",
+      "t2",
+      "t2"
+    ],
+    "symbol_A": [
+      "A",
+      "A",
+      "A",
+      "A",
+      "A"
+    ],
+    "symbol_B": [
+      "B",
+      "B",
+      "B",
+      "B",
+      "B"
+    ],
+    "symbol_T": [
+      "T",
+      "T",
+      "T",
+      "T",
+      "T"
+    ],
+    "directory_04-SCREWS_04-CAP-HEAD_05-LOW-SOCKET": [
+      "Šroub s nízkou válcovou hlavou a vnitřním šestihranem",
+      "Low head hexagon socket screw",
+      "Zylinderschraube mit niedrigem Kopf und Innensechskant",
+      "Vis à tête cylindrique basse à six pans creux",
+      "Винт с низкой цилиндрической головкой и внутренним шестигранником"
+    ],
+    "native_reference_din7984": [
+      "DIN 7984 — výkres nativního modelu",
+      "DIN 7984 — native model drawing",
+      "DIN 7984 — Zeichnung des nativen Modells",
+      "DIN 7984 — dessin du modèle natif",
+      "DIN 7984 — чертёж нативной модели"
+    ],
+    "directory_04-SCREWS_04-CAP-HEAD_06-LOW-PILOT": [
+      "Šroub s nízkou válcovou hlavou, vnitřním šestihranem a vedením klíče",
+      "Low head hexagon socket screw with pilot recess",
+      "Zylinderschraube mit niedrigem Kopf und Schlüsselführung",
+      "Vis à tête cylindrique basse à six pans creux avec trou de guidage",
+      "Винт с низкой цилиндрической головкой и направляющим отверстием под ключ"
+    ],
+    "native_reference_din6912": [
+      "DIN 6912 — výkres nativního modelu",
+      "DIN 6912 — native model drawing",
+      "DIN 6912 — Zeichnung des nativen Modells",
+      "DIN 6912 — dessin du modèle natif",
+      "DIN 6912 — чертёж нативной модели"
+    ],
+    "directory_04-SCREWS_04-CAP-HEAD_07-HEXALOBULAR": [
+      "Šroub s válcovou hlavou a vnitřním šestiobloukem",
+      "Hexalobular socket head cap screw",
+      "Zylinderschraube mit Innensechsrund",
+      "Vis à tête cylindrique à six lobes internes",
+      "Винт с цилиндрической головкой и внутренним шестилучевым шлицем"
+    ],
+    "native_reference_iso14579": [
+      "ISO 14579 — výkres nativního modelu",
+      "ISO 14579 — native model drawing",
+      "ISO 14579 — Zeichnung des nativen Modells",
+      "ISO 14579 — dessin du modèle natif",
+      "ISO 14579 — чертёж нативной модели"
+    ],
+    "spring_compressed_model_note": [
+      "Tabulkové výšky h1/h2 popisují volný stav. Knihovní modely jsou stlačené pro usazení v sestavě; řez je vedený v rovině osy, pod 45°, s rovnoběžnými stěnami a kolmou mezerou 1 mm.",
+      "Tabulated heights h1/h2 describe the free state. Library models are compressed for assembly seating; the axial cut has parallel 45° walls with a 1 mm perpendicular gap.",
+      "Die Tabellenhöhen h1/h2 beschreiben den freien Zustand. Bibliotheksmodelle sind zum Einbau zusammengedrückt; der axiale Schnitt hat parallele 45°-Wände mit 1 mm senkrechtem Abstand.",
+      "Les hauteurs h1/h2 du tableau décrivent l’état libre. Les modèles de bibliothèque sont comprimés pour le montage ; la coupe axiale comporte deux parois parallèles à 45°, espacées perpendiculairement de 1 mm.",
+      "Табличные высоты h1/h2 относятся к свободному состоянию. Модели библиотеки сжаты для установки в сборке; осевой разрез имеет параллельные стенки под 45° с перпендикулярным зазором 1 мм."
+    ],
+    "native_washer_SW_CSN021740_M08.0_REFERENCE": [
+      "ČSN 02 1740 — výkres nativního modelu",
+      "ČSN 02 1740 — native model drawing",
+      "ČSN 02 1740 — Zeichnung des nativen Modells",
+      "ČSN 02 1740 — dessin du modèle natif",
+      "ČSN 02 1740 — чертёж нативной модели"
+    ],
+    "native_washer_SW_CSN021741_M08.0_REFERENCE": [
+      "ČSN 02 1741 — výkres nativního modelu",
+      "ČSN 02 1741 — native model drawing",
+      "ČSN 02 1741 — Zeichnung des nativen Modells",
+      "ČSN 02 1741 — dessin du modèle natif",
+      "ČSN 02 1741 — чертёж нативной модели"
+    ],
+    "native_washer_FW_CSN021702_A_M008.0_REFERENCE": [
+      "ČSN 02 1702 A — výkres nativního modelu",
+      "ČSN 02 1702 A — native model drawing",
+      "ČSN 02 1702 A — Zeichnung des nativen Modells",
+      "ČSN 02 1702 A — dessin du modèle natif",
+      "ČSN 02 1702 A — чертёж нативной модели"
+    ],
+    "native_washer_FW_CSN021702_B_M008.0_REFERENCE": [
+      "ČSN 02 1702 B — výkres nativního modelu",
+      "ČSN 02 1702 B — native model drawing",
+      "ČSN 02 1702 B — Zeichnung des nativen Modells",
+      "ČSN 02 1702 B — dessin du modèle natif",
+      "ČSN 02 1702 B — чертёж нативной модели"
+    ],
+    "native_washer_FW_CSN021703_M008.0_REFERENCE": [
+      "ČSN 02 1703 — výkres nativního modelu",
+      "ČSN 02 1703 — native model drawing",
+      "ČSN 02 1703 — Zeichnung des nativen Modells",
+      "ČSN 02 1703 — dessin du modèle natif",
+      "ČSN 02 1703 — чертёж нативной модели"
+    ],
+    "native_washer_FW_CSN021721_M008.0_REFERENCE": [
+      "ČSN 02 1721 — výkres nativního modelu",
+      "ČSN 02 1721 — native model drawing",
+      "ČSN 02 1721 — Zeichnung des nativen Modells",
+      "ČSN 02 1721 — dessin du modèle natif",
+      "ČSN 02 1721 — чертёж нативной модели"
+    ],
+    "iso_washer_primary_note": [
+      "Hlavní tabulky a modely používají rozměry uvedených ISO norem z roku 2000. Starší ČSN rozměry nejsou pouze přejmenované; velikosti mimo rozsah ISO jsou uvedeny samostatně.",
+      "The main tables and models use dimensions from the listed 2000 ISO editions. Historic CSN sizes are not merely renamed; sizes outside the ISO range are listed separately.",
+      "Haupttabellen und Modelle verwenden Maße der angegebenen ISO-Ausgaben von 2000. Historische CSN-Maße werden nicht nur umbenannt; Größen außerhalb des ISO-Bereichs stehen gesondert.",
+      "Les tableaux principaux et les modèles utilisent les dimensions des éditions ISO de 2000 indiquées. Les anciennes dimensions CSN ne sont pas simplement renommées ; les tailles hors plage ISO sont séparées.",
+      "Основные таблицы и модели используют размеры указанных редакций ISO 2000 года. Исторические размеры CSN не просто переименованы; размеры вне диапазона ISO указаны отдельно."
+    ],
+    "iso_washer_chamfer_note": [
+      "Model ISO 7090 má horní vnější sražení 45° do hloubky h/3; norma připouští úhel 30° až 45° a hloubku h/4 až h/2.",
+      "The ISO 7090 model has an upper outside chamfer at 45° and depth h/3; the standard permits 30° to 45° and depth h/4 to h/2.",
+      "Das ISO-7090-Modell hat oben außen eine Fase mit 45° und Tiefe h/3; die Norm erlaubt 30° bis 45° und h/4 bis h/2.",
+      "Le modèle ISO 7090 comporte un chanfrein extérieur supérieur à 45°, de profondeur h/3 ; la norme autorise 30° à 45° et h/4 à h/2.",
+      "Модель ISO 7090 имеет верхнюю наружную фаску 45° глубиной h/3; норма допускает 30°–45° и глубину h/4–h/2."
+    ],
+    "historical_washer_outside_iso": [
+      "Historické velikosti ČSN mimo rozsah ISO",
+      "Historic CSN sizes outside the ISO range",
+      "Historische CSN-Größen außerhalb des ISO-Bereichs",
+      "Tailles historiques CSN hors plage ISO",
+      "Исторические размеры CSN вне диапазона ISO"
+    ],
+    "washer_symbol_d": [
+      "d",
+      "d",
+      "d",
+      "d",
+      "d"
+    ],
+    "washer_symbol_d1,min": [
+      "d1,min",
+      "d1,min",
+      "d1,min",
+      "d1,min",
+      "d1,min"
+    ],
+    "washer_symbol_d1,max": [
+      "d1,max",
+      "d1,max",
+      "d1,max",
+      "d1,max",
+      "d1,max"
+    ],
+    "washer_symbol_d2,max": [
+      "d2,max",
+      "d2,max",
+      "d2,max",
+      "d2,max",
+      "d2,max"
+    ],
+    "washer_symbol_d2,min": [
+      "d2,min",
+      "d2,min",
+      "d2,min",
+      "d2,min",
+      "d2,min"
+    ],
+    "washer_symbol_h": [
+      "h",
+      "h",
+      "h",
+      "h",
+      "h"
+    ],
+    "washer_symbol_h,max": [
+      "h,max",
+      "h,max",
+      "h,max",
+      "h,max",
+      "h,max"
+    ],
+    "washer_symbol_h,min": [
+      "h,min",
+      "h,min",
+      "h,min",
+      "h,min",
+      "h,min"
+    ],
+    "washer_standard": [
+      "Norma",
+      "Standard",
+      "Norm",
+      "Norme",
+      "Стандарт"
+    ],
+    "washer_form": [
+      "Tvar",
+      "Form",
+      "Form",
+      "Forme",
+      "Форма"
+    ],
+    "washer_ISO7089": [
+      "ISO 7089",
+      "ISO 7089",
+      "ISO 7089",
+      "ISO 7089",
+      "ISO 7089"
+    ],
+    "native_washer_ISO7089": [
+      "ISO 7089 — výkres nativního modelu",
+      "ISO 7089 — native model drawing",
+      "ISO 7089 — Zeichnung des nativen Modells",
+      "ISO 7089 — dessin du modèle natif",
+      "ISO 7089 — чертёж нативной модели"
+    ],
+    "washer_ISO7090": [
+      "ISO 7090",
+      "ISO 7090",
+      "ISO 7090",
+      "ISO 7090",
+      "ISO 7090"
+    ],
+    "native_washer_ISO7090": [
+      "ISO 7090 — výkres nativního modelu",
+      "ISO 7090 — native model drawing",
+      "ISO 7090 — Zeichnung des nativen Modells",
+      "ISO 7090 — dessin du modèle natif",
+      "ISO 7090 — чертёж нативной модели"
+    ],
+    "washer_ISO7091": [
+      "ISO 7091",
+      "ISO 7091",
+      "ISO 7091",
+      "ISO 7091",
+      "ISO 7091"
+    ],
+    "native_washer_ISO7091": [
+      "ISO 7091 — výkres nativního modelu",
+      "ISO 7091 — native model drawing",
+      "ISO 7091 — Zeichnung des nativen Modells",
+      "ISO 7091 — dessin du modèle natif",
+      "ISO 7091 — чертёж нативной модели"
+    ],
+    "washer_ISO7092": [
+      "ISO 7092",
+      "ISO 7092",
+      "ISO 7092",
+      "ISO 7092",
+      "ISO 7092"
+    ],
+    "native_washer_ISO7092": [
+      "ISO 7092 — výkres nativního modelu",
+      "ISO 7092 — native model drawing",
+      "ISO 7092 — Zeichnung des nativen Modells",
+      "ISO 7092 — dessin du modèle natif",
+      "ISO 7092 — чертёж нативной модели"
+    ],
+    "nut_origin_seating_note": [
+      "Model má dosedací plochu v rovině XY na Z = 0 a osu závitu v počátku. Výška matice směřuje do +Z.",
+      "The model has its seating face on XY at Z = 0 and its thread axis through the Origin. Nut height extends in +Z.",
+      "Die Auflagefläche des Modells liegt auf XY bei Z = 0, die Gewindeachse durch den Ursprung. Die Mutternhöhe erstreckt sich in +Z.",
+      "La face d’appui du modèle est sur XY à Z = 0 et l’axe du filetage passe par l’origine. La hauteur s’étend vers +Z.",
+      "Опорная поверхность модели находится в XY при Z = 0, ось резьбы проходит через начало координат. Высота направлена вдоль +Z."
+    ],
+    "native_nut_ISO4032": [
+      "ISO 4032 — výkres nativního modelu",
+      "ISO 4032 — native model drawing",
+      "ISO 4032 — Zeichnung des nativen Modells",
+      "ISO 4032 — dessin du modèle natif",
+      "ISO 4032 — чертёж нативной модели"
+    ],
+    "native_nut_ISO4033": [
+      "ISO 4033 — výkres nativního modelu",
+      "ISO 4033 — native model drawing",
+      "ISO 4033 — Zeichnung des nativen Modells",
+      "ISO 4033 — dessin du modèle natif",
+      "ISO 4033 — чертёж нативной модели"
+    ],
+    "native_nut_ISO4034": [
+      "ISO 4034 — výkres nativního modelu",
+      "ISO 4034 — native model drawing",
+      "ISO 4034 — Zeichnung des nativen Modells",
+      "ISO 4034 — dessin du modèle natif",
+      "ISO 4034 — чертёж нативной модели"
+    ],
+    "native_nut_ISO4035": [
+      "ISO 4035 — výkres nativního modelu",
+      "ISO 4035 — native model drawing",
+      "ISO 4035 — Zeichnung des nativen Modells",
+      "ISO 4035 — dessin du modèle natif",
+      "ISO 4035 — чертёж нативной модели"
+    ],
+    "native_nut_ISO4036": [
+      "ISO 4036 — výkres nativního modelu",
+      "ISO 4036 — native model drawing",
+      "ISO 4036 — Zeichnung des nativen Modells",
+      "ISO 4036 — dessin du modèle natif",
+      "ISO 4036 — чертёж нативной модели"
+    ],
+    "native_nut_ISO8673": [
+      "ISO 8673 — výkres nativního modelu",
+      "ISO 8673 — native model drawing",
+      "ISO 8673 — Zeichnung des nativen Modells",
+      "ISO 8673 — dessin du modèle natif",
+      "ISO 8673 — чертёж нативной модели"
+    ],
+    "native_nut_ISO8674": [
+      "ISO 8674 — výkres nativního modelu",
+      "ISO 8674 — native model drawing",
+      "ISO 8674 — Zeichnung des nativen Modells",
+      "ISO 8674 — dessin du modèle natif",
+      "ISO 8674 — чертёж нативной модели"
+    ],
+    "native_nut_ISO8675": [
+      "ISO 8675 — výkres nativního modelu",
+      "ISO 8675 — native model drawing",
+      "ISO 8675 — Zeichnung des nativen Modells",
+      "ISO 8675 — dessin du modèle natif",
+      "ISO 8675 — чертёж нативной модели"
+    ],
+    "native_tab_washer_reference": [
+      "ČSN 02 1751 — podložka s jazýčkem, výkres nativního modelu",
+      "ČSN 02 1751 — tab washer, native model drawing",
+      "ČSN 02 1751 — Sicherungsblech mit Lappen, Zeichnung des nativen Modells",
+      "ČSN 02 1751 — rondelle-frein à languette, dessin du modèle natif",
+      "ČSN 02 1751 — шайба с лапкой, чертёж нативной модели"
+    ],
+    "tab_washer_origin_note": [
+      "Model ČSN 02 1751 má střed otvoru v počátku, dosedací plochu na XY při Z = 0 a tloušťku ve směru +Z. Rozměr l se měří od osy otvoru ke konci jazýčku.",
+      "The ČSN 02 1751 model has its bore center at the Origin, its seating face on XY at Z = 0 and thickness in +Z. Dimension l runs from the bore axis to the tab end.",
+      "Beim Modell ČSN 02 1751 liegt die Bohrungsmitte im Ursprung, die Auflagefläche auf XY bei Z = 0 und die Dicke in +Z. Maß l reicht von der Bohrungsachse bis zum Lappenende.",
+      "Le modèle ČSN 02 1751 place le centre de l’alésage à l’origine, la face d’appui sur XY à Z = 0 et l’épaisseur vers +Z. La cote l va de l’axe de l’alésage au bout de la languette.",
+      "У модели ČSN 02 1751 центр отверстия находится в начале координат, опорная плоскость — XY при Z = 0, толщина направлена вдоль +Z. Размер l измеряется от оси отверстия до конца лапки."
+    ],
+    "castle_fine_thread": [
+      "Jemný závit d",
+      "Fine thread d",
+      "Feingewinde d",
+      "Filetage fin d",
+      "Мелкая резьба d"
+    ],
+    "castle_cotter_d": [
+      "Závlačka D",
+      "Cotter pin D",
+      "Splint D",
+      "Goupille D",
+      "Шплинт D"
+    ],
+    "castle_cotter_l": [
+      "Závlačka l",
+      "Cotter pin l",
+      "Splint l",
+      "Goupille l",
+      "Шплинт l"
+    ],
+    "native_nut_ČSN021402": [
+      "ČSN 02 1402 — výkres nativního modelu",
+      "ČSN 02 1402 — native model drawing",
+      "ČSN 02 1402 — Zeichnung des nativen Modells",
+      "ČSN 02 1402 — dessin du modèle natif",
+      "ČSN 02 1402 — чертёж нативной модели"
+    ],
+    "castle_nut_native_model_note": [
+      "Nativní model má dosedací plochu na XY při Z = 0, osu závitu v počátku a šest drážek se zaobleným dnem R = n/2. h je celková výška, p výška dna drážky. Závit je v drážkách odstraněn. Rozměry zachovávají historickou tabulku ČSN.",
+      "The native model seats on XY at Z = 0, with its thread axis at the Origin and six round-root slots, R = n/2. h is the overall height; p is the slot-floor height. The thread is removed inside the slots. Dimensions retain the historical CSN table.",
+      "Das native Modell liegt auf XY bei Z = 0, mit Gewindeachse im Ursprung und sechs Schlitzen mit rundem Grund, R = n/2. h ist die Gesamthöhe, p die Höhe des Schlitzgrundes. In den Schlitzen ist das Gewinde entfernt. Die Maße entsprechen der historischen ČSN-Tabelle.",
+      "Le modèle natif repose sur XY à Z = 0, avec l’axe du filetage à l’origine et six fentes à fond arrondi, R = n/2. h est la hauteur totale, p celle du fond des fentes. Le filetage est supprimé dans les fentes. Les dimensions conservent le tableau ČSN historique.",
+      "Опорная плоскость нативной модели — XY при Z = 0, ось резьбы проходит через начало координат. Шесть пазов имеют скруглённое дно R = n/2. h — общая высота, p — высота дна паза. В пазах резьба удалена. Размеры соответствуют исторической таблице ČSN."
+    ],
+    "native_castle_CSN021411": [
+      "ČSN 02 1411 — výkres nativního modelu",
+      "ČSN 02 1411 — native model drawing",
+      "ČSN 02 1411 — Zeichnung des nativen Modells",
+      "ČSN 02 1411 — dessin du modèle natif",
+      "ČSN 02 1411 — чертёж нативной модели"
+    ],
+    "native_castle_CSN021412": [
+      "ČSN 02 1412 — výkres nativního modelu",
+      "ČSN 02 1412 — native model drawing",
+      "ČSN 02 1412 — Zeichnung des nativen Modells",
+      "ČSN 02 1412 — dessin du modèle natif",
+      "ČSN 02 1412 — чертёж нативной модели"
+    ],
+    "native_small_CSN021402": [
+      "ČSN 02 1402 — výkres nativního modelu",
+      "ČSN 02 1402 — native model drawing",
+      "ČSN 02 1402 — Zeichnung des nativen Modells",
+      "ČSN 02 1402 — dessin du modèle natif",
+      "ČSN 02 1402 — чертёж нативной модели"
+    ],
+    "native_small_CSN021413": [
+      "ČSN 02 1413 — výkres nativního modelu",
+      "ČSN 02 1413 — native model drawing",
+      "ČSN 02 1413 — Zeichnung des nativen Modells",
+      "ČSN 02 1413 — dessin du modèle natif",
+      "ČSN 02 1413 — чертёж нативной модели"
+    ],
+    "small_nut_native_executions": [
+      "m1 označuje výšku malé šestihranné matice, m2 celkovou výšku malé korunové matice a h výšku dna drážky. Dosedací plocha modelů je na XY při Z = 0, osa závitu v počátku. Od M12 je v modelu zvolen průměr koruny s; c je osové odlehčení podle tabulky. Rozměry zachovávají historické podklady ČSN.",
+      "m1 is the small hexagon-nut height, m2 the overall small castle-nut height, and h the slot-floor height. Models seat on XY at Z = 0 with the thread axis at the Origin. From M12, the selected CAD crown diameter equals s; c is the tabulated axial relief. Dimensions retain the historical CSN data.",
+      "m1 ist die Höhe der kleinen Sechskantmutter, m2 die Gesamthöhe der kleinen Kronenmutter und h die Höhe des Schlitzgrundes. Die Modelle liegen auf XY bei Z = 0, die Gewindeachse im Ursprung. Ab M12 ist als CAD-Kronendurchmesser s gewählt; c ist der tabellierte axiale Freistich. Die Maße entsprechen den historischen ČSN-Unterlagen.",
+      "m1 est la hauteur du petit écrou hexagonal, m2 la hauteur totale du petit écrou à créneaux et h celle du fond des fentes. Les modèles reposent sur XY à Z = 0 avec l’axe du filetage à l’origine. À partir de M12, le diamètre de couronne choisi en CAO vaut s ; c est le dégagement axial du tableau. Les dimensions conservent les données ČSN historiques.",
+      "m1 — высота малой шестигранной гайки, m2 — общая высота малой корончатой гайки, h — высота дна паза. Опорная плоскость моделей — XY при Z = 0, ось резьбы проходит через начало координат. Начиная с M12 выбранный диаметр короны в модели равен s; c — осевая разгрузка из таблицы. Размеры соответствуют историческим данным ČSN."
+    ],
+    "native_knurled_CSN021461": [
+      "ČSN 02 1461 — řez nativním modelem",
+      "ČSN 02 1461 — native model section",
+      "ČSN 02 1461 — Schnitt des nativen Modells",
+      "ČSN 02 1461 — coupe du modèle natif",
+      "ČSN 02 1461 — разрез нативной модели"
+    ],
+    "native_knurled_CSN021462": [
+      "ČSN 02 1462 — řez nativním modelem",
+      "ČSN 02 1462 — native model section",
+      "ČSN 02 1462 — Schnitt des nativen Modells",
+      "ČSN 02 1462 — coupe du modèle natif",
+      "ČSN 02 1462 — разрез нативной модели"
+    ],
+    "knurled_nut_native_executions": [
+      "h1 je výška vysoké matice, h2 výška nízké matice a k výška rýhované části. Dosedací plocha je na XY při Z = 0, osa závitu v počátku. Rozměry zachovávají historické tabulky ČSN. Model používá přímé rýhování s profilem 90°, zvolenou hloubkou t/4 a celočíselným počtem drážek; jde o geometrické znázornění, nikoli předpis výroby rýhování.",
+      "h1 is the high-nut height, h2 the low-nut height, and k the knurled head height. The seating face is on XY at Z = 0 with the thread axis at the Origin. Dimensions retain the historical CSN tables. The model uses straight knurling with a 90° profile, a selected t/4 depth and an integer groove count; this is a geometric representation, not a knurl manufacturing specification.",
+      "h1 ist die Höhe der hohen Mutter, h2 die Höhe der niedrigen Mutter und k die Höhe des Rändelkopfes. Die Auflagefläche liegt auf XY bei Z = 0, die Gewindeachse im Ursprung. Die Maße entsprechen den historischen ČSN-Tabellen. Das Modell verwendet eine gerade Rändelung mit 90°-Profil, gewählter Tiefe t/4 und ganzzahliger Rillenanzahl; dies ist eine geometrische Darstellung, keine Fertigungsvorschrift.",
+      "h1 est la hauteur de l’écrou haut, h2 celle de l’écrou bas et k celle de la tête moletée. La face d’appui est sur XY à Z = 0, avec l’axe du filetage à l’origine. Les dimensions conservent les tableaux ČSN historiques. Le modèle utilise un moletage droit de profil 90°, de profondeur choisie t/4 et un nombre entier de rainures ; cette représentation géométrique ne constitue pas une spécification de fabrication.",
+      "h1 — высота высокой гайки, h2 — высота низкой гайки, k — высота рифлёной части. Опорная плоскость — XY при Z = 0, ось резьбы проходит через начало координат. Размеры соответствуют историческим таблицам ČSN. В модели принята прямая накатка с профилем 90°, выбранной глубиной t/4 и целым числом канавок; это геометрическое изображение, а не технологическое предписание."
+    ],
+    "directory_din_cap_nuts": [
+      "Matice s půlkulatým vrchlíkem",
+      "Hemispherical cap nuts",
+      "Muttern mit halbkugelförmiger Kappe",
+      "Écrous à calotte hémisphérique",
+      "Гайки с полусферическим колпачком"
+    ],
+    "din1587_nominal_cad": [
+      "DIN 1587",
+      "DIN 1587",
+      "DIN 1587",
+      "DIN 1587",
+      "DIN 1587"
+    ],
+    "din1587_cad_dimensions": [
+      "Samostatná rozměrová řada DIN 1587; nejde o rozměrově shodnou náhradu historické ČSN. s je jmenovitý rozměr přes plochy, h a m tabulkové maximální výšky a R přibližný poloměr vrchlíku. Hodnoty označené CAD popisují model: (e) je vypočtený rozměr přes vrcholy, t zvolený střed tabulkového intervalu délky závitu a p = min(h − w_min, t + P). Skutečné dno v ose je w = h − p; w_min je tabulkové minimum. Závit a výběh 0,5P jsou schematické. Nejde o úplný výrobní předpis ani ověření všech požadavků vydání 2021.",
+      "Separate DIN 1587 dimensional family; not a dimensionally identical replacement for historical CSN. s is the nominal width across flats, h and m the tabulated maximum heights, and R the approximate cap radius. Values marked CAD describe the model: (e) is the calculated width across corners, t the selected midpoint of the tabulated thread-depth interval, and p = min(h − w_min, t + P). Actual axial end wall is w = h − p; w_min is the tabulated minimum. Thread and 0.5P runout are schematic. This is not a complete manufacturing specification or verification of all 2021 edition requirements.",
+      "Eigene Maßreihe nach DIN 1587; kein maßgleicher Ersatz für historische ČSN. s ist die Nennschlüsselweite, h und m sind tabellierte Höchstwerte, R der ungefähre Kappenradius. CAD-Werte beschreiben das Modell: (e) ist das berechnete Eckmaß, t der gewählte Mittelwert des tabellierten Gewindetiefenbereichs und p = min(h − w_min, t + P). Die tatsächliche axiale Bodenstärke ist w = h − p; w_min ist das tabellierte Minimum. Gewinde und Auslauf 0,5P sind schematisch. Dies ist weder eine vollständige Fertigungsvorschrift noch eine Prüfung aller Anforderungen der Ausgabe 2021.",
+      "Série dimensionnelle DIN 1587 distincte ; elle ne remplace pas à dimensions identiques la série ČSN historique. s est la largeur nominale sur plats, h et m les hauteurs maximales tabulées et R le rayon approximatif de la calotte. Les valeurs CAO décrivent le modèle : (e) est la largeur calculée sur angles, t le milieu choisi de l’intervalle tabulé de profondeur filetée et p = min(h − w_min, t + P). Le fond axial réel vaut w = h − p ; w_min est le minimum tabulé. Filetage et sortie de 0,5P sont schématiques. Il ne s’agit ni d’une spécification complète de fabrication ni d’une vérification de toutes les exigences de l’édition 2021.",
+      "Отдельный размерный ряд DIN 1587; он не является размерно идентичной заменой исторического ряда ČSN. s — номинальный размер под ключ, h и m — табличные максимальные высоты, R — приблизительный радиус колпачка. Значения CAD описывают модель: (e) — расчётный размер по вершинам, t — выбранная середина табличного интервала глубины резьбы, p = min(h − w_min, t + P). Фактическая осевая толщина дна w = h − p; w_min — табличный минимум. Резьба и сбег 0,5P показаны условно. Это не полное технологическое предписание и не проверка всех требований редакции 2021."
+    ],
+    "din1587_header_0": [
+      "d",
+      "d",
+      "d",
+      "d",
+      "d"
+    ],
+    "din1587_header_1": [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    "din1587_header_2": [
+      "s",
+      "s",
+      "s",
+      "s",
+      "s"
+    ],
+    "din1587_header_3": [
+      "h max",
+      "h max",
+      "h max",
+      "h max",
+      "h max"
+    ],
+    "din1587_header_4": [
+      "m max",
+      "m max",
+      "m max",
+      "m max",
+      "m max"
+    ],
+    "din1587_header_5": [
+      "R ≈",
+      "R ≈",
+      "R ≈",
+      "R ≈",
+      "R ≈"
+    ],
+    "din1587_header_6": [
+      "(e) CAD",
+      "(e) CAD",
+      "(e) CAD",
+      "(e) CAD",
+      "(e) CAD"
+    ],
+    "din1587_header_7": [
+      "t CAD",
+      "t CAD",
+      "t CAD",
+      "t CAD",
+      "t CAD"
+    ],
+    "din1587_header_8": [
+      "p CAD",
+      "p CAD",
+      "p CAD",
+      "p CAD",
+      "p CAD"
+    ],
+    "din1587_header_9": [
+      "w_min",
+      "w_min",
+      "w_min",
+      "w_min",
+      "w_min"
+    ],
+    "din1587_header_10": [
+      "w CAD",
+      "w CAD",
+      "w CAD",
+      "w CAD",
+      "w CAD"
+    ],
+    "din1587_native_drawing": [
+      "DIN 1587 — výkres nativního modelu",
+      "DIN 1587 — native model drawing",
+      "DIN 1587 — Zeichnung des nativen Modells",
+      "DIN 1587 — dessin du modèle natif",
+      "DIN 1587 — чертёж нативной модели"
     ]
   },
   "sources": {
@@ -11920,6 +12564,130 @@
     "button_catalogue_lengths": {
       "label": "Bossard BN 1593 · A2 · 2016",
       "url": "https://www.tme.eu/Document/1300c42edc34d0b58933bd30eeddc6e2/BN1593.pdf"
+    },
+    "din7984_standard": {
+      "label": "DIN 7984",
+      "url": "https://www.dinmedia.de/de/norm/din-7984/349413305"
+    },
+    "din7984_dimensions": {
+      "label": "DIN 7984 · catalogue dimensions",
+      "url": "https://eshop.boellhoff.de/out/media/pdf/DIN_7984_Edelstahl_A2___en.pdf"
+    },
+    "din7984_lengths": {
+      "label": "DIN 7984 · catalogue lengths",
+      "url": "https://www.annapol.eu/documents/e327a384224a5fdf6ad11e543537b708/BN17-DE.pdf"
+    },
+    "din6912_standard": {
+      "label": "DIN 6912",
+      "url": "https://www.dinmedia.de/de/norm/din-6912/331996195"
+    },
+    "din6912_dimensions": {
+      "label": "DIN 6912 · catalogue dimensions",
+      "url": "https://eshop.boellhoff.de/out/media/pdf/DIN_6912_Stahl_08.8_gv___de.pdf"
+    },
+    "din6912_lengths": {
+      "label": "DIN 6912 · catalogue lengths",
+      "url": "https://eshop.boellhoff.de/out/media/pdf/DIN_6912_Stahl_08.8_gv___de.pdf"
+    },
+    "iso14579_standard": {
+      "label": "ISO 14579",
+      "url": "https://www.iso.org/standard/56455.html"
+    },
+    "iso14579_dimensions": {
+      "label": "ISO 14579 · catalogue dimensions",
+      "url": "https://www.pts-uk.com/products/socket-screws/hexalobular-cap-screws/metric-a4/A1457910040A4"
+    },
+    "iso14579_lengths": {
+      "label": "ISO 14579 · catalogue lengths",
+      "url": "https://xonstorage.z8.web.core.windows.net/pdf/bossard_9014381_apr22_xonlink.pdf"
+    },
+    "iso14579_cad": {
+      "label": "ISO 10664:1999 · Annex A",
+      "url": "https://willrich.com/wp-content/uploads/2017/11/ISO-10664_.pdf"
+    },
+    "iso14579_ab": {
+      "label": "ISO 10664:2014 · A/B",
+      "url": "https://cdn.standards.iteh.ai/samples/63207/f79670cf0a214881aa40b4822580cce3/ISO-10664-2014.pdf"
+    },
+    "spring_historical_scan": {
+      "label": "ČSN 02 1740 · historical table, p. 183",
+      "url": "https://encyklopediapoznania.sk/data/eknihy/strojarenstvo/strojnicke_tabulky_z_roku_1965.pdf"
+    },
+    "iso4034_2012_reviewed": {
+      "label": "ISO 4034:2012",
+      "url": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    "washer_ISO7089_dimensions": {
+      "label": "ISO 7089:2000",
+      "url": "https://cdn.standards.iteh.ai/samples/13666/ced7958754ab4f3694b6dc0d2a45911a/ISO-7089-2000.pdf"
+    },
+    "washer_ISO7090_dimensions": {
+      "label": "ISO 7090:2000",
+      "url": "https://cdn.standards.iteh.ai/samples/13669/28fa2f8fec834f6c8d3606ab4cbcbcb7/ISO-7090-2000.pdf"
+    },
+    "washer_ISO7091_dimensions": {
+      "label": "ISO 7091:2000",
+      "url": "https://cdn.standards.iteh.ai/samples/13672/b0a85383768d440c9be1b9423ffc77aa/ISO-7091-2000.pdf"
+    },
+    "washer_ISO7092_dimensions": {
+      "label": "ISO 7092:2000",
+      "url": "https://cdn.standards.iteh.ai/samples/13674/95f610684c2649df8c45073e2ed6d085/ISO-7092-2000.pdf"
+    },
+    "iso4032_2012_basis": {
+      "label": "ISO 4032:2012",
+      "url": "https://www.iso.org/standard/61668.html"
+    },
+    "iso4033_2012_basis": {
+      "label": "ISO 4033:2012",
+      "url": "https://www.iso.org/standard/61669.html"
+    },
+    "iso4034_2012_basis": {
+      "label": "ISO 4034:2012",
+      "url": "https://www.iso.org/standard/61670.html"
+    },
+    "iso4035_2012_basis": {
+      "label": "ISO 4035:2012",
+      "url": "https://www.iso.org/standard/61671.html"
+    },
+    "iso4036_2012_basis": {
+      "label": "ISO 4036:2012",
+      "url": "https://www.iso.org/standard/61672.html"
+    },
+    "iso8673_2012_basis": {
+      "label": "ISO 8673:2012",
+      "url": "https://www.iso.org/standard/61673.html"
+    },
+    "iso8674_2012_basis": {
+      "label": "ISO 8674:2012",
+      "url": "https://www.iso.org/standard/61674.html"
+    },
+    "iso8675_2012_basis": {
+      "label": "ISO 8675:2012",
+      "url": "https://www.iso.org/standard/61675.html"
+    },
+    "tab_washer_historical_scan": {
+      "label": "ČSN 02 1751 / ČSN 02 1753 · historical tables, pp. 184–185",
+      "url": "https://encyklopediapoznania.sk/data/eknihy/strojarenstvo/strojnicke_tabulky_z_roku_1965.pdf"
+    },
+    "nut_archived_factory_dimensions": {
+      "label": "ZIMA-Engineering · archived factory dimensions",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/main/tools/data/fastener-source-tables.json"
+    },
+    "din1587_aspen_dimensions": {
+      "label": "Aspen Fasteners — DIN 1587",
+      "url": "https://www.aspenfasteners.com/content/pdf/Metric_DIN_1587_spec.pdf"
+    },
+    "din1587_support_0": {
+      "label": "Böllhoff — DIN 1587",
+      "url": "https://eshop.boellhoff.de/out/media/pdf/DIN_1587_Messing___en.pdf"
+    },
+    "din1587_support_1": {
+      "label": "DIN 1587:1987",
+      "url": "https://rcsm-ural.ru/uploadedFiles/images/standarts/gaiki/DIN-1587-87.pdf"
+    },
+    "din1587_support_2": {
+      "label": "DIN 1587:2021 preview",
+      "url": "https://www.normsplash.com/Samples/DIN/186512567/DIN-1587-2021-en.pdf"
     }
   },
   "pages": [
@@ -31919,8 +32687,8 @@
       "omit_approximate_mass": true
     },
     {
-      "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
-      "title": "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2",
+      "path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2",
+      "title": "directory_04-SCREWS_06-PAN-HEAD_04-BUTTON-A2",
       "headers": [
         "item",
         "reference"
@@ -31963,13 +32731,13 @@
           }
         }
       ],
-      "source_path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2/00-CONTEXT",
+      "source_path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2/00-CONTEXT",
       "id": "e3083691-aeb2-5628-8778-19bb34a4da44",
-      "heading": "context_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
+      "heading": "context_04-SCREWS/06-PAN-HEAD/04-BUTTON-A2",
       "sections": [
         {
-          "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
-          "title": "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2",
+          "path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2",
+          "title": "directory_04-SCREWS_06-PAN-HEAD_04-BUTTON-A2",
           "preferred_rows": [],
           "heading": "button_dimensions_reviewed",
           "headers": [
@@ -32196,8 +32964,8 @@
           ]
         },
         {
-          "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
-          "title": "directory_04-SCREWS_04-CAP-HEAD_04-BUTTON-A2",
+          "path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2",
+          "title": "directory_04-SCREWS_06-PAN-HEAD_04-BUTTON-A2",
           "preferred_rows": [],
           "heading": "button_length_heading",
           "headers": [
@@ -32384,8 +33152,8 @@
           ]
         },
         {
-          "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2",
-          "title": "page_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2_0_1_0",
+          "path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2",
+          "title": "page_04-SCREWS/06-PAN-HEAD/04-BUTTON-A2_0_1_0",
           "headers": [
             "symbol_d",
             "symbol_d₂ [mm]",
@@ -32451,7 +33219,7 @@
           "sources": [
             "iso7380-1_2022"
           ],
-          "source_table": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2#0",
+          "source_table": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2#0",
           "source_rows": [
             0,
             7
@@ -32464,8 +33232,8 @@
             4
           ],
           "review": "historical",
-          "source_path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2/01-C02-R001",
-          "heading": "page_04-SCREWS/04-CAP-HEAD/04-BUTTON-A2_0_1_0",
+          "source_path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2/01-C02-R001",
+          "heading": "page_04-SCREWS/06-PAN-HEAD/04-BUTTON-A2_0_1_0",
           "superseded_display": true
         }
       ],
@@ -44220,9 +44988,11 @@
         "pair_order",
         "brackets",
         "grade_explanation",
-        "historical_requirements"
+        "historical_requirements",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso4032_2012_basis",
         "iso4032_2023",
         "iso4759-1_2000"
       ],
@@ -44248,8 +45018,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/01-TYPE1-AB_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO4032-M08.0-REFERENCE.png",
+          "caption": "native_nut_ISO4032",
+          "localized_paths": {
+            "cs": "HN-ISO4032-M08.0-REFERENCE_cs.png",
+            "en": "HN-ISO4032-M08.0-REFERENCE_en.png",
+            "de": "HN-ISO4032-M08.0-REFERENCE_de.png",
+            "fr": "HN-ISO4032-M08.0-REFERENCE_fr.png",
+            "ru": "HN-ISO4032-M08.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/01-TYPE1-AB/01-C02-R001",
@@ -44720,7 +45497,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 32
     },
     {
       "path": "05-NUTS/01-HEXAGON/02-TYPE1-F",
@@ -44886,9 +45666,11 @@
         "pair_order",
         "brackets",
         "grade_explanation",
-        "historical_requirements"
+        "historical_requirements",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso8673_2012_basis",
         "iso8673_2023",
         "iso4759-1_2000"
       ],
@@ -44912,8 +45694,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/02-TYPE1-F_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO8673-M08.0x1.00-REFERENCE.png",
+          "caption": "native_nut_ISO8673",
+          "localized_paths": {
+            "cs": "HN-ISO8673-M08.0x1.00-REFERENCE_cs.png",
+            "en": "HN-ISO8673-M08.0x1.00-REFERENCE_en.png",
+            "de": "HN-ISO8673-M08.0x1.00-REFERENCE_de.png",
+            "fr": "HN-ISO8673-M08.0x1.00-REFERENCE_fr.png",
+            "ru": "HN-ISO8673-M08.0x1.00-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/02-TYPE1-F/01-C02-R001",
@@ -45271,7 +46060,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 24
     },
     {
       "path": "05-NUTS/01-HEXAGON/03-LOW",
@@ -45428,9 +46220,11 @@
         "pair_order",
         "brackets",
         "grade_explanation",
-        "historical_requirements"
+        "historical_requirements",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso4035_2012_basis",
         "iso4035_2023",
         "iso4759-1_2000"
       ],
@@ -45456,8 +46250,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/03-LOW_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO4035-M08.0-REFERENCE.png",
+          "caption": "native_nut_ISO4035",
+          "localized_paths": {
+            "cs": "HN-ISO4035-M08.0-REFERENCE_cs.png",
+            "en": "HN-ISO4035-M08.0-REFERENCE_en.png",
+            "de": "HN-ISO4035-M08.0-REFERENCE_de.png",
+            "fr": "HN-ISO4035-M08.0-REFERENCE_fr.png",
+            "ru": "HN-ISO4035-M08.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/03-LOW/01-C02-R001",
@@ -45853,7 +46654,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 32
     },
     {
       "path": "05-NUTS/01-HEXAGON/04-LOW-FINE",
@@ -45986,9 +46790,11 @@
         "pair_order",
         "brackets",
         "grade_explanation",
-        "historical_requirements"
+        "historical_requirements",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso8675_2012_basis",
         "iso8675_2023",
         "iso4759-1_2000"
       ],
@@ -46012,8 +46818,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/04-LOW-FINE_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO8675-M08.0x1.00-REFERENCE.png",
+          "caption": "native_nut_ISO8675",
+          "localized_paths": {
+            "cs": "HN-ISO8675-M08.0x1.00-REFERENCE_cs.png",
+            "en": "HN-ISO8675-M08.0x1.00-REFERENCE_en.png",
+            "de": "HN-ISO8675-M08.0x1.00-REFERENCE_de.png",
+            "fr": "HN-ISO8675-M08.0x1.00-REFERENCE_fr.png",
+            "ru": "HN-ISO8675-M08.0x1.00-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/04-LOW-FINE/01-C02-R001",
@@ -46314,7 +47127,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 24
     },
     {
       "path": "05-NUTS/01-HEXAGON/05-NO-CHAMF",
@@ -46418,9 +47234,11 @@
         "units",
         "pair_order",
         "brackets",
-        "withdrawn_nuts"
+        "withdrawn_nuts",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso4036_2012_basis",
         "iso8992_2005",
         "iso4032_2023",
         "iso4035_2023"
@@ -46447,8 +47265,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/05-NO-CHAMF_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO4036-M08.0-REFERENCE.png",
+          "caption": "native_nut_ISO4036",
+          "localized_paths": {
+            "cs": "HN-ISO4036-M08.0-REFERENCE_cs.png",
+            "en": "HN-ISO4036-M08.0-REFERENCE_en.png",
+            "de": "HN-ISO4036-M08.0-REFERENCE_de.png",
+            "fr": "HN-ISO4036-M08.0-REFERENCE_fr.png",
+            "ru": "HN-ISO4036-M08.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/05-NO-CHAMF/01-C02-R001",
@@ -46495,7 +47320,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 13
     },
     {
       "path": "05-NUTS/01-HEXAGON/06-TYPE2-AB",
@@ -46677,9 +47505,11 @@
         "pair_order",
         "brackets",
         "grade_explanation",
-        "historical_requirements"
+        "historical_requirements",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso4033_2012_basis",
         "iso4033_2023",
         "iso4759-1_2000"
       ],
@@ -46706,8 +47536,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/06-TYPE2-AB_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO4033-M08.0-REFERENCE.png",
+          "caption": "native_nut_ISO4033",
+          "localized_paths": {
+            "cs": "HN-ISO4033-M08.0-REFERENCE_cs.png",
+            "en": "HN-ISO4033-M08.0-REFERENCE_en.png",
+            "de": "HN-ISO4033-M08.0-REFERENCE_de.png",
+            "fr": "HN-ISO4033-M08.0-REFERENCE_fr.png",
+            "ru": "HN-ISO4033-M08.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/06-TYPE2-AB/01-C02-R001",
@@ -46755,7 +47592,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 14
     },
     {
       "path": "05-NUTS/01-HEXAGON/07-TYPE2-F",
@@ -46921,9 +47761,11 @@
         "pair_order",
         "brackets",
         "grade_explanation",
-        "historical_requirements"
+        "historical_requirements",
+        "nut_origin_seating_note"
       ],
       "sources": [
+        "iso8674_2012_basis",
         "iso8674_2023",
         "iso4759-1_2000"
       ],
@@ -46947,8 +47789,15 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/07-TYPE2-F_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO8674-M08.0x1.00-REFERENCE.png",
+          "caption": "native_nut_ISO8674",
+          "localized_paths": {
+            "cs": "HN-ISO8674-M08.0x1.00-REFERENCE_cs.png",
+            "en": "HN-ISO8674-M08.0x1.00-REFERENCE_en.png",
+            "de": "HN-ISO8674-M08.0x1.00-REFERENCE_de.png",
+            "fr": "HN-ISO8674-M08.0x1.00-REFERENCE_fr.png",
+            "ru": "HN-ISO8674-M08.0x1.00-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/07-TYPE2-F/01-C02-R001",
@@ -47130,7 +47979,10 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 16
     },
     {
       "path": "05-NUTS/01-HEXAGON/08-GRADE-C",
@@ -47173,14 +48025,14 @@
           "26,17",
           "29,56",
           "32,95",
-          "32,95",
+          "37,29",
           "39,55",
           "45,2",
           "50,85",
           "55,37",
           "60,79",
           "66,44",
-          "72,02",
+          "71,3",
           "76,95",
           "82,6",
           "88,25",
@@ -47199,12 +48051,12 @@
           "15,9",
           "16,9",
           "19",
-          "19,0",
+          "20,2",
           "22,3",
           "24,7",
           "26,4",
           "29,5",
-          "31,5",
+          "31,9",
           "34,3",
           "34,9",
           "36,9",
@@ -47217,7 +48069,7 @@
         [
           "m_min. [mm]",
           "4,4",
-          "13",
+          "4,9",
           "6,4",
           "8,0",
           "10,4",
@@ -47225,12 +48077,12 @@
           "14,1",
           "15,1",
           "16,9",
-          "16,9",
+          "18,1",
           "20,2",
           "22,6",
           "24,3",
           "27,4",
-          "28,0",
+          "29,4",
           "31,8",
           "32,4",
           "34,4",
@@ -47243,7 +48095,7 @@
         [
           "s [mm] h14",
           "8",
-          "5,1",
+          "10",
           "13",
           "16",
           "18",
@@ -47251,9 +48103,9 @@
           "24",
           "27",
           "30",
-          "30",
+          "34",
           "36",
-          "46",
+          "41",
           "46",
           "50",
           "55",
@@ -47270,10 +48122,13 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "nut_origin_seating_note"
       ],
       "sources": [
-        "iso8992_2005"
+        "iso4034_2012_basis",
+        "iso8992_2005",
+        "iso4034_2012_reviewed"
       ],
       "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
       "source_rows": [
@@ -47310,15 +48165,25 @@
       "heading": "logical_page_05-NUTS/01-HEXAGON/08-GRADE-C_0_1_0",
       "figures": [
         {
-          "path": "../../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "HN-ISO4034-M08.0-REFERENCE.png",
+          "caption": "native_nut_ISO4034",
+          "localized_paths": {
+            "cs": "HN-ISO4034-M08.0-REFERENCE_cs.png",
+            "en": "HN-ISO4034-M08.0-REFERENCE_en.png",
+            "de": "HN-ISO4034-M08.0-REFERENCE_de.png",
+            "fr": "HN-ISO4034-M08.0-REFERENCE_fr.png",
+            "ru": "HN-ISO4034-M08.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/01-HEXAGON/08-GRADE-C/01-C02-R001",
       "id": "78f2ab39-018a-560c-905a-023f2e65f5bc",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 23
     },
     {
       "path": "05-NUTS/02-CASTLE",
@@ -47476,7 +48341,8 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "castle_nut_native_model_note"
       ],
       "sources": [
         "iso8992_2005"
@@ -47649,11 +48515,49 @@
           ],
           "review": "historical",
           "heading": "logical_page_05-NUTS/02-CASTLE/01-CSN-1411_1_1_0",
-          "source_path": "05-NUTS/02-CASTLE/01-CSN-1411/02-C02-R001"
+          "source_path": "05-NUTS/02-CASTLE/01-CSN-1411/02-C02-R001",
+          "parameter_labels": {
+            "\"d\"": {
+              "key": "castle_fine_thread"
+            },
+            "{\"key\": \"row_heading_05-NUTS/02-CASTLE/01-CSN-1411_1_7\"}": {
+              "key": "castle_cotter_d"
+            },
+            "{\"key\": \"row_heading_05-NUTS/02-CASTLE/01-CSN-1411_1_8\"}": {
+              "key": "castle_cotter_l"
+            }
+          }
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 16,
+      "parameter_labels": {
+        "\"d\"": {
+          "key": "castle_fine_thread"
+        },
+        "{\"key\": \"row_heading_05-NUTS/02-CASTLE/01-CSN-1411_0_7\"}": {
+          "key": "castle_cotter_d"
+        },
+        "{\"key\": \"row_heading_05-NUTS/02-CASTLE/01-CSN-1411_0_8\"}": {
+          "key": "castle_cotter_l"
+        }
+      },
+      "figures": [
+        {
+          "path": "CN-CSN021411-M12.0-REFERENCE.png",
+          "caption": "native_castle_CSN021411",
+          "localized_paths": {
+            "cs": "CN-CSN021411-M12.0-REFERENCE_cs.png",
+            "en": "CN-CSN021411-M12.0-REFERENCE_en.png",
+            "de": "CN-CSN021411-M12.0-REFERENCE_de.png",
+            "fr": "CN-CSN021411-M12.0-REFERENCE_fr.png",
+            "ru": "CN-CSN021411-M12.0-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "localized_illustrations": true
     },
     {
       "path": "05-NUTS/02-CASTLE/02-LOW",
@@ -47801,7 +48705,8 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "castle_nut_native_model_note"
       ],
       "sources": [
         "iso8992_2005"
@@ -47974,11 +48879,49 @@
           ],
           "review": "historical",
           "heading": "logical_page_05-NUTS/02-CASTLE/02-LOW_1_1_0",
-          "source_path": "05-NUTS/02-CASTLE/02-LOW/02-C02-R001"
+          "source_path": "05-NUTS/02-CASTLE/02-LOW/02-C02-R001",
+          "parameter_labels": {
+            "\"d\"": {
+              "key": "castle_fine_thread"
+            },
+            "{\"key\": \"row_heading_05-NUTS/02-CASTLE/02-LOW_1_7\"}": {
+              "key": "castle_cotter_d"
+            },
+            "{\"key\": \"row_heading_05-NUTS/02-CASTLE/02-LOW_1_8\"}": {
+              "key": "castle_cotter_l"
+            }
+          }
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 16,
+      "parameter_labels": {
+        "\"d\"": {
+          "key": "castle_fine_thread"
+        },
+        "{\"key\": \"row_heading_05-NUTS/02-CASTLE/02-LOW_0_7\"}": {
+          "key": "castle_cotter_d"
+        },
+        "{\"key\": \"row_heading_05-NUTS/02-CASTLE/02-LOW_0_8\"}": {
+          "key": "castle_cotter_l"
+        }
+      },
+      "figures": [
+        {
+          "path": "CN-CSN021412-M12.0-REFERENCE.png",
+          "caption": "native_castle_CSN021412",
+          "localized_paths": {
+            "cs": "CN-CSN021412-M12.0-REFERENCE_cs.png",
+            "en": "CN-CSN021412-M12.0-REFERENCE_en.png",
+            "de": "CN-CSN021412-M12.0-REFERENCE_de.png",
+            "fr": "CN-CSN021412-M12.0-REFERENCE_fr.png",
+            "ru": "CN-CSN021412-M12.0-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "localized_illustrations": true
     },
     {
       "path": "05-NUTS/03-SMALL",
@@ -48126,9 +49069,12 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "nut_origin_seating_note",
+        "small_nut_native_executions"
       ],
       "sources": [
+        "nut_archived_factory_dimensions",
         "iso8992_2005"
       ],
       "source_table": "05-NUTS/03-SMALL#0",
@@ -48151,15 +49097,37 @@
       "heading": "logical_page_05-NUTS/03-SMALL_0_1_0",
       "figures": [
         {
-          "path": "../../0000-index/hexagon-nut.svg",
-          "caption": "own_schematic"
+          "path": "SHN-CSN021402-M08.0-REFERENCE.png",
+          "caption": "native_small_CSN021402",
+          "localized_paths": {
+            "cs": "SHN-CSN021402-M08.0-REFERENCE_cs.png",
+            "en": "SHN-CSN021402-M08.0-REFERENCE_en.png",
+            "de": "SHN-CSN021402-M08.0-REFERENCE_de.png",
+            "fr": "SHN-CSN021402-M08.0-REFERENCE_fr.png",
+            "ru": "SHN-CSN021402-M08.0-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "SCN-CSN021413-M12.0-REFERENCE.png",
+          "caption": "native_small_CSN021413",
+          "localized_paths": {
+            "cs": "SCN-CSN021413-M12.0-REFERENCE_cs.png",
+            "en": "SCN-CSN021413-M12.0-REFERENCE_en.png",
+            "de": "SCN-CSN021413-M12.0-REFERENCE_de.png",
+            "fr": "SCN-CSN021413-M12.0-REFERENCE_fr.png",
+            "ru": "SCN-CSN021413-M12.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "05-NUTS/03-SMALL/01-C02-R001",
       "id": "7b09bcb6-0ed6-52fe-bc87-836967b072c2",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 8,
+      "localized_illustrations": true,
+      "figures_side_by_side": true
     },
     {
       "path": "05-NUTS/04-CAP",
@@ -48327,7 +49295,9 @@
       "id": "51c73d20-77f8-5622-a01e-eb6165e6e166",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 11
     },
     {
       "path": "05-NUTS/05-WELD",
@@ -48499,7 +49469,9 @@
       "id": "65ab5ea0-f271-597a-a6a3-d0736407a1e7",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 9
     },
     {
       "path": "05-NUTS/06-TWO-PART",
@@ -48696,7 +49668,9 @@
         }
       ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 18
     },
     {
       "path": "05-NUTS/07-LOCKING",
@@ -48828,7 +49802,9 @@
       "id": "5b3253da-e1d1-5720-8c74-09622975ffa9",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 10
     },
     {
       "path": "05-NUTS/08-KNURLED",
@@ -49008,7 +49984,8 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "knurled_nut_native_executions"
       ],
       "sources": [
         "iso8992_2005"
@@ -49038,7 +50015,35 @@
       "id": "018e8704-cd5f-57ff-b835-e6d8d615cee0",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 11,
+      "figures": [
+        {
+          "path": "KN-CSN021461-M08.0-REFERENCE.png",
+          "caption": "native_knurled_CSN021461",
+          "localized_paths": {
+            "cs": "KN-CSN021461-M08.0-REFERENCE_cs.png",
+            "en": "KN-CSN021461-M08.0-REFERENCE_en.png",
+            "de": "KN-CSN021461-M08.0-REFERENCE_de.png",
+            "fr": "KN-CSN021461-M08.0-REFERENCE_fr.png",
+            "ru": "KN-CSN021461-M08.0-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "KN-CSN021462-M08.0-REFERENCE.png",
+          "caption": "native_knurled_CSN021462",
+          "localized_paths": {
+            "cs": "KN-CSN021462-M08.0-REFERENCE_cs.png",
+            "en": "KN-CSN021462-M08.0-REFERENCE_en.png",
+            "de": "KN-CSN021462-M08.0-REFERENCE_de.png",
+            "fr": "KN-CSN021462-M08.0-REFERENCE_fr.png",
+            "ru": "KN-CSN021462-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "localized_illustrations": true,
+      "figures_side_by_side": true
     },
     {
       "path": "05-NUTS/09-WING",
@@ -49261,7 +50266,9 @@
       "id": "9ce04893-be66-5dab-99b5-33af4c5290e6",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 10
     },
     {
       "path": "06-WASHERS",
@@ -49785,11 +50792,16 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "iso_washer_primary_note",
+        "iso_washer_chamfer_note"
       ],
       "sources": [
         "iso7089_2000",
-        "iso4759-3_2016"
+        "iso4759-3_2016",
+        "washer_ISO7089_dimensions",
+        "washer_ISO7090_dimensions",
+        "washer_ISO7091_dimensions"
       ],
       "source_table": "06-WASHERS/01-HEXAGON#0",
       "source_rows": [
@@ -49811,15 +50823,1238 @@
       "heading": "logical_page_06-WASHERS/01-HEXAGON_0_1_0",
       "figures": [
         {
-          "path": "../../0000-index/plain-washer.svg",
-          "caption": "own_schematic"
+          "path": "FW-ISO7089-M008.0-REFERENCE.png",
+          "caption": "native_washer_ISO7089",
+          "localized_paths": {
+            "cs": "FW-ISO7089-M008.0-REFERENCE_cs.png",
+            "en": "FW-ISO7089-M008.0-REFERENCE_en.png",
+            "de": "FW-ISO7089-M008.0-REFERENCE_de.png",
+            "fr": "FW-ISO7089-M008.0-REFERENCE_fr.png",
+            "ru": "FW-ISO7089-M008.0-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "FW-ISO7090-M008.0-REFERENCE.png",
+          "caption": "native_washer_ISO7090",
+          "localized_paths": {
+            "cs": "FW-ISO7090-M008.0-REFERENCE_cs.png",
+            "en": "FW-ISO7090-M008.0-REFERENCE_en.png",
+            "de": "FW-ISO7090-M008.0-REFERENCE_de.png",
+            "fr": "FW-ISO7090-M008.0-REFERENCE_fr.png",
+            "ru": "FW-ISO7090-M008.0-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "FW-ISO7091-M008.0-REFERENCE.png",
+          "caption": "native_washer_ISO7091",
+          "localized_paths": {
+            "cs": "FW-ISO7091-M008.0-REFERENCE_cs.png",
+            "en": "FW-ISO7091-M008.0-REFERENCE_en.png",
+            "de": "FW-ISO7091-M008.0-REFERENCE_de.png",
+            "fr": "FW-ISO7091-M008.0-REFERENCE_fr.png",
+            "ru": "FW-ISO7091-M008.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "06-WASHERS/01-HEXAGON/01-C02-R001",
       "id": "bcc341d1-5974-555b-90ce-9d617591fe3c",
-      "sections": [],
+      "sections": [
+        {
+          "heading": "washer_ISO7089",
+          "headers": [
+            "washer_symbol_d",
+            "washer_symbol_d1,min",
+            "washer_symbol_d1,max",
+            "washer_symbol_d2,max",
+            "washer_symbol_d2,min",
+            "washer_symbol_h",
+            "washer_symbol_h,max",
+            "washer_symbol_h,min"
+          ],
+          "rows": [
+            [
+              "1.6",
+              "1.7",
+              "1.84",
+              "4",
+              "3.7",
+              "0.3",
+              "0.35",
+              "0.25"
+            ],
+            [
+              "2",
+              "2.2",
+              "2.34",
+              "5",
+              "4.7",
+              "0.3",
+              "0.35",
+              "0.25"
+            ],
+            [
+              "2.5",
+              "2.7",
+              "2.84",
+              "6",
+              "5.7",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "3",
+              "3.2",
+              "3.38",
+              "7",
+              "6.64",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "3.5",
+              "3.7",
+              "3.88",
+              "8",
+              "7.64",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "4",
+              "4.3",
+              "4.48",
+              "9",
+              "8.64",
+              "0.8",
+              "0.9",
+              "0.7"
+            ],
+            [
+              "5",
+              "5.3",
+              "5.48",
+              "10",
+              "9.64",
+              "1",
+              "1.1",
+              "0.9"
+            ],
+            [
+              "6",
+              "6.4",
+              "6.62",
+              "12",
+              "11.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "8",
+              "8.4",
+              "8.62",
+              "16",
+              "15.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "10",
+              "10.5",
+              "10.77",
+              "20",
+              "19.48",
+              "2",
+              "2.2",
+              "1.8"
+            ],
+            [
+              "12",
+              "13",
+              "13.27",
+              "24",
+              "23.48",
+              "2.5",
+              "2.7",
+              "2.3"
+            ],
+            [
+              "14",
+              "15",
+              "15.27",
+              "28",
+              "27.48",
+              "2.5",
+              "2.7",
+              "2.3"
+            ],
+            [
+              "16",
+              "17",
+              "17.27",
+              "30",
+              "29.48",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "18",
+              "19",
+              "19.33",
+              "34",
+              "33.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "20",
+              "21",
+              "21.33",
+              "37",
+              "36.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "22",
+              "23",
+              "23.33",
+              "39",
+              "38.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "24",
+              "25",
+              "25.33",
+              "44",
+              "43.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "27",
+              "28",
+              "28.33",
+              "50",
+              "49.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "30",
+              "31",
+              "31.39",
+              "56",
+              "55.26",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "33",
+              "34",
+              "34.62",
+              "60",
+              "58.8",
+              "5",
+              "5.6",
+              "4.4"
+            ],
+            [
+              "36",
+              "37",
+              "37.62",
+              "66",
+              "64.8",
+              "5",
+              "5.6",
+              "4.4"
+            ],
+            [
+              "39",
+              "42",
+              "42.62",
+              "72",
+              "70.8",
+              "6",
+              "6.6",
+              "5.4"
+            ],
+            [
+              "42",
+              "45",
+              "45.62",
+              "78",
+              "76.8",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "45",
+              "48",
+              "48.62",
+              "85",
+              "83.6",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "48",
+              "52",
+              "52.74",
+              "92",
+              "90.6",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "52",
+              "56",
+              "56.74",
+              "98",
+              "96.6",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "56",
+              "62",
+              "62.74",
+              "105",
+              "103.6",
+              "10",
+              "11",
+              "9"
+            ],
+            [
+              "60",
+              "66",
+              "66.74",
+              "110",
+              "108.6",
+              "10",
+              "11",
+              "9"
+            ],
+            [
+              "64",
+              "70",
+              "70.74",
+              "115",
+              "113.6",
+              "10",
+              "11",
+              "9"
+            ]
+          ],
+          "preferred_rows": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24,
+            26,
+            28
+          ],
+          "iso_washer_standard": "ISO 7089"
+        },
+        {
+          "heading": "washer_ISO7090",
+          "headers": [
+            "washer_symbol_d",
+            "washer_symbol_d1,min",
+            "washer_symbol_d1,max",
+            "washer_symbol_d2,max",
+            "washer_symbol_d2,min",
+            "washer_symbol_h",
+            "washer_symbol_h,max",
+            "washer_symbol_h,min"
+          ],
+          "rows": [
+            [
+              "5",
+              "5.3",
+              "5.48",
+              "10",
+              "9.64",
+              "1",
+              "1.1",
+              "0.9"
+            ],
+            [
+              "6",
+              "6.4",
+              "6.62",
+              "12",
+              "11.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "8",
+              "8.4",
+              "8.62",
+              "16",
+              "15.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "10",
+              "10.5",
+              "10.77",
+              "20",
+              "19.48",
+              "2",
+              "2.2",
+              "1.8"
+            ],
+            [
+              "12",
+              "13",
+              "13.27",
+              "24",
+              "23.48",
+              "2.5",
+              "2.7",
+              "2.3"
+            ],
+            [
+              "14",
+              "15",
+              "15.27",
+              "28",
+              "27.48",
+              "2.5",
+              "2.7",
+              "2.3"
+            ],
+            [
+              "16",
+              "17",
+              "17.27",
+              "30",
+              "29.48",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "18",
+              "19",
+              "19.33",
+              "34",
+              "33.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "20",
+              "21",
+              "21.33",
+              "37",
+              "36.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "22",
+              "23",
+              "23.33",
+              "39",
+              "38.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "24",
+              "25",
+              "25.33",
+              "44",
+              "43.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "27",
+              "28",
+              "28.33",
+              "50",
+              "49.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "30",
+              "31",
+              "31.39",
+              "56",
+              "55.26",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "33",
+              "34",
+              "34.62",
+              "60",
+              "58.8",
+              "5",
+              "5.6",
+              "4.4"
+            ],
+            [
+              "36",
+              "37",
+              "37.62",
+              "66",
+              "64.8",
+              "5",
+              "5.6",
+              "4.4"
+            ],
+            [
+              "39",
+              "42",
+              "42.62",
+              "72",
+              "70.8",
+              "6",
+              "6.6",
+              "5.4"
+            ],
+            [
+              "42",
+              "45",
+              "45.62",
+              "78",
+              "76.8",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "45",
+              "48",
+              "48.62",
+              "85",
+              "83.6",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "48",
+              "52",
+              "52.74",
+              "92",
+              "90.6",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "52",
+              "56",
+              "56.74",
+              "98",
+              "96.6",
+              "8",
+              "9",
+              "7"
+            ],
+            [
+              "56",
+              "62",
+              "62.74",
+              "105",
+              "103.6",
+              "10",
+              "11",
+              "9"
+            ],
+            [
+              "60",
+              "66",
+              "66.74",
+              "110",
+              "108.6",
+              "10",
+              "11",
+              "9"
+            ],
+            [
+              "64",
+              "70",
+              "70.74",
+              "115",
+              "113.6",
+              "10",
+              "11",
+              "9"
+            ]
+          ],
+          "preferred_rows": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22
+          ],
+          "iso_washer_standard": "ISO 7090"
+        },
+        {
+          "heading": "washer_ISO7091",
+          "headers": [
+            "washer_symbol_d",
+            "washer_symbol_d1,min",
+            "washer_symbol_d1,max",
+            "washer_symbol_d2,max",
+            "washer_symbol_d2,min",
+            "washer_symbol_h",
+            "washer_symbol_h,max",
+            "washer_symbol_h,min"
+          ],
+          "rows": [
+            [
+              "1.6",
+              "1.8",
+              "2.05",
+              "4",
+              "3.25",
+              "0.3",
+              "0.4",
+              "0.2"
+            ],
+            [
+              "2",
+              "2.4",
+              "2.65",
+              "5",
+              "4.25",
+              "0.3",
+              "0.4",
+              "0.2"
+            ],
+            [
+              "2.5",
+              "2.9",
+              "3.15",
+              "6",
+              "5.25",
+              "0.5",
+              "0.6",
+              "0.4"
+            ],
+            [
+              "3",
+              "3.4",
+              "3.7",
+              "7",
+              "6.1",
+              "0.5",
+              "0.6",
+              "0.4"
+            ],
+            [
+              "3.5",
+              "3.9",
+              "4.2",
+              "8",
+              "7.1",
+              "0.5",
+              "0.6",
+              "0.4"
+            ],
+            [
+              "4",
+              "4.5",
+              "4.8",
+              "9",
+              "8.1",
+              "0.8",
+              "1",
+              "0.6"
+            ],
+            [
+              "5",
+              "5.5",
+              "5.8",
+              "10",
+              "9.1",
+              "1",
+              "1.2",
+              "0.8"
+            ],
+            [
+              "6",
+              "6.6",
+              "6.96",
+              "12",
+              "10.9",
+              "1.6",
+              "1.9",
+              "1.3"
+            ],
+            [
+              "8",
+              "9",
+              "9.36",
+              "16",
+              "14.9",
+              "1.6",
+              "1.9",
+              "1.3"
+            ],
+            [
+              "10",
+              "11",
+              "11.43",
+              "20",
+              "18.7",
+              "2",
+              "2.3",
+              "1.7"
+            ],
+            [
+              "12",
+              "13.5",
+              "13.93",
+              "24",
+              "22.7",
+              "2.5",
+              "2.8",
+              "2.2"
+            ],
+            [
+              "14",
+              "15.5",
+              "15.93",
+              "28",
+              "26.7",
+              "2.5",
+              "2.8",
+              "2.2"
+            ],
+            [
+              "16",
+              "17.5",
+              "17.93",
+              "30",
+              "28.7",
+              "3",
+              "3.6",
+              "2.4"
+            ],
+            [
+              "18",
+              "20",
+              "20.43",
+              "34",
+              "32.4",
+              "3",
+              "3.6",
+              "2.4"
+            ],
+            [
+              "20",
+              "22",
+              "22.52",
+              "37",
+              "35.4",
+              "3",
+              "3.6",
+              "2.4"
+            ],
+            [
+              "22",
+              "24",
+              "24.52",
+              "39",
+              "37.4",
+              "3",
+              "3.6",
+              "2.4"
+            ],
+            [
+              "24",
+              "26",
+              "26.52",
+              "44",
+              "42.4",
+              "4",
+              "4.6",
+              "3.4"
+            ],
+            [
+              "27",
+              "30",
+              "30.52",
+              "50",
+              "48.4",
+              "4",
+              "4.6",
+              "3.4"
+            ],
+            [
+              "30",
+              "33",
+              "33.62",
+              "56",
+              "54.1",
+              "4",
+              "4.6",
+              "3.4"
+            ],
+            [
+              "33",
+              "36",
+              "37",
+              "60",
+              "58.1",
+              "5",
+              "6",
+              "4"
+            ],
+            [
+              "36",
+              "39",
+              "40",
+              "66",
+              "64.1",
+              "5",
+              "6",
+              "4"
+            ],
+            [
+              "39",
+              "42",
+              "43",
+              "72",
+              "70.1",
+              "6",
+              "7",
+              "5"
+            ],
+            [
+              "42",
+              "45",
+              "46",
+              "78",
+              "76.1",
+              "8",
+              "9.2",
+              "6.8"
+            ],
+            [
+              "45",
+              "48",
+              "49",
+              "85",
+              "82.8",
+              "8",
+              "9.2",
+              "6.8"
+            ],
+            [
+              "48",
+              "52",
+              "53.2",
+              "92",
+              "89.8",
+              "8",
+              "9.2",
+              "6.8"
+            ],
+            [
+              "52",
+              "56",
+              "57.2",
+              "98",
+              "95.8",
+              "8",
+              "9.2",
+              "6.8"
+            ],
+            [
+              "56",
+              "62",
+              "63.2",
+              "105",
+              "102.8",
+              "10",
+              "11.2",
+              "8.8"
+            ],
+            [
+              "60",
+              "66",
+              "67.2",
+              "110",
+              "107.8",
+              "10",
+              "11.2",
+              "8.8"
+            ],
+            [
+              "64",
+              "70",
+              "71.2",
+              "115",
+              "112.8",
+              "10",
+              "11.2",
+              "8.8"
+            ]
+          ],
+          "preferred_rows": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24,
+            26,
+            28
+          ],
+          "iso_washer_standard": "ISO 7091"
+        },
+        {
+          "heading": "historical_washer_outside_iso",
+          "headers": [
+            "washer_standard",
+            "washer_form",
+            "washer_symbol_d",
+            "washer_symbol_d1,min",
+            "washer_symbol_d2,max",
+            "washer_symbol_h"
+          ],
+          "rows": [
+            [
+              "ČSN 02 1702",
+              "A",
+              "68",
+              "70",
+              "120",
+              "10"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "68",
+              "70",
+              "120",
+              "10"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "72",
+              "74",
+              "125",
+              "10"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "72",
+              "74",
+              "125",
+              "10"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "76",
+              "78",
+              "135",
+              "10"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "76",
+              "78",
+              "135",
+              "10"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "80",
+              "82",
+              "140",
+              "12"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "80",
+              "82",
+              "140",
+              "12"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "90",
+              "93",
+              "160",
+              "12"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "90",
+              "93",
+              "160",
+              "12"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "100",
+              "104",
+              "175",
+              "14"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "100",
+              "104",
+              "175",
+              "14"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "110",
+              "114",
+              "185",
+              "14"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "110",
+              "114",
+              "185",
+              "14"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "120",
+              "124",
+              "210",
+              "16"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "120",
+              "124",
+              "210",
+              "16"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "125",
+              "129",
+              "220",
+              "16"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "125",
+              "129",
+              "220",
+              "16"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "130",
+              "134",
+              "230",
+              "16"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "130",
+              "134",
+              "230",
+              "16"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "140",
+              "144",
+              "240",
+              "18"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "140",
+              "144",
+              "240",
+              "18"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "150",
+              "155",
+              "250",
+              "18"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "150",
+              "155",
+              "250",
+              "18"
+            ],
+            [
+              "ČSN 02 1702",
+              "A",
+              "160",
+              "165",
+              "265",
+              "18"
+            ],
+            [
+              "ČSN 02 1702",
+              "B",
+              "160",
+              "165",
+              "265",
+              "18"
+            ],
+            [
+              "ČSN 02 1721",
+              "—",
+              "72",
+              "78",
+              "125",
+              "10"
+            ],
+            [
+              "ČSN 02 1721",
+              "—",
+              "80",
+              "86",
+              "140",
+              "12"
+            ],
+            [
+              "ČSN 02 1721",
+              "—",
+              "90",
+              "96",
+              "160",
+              "12"
+            ],
+            [
+              "ČSN 02 1721",
+              "—",
+              "100",
+              "107",
+              "175",
+              "14"
+            ],
+            [
+              "ČSN 02 1721",
+              "—",
+              "110",
+              "117",
+              "185",
+              "14"
+            ],
+            [
+              "ČSN 02 1721",
+              "—",
+              "120",
+              "127",
+              "210",
+              "16"
+            ]
+          ]
+        }
+      ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "approximate_mass_columns": [
+        4,
+        8
+      ],
+      "localized_illustrations": true,
+      "figures_side_by_side": true,
+      "superseded_display": true,
+      "figures_wrap": true
     },
     {
       "path": "06-WASHERS/02-CAP-HEAD",
@@ -49962,11 +52197,13 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "iso_washer_primary_note"
       ],
       "sources": [
         "iso7089_2000",
-        "iso4759-3_2016"
+        "iso4759-3_2016",
+        "washer_ISO7092_dimensions"
       ],
       "source_table": "06-WASHERS/02-CAP-HEAD#0",
       "source_rows": [
@@ -49983,16 +52220,274 @@
       "review": "historical",
       "figures": [
         {
-          "path": "../../0000-index/plain-washer.svg",
-          "caption": "own_schematic"
+          "path": "FW-ISO7092-M008.0-REFERENCE.png",
+          "caption": "native_washer_ISO7092",
+          "localized_paths": {
+            "cs": "FW-ISO7092-M008.0-REFERENCE_cs.png",
+            "en": "FW-ISO7092-M008.0-REFERENCE_en.png",
+            "de": "FW-ISO7092-M008.0-REFERENCE_de.png",
+            "fr": "FW-ISO7092-M008.0-REFERENCE_fr.png",
+            "ru": "FW-ISO7092-M008.0-REFERENCE_ru.png"
+          }
         }
       ],
       "source_path": "06-WASHERS/02-CAP-HEAD/01-C02-R001",
       "id": "09072e10-3cbd-5038-beec-3706f8f41b9b",
       "heading": "page_06-WASHERS/02-CAP-HEAD_0_1_0",
-      "sections": [],
+      "sections": [
+        {
+          "heading": "washer_ISO7092",
+          "headers": [
+            "washer_symbol_d",
+            "washer_symbol_d1,min",
+            "washer_symbol_d1,max",
+            "washer_symbol_d2,max",
+            "washer_symbol_d2,min",
+            "washer_symbol_h",
+            "washer_symbol_h,max",
+            "washer_symbol_h,min"
+          ],
+          "rows": [
+            [
+              "1.6",
+              "1.7",
+              "1.84",
+              "3.5",
+              "3.2",
+              "0.3",
+              "0.35",
+              "0.25"
+            ],
+            [
+              "2",
+              "2.2",
+              "2.34",
+              "4.5",
+              "4.2",
+              "0.3",
+              "0.35",
+              "0.25"
+            ],
+            [
+              "2.5",
+              "2.7",
+              "2.84",
+              "5",
+              "4.7",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "3",
+              "3.2",
+              "3.38",
+              "6",
+              "5.7",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "3.5",
+              "3.7",
+              "3.88",
+              "7",
+              "6.64",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "4",
+              "4.3",
+              "4.48",
+              "8",
+              "7.64",
+              "0.5",
+              "0.55",
+              "0.45"
+            ],
+            [
+              "5",
+              "5.3",
+              "5.48",
+              "9",
+              "8.64",
+              "1",
+              "1.1",
+              "0.9"
+            ],
+            [
+              "6",
+              "6.4",
+              "6.62",
+              "11",
+              "10.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "8",
+              "8.4",
+              "8.62",
+              "15",
+              "14.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "10",
+              "10.5",
+              "10.77",
+              "18",
+              "17.57",
+              "1.6",
+              "1.8",
+              "1.4"
+            ],
+            [
+              "12",
+              "13",
+              "13.27",
+              "20",
+              "19.48",
+              "2",
+              "2.2",
+              "1.8"
+            ],
+            [
+              "14",
+              "15",
+              "15.27",
+              "24",
+              "23.48",
+              "2.5",
+              "2.7",
+              "2.3"
+            ],
+            [
+              "16",
+              "17",
+              "17.27",
+              "28",
+              "27.48",
+              "2.5",
+              "2.7",
+              "2.3"
+            ],
+            [
+              "18",
+              "19",
+              "19.33",
+              "30",
+              "29.48",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "20",
+              "21",
+              "21.33",
+              "34",
+              "33.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "22",
+              "23",
+              "23.33",
+              "37",
+              "36.38",
+              "3",
+              "3.3",
+              "2.7"
+            ],
+            [
+              "24",
+              "25",
+              "25.33",
+              "39",
+              "38.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "27",
+              "28",
+              "28.33",
+              "44",
+              "43.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "30",
+              "31",
+              "31.39",
+              "50",
+              "49.38",
+              "4",
+              "4.3",
+              "3.7"
+            ],
+            [
+              "33",
+              "34",
+              "34.62",
+              "56",
+              "54.8",
+              "5",
+              "5.6",
+              "4.4"
+            ],
+            [
+              "36",
+              "37",
+              "37.62",
+              "60",
+              "58.8",
+              "5",
+              "5.6",
+              "4.4"
+            ]
+          ],
+          "preferred_rows": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20
+          ],
+          "iso_washer_standard": "ISO 7092"
+        }
+      ],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "approximate_mass_columns": [
+        4
+      ],
+      "localized_illustrations": true,
+      "figures_side_by_side": true,
+      "superseded_display": true,
+      "figures_wrap": true
     },
     {
       "path": "06-WASHERS/03-SPRING",
@@ -50115,7 +52610,7 @@
           "10,2",
           "0,6",
           "15,2",
-          "2 ±0,15",
+          "2,5 ±0,15",
           "5 -1",
           "1,96",
           "17,2",
@@ -50212,7 +52707,7 @@
           "M24",
           "24,5",
           "1,0",
-          "31,5",
+          "35,5",
           "5,5 ±0,2",
           "11 -2,2",
           "22,4",
@@ -50310,11 +52805,13 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "spring_compressed_model_note"
       ],
       "sources": [
         "iso7089_2000",
-        "iso4759-3_2016"
+        "iso4759-3_2016",
+        "spring_historical_scan"
       ],
       "source_table": "06-WASHERS/03-SPRING#0",
       "source_rows": [
@@ -50341,7 +52838,37 @@
       "id": "93c44978-8d88-56a4-a50a-f1e5ada0732c",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "approximate_mass_columns": [
+        6,
+        11
+      ],
+      "figures": [
+        {
+          "path": "SW-CSN021740-M08.0-REFERENCE.png",
+          "caption": "native_washer_SW_CSN021740_M08.0_REFERENCE",
+          "localized_paths": {
+            "cs": "SW-CSN021740-M08.0-REFERENCE_cs.png",
+            "en": "SW-CSN021740-M08.0-REFERENCE_en.png",
+            "de": "SW-CSN021740-M08.0-REFERENCE_de.png",
+            "fr": "SW-CSN021740-M08.0-REFERENCE_fr.png",
+            "ru": "SW-CSN021740-M08.0-REFERENCE_ru.png"
+          }
+        },
+        {
+          "path": "SW-CSN021741-M08.0-REFERENCE.png",
+          "caption": "native_washer_SW_CSN021741_M08.0_REFERENCE",
+          "localized_paths": {
+            "cs": "SW-CSN021741-M08.0-REFERENCE_cs.png",
+            "en": "SW-CSN021741-M08.0-REFERENCE_en.png",
+            "de": "SW-CSN021741-M08.0-REFERENCE_de.png",
+            "fr": "SW-CSN021741-M08.0-REFERENCE_fr.png",
+            "ru": "SW-CSN021741-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "localized_illustrations": true,
+      "figures_side_by_side": true
     },
     {
       "path": "06-WASHERS/04-TOOTHED",
@@ -50558,7 +53085,12 @@
       "id": "461c5fec-16dd-5403-a06f-ab58194ed62b",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "approximate_mass_columns": [
+        5,
+        6,
+        7
+      ]
     },
     {
       "path": "06-WASHERS/05-LOCK",
@@ -50908,11 +53440,11 @@
       "notes": [
         "units",
         "pair_order",
-        "brackets"
+        "brackets",
+        "tab_washer_origin_note"
       ],
       "sources": [
-        "iso7089_2000",
-        "iso4759-3_2016"
+        "tab_washer_historical_scan"
       ],
       "source_table": "06-WASHERS/05-LOCK#0",
       "source_rows": [
@@ -50942,7 +53474,25 @@
       "id": "94299486-b943-5c67-a917-4960d7211739",
       "sections": [],
       "freeze_header": true,
-      "omit_approximate_mass": true
+      "omit_approximate_mass": true,
+      "approximate_mass_columns": [
+        7,
+        14
+      ],
+      "figures": [
+        {
+          "path": "TW-CSN021751-M08.0-REFERENCE.png",
+          "caption": "native_tab_washer_reference",
+          "localized_paths": {
+            "cs": "TW-CSN021751-M08.0-REFERENCE_cs.png",
+            "en": "TW-CSN021751-M08.0-REFERENCE_en.png",
+            "de": "TW-CSN021751-M08.0-REFERENCE_de.png",
+            "fr": "TW-CSN021751-M08.0-REFERENCE_fr.png",
+            "ru": "TW-CSN021751-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "localized_illustrations": true
     },
     {
       "path": "06-WASHERS/06-DIN",
@@ -51017,6 +53567,1577 @@
       "sections": [],
       "freeze_header": true,
       "omit_approximate_mass": true
+    },
+    {
+      "path": "04-SCREWS/04-CAP-HEAD/05-LOW-SOCKET",
+      "title": "directory_04-SCREWS_04-CAP-HEAD_05-LOW-SOCKET",
+      "id": "2c6a7a5c-5dba-528d-9de2-c37eafb01e62",
+      "headers": [
+        "item",
+        "value"
+      ],
+      "rows": [
+        [
+          {
+            "key": "reference"
+          },
+          "DIN 7984"
+        ],
+        [
+          {
+            "key": "default_model_property_class"
+          },
+          "08.8"
+        ]
+      ],
+      "notes": [
+        "units",
+        "catalogue_range_note",
+        "catalogue_model_note"
+      ],
+      "sources": [
+        "din7984_standard",
+        "din7984_dimensions",
+        "din7984_lengths"
+      ],
+      "review": "reviewed_catalogue",
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "LHCS-DIN7984-M08.0x035-REFERENCE.png",
+          "caption": "native_reference_din7984",
+          "localized_paths": {
+            "cs": "LHCS-DIN7984-M08.0x035-REFERENCE_cs.png",
+            "en": "LHCS-DIN7984-M08.0x035-REFERENCE_en.png",
+            "de": "LHCS-DIN7984-M08.0x035-REFERENCE_de.png",
+            "fr": "LHCS-DIN7984-M08.0x035-REFERENCE_fr.png",
+            "ru": "LHCS-DIN7984-M08.0x035-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "sections": [
+        {
+          "headers": [
+            "symbol_d",
+            "symbol_P",
+            "symbol_dk",
+            "symbol_k",
+            "symbol_s",
+            "symbol_s CAD",
+            "symbol_t",
+            "symbol_r",
+            "symbol_b"
+          ],
+          "rows": [
+            [
+              "M3",
+              "0.5",
+              "5.5",
+              "2",
+              "2",
+              "2.02",
+              "1.5",
+              "0.1",
+              "12"
+            ],
+            [
+              "M4",
+              "0.7",
+              "7",
+              "2.8",
+              "2.5",
+              "2.52",
+              "2.3",
+              "0.2",
+              "14"
+            ],
+            [
+              "M5",
+              "0.8",
+              "8.5",
+              "3.5",
+              "3",
+              "3.02",
+              "2.7",
+              "0.2",
+              "16"
+            ],
+            [
+              "M6",
+              "1",
+              "10",
+              "4",
+              "4",
+              "4.02",
+              "3",
+              "0.25",
+              "18"
+            ],
+            [
+              "M8",
+              "1.25",
+              "13",
+              "5",
+              "5",
+              "5.02",
+              "3.8",
+              "0.4",
+              "22"
+            ],
+            [
+              "M10",
+              "1.5",
+              "16",
+              "6",
+              "7",
+              "7.02",
+              "4.5",
+              "0.4",
+              "26"
+            ],
+            [
+              "M12",
+              "1.75",
+              "18",
+              "7",
+              "8",
+              "8.02",
+              "5",
+              "0.6",
+              "30"
+            ],
+            [
+              "M16",
+              "2",
+              "24",
+              "9",
+              "12",
+              "12.03",
+              "5.5",
+              "0.6",
+              "38"
+            ]
+          ]
+        },
+        {
+          "heading": "catalogue_lengths",
+          "headers": [
+            "symbol_l [mm]",
+            "symbol_M3",
+            "symbol_M4",
+            "symbol_M5",
+            "symbol_M6",
+            "symbol_M8",
+            "symbol_M10",
+            "symbol_M12",
+            "symbol_M16"
+          ],
+          "rows": [
+            [
+              "5",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "6",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "8",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "10",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "12",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "14",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "16",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "18",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "20",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—"
+            ],
+            [
+              "25",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—"
+            ],
+            [
+              "30",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "35",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "40",
+              "—",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "50",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "60",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "path": "04-SCREWS/04-CAP-HEAD/06-LOW-PILOT",
+      "title": "directory_04-SCREWS_04-CAP-HEAD_06-LOW-PILOT",
+      "id": "8a3e458f-5e9e-5f18-9793-0290e1980899",
+      "headers": [
+        "item",
+        "value"
+      ],
+      "rows": [
+        [
+          {
+            "key": "reference"
+          },
+          "DIN 6912"
+        ],
+        [
+          {
+            "key": "default_model_property_class"
+          },
+          "08.8"
+        ]
+      ],
+      "notes": [
+        "units",
+        "catalogue_range_note",
+        "catalogue_model_note"
+      ],
+      "sources": [
+        "din6912_standard",
+        "din6912_dimensions",
+        "din6912_lengths"
+      ],
+      "review": "reviewed_catalogue",
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "LPCS-DIN6912-M08.0x035-REFERENCE.png",
+          "caption": "native_reference_din6912",
+          "localized_paths": {
+            "cs": "LPCS-DIN6912-M08.0x035-REFERENCE_cs.png",
+            "en": "LPCS-DIN6912-M08.0x035-REFERENCE_en.png",
+            "de": "LPCS-DIN6912-M08.0x035-REFERENCE_de.png",
+            "fr": "LPCS-DIN6912-M08.0x035-REFERENCE_fr.png",
+            "ru": "LPCS-DIN6912-M08.0x035-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "sections": [
+        {
+          "headers": [
+            "symbol_d",
+            "symbol_P",
+            "symbol_dk",
+            "symbol_k",
+            "symbol_s",
+            "symbol_s CAD",
+            "symbol_t",
+            "symbol_r",
+            "symbol_b",
+            "symbol_dh",
+            "symbol_t2"
+          ],
+          "rows": [
+            [
+              "M4",
+              "0.7",
+              "7",
+              "2.8",
+              "3",
+              "3.02",
+              "1.6",
+              "0.2",
+              "14",
+              "2",
+              "3.3"
+            ],
+            [
+              "M5",
+              "0.8",
+              "8.5",
+              "3.5",
+              "4",
+              "4.02",
+              "2",
+              "0.2",
+              "16",
+              "2.5",
+              "4"
+            ],
+            [
+              "M6",
+              "1",
+              "10",
+              "4",
+              "5",
+              "5.02",
+              "2.5",
+              "0.25",
+              "18",
+              "3",
+              "5"
+            ],
+            [
+              "M8",
+              "1.25",
+              "13",
+              "5",
+              "6",
+              "6.02",
+              "3",
+              "0.4",
+              "22",
+              "4",
+              "6.5"
+            ],
+            [
+              "M10",
+              "1.5",
+              "16",
+              "6.5",
+              "8",
+              "8.02",
+              "3.5",
+              "0.4",
+              "26",
+              "5",
+              "7.5"
+            ],
+            [
+              "M12",
+              "1.75",
+              "18",
+              "7.5",
+              "10",
+              "10.02",
+              "4",
+              "0.6",
+              "30",
+              "6",
+              "9"
+            ],
+            [
+              "M14",
+              "2",
+              "21",
+              "8.5",
+              "12",
+              "12.03",
+              "4.5",
+              "0.6",
+              "34",
+              "7",
+              "10"
+            ],
+            [
+              "M16",
+              "2",
+              "24",
+              "10",
+              "14",
+              "14.03",
+              "5.5",
+              "0.6",
+              "38",
+              "8",
+              "11.5"
+            ],
+            [
+              "M20",
+              "2.5",
+              "30",
+              "12",
+              "17",
+              "17.05",
+              "6.5",
+              "0.8",
+              "46",
+              "10",
+              "14"
+            ],
+            [
+              "M24",
+              "3",
+              "36",
+              "14",
+              "19",
+              "19.06",
+              "7",
+              "0.8",
+              "54",
+              "12",
+              "16"
+            ]
+          ]
+        },
+        {
+          "heading": "catalogue_lengths",
+          "headers": [
+            "symbol_l [mm]",
+            "symbol_M4",
+            "symbol_M5",
+            "symbol_M6",
+            "symbol_M8",
+            "symbol_M10",
+            "symbol_M12",
+            "symbol_M14",
+            "symbol_M16",
+            "symbol_M20",
+            "symbol_M24"
+          ],
+          "rows": [
+            [
+              "8",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "10",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "12",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "14",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "16",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "18",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "20",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "25",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "30",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "35",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "40",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "45",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "✓",
+              "—"
+            ],
+            [
+              "50",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "—"
+            ],
+            [
+              "55",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—"
+            ],
+            [
+              "60",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "65",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "70",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "80",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "90",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "100",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "110",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "path": "04-SCREWS/04-CAP-HEAD/07-HEXALOBULAR",
+      "title": "directory_04-SCREWS_04-CAP-HEAD_07-HEXALOBULAR",
+      "id": "136597af-c168-510a-968d-75bff29f9264",
+      "headers": [
+        "item",
+        "value"
+      ],
+      "rows": [
+        [
+          {
+            "key": "reference"
+          },
+          "ISO 14579"
+        ],
+        [
+          {
+            "key": "default_model_property_class"
+          },
+          "8.8"
+        ]
+      ],
+      "notes": [
+        "units",
+        "catalogue_range_note",
+        "catalogue_model_note",
+        "hexalobular_cad_note"
+      ],
+      "sources": [
+        "iso14579_standard",
+        "iso14579_dimensions",
+        "iso14579_lengths",
+        "iso14579_cad",
+        "iso14579_ab"
+      ],
+      "review": "reviewed_catalogue",
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "HLCS-ISO14579-M08.0x035-REFERENCE.png",
+          "caption": "native_reference_iso14579",
+          "localized_paths": {
+            "cs": "HLCS-ISO14579-M08.0x035-REFERENCE_cs.png",
+            "en": "HLCS-ISO14579-M08.0x035-REFERENCE_en.png",
+            "de": "HLCS-ISO14579-M08.0x035-REFERENCE_de.png",
+            "fr": "HLCS-ISO14579-M08.0x035-REFERENCE_fr.png",
+            "ru": "HLCS-ISO14579-M08.0x035-REFERENCE_ru.png"
+          }
+        }
+      ],
+      "sections": [
+        {
+          "headers": [
+            "symbol_d",
+            "symbol_P",
+            "symbol_dk",
+            "symbol_k",
+            "symbol_T",
+            "symbol_A",
+            "symbol_B",
+            "symbol_t",
+            "symbol_r"
+          ],
+          "rows": [
+            [
+              "M2",
+              "0.4",
+              "3.8",
+              "2",
+              "T6",
+              "1.75",
+              "1.27",
+              "0.71",
+              "0.1"
+            ],
+            [
+              "M2,5",
+              "0.45",
+              "4.5",
+              "2.5",
+              "T8",
+              "2.4",
+              "1.75",
+              "0.91",
+              "0.1"
+            ],
+            [
+              "M3",
+              "0.5",
+              "5.5",
+              "3",
+              "T10",
+              "2.8",
+              "2.05",
+              "1.01",
+              "0.1"
+            ],
+            [
+              "M4",
+              "0.7",
+              "7",
+              "4",
+              "T20",
+              "3.95",
+              "2.85",
+              "1.42",
+              "0.2"
+            ],
+            [
+              "M5",
+              "0.8",
+              "8.5",
+              "5",
+              "T25",
+              "4.5",
+              "3.25",
+              "1.65",
+              "0.2"
+            ],
+            [
+              "M6",
+              "1",
+              "10",
+              "6",
+              "T30",
+              "5.6",
+              "4.05",
+              "2.02",
+              "0.25"
+            ],
+            [
+              "M8",
+              "1.25",
+              "13",
+              "8",
+              "T45",
+              "7.93",
+              "5.64",
+              "2.92",
+              "0.4"
+            ]
+          ]
+        },
+        {
+          "heading": "catalogue_lengths",
+          "headers": [
+            "symbol_l [mm]",
+            "symbol_M2",
+            "symbol_M2,5",
+            "symbol_M3",
+            "symbol_M4",
+            "symbol_M5",
+            "symbol_M6",
+            "symbol_M8"
+          ],
+          "rows": [
+            [
+              "3",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "4",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "5",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "6",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—",
+              "—"
+            ],
+            [
+              "8",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—",
+              "—"
+            ],
+            [
+              "10",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "—"
+            ],
+            [
+              "12",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "16",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "20",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "25",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "30",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "35",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "40",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "45",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "50",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓",
+              "✓"
+            ],
+            [
+              "55",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓"
+            ],
+            [
+              "60",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓",
+              "✓"
+            ],
+            [
+              "65",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓"
+            ],
+            [
+              "70",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓"
+            ],
+            [
+              "80",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "—",
+              "✓"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "path": "05-NUTS/04-CAP/02-DIN1587",
+      "title": "directory_din_cap_nuts",
+      "heading": "din1587_nominal_cad",
+      "headers": [
+        "din1587_header_0",
+        "din1587_header_1",
+        "din1587_header_2",
+        "din1587_header_3",
+        "din1587_header_4",
+        "din1587_header_5",
+        "din1587_header_6",
+        "din1587_header_7",
+        "din1587_header_8",
+        "din1587_header_9",
+        "din1587_header_10"
+      ],
+      "rows": [
+        [
+          "M4×0.7",
+          "0.7",
+          "7",
+          "8",
+          "3.2",
+          "3.25",
+          "8.0829",
+          "5.5",
+          "6",
+          "2",
+          "2"
+        ],
+        [
+          "M5×0.8",
+          "0.8",
+          "8",
+          "10",
+          "4",
+          "3.75",
+          "9.2376",
+          "7.5",
+          "8",
+          "2",
+          "2"
+        ],
+        [
+          "M6×1",
+          "1",
+          "10",
+          "12",
+          "5",
+          "4.75",
+          "11.547",
+          "8",
+          "9",
+          "2",
+          "3"
+        ],
+        [
+          "M8×1.25",
+          "1.25",
+          "13",
+          "15",
+          "6.5",
+          "6.25",
+          "15.0111",
+          "11",
+          "12.25",
+          "2",
+          "2.75"
+        ],
+        [
+          "M8×1",
+          "1",
+          "13",
+          "15",
+          "6.5",
+          "6.25",
+          "15.0111",
+          "11",
+          "12",
+          "2",
+          "3"
+        ],
+        [
+          "M10×1.5",
+          "1.5",
+          "16",
+          "18",
+          "8",
+          "7.5",
+          "18.4752",
+          "13",
+          "14.5",
+          "2",
+          "3.5"
+        ],
+        [
+          "M10×1",
+          "1",
+          "16",
+          "18",
+          "8",
+          "7.5",
+          "18.4752",
+          "13",
+          "14",
+          "2",
+          "4"
+        ],
+        [
+          "M10×1.25",
+          "1.25",
+          "16",
+          "18",
+          "8",
+          "7.5",
+          "18.4752",
+          "13",
+          "14.25",
+          "2",
+          "3.75"
+        ],
+        [
+          "M12×1.75",
+          "1.75",
+          "18",
+          "22",
+          "10",
+          "8.5",
+          "20.7846",
+          "16",
+          "17.75",
+          "3",
+          "4.25"
+        ],
+        [
+          "M12×1.5",
+          "1.5",
+          "18",
+          "22",
+          "10",
+          "8.5",
+          "20.7846",
+          "16",
+          "17.5",
+          "3",
+          "4.5"
+        ],
+        [
+          "M12×1.25",
+          "1.25",
+          "18",
+          "22",
+          "10",
+          "8.5",
+          "20.7846",
+          "16",
+          "17.25",
+          "3",
+          "4.75"
+        ],
+        [
+          "M14×2",
+          "2",
+          "21",
+          "25",
+          "11",
+          "10",
+          "24.2487",
+          "18",
+          "20",
+          "4",
+          "5"
+        ],
+        [
+          "M14×1.5",
+          "1.5",
+          "21",
+          "25",
+          "11",
+          "10",
+          "24.2487",
+          "18",
+          "19.5",
+          "4",
+          "5.5"
+        ],
+        [
+          "M16×2",
+          "2",
+          "24",
+          "28",
+          "13",
+          "11.5",
+          "27.7128",
+          "21",
+          "23",
+          "4",
+          "5"
+        ],
+        [
+          "M16×1.5",
+          "1.5",
+          "24",
+          "28",
+          "13",
+          "11.5",
+          "27.7128",
+          "21",
+          "22.5",
+          "4",
+          "5.5"
+        ],
+        [
+          "M18×2.5",
+          "2.5",
+          "27",
+          "32",
+          "15",
+          "13",
+          "31.1769",
+          "25",
+          "27",
+          "5",
+          "5"
+        ],
+        [
+          "M18×1.5",
+          "1.5",
+          "27",
+          "32",
+          "15",
+          "13",
+          "31.1769",
+          "25",
+          "26.5",
+          "5",
+          "5.5"
+        ],
+        [
+          "M18×2",
+          "2",
+          "27",
+          "32",
+          "15",
+          "13",
+          "31.1769",
+          "25",
+          "27",
+          "5",
+          "5"
+        ],
+        [
+          "M20×2.5",
+          "2.5",
+          "30",
+          "34",
+          "16",
+          "14",
+          "34.641",
+          "26",
+          "28.5",
+          "5",
+          "5.5"
+        ],
+        [
+          "M20×2",
+          "2",
+          "30",
+          "34",
+          "16",
+          "14",
+          "34.641",
+          "26",
+          "28",
+          "5",
+          "6"
+        ],
+        [
+          "M20×1.5",
+          "1.5",
+          "30",
+          "34",
+          "16",
+          "14",
+          "34.641",
+          "26",
+          "27.5",
+          "5",
+          "6.5"
+        ],
+        [
+          "M22×2.5",
+          "2.5",
+          "34",
+          "39",
+          "18",
+          "16.5",
+          "39.2598",
+          "29",
+          "31.5",
+          "5",
+          "7.5"
+        ],
+        [
+          "M22×1.5",
+          "1.5",
+          "34",
+          "39",
+          "18",
+          "16.5",
+          "39.2598",
+          "29",
+          "30.5",
+          "5",
+          "8.5"
+        ],
+        [
+          "M22×2",
+          "2",
+          "34",
+          "39",
+          "18",
+          "16.5",
+          "39.2598",
+          "29",
+          "31",
+          "5",
+          "8"
+        ],
+        [
+          "M24×3",
+          "3",
+          "36",
+          "42",
+          "19",
+          "17",
+          "41.5692",
+          "31",
+          "34",
+          "6",
+          "8"
+        ],
+        [
+          "M24×2",
+          "2",
+          "36",
+          "42",
+          "19",
+          "17",
+          "41.5692",
+          "31",
+          "33",
+          "6",
+          "9"
+        ]
+      ],
+      "notes": [
+        "units",
+        "din1587_cad_dimensions"
+      ],
+      "sources": [
+        "din1587_aspen_dimensions",
+        "din1587_support_0",
+        "din1587_support_1",
+        "din1587_support_2"
+      ],
+      "freeze_header": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "CN-DIN1587-M08.0-REFERENCE.png",
+          "caption": "din1587_native_drawing",
+          "localized_paths": {
+            "cs": "CN-DIN1587-M08.0-REFERENCE_cs.png",
+            "en": "CN-DIN1587-M08.0-REFERENCE_en.png",
+            "de": "CN-DIN1587-M08.0-REFERENCE_de.png",
+            "fr": "CN-DIN1587-M08.0-REFERENCE_fr.png",
+            "ru": "CN-DIN1587-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
     }
   ],
   "original_source_sha256": {
@@ -51062,7 +55183,7 @@
     "04-SCREWS/04-CAP-HEAD/01-SOCKET/04-M24-M64/0000-index/index.html": "d174a596d808024bf70855be8b11ec5a92fc172003da5d8b3d6059ff25a6ffd4",
     "04-SCREWS/04-CAP-HEAD/02-SLOTTED/0000-index/index.html": "8a60efd03522c2ff139a41fcf004e7ef8c5ddcfdea459cb1c0d91a9c9d37c169",
     "04-SCREWS/04-CAP-HEAD/03-LARGE/0000-index/index.html": "7f4d6fa0b7dde09191973175b0fa9215477db58025e3ad88943ccf89690ace00",
-    "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2/0000-index/index.html": "f6f0554ed761a6082b77bbab6bf6d87aa2d24af032a79294ef301f6b8401bba3",
+    "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2/0000-index/index.html": "f6f0554ed761a6082b77bbab6bf6d87aa2d24af032a79294ef301f6b8401bba3",
     "04-SCREWS/05-SUNK-HEAD/0000-index/index_cs.html": "757e28ac7bfbf294b7997f8ba7dfa6c8c82a941201f8894f086cd3c6fbdb51ca",
     "04-SCREWS/05-SUNK-HEAD/01-CONICAL/0000-index/index_cs.html": "c53643841e68bce9609e4c0b3c955e99beb59e9336e690cd40f13a4a98ea8f28",
     "04-SCREWS/05-SUNK-HEAD/02-RAISED/0000-index/index_cs.html": "06158d53e333abca441565f1950d568af073d584ba00c2178b7ba043bd4645e2",
@@ -79712,14 +83833,14 @@
           "26,17",
           "29,56",
           "32,95",
-          "32,95",
+          "37,29",
           "39,55",
           "45,2",
           "50,85",
           "55,37",
           "60,79",
           "66,44",
-          "72,02",
+          "71,3",
           "76,95",
           "82,6",
           "88,25",
@@ -79738,12 +83859,12 @@
           "15,9",
           "16,9",
           "19",
-          "19,0",
+          "20,2",
           "22,3",
           "24,7",
           "26,4",
           "29,5",
-          "31,5",
+          "31,9",
           "34,3",
           "34,9",
           "36,9",
@@ -79756,7 +83877,7 @@
         [
           "m_min. [mm]",
           "4,4",
-          "13",
+          "4,9",
           "6,4",
           "8,0",
           "10,4",
@@ -79764,12 +83885,12 @@
           "14,1",
           "15,1",
           "16,9",
-          "16,9",
+          "18,1",
           "20,2",
           "22,6",
           "24,3",
           "27,4",
-          "28,0",
+          "29,4",
           "31,8",
           "32,4",
           "34,4",
@@ -79782,7 +83903,7 @@
         [
           "s [mm] h14",
           "8",
-          "5,1",
+          "10",
           "13",
           "16",
           "18",
@@ -79790,9 +83911,9 @@
           "24",
           "27",
           "30",
-          "30",
+          "34",
           "36",
-          "46",
+          "41",
           "46",
           "50",
           "55",
@@ -82093,7 +86214,7 @@
           "10,2",
           "0,6",
           "15,2",
-          "2 ±0,15",
+          "2,5 ±0,15",
           "5 -1",
           "1,96",
           "17,2",
@@ -82190,7 +86311,7 @@
           "M24",
           "24,5",
           "1,0",
-          "31,5",
+          "35,5",
           "5,5 ±0,2",
           "11 -2,2",
           "22,4",
@@ -82922,7 +87043,7 @@
       ],
       "kind": "dimensions"
     },
-    "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2#0": {
+    "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2#0": {
       "headers": [
         "symbol_d",
         "symbol_d₂ [mm]",
@@ -83171,7 +87292,7 @@
       "sha256": "7f4d6fa0b7dde09191973175b0fa9215477db58025e3ad88943ccf89690ace00"
     },
     {
-      "path": "04-SCREWS/04-CAP-HEAD/04-BUTTON-A2/0000-index/index.html",
+      "path": "04-SCREWS/06-PAN-HEAD/04-BUTTON-A2/0000-index/index.html",
       "sha256": "f6f0554ed761a6082b77bbab6bf6d87aa2d24af032a79294ef301f6b8401bba3"
     },
     {
@@ -83292,6 +87413,102 @@
       "before": "5",
       "after": "6",
       "source": "https://cdn.standards.iteh.ai/samples/54039/15c540b697434b5d85128ca34672939c/ISO-1207-2011.pdf"
+    },
+    {
+      "source_table": "06-WASHERS/03-SPRING#0",
+      "row": 7,
+      "column": 4,
+      "before": "2 ±0,15",
+      "after": "2,5 ±0,15",
+      "source": "https://encyklopediapoznania.sk/data/eknihy/strojarenstvo/strojnicke_tabulky_z_roku_1965.pdf"
+    },
+    {
+      "source_table": "06-WASHERS/03-SPRING#0",
+      "row": 14,
+      "column": 3,
+      "before": "31,5",
+      "after": "35,5",
+      "source": "https://encyklopediapoznania.sk/data/eknihy/strojarenstvo/strojnicke_tabulky_z_roku_1965.pdf"
+    },
+    {
+      "row": 2,
+      "column": 2,
+      "before": "13",
+      "after": "4,9",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 3,
+      "column": 2,
+      "before": "5,1",
+      "after": "10",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 0,
+      "column": 10,
+      "before": "32,95",
+      "after": "37,29",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 1,
+      "column": 10,
+      "before": "19,0",
+      "after": "20,2",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 2,
+      "column": 10,
+      "before": "16,9",
+      "after": "18,1",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 3,
+      "column": 10,
+      "before": "30",
+      "after": "34",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 3,
+      "column": 12,
+      "before": "46",
+      "after": "41",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 1,
+      "column": 15,
+      "before": "31,5",
+      "after": "31,9",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 2,
+      "column": 15,
+      "before": "28,0",
+      "after": "29,4",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
+    },
+    {
+      "row": 0,
+      "column": 17,
+      "before": "72,02",
+      "after": "71,3",
+      "source_table": "05-NUTS/01-HEXAGON/08-GRADE-C#0",
+      "source": "https://cdn.standards.iteh.ai/samples/61670/f88b1947eed6421593d79302b800ce67/ISO-4034-2012.pdf"
     }
   ],
   "reviewed_header_corrections": [

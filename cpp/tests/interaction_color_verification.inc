@@ -233,6 +233,11 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
         view.confirm_container("feature");application.processEvents();
         require(view.confirmed_candidate().has_value(),"Selection colour fixture cannot confirm feature");
         auto frame=view.grabFramebuffer();
+        if(wire_pixels(frame)<=wire_pixels(hover_frame)*1.2) {
+            hover_frame.save("interaction-wire-hover-failure.png");frame.save("interaction-wire-confirmed-failure.png");
+            std::cerr<<"Wire pixels: hover="<<wire_pixels(hover_frame)<<", confirmed="<<wire_pixels(frame)
+                <<", device ratio="<<view.devicePixelRatioF()<<'\n';
+        }
         require(wire_pixels(frame)>wire_pixels(hover_frame)*1.2,"Confirmed wire is not visibly thicker than hover");
         require(framebuffer_contains_color_near(frame,view.size(),center,color,4),"Confirmed feature has the wrong selection colour");
         QApplication::sendEvent(&view,&move);application.processEvents();

@@ -4724,6 +4724,7 @@ std::string Sketch::merge_points(
     };
     const bool reference_anchored = anchored(*reference);
     const bool absorbed_anchored = anchored(*absorbed);
+    const std::array<double, 2> absorbed_position{absorbed->x, absorbed->y};
     // A fixed or externally referenced node is the geometric anchor regardless
     // of selection order. Otherwise the first-selected/reference point keeps
     // its stable identity.
@@ -4924,7 +4925,26 @@ std::string Sketch::merge_points(
         throw std::runtime_error(
             "Point merge would collapse or invalidate dependent geometry");
     }
-    const auto result = next.solve_impl(100, false, {survivor_id});
+    const auto joined = next;
+    auto result = next.solve_impl(100, false, {survivor_id});
+    if ((result.status == SolveStatus::Conflicting ||
+         result.status == SolveStatus::Invalid) &&
+        !reference_anchored && !absorbed_anchored) {
+        // First selection owns the surviving identity, not an extra position
+        // constraint. Its old coordinates can conflict with an indirect
+        // support of the other endpoint (e.g. an origin-anchored vertical
+        // centreline). Retry at the other endpoint's existing position while
+        // retaining the first point's identity and every authored equation.
+        auto constrained = joined;
+        auto* seed = constrained.find_point(survivor_id);
+        seed->x = absorbed_position[0];seed->y = absorbed_position[1];
+        const auto fitted = constrained.solve_impl(100, false, {survivor_id});
+        if (fitted.status != SolveStatus::Conflicting &&
+            fitted.status != SolveStatus::Invalid) {
+            next = std::move(constrained);
+            result = fitted;
+        }
+    }
     if (result.status == SolveStatus::Conflicting ||
         result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Point merge conflicts with existing geometry");
@@ -8423,7 +8443,9 @@ bool Sketch::refresh_external_references(
     }
     next.validate();
     const bool unavailable_axis_point=std::ranges::any_of(next.external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;});
-    const auto projected = remove_unresolvable || !next.arcs.empty() || !next.circles.empty()
+    const bool external_circle=!remove_unresolvable&&next.arcs.empty()&&next.circles.empty()&&
+        std::ranges::any_of(next.external_references,[](const auto& r){return external_reference_circle(r).has_value();});
+    const auto projected = remove_unresolvable || !next.arcs.empty() || !next.circles.empty() || external_circle
         ? std::optional<Sketch>(next) : std::nullopt;
     auto solved = unavailable_axis_point ? SolveResult{SolveStatus::UnderConstrained} : next.solve();
     if(solved.status==SolveStatus::Conflicting && projected) {

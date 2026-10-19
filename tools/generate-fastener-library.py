@@ -30,7 +30,8 @@ class Native:
         self.errors = (evidence / 'stderr.log').open('w', encoding='utf-8')
         settings = evidence / 'authoring.ini'
         settings.write_text('[DocumentNames]\nUppercase=false\nRemoveDiacritics=false\nReplaceSpaces=false\n'+settings_extra, encoding='utf-8')
-        self.process = subprocess.Popen([str(executable), '--config', str(settings.resolve()), '--stdin'], stdin=subprocess.PIPE,
+        self.process = subprocess.Popen([str(executable), '--config', str(settings.resolve()),
+            '--working-directory', str(evidence.resolve()), '--stdin'], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=self.errors, text=True, encoding='utf-8', env=os.environ.copy())
 
     def run(self, command, **arguments):

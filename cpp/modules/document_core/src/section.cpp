@@ -29,6 +29,10 @@ std::string group(const std::string& owner,const std::string& path,const Section
     const auto found=s.body_owners.find(owner);return found==s.body_owners.end()?std::string{}:found->second;
 }
 int mode(const SectionDefinition& s,const std::string& g){const auto it=s.components.find(g);return it==s.components.end()?0:it->second.mode;}
+// Thread cylinders and runouts are technological display sheets, not solid
+// boundaries. Keep their visible cut geometry, but never close a material cap
+// with them. is_thread_surface() deliberately classifies only threaded cylinders.
+bool thread_display_sheet(const zima::kernel::FaceReference& ref){return ref.valid()&&ref.semantic_key.starts_with("thread:surface:");}
 void triangle(zima::kernel::ViewerMesh& mesh,const std::array<V,3>& t,zima::kernel::FaceReference ref={}){
     const auto n=cross(sub(t[1],t[0]),sub(t[2],t[0]));if(dot(n,n)<1e-24)return;
     const auto base=static_cast<std::uint32_t>(mesh.vertices.size());
@@ -157,7 +161,7 @@ static SectionResult planar_section(const zima::kernel::ViewerMesh& source,const
     const double eps=std::max(1e-9,size*1e-9);
     const auto distance=[&](V p){double d=dot(sub(p,f.origin),f.normal);return std::abs(d)<eps?0:d;};
     std::map<std::string,bool> interior;
-    for(std::size_t i=0;i+2<source.triangles.size();i+=3){const auto ref=i/3<source.triangle_references.size()?source.triangle_references[i/3]:zima::kernel::FaceReference{};if(ref.is_thread_surface())continue;
+    for(std::size_t i=0;i+2<source.triangles.size();i+=3){const auto ref=i/3<source.triangle_references.size()?source.triangle_references[i/3]:zima::kernel::FaceReference{};if(thread_display_sheet(ref))continue;
         auto& inside=interior[group(ref.owner_id,ref.instance_path,s)];for(int k=0;k<3;++k)inside|=distance(source.vertices.at(source.triangles[i+k]))<0;
     }
     std::map<std::string,std::vector<std::array<V,2>>> contours;
@@ -176,7 +180,7 @@ static SectionResult planar_section(const zima::kernel::ViewerMesh& source,const
             if(da==0)intersections.push_back(a);
         }
         for(std::size_t k=2;k<clipped.size();++k)triangle(result.mesh,{clipped[0],clipped[k-1],clipped[k]},ref);
-        if(!ref.is_thread_surface() && removed && (kept || intersections.size()==2) && intersections.size()==2 && dot(sub(intersections[0],intersections[1]),sub(intersections[0],intersections[1]))>eps*eps)
+        if(!thread_display_sheet(ref) && removed && (kept || intersections.size()==2) && intersections.size()==2 && dot(sub(intersections[0],intersections[1]),sub(intersections[0],intersections[1]))>eps*eps)
             contours[g].push_back({intersections[0],intersections[1]});
     }
     for(const auto& edge:source.edges){

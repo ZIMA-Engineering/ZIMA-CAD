@@ -7393,14 +7393,23 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::hole_thread_edges(
     return wires;
 }
 
+namespace {
+bool opening_uses_front_work_plane(const Placement& placement) {
+    // A whole Origin supplies the container frame. Its three positional
+    // planes must not switch the Opening from local +Z to single-face -Y.
+    return !placement_references_use_whole_origin(placement.references)&&
+        std::ranges::any_of(placement.references,[](const auto& reference) {
+            return !reference.orientation_only&&reference.supports_offset&&!reference.owner_id.empty();
+        });
+}
+}
+
 double PartDocument::thread_length(const HistoryContainer& container) {
     if (container.thread.length_end_condition != EndCondition::UpTo)
         return container.thread.length_forward;
     if (container.thread.length_end_targets.empty())
         return std::numeric_limits<double>::quiet_NaN();
-    const bool referenced=std::ranges::any_of(container.placement.references,[](const auto& ref) {
-        return !ref.orientation_only && ref.supports_offset && !ref.owner_id.empty();
-    });
+    const bool referenced=opening_uses_front_work_plane(container.placement);
     auto axis=rotated_vector(referenced ? zima::kernel::Vec3{0,-1,0}
         : zima::kernel::Vec3{0,0,1},{container.placement.rotation_x,
             container.placement.rotation_y,container.placement.rotation_z});
@@ -7417,11 +7426,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
     if (preview_axis) preview_axis->reset();
     if (container.feature_kind != FeatureKind::Thread) return {};
     const auto& parameters = container.thread;
-    const bool referenced = std::any_of(container.placement.references.begin(),
-        container.placement.references.end(), [](const auto& reference) {
-            return !reference.orientation_only && reference.supports_offset &&
-                !reference.owner_id.empty();
-        });
+    const bool referenced = opening_uses_front_work_plane(container.placement);
     const zima::kernel::Vec3 rotation{container.placement.rotation_x,
         container.placement.rotation_y, container.placement.rotation_z};
     auto axis = rotated_vector(referenced ? zima::kernel::Vec3{0.0, -1.0, 0.0}
@@ -9681,12 +9686,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             }
             primitive = std::move(group);
         } else if (container.feature_kind == FeatureKind::Thread) {
-            const bool referenced_work_plane = std::any_of(
-                container.placement.references.begin(),
-                container.placement.references.end(), [](const auto& reference) {
-                    return !reference.orientation_only &&
-                        reference.supports_offset && !reference.owner_id.empty();
-                });
+            const bool referenced_work_plane = opening_uses_front_work_plane(container.placement);
             auto axis = rotated_vector(referenced_work_plane
                     ? zima::kernel::Vec3{0.0, -1.0, 0.0}
                     : zima::kernel::Vec3{0.0, 0.0, 1.0}, rotation);

@@ -90,7 +90,7 @@ solving; regression cases do not train a learning model.
 
 This document defines binding interaction, snapping, constraint and degree-of-
 freedom behavior. `SKETCH_MODEL.md` describes data/equations,
-`SKETCHER-TERMINOLOGY.md` terminology and `UZIVATELSKY_MANUAL.md` ordinary usage.
+`SKETCHER-TERMINOLOGY.md` terminology and `USER_MANUAL.md` ordinary usage.
 
 ## Entry view and context
 

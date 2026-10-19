@@ -9,6 +9,7 @@
 #include "sheet_cut_wire_preview.hpp"
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
+#include <zima/workspace/opening_copy.hpp>
 #include <zima/workspace/drill_point_operations.hpp>
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -231,7 +232,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Hole
             ? zima::document::PartDocument::create_hole_container()
         : feature_kind == zima::document::FeatureKind::Thread
-            ? zima::document::PartDocument::create_thread_container()
+            ? opening_paste_seed_ ? zima::workspace::copy_opening_settings(*opening_paste_seed_)
+                : zima::document::PartDocument::create_thread_container()
         : feature_kind == zima::document::FeatureKind::DrillPoint
             ? zima::document::PartDocument::create_drill_point_container()
         : feature_kind == zima::document::FeatureKind::TwistedSheet

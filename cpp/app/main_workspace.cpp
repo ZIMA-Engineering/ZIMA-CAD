@@ -85,6 +85,9 @@
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QClipboard>
+#include <QMimeData>
+#include <zima/document/feature_serialization.hpp>
 #include <QFileDialog>
 #include <QImage>
 #include "file_manager_tab.hpp"
@@ -4632,6 +4635,7 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
 
 #include "sheet_corner_ui_verification.inc"
 #include "bend_arc_ui_verification.inc"
+#include "opening_copy_ui_verification.inc"
 
 int verify_application_tools_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -9524,6 +9528,7 @@ int verify_startup_contract(
             return 1;
         }
     }
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OPENING_COPY")) return verify_opening_copy_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_ONLY_BEND")) return verify_arc_only_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);

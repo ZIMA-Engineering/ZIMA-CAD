@@ -995,6 +995,7 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_file_dialog_contract_tests
         tests/file_dialog_contract_tests.cpp app/file_dialog.cpp
         app/resource_icon.cpp app/zima_resources.qrc)
@@ -1052,7 +1053,8 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEATURE_UNITS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
     set_tests_properties(zima_cpp_translations_contract PROPERTIES
-        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRANSLATIONS_ONLY=1")
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRANSLATIONS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_face_inspection_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_face_inspection_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_FILL_ONLY=1")

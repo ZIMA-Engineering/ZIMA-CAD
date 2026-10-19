@@ -49,7 +49,7 @@ def main():
                     native.run('save');caps.studs.relations(native,v,target,ids)
                 else:
                     native.run('feature.set',container=ids['opening'],parameters=dict(profile_plane_offset=-(v['head_height_mm']-v['drive_depth_mm'])))
-                    ids['entry']=caps.socket_entry(native,v)
+                    ids['entry']=caps.socket_entry(native,v,ids['opening'])
                 native.run('regenerate');assert not native.run('history.list')['calculation_errors']
                 native.run('save');native.run('close');native.run('open',path=str(target));native.run('regenerate')
                 assert not native.run('history.list')['calculation_errors'];native.run('save');native.run('close')

@@ -40,7 +40,9 @@ QIcon style_icon(const kernel::SurfaceStyle &s) {
   painter.setBrush(g);
   painter.setPen(Qt::NoPen);
   painter.drawEllipse(3, 3, 38, 38);
-  return QIcon(p);
+  QIcon icon(p);
+  icon.addPixmap(p,QIcon::Selected);
+  return icon;
 }
 kernel::ViewerMesh sphere_mesh() {
   kernel::ViewerMesh mesh;
@@ -82,7 +84,7 @@ AppearanceDialog::AppearanceDialog(
   auto *left = new QVBoxLayout;
   categories_ = new QComboBox(this);
   categories_->setObjectName("appearanceCategory");
-  for (const auto *c : {QT_TR_NOOP("Základní barvy"), QT_TR_NOOP("Plasty"), QT_TR_NOOP("Laky"), QT_TR_NOOP("Kovy"), QT_TR_NOOP("Vlastní")})
+  for (const auto *c : {QT_TR_NOOP("Základní barvy"), QT_TR_NOOP("Plasty"), QT_TR_NOOP("Laky"), QT_TR_NOOP("Kovy"), QT_TR_NOOP("RAL"), QT_TR_NOOP("Vlastní")})
     categories_->addItem(tr(c), QString::fromUtf8(c));
   for (const auto &p : palette_)
     if (categories_->findData(QString::fromStdString(p.category)) < 0)
@@ -339,7 +341,12 @@ void AppearanceDialog::refresh_palette() {
     auto *item = new QListWidgetItem(
         style_icon(p.style), palette_name(p), palette_list_);
     item->setData(Qt::UserRole, static_cast<int>(i));
-    item->setToolTip(palette_name(p));
+    auto tooltip=palette_name(p);
+    if(p.category=="RAL") {
+      tooltip+='\n'+tr("Approximate screen color. Use a physical RAL sample for paint matching.");
+      if(p.id=="ral-3024")tooltip+='\n'+tr("Fluorescent appearance is not simulated.");
+    }
+    item->setToolTip(tooltip);
   }
 }
 void AppearanceDialog::refresh_groups() {

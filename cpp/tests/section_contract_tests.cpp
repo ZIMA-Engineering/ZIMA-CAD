@@ -32,6 +32,27 @@ int main(){try{
     require(hidden_display.triangles==display.triangles&&std::ranges::none_of(hidden_display.edges,[](const auto& e){return e.color=="#00C000";}),"3D hatch visibility changed the cut geometry");
     const auto frame=document::section_frame(section);const auto hatch=document::section_hatch_lines(cut.patches.front(),frame,{0,1,0,0},1);
     for(const auto& e:hatch){const auto a=e.points.front(),b=e.points.back();if(std::abs(a.z)<2-1e-8)require(std::max(a.x,b.x)<=-2+1e-8||std::min(a.x,b.x)>=2-1e-8,"Hatch crossed the hole");}
+    // Open technological runout sheets must not participate in the solid's
+    // even/odd cap contour. Otherwise their two crossings hatch empty bore.
+    for(const auto role:{"thread:surface:runout:start","thread:surface:runout:end","thread:surface:nominal","thread:surface:root"}) {
+        auto decorated=tube;
+        for(double side:{-1.,1.}) {
+            const std::uint32_t base=static_cast<std::uint32_t>(decorated.vertices.size());
+            decorated.vertices.insert(decorated.vertices.end(),{{-1,side,1},{1,side,1},{1,side*.5,0},{-1,side*.5,0}});
+            decorated.triangles.insert(decorated.triangles.end(),{base,base+1,base+2,base,base+2,base+3});
+            decorated.triangle_references.insert(decorated.triangle_references.end(),2,{"thread-owner",role,{}});
+        }
+        const auto threaded=document::calculate_section(decorated,section);
+        require(std::abs(area(threaded)-84)<1e-7,"Thread display sheet changed material cap area");
+        for(const double angle:{0.,45.,90.,135.})for(const double scale:{.5,1.,2.})
+            for(const auto& patch:threaded.patches)for(const auto& edge:document::section_hatch_lines(patch,patch.frame,{angle,1,.25,0},scale))
+                for(const double t:{.25,.5,.75}) {
+                    const auto a=edge.points.front(),b=edge.points.back();
+                    const double x=a.x+t*(b.x-a.x),z=a.z+t*(b.z-a.z);
+                    require(!(std::abs(x)<2-1e-7&&std::abs(z)<2-1e-7),"Runout hatch crossed empty bore");
+                }
+        require(threaded.mesh.triangles.size()>cut.mesh.triangles.size(),"Section removed visible technological sheets");
+    }
     // Independent analytical checks: quarter box and a stepped half of a tube.
     auto elbow=chain({{-20,0},{0,0},{0,20}});auto bent=document::calculate_section(source,elbow);
     require(std::abs(area(bent)-100)<1e-6&&std::abs(volume(bent.mesh)-250)<1e-6,"L cut has incorrect cap area or retained volume");

@@ -940,7 +940,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
         auto font = insert_here->font(0);
         font.setBold(true);
         insert_here->setFont(0, font);
-        insert_here->setForeground(0, QBrush(QColor("#E53935")));
+        insert_here->setForeground(0, QBrush(QColor("#00D1FF")));
     }
     if (assembly_document_id == workspace_.active_document_id())
         add_pending_tree_item(parent, assembly_document_id, parent_path, true);

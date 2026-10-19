@@ -21,6 +21,7 @@
 #include <QStyle>
 #include <QStyleOptionSpinBox>
 #include <QResizeEvent>
+#include <QScrollArea>
 #include <QTimer>
 #include <QScopedValueRollback>
 #include <QScopeGuard>
@@ -274,9 +275,17 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     title_layout->setAlignment(close, Qt::AlignVCenter);
     outer->addWidget(title_bar_);
 
-    content_layout_ = new QVBoxLayout;
+    content_scroll_=new QScrollArea(this);
+    content_scroll_->setObjectName("propertiesContentScrollArea");
+    content_scroll_->setFrameShape(QFrame::NoFrame);
+    content_scroll_->setWidgetResizable(true);
+    content_widget_=new QWidget(content_scroll_);
+    content_layout_ = new QVBoxLayout(content_widget_);
+    content_layout_->setContentsMargins(0,0,0,0);
+    content_layout_->setSizeConstraint(QLayout::SetMinimumSize);
     content_layout_->setSpacing(8);
-    outer->addLayout(content_layout_,1);
+    content_scroll_->setWidget(content_widget_);
+    outer->addWidget(content_scroll_,1);
     submit_error_ = new QLabel(this);
     submit_error_->setObjectName("propertiesSubmitError");
     submit_error_->setWordWrap(true);
@@ -333,6 +342,23 @@ PropertiesSubWindow::~PropertiesSubWindow() {
 QVBoxLayout* PropertiesSubWindow::content_layout() const { return content_layout_; }
 QDialogButtonBox* PropertiesSubWindow::buttons() const { return buttons_; }
 
+QSize PropertiesSubWindow::minimumSizeHint() const {
+    auto result=QDialog::minimumSizeHint();
+    if(content_widget_&&layout()) {
+        const auto margins=layout()->contentsMargins();
+        result.setWidth(std::max(result.width(),content_widget_->minimumSizeHint().width()+
+            margins.left()+margins.right()+style()->pixelMetric(QStyle::PM_ScrollBarExtent)));
+    }
+    return result;
+}
+
+QSize PropertiesSubWindow::sizeHint() const {
+    auto result=minimumSizeHint();
+    if(content_widget_&&content_scroll_)
+        result.rheight()+=std::max(0,content_layout_->sizeHint().height()-content_scroll_->minimumSizeHint().height());
+    return result;
+}
+
 void PropertiesSubWindow::set_internal_title(const QString& title) {
     setWindowTitle(title);
     title_label_->setText(title);
@@ -356,7 +382,7 @@ void PropertiesSubWindow::showEvent(QShowEvent* event) {
     for(auto* form:findChildren<QFormLayout*>())form->setFormAlignment(Qt::AlignTop);
     QDialog::showEvent(event);
     if (initial_size_.isValid()) {
-        QSize target = initial_size_.expandedTo(minimumSizeHint());
+        QSize target = initial_size_.expandedTo(sizeHint());
         // A requested natural height must include wrapped explanatory text
         // at the requested width, rather than its one-line minimum hint.
         if (initial_size_.height() == 0 && layout() && layout()->hasHeightForWidth())
@@ -367,7 +393,9 @@ void PropertiesSubWindow::showEvent(QShowEvent* event) {
         }
         resize(target);
     } else {
-        adjustSize();
+        auto target=sizeHint().expandedTo(minimumSize());
+        if(parentWidget())target=target.boundedTo(parentWidget()->size());
+        resize(target);
         // Match the safe width available by manual resizing, retaining layout
         // minimums for labels and editors and the natural content height.
         resize(std::max(minimumWidth(), minimumSizeHint().width()), height());

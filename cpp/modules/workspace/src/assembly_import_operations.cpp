@@ -2,12 +2,30 @@
 #include <zima/interchange/interchange.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/precision.hpp>
-#include <zima/document/material_library.hpp>
 #include <set>
 #include <type_traits>
 
 namespace zima::workspace {
 namespace {
+void import_parameters(document::PartDocument& doc,const document::PartDocument& defaults) {
+    doc.user_parameters=defaults.user_parameters;
+    doc.user_parameter_order=defaults.user_parameter_order;
+    doc.user_parameter_labels=defaults.user_parameter_labels;
+    doc.user_parameter_values=defaults.user_parameter_values;
+    doc.relations=defaults.relations;
+    // These describe the imported product, not the start document. STEP's
+    // product name is available; material/stock/standard are not extracted by
+    // the current importer and must not masquerade as verified source data.
+    for(const auto* key:{"name","standard","stock","material","mass"}) {
+        if(!doc.user_parameters.contains(key)&&!doc.user_parameter_values.contains(key))continue;
+        const std::string value=std::string_view(key)=="name"?doc.name:std::string{};
+        doc.user_parameters[key]=value;
+        doc.user_parameter_values[key]={{"",value}};
+    }
+    doc.physical_parameters.clear();
+    doc.physical_parameter_units.clear();
+    doc.material_parameter_descriptions.clear();
+}
 struct ImportDirectory {
     std::filesystem::path path;
     std::vector<std::filesystem::path> files;
@@ -75,12 +93,8 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
         if(encoded.ec!=std::errc{})throw std::invalid_argument("Cannot encode Sheet Cut tolerance.");
         const std::string cut_tolerance_text(tolerance,encoded.ptr);
         std::optional<document::PartDocument> defaults;
-        std::optional<document::MaterialData> material;
         if(templates && (format==interchange::Format::Step || format==interchange::Format::Iges)) {
             defaults=part_from_template(*templates);
-            const auto materials=templates->materials_directory.empty()
-                ? templates->directory.parent_path()/"materials" : templates->materials_directory;
-            material=document::load_material_library(materials/"01_steels/structural/S235JR.matz");
         }
         if(format==interchange::Format::Step) {
             imported=interchange::import_step_assembly(source,directory.path,precision,geometry.mesh_deflection);
@@ -103,15 +117,7 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
         for(auto& part:imported->parts) {
             part.document.document_precision["sheet_cut_tolerance"]=cut_tolerance_text;
             if(defaults) {
-                auto& doc=part.document;
-                doc.user_parameters=defaults->user_parameters;
-                doc.user_parameter_order=defaults->user_parameter_order;
-                doc.user_parameter_labels=defaults->user_parameter_labels;
-                doc.user_parameter_values=defaults->user_parameter_values;
-                doc.relations=defaults->relations;
-                doc.physical_parameters=material->properties;
-                doc.physical_parameter_units=material->units;
-                doc.material_parameter_descriptions=material->descriptions;
+                import_parameters(part.document,*defaults);
             }
         }
     };

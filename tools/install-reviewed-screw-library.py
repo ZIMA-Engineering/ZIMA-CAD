@@ -41,7 +41,7 @@ def main():
         previous={row['path']:row['sha256'] for row in json.loads(args.replace_receipt.read_text(encoding='utf-8'))}
     changes={};copies=[];identities=set();families={}
     for v in rows:
-        lib=BASE/('03-STUDS' if args.kind=='studs' else '04-CAP-HEAD/'+v['family']);index=lib/'0000-index'
+        lib=BASE/('03-STUDS' if args.kind=='studs' else ('06-PAN-HEAD/' if args.kind=='buttons' else '04-CAP-HEAD/')+v['family']);index=lib/'0000-index'
         changes.setdefault(index,{'Directory':{'Parameters':', '.join(FIELDS),'AutoIndex':'true'},'Parameters':{},'Parts':{},'Files':{}})
         update=changes[index];source=args.models/v['filename'];case=cases[source.name]
         assert digest(source)==case['source_sha256'] and case['successive_edits']==3

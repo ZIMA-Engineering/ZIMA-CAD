@@ -1,9 +1,11 @@
 #include "appearance_dialog.hpp"
 #include <zima/document/component_source.hpp>
 #include <QApplication>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSlider>
@@ -12,6 +14,7 @@
 #include <QThread>
 #include <iostream>
 #include <algorithm>
+#include <set>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
 using namespace zima;
@@ -56,6 +59,12 @@ int main(int argc, char **argv) {
     const auto skeleton=std::find_if(palette.begin(),palette.end(),[](const auto& color){return color.id=="skeleton";});
     require(skeleton!=palette.end() && QColor(QString::fromStdString(skeleton->style.color)).alpha()==77,"Skeleton palette transparency");
     require(palette.size() >= 26, "Missing existing colors or materials");
+    std::set<std::string> ral_codes;
+    for(const auto& swatch:palette)if(swatch.category=="RAL") {
+      require(ral_codes.insert(swatch.name).second,"Duplicate RAL code");
+      require(swatch.style.metallic==0&&QColor(QString::fromStdString(swatch.style.color)).isValid(),"Invalid RAL paint style");
+    }
+    require(ral_codes.size()==23&&ral_codes.contains("RAL 1016")&&ral_codes.contains("RAL 3024"),"Incomplete selected RAL palette");
     require(document::deserialize_palette(
                 document::serialize_palette(palette)) == palette,
             "Palette roundtrip");
@@ -111,6 +120,19 @@ int main(int argc, char **argv) {
         [](const auto &) {}, &owner);
     dialog.show();
     render();
+    auto* categories=dialog.findChild<QComboBox*>("appearanceCategory");
+    auto* swatches=dialog.findChild<QListWidget*>("appearancePalette");
+    require(categories&&swatches,"Missing appearance category controls");
+    categories->setCurrentIndex(categories->findData("RAL"));render();
+    require(swatches->count()==23,"RAL category does not filter its swatches");
+    auto* ral=swatches->item(0);const auto local=swatches->visualItemRect(ral).center();
+    require(ral->icon().pixmap(44,QIcon::Normal).toImage()==ral->icon().pixmap(44,QIcon::Selected).toImage(),"Selecting a paint swatch recolors its preview icon");
+    const auto global=swatches->viewport()->mapToGlobal(local);
+    QMouseEvent press(QEvent::MouseButtonPress,QPointF(local),QPointF(global),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,QPointF(local),QPointF(global),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(swatches->viewport(),&press);QApplication::sendEvent(swatches->viewport(),&release);
+    require(preview.bodies.at("body").color=="#E6D2B5"&&commits==0,"RAL selection did not preview without committing");
+    require(dialog.grab().save("appearance-ral-dialog.png"),"RAL screenshot failed");
     auto click = [&](const char *name) {
       auto *b = dialog.findChild<QPushButton *>(name);
       require(b, "Missing control");

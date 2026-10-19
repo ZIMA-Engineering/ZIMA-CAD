@@ -146,6 +146,13 @@ void verify(const document::PartDocument& part,const fs::path& directory) {
     auto reopened=document::PartDocument::load(path);check(reopened.sketches.size()==6,"Native title block lost Sketches");
     check(reopened.body_history.bodies().size()==1&&!reopened.body_history.active_body_id().empty(),"Title block must open with an active Body");
     for(const auto& sketch:reopened.sketches)check(reopened.body_owner_for_object(sketch.owner_container_id)!=nullptr,"Title-block Sketch is outside a Body");
+    for(const auto& sketch:reopened.sketches) {
+        for(const auto* id:{"g1","g2","g5","g7","g8","g9","g10","g11","g14","g15","g16","g17","g18","g19","g20","g22"})
+            check(std::ranges::find(sketch.segments,std::string(id),&sketcher::SketchSegment::id)==sketch.segments.end(),"Title block contains superseded edge-symbol lines");
+        if(sketch.name!="Frame")check(std::ranges::count_if(sketch.symbols,[](const auto& instance){
+            return nlohmann::json::parse(instance.definition).value("id","")=="ze:general-edges:iso13715";
+        })==1,"Language Sketch must contain exactly one ISO 13715 instance");
+    }
     workspace::Workspace live;const auto id=workspace::open_drawing_template(live,path);
     check(live.open_part(id)->native_drawing_template&&workspace::family_references(live,id).size()>=6,"Native editor or Sketch presence is unavailable");
     auto text=live.open_part(id)->session.document().sketches.at(1);text.texts.front().value="Edited";
@@ -177,6 +184,23 @@ void verify(const document::PartDocument& part,const fs::path& directory) {
             return values;
         };
         check(typography(result.texts)==typography(expected.texts),"Family variant changed text placement or orientation");
+        const auto initial_symbols=sheet.title_block_symbols;
+        const auto initial_texts=typography(sheet.title_block_texts);
+        const auto initial_field_count=sheet.title_block_fields.size();
+        workspace::load_drawing_template(doc,sheet_id,"config/formats/ZE-DRAWING-FRAME.frmz",false,nullptr,{},"ze-frame-variant-A4");
+        auto settings=workspace::sheet_settings(sheet);settings.format=drawing::SheetFormat::A3;
+        workspace::set_drawing_sheet(doc,sheet_id,settings);
+        check(sheet.title_block_symbols==initial_symbols,"Sheet format change modified title-block symbols");
+        const auto verification_bom_rows=sheet.bom_rows;
+        workspace::load_drawing_template(doc,sheet_id,path,true,nullptr,{},table.instances[i].id);
+        sheet.bom_rows=verification_bom_rows;
+        const auto replaced=drawing::title_block_layout(sheet,{});
+        check(sheet.title_block_symbols==initial_symbols,"Reinserting title block duplicated symbol instances");
+        check(geometry(replaced.lines)==geometry(result.lines),"Reinserting title block after format change duplicated lines");
+        // Resolved system fields intentionally change from A4 to A3. Compare
+        // authored texts and field counts rather than their resolved values.
+        check(typography(sheet.title_block_texts)==initial_texts&&sheet.title_block_fields.size()==initial_field_count,
+            "Reinserting title block after format change duplicated authored text or fields");
         doc.save(directory/"inserted.drwz");auto saved=drawing::DrawingDocument::load(directory/"inserted.drwz");
         check(saved.sheets.front().title_block_definition==sheet.title_block_definition&&saved.sheets.front().title_block_variant==table.instances[i].id,
             "Drawing lost embedded definition or selected variant");

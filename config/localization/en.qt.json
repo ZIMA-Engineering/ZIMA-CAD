@@ -2490,5 +2490,10 @@
   "Global file filters": "Global file filters",
   "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.": "One name or wildcard pattern per line. Matches files and folders, without case sensitivity.",
   "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.": "Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.",
-  "Source face cannot be projected into the Sketch plane": "Source face cannot be projected into the Sketch plane"
+  "Source face cannot be projected into the Sketch plane": "Source face cannot be projected into the Sketch plane",
+  "RAL": "RAL",
+  "Approximate screen color. Use a physical RAL sample for paint matching.": "Approximate screen color. Use a physical RAL sample for paint matching.",
+  "Fluorescent appearance is not simulated.": "Fluorescent appearance is not simulated.",
+  "Vlastnosti ohybu": "Bend Properties",
+  "Nastavení otvoru zkopírováno.": "Opening settings copied."
 }

@@ -12,6 +12,7 @@ class QResizeEvent;
 class QVBoxLayout;
 class QWidget;
 class QPushButton;
+class QScrollArea;
 
 namespace zima::ui {
 
@@ -30,6 +31,8 @@ public:
     void set_internal_title(const QString& title);
     void set_centered_on_show(bool centered = true);
     void set_initial_size(const QSize& size);
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
     [[nodiscard]] QPushButton* ensure_origin_selection_button();
 
 protected:
@@ -42,6 +45,8 @@ protected:
 private:
     void keep_inside_parent();
     QVBoxLayout* content_layout_{};
+    QWidget* content_widget_{};
+    QScrollArea* content_scroll_{};
     QDialogButtonBox* buttons_{};
     QLabel* title_label_{};
     QLabel* submit_error_{};

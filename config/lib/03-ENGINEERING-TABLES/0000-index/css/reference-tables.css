@@ -97,4 +97,6 @@ footer p { margin:5px 0 0; }
 .reference-figures-side-by-side { display:flex; flex-wrap:nowrap; gap:0; align-items:flex-start; }
 .reference-figures-side-by-side .reference-figure { flex:0 1 auto; width:calc(25vh * var(--reference-figure-ratio,1.525424)); min-width:0; }
 .reference-figures-side-by-side img { width:100%; max-width:100%; max-height:none; }
+.reference-figures-side-by-side--wrap { flex-wrap:wrap; }
+.reference-figures-side-by-side--wrap .reference-figure { min-width:min(100%,360px); }
 @media print { .reference-figures-side-by-side .reference-figure { width:calc(60mm * var(--reference-figure-ratio,1.525424)); } }

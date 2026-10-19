@@ -5,7 +5,10 @@
 Engineering Tables contain 74 independent stud Parts from the tabulated sizes
 of ČSN 02 1174, 02 1176 and 02 1178, and 40 cylindrical-head Parts: 20 ISO 4762,
 10 ISO 1207 and 10 ISO 1580. Seven A2 button-head Parts cover the existing
-ISO 7380-1 topic sizes M3–M12. Each diameter/pitch/type has one available default
+ISO 7380-1 topic sizes M3–M12. The complete button-head family, including its
+native reference drawing and localized illustrations, belongs under
+`04-SCREWS/06-PAN-HEAD/04-BUTTON-A2`, alongside the other pan-head families.
+Each diameter/pitch/type has one available default
 length. The full ISO 7380-1 scope also includes M16; the current A2 supplier
 length source does not cover it, so no M16 catalogue combinations are invented.
 

@@ -1,0 +1,39 @@
+{
+  "sources": {
+    "din_manufacturer": "https://eshop-sk.boellhoff.com/out/media/pdf/DIN_929_Stahl___en.pdf",
+    "din_crosscheck": "https://www.aspenfasteners.com/content/pdf/Metric_DIN_929_spec.pdf",
+    "din_scope": "https://www.normsplash.com/Samples/DIN/141651959/DIN-929-2013-en.pdf",
+    "din_fine_pitch": "https://euro-met.pl/images/PDFy_produktow/DIN_929_Parametry_techniczne.pdf",
+    "iso": "https://cdn.standards.iteh.ai/samples/63369/9d14d2cfb18048e681730e6a60d749c9/ISO-21670-2014.pdf"
+  },
+  "review": "Manufacturer nominal dimensions for DIN 929, cross-checked between Boellhoff and Aspen; ISO 21670:2014 Figure 1 and Table 1 visually inspected. The DIN 2013 preview confirms coarse/fine scope but omits its dimensional pages. Fine pitches are corroborated by the manufacturer's indexed table; its direct download was unavailable. No historical CSN dimensions are reused.",
+  "din_columns": ["diameter_mm", "pitch_mm", "across_flats_mm", "height_mm", "pilot_diameter_mm", "projection_height_mm", "pilot_height_mm", "projection_depth_mm"],
+  "din_sizes": [
+    [3, 0.5, 7.5, 3, 4.5, 0.55, 0.25, 0.8],
+    [4, 0.7, 9, 3.5, 6, 0.65, 0.35, 0.8],
+    [5, 0.8, 10, 4, 7, 0.7, 0.4, 0.8],
+    [6, 1, 11, 5, 8, 0.75, 0.4, 0.9],
+    [8, 1.25, 14, 6.5, 10.5, 0.9, 0.5, 1],
+    [10, 1.5, 17, 8, 12.5, 1.15, 0.65, 1.25],
+    [12, 1.75, 19, 10, 14.8, 1.4, 0.8, 1.25],
+    [14, 2, 22, 11, 16.8, 1.8, 1, 1.5],
+    [16, 2, 24, 13, 18.8, 1.8, 1, 1.5]
+  ],
+  "fine_pitches": {"8": [1], "10": [1, 1.25], "12": [1.25, 1.5], "14": [1.5], "16": [1.5]},
+  "iso_columns": ["diameter_mm", "pitch_mm", "projection_depth_mm", "projection_height_mm", "mouth_diameter_mm", "flange_diameter_mm", "corners_min_mm", "flange_height_mm", "projection_width_mm", "height_min_mm", "height_mm", "across_flats_mm", "projection_radius_mm", "flange_radius_mm"],
+  "iso_sizes": [
+    [5, 0.8, 2.2, 0.8, 6, 15.5, 8.2, 1.7, 4, 4.7, 5, 8, 0.6, 0.3],
+    [6, 1, 2.7, 0.8, 7, 18.5, 10.6, 2, 5, 6.64, 7, 10, 0.6, 0.5],
+    [8, 1.25, 2.7, 1, 9.5, 22.5, 13.6, 2.5, 6, 9.64, 10, 13, 0.8, 0.8],
+    [10, 1.5, 2.95, 1.2, 11.5, 26.5, 16.9, 3, 7, 12.57, 13, 16, 1, 1],
+    [12, 1.75, 3.2, 1.2, 14, 30.5, 19.4, 3, 8, 14.57, 15, 18, 1, 1.2],
+    [14, 2, 3.45, 1.2, 16, 33.5, 22.4, 4, 8, 16.16, 17, 21, 1, 1.2],
+    [16, 2, 3.7, 1.2, 18, 36.5, 25, 4, 8, 18.66, 19.5, 24, 1, 1.2]
+  ],
+  "cad_conventions": {
+    "origin": "Unwelded projection contact plane Z=0; axis through Origin; material in positive Z.",
+    "din": "Three native triangular corner projections and cylindrical pilot. h1 and h2 use tabulated maximum values. A 30-degree back bevel is a selected pressing detail. Thread is schematic and finite between the pilot face and back face.",
+    "iso": "Three rounded flange projections. m uses the maximum height measured from flange datum A; the unwelded overall axial extent is m+c. Pressing contours require a separately verified nominal CAD execution.",
+    "material": "Generic steel, density 7850 kg/m3. No strength class, weldability certificate or manufacturing certification is inferred from a CAD material label."
+  }
+}

@@ -285,7 +285,11 @@ bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>&
 // This bounded seed covers native line/circle/arc graphs; unsupported equations
 // leave the transaction untouched and the ordinary solver verifies the result.
 bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component) {
-    if((!line_component&&(sketch.arcs.empty()&&sketch.circles.empty()))||sketch.points.size()>32||
+    // A line-only native profile can still have circular equations through
+    // immutable projected supports (e.g. a washer split following both rims).
+    const bool external_circle=!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&
+        std::ranges::any_of(sketch.external_references,[](const auto& r){return external_reference_circle(r).has_value();});
+    if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||sketch.points.size()>32||
        !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
        !sketch.bsplines.empty()||!sketch.corner_radii.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
@@ -321,6 +325,8 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         for(const auto& c:next.arcs)if(c.id==id) {
             const auto p=point(c.center_point_id);return std::array{(*p)[0],(*p)[1],c.radius};
         }
+        const auto external=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
+        if(external!=next.external_references.end())return external_reference_circle(*external);
         return {};
     };
     // External supports are immutable inputs. Only native point coordinates and
@@ -443,6 +449,14 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     const auto endpoint=point(id);
                     r.push_back(((*endpoint)[0]-center[0])*(*l)[2]+((*endpoint)[1]-center[1])*(*l)[3]);
                 }
+            } else if(c.kind==ConstraintKind::MidpointOnLine) {
+                const auto segment=std::ranges::find(next.segments,c.geometry_id,&SketchSegment::id);
+                const auto support=line(c.second_geometry_id);
+                if(segment==next.segments.end()||!support)return {};
+                const auto a=point(segment->first_point_id),b=point(segment->second_point_id);
+                if(!a||!b)return {};
+                r.push_back((((*a)[0]+(*b)[0])/2-(*support)[0])*(*support)[3]-
+                    (((*a)[1]+(*b)[1])/2-(*support)[1])*(*support)[2]);
             } else if(c.kind==ConstraintKind::EqualRadius) {
                 const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id),b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
                 if(a==next.arcs.end()||b==next.arcs.end())return {};r.push_back(a->radius-b->radius);
@@ -495,6 +509,13 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     r.push_back(std::abs(distance)-target);
                 }
             } else if(d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
+                if(d.second_point_id.empty()&&
+                   ((d.kind==DimensionKind::DistanceX&&d.geometry_id=="sketch_axis:y")||
+                    (d.kind==DimensionKind::DistanceY&&d.geometry_id=="sketch_axis:x"))) {
+                    const auto p=point(d.first_point_id);if(!p)return {};
+                    r.push_back((*p)[d.kind==DimensionKind::DistanceX?0:1]-d.value);
+                    continue;
+                }
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 const double x=(*b)[0]-(*a)[0],y=(*b)[1]-(*a)[1];
                 r.push_back((d.kind==DimensionKind::Distance?std::hypot(x,y):d.kind==DimensionKind::DistanceX?x:y)-d.value);

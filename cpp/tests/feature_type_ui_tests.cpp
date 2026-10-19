@@ -116,6 +116,11 @@ int main(int argc,char** argv) {
     const auto flush=[&] {QElapsedTimer timer;timer.start();while(timer.elapsed()<50){application.processEvents();QThread::msleep(2);}};
     auto* type=dialog.findChild<QComboBox*>("featureType");
     try {
+        flush();
+        auto* initial_scroll=dialog.findChild<QScrollArea*>("propertiesContentScrollArea");
+        if(initial_scroll->verticalScrollBar()->maximum()>0&&dialog.height()<parent.height()-30)
+            throw std::runtime_error("Initial Feature properties unnecessarily hide fields: height="+
+                std::to_string(dialog.height())+" overflow="+std::to_string(initial_scroll->verticalScrollBar()->maximum()));
         if(dialog.pending_value().feature.sides!=feature.feature.sides)
             throw std::runtime_error("Opening Feature properties rounded an authored side parameter");
         const auto initial_type=type->currentIndex();type->setCurrentIndex(4);flush();

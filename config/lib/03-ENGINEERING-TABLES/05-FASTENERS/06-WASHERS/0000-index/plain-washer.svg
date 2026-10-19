@@ -6,10 +6,12 @@
 
 <g id="plain-washer" data-d1="66" data-d2="180"><circle class="outline" cx="175" cy="125" r="90"/>
 <circle class="outline" cx="175" cy="125" r="33"/><path class="axis" d="M65 125H285 M175 15V235"/>
-<path class="dim" d="M142 125H208 M85 230H265"/><path class="ext" d="M85 125V238 M265 125V238"/>
-<text x="162" y="114">d₁</text><text x="164" y="255">d₂</text>
-<path class="outline" d="M413 110H593V140H413Z M470 110V140 M536 110V140"/>
-<path class="axis" d="M503 85V168"/><path class="ext" d="M593 110H640 M593 140H640"/>
-<path class="dim" d="M628 110V140"/><text x="645" y="132">h</text></g>
+<path class="dim" d="M151.665 101.665L198.335 148.335 M111.36 188.64L238.64 61.36"/>
+<path class="ext" d="M151.665 101.665L110 60 M238.64 61.36L260 40"/>
+<text x="106" y="49" transform="rotate(45 106 49)">d₁</text>
+<text x="261" y="36" transform="rotate(-45 261 36)">d₂</text>
+<path class="outline" d="M488 35H518V215H488Z M488 92H518 M488 158H518"/>
+<path class="axis" d="M470 125H540"/><path class="ext" d="M488 215V245 M518 215V245"/>
+<path class="dim" d="M488 238H518"/><text x="497" y="257">h</text></g>
 
 </svg>

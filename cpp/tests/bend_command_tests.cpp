@@ -343,6 +343,29 @@ void verify_attachment(const std::filesystem::path& directory) {
             document::prepare_bend_sketches(dimension_feature,source.sketches.front(),document::sheet_metal_defaults(source));
             std::vector<sketcher::Sketch> profiles{source.sketches.front()};
             for(const auto& data:dimension_feature.bend.auxiliary_sketches)profiles.push_back(sketcher::Sketch::from_serialized(data));
+            int endpoint_dimensions=0;
+            auto display_profiles=profiles;
+            if(display_profiles.front().dimensions.empty()) {
+                auto start_layout=sketcher::Sketch::create_default();document::initialize_bend_start_profile(start_layout,40);
+                display_profiles.front()=std::move(start_layout);
+            }
+            for(const auto& profile:display_profiles) {
+                const auto serialized=profile.serialized();
+                const auto display=document::bend_offset_dimension_display(profile);
+                check(profile.serialized()==serialized,"Bend dimension display modified its source");
+                for(std::size_t i=0;i<profile.dimensions.size();++i) {
+                    const auto& before=profile.dimensions[i];const auto& after=display.dimensions[i];
+                    check(before.id==after.id&&before.value==after.value&&std::signbit(before.value)==std::signbit(after.value)&&
+                        before.solution_side==after.solution_side,"Bend dimension display changed endpoint intent");
+                    if(before.placement&&std::abs((*before.placement)[1])==8.) {
+                        near((*after.placement)[1],-8.);++endpoint_dimensions;
+                    }
+                }
+                auto custom=profile;
+                for(auto& d:custom.dimensions)if(d.placement)(*d.placement)[1]=13.;
+                check(document::bend_offset_dimension_display(custom).serialized()==custom.serialized(),"Bend display overwrote custom dimension placement");
+            }
+            check(endpoint_dimensions==4,"Bend display must lay out four endpoint dimensions");
             for(const auto& sketch:profiles)for(const auto& dim:sketch.viewer_mesh().dimensions) {
                 check(close(dim.plane_normal,sketch.resolved_normal),"Bend dimension/grip normal left its Sketch plane");
                 if(dim.kind==kernel::ViewerDimensionKind::Linear) {

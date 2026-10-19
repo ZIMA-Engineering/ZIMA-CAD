@@ -1,0 +1,30 @@
+{
+  "standard": "DIN 1587",
+  "scope": "Separate nominal CAD family, M4 to M24, 12 coarse and 14 fine combinations; no CSN equivalence claim",
+  "sources": [
+    "https://www.aspenfasteners.com/content/pdf/Metric_DIN_1587_spec.pdf",
+    "https://eshop.boellhoff.de/out/media/pdf/DIN_1587_Messing___en.pdf",
+    "https://rcsm-ural.ru/uploadedFiles/images/standarts/gaiki/DIN-1587-87.pdf",
+    "https://www.normsplash.com/Samples/DIN/186512567/DIN-1587-2021-en.pdf"
+  ],
+  "corrections": [
+    {
+      "source": "Aspen PDF page 2, maximum hexagon height m, M10",
+      "before": "88",
+      "after_mm": 8,
+      "evidence": "Böllhoff M10 m max 8.0 mm and original DIN 1587:1987 table m max 8 mm; 88 mm would also exceed the 18 mm overall height"
+    }
+  ],
+  "model_choices": {
+    "across_flats": "Nominal ISO wrench widths; do not substitute legacy Bossard stock widths for M10/M12/M14/M22",
+    "overall_and_hexagon_height": "Tabulated nominal/maximum dimensions",
+    "crown": "Cylindrical stem plus hemispherical crown at the tabulated approximate radius",
+    "bore_depth": "Selected CAD depth min(h - w_min, t + pitch). Keep the tabulated minimum pole wall while avoiding an unnecessarily deep bore; separate from usable thread depth t.",
+    "thread_depth": "Midpoint of tabulated t minimum/maximum interval",
+    "outer_bevel_degrees": 30,
+    "schematic_thread_runout_pitch_factor": 0.5,
+    "internal_geometry": "Flat-bottom nominal bore with finite schematic thread/run-out. This is not a manufactured thread or detailed DIN 76-1 tooling/undercut model.",
+    "material": "Generic steel, density 7850 kg/m3; no unsupported strength-class or coating certification"
+  },
+  "edition_limits": "The 2021 preview confirms scope and freedom to select run-out or undercut, but omits the detailed dimension pages. Do not claim a complete 2021 manufacturing validation from that preview. The original 1987 scan establishes the pole-wall and separate t construction; use the manufacturer nominal dimensions for this CAD family."
+}

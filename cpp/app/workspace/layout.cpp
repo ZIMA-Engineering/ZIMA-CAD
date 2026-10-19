@@ -9,6 +9,7 @@
 #include <zima/document/general_surface.hpp>
 #include "../tree_visibility.hpp"
 #include <zima/ui/operation_activity.hpp>
+#include <QShortcut>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -757,6 +758,14 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         return frames;
     });
+    for(QWidget* target:{static_cast<QWidget*>(tree_),static_cast<QWidget*>(viewer_)}) {
+        auto* copy=new QShortcut(QKeySequence::Copy,target);
+        copy->setObjectName("copyOpeningShortcut");copy->setContext(Qt::WidgetShortcut);
+        connect(copy,&QShortcut::activated,this,&AssemblyWorkspaceWindow::copy_selected_opening);
+        auto* paste=new QShortcut(QKeySequence::Paste,target);
+        paste->setObjectName("pasteOpeningShortcut");paste->setContext(Qt::WidgetShortcut);
+        connect(paste,&QShortcut::activated,this,&AssemblyWorkspaceWindow::paste_copied_opening);
+    }
     viewer_->set_dimension_layout_resolver([this](const auto& reference)->std::optional<zima::kernel::DimensionLayout>{
         if (reference.instance_path==workspace_.active_occurrence_path())
             if (const auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_))
@@ -780,6 +789,24 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(sketches)for(const auto& sketch:*sketches)if(const auto* layout=zima::kernel::find_dimension_layout(sketch.dimension_layouts,reference))return *layout;
             if(entries)if(const auto* layout=zima::kernel::find_dimension_layout(*entries,reference))return *layout;
         }
+        // Bend's endpoint annotations already have a deliberate outside-arc
+        // witness offset. The ordinary whole-object envelope would replace it,
+        // including for a zero-length coordinate dimension. Explicit user
+        // layouts above retain precedence.
+        const auto key="dimension:"+reference.owner_id;
+        const bool start_offset=reference.semantic_key==key+":position:first"||reference.semantic_key==key+":position:last";
+        const bool end_offset=reference.semantic_key==key+":difference:first"||reference.semantic_key==key+":difference:last";
+        if(start_offset||end_offset)for(const auto& state:workspace_.documents())
+            if(const auto* part=std::get_if<zima::workspace::PartState>(&state)) {
+                const auto& document=part->session.document();
+                if(start_offset)for(const auto& sketch:document.sketches)if(sketch.id==reference.owner_id)
+                    if(const auto* owner=document.find_container(sketch.owner_container_id);
+                        owner&&owner->feature_kind==zima::document::FeatureKind::Bend)return zima::kernel::DimensionLayout{};
+                if(end_offset)for(const auto& feature:document.history)
+                    if(feature.feature_kind==zima::document::FeatureKind::Bend&&!feature.bend.auxiliary_sketches[1].empty()&&
+                        zima::sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]).id==reference.owner_id)
+                        return zima::kernel::DimensionLayout{};
+            }
         if(active_sketch_id_.empty())return zima::kernel::DimensionLayout{0,8.0,0,0};
         return {};
     });

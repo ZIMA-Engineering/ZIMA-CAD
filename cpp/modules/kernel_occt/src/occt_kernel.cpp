@@ -44,6 +44,7 @@
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Curve2d.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -5775,9 +5776,25 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
     GProp_GProps surface_properties;
     // Rational sweep surfaces need adaptive integration; fixed Gauss
     // quadrature can misreport even an exact circular section by percent.
+    // Toroidal fillets trimmed by a later cut also require this path: their
+    // nontrivial trimming curves can shift the last displayed BOM mass digit.
     bool rational_surface = false;
+    bool adaptive_analytic_surface = false;
     for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
         BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
+        if(!adaptive_analytic_surface&&(surface.GetType()==GeomAbs_Torus||surface.GetType()==GeomAbs_Cylinder)) {
+            // Complete cylinders and fillets have rectangular UV domains and retain the
+            // established fast integral. Only non-isoparametric trimming
+            // needs the adaptive path (e.g. an oblique washer split or a
+            // round-root castle slot intersecting the threaded bore).
+            const auto support=TopoDS::Face(face.Current());
+            for(TopExp_Explorer edge(support,TopAbs_EDGE);edge.More();edge.Next()) {
+                BRepAdaptor_Curve2d curve(TopoDS::Edge(edge.Current()),support);
+                if(curve.GetType()!=GeomAbs_Line) {adaptive_analytic_surface=true;break;}
+                const auto direction=curve.Line().Direction();
+                if(std::abs(direction.X())>1e-12&&std::abs(direction.Y())>1e-12) {adaptive_analytic_surface=true;break;}
+            }
+        }
         if (surface.GetType() == GeomAbs_BSplineSurface ||
             surface.GetType() == GeomAbs_BezierSurface ||
             surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
@@ -5828,6 +5845,13 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
                 imported_step?"OCCT rational volume integration failed":"FORM could not create a valid sheet.");
             volume_properties=std::move(properties);
         }
+    }
+    else if(adaptive_analytic_surface) {
+        // Trimmed analytic surfaces need adaptive integration, but
+        // do not need the separate span-aware rational-surface GK pass.
+        const double error=BRepGProp::VolumeProperties(volume_shape,volume_properties,1e-12);
+        if(!std::isfinite(error)||error<0)throw std::runtime_error("OCCT rational volume integration failed");
+        if(profile_calc)tensor_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-integration_start).count();
     }
     else {
         BRepGProp::VolumeProperties(volume_shape, volume_properties);

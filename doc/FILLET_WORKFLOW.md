@@ -6,7 +6,7 @@ retains the Fillet-specific background and invariants.
 
 This document is the implementation contract for Part Fillet creation and
 editing. User-facing behaviour is also described in
-[`UZIVATELSKY_MANUAL.md`](UZIVATELSKY_MANUAL.md).
+[`USER_MANUAL.md`](USER_MANUAL.md).
 
 ## One window, two operation contexts
 

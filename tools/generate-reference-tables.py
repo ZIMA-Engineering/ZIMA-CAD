@@ -43,7 +43,13 @@ def presentation_table_blocks(page):
             continue
         rows=[row for row in block['rows'] if not any(isinstance(cell,dict) and cell.get('key','').startswith('mass_') for cell in row)]
         if rows:
-            yield {**block,'rows':rows}
+            omitted=set(block.get('approximate_mass_columns',[]))
+            if omitted:
+                assert all(0<=i<len(block['headers']) for i in omitted)
+                indexes=[i for i in range(len(block['headers'])) if i not in omitted]
+                yield {**block,'headers':[block['headers'][i] for i in indexes],
+                    'rows':[[row[i] for i in indexes] for row in rows]}
+            else:yield {**block,'rows':rows}
 
 
 def screen_table_blocks(page):
@@ -56,10 +62,11 @@ def screen_table_blocks(page):
     def parameter_names(block):
         occurrences = {}
         for row in block['rows']:
-            token = json.dumps(row[0], sort_keys=True)
+            name = block.get('parameter_labels', {}).get(json.dumps(row[0], sort_keys=True), row[0])
+            token = json.dumps(name, sort_keys=True)
             occurrence = occurrences.get(token, 0)
             occurrences[token] = occurrence + 1
-            yield (row[0], occurrence)
+            yield (name, occurrence)
     for block in dimensions:
         for name in parameter_names(block):
             if name not in parameters:
@@ -222,7 +229,7 @@ def render(data, page, language, illustrations_only=False):
             parts.append('<p class="row-legend">' + tr(page['row_legend']) + '</p>')
         figure_group = page.get('figures_side_by_side') and len(page.get('figures', [])) > 1
         if figure_group:
-            parts.append('<div class="reference-figures-side-by-side">')
+            parts.append('<div class="reference-figures-side-by-side'+(' reference-figures-side-by-side--wrap' if page.get('figures_wrap') else '')+'">')
         for figure in page.get('figures', []):
             image = figure.get('localized_paths', {}).get(language, figure['path'])
             if not (root / page['path'] / '0000-index' / image).is_file():
