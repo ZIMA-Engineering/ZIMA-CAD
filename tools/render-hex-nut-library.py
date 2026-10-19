@@ -23,7 +23,7 @@ def reference(native,v,source,target):
         x_mm=w-65,y_mm=h-58,scale=scale,display_style='visible_edges')['view']
     assert sheet['projection']=='first_angle',sheet
     side=native.run('drawing.view.create',sheet=sid,parent_view=top,
-        projection_direction='right',distance_mm=75)['view']
+        projection_direction='right',distance_mm=v.get('drawing_projection_distance_mm',75))['view']
     native.run('drawing.view.set',view=side,display_style='hidden_edges')
     for owner in (top,side):
         axes=native.run('drawing.annotation.list',view=owner,kind='axis')['items']

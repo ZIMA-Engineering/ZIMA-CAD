@@ -12726,6 +12726,69 @@
       "ČSN 02 1431 — Zeichnung des nativen Modells",
       "ČSN 02 1431 — dessin du modèle natif",
       "ČSN 02 1431 — чертёж нативной модели"
+    ],
+    "coupling_title": [
+      "Spojovací matice",
+      "Coupling nuts",
+      "Verbindungsmuttern",
+      "Écrous de raccordement",
+      "Соединительные гайки"
+    ],
+    "coupling_heading": [
+      "DIN 6334 · h = 3d",
+      "DIN 6334 · h = 3d",
+      "DIN 6334 · h = 3d",
+      "DIN 6334 · h = 3d",
+      "DIN 6334 · h = 3d"
+    ],
+    "coupling_scope": [
+      "DIN 6334 je obchodní označení spojovacích matic, nikoliv potvrzení shody s vydanou normou DIN pro tento výrobek. Jmenovitá výška h = 3d, průchozí schematický metrický závit. Vnější sražení 30° a ústí závitu 90° jsou zvolené CAD detaily. Pozinkování a výrobní tolerance se nemodelují. Ocel 7 850 kg/m³; hmotnost se počítá z aktuálního objemu.",
+      "DIN 6334 is a trade designation for coupling nuts, not certification to a published DIN standard for this product. Nominal height h = 3d, through schematic metric thread. Outside bevels of 30° and thread mouths of 90° are selected CAD details. Zinc coating and manufacturing tolerances are not modeled. Steel density 7,850 kg/m³; mass follows current volume.",
+      "DIN 6334 ist eine Handelsbezeichnung für Verbindungsmuttern, keine Konformitätsbestätigung zu einer veröffentlichten DIN-Norm für dieses Produkt. Nennhöhe h = 3d, durchgehendes schematisches metrisches Gewinde. Außenfasen von 30° und Gewindemündungen von 90° sind gewählte CAD-Details. Verzinkung und Fertigungstoleranzen werden nicht modelliert. Stahldichte 7.850 kg/m³; Masse aus dem aktuellen Volumen.",
+      "DIN 6334 est une désignation commerciale des écrous de raccordement, pas une certification selon une norme DIN publiée pour ce produit. Hauteur nominale h = 3d, filetage métrique traversant schématique. Les chanfreins extérieurs de 30° et les entrées de filetage de 90° sont des détails CAO choisis. Le zingage et les tolérances de fabrication ne sont pas modélisés. Acier de masse volumique 7 850 kg/m³ ; masse calculée par le volume actuel.",
+      "DIN 6334 — торговое обозначение соединительных гаек, а не подтверждение соответствия опубликованному стандарту DIN для этого изделия. Номинальная высота h = 3d, сквозная условная метрическая резьба. Наружные фаски 30° и входы резьбы 90° — выбранные детали САПР. Цинковое покрытие и производственные допуски не моделируются. Плотность стали 7 850 кг/м³; масса вычисляется по текущему объёму."
+    ],
+    "coupling_art": [
+      "DIN 6334 — výkres nativního modelu",
+      "DIN 6334 — native model drawing",
+      "DIN 6334 — Zeichnung des nativen Modells",
+      "DIN 6334 — dessin du modèle natif",
+      "DIN 6334 — чертёж нативной модели"
+    ],
+    "coupling_d": [
+      "d",
+      "d",
+      "d",
+      "d",
+      "d"
+    ],
+    "coupling_col_0": [
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]"
+    ],
+    "coupling_col_1": [
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]"
+    ],
+    "coupling_col_2": [
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]"
+    ],
+    "coupling_col_3": [
+      "e_min [mm]",
+      "e_min [mm]",
+      "e_min [mm]",
+      "e_min [mm]",
+      "e_min [mm]"
     ]
   },
   "sources": {
@@ -13064,6 +13127,14 @@
     "csn021431_1970": {
       "label": "ČSN 02 1431:1970 · original preview, Table 1",
       "url": "https://nahledy.normy.biz/n.php?i=254"
+    },
+    "coupling_aspen": {
+      "label": "Aspen Fasteners · nominal coupling-nut dimensions",
+      "url": "https://www.aspenfasteners.com/content/pdf/Metric_DIN_6334_spec.pdf"
+    },
+    "coupling_designation": {
+      "label": "Fabory · coupling-nut trade designation",
+      "url": "https://www.fabory.com/nl/Bevestigingsartikelen/Moeren/Verbindingsmoeren/c/010304"
     }
   },
   "pages": [
@@ -55748,6 +55819,143 @@
             "de": "CN-CSN021431-M08.0-REFERENCE_de.png",
             "fr": "CN-CSN021431-M08.0-REFERENCE_fr.png",
             "ru": "CN-CSN021431-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
+    },
+    {
+      "path": "05-NUTS/11-COUPLING",
+      "title": "coupling_title",
+      "heading": "coupling_heading",
+      "headers": [
+        "coupling_d",
+        "coupling_col_0",
+        "coupling_col_1",
+        "coupling_col_2",
+        "coupling_col_3"
+      ],
+      "rows": [
+        [
+          "M6",
+          "1",
+          "10",
+          "18",
+          "11.05"
+        ],
+        [
+          "M8",
+          "1.25",
+          "13",
+          "24",
+          "14.38"
+        ],
+        [
+          "M10",
+          "1.5",
+          "17",
+          "30",
+          "18.9"
+        ],
+        [
+          "M12",
+          "1.75",
+          "19",
+          "36",
+          "21.1"
+        ],
+        [
+          "M14",
+          "2",
+          "22",
+          "42",
+          "24.49"
+        ],
+        [
+          "M16",
+          "2",
+          "24",
+          "48",
+          "26.75"
+        ],
+        [
+          "M18",
+          "2.5",
+          "27",
+          "54",
+          "29.56"
+        ],
+        [
+          "M20",
+          "2.5",
+          "30",
+          "60",
+          "33.53"
+        ],
+        [
+          "M22",
+          "2.5",
+          "32",
+          "66",
+          "35.03"
+        ],
+        [
+          "M24",
+          "3",
+          "36",
+          "72",
+          "39.98"
+        ],
+        [
+          "M27",
+          "3",
+          "41",
+          "81",
+          "45.2"
+        ],
+        [
+          "M30",
+          "3.5",
+          "46",
+          "90",
+          "50.85"
+        ],
+        [
+          "M33",
+          "3.5",
+          "50",
+          "99",
+          "55.37"
+        ],
+        [
+          "M36",
+          "4",
+          "55",
+          "108",
+          "60.79"
+        ]
+      ],
+      "notes": [
+        "units",
+        "coupling_scope",
+        "nut_origin_seating_note"
+      ],
+      "sources": [
+        "coupling_aspen",
+        "coupling_designation"
+      ],
+      "sections": [],
+      "freeze_header": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "CPN-DIN6334-M08.0-REFERENCE.png",
+          "caption": "coupling_art",
+          "localized_paths": {
+            "cs": "CPN-DIN6334-M08.0-REFERENCE_cs.png",
+            "en": "CPN-DIN6334-M08.0-REFERENCE_en.png",
+            "de": "CPN-DIN6334-M08.0-REFERENCE_de.png",
+            "fr": "CPN-DIN6334-M08.0-REFERENCE_fr.png",
+            "ru": "CPN-DIN6334-M08.0-REFERENCE_ru.png"
           }
         }
       ]

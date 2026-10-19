@@ -1,0 +1,99 @@
+{
+  "designation": "DIN 6334 (customary trade designation)",
+  "source_url": "https://www.aspenfasteners.com/content/pdf/Metric_DIN_6334_spec.pdf",
+  "source_sha256": "6d940bd527832603703f84141f0cb90c5c3d56f279a94c20a23e48c74c3db2c4",
+  "designation_source": "https://www.fabory.com/nl/Bevestigingsartikelen/Moeren/Verbindingsmoeren/c/010304",
+  "scope": "Nominal coarse-thread coupling nuts, height 3d. The designation is a trade convention, not certification to a published DIN coupling-nut standard. The 30-degree outside bevels and 90-degree thread-mouth treatments are selected CAD details. Threads use the native schematic metric opening; zinc coating and manufacturing tolerances are not modeled.",
+  "columns": [
+    "diameter_mm",
+    "across_flats_mm",
+    "height_mm",
+    "minimum_corners_mm"
+  ],
+  "rows": [
+    [
+      6,
+      10,
+      18,
+      11.05
+    ],
+    [
+      8,
+      13,
+      24,
+      14.38
+    ],
+    [
+      10,
+      17,
+      30,
+      18.9
+    ],
+    [
+      12,
+      19,
+      36,
+      21.1
+    ],
+    [
+      14,
+      22,
+      42,
+      24.49
+    ],
+    [
+      16,
+      24,
+      48,
+      26.75
+    ],
+    [
+      18,
+      27,
+      54,
+      29.56
+    ],
+    [
+      20,
+      30,
+      60,
+      33.53
+    ],
+    [
+      22,
+      32,
+      66,
+      35.03
+    ],
+    [
+      24,
+      36,
+      72,
+      39.98
+    ],
+    [
+      27,
+      41,
+      81,
+      45.2
+    ],
+    [
+      30,
+      46,
+      90,
+      50.85
+    ],
+    [
+      33,
+      50,
+      99,
+      55.37
+    ],
+    [
+      36,
+      55,
+      108,
+      60.79
+    ]
+  ]
+}

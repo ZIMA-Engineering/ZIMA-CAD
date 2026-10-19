@@ -13,15 +13,21 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         const bool csn_closed=cap_nut&&cap_meridian->name=="Closed end meridian";
         const auto weld_profile=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Weld projection profile"||sketch.name=="Flange weld projection profile";});
         const bool weld=weld_profile!=original.sketches.end();
+        const bool hex_nut=!castle&&!knurl&&!cap_nut&&!weld&&original.sketches.front().name=="Hexagon profile";
         const auto profile=castle?*slot:knurl?*meridian:cap_nut?*cap_meridian:weld?*weld_profile:original.sketches.front();
         const bool tab=profile.arcs.size()==3&&profile.circles.size()==1;
-        check(castle||knurl||cap_nut||weld||tab||profile.circles.size()==2,"Library profile fixture missing");
+        check(castle||knurl||cap_nut||weld||hex_nut||tab||profile.circles.size()==2,"Library profile fixture missing");
         const auto path=directory/"spring-washer-gui.prtz";original.save(path,cache);
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
         check(window.open_document_path(QString::fromStdString(path.string())),"Washer GUI source did not open");flush();
-        const auto supports=cap_nut||weld?profile.external_references:original.sketches.back().external_references;
+        const auto supports=cap_nut||weld||hex_nut?profile.external_references:original.sketches.back().external_references;
         std::vector<std::pair<std::size_t,double>> edits;
-        if(knurl||cap_nut) {
+        if(hex_nut) {
+            for(std::size_t i=0;i<profile.dimensions.size();++i)if(profile.dimensions[i].driving&&profile.dimensions[i].kind==sketcher::DimensionKind::Diameter)
+                for(double factor:{1.02,1.04,1.})edits.emplace_back(i,profile.dimensions[i].value*factor);
+            check(edits.size()==3,"Hexagon nut GUI must exercise its width driver");
+        }
+        else if(knurl||cap_nut) {
             for(std::size_t i=0;i<profile.dimensions.size();++i) {
                 const auto& d=profile.dimensions[i];if(!d.driving)continue;
                 const auto* a=profile.find_point(d.first_point_id);const auto* b=profile.find_point(d.second_point_id);
@@ -90,7 +96,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
                 std::cerr<<"Dimension label "<<index<<" at "<<label->x()<<','<<label->y()<<", View "<<view->width()<<'x'<<view->height()<<'\n';
             }
             check(edit,"Washer diameter mouse editor missing");
-            edit->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
+            edit->setText(QString::number(value,'g',15));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
             const auto measured=view->candidate_dimension_value(candidate);
             if(!measured||std::abs(*measured-value)>=1e-8) {
                 window.grab().save(QString::fromStdString((directory/"dimension-value-failure-window.png").string()));
@@ -153,8 +159,8 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             check(saved_profile!=saved.sketches.end()&&std::abs((weld?std::abs(saved_profile->dimensions[index].value):saved_profile->dimensions[index].value)-value)<1e-8,"Library profile GUI dimension did not persist");
             if(weld)check(std::signbit(saved_profile->dimensions[index].value)==std::signbit(profile.dimensions[index].value)&&
                 saved_profile->dimensions[index].solution_side==profile.dimensions[index].solution_side,"Weld projection GUI edit reversed its persisted side");
-            auto cutter=castle||knurl||cap_nut||weld?*saved_profile:saved.sketches.back();
-            if(!tab&&!castle&&!knurl&&!cap_nut&&!weld)check(cutter.external_references.size()==2,"Washer GUI lost an external end-plane support");
+            auto cutter=castle||knurl||cap_nut||weld||hex_nut?*saved_profile:saved.sketches.back();
+            if(!tab&&!castle&&!knurl&&!cap_nut&&!weld&&!hex_nut)check(cutter.external_references.size()==2,"Washer GUI lost an external end-plane support");
             for(const auto& before:supports)check(std::ranges::any_of(cutter.external_references,[&](const auto& after){return after.id==before.id&&after.source_semantic_key==before.source_semantic_key&&!after.broken;}),"Washer GUI changed external edge identity");
             const auto solved=cutter.solve();check(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Washer GUI cutter failed after diameter change");
             for(const auto& body:bodies)check(body.calculation_errors.empty(),"Washer GUI regeneration left a failed feature");
@@ -196,7 +202,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         }
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         view->grabFramebuffer().save(QString::fromStdString((directory/"spring-washer-gui.png").string()));
-        std::cout<<(csn_closed?"CSN closed nut GUI: six coordinate/angle mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":cap_nut?"Cap nut GUI: three radius mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":knurl?"Knurled nut GUI: nine height/diameter/radius mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":castle?"Castle nut GUI: repeated slot-width and floor-height mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":tab?"Tab washer GUI: fifteen mouse dimension edits, Undo/Redo, regeneration and native save/reopen passed\n":
+        std::cout<<(hex_nut?"Hexagon nut GUI: three width mouse edits, Undo/Redo, regeneration, native save/reopen and retained profile identities passed\n":csn_closed?"CSN closed nut GUI: six coordinate/angle mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":cap_nut?"Cap nut GUI: three radius mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":knurl?"Knurled nut GUI: nine height/diameter/radius mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":castle?"Castle nut GUI: repeated slot-width and floor-height mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":tab?"Tab washer GUI: fifteen mouse dimension edits, Undo/Redo, regeneration and native save/reopen passed\n":
             "Spring washer GUI: six mouse diameter edits, Undo/Redo, regeneration, native save/reopen and both external end-plane contacts passed\n");return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

@@ -95,6 +95,21 @@ class Fasteners(unittest.TestCase):
             text=' '.join(tree.xpath('//text()'))
             self.assertIn('45°',text);self.assertIn('120°',text)
 
+    def test_coupling_nuts_retain_trade_scope_and_3d_dimensions(self):
+        from lxml import html
+        page=next(p for p in self.data['pages'] if p['path']=='05-NUTS/11-COUPLING')
+        self.assertEqual(len(page['rows']),14)
+        for row in page['rows']:
+            self.assertEqual(float(row[3]),3*float(row[0][1:]))
+            self.assertGreaterEqual(2*float(row[2])/math.sqrt(3),float(row[4]))
+        self.assertEqual(next(r for r in page['rows'] if r[0]=='M12')[1:4],['1.75','19','36'])
+        self.assertEqual(set(page['figures'][0]['localized_paths']),set(generator.LANGUAGES))
+        for lang in generator.LANGUAGES:
+            tree=html.fromstring(generator.render(self.data,page,lang))
+            self.assertEqual(len(tree.xpath('//div[contains(@class,"table-scroll")]/table/tbody/tr')),14)
+            self.assertIn('DIN 6334',' '.join(tree.xpath('//text()')))
+        self.assertIn('trade designation',self.data['labels']['coupling_scope'][1])
+
     def test_reviewed_special_families_and_native_washer_art(self):
         pages={p['path']:p for p in self.data['pages']}
         reviewed=json.loads((ROOT/'tools/data/special-cap-screw-reviewed-dimensions.json').read_text(encoding='utf-8'))

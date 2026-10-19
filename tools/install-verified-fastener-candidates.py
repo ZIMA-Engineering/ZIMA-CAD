@@ -30,14 +30,14 @@ def read(path):
 
 
 def destination(kind,v):
-    if kind in ('hex-nuts','small-hex-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):return BASE/'05-NUTS'/v['family']
+    if kind in ('hex-nuts','small-hex-nuts','coupling-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):return BASE/'05-NUTS'/v['family']
     if kind in ('special','caps'):return BASE/'04-SCREWS'/('06-PAN-HEAD' if v['family']=='04-BUTTON-A2' else '04-CAP-HEAD')/v['family']
     return BASE/'06-WASHERS'/('03-SPRING' if kind=='spring' else v['family'])
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--kind',choices=('special','caps','spring','plain','iso-plain','hex-nuts','small-hex-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab'),required=True)
+    p.add_argument('--kind',choices=('special','caps','spring','plain','iso-plain','hex-nuts','small-hex-nuts','coupling-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab'),required=True)
     p.add_argument('--gui-verification',type=Path,help='Independent representative GUI edit receipts, required for knurled nuts')
     p.add_argument('--catalog-verification',type=Path,help='Native thread-catalog edit receipts, required for knurled nuts')
     p.add_argument('--drawing-verification',type=Path,help='Regeneration and reopen receipts for every staged native drawing')
@@ -45,11 +45,26 @@ def main():
     for name in ('models','verification','thumbnails','references'):p.add_argument('--'+name,type=Path,required=True)
     args=p.parse_args();rows=json.loads((args.models/'manifest.json').read_text(encoding='utf-8'))['variants']
     if args.kind=='special':rows=[v for v in rows if v['standard'] in ('DIN 7984','DIN 6912','ISO 14579')]
-    assert len(rows)=={'special':25,'caps':72,'spring':41,'plain':127,'iso-plain':134,'hex-nuts':166,'small-hex-nuts':15,'castle-nuts':53,'small-castle-nuts':15,'knurled-nuts':22,'din-cap-nuts':26,'csn-closed-nuts':11,'din-weld':16,'iso-weld':14,'tab':19}[args.kind]
+    assert len(rows)=={'special':25,'caps':72,'spring':41,'plain':127,'iso-plain':134,'hex-nuts':166,'small-hex-nuts':15,'coupling-nuts':14,'castle-nuts':53,'small-castle-nuts':15,'knurled-nuts':22,'din-cap-nuts':26,'csn-closed-nuts':11,'din-weld':16,'iso-weld':14,'tab':19}[args.kind]
     cases={v['filename']:v for v in json.loads(args.verification.read_text(encoding='utf-8'))}
     refs=json.loads((args.references/'illustrations.json').read_text(encoding='utf-8'))
     refs=[v for v in refs if v['standard'] in {r['standard'] for r in rows}]
-    assert len(refs)=={'special':3,'caps':7,'spring':2,'plain':4,'iso-plain':7,'hex-nuts':8,'small-hex-nuts':1,'castle-nuts':2,'small-castle-nuts':1,'knurled-nuts':2,'din-cap-nuts':1,'csn-closed-nuts':1,'din-weld':1,'iso-weld':1,'tab':1}[args.kind]
+    if args.kind=='coupling-nuts':
+        assert args.gui_verification and args.drawing_verification
+        gui=json.loads(args.gui_verification.read_text(encoding='utf-8'))
+        assert {r['filename'] for r in gui}=={'CPN-DIN6334-M08.0.prtz','CPN-DIN6334-M36.0.prtz'}
+        for r in gui:
+            assert r['source_sha256']==digest(args.models/r['filename']) and r['mouse_dimension_edits']==3
+            assert all(r[k] for k in ('independent_geometry','undo_redo','save_reopen','regenerate'))
+            assert digest(Path(r['output']))==r['output_sha256']
+        proof=json.loads(args.drawing_verification.read_text(encoding='utf-8'))
+        expected={p.relative_to(args.references).as_posix() for p in args.references.rglob('*.drwz')}
+        assert {r['drawing'].replace('\\','/') for r in proof}==expected and len(expected)==6
+        for r in proof:
+            assert r['dimensions']==4 and all(r[k] for k in ('regenerate','save_reopen','identities_retained'))
+            assert digest(args.references/r['drawing'])==r['source_sha256']
+            assert digest(args.references/r['part'])==r['part_sha256']
+    assert len(refs)=={'special':3,'caps':7,'spring':2,'plain':4,'iso-plain':7,'hex-nuts':8,'small-hex-nuts':1,'coupling-nuts':1,'castle-nuts':2,'small-castle-nuts':1,'knurled-nuts':2,'din-cap-nuts':1,'csn-closed-nuts':1,'din-weld':1,'iso-weld':1,'tab':1}[args.kind]
     if args.kind in ('din-weld','iso-weld'):
         assert args.gui_verification and args.drawing_verification
         prefix='HWN-DIN929' if args.kind=='din-weld' else 'HFWN-ISO21670'
@@ -128,7 +143,7 @@ def main():
         assert digest(source)==case['source_sha256'] and case['undo_redo'] and case['save_reopen']
         if args.kind in ('special','caps'):
             assert case['successive_edits']==3 and case['exact_geometry_after_each_edit'] and case['thread_references_retained']
-        elif args.kind in ('hex-nuts','small-hex-nuts'):
+        elif args.kind in ('hex-nuts','small-hex-nuts','coupling-nuts'):
             assert case['successive_edits']==6 and case['catalog_edits']>=2 and case['thread_follows_height']
             assert case['reference_identity'] and case['analytical_volume_after_each_edit'] and case['derived_stock']
         elif args.kind in ('castle-nuts','small-castle-nuts'):
@@ -182,7 +197,7 @@ def main():
         definition=json.loads(read(drawing)['Document']['param.cpp_drawing'])
         assert definition['source_path']==part.name
         assert all(v['source_path']==part.name for s in definition['sheets'] for v in s['views'])
-        if args.kind in ('plain','iso-plain','spring','hex-nuts','small-hex-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab'):
+        if args.kind in ('plain','iso-plain','spring','hex-nuts','small-hex-nuts','coupling-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab'):
             assert len(definition['sheets'])==1
             sheet=definition['sheets'][0];assert sheet['projection_method']=='first_angle'
             assert len(sheet['views'])==2
@@ -198,7 +213,7 @@ def main():
             for view in (parent,child):
                 assert any(a['kind']==1 and a['visible'] and not a['unresolved']
                     for a in view['model_annotations']),'Native illustration axis missing'
-            if args.kind not in ('hex-nuts','small-hex-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):
+            if args.kind not in ('hex-nuts','small-hex-nuts','coupling-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):
                 for symbol,angle in (('d1',135),('d2',45)):
                     dimension=next(d for d in sheet['dimensions'] if d['style']['text_override']==symbol)
                     assert dimension['view_id']==parent['id']
@@ -211,7 +226,7 @@ def main():
                     assert abs(actual-angle)<1e-7,'Washer diameter annotations are not mirrored'
         for path in [part,drawing,part.with_suffix('.png'),*(folder/(part.stem+'_'+lang+'.png') for lang in LANGUAGES)]:
             assert path.is_file();copies.append((path,index/path.name))
-        if args.kind in ('din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):
+        if args.kind in ('din-cap-nuts','csn-closed-nuts','coupling-nuts','din-weld','iso-weld'):
             for lang in LANGUAGES:
                 path=folder/(part.stem+'_'+lang+'.drwz')
                 assert path.is_file();copies.append((path,index/path.name))
