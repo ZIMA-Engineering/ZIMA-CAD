@@ -1,5 +1,23 @@
 # Linux build and distribution handoff â€” 2026-09-15
 
+## Reviewed closed, coupling, flange and wheel fasteners (2026-10-20)
+
+The shared factory data now adds eleven primary CSN 02 1431:1970 closed nuts,
+fourteen 3d coupling nuts, eight smooth-seat flange nuts, one DIN 74361 A
+M20x1.5 spherical nut, two DIN 74361 F M12x1.5 seat angles and the compressed
+M20 companion washer. Reproduce their native baseline, independent volume/mass,
+repeated edits, retained references, Undo/Redo and save/reopen checks on Linux.
+Exercise the real native datum axis and the washer's dependent cutter. Verify
+all localized reference Drawings, including the actual Show/Erase R18 model
+dimension through regeneration and Save As source-identity remapping.
+See [coupling verification](verification/20261020-coupling-nuts.md) and
+[shaped fasteners](verification/20261020-shaped-fasteners.md).
+
+These are the same committed native assets on both platforms; no alternate
+Linux geometry or format migration is introduced. Other washer sizes and the
+cast wing-nut studies remain outside the accepted factory offer. Windows-only
+checks do not establish Linux execution, rendering or packaging acceptance.
+
 ## Rounded angular/tangent profiles and Drawing text (2026-10-20)
 
 Run the rounded-tangent-wing, relation-dimension-order, Sketcher, serialization,
