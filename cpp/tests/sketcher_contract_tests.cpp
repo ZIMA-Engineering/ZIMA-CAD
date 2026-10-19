@@ -20,6 +20,7 @@
 #include "native_tangent_contact_study.hpp"
 #include "native_arc_axis_study.hpp"
 #include "trimmed_rectangle_arc_study.hpp"
+#include "sketch_coordinate_incidence_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -38,6 +39,7 @@ int main() {
         run_external_point_circle_segment_study();
         run_sketch_tangent_reference_studies();
         using zima::sketcher::DimensionKind;
+        run_external_coordinate_incidence_study();
         {
             using namespace zima::sketcher;
             const auto reference = [](std::string id, ExternalReferenceKind kind,

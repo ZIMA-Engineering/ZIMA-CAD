@@ -1,5 +1,20 @@
 # Linux build and distribution handoff â€” 2026-09-15
 
+## Coordinate incidence and wing studies (2026-10-19)
+
+Build and run the shared Sketcher/reference/dimension/serialization/Relations
+and text contracts, the 96-case coordinate-incidence command matrix and the new
+coordinate-incidence GUI contract. Verify native support propagation and
+read-only external sources. See the finite Windows evidence and remaining
+variants in [Coordinate incidence](verification/20261019-sketch-coordinate-incidence.md).
+This correction has not been built or exercised on Linux. It changes no native
+schema, factory assets, placement contract or dependency versions.
+
+The [cast wing-nut studies](WING_NUT_LIBRARY.md) are explicitly unfinished and
+must not be installed or released on either platform. Reproduce their native
+checks and retain the failed driver cases; valid baseline solids alone do not
+qualify them for publication.
+
 ## Ordinary Sketch text anchors (2026-10-19)
 
 Run the shared symbol-anchor, symbol-explode, Sketch text geometry/command,

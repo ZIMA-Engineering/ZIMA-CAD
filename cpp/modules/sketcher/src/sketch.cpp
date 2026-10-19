@@ -12503,10 +12503,37 @@ SolveResult Sketch::solve_impl(
                 if (std::abs(residual) > tolerance) {
                     if (immutable(*point)) {
                         immovable_conflict = true;
-                    } else if (dimension.kind == DimensionKind::DistanceX) {
-                        point->x -= residual;
                     } else {
-                        point->y -= residual;
+                        // An explicit native incidence must follow its driving
+                        // point, as for DistancePointLine above. Otherwise the
+                        // incidence immediately projects the point back onto
+                        // its old support on every iteration. Carry only local
+                        // movable supports; external geometry remains read-only.
+                        auto translated=directional_translation_closure(point->id,dimension.kind);
+                        const auto contacts=translated;
+                        for(const auto& support:constraints) {
+                            if(support.suppressed||!contacts.contains(support.first_point_id))continue;
+                            std::set<std::string> owned;
+                            if(support.kind==ConstraintKind::PointOnCircle)
+                                owned=center_curve_translation_points(*this,support.geometry_id);
+                            else if(support.kind==ConstraintKind::PointOnLine) {
+                                const auto line=std::ranges::find(segments,support.geometry_id,&SketchSegment::id);
+                                if(line!=segments.end()) {
+                                    owned=point_translation_closure(*this,line->first_point_id);
+                                    const auto other=point_translation_closure(*this,line->second_point_id);
+                                    owned.insert(other.begin(),other.end());
+                                }
+                            }
+                            if(std::ranges::none_of(owned,[&](const auto& id){return immutable(*find_point(id));}))
+                                translated.insert(owned.begin(),owned.end());
+                        }
+                        if(std::ranges::any_of(translated,[&](const auto& id){return immutable(*find_point(id));}))
+                            translated={point->id};
+                        for(const auto& id:translated) {
+                            auto* moved=find_point(id);
+                            if(dimension.kind==DimensionKind::DistanceX)moved->x-=residual;
+                            else moved->y-=residual;
+                        }
                     }
                 }
                 continue;

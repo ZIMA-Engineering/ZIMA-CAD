@@ -339,6 +339,11 @@ whereas the [Bollhoff DIN 315 product sheet](https://eshop.boellhoff.de/out/medi
 gives a 2.3 mm maximum for that dimension. Preserve the original source text as evidence
 and use the corrected identifier when authoring the historical family.
 
+The four cast variants are now explicitly unfinished native studies. Their
+radius mapping, M16 source conflict, positive calculated masses, retained edit
+failures and publication gates are recorded in [Wing-nut studies](WING_NUT_LIBRARY.md).
+They are not installed in the factory library.
+
 Historical dimension sources require consistency checks. In particular, the
 archived spring-washer table lists a 31.5 mm outside diameter for the M24
 square-section washer together with a 24.5 mm bore and 5.5 mm radial width;

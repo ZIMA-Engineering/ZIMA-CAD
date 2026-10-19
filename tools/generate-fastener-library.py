@@ -24,14 +24,15 @@ THREAD = '01a14429e3207acba34fc9c038cdccfe'
 
 
 class Native:
-    def __init__(self, executable, evidence, settings_extra=""):
+    def __init__(self, executable, evidence, settings_extra="", keep_going=False):
         evidence.mkdir(parents=True, exist_ok=True)
         self.log = (evidence / 'commands.jsonl').open('w', encoding='utf-8')
         self.errors = (evidence / 'stderr.log').open('w', encoding='utf-8')
         settings = evidence / 'authoring.ini'
         settings.write_text('[DocumentNames]\nUppercase=false\nRemoveDiacritics=false\nReplaceSpaces=false\n'+settings_extra, encoding='utf-8')
         self.process = subprocess.Popen([str(executable), '--config', str(settings.resolve()),
-            '--working-directory', str(evidence.resolve()), '--stdin'], stdin=subprocess.PIPE,
+            '--working-directory', str(evidence.resolve()), '--stdin',
+            *(['--keep-going'] if keep_going else [])], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=self.errors, text=True, encoding='utf-8', env=os.environ.copy())
 
     def run(self, command, **arguments):

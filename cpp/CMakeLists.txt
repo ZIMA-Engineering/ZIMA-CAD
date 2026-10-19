@@ -1870,6 +1870,12 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_sketch_grips_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/coordinate-incidence-ui")
+    add_test(NAME zima_cpp_sketch_coordinate_incidence_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/coordinate-incidence-ui")
+    set_tests_properties(zima_cpp_sketch_coordinate_incidence_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COORDINATE_INCIDENCE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_nested_body_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_nested_body_sketch_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NESTED_BODY_ONLY=1"

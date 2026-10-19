@@ -9354,6 +9354,7 @@ int verify_selection_filter(QApplication& application,
 #include "sheet_transition_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 #include "sketch_symbol_controls_ui_verification.inc"
+#include "sketch_coordinate_incidence_ui_verification.inc"
 
 #include "derived_copy_save_ui_verification.inc"
 #include "import_interaction_ui_verification.inc"
@@ -9550,6 +9551,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DIMENSION_FILE")) return verify_property_sketch_dimensions(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COORDINATE_INCIDENCE_ONLY")) return verify_sketch_coordinate_incidence_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_LIMITS_ONLY")) return verify_profile_opening_limits(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DRAG_ONLY")) return verify_owned_profile_frames(application,test_directory);

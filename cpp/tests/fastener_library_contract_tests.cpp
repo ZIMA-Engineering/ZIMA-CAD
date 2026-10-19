@@ -1,5 +1,6 @@
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/drawing_operations.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/drawing/drawing_document.hpp>
@@ -8,6 +9,9 @@
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepTools_ShapeSet.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -23,6 +27,7 @@
 #include <iostream>
 #include <sstream>
 #include <cmath>
+#include <cctype>
 #include <algorithm>
 #include <array>
 #include <functional>
@@ -185,6 +190,96 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==4&&std::string(argv[1])=="--wing-review-title") {
+            const auto path=fs::absolute(fs::u8path(argv[2]));const std::string locale=argv[3];
+            require(std::set<std::string>{"cs","en","de","fr","ru"}.contains(locale),"Unsupported study title language");
+            auto drawing=drawing::DrawingDocument::load(path);require(drawing.sheets.size()==1&&!drawing.sheets.front().views.empty(),"Wing review requires one sheet with real source views");
+            auto& sheet=drawing.sheets.front();const auto source=sheet.views.front();auto source_path=source.source_path;if(source_path.is_relative())source_path=path.parent_path()/source_path;
+            workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(source_path));require(id==source.source_document_id,"Wing review source identity mismatch");
+            drawing.source_document_id=id;drawing.source_path=source_path;drawing.source_name=source_path.stem().string();
+            sheet.selected_source_document_id=id;sheet.title_block_locale=locale;
+            const auto root=fs::path(__FILE__).parent_path().parent_path().parent_path();std::string upper=locale;std::ranges::transform(upper,upper.begin(),[](unsigned char c){return static_cast<char>(std::toupper(c));});
+            workspace::load_drawing_template(drawing,sheet.id,root/"config/formats/ZE-DRAWING-FRAME.frmz",false,&live,path,"ze-frame-variant-A4");
+            workspace::load_drawing_template(drawing,sheet.id,root/"config/formats/ZE-TITLE-BLOCK.tblz",true,&live,path,"ze-title-block-variant-"+upper);
+            require(!sheet.title_block_fields.empty()&&!sheet.title_block_texts.empty()&&!sheet.title_block_images.empty(),"Native title Family variant is incomplete");
+            drawing.save(path);const auto reopened=drawing::DrawingDocument::load(path);
+            const auto& saved=reopened.sheets.front();require(saved.title_block_fields.size()==sheet.title_block_fields.size()&&saved.title_block_images.size()==sheet.title_block_images.size(),"Wing review title content count changed");
+            for(std::size_t i=0;i<sheet.title_block_fields.size();++i)require(saved.title_block_fields[i].id==sheet.title_block_fields[i].id&&saved.title_block_fields[i].expression==sheet.title_block_fields[i].expression,"Wing review title field identity changed");
+            for(std::size_t i=0;i<sheet.title_block_images.size();++i)require(saved.title_block_images[i].id==sheet.title_block_images[i].id&&saved.title_block_images[i].data_base64==sheet.title_block_images[i].data_base64,"Wing review embedded artwork changed");
+            std::cout<<"Native wing review source, frame and title Family variant embedded: "<<locale<<'\n';return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--wing-studies") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;Json report=Json::array();
+            for(const auto& expected:manifest.at("variants")) {
+                require(expected.at("review_status").get<std::string>().starts_with("unreleased study"),"This checker accepts only explicitly unfinished studies");
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/expected.at("filename").get<std::string>()));
+                const auto* state=live.open_part(id);require(state,"Wing study is not a Part");const auto& doc=state->session.document();const auto& complete=state->session.calculated_boundaries().back();
+                require(complete.calculation_errors.empty()&&complete.body_outputs.size()==1&&doc.body_history.bodies().size()==1,"Wing study must have one valid ordinary Body");
+                const auto& result=complete.body_outputs.begin()->second.get();TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(result.kernel_shape.get());BRepTools::Read(shape,stream,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid wing study BRep");int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Disconnected wing study");
+                Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+                const double span=expected.at("span_mm"),height=expected.at("height_mm"),base=expected.at("hub_base_diameter_mm");
+                near(x0,-span/2,"Wing left span");near(x1,span/2,"Wing right span");near(z0,0,"Wing seating plane");near(z1,height,"Wing total height");near(y0,-base/2,"Hub lower extent");near(y1,base/2,"Hub upper extent");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);const auto volume=properties.Mass();require(volume>0&&result.physical_properties_current,"Missing wing physical analysis");
+                require(std::abs(volume-result.volume)<=1e-8*std::max(1.,volume),"Wing cached/adaptive volume mismatch");
+                const auto mass=volume*expected.at("density_kg_mm3").get<double>();require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-mass)<=.50001e-6,"Wing persisted mass is stale");
+                bool bore=false,crown=false,front_root=false;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()!=GeomAbs_Cylinder)continue;const auto cylinder=surface.Cylinder();
+                    bore|=std::abs(std::abs(cylinder.Axis().Direction().Z())-1)<1e-8&&std::abs(cylinder.Radius()-expected.at("bore_mm").get<double>()/2)<1e-6;
+                    if(std::abs(std::abs(cylinder.Axis().Direction().Y())-1)<1e-8){crown|=std::abs(cylinder.Radius()-expected.at("crown_radius_mm").get<double>())<1e-6;front_root|=std::abs(cylinder.Radius()-expected.at("secondary_edge_radius_mm").get<double>())<1e-6;}
+                }
+                require(bore&&crown&&front_root,"Wing bore, crown or front root cylinder missing");
+                for(const auto& sketch:doc.sketches)verify_profile_dragging(sketch);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Wing inspection modified the native state");
+                report.push_back({{"filename",expected.at("filename")},{"valid_single_solid",true},{"bounds",true},{"adaptive_volume_mm3",volume},{"physical_mass_kg",mass},{"sketch_dragging",true},{"factory_ready",false}});
+            }
+            std::ofstream output(folder/"native-study-verification.json");output<<report.dump(2)<<'\n';std::cout<<report.size()<<" unfinished wing studies: BRep, bounds, physical mass and Sketch dragging passed\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--probe-wing-fillets") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));std::ifstream input(folder/"manifest.json");Json manifest;input>>manifest;Json report=Json::array();
+            for(const auto& v:manifest.at("variants")) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/v.at("filename").get<std::string>()));
+                const auto* state=live.open_part(id);require(state,"Expected wing Part");const auto& result=state->session.calculated_boundaries().back().body_outputs.begin()->second.get();
+                BRep_Builder builder;BRepTools_ShapeSet archive(builder);std::istringstream stream(result.kernel_shape.get());archive.Read(stream);TopoDS_Shape body;archive.Read(body,stream);require(BRepCheck_Analyzer(body).IsValid(),"Invalid wing input");
+                std::vector<TopoDS_Edge> roots,tips;const double h=v.at("hub_height_mm"),m=v.at("height_mm"),R=v.at("crown_radius_mm"),cx=v.at("span_mm").get<double>()/2-R,cz=m-R;
+                for(TopExp_Explorer it(body,TopAbs_EDGE);it.More();it.Next()) {
+                    const auto edge=TopoDS::Edge(it.Current());BRepAdaptor_Curve curve(edge);bool side=true,root=true,tip=true;double lo=1e100,hi=-1e100;
+                    for(int sample=0;sample<=20;++sample) {
+                        const auto p=curve.Value(curve.FirstParameter()+(curve.LastParameter()-curve.FirstParameter())*sample/20.);
+                        lo=std::min(lo,p.Z());hi=std::max(hi,p.Z());
+                        side&=std::abs(std::abs(p.Y())-(v.at("root_thickness_mm").get<double>()+(v.at("tip_thickness_mm").get<double>()-v.at("root_thickness_mm").get<double>())*p.Z()/m)/2)<1e-6;
+                        root&=p.Z()>=-1e-6&&p.Z()<=h+1e-6&&std::abs(std::hypot(p.X(),p.Y())-(v.at("hub_base_diameter_mm").get<double>()+(v.at("hub_top_diameter_mm").get<double>()-v.at("hub_base_diameter_mm").get<double>())*p.Z()/h)/2)<1e-6;
+                        tip&=std::abs(std::hypot(std::abs(p.X())-cx,p.Z()-cz)-R)<1e-6;
+                    }
+                    const auto unique=[&](auto& values){if(std::ranges::none_of(values,[&](const auto& existing){return edge.IsSame(existing);}))values.push_back(edge);};
+                    if(side&&root&&hi-lo>h/2)unique(roots);if(side&&tip&&hi-lo>1)unique(tips);
+                }
+                require(roots.size()==4&&tips.size()==4,"Expected four exact root and four exact crown edges");
+                for(int mode=0;mode<3;++mode) {
+                    BRepFilletAPI_MakeFillet fillet(body);
+                    if(mode!=0)for(const auto& edge:roots)fillet.Add(v.at("root_radius_mm").get<double>(),edge);
+                    if(mode!=1)for(const auto& edge:tips)fillet.Add(v.at("edge_radius_mm").get<double>(),edge);
+                    fillet.Build();const bool valid=fillet.IsDone()&&!fillet.Shape().IsNull()&&BRepCheck_Analyzer(fillet.Shape()).IsValid();
+                    report.push_back({{"filename",v.at("filename")},{"mode",mode},{"contours",fillet.NbContours()},{"done",fillet.IsDone()},{"valid",valid},{"faulty_contours",fillet.NbFaultyContours()}});
+                    if(valid&&mode==2){std::ofstream saved(folder/"joint-fillet.brep");BRepTools::Write(fillet.Shape(),saved);}
+                }
+            }
+            std::ofstream output(folder/"joint-fillet-probe.json");output<<report.dump(2)<<'\n';std::cout<<report.dump(2)<<'\n';return 0;
+        }
+        if(argc==4&&std::string(argv[1])=="--dump-candidate-edges") {
+            workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(fs::u8path(argv[2])));
+            const auto* state=live.open_part(id);require(state,"Expected native Part");
+            const auto& calculated=state->session.calculated_boundaries();require(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Candidate contains calculation errors");
+            Json rows=Json::array();
+            for(const auto& edge:calculated.back().mesh.edges)if(edge.reference.valid()) {
+                auto points=Json::array();for(const auto& p:edge.points)points.push_back({p.x,p.y,p.z});
+                rows.push_back({{"owner",edge.reference.owner_id},{"key",edge.reference.semantic_key},{"instance_path",edge.reference.instance_path},{"parameter_seam",edge.parameter_seam},{"points",points}});
+            }
+            std::ofstream output(fs::u8path(argv[3]));output<<rows.dump(2)<<'\n';require(output.good(),"Cannot save candidate edge inspection");
+            require(!state->session.is_dirty()&&!state->session.can_undo(),"Edge inspection changed the candidate");
+            return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--audit-native-properties") {
             const auto root=fs::absolute(fs::u8path(argv[2]));
             Json report={{"checked_parts",0},{"trimmed_cylindrical_bodies",0},{"stale",Json::array()},{"errors",Json::array()}};
