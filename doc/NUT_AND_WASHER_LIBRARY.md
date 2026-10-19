@@ -281,11 +281,11 @@ names/pages, thumbnails and associative reference Drawings with axes.
 
 | Requested family | Agreed geometry and source scope | Current status |
 | --- | --- | --- |
-| DIN approximately 6923 flange nuts | Fabory 11610: omit seating serrations as explicitly requested and identify the simplification. Fabory's dimensional catalog and Aspen/BBI sheets corroborate the flange series. | Source review; authoring pending. |
-| DIN 74361 A wheel nuts | Fabory 16217.200.150, M20x1.5, SW27: retain the spherical collar, fine thread and lower clearance geometry. | Primary drawing and dimensional review; authoring pending. |
+| DIN approximately 6923 flange nuts | Fabory 11610: omit seating serrations as explicitly requested and identify the simplification. Fabory's dimensional catalog and Aspen/BBI sheets corroborate the flange series. | Eight M5–M20 native models installed; 96 native edits, 12 GUI edits and six Drawings verified. |
+| DIN 74361 A wheel nuts | Fabory 16217.200.150, M20x1.5, SW27: retain the spherical collar, fine thread and lower clearance geometry. | Requested M20×1.5 SW27 installed; nine native edits, three GUI edits and six Drawings verified. |
 | Coupling nuts, trade designation DIN 6334 | Fabory 11400, height 3d and through thread. Fabory identifies this as a customary trade designation rather than a published DIN coupling-nut standard; do not invent manufacturing certification. Aspen and CVT corroborate nominal height/flats. | Fourteen M6–M36 models installed; 154 native edits, six GUI edits and six reference Drawings verified. See [verification](verification/20261020-coupling-nuts.md). |
-| DIN 74361 C spring lock washers | Spherical seating shape using the established native spring-washer split workflow. The primary drawing specifies dimensions in the tightened condition, explicitly confirmed by the user on 20 October 2026; preserve that distinction rather than simulate spring loading. | Primary profile interpretation; authoring pending. |
-| DIN 74361 F conical nuts | Separate conical seating variants and source-supported included angles, with their own identities. | Primary drawing review; authoring pending. |
+| DIN 74361 C spring lock washers | Spherical seating shape using the established native spring-washer split workflow. The primary drawing specifies dimensions in the tightened condition, explicitly confirmed by the user on 20 October 2026; preserve that distinction rather than simulate spring loading. | M20 companion installed in the confirmed compressed state; 15 native edits, three GUI edits and six Drawings verified. Other source sizes are not offered. |
+| DIN 74361 F conical nuts | Separate conical seating variants and source-supported included angles, with their own identities. | Both M12×1.5 angles installed; 12 native edits, 12 GUI edits and twelve Drawings verified. |
 
 The original [DIN 74361-2:1982 facsimile](https://krepcom.ru/upload/iblock/c8b/k3oxxrrbwyh3ty60v5nkcs8e9jxz6i2u/DIN_74361.pdf)
 is retained privately under `build/new-nut-primary-sources-20261020/`, SHA-256
@@ -297,6 +297,9 @@ Additional sources are the [Fabory wheel-nut family](https://www.fabory.com/en/h
 and [Fabory's coupling designation explanation](https://www.fabory.com/nl/Bevestigingsartikelen/Moeren/Verbindingsmoeren/c/010304).
 Only reviewed facts and our authored geometry/artwork enter the factory
 library; third-party source scans remain outside the distributed repository.
+
+The completed shaped-family scope, selected CAD details, native equations, GUI
+checks and platform limits are recorded in [verification](verification/20261020-shaped-fasteners.md).
 
 ## Knurled nut candidates
 

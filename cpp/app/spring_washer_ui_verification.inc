@@ -13,16 +13,25 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         const bool csn_closed=cap_nut&&cap_meridian->name=="Closed end meridian";
         const auto weld_profile=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Weld projection profile"||sketch.name=="Flange weld projection profile";});
         const bool weld=weld_profile!=original.sketches.end();
+        const auto shaped_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Flange meridian"||sketch.name=="Spherical collar meridian"||sketch.name=="Conical wheel seat meridian"||sketch.name=="Spherical washer meridian";});
+        const bool shaped=shaped_meridian!=original.sketches.end();
         const bool hex_nut=!castle&&!knurl&&!cap_nut&&!weld&&original.sketches.front().name=="Hexagon profile";
-        const auto profile=castle?*slot:knurl?*meridian:cap_nut?*cap_meridian:weld?*weld_profile:original.sketches.front();
+        const auto profile=castle?*slot:knurl?*meridian:cap_nut?*cap_meridian:weld?*weld_profile:shaped?*shaped_meridian:original.sketches.front();
         const bool tab=profile.arcs.size()==3&&profile.circles.size()==1;
-        check(castle||knurl||cap_nut||weld||hex_nut||tab||profile.circles.size()==2,"Library profile fixture missing");
+        check(castle||knurl||cap_nut||weld||hex_nut||shaped||tab||profile.circles.size()==2,"Library profile fixture missing");
         const auto path=directory/"spring-washer-gui.prtz";original.save(path,cache);
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
         check(window.open_document_path(QString::fromStdString(path.string())),"Washer GUI source did not open");flush();
-        const auto supports=cap_nut||weld||hex_nut?profile.external_references:original.sketches.back().external_references;
+        const auto supports=cap_nut||weld||hex_nut||shaped?profile.external_references:original.sketches.back().external_references;
         std::vector<std::pair<std::size_t,double>> edits;
-        if(hex_nut) {
+        if(shaped) {
+            const bool conical=profile.name=="Conical wheel seat meridian";
+            for(std::size_t i=0;i<profile.dimensions.size();++i)if(profile.dimensions[i].driving&&
+                (profile.dimensions[i].kind==sketcher::DimensionKind::Radius||(conical&&(profile.dimensions[i].kind==sketcher::DimensionKind::AngleBetween||profile.dimensions[i].kind==sketcher::DimensionKind::DistanceX))))
+                for(double factor:{1.01,1.02,1.})edits.emplace_back(i,profile.dimensions[i].value*factor);
+            check(!edits.empty(),"Shaped fastener GUI has no selected meridian driver");
+        }
+        else if(hex_nut) {
             for(std::size_t i=0;i<profile.dimensions.size();++i)if(profile.dimensions[i].driving&&profile.dimensions[i].kind==sketcher::DimensionKind::Diameter)
                 for(double factor:{1.02,1.04,1.})edits.emplace_back(i,profile.dimensions[i].value*factor);
             check(edits.size()==3,"Hexagon nut GUI must exercise its width driver");
@@ -65,7 +74,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             candidate.semantic_key="dimension:"+profile.dimensions[index].id;
             for(std::size_t i=0;i<view->mesh().dimensions.size();++i)if(view->mesh().dimensions[i].reference.owner_id==candidate.owner_id&&view->mesh().dimensions[i].reference.semantic_key==candidate.semantic_key)candidate.geometry_index=i;
             auto label=view->candidate_dimension_label_position(candidate);check(label.has_value(),"Washer diameter label missing");
-            if(cap_nut||weld) {
+            if(cap_nut||weld||shaped) {
                 // The crown's H glyph overlaps the lower end of the rotated
                 // R label. Exercise an exposed part of the same visible text,
                 // without bypassing the ordinary shared picking order.
@@ -159,8 +168,8 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             check(saved_profile!=saved.sketches.end()&&std::abs((weld?std::abs(saved_profile->dimensions[index].value):saved_profile->dimensions[index].value)-value)<1e-8,"Library profile GUI dimension did not persist");
             if(weld)check(std::signbit(saved_profile->dimensions[index].value)==std::signbit(profile.dimensions[index].value)&&
                 saved_profile->dimensions[index].solution_side==profile.dimensions[index].solution_side,"Weld projection GUI edit reversed its persisted side");
-            auto cutter=castle||knurl||cap_nut||weld||hex_nut?*saved_profile:saved.sketches.back();
-            if(!tab&&!castle&&!knurl&&!cap_nut&&!weld&&!hex_nut)check(cutter.external_references.size()==2,"Washer GUI lost an external end-plane support");
+            auto cutter=castle||knurl||cap_nut||weld||hex_nut||shaped?*saved_profile:saved.sketches.back();
+            if(!tab&&!castle&&!knurl&&!cap_nut&&!weld&&!hex_nut&&!shaped)check(cutter.external_references.size()==2,"Washer GUI lost an external end-plane support");
             for(const auto& before:supports)check(std::ranges::any_of(cutter.external_references,[&](const auto& after){return after.id==before.id&&after.source_semantic_key==before.source_semantic_key&&!after.broken;}),"Washer GUI changed external edge identity");
             const auto solved=cutter.solve();check(solved.remaining_degrees_of_freedom==0&&solved.maximum_residual<1e-8,"Washer GUI cutter failed after diameter change");
             for(const auto& body:bodies)check(body.calculation_errors.empty(),"Washer GUI regeneration left a failed feature");

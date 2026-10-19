@@ -69,14 +69,15 @@ def relations(native,path,identities):
     native.run('document.relations.set',relations=f'stock = "Ø" & {bore} & "x" & {outside} & "x" & {thickness}\nmass = model.mass\n')
 
 
-def split_profile(native,v,annulus):
+def split_profile(native,v,annulus,end_faces=None):
     """Axial 45-degree parallel cut linked to the actual two end planes."""
     sk=native.run('sketch.create',name='Split profile',plane='XZ')['sketch']
     references=[]
     feature=native.run('feature.get',container=annulus)['feature']
-    for z in (0,v['thickness_mm']):
+    for index,z in enumerate((0,v['thickness_mm'])):
         candidates=[r for r,surface in caps.studs.faces(native,annulus) if surface and surface['kind']=='plane'
             and abs(surface['origin'][2]-z)<1e-7 and ':'+feature+':end:' in r['key']]
+        if end_faces is not None:candidates=[end_faces[index]]
         assert len(candidates)==1,('Washer end plane missing',z)
         references.append(native.run('sketch.reference.create',sketch=sk,kind='face',**caps.studs.ref(candidates[0]))['reference'])
     t=v['thickness_mm'];half=v['split_gap_mm']/math.sqrt(2)

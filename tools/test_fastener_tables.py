@@ -110,6 +110,32 @@ class Fasteners(unittest.TestCase):
             self.assertIn('DIN 6334',' '.join(tree.xpath('//text()')))
         self.assertIn('trade designation',self.data['labels']['coupling_scope'][1])
 
+    def test_shaped_families_keep_reviewed_types_angles_and_compressed_state(self):
+        import configparser
+        from lxml import html
+        pages={p['path']:p for p in self.data['pages']}
+        families=[('05-NUTS/10-FLANGE',8),('05-NUTS/12-WHEEL/01-SPHERICAL',1),
+            ('05-NUTS/12-WHEEL/02-CONICAL',2),('06-WASHERS/07-SPHERICAL',1)]
+        for path,count in families:
+            page=pages[path];self.assertEqual(len(page['rows']),count)
+            folder=ROOT/self.data['root']/path;models=list(folder.glob('*.prtz'));self.assertEqual(len(models),count)
+            for model in models:
+                doc=configparser.RawConfigParser();doc.read(model,encoding='utf-8')
+                values=json.loads(doc['UserParameterValues']['Data'])
+                self.assertGreater(float(values['mass']['']),0)
+                self.assertEqual(set(values['name']),set(generator.LANGUAGES))
+            for lang in generator.LANGUAGES:
+                tree=html.fromstring(generator.render(self.data,page,lang))
+                tables=tree.xpath('//div[contains(@class,"table-scroll")]/table')
+                self.assertTrue(tables)
+                self.assertTrue(all(len(t.xpath('./tbody/tr'))==count for t in tables))
+        flange=pages[families[0][0]]['rows'];self.assertEqual(next(r for r in flange if r[0]=='M8')[1:5],['1.25','13','8','17.9'])
+        spherical=pages[families[1][0]]['rows'][0];self.assertEqual(spherical[:4],['M20×1.5','1.5','27','27'])
+        conical=pages[families[2][0]];self.assertEqual({r[-1] for r in conical['rows']},{'60','90'});self.assertEqual(len(conical['figures']),2)
+        washer=pages[families[3][0]];self.assertEqual(washer['rows'],[['20.5','34','24','8','18']])
+        self.assertIn('compressed',self.data['labels']['shaped_washer_scope'][1])
+        self.assertEqual(pages['05-NUTS/12-WHEEL']['rows'],[])
+
     def test_reviewed_special_families_and_native_washer_art(self):
         pages={p['path']:p for p in self.data['pages']}
         reviewed=json.loads((ROOT/'tools/data/special-cap-screw-reviewed-dimensions.json').read_text(encoding='utf-8'))

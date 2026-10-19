@@ -1,0 +1,112 @@
+{
+  "source_url": "https://krepcom.ru/upload/iblock/c8b/k3oxxrrbwyh3ty60v5nkcs8e9jxz6i2u/DIN_74361.pdf",
+  "source_sha256": "b2572a654e8a725c1e1eb691084f8cbd0bfeaab006ebfb87c687ce0ede87a5d5",
+  "edition": "DIN 74361 Part 2, November 1982",
+  "washer_columns": [
+    "bore_mm",
+    "outside_mm",
+    "transition_diameter_mm",
+    "height_mm",
+    "sphere_radius_mm",
+    "indicative_mass_g"
+  ],
+  "washer_rows": [
+    [
+      12.5,
+      23,
+      14.5,
+      5,
+      12,
+      7.5
+    ],
+    [
+      14.5,
+      26,
+      17,
+      6,
+      14,
+      10.5
+    ],
+    [
+      18.5,
+      29,
+      20,
+      7,
+      16,
+      14
+    ],
+    [
+      20.5,
+      34,
+      24,
+      8,
+      18,
+      23
+    ],
+    [
+      22.5,
+      34,
+      24,
+      8,
+      18,
+      21
+    ]
+  ],
+  "washer_scope": "Type C in the tightened condition, as explicitly specified by the primary section drawing. The back is flat; the opposite face has spherical radius r1 and an inner flat up to diameter d8. The tabulated r1 values are 12 to 18 mm, not section thicknesses. The axial split uses the previously agreed representative 45-degree, 1 mm CAD gap. Selected 0.1 mm corner rounds are CAD details; no free spring shape, heat-treatment simulation or manufacturing certification is claimed.",
+  "type_a_columns": [
+    "diameter_mm",
+    "pitch_mm",
+    "clearance_depth_mm",
+    "flange_diameter_mm",
+    "end_diameter_mm",
+    "clearance_diameter_mm",
+    "height_mm",
+    "collar_height_mm",
+    "sphere_radius_mm",
+    "across_flats_mm"
+  ],
+  "type_a_rows": [
+    [
+      20,
+      1.5,
+      3,
+      33,
+      24.5,
+      20.5,
+      27,
+      9,
+      18,
+      27
+    ]
+  ],
+  "type_f_columns": [
+    "diameter_mm",
+    "pitch_mm",
+    "end_diameter_mm",
+    "clearance_diameter_mm",
+    "height_mm",
+    "across_flats_mm",
+    "included_angle_degrees"
+  ],
+  "type_f_rows": [
+    [
+      12,
+      1.5,
+      15,
+      13,
+      14,
+      19,
+      60
+    ],
+    [
+      12,
+      1.5,
+      15,
+      13,
+      14,
+      19,
+      90
+    ]
+  ],
+  "scope": "Nominal CAD geometry from the original edition. User-requested M20x1.5 SW27 type A; two separately identified type F seat angles. Schematic native threads. Do not infer interchangeability with a later DIN 74361 edition."
+}

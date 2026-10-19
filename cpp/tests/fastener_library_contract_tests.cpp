@@ -25,6 +25,7 @@
 #include <Bnd_Box.hxx>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <cmath>
 #include <cctype>
@@ -381,6 +382,84 @@ int main(int argc,char** argv) {
                 require(!state->session.is_dirty()&&!state->session.can_undo(),"Nut inspection modified native state");++checked;
             }
             std::cout<<checked<<" hex nuts: Origin seating, one solid, conical bevels, native internal threads, analytical volume and mass passed\n";return 0;
+        }
+        if(argc==3&&(std::string(argv[1])=="--wheel-fasteners"||std::string(argv[1])=="--flange-nuts")) {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Wheel fastener is not a native Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Wheel fastener calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid wheel fastener BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Wheel fastener must be one solid");
+                const double h=expected.at("height_mm"),volume=expected.at("independent_volume_mm3");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);
+                if(std::abs(properties.Mass()-volume)>=std::max(1e-5,volume*1e-8)||std::abs(result.volume-volume)>=std::max(1e-5,volume*1e-8))
+                    std::cerr<<"Independent volume "<<std::setprecision(16)<<volume<<", adaptive BRep "<<properties.Mass()<<", cached "<<result.volume<<'\n';
+                require(std::abs(properties.Mass()-volume)<std::max(1e-5,volume*1e-8),"Wheel independent section volume");
+                require(std::abs(result.volume-volume)<std::max(1e-5,volume*1e-8),"Wheel cached volume");
+                require(result.physical_properties_current,"Wheel physical properties are stale");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Wheel BOM mass");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(z0,0,"Wheel fastener bottom datum");near(z1,h,"Wheel fastener height");
+                const bool washer=expected.value("state",std::string{})=="compressed";
+                const bool spherical=expected.contains("sphere_radius_mm"),flange=expected.contains("roof_angle_degrees");int contacts=0;
+                if(flange) {
+                    const double R=expected.at("flange_diameter_mm").get<double>()/2,b=expected.at("bearing_radius_mm"),d=expected.at("diameter_mm");
+                    near(x0,-R,"Flange negative X extent");near(x1,R,"Flange positive X extent");near(y0,-R,"Flange negative Y extent");near(y1,R,"Flange positive Y extent");
+                    require(2*(R-b)>=expected.at("minimum_bearing_diameter_mm").get<double>()-1e-8,"Flange bearing diameter below source limit");
+                    double bearing_area=0.;
+                    for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                        const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                        if(surface.GetType()==GeomAbs_Plane&&std::abs(surface.Plane().Location().Z())<1e-8&&std::abs(surface.Plane().Axis().Direction().Z())>1-1e-8) {
+                            GProp_GProps area;BRepGProp::SurfaceProperties(it.Current(),area);bearing_area+=area.Mass();
+                        }
+                    }
+                    near(bearing_area,std::numbers::pi*((R-b)*(R-b)-d*d/4),"Flange exact bearing face");
+                }
+                if(washer) {
+                    const auto axis=std::ranges::find_if(doc.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Feature&&c.feature.type==document::FeatureType::Axis;});
+                    require(axis!=doc.history.end(),"Spherical washer native datum axis missing");near(axis->feature.sides[0].length,h,"Washer datum axis follows height");
+                }
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                    if(spherical&&(surface.GetType()==GeomAbs_Sphere||surface.GetType()==GeomAbs_SurfaceOfRevolution)) {
+                        const double R=expected.at("sphere_radius_mm");
+                        const double r=expected.at(washer?"transition_diameter_mm":"end_diameter_mm").get<double>()/2;
+                        const double center=washer?h-std::sqrt(R*R-r*r):std::sqrt(R*R-r*r);++contacts;
+                        for(double u:{.25,.5,.75})for(double v:{.25,.5,.75}) {
+                            const auto p=surface.Value(surface.FirstUParameter()+u*(surface.LastUParameter()-surface.FirstUParameter()),
+                                surface.FirstVParameter()+v*(surface.LastVParameter()-surface.FirstVParameter()));
+                            near(p.X()*p.X()+p.Y()*p.Y()+std::pow(p.Z()-center,2),R*R,"Wheel spherical contact equation");
+                        }
+                    }
+                    if(!spherical&&!flange&&surface.GetType()==GeomAbs_Cone) {
+                        const double slope=std::tan(expected.at("included_angle_degrees").get<double>()*std::numbers::pi/360);
+                        bool matches=true;
+                        for(double u:{.25,.5,.75})for(double v:{.25,.5,.75}) {
+                            const auto p=surface.Value(surface.FirstUParameter()+u*(surface.LastUParameter()-surface.FirstUParameter()),
+                                surface.FirstVParameter()+v*(surface.LastVParameter()-surface.FirstVParameter()));
+                            matches&=std::abs(std::hypot(p.X(),p.Y())-expected.at("end_diameter_mm").get<double>()/2-p.Z()*slope)<1e-7;
+                        }
+                        if(matches)++contacts;
+                    }
+                }
+                require(flange||contacts>0,"Wheel spherical/conical contact missing");
+                BRepClass3d_SolidClassifier classifier(shape);
+                for(double f:{.1,.5,.9}) {classifier.Perform(gp_Pnt(0,0,h*f),1e-8);require(classifier.State()==TopAbs_OUT,"Wheel fastener bore obstructed");}
+                if(!washer) {
+                    const auto thread=std::ranges::find(doc.history,document::FeatureKind::Thread,&document::HistoryContainer::feature_kind);
+                    require(thread!=doc.history.end()&&thread->thread.enabled,"Wheel native thread missing");
+                    near(thread->thread.nominal_diameter,expected.at("diameter_mm"),"Wheel thread diameter");near(thread->thread.pitch,expected.at("pitch_mm"),"Wheel thread pitch");
+                    near(thread->thread.length_forward,h-expected.value("clearance_depth_mm",0.),"Wheel thread length");
+                }
+                for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Wheel inspection changed document");
+            }
+            std::cout<<manifest.at("variants").size()<<" wheel fasteners: valid solids, independent volume/mass, contact equations, native threads and profile dragging passed\n";return 0;
         }
         if(argc==3&&std::string(argv[1])=="--weld-nuts") {
             const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
