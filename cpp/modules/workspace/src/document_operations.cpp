@@ -2,6 +2,7 @@
 #include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/save_properties.hpp>
 #include <stdexcept>
 #include <cctype>
 #include <type_traits>
@@ -46,6 +47,7 @@ DocumentSave prepare_document_save(const Workspace& workspace,
         }
     },*state);
     if(const auto* assembly=std::get_if<AssemblyState>(state)) {
+        job.context_=std::make_shared<const Workspace>(workspace);
         std::set<std::string> included;
         for(const auto& component:assembly->session.document().components) {
             if(component.derived_copy || component.source_kind==assembly::ComponentSourceKind::Pattern)continue;
@@ -89,8 +91,26 @@ SavedDocument DocumentSave::write() const {
     for(const auto& source:sources_)result.sources_.push_back(source.write());
     std::visit([&](const auto& snapshot) {
         using Snapshot=std::decay_t<decltype(snapshot)>;
-        if constexpr(std::is_same_v<Snapshot, Part>)snapshot.document.save(receipt_.target_,snapshot.boundaries);
-        else snapshot.save(receipt_.target_);
+        if constexpr(std::is_same_v<Snapshot, Part>) {
+            auto candidate=snapshot;
+            const bool changed=refresh_save_properties(candidate.document,candidate.boundaries);
+            candidate.document.save(receipt_.target_,candidate.boundaries);
+            if(changed)result.analysis_=SavedPartAnalysis{std::move(candidate.document),std::move(candidate.boundaries)};
+        } else if constexpr(std::is_same_v<Snapshot,assembly::AssemblyDocument>) {
+            auto context=*context_;
+            for(const auto& source:result.sources_)static_cast<void>(complete_document_save(context,source));
+            // Reuse the ordinary current-source publication contract. This
+            // shares already calculated data and preserves Assembly-owned cuts;
+            // it does not calculate geometry or solve component placements.
+            context.refresh_source_geometry();
+            const auto* current=context.open_assembly(receipt_.id_);
+            auto candidate=current->session.document();
+            std::map<std::string,assembly::AssemblyDocument> members;
+            const bool sources_changed=current->session.data_generation()!=receipt_.generation_;
+            const bool changed=refresh_save_properties(candidate,context,receipt_.original_path_,&members)||sources_changed;
+            candidate.save(receipt_.target_);
+            if(changed)result.analysis_=SavedAssemblyAnalysis{std::move(candidate),std::move(members)};
+        } else snapshot.save(receipt_.target_);
     },snapshot_);
     return result;
 }
@@ -117,6 +137,34 @@ bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
             if(sources_current && value.session.revision()==saved.revision_ &&
                value.session.data_generation()==saved.generation_ &&
                value.session.document().dimension_identifiers.allocation_count()==saved.allocations_) {
+                if constexpr(std::is_same_v<State,PartState>) {
+                    if(const auto* analysis=std::get_if<SavedPartAnalysis>(&saved.analysis_))
+                        value.session.update_save_analysis(analysis->document,analysis->boundaries);
+                } else if(const auto* analysis=std::get_if<SavedAssemblyAnalysis>(&saved.analysis_))
+                    value.session.update_dependency_snapshots(analysis->document);
+                // Family edits route through their owning session. A matching
+                // owner/source generation therefore also guards the authored
+                // rows; merge only derived analysis into linked open tabs.
+                if(!std::holds_alternative<std::monostate>(saved.analysis_))
+                    for(auto& member:workspace.documents())std::visit([&](auto& child) {
+                        using Child=std::decay_t<decltype(child)>;
+                        if constexpr(std::is_same_v<State,Child>) {
+                            const auto& current=child.session.document();
+                            if(current.family.parent_id!=saved.id_)return;
+                            const auto& family=value.session.document().family.evaluated;
+                            const auto packet=family.find(current.family.row_id);
+                            if(packet==family.end())return;
+                            if constexpr(std::is_same_v<State,PartState>) {
+                                std::vector<kernel::BodyResult> cache;
+                                auto analyzed=document::PartDocument::from_serialized(*packet->second,&cache);
+                                child.session.update_save_analysis(std::move(analyzed),std::move(cache));
+                            } else {
+                                const auto& analyzed=std::get<SavedAssemblyAnalysis>(saved.analysis_).family.at(current.family.row_id);
+                                child.session.update_dependency_snapshots(analyzed);
+                            }
+                            child.session.mark_saved();
+                        }
+                    },member);
                 value.session.mark_saved();
                 for(auto& [drawing,sources]:workspace.drawing_edited_sources)
                     std::erase_if(sources,[&](const auto& source){return family_owner(workspace,source)==saved.id_;});
@@ -141,13 +189,15 @@ bool document_needs_save_impl(const Workspace& workspace, const std::string& req
         }
     }
     if(const auto pending=workspace.drawing_edited_sources.find(id);pending!=workspace.drawing_edited_sources.end()&&!pending->second.empty())return true;
-    return std::visit([](const auto& value) {
+    return std::visit([&](const auto& value) {
         using State=std::decay_t<decltype(value)>;
         const bool dirty=[&] {
             if constexpr(std::is_same_v<State,DrawingState>)return value.is_dirty();
             else return value.session.is_dirty();
         }();
         if(dirty || value.path.empty())return true;
+        if constexpr(std::is_same_v<State,PartState>) {if(save_properties_pending(value))return true;}
+        else if constexpr(std::is_same_v<State,AssemblyState>) {if(save_properties_pending(value,workspace))return true;}
         std::error_code error;
         return !std::filesystem::is_regular_file(value.path,error);
     },*state);

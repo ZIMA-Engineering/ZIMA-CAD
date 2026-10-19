@@ -393,6 +393,22 @@ void DocumentSession::update_calculated_boundaries(
     ++data_generation_;
 }
 
+void DocumentSession::update_save_analysis(PartDocument document,
+    std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    // Editing focus (including Body activation) deliberately does not create a
+    // revision. Merge derived fields instead of restoring the snapshot's focus.
+    auto current=current_->document;
+    current.user_parameters=std::move(document.user_parameters);
+    current.user_parameter_values=std::move(document.user_parameter_values);
+    current.user_parameter_order=std::move(document.user_parameter_order);
+    current.family.evaluated=std::move(document.family.evaluated);
+    refresh_body_properties(current,calculated_boundaries);
+    current_->document=std::move(current);
+    current_->calculated_boundaries=std::move(calculated_boundaries);
+    current_->calculated_state_dirty=true;
+    ++data_generation_;
+}
+
 bool DocumentSession::step(States& from,States& to) {
     if(from.empty())return false;
     static_assert(std::is_nothrow_move_assignable_v<DimensionIdentifiers>);

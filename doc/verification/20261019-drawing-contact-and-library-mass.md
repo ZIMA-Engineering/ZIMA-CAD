@@ -92,6 +92,12 @@ all affected entries were rechecked serially and the final result has zero
 errors. Full per-file data is in
 `Projects/test/engineering-library-mass-audit-20261019/summary.json`.
 
+After installing the 30 reviewed weld-nut models and their two independent
+reference Parts, a fresh serial pass re-opened the entire expanded inventory of
+**942** native Parts. All 942 again had current, nonzero mass, available density
+and the mass relation; none required in-memory regeneration or a file rewrite.
+The same report now contains that complete expanded result.
+
 The mandatory authoring sequence is recorded in
 [AGENTS.md](../../AGENTS.md#engineering-library-mass-publication-mandatory):
 Regenerate and verify Parts, then Assemblies, then refresh Drawing/BOM output.

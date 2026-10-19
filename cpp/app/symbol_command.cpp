@@ -13,6 +13,7 @@
 #include <QSignalBlocker>
 #include <QTreeWidgetItemIterator>
 #include <QCursor>
+#include "resource_icon.hpp"
 #include <algorithm>
 namespace zima::app {
 const sketcher::Sketch* AssemblyWorkspaceWindow::symbol_document_sketch() const {
@@ -35,6 +36,16 @@ void AssemblyWorkspaceWindow::save_symbol_document(bool copy) {
     catch(const std::exception&){QMessageBox::warning(this,tr("Symbol"),tr("Uložení se nezdařilo"));}
 }
 void AssemblyWorkspaceWindow::initialize_symbol_handles() {
+    auto* explode=new QAction(resource_icon("sketch"),tr("Rozložit symbol"),this);
+    explode->setObjectName("explodeSketchSymbolAction");
+    connect(explode,&QAction::triggered,this,[this,explode] {
+        if(properties_dialog_||!active_sketch())return;
+        try {
+            const auto id=explode->data().toString().toStdString();
+            static_cast<void>(mutate_active_sketch([&](auto& sketch){symbols::explode_instance(sketch,id);}));
+            clear_selected_sketch_geometry();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        }catch(const std::exception& error){QMessageBox::warning(this,tr("Symbol"),QObject::tr(error.what()));}
+    });
     viewer_->set_symbol_handle_callbacks([this]()->std::optional<viewer::SymbolHandles> {
         const auto owner=workspace_.active_document_id();
         if(!active_sketch_id_.empty()||(!workspace_.open_part(owner)&&!workspace_.open_assembly(owner)))return {};
@@ -88,13 +99,14 @@ void AssemblyWorkspaceWindow::show_symbol_properties(const std::string& id,std::
     auto* dialog=new SymbolDialog(*initial,[this,owner,sketch_id,id](const auto& symbol){
         const auto* current=active_sketch();if(workspace_.active_document_id()!=owner||!current||current->id!=sketch_id)return;
         auto preview=*current;auto found=std::ranges::find(preview.symbols,id,&sketcher::SymbolInstance::id);
-        if(found==preview.symbols.end())preview.symbols.push_back(symbol);else *found=symbol;
+        try {if(found==preview.symbols.end())preview.add_symbol(symbol);else preview.update_symbol(symbol);}
+        catch(const std::exception& error){state_->setText(QObject::tr(error.what()));return;}
         show_sketch_drag_preview(preview);
     },[this,owner,sketch_id,id](auto symbol){
         if(workspace_.active_document_id()!=owner||active_sketch_id_!=sketch_id)throw std::runtime_error(QObject::tr("Skica již není aktivní.").toStdString());
         if(!mutate_active_sketch([&](auto& sketch){
             auto found=std::ranges::find(sketch.symbols,id,&sketcher::SymbolInstance::id);
-            if(found==sketch.symbols.end())sketch.symbols.push_back(symbol);else *found=symbol;sketch.validate();
+            if(found==sketch.symbols.end())sketch.add_symbol(symbol);else sketch.update_symbol(symbol);
         }))throw std::runtime_error(QObject::tr("Skica již není aktivní.").toStdString());
     },this);
     properties_dialog_=dialog;symbol_anchor_=[dialog](double x,double y){dialog->set_anchor(x,y);};viewer_->set_selection_contract({});
@@ -106,7 +118,7 @@ void AssemblyWorkspaceWindow::remove_symbol(const std::string& id) {
         workspace::remove_symbol_annotation(workspace_,workspace_.active_document_id(),id);
         selected_symbol_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();return;
     }
-    static_cast<void>(mutate_active_sketch([&](auto& sketch){std::erase_if(sketch.symbols,[&](const auto& symbol){return symbol.id==id;});}));
+    static_cast<void>(mutate_active_sketch([&](auto& sketch){sketch.remove_symbol(id);}));
     selected_symbol_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
 }
 void AssemblyWorkspaceWindow::select_symbol(const std::string& id) {

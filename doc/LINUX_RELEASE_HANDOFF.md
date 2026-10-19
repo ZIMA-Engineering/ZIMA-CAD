@@ -1,5 +1,25 @@
 # Linux build and distribution handoff â€” 2026-09-15
 
+## Save analysis and Sketch symbols (2026-10-19)
+
+Run the shared save-properties, relation-program, symbol-anchor, symbol-explode,
+Sketch serialization, Sketcher, Family and document-operation native contracts.
+Verify physical-only Save/Save As on deferred native geometry, units/materials,
+current open sources, nested Assemblies, retained cuts, evaluated Family rows,
+background completion guards, actual Body focus, Undo/Redo and unchanged Save.
+
+Run the Sketch symbol controls and symbol GUI contracts, including Text in Part,
+Assembly and new owned profiles, real point dragging, inline dimensions,
+View/Tree decomposition, five-language menus and parent Cancel. Use the updated
+factory title block and all five independent fixtures; check new documents from
+all native start templates. Also verify continuous Drawing symbol contacts and
+prepared/default measurement selection with original edge/occurrence identity.
+
+Windows evidence and explicit matrix limits are in
+[Save analysis and Sketch symbols](verification/20261019-save-properties-and-sketch-symbols.md).
+These shared changes have not been built or exercised on a Linux host. Keep
+Qt/OCCT pins aligned; no separate Linux modeling implementation is authorized.
+
 ## Current profile commands and factory locking holes (2026-10-17)
 
 Run the current `feature.*`, `sheet_cut.*` and `sheet_revolution.*` command

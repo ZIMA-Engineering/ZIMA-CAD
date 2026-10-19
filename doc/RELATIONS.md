@@ -15,10 +15,13 @@ value is shown. The catalogue also supports double-click insertion.
 
 OK validates and stores the source. Cancel discards pending source edits.
 Regenerate evaluates the program and publishes the resulting dimensions,
-parameters and Part colour together. Material changes, parameter edits, opening,
-saving and display refresh do not evaluate relations. Physical properties remain
+parameters and Part colour together. Save and Save As additionally complete
+physical analysis and publish only physical-dependent parameters, using the
+stored dimensions of the existing geometry. They do not apply dimension
+assignments or change Part colour. Material changes, parameter edits, opening
+and display refresh do not evaluate relations. Physical properties remain
 available as current calculation inputs; their corresponding user parameters
-retain their last regenerated values.
+retain their last regenerated or physically refreshed values.
 
 A failed regeneration does not publish partially updated relation values.
 Successful changes can be undone together. Dimension values are assigned before

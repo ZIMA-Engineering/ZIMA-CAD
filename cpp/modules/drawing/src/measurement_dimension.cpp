@@ -1177,6 +1177,10 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
             continue;
         }
         a.parameter = parameter_at(curve, cursor);
+        if(request.curve_contacts) {
+            a.kind=DimensionAttachmentKind::CurvePoint;
+            add_candidate(a,point_at(curve,a.parameter),distance);
+        }
         if (straight_support(&curve) && (mode == int(DimensionAttachmentKind::Line) || mode < 0)) {
             if (parallel && std::abs(cross(straight_direction(parallel),
                                            straight_direction(&curve))) > 1e-7)

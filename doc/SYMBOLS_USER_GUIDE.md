@@ -22,6 +22,26 @@ workflow. It requires no dedicated bend command or 3D annotation.
 
 ## Insert and edit
 
+In an editable Sketch, each inserted symbol owns one ordinary native insertion
+point. Drag that point to move the whole symbol, or position it using standard
+point dimensions and constraints. Fixed and fully constrained points remain
+constrained. Properties edits retain the same point identity; an impossible
+position change is rejected. The point-to-symbol link survives native save,
+reopen and Undo/Redo. This applies to Part, Assembly and owned profile Sketches.
+
+Select a Sketch symbol and choose **Explode symbol** from its View or Tree
+context menu to replace it with editable native curves and text of the displayed
+variant. Position, rotation and scale are retained. The operation is one Undo
+step; Undo restores the embedded symbol. Source-definition constraints are not
+copied as hidden constraints on the resulting editable geometry. Existing
+independent constraints on a shared insertion point remain intact. A private
+unused grip is removed when its symbol is removed or exploded.
+
+Sketch instances now persist their insertion-point reference. Factory title
+blocks containing instances must be authored and verified with this contract;
+the release does not silently rewrite custom libraries or previously inserted
+user definitions.
+
 Use **Insert symbol** in a Part, Assembly or Drawing and select a `.symz` library
 file. In Part (including Sheet Metal) and Assembly workspaces, this command is
 the last item in the command toolbar, below a green separator. Insertion and
@@ -335,6 +355,11 @@ framed symbol, **Shelf length** controls the horizontal landing (initially
 elbow fixed; dragging the elbow translates the frame and landing together.
 Instances embed their definition and values in the Drawing; changing the library
 does not rewrite previously inserted copies.
+
+Drawing symbol contact entry accepts a continuous position along a visible edge.
+A retained Boolean fragment preserves its original edge and occurrence identity,
+with the contact parameter expressed on that original support. Ordinary dimension
+entry continues to offer its established characteristic points and line references.
 
 Standards references: [ISO 1101:2017](https://www.iso.org/standard/66777.html) and
 [ISO 2553:2019](https://www.iso.org/standard/72740.html). The catalog implements

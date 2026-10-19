@@ -65,6 +65,9 @@ public:
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
     void update_calculated_boundaries(
         std::vector<zima::kernel::BodyResult> calculated_boundaries);
+    // Publish the derived physical analysis of a matching save snapshot only.
+    // Preserves authored geometry, revision and both Undo/Redo stacks.
+    void update_save_analysis(PartDocument, std::vector<zima::kernel::BodyResult>);
     // Borrowed candidate for validation before a cross-document history step.
     [[nodiscard]] const PartDocument* history_document(bool redo) const noexcept;
     bool undo();

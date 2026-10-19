@@ -59,11 +59,18 @@ symbol text is not parsed and converted as a physical quantity.
 
 Default templates contain `mass = model.mass`. Physical inputs such as
 `model.mass` read the current calculated geometry and material data. Relations
-publish their results to Parameters only on explicit **Regenerate**; a material
-edit, document opening or tab switch does not evaluate them. Explicit document
+publish their results to Parameters on explicit **Regenerate**. **Save** and
+**Save As** also complete physical analysis of the existing calculated solids
+and refresh physical-dependent parameters, including the mass relation. This
+save path reads stored dimension values; it never applies relation-driven
+dimensions, replays modeling history, solves Assembly mates or recalculates cuts.
+A material edit, document opening or tab switch does not evaluate Relations. Explicit document
 unit conversion rewrites quantity-bearing relations and converts their existing
 numeric outputs together. Parameters stores one value shared by all languages.
-Undo/Redo restores model data, units and calculated parameters together.
+Undo/Redo restores model data, units and calculated parameters together. Save
+analysis does not create a history step or discard Undo/Redo. An unchanged Save
+with current physical parameters is a no-op. Background save completion never
+publishes an older analysis over a newer edit or calculated generation.
 
 Physical queries read persisted volume/area without OCCT. Refreshing these inputs
 does not assign relation-driven dimensions. Drawing reads the last published
@@ -71,6 +78,13 @@ parameter; relation-driven mass cannot be overwritten manually through the title
 block.
 
 ## Assemblies
+
+Saving a generic model or a linked Family tab also refreshes physical analysis
+and physical-dependent parameters in its already evaluated embedded rows. Open
+linked tabs receive the same derived results without an Undo transaction or a
+change of active Body. Save does not create or calculate unevaluated rows.
+Assembly rows retain their own cut results and component presence; an uncut row
+uses the current Part source, never another row's cut geometry.
 
 Assembly sums physical mass across all unsuppressed occurrences. Repeated insertions
 count repeatedly. Hiding a component does not remove its mass; suppression does.

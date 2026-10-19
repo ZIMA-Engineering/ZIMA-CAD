@@ -322,6 +322,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/general_surface_operations.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
+    modules/workspace/src/save_properties.cpp
     modules/workspace/src/archive_operations.cpp
     modules/workspace/src/file_removal_operations.cpp
     modules/workspace/src/file_rename_operations.cpp
@@ -1210,6 +1211,16 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_archive_command_tests COMMAND zima_cpp_archive_command_tests)
 
     add_executable(zima_cpp_document_operations_tests tests/document_operations_tests.cpp)
+    add_executable(zima_cpp_save_properties_tests tests/save_properties_tests.cpp)
+    add_executable(zima_cpp_symbol_anchor_tests tests/symbol_anchor_tests.cpp)
+    add_executable(zima_cpp_symbol_explode_tests tests/symbol_explode_tests.cpp)
+    target_link_libraries(zima_cpp_symbol_explode_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_symbol_explode_tests COMMAND zima_cpp_symbol_explode_tests)
+    set_tests_properties(zima_cpp_symbol_explode_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    target_link_libraries(zima_cpp_symbol_anchor_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_symbol_anchor_tests COMMAND zima_cpp_symbol_anchor_tests)
+    target_link_libraries(zima_cpp_save_properties_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_save_properties_tests COMMAND zima_cpp_save_properties_tests)
     target_link_libraries(zima_cpp_document_operations_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_document_operations_tests COMMAND zima_cpp_document_operations_tests)
     add_executable(zima_cpp_cli_process_tests tests/cli_process_tests.cpp cli/runner.cpp cli/settings.cpp)
@@ -1340,6 +1351,8 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_body_link_tests COMMAND zima_cpp_body_link_tests)
     add_executable(zima_refresh_start_templates EXCLUDE_FROM_ALL tools/refresh_start_templates.cpp)
     add_executable(zima_title_block_family_tool tools/title_block_family_tool.cpp)
+    add_executable(zima_refresh_symbol_anchor_asset tools/refresh_symbol_anchor_asset.cpp)
+    target_link_libraries(zima_refresh_symbol_anchor_asset PRIVATE zima_workspace)
     target_link_libraries(zima_title_block_family_tool PRIVATE zima_workspace)
     add_test(NAME zima_cpp_title_block_family_tests COMMAND zima_title_block_family_tool --verify)
     set_tests_properties(zima_cpp_title_block_family_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1915,6 +1928,8 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_compact_window_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_compact_window_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMPACT_WINDOW_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_symbol_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_symbol_controls_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_symbol_controls_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_SYMBOL_CONTROLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
     set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_new_document_options_ui_contract COMMAND zima-cad-cpp --verify-startup)

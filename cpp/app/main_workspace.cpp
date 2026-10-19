@@ -9353,6 +9353,7 @@ int verify_selection_filter(QApplication& application,
 #include "sheet_exchange_ui_verification.inc"
 #include "sheet_transition_ui_verification.inc"
 #include "symbol_ui_verification.inc"
+#include "sketch_symbol_controls_ui_verification.inc"
 
 #include "derived_copy_save_ui_verification.inc"
 #include "import_interaction_ui_verification.inc"
@@ -9407,6 +9408,7 @@ int verify_startup_contract(
         return 0;
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SYMBOL_CONTROLS_ONLY"))return verify_sketch_symbol_controls(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FORMAT_CHANGE_ONLY"))return verify_drawing_format_only(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_TITLE_BLOCK_ONLY"))return verify_native_title_block(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))

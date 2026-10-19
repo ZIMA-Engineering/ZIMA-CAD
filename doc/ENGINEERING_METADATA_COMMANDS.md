@@ -39,8 +39,10 @@ text language supports arithmetic, functions, Unicode strings and conditional
 blocks. It can drive supported document dimensions, user parameters and the
 whole-Part `color` output. Available physical inputs appear in `model_values`;
 unavailable mass is not invented. An empty source string removes all relations
-without erasing previously calculated values. Only Regenerate publishes results;
-material and parameter edits do not implicitly evaluate the source. See
+without erasing previously calculated values. Regenerate publishes the complete
+program. Save and Save As also publish physical-dependent parameters from the
+current calculated geometry, without applying dimension or colour assignments.
+Material and parameter edits do not implicitly evaluate the source. See
 [Relations](RELATIONS.md) for syntax, quantities, errors and the View workflow.
 
 Material rows have textual `key`, `value`, optional `unit`, and language-keyed
@@ -102,7 +104,7 @@ before transactions. Parameter values are limited to 1 MiB and cannot contain NU
 Relative paths use CLI working directory; results add absolute `source`. Documents
 store complete assigned material, so the original file may later move or disappear.
 Physical inputs use persisted volume without OCCT or parent refresh; relation
-outputs wait for Regenerate.
+outputs wait for Regenerate or the physical-parameter refresh on Save/Save As.
 
 ```json
 {"command":"document.material.load","arguments":{"path":"Steel.matz"}}

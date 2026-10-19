@@ -674,13 +674,8 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
     const std::string& sketch_id, const std::string& text_id) {
     if (properties_dialog_ != nullptr || sketch_id.empty() ||
         sketch_id != active_sketch_id_) return;
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
-    const auto sketch = std::find_if(
-        part->session.document().sketches.begin(),
-        part->session.document().sketches.end(),
-        [&](const auto& value) { return value.id == sketch_id; });
-    if (sketch == part->session.document().sketches.end()) return;
+    const auto* sketch = active_sketch();
+    if (sketch == nullptr) return;
 
     const bool edit_mode = !text_id.empty();
     zima::sketcher::SketchText initial;

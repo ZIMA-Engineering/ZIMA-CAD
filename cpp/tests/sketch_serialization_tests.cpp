@@ -13,7 +13,7 @@ int main(){try {
     auto sketch=test::dxf_curve_fixture();sketch.name="Žluťoučký / Ø / Пример";
     auto point=sketcher::Sketch::create_point(-0.0,500);sketch.points.push_back(point);
     auto definition=symbols::projection_method();sketcher::SymbolInstance symbol;
-    symbol.id="symbol-test";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;sketch.symbols.push_back(symbol);
+    symbol.id="symbol-test";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;sketch.add_symbol(symbol);
     for(int i=0;i<128;++i)static_cast<void>(sketch.add_segment(200+i*3,100,200+i*3,120));
     const auto text=sketch.serialized();const auto packet=nlohmann::json::parse(text);
     require(sketch.serialized_json().dump(2)==text,"Direct JSON changed the existing native Sketch representation");

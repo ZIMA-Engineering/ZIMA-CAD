@@ -645,6 +645,10 @@ public:
     [[nodiscard]] static SketchText create_text();
     void add_text(SketchText text);
     void update_text(SketchText text);
+    void add_symbol(SymbolInstance symbol);
+    void update_symbol(SymbolInstance symbol);
+    void remove_symbol(const std::string& symbol_id);
+    void refresh_symbol_anchors();
     [[nodiscard]] static SketchExternalReference create_external_reference(
         ExternalReferenceKind kind);
     void add_external_reference(SketchExternalReference reference);

@@ -2495,5 +2495,9 @@
   "Approximate screen color. Use a physical RAL sample for paint matching.": "Approximate screen color. Use a physical RAL sample for paint matching.",
   "Fluorescent appearance is not simulated.": "Fluorescent appearance is not simulated.",
   "Vlastnosti ohybu": "Bend Properties",
-  "Nastavení otvoru zkopírováno.": "Opening settings copied."
+  "Nastavení otvoru zkopírováno.": "Opening settings copied.",
+  "Poloha symbolu je určena vazbami jeho bodu.": "The symbol position is determined by constraints on its point.",
+  "Invalid symbol placement": "Invalid symbol placement",
+  "Duplicate symbol identity": "Duplicate symbol identity",
+  "Rozložit symbol": "Explode symbol"
 }

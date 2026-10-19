@@ -2495,5 +2495,9 @@
   "Approximate screen color. Use a physical RAL sample for paint matching.": "Orientační barva na obrazovce. Pro výběr nátěru použijte fyzický vzorek RAL.",
   "Fluorescent appearance is not simulated.": "Fluorescenční vzhled není simulován.",
   "Vlastnosti ohybu": "Vlastnosti ohybu",
-  "Nastavení otvoru zkopírováno.": "Nastavení otvoru zkopírováno."
+  "Nastavení otvoru zkopírováno.": "Nastavení otvoru zkopírováno.",
+  "Poloha symbolu je určena vazbami jeho bodu.": "Poloha symbolu je určena vazbami jeho bodu.",
+  "Invalid symbol placement": "Neplatné umístění symbolu",
+  "Duplicate symbol identity": "Duplicitní identita symbolu",
+  "Rozložit symbol": "Rozložit symbol"
 }

@@ -2495,5 +2495,9 @@
   "Approximate screen color. Use a physical RAL sample for paint matching.": "Приблизительный цвет на экране. Для подбора краски используйте физический образец RAL.",
   "Fluorescent appearance is not simulated.": "Флуоресцентный эффект не моделируется.",
   "Vlastnosti ohybu": "Свойства сгиба",
-  "Nastavení otvoru zkopírováno.": "Настройки отверстия скопированы."
+  "Nastavení otvoru zkopírováno.": "Настройки отверстия скопированы.",
+  "Poloha symbolu je určena vazbami jeho bodu.": "Положение символа определяется ограничениями его точки.",
+  "Invalid symbol placement": "Недопустимое размещение символа",
+  "Duplicate symbol identity": "Повторяющийся идентификатор символа",
+  "Rozložit symbol": "Разложить символ"
 }

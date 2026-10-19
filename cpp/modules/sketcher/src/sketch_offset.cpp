@@ -156,6 +156,7 @@ void Sketch::free_offset(const std::string& id) {
     next.refresh_curve_dependencies();next.validate();*this=std::move(next);
 }
 void Sketch::refresh_curve_dependencies() {
+    refresh_symbol_anchors();
     // A projected source updates only its own support. Offsets never reference an external edge.
     for(auto& support:curve_supports)for(const auto& block:import_blocks) {
         if(!block.source_path.starts_with("external-reference:")||std::ranges::find(block.geometry_ids,support.id)==block.geometry_ids.end())continue;

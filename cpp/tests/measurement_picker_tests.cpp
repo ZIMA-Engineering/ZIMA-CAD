@@ -52,11 +52,13 @@ void verify() {
             for(const auto& e:view.projected_edges)compare(picker,view,e.points.front(),.1,request);
         }
         MeasurementPickRequest request;request.circles_only=true;compare(picker,view,{0,0},2,request);
-        request={};request.curve_points=true;compare(picker,view,{25,2.5},.1,request);
+        request={};request.mode=int(DimensionAttachmentKind::Point);compare(picker,view,{25,2.5},.1,request);
         const auto contact=picker.candidates(view,{25,2.5},.1,request);
         require(std::ranges::none_of(contact,[](const auto& c){return c.attachment.kind==DimensionAttachmentKind::Line;}),
                 "Point-pair request still offers whole lines");
         request.mode=int(DimensionAttachmentKind::Line);compare(picker,view,{25,2.5},.1,request);
+        request={};request.mode=int(DimensionAttachmentKind::CurvePoint);request.curve_contacts=true;
+        compare(picker,view,{26.4,3.2},.1,request);
         request={};request.lines_only=true;request.parallel_line=view.projected_edges[1].source;compare(picker,view,{25,2},2,request);
         request={};request.intersection_first=view.projected_edges[1].source;
         for(int i=0;i<40;++i)compare(picker,view,{x(random),y(random)},2,request);

@@ -27,6 +27,9 @@ struct MeasurementPickRequest {
     kernel::EdgeReference intersection_first, parallel_line;
     Point2 tangent_direction{1, 0};
     std::optional<Point2> tangent_origin;
+    // Symbol attachment may contact the continuous curve. Ordinary dimension
+    // entry retains its characteristic-point/line selection contract.
+    bool curve_contacts{};
 };
 struct MeasurementCandidate {
     DimensionAttachment attachment;

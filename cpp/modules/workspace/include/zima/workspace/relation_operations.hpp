@@ -21,4 +21,10 @@ void apply_relation_dimensions(document::PartDocument&,const std::map<std::strin
 void apply_relation_dimensions(assembly::AssemblyDocument&,const std::map<std::string,double>& physical);
 void apply_relation_parameters(document::PartDocument&,const std::map<std::string,double>& physical);
 void apply_relation_parameters(assembly::AssemblyDocument&,const std::map<std::string,double>& physical);
+// Save analysis publishes only physical-dependent parameters, with stored
+// geometry dimensions as read-only inputs. Returns whether values changed.
+bool apply_physical_relation_parameters(document::PartDocument&,const std::map<std::string,double>& physical);
+bool apply_physical_relation_parameters(assembly::AssemblyDocument&,const std::map<std::string,double>& physical);
+bool physical_relation_parameters_pending(const document::PartDocument&,const std::map<std::string,double>& physical);
+bool physical_relation_parameters_pending(const assembly::AssemblyDocument&,const std::map<std::string,double>& physical);
 }

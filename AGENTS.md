@@ -978,9 +978,10 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
 - Before completing or publishing an authored or modified native model in the
   engineering tables library, explicitly Regenerate it, verify its material
   density and physical mass, and save the resulting relation parameters.
-  The default `mass = model.mass` relation publishes its value only on explicit
-  Regenerate. Modeling, saving, opening and Drawing regeneration do not replace
-  this step. Never accept a stale default `mass = 0` for a nonzero solid.
+  The default `mass = model.mass` relation publishes its value on explicit
+  Regenerate and through physical analysis on Save/Save As. Factory authoring
+  still requires explicit Regenerate to verify the complete model, rather than
+  only its existing solid. Never accept stale default `mass = 0` for a nonzero solid.
 - For an Assembly deliverable, Regenerate and save the source Parts first, then
   Regenerate and save the Assembly. Check the total against the physical mass
   of all unsuppressed occurrences, counting repeated components separately.
@@ -993,3 +994,35 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
   metadata inspection or Drawing display.
 - This requirement was requested by the user on 2026-10-19 after the presentation
   demo retained initial zero mass parameters until the models were regenerated.
+
+## Physical analysis on Save (mandatory)
+
+- Save and Save As complete physical analysis of current native geometry and
+  publish physical-dependent Relation parameters for Parts and Assemblies.
+  Preserve full Relation-driven modeling on explicit Regenerate. Saving must
+  never apply driving dimensions, replay history, solve mates or recalculate cuts.
+- Reuse current analysis, preserve geometry/reference identities, units and full
+  precision, and keep unavailable density/mass distinct from verified zero.
+  Count hidden and repeated unsuppressed occurrences and convert nested units.
+- Background calculation owns private snapshots. Publish derived analysis only
+  when the saved revision, calculated generation and runtime identity still
+  match. Preserve Undo/Redo, the camera and active editing/displayed document.
+  An unchanged Save with current physical parameters remains a no-op.
+- This Save behavior was approved by the user on 2026-10-19.
+
+## Native Sketch symbol insertion point (mandatory)
+
+- A Sketch symbol owns a real persisted native point. Dragging, dimensions and
+  constraints use the ordinary Sketch solver; a cosmetic grip is insufficient.
+  Preserve point identity through Properties, regeneration, save/reopen and
+  Undo/Redo. Removing another incident curve must not remove the symbol point.
+- Sketch symbol deletion may remove a private unused insertion point, but must
+  retain a point independently constrained, shared or externally referenced.
+- The View and Tree context action **Explode symbol** replaces the selected
+  instance with editable native geometry and text in one Undo transaction.
+  Preserve the displayed variant, incidence, position, scale and orientation;
+  do not introduce hidden source-definition constraints or approximate exact
+  native curves with display polylines.
+- The user approved the required native point-to-symbol data extension and
+  affected factory title-block/start-template verification on 2026-10-19.
+  Preserve custom user libraries and embedded user definitions.

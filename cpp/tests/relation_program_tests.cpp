@@ -116,6 +116,14 @@ int main() {
             {"d3",{{1.,{1,0,0}},true}}, {"angle",{{30.,{0,1,0}},true}},
             {"material",{{std::string("Ocel")},true}}, {"model.mass",{{12.,{0,0,1}},false,true}}};
         auto values=RelationProgram("# text and dependencies\nstock = \"⌀\" & d1 & \"x\" & d2\nd3 = d1 + d2\nd1 = 25\n").evaluate(inputs);
+        const auto physical=RelationProgram("d1 = 25\nd3 = 1 / 0\nmass = model.mass\nlabel = \"M=\" & mass & \" L=\" & d1\nunrelated = 1 / 0").evaluate_physical_parameters(inputs);
+        check(physical.size()==2&&std::get<double>(physical.at("mass").data)==12);
+        check(std::get<std::string>(physical.at("label").data)=="M=12 L=50");
+        const auto conditional=RelationProgram("if model.mass > 10\nlabel = \"heavy\"\nelse\nlabel = \"light\"\nendif").evaluate_physical_parameters(inputs);
+        check(std::get<std::string>(conditional.at("label").data)=="heavy");
+        auto colored=inputs;colored["color"]={{std::string("#000000")},true};
+        const auto appearance=RelationProgram("if model.mass > 0\ncolor = \"#FFFFFF\"\nendif\nlabel = color & model.mass").evaluate_physical_parameters(colored);
+        check(appearance.size()==1&&std::get<std::string>(appearance.at("label").data)=="#00000012");
         check(std::get<double>(values.at("d3").data)==125);
         check(std::get<std::string>(values.at("stock").data)=="⌀25x100");
         values=RelationProgram("if d1 > 100\n d3 = 1 / 0\nelseif d1 > 20 and material == \"Ocel\"\n d3 = d2 / 2\nelse\n d3 = 1\nendif").evaluate(inputs);

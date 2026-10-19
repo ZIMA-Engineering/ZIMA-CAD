@@ -338,14 +338,35 @@ void RelationProgram::validate(const RelationInputs& inputs) const {
 }
 
 std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInputs& inputs,int decimals,bool dimensions_only,double degrees_per_angle_unit) const {
+    return evaluate_impl(inputs,decimals,dimensions_only,degrees_per_angle_unit,false);
+}
+std::map<std::string,RelationValue> RelationProgram::evaluate_physical_parameters(const RelationInputs& inputs,int decimals,double degrees_per_angle_unit) const {
+    return evaluate_impl(inputs,decimals,false,degrees_per_angle_unit,true);
+}
+std::map<std::string,RelationValue> RelationProgram::evaluate_impl(const RelationInputs& inputs,int decimals,bool dimensions_only,double degrees_per_angle_unit,bool physical_only) const {
     validate(inputs);
     if(decimals<0||decimals>12)throw RelationError(1,1,"Invalid rounding precision.");
     if(!(degrees_per_angle_unit>0)||!std::isfinite(degrees_per_angle_unit))throw RelationError(1,1,"Incompatible units.");
     std::map<std::string,std::vector<const Assignment*>> assignments;
     for(const auto& a:data_->assignments)assignments[a.target].push_back(&a);
+    const auto dimension=[](const std::string& name){return name.size()>1&&name[0]=='d'&&std::ranges::all_of(name.substr(1),digit);};
+    std::map<std::string,bool> physical;
+    std::function<bool(const std::string&)> depends_on_physical=[&](const std::string& name) {
+        if(physical.contains(name))return physical.at(name);
+        if(dimension(name)||name=="color")return false; // Stored geometry/appearance owns this value.
+        if(!assignments.contains(name))return inputs.at(name).calculated;
+        bool result=false;
+        for(const auto* row:assignments.at(name)) {
+            std::set<std::string> dependencies;names(row->expression,dependencies);
+            for(const auto& guard:row->guards)names(guard.condition,dependencies);
+            for(const auto& dependency:dependencies)result=depends_on_physical(dependency)||result;
+        }
+        return physical[name]=result;
+    };
     std::map<std::string,RelationValue> values,output;
     std::function<RelationValue(const std::string&)> lookup=[&](const std::string& name)->RelationValue {
         if(values.contains(name))return values.at(name);
+        if(physical_only&&(dimension(name)||name=="color"))return values[name]=inputs.at(name).value;
         const auto definitions=assignments.find(name);
         if(definitions!=assignments.end())for(const auto* a:definitions->second) {
             bool selected=true;
@@ -365,7 +386,8 @@ std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInpu
         if(original==inputs.end())fail(*definitions->second.front()->expression,"No active assignment or previous value.",name);
         return values[name]=original->second.value;
     };
-    for(const auto& [name,rows]:assignments)if(!dimensions_only||(name.size()>1&&name[0]=='d'&&std::ranges::all_of(name.substr(1),digit)))static_cast<void>(lookup(name));
+    for(const auto& [name,rows]:assignments)if(physical_only?(name!="color"&&depends_on_physical(name)):(!dimensions_only||dimension(name)))static_cast<void>(lookup(name));
+    if(physical_only)std::erase_if(output,[&](const auto& value){return value.first=="color"||!depends_on_physical(value.first);});
     return output;
 }
 

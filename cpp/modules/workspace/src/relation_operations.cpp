@@ -70,11 +70,30 @@ template<class Doc> void dimensions(Doc& doc,const std::map<std::string,double>&
         if(!assign_driving_dimension(doc,d->second.binding,native))throw std::invalid_argument("The relation dimension cannot be assigned.");
     }
 }
-template<class Doc> void parameters(Doc& doc,const std::map<std::string,double>& physical) {
-    if(doc.relations.empty())return;
-    const auto definitions=relation_dimensions(doc);
+template<class Doc> auto physical_parameter_values(const Doc& doc,const std::map<std::string,double>& physical) {
+    if(doc.relations.empty())return std::map<std::string,document::RelationValue>{};
+    return document::RelationProgram(doc.relations).evaluate_physical_parameters(inputs(doc,physical),
+        static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),degrees_per_angle_unit(doc));
+}
+template<class Doc> bool parameter_changed(const Doc& doc,const std::string& name,const std::string& text) {
+    const auto previous=doc.user_parameters.find(name);const auto localized=doc.user_parameter_values.find(name);
+    return previous==doc.user_parameters.end()||previous->second!=text||localized==doc.user_parameter_values.end()||
+        !localized->second.contains("")||localized->second.at("")!=text||
+        std::ranges::find(doc.user_parameter_order,name)==doc.user_parameter_order.end();
+}
+template<class Doc> bool physical_parameters_pending(const Doc& doc,const std::map<std::string,double>& physical) {
     const int decimals=static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3));
-    const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),decimals,false,degrees_per_angle_unit(doc));
+    for(const auto& [name,value]:physical_parameter_values(doc,physical))
+        if(parameter_changed(doc,name,document::relation_value_text(value,decimals)))return true;
+    return false;
+}
+template<class Doc> bool parameters(Doc& doc,const std::map<std::string,double>& physical,bool physical_only=false) {
+    if(doc.relations.empty())return false;
+    const auto definitions=physical_only?std::map<std::string,RelationDimension>{}:relation_dimensions(doc);
+    const int decimals=static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3));
+    const auto calculated=physical_only?physical_parameter_values(doc,physical):
+        document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),decimals,false,degrees_per_angle_unit(doc));
+    bool changed=false;
     for(const auto& [name,value]:calculated)if(!definitions.contains(name)) {
         if(name=="color") {
             const auto* color=std::get_if<std::string>(&value.data);
@@ -92,9 +111,11 @@ template<class Doc> void parameters(Doc& doc,const std::map<std::string,double>&
             continue;
         }
         const auto text=document::relation_value_text(value,decimals);
+        changed=changed||parameter_changed(doc,name,text);
         doc.user_parameters[name]=text;doc.user_parameter_values[name][""]=text;
-        if(std::ranges::find(doc.user_parameter_order,name)==doc.user_parameter_order.end())doc.user_parameter_order.push_back(name);
+        if(std::ranges::find(doc.user_parameter_order,name)==doc.user_parameter_order.end()){doc.user_parameter_order.push_back(name);changed=true;}
     }
+    return changed;
 }
 }
 document::RelationInputs relation_inputs(const document::PartDocument& d,const std::map<std::string,double>& p){return inputs(d,p);}
@@ -105,4 +126,8 @@ void apply_relation_dimensions(document::PartDocument& d,const std::map<std::str
 void apply_relation_dimensions(assembly::AssemblyDocument& d,const std::map<std::string,double>& p){dimensions(d,p);}
 void apply_relation_parameters(document::PartDocument& d,const std::map<std::string,double>& p){parameters(d,p);}
 void apply_relation_parameters(assembly::AssemblyDocument& d,const std::map<std::string,double>& p){parameters(d,p);}
+bool apply_physical_relation_parameters(document::PartDocument& d,const std::map<std::string,double>& p){return parameters(d,p,true);}
+bool apply_physical_relation_parameters(assembly::AssemblyDocument& d,const std::map<std::string,double>& p){return parameters(d,p,true);}
+bool physical_relation_parameters_pending(const document::PartDocument& d,const std::map<std::string,double>& p){return physical_parameters_pending(d,p);}
+bool physical_relation_parameters_pending(const assembly::AssemblyDocument& d,const std::map<std::string,double>& p){return physical_parameters_pending(d,p);}
 }

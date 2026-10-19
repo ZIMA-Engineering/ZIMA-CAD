@@ -34,7 +34,7 @@ void factory(const std::filesystem::path& root,bool edge_geometry_only=false) {
         std::erase_if(sketch.circles,[](const auto& v){return v.id.starts_with("projection:");});
         std::erase_if(sketch.drawing_template->pens,[](const auto& v){return v.first.starts_with("projection:");});
         auto symbol=projection();symbol.id="ze:title-block:projection";symbol.x=45.8;symbol.y=42.5;symbol.scale=.5;
-        std::erase_if(sketch.symbols,[&](const auto& v){return v.id==symbol.id;});sketch.symbols.push_back(symbol);
+        if(std::ranges::find(sketch.symbols,symbol.id,&sketcher::SymbolInstance::id)!=sketch.symbols.end())sketch.update_symbol(symbol);else sketch.add_symbol(symbol);
         for(auto& instance:sketch.symbols) {
             const auto definition=symbols::Definition::from_serialized(instance.definition);
             if(definition.id=="ze:general-edges:iso13715")instance.definition=symbols::Definition::load(root/"config/symbols/general/ZE-GENERAL-EDGES-ISO13715.symz").serialized();
@@ -174,7 +174,7 @@ int main(int argc,char** argv) {
         part.history.push_back(container);part.sketches.push_back(sketch);
         document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Symbol test"));graph.insert({document::PartHistoryKind::Feature,container.id});part.set_body_history(graph);part.resolve_constructions();
         kernel::OcctKernel kernel;const auto before=kernel.evaluate_history(part.kernel_operations());
-        part.sketches.front().symbols.push_back(symbol);
+        part.sketches.front().add_symbol(symbol);
         const auto after=kernel.evaluate_history(part.kernel_operations());
         check(!before.empty()&&before.size()==after.size(),"Annotation changed calculated bodies");
         check(std::abs(before.back().volume-after.back().volume)<1e-9,"Symbol changed Extrusion volume");
@@ -195,7 +195,7 @@ int main(int argc,char** argv) {
         auto invalid=definition;invalid.sketches.front().plane_offset=2;rejects([&]{invalid.validate();});
         invalid=definition;invalid.sketches.front().symbols.push_back(symbol);rejects([&]{invalid.validate();});
         invalid=definition;invalid.pens[invalid.sketches.front().id]["missing-curve"]="yellow";rejects([&]{invalid.validate();});
-        auto title=drawing::create_template_sketch(true,"Symbols");title.symbols.push_back(symbol);
+        auto title=drawing::create_template_sketch(true,"Symbols");title.add_symbol(symbol);
         drawing::save_template_sketch(title,directory/"title.tblz");
         auto drawing=drawing::DrawingDocument::create_default();drawing::load_title_block_template(drawing.sheets.front(),directory/"title.tblz");
         check(drawing.sheets.front().title_block_lines.empty(),"Symbol was baked into fixed template geometry");
@@ -338,7 +338,7 @@ int main(int argc,char** argv) {
 
         workspace::Workspace live;auto carrier=workspace::template_part_from_sketch(title,"Symbols");const auto id=carrier.document_id;
         live.add_part(std::move(carrier),{},directory/"undo.tblz");auto* state=live.open_part(id);const auto original=state->session.document().sketches.front();
-        auto edited=original;edited.symbols.front().x=99;
+        auto edited=original;auto moved_symbol=edited.symbols.front();moved_symbol.x=99;edited.update_symbol(moved_symbol);
         check(workspace::commit_template_sketch(live,id,edited),"Symbol edit did not commit");
         check(state->session.undo(),"Symbol edit has no Undo");check(state->session.document().sketches.front().symbols==original.symbols,"Undo lost symbol");
         check(state->session.redo(),"Symbol edit has no Redo");check(state->session.document().sketches.front().symbols==edited.symbols,"Redo lost symbol");

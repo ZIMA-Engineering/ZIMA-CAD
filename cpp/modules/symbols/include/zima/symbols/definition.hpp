@@ -52,6 +52,9 @@ struct Definition {
     void save(const std::filesystem::path& path) const;
 };
 [[nodiscard]] Definition projection_method();
+// Replace one Sketch instance by editable native curves/text of its displayed
+// variant. Preserve exact curves and the existing constrained insertion point.
+void explode_instance(sketcher::Sketch&,const std::string& instance_id);
 [[nodiscard]] kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance&,
     const std::string& cad_variant = {}, std::optional<double> paper_frame_angle = std::nullopt);
 }

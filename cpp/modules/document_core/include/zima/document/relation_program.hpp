@@ -49,6 +49,10 @@ public:
     // remain radians and scalar sind/cosd/tand inputs remain degrees.
     [[nodiscard]] std::map<std::string, RelationValue> evaluate(const RelationInputs&, int decimals = 3,
         bool dimensions_only = false, double degrees_per_angle_unit = 1) const;
+    // Refresh physical-result parameters against actual stored dimensions. Do
+    // not execute dimension assignments or unrelated parameter expressions.
+    [[nodiscard]] std::map<std::string, RelationValue> evaluate_physical_parameters(
+        const RelationInputs&, int decimals = 3, double degrees_per_angle_unit = 1) const;
     [[nodiscard]] std::map<std::string, std::string> target_expressions() const;
     // Factors convert old document numbers to new numbers (length, angle, mass).
     // Preflight every branch without evaluating domains or changing model data.
@@ -59,6 +63,8 @@ public:
         const std::set<std::string>& fixed_unit_names = {},
         double old_degrees_per_angle_unit = 1) const;
 private:
+    [[nodiscard]] std::map<std::string, RelationValue> evaluate_impl(const RelationInputs&,
+        int, bool dimensions_only, double degrees_per_angle_unit, bool physical_only) const;
     std::shared_ptr<const RelationProgramData> data_;
 };
 [[nodiscard]] std::string relation_value_text(const RelationValue&, int decimals);

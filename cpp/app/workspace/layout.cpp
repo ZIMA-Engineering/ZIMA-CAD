@@ -818,6 +818,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(candidate.kind==zima::viewer::CandidateKind::Symbol && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(7);QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                if(candidate.owner_id==active_sketch_id_)if(auto* explode=findChild<QAction*>("explodeSketchSymbolAction")) {
+                    explode->setText(tr("Rozložit symbol"));explode->setData(QString::fromStdString(id));menu.insertAction(remove,explode);
+                }
                 const auto* chosen=menu.exec(global_position);if(chosen==properties)show_symbol_properties(id);else if(chosen==remove)remove_symbol(id);return;
             }
             if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
@@ -2339,7 +2342,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(!menu.isEmpty())menu.exec(tree_->viewport()->mapToGlobal(position));
                 return;
             }
-            if (!item->parent() && workspace_.open_assembly(workspace_.displayed_document_id()) && !properties_dialog_) {
+            if (!item->parent() && active_sketch_id_.empty() && workspace_.open_assembly(workspace_.displayed_document_id()) && !properties_dialog_) {
                 QMenu menu(this);
                 auto* activate=menu.addAction(resource_icon("assembly"),tr("Aktivovat"));
                 activate->setObjectName("activateTopAssemblyAction");
@@ -2379,6 +2382,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             if((step_kind=="sketch-symbol"||step_kind=="model-symbol")&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                if(step_kind=="sketch-symbol")if(auto* explode=findChild<QAction*>("explodeSketchSymbolAction")) {
+                    explode->setText(tr("Rozložit symbol"));explode->setData(QString::fromStdString(id));menu.insertAction(remove,explode);
+                }
                 const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
                 if(chosen==properties)show_symbol_properties(id);else if(chosen==remove)remove_symbol(id);return;
             }

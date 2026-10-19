@@ -1255,6 +1255,7 @@ public:
         if(symbol_editor_&&symbol_editor_->active()&&sheet_)for(const auto& view:sheet_->views) {
             if(view.crop&&!drawing_render::crop_screen_path(view,raw_view_origin(view),canvas_zoom()*view.scale).contains(point))continue;
             const double scale=canvas_zoom()*view.scale;drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
+            request.curve_contacts=true;
             for(auto candidate:measurement_pickers_[view.id].candidates(view,measurement_point(view,point),8/scale,request)) {
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }

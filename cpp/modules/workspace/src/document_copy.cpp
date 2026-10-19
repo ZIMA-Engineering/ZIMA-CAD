@@ -1,6 +1,7 @@
 #include <zima/workspace/workspace.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/save_properties.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <set>
 #include <stdexcept>
+#include <deque>
 
 namespace zima::workspace {
 namespace {
@@ -46,10 +48,23 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     const auto new_id=zima::document::PartDocument::create_default().document_id;
     struct PendingFile { fs::path target; std::function<void(const fs::path&)> write; };
     std::vector<PendingFile> pending;
+    std::deque<DocumentState> analyzed_states;
     const auto append_copy=[&](const DocumentState& selected,const std::string& original_id,
             const fs::path& target,const std::string& copy_id) {
         const auto source_path=std::visit([](const auto& state){return normalized(state.path);},selected);
         const zima::document::DocumentCopyIdentity identity{copy_id,source_path,target};
+        auto& analyzed=analyzed_states.emplace_back(selected);
+        if(auto* part=std::get_if<PartState>(&analyzed)) {
+            auto doc=part->session.document();auto boundaries=part->session.calculated_boundaries();
+            if(refresh_save_properties(doc,boundaries))part->session.update_save_analysis(std::move(doc),std::move(boundaries));
+        } else if(auto* assembly=std::get_if<AssemblyState>(&analyzed)) {
+            auto context=*this;
+            if(!context.open_assembly(original_id))context.add_assembly(assembly->session.document(),assembly->path);
+            context.refresh_source_geometry();
+            auto doc=context.open_assembly(original_id)->session.document();
+            static_cast<void>(refresh_save_properties(doc,context,assembly->path));
+            assembly->session.update_dependency_snapshots(std::move(doc));
+        }
         std::visit([&](const auto& state) {
             using T=std::decay_t<decltype(state)>;
             pending.push_back({target,[&state,identity,original_id,target](const fs::path& staged) {
@@ -110,7 +125,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                         throw std::runtime_error("Kopie výkresu má nesprávné ID.");
                 }
             }});
-        },selected);
+        },analyzed);
     };
 
     const auto append_drawing=[&](const DrawingState& state,const fs::path& drawing_target,

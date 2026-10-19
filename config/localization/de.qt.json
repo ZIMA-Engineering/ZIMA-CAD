@@ -2495,5 +2495,9 @@
   "Approximate screen color. Use a physical RAL sample for paint matching.": "Ungefähre Bildschirmfarbe. Verwenden Sie zur Lackabstimmung ein physisches RAL-Farbmuster.",
   "Fluorescent appearance is not simulated.": "Das fluoreszierende Erscheinungsbild wird nicht simuliert.",
   "Vlastnosti ohybu": "Biegungseigenschaften",
-  "Nastavení otvoru zkopírováno.": "Öffnungseinstellungen kopiert."
+  "Nastavení otvoru zkopírováno.": "Öffnungseinstellungen kopiert.",
+  "Poloha symbolu je určena vazbami jeho bodu.": "Die Position des Symbols wird durch die Bedingungen seines Punktes bestimmt.",
+  "Invalid symbol placement": "Ungültige Symbolplatzierung",
+  "Duplicate symbol identity": "Doppelte Symbolidentität",
+  "Rozložit symbol": "Symbol auflösen"
 }

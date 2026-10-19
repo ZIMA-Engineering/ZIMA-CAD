@@ -80,11 +80,19 @@ int main(){try {
         auto split_geometry=geometry;split_geometry.original_references.edges={edge};split_geometry.edges={split};
         auto split_view=attached_view;drawing::capture_measurement_geometry(split_view,split_geometry);split_view.projected_edges=drawing::project_edges(split_geometry,split_view.camera);
         drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
+        check(drawing::measurement_candidates(split_view,{7.3,0},.01,request).empty(),"Ordinary dimension entry offered an arbitrary point");
+        request.curve_contacts=true;
         const auto candidates=drawing::measurement_candidates(split_view,{7.3,0},.01,request);
         check(!candidates.empty(),"Symbol split contact not offered");
         auto attached=symbol;drawing::attach_symbol_to_view(attached,split_view,candidates.front().attachment);
         check(attached.reference->owner_id==edge.reference.owner_id&&attached.reference->semantic_key==edge.reference.semantic_key&&attached.reference->instance_path==edge.reference.instance_path,"Symbol did not inherit original edge identity");
         check(std::abs(candidates.front().attachment.parameter-.73)<1e-8,"Symbol contact parameter changed position");
+        drawing::MeasurementPicker picker;picker.prepare(split_view);
+        for(const double cursor:{6.4,7.3,7.7}) {
+            const auto direct=drawing::measurement_candidates(split_view,{cursor,0},.01,request),cached=picker.candidates(split_view,{cursor,0},.01,request);
+            check(!direct.empty()&&direct.size()==cached.size(),"Prepared symbol contact picker lost a continuous curve");
+            check(direct.front().attachment==cached.front().attachment&&direct.front().attachment.reference==edge.reference&&std::abs(direct.front().attachment.parameter-cursor/10)<1e-8,"Prepared symbol contact changed original identity or parameter");
+        }
     }
     symbols::Placement direct=symbol;direct.symbol.id="sheet-symbol";
     drawing::attach_symbol_to_view(direct,attached_view,attachment);sheet.symbol_annotations={direct};sheet.symbol_contacts[direct.symbol.id]={attached_view.id,.25};

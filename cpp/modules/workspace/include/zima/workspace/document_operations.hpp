@@ -5,6 +5,14 @@
 namespace zima::workspace {
 
 class DocumentSave;
+struct SavedPartAnalysis {
+    document::PartDocument document;
+    std::vector<kernel::BodyResult> boundaries;
+};
+struct SavedAssemblyAnalysis {
+    assembly::AssemblyDocument document;
+    std::map<std::string,assembly::AssemblyDocument> family;
+};
 
 // Created only by a successful write; complete it on the Workspace owner thread.
 class SavedDocument {
@@ -17,10 +25,12 @@ class SavedDocument {
     std::size_t kind_{};
     std::uint64_t revision_{}, generation_{}, allocations_{};
     std::vector<SavedDocument> sources_;
+    std::variant<std::monostate,SavedPartAnalysis,SavedAssemblyAnalysis> analysis_;
     SavedDocument() = default;
 };
 
-// Owns an immutable snapshot. write() needs no Workspace, Qt or event loop.
+// Owns an immutable snapshot. write() integrates physical properties on private
+// native data; it needs no live Workspace, Qt or event loop.
 class DocumentSave {
 public:
     [[nodiscard]] SavedDocument write() const;
@@ -31,6 +41,7 @@ private:
     std::variant<Part, assembly::AssemblyDocument, drawing::DrawingDocument, symbols::Definition> snapshot_;
     SavedDocument receipt_;
     std::vector<DocumentSave> sources_;
+    std::shared_ptr<const Workspace> context_;
 };
 
 [[nodiscard]] DocumentSave prepare_document_save(const Workspace& workspace,

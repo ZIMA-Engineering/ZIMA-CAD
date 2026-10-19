@@ -2338,7 +2338,8 @@ const SketchPoint* Sketch::find_point(const std::string& point_id) const {
 }
 
 void Sketch::validate() const {
-    { std::set<std::string> ids;for(const auto& symbol:symbols){symbol.validate();if(!ids.insert(symbol.id).second)throw std::invalid_argument("Duplicate symbol identity");} }
+    { std::set<std::string> ids;for(const auto& symbol:symbols){symbol.validate();if(!ids.insert(symbol.id).second)throw std::invalid_argument("Duplicate symbol identity");
+        if(symbol.anchor_point_id.empty()||!find_point(symbol.anchor_point_id))throw std::invalid_argument("Invalid symbol placement");} }
     validate_curve_dependencies();
     for(const auto& entry:dimension_layouts)kernel::validate_dimension_layout(entry.layout);
     const bool owns_point_lookup = !point_lookup_active_;
@@ -4216,6 +4217,15 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     if(!translated_drag_component&&(dragging_curve_center||dragging_native_tangent_pair))
         static_cast<void>(seed_circular_equations(next,{point_id}));
     auto solved = next.solve_impl(100, false, {point_id});
+    if(solved.status==SolveStatus::Conflicting&&std::ranges::any_of(next.dimensions,[&](const auto& dimension) {
+        return !dimension.suppressed&&dimension.driving&&dimension.locked&&
+            dimension.kind==DimensionKind::Distance&&
+            (dimension.first_point_id==point_id||dimension.second_point_id==point_id);
+    }))
+        // A locked point distance defines a circular free path. An arbitrary
+        // mouse position need not lie on it: project through the same native
+        // equations instead of treating both cursor coordinates as hard pins.
+        solved=next.solve_impl(100,false,{});
     if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {point_id}))
         solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {}))
@@ -4800,6 +4810,7 @@ std::string Sketch::merge_points(
         replace(segment.second_point_id);
     }
     for (auto& circle : next.circles) replace(circle.center_point_id);
+    for (auto& symbol : next.symbols) replace(symbol.anchor_point_id);
     for (auto& arc : next.arcs) {
         replace(arc.center_point_id);
         replace(arc.start_point_id);
@@ -6185,7 +6196,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {
-        return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
+        return std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
+            std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == point_id || value.second_point_id == point_id;
             }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
                 return value.center_point_id == point_id;
@@ -6239,7 +6251,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                   value.second_point_id == geometry_id));
         });
     const auto point_is_referenced = [&](const std::string& point_id) {
-        return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
+        return std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
+            std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == point_id || value.second_point_id == point_id;
             }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
                 return value.center_point_id == point_id;
@@ -6290,6 +6303,7 @@ void Sketch::remove_point(const std::string& point_id) {
         throw std::invalid_argument("Sketch point does not exist");
     }
     auto next = *this;
+    std::erase_if(next.symbols,[&](const auto& symbol){return symbol.anchor_point_id==point_id;});
     std::erase_if(next.corner_radii,
         [&](const auto& value) { return value.vertex_id == point_id; });
     std::set<std::string> removed_geometry_ids;
@@ -6380,7 +6394,8 @@ void Sketch::remove_point(const std::string& point_id) {
             geometry_removed(value.third_geometry_id);
     });
     const auto point_is_referenced = [&](const std::string& candidate_id) {
-        return std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
+        return std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==candidate_id;}) ||
+            std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == candidate_id ||
                     value.second_point_id == candidate_id;
             }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
@@ -7679,6 +7694,60 @@ SketchText Sketch::create_text() {
     SketchText text;
     text.id = make_id();
     return text;
+}
+
+void Sketch::refresh_symbol_anchors() {
+    for(auto& symbol:symbols)if(const auto* point=find_point(symbol.anchor_point_id)) {
+        symbol.x=point->x;symbol.y=point->y;
+    }
+}
+
+void Sketch::add_symbol(SymbolInstance symbol) {
+    if(symbol.id.empty())symbol.id=make_id();
+    if(std::ranges::any_of(symbols,[&](const auto& value){return value.id==symbol.id;}))
+        throw std::invalid_argument("Duplicate symbol identity");
+    auto next=*this;
+    auto point=create_point(symbol.x,symbol.y);point.construction=true;
+    symbol.anchor_point_id=point.id;next.points.push_back(std::move(point));
+    next.symbols.push_back(std::move(symbol));next.validate();*this=std::move(next);
+}
+void Sketch::update_symbol(SymbolInstance symbol) {
+    auto next=*this;
+    const auto found=std::ranges::find(next.symbols,symbol.id,&SymbolInstance::id);
+    if(found==next.symbols.end())throw std::invalid_argument("Invalid symbol placement");
+    symbol.anchor_point_id=found->anchor_point_id;
+    const auto* point=next.find_point(symbol.anchor_point_id);
+    if(!point)throw std::invalid_argument("Invalid symbol placement");
+    if((point->x!=symbol.x||point->y!=symbol.y)&&!next.move_point(symbol.anchor_point_id,symbol.x,symbol.y))
+        throw std::runtime_error("Poloha symbolu je určena vazbami jeho bodu.");
+    point=next.find_point(symbol.anchor_point_id);
+    if(std::hypot(point->x-symbol.x,point->y-symbol.y)>1e-6)
+        throw std::runtime_error("Poloha symbolu je určena vazbami jeho bodu.");
+    symbol.x=point->x;symbol.y=point->y;
+    *std::ranges::find(next.symbols,symbol.id,&SymbolInstance::id)=std::move(symbol);
+    next.validate();*this=std::move(next);
+}
+void Sketch::remove_symbol(const std::string& symbol_id) {
+    const auto found=std::ranges::find(symbols,symbol_id,&SymbolInstance::id);
+    if(found==symbols.end())throw std::invalid_argument("Invalid symbol placement");
+    auto next=*this;
+    std::erase_if(next.symbols,[&](const auto& value){return value.id==symbol_id;});
+    const auto& point=found->anchor_point_id;
+    const auto owns=[&](const auto& values){return std::ranges::any_of(values,[&](const auto& value){return geometry_owns_point(next,value.id,point);});};
+    const bool retained=(next.find_point(point)&&next.find_point(point)->fixed)||
+        owns(next.segments)||owns(next.circles)||owns(next.arcs)||owns(next.ellipses)||owns(next.elliptical_arcs)||owns(next.bsplines)||
+        std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point;})||
+        std::ranges::any_of(next.texts,[&](const auto& value){return value.anchor_point_id==point;})||
+        std::ranges::any_of(next.constraints,[&](const auto& value){return value.first_point_id==point||value.second_point_id==point;})||
+        std::ranges::any_of(next.dimensions,[&](const auto& value){return value.first_point_id==point||value.second_point_id==point||
+            (value.kind==DimensionKind::AngleThreePoint&&value.geometry_id==point)||
+            (value.kind==DimensionKind::AngleBetween&&(value.geometry_id==point||value.second_geometry_id==point));})||
+        std::ranges::any_of(next.import_blocks,[&](const auto& value){return std::ranges::find(value.point_ids,point)!=value.point_ids.end();})||
+        externally_linked_point_ids(next).contains(point);
+    // Remove a private unused grip, while preserving an independently
+    // constrained or shared native point and its contact identities.
+    if(!retained)std::erase_if(next.points,[&](const auto& value){return value.id==point;});
+    next.validate();*this=std::move(next);
 }
 
 void Sketch::add_text(SketchText text) {
@@ -9673,6 +9742,7 @@ SolveResult Sketch::solve_impl(
     struct TextAnchorGuard {
         Sketch* sketch;
         ~TextAnchorGuard() {
+            sketch->refresh_symbol_anchors();
             if(!sketch->drawing_template)return;
             for(auto& text:sketch->texts)if(!text.anchor_point_id.empty())
                 if(const auto* p=sketch->find_point(text.anchor_point_id)) {
@@ -11930,8 +12000,19 @@ SolveResult Sketch::solve_impl(
                     ? dimension.second_geometry_id
                     : point_line_angle ? dimension.second_point_id
                     : driven_segment->second_point_id);
-                const auto angle_lines = dimension.kind == DimensionKind::AngleBetween
+                auto angle_lines = dimension.kind == DimensionKind::AngleBetween
                     ? angle_dimension_lines(*this, dimension) : std::nullopt;
+                if(four_point_angle&&contact_immutable(*driven_first)&&contact_immutable(*driven_second)) {
+                    auto* first=find_point(dimension.first_point_id);
+                    auto* second=find_point(dimension.second_point_id);
+                    if(!contact_immutable(*first)||!contact_immutable(*second)) {
+                        // Four-point angles are unsigned between the two
+                        // persisted rays. Drive the free ray when selection
+                        // order puts the fixed pair last; keep stored identity.
+                        driven_first=first;driven_second=second;
+                        std::swap(angle_lines->first,angle_lines->second);
+                    }
+                }
                 const double rx = angle_lines
                     ? angle_lines->first.second[0] : reference->second[0];
                 const double ry = angle_lines
@@ -12330,11 +12411,15 @@ SolveResult Sketch::solve_impl(
                 continue;
             }
             if (dimension.kind == DimensionKind::AngleThreePoint) {
-                // A generated K anchors its ray. Correct the other ray when
-                // input order puts that anchor last; the unsigned angle and
-                // persisted participant order remain unchanged.
-                const bool anchored_second = point_reference_anchors.contains(dimension.geometry_id) &&
-                    !point_reference_anchors.contains(dimension.first_point_id);
+                // A fixed/read-only endpoint anchors its ray just as a
+                // generated K does. Correct the free ray in either selection
+                // order without changing the persisted participants or side.
+                const auto anchored_ray=[&](const std::string& id) {
+                    const auto* point=find_point(id);
+                    return point_reference_anchors.contains(id)||(point&&immutable(*point));
+                };
+                const bool anchored_second = anchored_ray(dimension.geometry_id) &&
+                    !anchored_ray(dimension.first_point_id);
                 const auto& first_id = anchored_second ? dimension.geometry_id : dimension.first_point_id;
                 const auto& second_id = anchored_second ? dimension.first_point_id : dimension.geometry_id;
                 const auto first = point_position(first_id);

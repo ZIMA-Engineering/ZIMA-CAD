@@ -7,6 +7,8 @@
 #include <cmath>
 #include <set>
 #include <stdexcept>
+#include <numbers>
+#include <zima/kernel/stable_id.hpp>
 namespace zima::symbols {
 namespace {
 using Json=nlohmann::json;
@@ -190,6 +192,96 @@ std::shared_ptr<const Definition> detail::parsed_definition(const std::string& s
     entries.push_front({source,result});bytes+=source.size();
     return result;
 }
+void explode_instance(sketcher::Sketch& target,const std::string& instance_id) {
+    const auto found=std::ranges::find(target.symbols,instance_id,&sketcher::SymbolInstance::id);
+    if(found==target.symbols.end())throw std::invalid_argument("Invalid symbol placement");
+    const auto instance=*found;
+    const auto definition=Definition::from_serialized(instance.definition);
+    const auto sketches=definition.evaluate(instance.variant,instance.text_values);
+    auto next=target;
+    const double rotation=instance.angle_degrees*std::numbers::pi/180.;
+    const double c=std::cos(rotation),s=std::sin(rotation);
+    const bool reflected=target.drawing_template.has_value();
+    const auto position=[&](double x,double y) {
+        x=(x-definition.insertion_point[0])*instance.scale;
+        y=(y-definition.insertion_point[1])*instance.scale;
+        return std::array{instance.x+(reflected?-1.:1.)*(c*x-s*y),instance.y+s*x+c*y};
+    };
+    for(const auto& source:sketches) {
+        const auto origin=source.world_point(0,0),x_axis=source.world_point(1,0),y_axis=source.world_point(0,1);
+        const double xx=x_axis.x-origin.x,xy=x_axis.y-origin.y,yx=y_axis.x-origin.x,yy=y_axis.y-origin.y;
+        const auto local_position=[&](double x,double y){const auto p=source.world_point(x,y);return position(p.x,p.y);};
+        const auto a=local_position(0,0),b=local_position(1,0);
+        const double frame_angle=std::atan2(b[1]-a[1],b[0]-a[0]);
+        const double handedness=((xx*yy-xy*yx<0)!=reflected)?-1.:1.;
+        const auto angle=[&](double value){return frame_angle+handedness*value;};
+        std::map<std::string,std::string> points,curves,groups;
+        const auto point=[&](const std::string& id) {
+            if(const auto existing=points.find(id);existing!=points.end())return existing->second;
+            const auto* original=source.find_point(id);
+            if(!original)throw std::invalid_argument("Invalid symbol definition");
+            auto copied=*original;copied.id=kernel::make_stable_id();copied.fixed=false;
+            const auto p=local_position(copied.x,copied.y);copied.x=p[0];copied.y=p[1];
+            points[id]=copied.id;next.points.push_back(copied);return copied.id;
+        };
+        const auto append=[&](const auto& originals,auto& output,const auto& transform) {
+            for(auto copied:originals) {
+                const auto original=copied.id;copied.id=kernel::make_stable_id();curves[original]=copied.id;
+                transform(copied);output.push_back(std::move(copied));
+            }
+        };
+        // A symbol may also contain ordinary standalone or construction points.
+        // Reuse this map for curve incidence instead of dropping those points.
+        for(const auto& original:source.points)static_cast<void>(point(original.id));
+        append(source.segments,next.segments,[&](auto& v){v.first_point_id=point(v.first_point_id);v.second_point_id=point(v.second_point_id);});
+        append(source.circles,next.circles,[&](auto& v){v.center_point_id=point(v.center_point_id);v.radius*=instance.scale;});
+        append(source.arcs,next.arcs,[&](auto& v){
+            v.center_point_id=point(v.center_point_id);v.start_point_id=point(v.start_point_id);v.end_point_id=point(v.end_point_id);
+            v.radius*=instance.scale;v.start_angle=angle(v.start_angle);v.end_angle=angle(v.end_angle);
+            // Native arcs store a positive CCW interval. Reflection reverses
+            // endpoint order while retaining the same exact visible arc.
+            if(handedness<0){std::swap(v.start_point_id,v.end_point_id);std::swap(v.start_angle,v.end_angle);}
+        });
+        append(source.ellipses,next.ellipses,[&](auto& v){
+            v.center_point_id=point(v.center_point_id);v.major_point_id=point(v.major_point_id);v.minor_point_id=point(v.minor_point_id);
+            v.major_radius*=instance.scale;v.minor_radius*=instance.scale;v.rotation=angle(v.rotation);v.reversed=v.reversed!=(handedness<0);
+        });
+        append(source.elliptical_arcs,next.elliptical_arcs,[&](auto& v){
+            v.center_point_id=point(v.center_point_id);v.major_point_id=point(v.major_point_id);v.minor_point_id=point(v.minor_point_id);
+            v.start_point_id=point(v.start_point_id);v.end_point_id=point(v.end_point_id);
+            v.major_radius*=instance.scale;v.minor_radius*=instance.scale;v.rotation=angle(v.rotation);v.reversed=v.reversed!=(handedness<0);
+        });
+        // Offset/trim results already persist exact visible native poles,
+        // knots and weights. Detach their dependency recipe without fitting or
+        // replacing curves by display polylines.
+        append(source.bsplines,next.bsplines,[&](auto& v){for(auto& id:v.control_point_ids)id=point(id);});
+        for(auto radius:source.corner_radii) {
+            radius.id=kernel::make_stable_id();radius.vertex_id=point(radius.vertex_id);
+            radius.first_segment_id=curves.at(radius.first_segment_id);radius.second_segment_id=curves.at(radius.second_segment_id);
+            radius.radius*=instance.scale;
+            if(radius.dimension_placement)radius.dimension_placement=local_position((*radius.dimension_placement)[0],(*radius.dimension_placement)[1]);
+            if(!radius.equal_radius_group.empty()) {
+                auto [entry,inserted]=groups.try_emplace(radius.equal_radius_group,kernel::make_stable_id());radius.equal_radius_group=entry->second;
+            }
+            next.corner_radii.push_back(std::move(radius));
+        }
+        for(auto text:source.texts) {
+            text.id=kernel::make_stable_id();
+            text.anchor_point_id=reflected&&!text.anchor_point_id.empty()?point(text.anchor_point_id):std::string{};
+            const auto p=local_position(text.anchor_x,text.anchor_y);text.anchor_x=p[0];text.anchor_y=p[1];text.height*=instance.scale;
+            const double total=frame_angle*180./std::numbers::pi+handedness*text.angle_degrees;
+            // Symbol contours use Y-up. Ordinary Sketch text uses Y-down;
+            // template text additionally follows the right-hand sheet anchor.
+            const bool invert=(reflected?1.:-1.)!=handedness;
+            text.angle_degrees=total+(invert?180.:0.);text.flipped=text.flipped!=invert;
+            text.modeling_geometry=false;
+            for(auto& contour:text.contours)for(auto& value:contour)value=local_position(value[0],value[1]);
+            next.add_text(std::move(text));
+        }
+    }
+    next.remove_symbol(instance_id);next.validate();target=std::move(next);
+}
+
 kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const std::string& cad_variant,std::optional<double> paper_frame_angle) {
     const auto parsed=detail::parsed_definition(instance.definition);const auto& d=*parsed;
     const auto variant=instance.use_cad_variant&&!cad_variant.empty()?cad_variant:instance.variant;

@@ -60,6 +60,15 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             QSettings config(QString::fromStdString((directory/"symbol-language.ini").string()),QSettings::IniFormat);config.setValue("Application/Language",language);config.sync();
             QTemporaryDir translated;QFile::copy(config.fileName(),translated.filePath("config.ini"));settings=app::ApplicationSettings::load(translated.path());
             app::apply_application_translations(application,settings);
+            bool explode_localized=false;
+            QTimer::singleShot(0,&window,[&] {
+                auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                auto* action=window.findChild<QAction*>("explodeSketchSymbolAction");
+                explode_localized=menu&&action&&menu->actions().contains(action)&&action->text()==settings.qt_translations.value("Rozložit symbol");
+                if(menu)menu->close();
+            });
+            tree->customContextMenuRequested(tree->visualItemRect(select()).center());flush();
+            check(explode_localized,"Explode context action does not follow the selected language");
             window.show_tree_item_properties(select());flush();auto* dialog=window.findChild<QDialog*>("symbolPropertiesDialog");check(dialog,"Cannot edit symbol");
             check(dialog->findChild<QCheckBox*>("symbolCadVariant")->text()==settings.qt_translations.value("Podle nastavení výkresu"),"Symbol translation differs");
             dialog->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(99);dialog->reject();flush();save->trigger();flush();
@@ -349,11 +358,12 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             roughness->setCurrentText("Ra 6.3");process->setCurrentIndex(process->findData("no_material_removal"));
             const auto rect=drawing_window->sheet_rectangle_for_test();const auto& sheet=drawing_window->document_for_test().sheets.front();
             const double zoom=rect.width()/sheet.width_mm();
-            const QPointF point=rect.topLeft()+QPointF(sheet.width_mm()-100,sheet.height_mm()-180)*zoom;
+            const QPointF point=rect.topLeft()+QPointF(sheet.width_mm()-92.7,sheet.height_mm()-180)*zoom;
             QMouseEvent move(QEvent::MouseMove,point,QPointF(canvas->mapToGlobal(point.toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&move);
             QMouseEvent press(QEvent::MouseButtonPress,point,QPointF(canvas->mapToGlobal(point.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(canvas,&press);
             QMouseEvent release(QEvent::MouseButtonRelease,point,QPointF(canvas->mapToGlobal(point.toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&release);flush();
             check(editor->pending_placement().reference.has_value(),"Drawing common picker did not attach symbol");
+            check(std::abs(editor->pending_placement().frame.origin.x-92.7)<1e-5,"Drawing symbol snapped away from its continuous edge contact");
             check(editor->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Drawing symbol stayed disabled after entity selection");
             editor->findChild<QCheckBox*>("symbolLeader")->setChecked(true);editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(20);
             if(accept)editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else editor->reject();flush();
