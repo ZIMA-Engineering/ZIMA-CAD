@@ -115,7 +115,7 @@
   "Color must be text in #RRGGBB format.": "Цвет должен быть текстом в формате #RRGGBB.",
   "Relation text is required.": "Требуется текст зависимостей.",
   "Read relation source and cached parameter values.": "Прочитать код зависимостей и сохранённые значения параметров.",
-  "Validate and save relation text; evaluate only on Regenerate.": "Проверить и сохранить зависимости; вычислять только при регенерации.",
+  "Validate and store relation text. Regenerate updates the model; Save refreshes physical parameters.": "Проверить и сохранить текст Relations. Регенерация обновляет модель; сохранение обновляет физические параметры.",
   "Replace material data without evaluating relations.": "Заменить данные материала без вычисления зависимостей.",
   "One assignment per line. Text uses quotes; & joins text. OK saves the source; Regenerate calculates it.": "Одно присваивание на строку. Текст в кавычках; & соединяет текст. OK сохраняет код; регенерация выполняет расчёт.",
   "Import text…": "Импортировать текст…",

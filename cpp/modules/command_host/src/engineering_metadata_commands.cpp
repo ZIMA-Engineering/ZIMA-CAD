@@ -43,7 +43,7 @@ void Host::register_engineering_metadata_commands() {
         });
     };
     add({"document.relations.get",tr("Read relation source and cached parameter values."),{{"document",false}},false},[this](const auto& id,const Json&){return relation_data(workspace::model_relations(workspace_,id));});
-    add({"document.relations.set",tr("Validate and save relation text; evaluate only on Regenerate."),{{"relations",false,Type::String},{"document",false}},true},[this](const auto& id,const Json& args){
+    add({"document.relations.set",tr("Validate and store relation text. Regenerate updates the model; Save refreshes physical parameters."),{{"relations",false,Type::String},{"document",false}},true},[this](const auto& id,const Json& args){
         if(!args.contains("relations"))throw std::invalid_argument("Relation text is required.");
         const auto changed=workspace::set_model_relations(workspace_,id,args.at("relations").get<std::string>());auto result=relation_data(workspace::model_relations(workspace_,id));result["changed"]=changed;return result;
     });

@@ -115,7 +115,7 @@
   "Color must be text in #RRGGBB format.": "Barva musí být text ve formátu #RRGGBB.",
   "Relation text is required.": "Je vyžadován zápis relací.",
   "Read relation source and cached parameter values.": "Načíst zápis relací a uložené hodnoty parametrů.",
-  "Validate and save relation text; evaluate only on Regenerate.": "Zkontrolovat a uložit zápis relací; přepočítat až při Regeneraci.",
+  "Validate and store relation text. Regenerate updates the model; Save refreshes physical parameters.": "Ověřit a uložit text Relations. Regenerace aktualizuje model; uložení obnoví fyzikální parametry.",
   "Replace material data without evaluating relations.": "Nahradit údaje materiálu bez přepočtu relací.",
   "One assignment per line. Text uses quotes; & joins text. OK saves the source; Regenerate calculates it.": "Jeden příkaz na řádek. Text patří do uvozovek; & spojuje text. OK uloží zápis; Regenerace jej přepočítá.",
   "Import text…": "Importovat text…",

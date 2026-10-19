@@ -115,7 +115,7 @@
   "Color must be text in #RRGGBB format.": "La couleur doit être un texte au format #RRGGBB.",
   "Relation text is required.": "Le texte des relations est requis.",
   "Read relation source and cached parameter values.": "Lire le code des relations et les valeurs mémorisées des paramètres.",
-  "Validate and save relation text; evaluate only on Regenerate.": "Valider et enregistrer les relations ; calculer uniquement lors de la régénération.",
+  "Validate and store relation text. Regenerate updates the model; Save refreshes physical parameters.": "Valider et enregistrer le texte Relations. Régénérer actualise le modèle ; Enregistrer actualise les paramètres physiques.",
   "Replace material data without evaluating relations.": "Remplacer les données du matériau sans calculer les relations.",
   "One assignment per line. Text uses quotes; & joins text. OK saves the source; Regenerate calculates it.": "Une affectation par ligne. Le texte est entre guillemets ; & joint le texte. OK enregistre le code ; Régénérer le calcule.",
   "Import text…": "Importer le texte…",

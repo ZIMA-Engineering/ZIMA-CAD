@@ -115,7 +115,7 @@
   "Color must be text in #RRGGBB format.": "Color must be text in #RRGGBB format.",
   "Relation text is required.": "Relation text is required.",
   "Read relation source and cached parameter values.": "Read relation source and cached parameter values.",
-  "Validate and save relation text; evaluate only on Regenerate.": "Validate and save relation text; evaluate only on Regenerate.",
+  "Validate and store relation text. Regenerate updates the model; Save refreshes physical parameters.": "Validate and store relation text. Regenerate updates the model; Save refreshes physical parameters.",
   "Replace material data without evaluating relations.": "Replace material data without evaluating relations.",
   "One assignment per line. Text uses quotes; & joins text. OK saves the source; Regenerate calculates it.": "One assignment per line. Text uses quotes; & joins text. OK saves the source; Regenerate calculates it.",
   "Import text…": "Import text…",
