@@ -57,3 +57,18 @@ The focused Drawing renderer check (`ZIMA_VERIFY_TITLE_BLOCK_EDGES` with
 `zima-cad-drawing-harness --verify-ui`) saves and reopens each language Drawing,
 then exports a title-block PNG and a native PDF. All five Windows renders were
 visually checked on 2026-10-19; the obsolete overlapping strokes are absent.
+
+## Preserved native metadata
+
+Regeneration retains the existing library document's parameter values, order,
+localized labels and localized values. New output paths inherit these tables
+from the matching factory definition. `--metadata-from <native-file>` explicitly
+selects an authored metadata source for repair; it is an authoring input, not a
+persisted file dependency. Geometry still comes from the corrected fixtures.
+
+The native regression requires the shared and five nonempty language names,
+then regenerates a definition containing an extra authored property and checks
+all four parameter tables after save/reopen. The packaged File Manager test
+independently exposed the missing names in the initial generated asset. Restoring
+the original tables makes its five-language display and isolated localized-edit
+checks pass. The superseded 1902 draft was not published.

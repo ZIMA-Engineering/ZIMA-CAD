@@ -79,3 +79,7 @@ in build 2026101902; the unissued 1901 source tag remains immutable.
 No new visible text is introduced by the geometry correction. The clipboard
 status message is translated in cs/en/de/fr/ru. Cross-process clipboard transfer,
 the full GUI matrix of every end target, and Linux execution remain unverified.
+
+Existing documents retain their saved calculated geometry when opened. Use
+explicit Regenerate to update a previously calculated whole-Origin Opening to
+the corrected work plane; the correction does not rewrite documents on load.

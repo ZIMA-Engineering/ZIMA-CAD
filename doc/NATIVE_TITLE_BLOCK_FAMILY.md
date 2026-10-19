@@ -59,6 +59,11 @@ under `Projects/test`.
 Regenerate the factory file from the reference fixtures with
 `zima_title_block_family_tool config/formats/ZE-TITLE-BLOCK.tblz`.
 The same tool generates the frame family when its output extension is `.frmz`.
+Regeneration preserves the existing output's complete native user-parameter
+tables, including every language value and label. A new output uses the matching
+factory definition's metadata. An explicit `--metadata-from <native-file>` input
+can restore authored metadata independently of the corrected geometry. The
+result remains self-contained; the metadata source is not a document dependency.
 Its backend checks include grouped Assembly BOM rows and automatic Drawing
 balloons across language/frame changes and native save/reopen.
 

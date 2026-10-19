@@ -144,6 +144,10 @@ void verify_frames_and_bom(const fs::path& directory) {
 void verify(const document::PartDocument& part,const fs::path& directory) {
     const auto path=directory/"ZE-TITLE-BLOCK.tblz";part.save(path);
     auto reopened=document::PartDocument::load(path);check(reopened.sketches.size()==6,"Native title block lost Sketches");
+    check(reopened.user_parameter_values.contains("name")&&reopened.user_parameter_values.at("name").size()==6,
+        "Factory title block lost its shared and five-language name values");
+    for(const auto* language:{"","cs","en","de","fr","ru"})check(!reopened.user_parameter_values.at("name").at(language).empty(),
+        "Factory title-block name value is empty");
     check(reopened.body_history.bodies().size()==1&&!reopened.body_history.active_body_id().empty(),"Title block must open with an active Body");
     for(const auto& sketch:reopened.sketches)check(reopened.body_owner_for_object(sketch.owner_container_id)!=nullptr,"Title-block Sketch is outside a Body");
     for(const auto& sketch:reopened.sketches) {
@@ -213,14 +217,40 @@ void verify(const document::PartDocument& part,const fs::path& directory) {
     check(scoped.sheets.front().title_block_repeat_bindings.at("lines").front().empty(),"Base frame inherited a language repeat region");
     verify_frames_and_bom(directory);
 }
+
+document::PartDocument regenerate_library(const fs::path& output,const fs::path& metadata_source={}) {
+    check(metadata_source.empty()||fs::exists(metadata_source),"The authored metadata source does not exist");
+    const bool frame=output.extension()==".frmz";
+    auto part=frame?make_frames():make_family();
+    const auto source=!metadata_source.empty()?metadata_source:fs::exists(output)?output:
+        fs::path("config/formats")/(frame?"ZE-DRAWING-FRAME.frmz":"ZE-TITLE-BLOCK.tblz");
+    if(fs::exists(source)) {
+        const auto authored=document::PartDocument::load(source);
+        part.user_parameters=authored.user_parameters;
+        part.user_parameter_order=authored.user_parameter_order;
+        part.user_parameter_labels=authored.user_parameter_labels;
+        part.user_parameter_values=authored.user_parameter_values;
+    }
+    return part;
+}
 }
 int main(int argc,char** argv){try{
-    const auto part=argc==2&&fs::path(argv[1]).extension()==".frmz"?make_frames():make_family();
     if(argc==2&&std::string(argv[1])=="--verify") {
         const auto directory=fs::temp_directory_path()/("zima-title-family-"+kernel::make_stable_id());fs::create_directory(directory);
-        verify(document::PartDocument::load("config/formats/ZE-TITLE-BLOCK.tblz"),directory);std::cout<<"Native six-Sketch title block and five Family variants verified at "<<directory<<'\n';
+        const auto original=document::PartDocument::load("config/formats/ZE-TITLE-BLOCK.tblz");
+        verify(original,directory);
+        auto authored=original;authored.user_parameters["custom_field"]="Preserved custom value";authored.user_parameter_order.push_back("custom_field");
+        authored.user_parameter_values["custom_field"]={{"","Preserved custom value"},{"fr","Custom French value"}};
+        authored.user_parameter_labels["custom_field"]={{"en","Custom label"}};
+        const auto custom=directory/"metadata-preservation.tblz";authored.save(custom);
+        auto generated=regenerate_library(custom);generated.save(custom);const auto saved=document::PartDocument::load(custom);
+        check(saved.user_parameters==authored.user_parameters&&saved.user_parameter_order==authored.user_parameter_order&&
+            saved.user_parameter_values==authored.user_parameter_values&&saved.user_parameter_labels==authored.user_parameter_labels,
+            "Regeneration lost authored parameter values, order or localized labels");
+        std::cout<<"Native six-Sketch title block, five Family variants and metadata preservation verified at "<<directory<<'\n';
     } else {
-        check(argc==2,"Specify the output tblz path or --verify");part.save(fs::path(argv[1]));
+        check(argc==2||(argc==4&&std::string(argv[2])=="--metadata-from"),"Specify the output tblz path or --verify");
+        const auto part=regenerate_library(fs::path(argv[1]),argc==4?fs::path(argv[3]):fs::path{});part.save(fs::path(argv[1]));
         std::cout<<"Wrote native Part title block with five shared-name variants\n";
     }
     return 0;
