@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--models',type=Path,required=True)
     parser.add_argument('--case',action='append',required=True,help='Native filename=GUI output directory')
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--csn',action='store_true',help='Verify the separate CSN cone/flat family and its coordinate/angle/drag GUI matrix')
     args=parser.parse_args();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
     variants={v['filename']:v for v in json.loads((args.models/'manifest.json').read_text(encoding='utf-8'))['variants']}
     digest=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
@@ -29,12 +30,12 @@ def main():
         (folder/'stdout.log').write_bytes(result.stdout);(folder/'stderr.log').write_bytes(result.stderr)
         assert result.returncode==0,result.stderr[-2000:]
         assert digest(source)==expected and digest(target)==expected
+        evidence=dict(mouse_dimension_edits=6,mouse_point_drags=3) if args.csn else dict(mouse_radius_edits=3,properties_thread_edits=3)
         receipts.append(dict(filename=name,source_sha256=execution['source_sha256'],output=str(source),
-            output_sha256=expected,mouse_radius_edits=3,properties_thread_edits=3,
-            independent_geometry=True,undo_redo=True,save_reopen=True,regenerate=True))
-    assert {r['filename'] for r in receipts}=={'CN-DIN1587-M08.0.prtz','CN-DIN1587-M10.0x1.00.prtz'}
+            output_sha256=expected,**evidence,independent_geometry=True,undo_redo=True,save_reopen=True,regenerate=True))
+    assert {r['filename'] for r in receipts}==({'CN-CSN021431-M08.0.prtz','CN-CSN021431-M30.0.prtz'} if args.csn else {'CN-DIN1587-M08.0.prtz','CN-DIN1587-M10.0x1.00.prtz'})
     (out/'results.json').write_text(json.dumps(receipts,indent=2)+'\n',encoding='utf-8')
-    print('Two DIN cap-nut GUI outputs independently verified')
+    print('Two '+('CSN closed-nut' if args.csn else 'DIN cap-nut')+' GUI outputs independently verified')
 
 
 if __name__=='__main__':main()

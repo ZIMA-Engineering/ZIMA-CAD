@@ -53,13 +53,14 @@ Trimming an auxiliary incidence point itself and exhaustive GUI permutations
 remain unverified; the existing dependent-trim contracts are supporting evidence,
 not a substitute for those variants.
 
-## Remaining wing-chain failure
+## Subsequent wing-chain correction
 
-The casting study's coupled crown arc and two tangent arms still rejects span,
-overall height and crown-radius edits. Hub top diameter/height changes also fail
-when Relations updates that coupled outline. These are retained failures, not
-successful edits or reasons to remove tangency. The studies are not eligible
-for factory publication; see [Wing-nut studies](../WING_NUT_LIBRARY.md).
+At this checkpoint the casting study's coupled crown arc and two tangent arms
+still rejected span, height and crown-radius edits, and dependent hub changes
+failed on Regenerate. The separate [rounded tangent/Relations correction](20261020-rounded-tangent-wing.md)
+now passes all 40 study driver cases. It preserves finite-support rejection.
+The studies still require the remaining source, contour and R2 publication
+gates in [Wing-nut studies](../WING_NUT_LIBRARY.md).
 
 Linux has not been built or exercised for this correction. The published
 Windows release `ZIMA-CAD-2026101906` has not been replaced or retagged.

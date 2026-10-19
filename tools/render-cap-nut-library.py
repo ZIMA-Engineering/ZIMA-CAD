@@ -1,8 +1,4 @@
-"""Render staged cap-nut candidates with native sections and projected views.
-
-The archived k dimension remains unresolved. No invented k annotation or ISO
-equivalence is added. The chosen crown radius remains a candidate CAD detail.
-"""
+"""Render distinct CSN cone/flat and DIN hemispherical closed-nut drawings."""
 import importlib.util
 import json
 import math
@@ -60,7 +56,8 @@ def reference(native,v,source,target):
     ids['d']=native.run('drawing.dimension.create',view=top,kind='diameter',attachments=[rim(top,0,d/2)],
         style=dict(text_override='d'),placements=[[-r-8/scale,r+8/scale]])['dimension'];expected['d']=d
     mouth=rim(side,0,d/2)
-    linear('h' if din else 'm5',side,mouth,vertex(0,0,h),[-h/2,-r-8/scale],'horizontal',h)
+    closed_end=vertex(0,0,h) if din else rim(side,h,v['flat_diameter_mm']/2)
+    linear('h',side,mouth,closed_end,[-h/2,-r-8/scale],'horizontal',h)
     for symbol,length,radius,offset in [('t' if din else 'b',v['thread_length_mm'],d/2,8),('p',v['bore_depth_mm'],v['bore_mm']/2,16)]:
         linear(symbol,side,mouth,rim(side,length,radius),[-length/2,r+offset/scale],'horizontal',length)
     if din:
@@ -69,6 +66,9 @@ def reference(native,v,source,target):
         linear('w',side,rim(side,p,v['bore_mm']/2),vertex(0,0,h),[-(h+p)/2,-r-16/scale],'horizontal',h-p)
         ids['dk']=native.run('drawing.dimension.create',view=top,kind='diameter',attachments=[rim(top,h-R,R)],
             style=dict(text_override='dk'),placements=[[r+8/scale,r+8/scale]])['dimension'];expected['dk']=2*R
+    else:
+        ids['k']=native.run('drawing.dimension.create',view=top,kind='diameter',attachments=[rim(top,h,v['flat_diameter_mm']/2)],
+            style=dict(text_override='k'),placements=[[r+8/scale,r+8/scale]])['dimension'];expected['k']=v['flat_diameter_mm']
     for dimension in native.run('drawing.dimension.list',sheet=sid)['items']:
         symbol=next(k for k,value in ids.items() if value==dimension['dimension'])
         assert dimension['state']=='resolved',(symbol,dimension)
@@ -82,7 +82,7 @@ def notes(v,lang):
     din='hex_height_mm' in v
     labels=[('d',('jmenovitý průměr závitu','nominal thread diameter','Gewindenenndurchmesser','diamètre nominal du filetage','номинальный диаметр резьбы')),
         ('s',('rozměr přes plochy','width across flats','Schlüsselweite','largeur sur plats','размер под ключ')),
-        ('h' if din else 'm5',('celková výška','overall height','Gesamthöhe','hauteur totale','общая высота')),
+        ('h',('celková výška','overall height','Gesamthöhe','hauteur totale','общая высота')),
         ('(e)',('skutečný rozměr přes vrcholy','actual width across corners','tatsächliches Eckmaß','largeur réelle sur angles','фактический размер по вершинам')),
         ('t' if din else 'b',('délka závitu','thread length','Gewindelänge','longueur filetée','длина резьбы')),
         ('p',('hloubka otvoru','bore depth','Bohrungstiefe','profondeur du trou','глубина отверстия'))]
@@ -91,14 +91,16 @@ def notes(v,lang):
             ('m',('výška šestihranu','hexagon height','Sechskanthöhe','hauteur de l’hexagone','высота шестигранника')),
             ('dk',('průměr vrchlíku','cap diameter','Kappendurchmesser','diamètre de la calotte','диаметр колпачка')),
             ('w',('skutečné dno v ose','actual axial end wall','tatsächlicher axialer Boden','fond axial réel','фактическая осевая толщина дна'))])
+    else:
+        labels.append(('k',('průměr koncové plošky','end-flat diameter','Durchmesser der Endfläche','diamètre du méplat terminal','диаметр торцевой площадки')))
     text=[dict(text=v['standard']+' · '+v['names'][lang],x_mm=190,y_mm=198,height_mm=2.5)]
     for j,(symbol,values) in enumerate(labels):
         text.append(dict(text=symbol+' — '+values[i],x_mm=190 if j%2==0 else 103,y_mm=188-5*(j//2),height_mm=2.2))
-    detail=('CAD: R = 2d je zvolený detail modelu.',
-        'CAD: R = 2d is a chosen model detail.',
-        'CAD: R = 2d ist ein gewähltes Modelldetail.',
-        'CAO : R = 2d est un détail de modèle choisi.',
-        'САПР: R = 2d — выбранный элемент модели.')
+    detail=('ČSN 1970: zakončení 45°, ústí závitu 120°.',
+        'CSN 1970: closed end 45°, thread mouth 120°.',
+        'ČSN 1970: Abschluss 45°, Gewindemündung 120°.',
+        'ČSN 1970 : extrémité 45°, entrée du filetage 120°.',
+        'ČSN 1970: закрытый торец 45°, вход резьбы 120°.')
     if not din:text.append(dict(text=detail[i],x_mm=190,y_mm=168,height_mm=2.2))
     return dict(locale=lang,texts=text)
 

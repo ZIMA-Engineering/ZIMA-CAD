@@ -21,6 +21,9 @@
 #include <QFontDatabase>
 #include <QRegularExpression>
 #include <QPainterPathStroker>
+#include <QTextLayout>
+#include <QGlyphRun>
+#include <QRawFont>
 #include <QPaintEngine>
 #include <limits>
 namespace zima::drawing_render {
@@ -195,11 +198,23 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const double line_dx=alignment=="center"?-bounds.center().x():alignment=="right"?-bounds.right():-bounds.left();
                 const QPointF baseline(line_dx,dy+i*spacing);
                 if(std::abs(weight_delta)>.01) {
-                    QPainterPath glyphs;glyphs.addText(baseline,font,lines[i]);
                     QPainterPathStroker stroker;stroker.setWidth(std::abs(weight_delta));stroker.setJoinStyle(Qt::RoundJoin);
-                    const auto outline=stroker.createStroke(glyphs);
-                    const auto weighted=weight_delta>0?glyphs.united(outline):glyphs.subtracted(outline);
-                    painter.fillPath(weighted,painter.pen().color());
+                    // Keep shaping/kerning, but adjust each glyph around its
+                    // own origin. A boolean operation on a long multi-glyph
+                    // path can lose complete disconnected glyphs (e.g. T/H).
+                    QTextLayout layout(lines[i],font);QTextOption option;option.setWrapMode(QTextOption::NoWrap);layout.setTextOption(option);
+                    layout.beginLayout();auto line=layout.createLine();
+                    if(line.isValid()){line.setLineWidth(1e9);line.setPosition({baseline.x(),baseline.y()-line.ascent()});}
+                    layout.endLayout();
+                    for(const auto& run:layout.glyphRuns()) {
+                        const auto indexes=run.glyphIndexes();const auto positions=run.positions();const auto raw=run.rawFont();
+                        for(qsizetype glyph=0;glyph<indexes.size();++glyph) {
+                            const auto path=raw.pathForGlyph(indexes[glyph]);
+                            const auto outline=stroker.createStroke(path);
+                            const auto weighted=weight_delta>0?path.united(outline):path.subtracted(outline);
+                            painter.save();painter.translate(positions[glyph]);painter.fillPath(weighted,painter.pen().color());painter.restore();
+                        }
+                    }
                 } else painter.drawText(baseline,lines[i]);
             }
             painter.restore();

@@ -8,8 +8,8 @@ Their five localized model names explicitly say "study". The generator refuses
 factory destinations and collisions with existing factory model filenames.
 No factory data, native schema or user library has been converted or overwritten.
 
-Publication is blocked by the missing accepted perimeter R2 rounding, failed
-edits of the coupled tangent outline, the M16 source-radius discrepancy and
+Publication is blocked by the missing accepted perimeter R2 rounding,
+the M16 source-radius discrepancy and
 remaining shape/mass review. The six smaller pressed variants are not authored.
 The native BRep/constraint checks below do not establish manufacturing conformity.
 
@@ -82,19 +82,21 @@ entire casting contour.
 
 `tools/verify-wing-nut-studies.py` works on private copies and records failures
 instead of silently skipping a driver. The final matrix is
-`build/wing-nut-cast-edit-matrix-v4/results.json`:
+`build/wing-nut-cast-edit-matrix-v7/results.json`:
 
-- Twenty driver cases passed: base diameter, front root R4, root blend R3,
-  root thickness and tip thickness, for all four sizes. Each performs values
-  102%, 104%, 100%, Undo/Redo, Regenerate, native save/reopen and independent
-  geometry/mass checks: **60 successive successful edits**.
-- Twenty cases remain failed: span, overall height, crown radius, hub top
-  diameter and hub height for all four sizes. The first three reject a Sketch
-  edit; the last two fail the dependent outline solve on Regenerate.
+- All forty driver cases passed: base/top hub diameters, hub height, span,
+  overall height, crown radius, front root R4, root blend R3, root thickness
+  and tip thickness for all four sizes. Each performs 102%, 104%, 100%,
+  Undo/Redo, Regenerate, native save/reopen and independent geometry/mass
+  checks: **120 successive successful edits**.
 
 The thickness cases exposed and now verify the bounded
 [coordinate-incidence correction](verification/20261019-sketch-coordinate-incidence.md).
-That correction does not resolve the remaining tangent-chain failures.
+The subsequent [rounded tangent and Relations correction](verification/20261020-rounded-tangent-wing.md)
+resolves the retained tangent-chain and M24 target-order failures. The final
+native matrix covers 1,792 rounded outlines, 512 finite sloping-line controls
+and 16 Part/Assembly Relations cases; GUI controls exercise repeated real edits
+and dragging. This does not resolve the manufacturing-contour questions above.
 
 Constant perimeter Fillets were tested alone, in reversed feature order and
 jointly with root radii using OCCT's existing API. Root-only succeeds; the
@@ -131,10 +133,10 @@ representative final-model GUI checks and packaged-native verification.
 Windows-only results do not establish Linux support. No release has been
 created from these studies.
 
-Raster export omitted glyphs from some longer free-text review notes during
-inspection. The current short status label is checked visually; this is not
-reported as a repair of that separate text-export issue. Ordinary title-block
-fields and the eight associative dimension values were inspected independently.
+Raster export omitted glyphs from longer free-text review notes during
+inspection. The shared drawing text renderer now applies calibrated stroke
+adjustments per shaped glyph rather than subtracting a stroke from an entire
+multi-glyph path. See [Drawing text coverage](verification/20261020-drawing-text-coverage.md).
 
 ```text
 python tools/generate-wing-nut-library.py --stage build/wing-studies-new

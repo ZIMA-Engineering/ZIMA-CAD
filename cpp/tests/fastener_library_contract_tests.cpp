@@ -459,7 +459,9 @@ int main(int argc,char** argv) {
                 TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
                 require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid cap nut BRep");
                 int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Cap nut must contain one solid");
-                const double h=expected.at("height_mm"),depth=expected.at("bore_depth_mm"),radius=expected.at("dome_radius_mm");
+                const bool flat_cap=expected.value("closed_profile",std::string{})=="cone_flat";
+                const double h=expected.at("height_mm"),depth=expected.at("bore_depth_mm");
+                const double radius=flat_cap?expected.at("across_flats_mm").get<double>()/std::sqrt(3):expected.at("dome_radius_mm").get<double>();
                 BRepClass3d_SolidClassifier classifier(shape);
                 for(const double z:{depth*.25,depth*.75}) {classifier.Perform(gp_Pnt(0,0,z),1e-8);require(classifier.State()==TopAbs_OUT,"Cap nut bore is obstructed");}
                 classifier.Perform(gp_Pnt(0,0,(depth+h)/2),1e-8);require(classifier.State()==TopAbs_IN,"Cap nut blind bore broke through its end wall");
@@ -470,9 +472,26 @@ int main(int argc,char** argv) {
                 require(std::abs(result.volume-volume)<=std::max(1e-6,volume*1e-8),"Cap nut persisted volume");
                 require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Cap nut derived BOM mass");
                 Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
-                near(z0,0,"Cap nut seating plane");near(z1,h,"Cap nut height");int crowns=0;
+                near(z0,0,"Cap nut seating plane");near(z1,h,"Cap nut height");int crowns=0,flats=0;
                 for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
                     const BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+                    if(flat_cap) {
+                        if(surface.GetType()==GeomAbs_Plane&&std::abs(surface.Plane().Location().Z()-h)<1e-7&&
+                            std::abs(surface.Plane().Axis().Direction().Z())>1-1e-8) {
+                            GProp_GProps face;BRepGProp::SurfaceProperties(it.Current(),face);
+                            const double k=expected.at("flat_diameter_mm");near(face.Mass(),std::numbers::pi*k*k/4,"Closed nut flat diameter");++flats;
+                        }
+                        if(surface.GetType()!=GeomAbs_Cone||std::abs(std::abs(surface.Cone().SemiAngle())*180/std::numbers::pi-
+                            expected.at("crown_angle_degrees").get<double>())>1e-7)continue;
+                        ++crowns;
+                        for(const double u:{.25,.5,.75})for(const double v:{.25,.5,.75}) {
+                            const auto p=surface.Value(surface.FirstUParameter()+u*(surface.LastUParameter()-surface.FirstUParameter()),
+                                surface.FirstVParameter()+v*(surface.LastVParameter()-surface.FirstVParameter()));
+                            near(std::hypot(p.X(),p.Y()),expected.at("flat_diameter_mm").get<double>()/2+(h-p.Z())*
+                                std::tan(expected.at("crown_angle_degrees").get<double>()*std::numbers::pi/180),"Closed nut cone equation");
+                        }
+                        continue;
+                    }
                     if(surface.GetType()!=GeomAbs_Sphere&&surface.GetType()!=GeomAbs_SurfaceOfRevolution)continue;
                     ++crowns;
                     for(const double u:{.25,.5,.75})for(const double v:{.25,.5,.75}) {
@@ -481,7 +500,7 @@ int main(int argc,char** argv) {
                         near(p.X()*p.X()+p.Y()*p.Y()+std::pow(p.Z()-h+radius,2),radius*radius,"Cap nut crown sphere equation");
                     }
                 }
-                require(crowns>0,"Cap nut spherical crown missing");std::size_t retained=0;
+                require(crowns>0,"Cap nut crown missing");require(!flat_cap||flats==1,"Closed nut top flat missing");std::size_t retained=0;
                 auto axial_section=document::create_section();
                 static_cast<void>(axial_section.sketch.add_segment(0,-2*radius,0,2*radius));
                 for(const bool reverse:{false,true}) {
@@ -508,7 +527,7 @@ int main(int argc,char** argv) {
                 }
                 drawing::DrawingView projection;const double q=std::sqrt(.5);
                 projection.camera={{1,0,0},{0,-q,q},{0,q,q}};drawing::refresh_view_geometry(projection,result.mesh);
-                for(const auto& edge:projection.projected_edges)if(edge.silhouette&&!edge.hidden)
+                for(const auto& edge:projection.projected_edges)if(!flat_cap&&edge.silhouette&&!edge.hidden)
                     for(std::size_t i=1;i<edge.points.size();++i) {
                         const auto a=edge.points[i-1],b=edge.points[i];
                         const double x=(a.x+b.x)/2,y=(a.y+b.y)/2;
@@ -561,7 +580,7 @@ int main(int argc,char** argv) {
                 }
                 for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
             }
-            std::cout<<manifest.at("variants").size()<<" cap nuts: valid solid, blind bore/end wall, spherical crown, independent volume/mass, thread extent and constrained dragging passed\n";return 0;
+            std::cout<<manifest.at("variants").size()<<" cap nuts: valid solid, blind bore/end wall, specified crown, independent volume/mass, thread extent and constrained dragging passed\n";return 0;
         }
         if(argc==3&&std::string(argv[1])=="--knurled-nuts") {
             const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;

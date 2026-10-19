@@ -8,8 +8,9 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         const bool castle=slot!=original.sketches.end();
         const auto meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Knurled nut meridian";});
         const bool knurl=meridian!=original.sketches.end();
-        const auto cap_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Cap dome meridian"||sketch.name=="DIN cap meridian";});
+        const auto cap_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Cap dome meridian"||sketch.name=="DIN cap meridian"||sketch.name=="Closed end meridian";});
         const bool cap_nut=cap_meridian!=original.sketches.end();
+        const bool csn_closed=cap_nut&&cap_meridian->name=="Closed end meridian";
         const auto weld_profile=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Weld projection profile"||sketch.name=="Flange weld projection profile";});
         const bool weld=weld_profile!=original.sketches.end();
         const auto profile=castle?*slot:knurl?*meridian:cap_nut?*cap_meridian:weld?*weld_profile:original.sketches.front();
@@ -26,10 +27,11 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
                 const auto* a=profile.find_point(d.first_point_id);const auto* b=profile.find_point(d.second_point_id);
                 const bool height=d.kind==sketcher::DimensionKind::DistanceY&&a&&b&&std::abs(a->x)<1e-8&&std::abs(b->x)<1e-8;
                 const bool outside=d.kind==sketcher::DimensionKind::DistanceX&&a&&b&&std::abs(a->x)<1e-8&&std::abs(a->y)<1e-8&&std::abs(b->y)>1e-8;
-                if((knurl&&(height||outside))||d.kind==sketcher::DimensionKind::Radius)
+                if((knurl&&(height||outside))||d.kind==sketcher::DimensionKind::Radius||
+                    (csn_closed&&(d.kind==sketcher::DimensionKind::DistanceX||d.kind==sketcher::DimensionKind::AngleBetween)))
                     for(double factor:{1.02,1.04,1.})edits.emplace_back(i,d.value*factor);
             }
-            check(edits.size()==(cap_nut?3:9),"Nut GUI must exercise its selected meridian drivers");
+            check(edits.size()==(csn_closed?6:cap_nut?3:9),"Nut GUI must exercise its selected meridian drivers");
         }
         else if(tab||castle||weld) {
             std::string floor_point;
@@ -70,7 +72,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
                         label=point;exposed=true;break;
                     }
                 }
-                check(exposed,"Cap radius text has no directly selectable exposed position");
+                check(exposed,"Cap dimension text has no directly selectable exposed position");
             }
             // A real double click includes its first press/release. That
             // press selects this exact label before the double-click handler
@@ -97,6 +99,51 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             check(measured&&std::abs(*measured-value)<1e-8,"Washer GUI diameter edit rejected");
             window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("redoAction")->trigger();flush();
             check(view->candidate_dimension_value(candidate)&&std::abs(*view->candidate_dimension_value(candidate)-value)<1e-8,"Washer diameter Undo/Redo failed");
+            if(csn_closed&&index==edits.back().first&&std::abs(value-profile.dimensions[index].value)<1e-8) {
+                const auto live_sketch=[&] {
+                    // An owned profile is a transient Properties draft until
+                    // Finish/OK. Inspect its actual viewer packet; Save must
+                    // not publish that pending draft to the native document.
+                    auto current=profile;
+                    for(auto& point:current.points) {
+                        const auto found=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==profile.id&&p.reference.semantic_key=="point:"+point.id;});
+                        check(found!=view->mesh().points.end(),"Closed nut draft point missing");
+                        const auto q=profile.local_point(found->position);point.x=q[0];point.y=q[1];
+                    }
+                    for(auto& d:current.dimensions)for(std::size_t i=0;i<view->mesh().dimensions.size();++i)
+                        if(view->mesh().dimensions[i].reference.owner_id==profile.id&&view->mesh().dimensions[i].reference.semantic_key=="dimension:"+d.id) {
+                            viewer::ViewerCandidate c;c.kind=viewer::CandidateKind::Dimension;c.owner_id=profile.id;c.semantic_key="dimension:"+d.id;c.geometry_index=i;
+                            const auto value=view->candidate_dimension_value(c);check(value.has_value(),"Closed nut draft dimension missing");d.value=*value;
+                        }
+                    const auto& first=current.segments.front();const auto* A=current.find_point(first.first_point_id);const auto* C=current.find_point(first.second_point_id);const auto* B=current.find_point(current.segments[1].second_point_id);
+                    check(std::abs(A->y-B->y)<1e-8&&std::abs(B->x-C->x)<1e-8,"Closed nut draft H/V equation");
+                    const auto& angle=*std::ranges::find(current.dimensions,sketcher::DimensionKind::AngleBetween,&sketcher::SketchDimension::kind);
+                    check(std::abs(std::atan2(C->y-A->y,C->x-A->x)*180/std::acos(-1.)-angle.value)<1e-7,"Closed nut draft angle equation");
+                    return current;
+                };
+                const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"Closed nut GUI ray missing");const auto q=profile.intersect_ray(ray->first,ray->second);check(q.has_value(),"Closed nut GUI camera misses Sketch");return *q;};
+                const auto a=local({0,0}),b=local({100,0}),c=local({0,100});const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+                const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
+                const auto mouse=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent e(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();};
+                for(double pixels:{30.,-30.,40.}) {
+                    const auto previous=live_sketch();const auto point=previous.segments.front().second_point_id;const auto p=*previous.find_point(point);
+                    // Use real screen travel beyond Qt's drag threshold at
+                    // every model scale, rather than a sub-threshold mm step.
+                    const double delta=pixels*std::abs(det)/std::hypot(ux,vx);
+                    const auto from=screen(p.x,p.y),to=screen(p.x,p.y+delta);view->clear_selection();const auto offered=view->selection_candidates_at(from);
+                    check(!offered.empty()&&offered.front().semantic_key=="point:"+point,"Closed nut handle is not first in ordinary picker");
+                    mouse(QEvent::MouseMove,from,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
+                    mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
+                    auto moved=live_sketch();if(std::hypot(moved.find_point(point)->x-p.x,moved.find_point(point)->y-p.y)<=1e-3)
+                        window.grab().save(QString::fromStdString((directory/"closed-nut-drag-failure.png").string()));
+                    check(std::hypot(moved.find_point(point)->x-p.x,moved.find_point(point)->y-p.y)>1e-3,"Free closed nut handle did not move");
+                    const auto status=moved.solve();check(status.maximum_residual<1e-8&&status.remaining_degrees_of_freedom==0,"Dragged closed nut violated equations");
+                    check(moved.external_references==previous.external_references,"Closed nut GUI drag changed external support");
+                    window.findChild<QAction*>("undoAction")->trigger();flush();check(live_sketch().points==previous.points,"Closed nut drag Undo");
+                    window.findChild<QAction*>("redoAction")->trigger();flush();check(live_sketch().points==moved.points,"Closed nut drag Redo");
+                    window.findChild<QAction*>("undoAction")->trigger();flush();
+                }
+            }
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()&&(dynamic_cast<app::SketchPropertiesDialog*>(d)||dynamic_cast<app::PrimitivePropertiesDialog*>(d)))
                 d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
@@ -149,7 +196,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         }
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         view->grabFramebuffer().save(QString::fromStdString((directory/"spring-washer-gui.png").string()));
-        std::cout<<(cap_nut?"Cap nut GUI: three radius mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":knurl?"Knurled nut GUI: nine height/diameter/radius mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":castle?"Castle nut GUI: repeated slot-width and floor-height mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":tab?"Tab washer GUI: fifteen mouse dimension edits, Undo/Redo, regeneration and native save/reopen passed\n":
+        std::cout<<(csn_closed?"CSN closed nut GUI: six coordinate/angle mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":cap_nut?"Cap nut GUI: three radius mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":knurl?"Knurled nut GUI: nine height/diameter/radius mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":castle?"Castle nut GUI: repeated slot-width and floor-height mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":tab?"Tab washer GUI: fifteen mouse dimension edits, Undo/Redo, regeneration and native save/reopen passed\n":
             "Spring washer GUI: six mouse diameter edits, Undo/Redo, regeneration, native save/reopen and both external end-plane contacts passed\n");return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

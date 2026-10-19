@@ -4239,6 +4239,13 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         // Project the equal-length component, then verify its real equations
         // without making the cursor's two coordinates extra hard constraints.
         solved = next.solve_impl(100, false, {});
+    if(solved.status==SolveStatus::Conflicting&&std::ranges::any_of(next.dimensions,[](const auto& d){
+        return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
+    })&&seed_circular_equations(next,{point_id},true))
+        // Fit the same locked angular graph for either participant order.
+        // The dragged point stays pinned; fully constrained or finite-domain
+        // violations still fail the common final equations below.
+        solved=next.solve_impl(100,false,{point_id});
     if (solved.status == SolveStatus::Conflicting && seed_circular_equations(next, {point_id}))
         solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
@@ -9558,9 +9565,13 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && seed_equal_length_components(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
-    if(result.status==SolveStatus::Conflicting && dimension_kind==DimensionKind::AngleBetween) {
+    if(result.status==SolveStatus::Conflicting && std::ranges::any_of(next.dimensions,[](const auto& d){
+        return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
+    })) {
         // The sequential corrections may already have distorted the two line
-        // directions. Fit their coupled supports from the original branch.
+        // directions. A coordinate edit in that same angular graph also needs
+        // the coupled fit, just like an angle edit or support regeneration.
+        // Fit from the original branch and retain ordinary final validation.
         auto candidate=*this;candidate.dimensions=next.dimensions;
         if(seed_circular_equations(candidate,{},true)) {
             const auto checked=candidate.solve_impl(100,needs_rank_for_redundancy);

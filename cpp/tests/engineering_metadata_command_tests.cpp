@@ -62,8 +62,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     invalid_material=material;invalid_material[1]["value"]=2700;rejected("document.material.set",{{"properties",invalid_material}});
     invalid_material=material;invalid_material[0]["value"]="line1\nline2";rejected("document.material.set",{{"properties",invalid_material}});
     invalid_material=material;invalid_material[0]["key"]="NAME=VALUE";rejected("document.material.set",{{"properties",invalid_material}});
-    const auto box_id=part->session.document().history.front().id;
-    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:length_forward"}}}}},{"instances",Json::array({{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
+    const auto box_id=part->session.document().history.back().id;
+    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:side0_length"}}}}},{"instances",Json::array({{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
     family["instances"][0]["shared_name"]=false;family["instances"][0]["labels"]={{"en","Bracket 10"},{"cs","Drzak 10"}};
     const auto empty_family=part->session.document().family_table;const auto changed_family=run(host,"document.family.set",{{"table",family}}).data.at("table");
     require(changed_family.at("instances")[0].at("labels")==family.at("instances")[0].at("labels")&&!changed_family.at("instances")[0].at("shared_name").get<bool>(),"Family command lost localization");
@@ -125,9 +125,9 @@ void verify_driving(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto id=live.active_document_id();
     test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"length_mm",10},{"width_mm",20},{"height_mm",30}});
     auto* part=live.open_part(id);auto initial=part->session.document();
-    const auto feature=std::ranges::find_if(initial.history,[](const auto& f){return f.feature_kind==document::FeatureKind::Extrusion;});
+    const auto feature=std::ranges::find_if(initial.history,[](const auto& f){return f.feature_kind==document::FeatureKind::Feature;});
     require(feature!=initial.history.end(),"Relation geometry fixture missing");
-    const auto dimension=initial.dimension_identifiers.identifier(feature->id,"parameter:length_forward");
+    const auto dimension=initial.dimension_identifiers.identifier(feature->id,"parameter:side0_length");
     require(!dimension.empty(),"Driving dimension identifier missing");
     initial.user_parameters["povrch"]="Zn";
     initial.user_parameters["divisor"]="2";

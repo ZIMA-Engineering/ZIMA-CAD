@@ -52,7 +52,9 @@ class Fasteners(unittest.TestCase):
         from lxml import html
         pages={p['path']:p for p in self.data['pages']}
         page=pages['05-NUTS/04-CAP/02-DIN1587']
-        self.assertEqual(pages['05-NUTS/04-CAP']['source_table'],'05-NUTS/04-CAP#0')
+        self.assertEqual(pages['05-NUTS/04-CAP']['rows'],[])
+        retired=next(p for p in self.data['retired_pages'] if p['path']=='05-NUTS/04-CAP')
+        self.assertEqual(retired['source_table'],'05-NUTS/04-CAP#0')
         self.assertEqual(len(page['rows']),26)
         rows={row[0]:row for row in page['rows']}
         self.assertEqual(rows['M10×1.5'][2:5],['16','18','8'])
@@ -70,6 +72,28 @@ class Fasteners(unittest.TestCase):
             self.assertEqual(len(tree.xpath('//div[@class="screen-only"]//table/tbody/tr')),26)
             self.assertIn('CAD',' '.join(tree.xpath('//thead//text()')))
             self.assertTrue(all(key in self.data['labels'] for key in page['notes']))
+
+    def test_csn_closed_nuts_use_primary_cone_and_flat_dimensions(self):
+        from lxml import html
+        pages={p['path']:p for p in self.data['pages']}
+        page=pages['05-NUTS/04-CAP/01-CSN021431']
+        self.assertEqual(len(page['rows']),11)
+        rows={r[0]:r for r in page['rows']}
+        self.assertEqual(rows['M8×1.25'][2:7],['13','14.38','16.5','8','10.5'])
+        self.assertEqual(rows['M10×1.5'][2],'17')
+        self.assertEqual(rows['M12×1.75'][2],'19')
+        self.assertEqual(rows['M14×2'][2],'22')
+        self.assertEqual(rows['M30×3.5'][-1],'54.5')
+        for row in page['rows']:
+            self.assertLess(float(row[-1]),float(row[4]))
+            self.assertLess(float(row[-2]),float(row[-1]))
+        self.assertEqual(self.data['sources'][page['sources'][0]]['url'],'https://nahledy.normy.biz/n.php?i=254')
+        self.assertEqual(set(page['figures'][0]['localized_paths']),set(generator.LANGUAGES))
+        for language in generator.LANGUAGES:
+            tree=html.fromstring(generator.render(self.data,page,language))
+            self.assertEqual(len(tree.xpath('//div[@class="screen-only"]//table/tbody/tr')),11)
+            text=' '.join(tree.xpath('//text()'))
+            self.assertIn('45°',text);self.assertIn('120°',text)
 
     def test_reviewed_special_families_and_native_washer_art(self):
         pages={p['path']:p for p in self.data['pages']}
@@ -305,7 +329,7 @@ class MergedFastenerReferences(unittest.TestCase):
     def test_thread_rows_preserve_every_dimension_and_length_table(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[page for page in data['pages'] if page.get('thread_dimension_rows')]
-        self.assertEqual(len(pages),29)
+        self.assertEqual(len(pages),28)
         for page in pages:
             blocks=generator.screen_table_blocks(page)
             combined=next(block for block in blocks if block['headers'][0]=='symbol_d')
@@ -347,7 +371,7 @@ class MergedFastenerReferences(unittest.TestCase):
             displayed=[b for b in generator.screen_table_blocks(page) if b['headers'][0]=='symbol_d']
             self.assertEqual(len(displayed),1,page['path'])
             checked+=1
-        self.assertEqual(checked,18)
+        self.assertEqual(checked,17)
 
     def test_castle_dimensions_form_one_table_without_duplicate_cotter_columns(self):
         from lxml import html

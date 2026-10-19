@@ -78,8 +78,9 @@ def main():
                 sk,dim=ids['crown']['sketch'],ids['crown']['height']
                 drivers.append(('height_mm',lambda sk=sk,dim=dim:native.run('sketch.dimension.get',sketch=sk,dimension=dim)['value'],
                     lambda value,sk=sk,dim=dim:native.run('sketch.dimension.set',sketch=sk,dimension=dim,value=value),1,(1.02,1.04,1)))
-            for key,sk,dim,factor in [('across_flats_mm',ids['sketch'],ids['size'],math.sqrt(3)/2),
-                ('dome_radius_mm',ids['crown']['sketch'],ids['crown']['radius'],1)]:
+            crown_driver=('dome_radius_mm',ids['crown']['sketch'],ids['crown']['radius'],1) if args.din else (
+                'flat_diameter_mm',ids['crown']['sketch'],ids['crown']['flat'],2)
+            for key,sk,dim,factor in [('across_flats_mm',ids['sketch'],ids['size'],math.sqrt(3)/2),crown_driver]:
                 drivers.append((key,lambda sk=sk,dim=dim:native.run('sketch.dimension.get',sketch=sk,dimension=dim)['value'],
                     lambda value,sk=sk,dim=dim:native.run('sketch.dimension.set',sketch=sk,dimension=dim,value=value),factor,(1.02,1.04,1)))
             opening_drivers=[('thread_length_mm','thread_length_mm',(.98,.96,1))] if args.din else [
@@ -100,7 +101,7 @@ def main():
         assert hashlib.sha256(source.read_bytes()).hexdigest()==digest
         report.append(dict(filename=source.name,source_sha256=digest,successive_edits=edits,
             source_face_identity=True,independent_volume_and_mass=True,blind_end_wall=True,
-            sphere_equation=True,thread_extent=True,derived_stock=True,undo_redo=True,save_reopen=True,
+            sphere_equation=args.din,cone_and_flat_equations=not args.din,thread_extent=True,derived_stock=True,undo_redo=True,save_reopen=True,
             locked_unlocked_profile_dragging=True,gui_verified=False))
         (out/'results.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
 

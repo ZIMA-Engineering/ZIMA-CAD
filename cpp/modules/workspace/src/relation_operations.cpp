@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <exception>
 #include <numbers>
 #include <limits>
 #include <zima/document/physical_properties.hpp>
@@ -63,11 +64,32 @@ template<class Doc> void dimensions(Doc& doc,const std::map<std::string,double>&
     if(doc.relations.empty())return;
     const auto definitions=relation_dimensions(doc);
     const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),true,degrees_per_angle_unit(doc));
+    std::vector<std::pair<document::FamilyColumn,double>> pending;
     for(const auto& [name,value]:calculated)if(const auto d=definitions.find(name);d!=definitions.end()) {
         const double native=std::get<double>(value.data)*d->second.native_scale;
         const double previous=std::get<double>(d->second.input.value.data)*d->second.native_scale;
         if(native==previous&&std::signbit(native)==std::signbit(previous))continue;
-        if(!assign_driving_dimension(doc,d->second.binding,native))throw std::invalid_argument("The relation dimension cannot be assigned.");
+        pending.emplace_back(d->second.binding,native);
+    }
+    // A valid final change may have an invalid intermediate state: growing a
+    // contact coordinate beyond its old finite line before extending that
+    // line, or shrinking the line before moving its contact back. Individual
+    // Sketch edits are transactional. Defer a rejected edit until the other
+    // calculated targets have advanced, preserving their ordinary solve and
+    // side/branch policies. No-progress failure retains the original error.
+    while(!pending.empty()) {
+        bool progress=false;std::exception_ptr first_error;
+        for(auto current=pending.begin();current!=pending.end();) {
+            try {
+                if(!assign_driving_dimension(doc,current->first,current->second))throw std::invalid_argument("The relation dimension cannot be assigned.");
+            }catch(const std::invalid_argument&) {
+                if(!current->first.semantic_key.starts_with("dimension:"))throw;
+                if(!first_error)first_error=std::current_exception();
+                ++current;continue;
+            }
+            current=pending.erase(current);progress=true;
+        }
+        if(!progress)std::rethrow_exception(first_error);
     }
 }
 template<class Doc> auto physical_parameter_values(const Doc& doc,const std::map<std::string,double>& physical) {

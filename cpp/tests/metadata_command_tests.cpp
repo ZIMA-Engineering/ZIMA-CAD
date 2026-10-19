@@ -159,8 +159,15 @@ template<class Doc> void binding_unit_matrix(Doc source) {
                             value.binding.semantic_key=="parameter:pattern:angle"&&!value.input.writable)
                         require(std::abs(std::get<double>(value.input.value.data)*value.native_scale-90)<1e-9,
                             "Full-circle count did not update its calculated angular spacing");
-                    else require(value.input.value.data==dimensions.at(other).input.value.data&&
-                        value.input.value.units==dimensions.at(other).input.value.units,"Relation assignment changed an unrelated dimension");
+                    else if(value.binding.owner_id==binding.owner_id&&!value.input.writable&&
+                        (((binding.semantic_key=="parameter:bore_diameter"||binding.semantic_key=="parameter:thread_diameter")&&value.binding.semantic_key=="parameter:thread_designation")||
+                         (binding.semantic_key=="parameter:thread_pitch"&&value.binding.semantic_key=="parameter:pitch")))
+                        require(std::abs(std::get<double>(value.input.value.data)*value.native_scale-expected)<1e-9,
+                            "Read-only thread catalog scalar did not follow its underlying native field");
+                    else if(value.input.value.data!=dimensions.at(other).input.value.data||
+                        value.input.value.units!=dimensions.at(other).input.value.units)
+                        throw std::runtime_error("Relation assignment changed another dimension: "+binding.owner_id+":"+binding.semantic_key+" -> "+value.binding.owner_id+":"+value.binding.semantic_key+
+                            " from "+std::to_string(std::get<double>(dimensions.at(other).input.value.data))+" to "+std::to_string(std::get<double>(value.input.value.data)));
                 }
                 require(changed.dimension_identifiers.serialized()==identities,"Relation unit assignment changed native identifiers");
             } else {
@@ -256,11 +263,14 @@ void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
             run(host,"new",{{"type","assembly"},{"name","angle-assembly"}});
             static_cast<void>(live.insert_open_part(live.active_document_id(),source_id,"Stock"));
         }
-        const auto id=live.active_document_id();test::spherical_commands(execute,3);
+        const auto id=live.active_document_id();const auto sphere=test::spherical_commands(execute,3).data.at("container");
+        auto sides=run(host,"feature.get",{{"container",sphere}}).data.at("parameters").at("sides");
+        sides[0]["rotation_extent"]="angle";
+        run(host,"feature.set",{{"container",sphere},{"parameters",{{"sides",sides}}}});
         run(host,"document.settings.set",{{"precision",{{"decimal_places",9}}}});
         const auto dimensions=[&](){return assembly_mode?workspace::relation_dimensions(live.open_assembly(id)->session.document()):workspace::relation_dimensions(live.open_part(id)->session.document());};
         std::string angle;
-        for(const auto& [name,d]:dimensions())if(d.binding.semantic_key=="parameter:angle")angle=name;
+        for(const auto& [name,d]:dimensions())if(d.binding.semantic_key=="parameter:side0_angle")angle=name;
         require(!angle.empty(),"Angular relation fixture has no Revolution dimension");
         const auto serialized=[&](){return assembly_mode?live.open_assembly(id)->session.document().serialized():live.open_part(id)->session.document().serialized();};
         const auto native_angle=[&](){const auto d=dimensions().at(angle);return std::get<double>(d.input.value.data)*d.native_scale;};
@@ -301,7 +311,7 @@ void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
             const auto& doc=live.open_assembly(id)->session.document();const auto file=dir/"angular-relations.asmz";doc.save(file);
             auto reopened=assembly::AssemblyDocument::load(file);workspace::apply_relation_dimensions(reopened,assembly::physical_values(reopened));
             workspace::apply_relation_parameters(reopened,assembly::physical_values(reopened));
-            require(reopened.relations==source&&reopened.user_parameters==doc.user_parameters&&std::abs(reopened.cuts.back().definition.revolution.angle_degrees-60)<1e-10,"Assembly angular relations changed after native reopen");
+            require(reopened.relations==source&&reopened.user_parameters==doc.user_parameters&&std::abs(reopened.cuts.back().definition.feature.sides[0].angle_degrees-60)<1e-10,"Assembly angular relations changed after native reopen");
         } else {
             const auto* state=live.open_part(id);const auto file=dir/"angular-relations.prtz";state->session.document().save(file,state->session.calculated_boundaries());
             auto reopened=document::PartDocument::load(file);workspace::apply_relation_dimensions(reopened,document::physical_values(reopened,state->session.calculated_boundaries()));
@@ -313,6 +323,10 @@ void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","metadata-part"}});
+    // This fixture owns exactly two authored table rows. Save-time physical
+    // Relations have their own contract tests; do not inherit the template's
+    // derived mass row into the table-order and Undo assertions below.
+    run(host,"document.relations.set",{{"relations",""}});
     const auto id=live.active_document_id();zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     auto* part=live.open_part(id);const auto original=workspace::user_parameters(live,id);const auto cached=part->session.calculated_boundaries().back().kernel_shape;
     const auto feature=part->session.document().history.back().id;
@@ -439,10 +453,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto invalid_relation=run(host,"document.parameters.get").data.at("parameters");for(auto& entry:invalid_relation)if(entry.at("key")=="DIVISOR")entry["values"][""]="0";
     run(host,"document.parameters.set",{{"parameters",invalid_relation}});
     reject("regenerate",Json::object());
+    // Save now refreshes physical Relations. Invalid derived metadata must
+    // reject publication as well as Regenerate, retaining the last good file.
+    const auto saved_bytes=[&](){std::ifstream file(dir/"metadata-part.prtz",std::ios::binary);return std::string(std::istreambuf_iterator<char>(file),{});};
+    const auto previous_file=saved_bytes();reject("save",Json::object());
+    require(saved_bytes()==previous_file,"Rejected physical Relation replaced the saved document");
+    run(host,"undo");
     run(host,"save");const auto loaded=document::PartDocument::load(dir/"metadata-part.prtz");
     require(loaded.user_parameter_values==part->session.document().user_parameter_values && loaded.document_precision==part->session.document().document_precision,"Native save lost metadata");
     require(document::sheet_metal_defaults(loaded)==document::SheetMetalDefaults{2.5,.42},"Native save lost sheet defaults");
-    run(host,"new",{{"type","assembly"},{"name","metadata-assembly"}});const auto owner=live.active_document_id();static_cast<void>(live.insert_open_part(owner,id,"Part"));
+    run(host,"new",{{"type","assembly"},{"name","metadata-assembly"}});run(host,"document.relations.set",{{"relations",""}});const auto owner=live.active_document_id();static_cast<void>(live.insert_open_part(owner,id,"Part"));
     part=live.open_part(id);
     const auto occurrence=live.open_assembly(owner)->session.document().components.front().occurrence_id;
     const auto occurrence_cache=live.open_assembly(owner)->session.document().components.front().calculated_source;

@@ -1,0 +1,130 @@
+{
+  "standard": "CSN 02 1431:1970",
+  "source_url": "https://nahledy.normy.biz/n.php?i=254",
+  "review_date": "2026-10-20",
+  "scope": "Eleven coarse metric sizes in primary Table 1, M6 to M30. Fine-pitch availability is not established by this preview and is not inferred from the contradictory archive.",
+  "source_sha256": {
+    "00254_1x1.gif": "af2ece28b3f0d879a67b1aaf38bba457939331144925ff21f1b0376d95831e0a",
+    "00254_1y1.gif": "a53516203fb248fa274163959e28a0c25b54de72acb29949e03f5d5c49dfa98b"
+  },
+  "interpretation": {
+    "closed_end": "45 degree cone ending in a flat circular face of diameter k; k is not a height or radius",
+    "mouth": "120 degree included thread-mouth countersink",
+    "bore": "Flat blind end at depth p; end wall h minus p",
+    "seating": "30 degree outer seating bevel",
+    "mass": "Source mass is indicative; CAD mass is calculated independently at steel density 7850 kg/m3 and is not forced to the table",
+    "limits": "Nominal CAD dimensions only. Manufacturing tolerances, strength classes, coatings and later amendments are not fully verified from the preview."
+  },
+  "rows": [
+    {
+      "diameter_mm": 6,
+      "thread_length_mm": 7.5,
+      "minimum_across_corners_mm": 11.05,
+      "height_mm": 13.5,
+      "flat_diameter_mm": 6,
+      "across_flats_mm": 10,
+      "bore_depth_mm": 12.5,
+      "indicative_mass_g": 6.5
+    },
+    {
+      "diameter_mm": 8,
+      "thread_length_mm": 10.5,
+      "minimum_across_corners_mm": 14.38,
+      "height_mm": 16.5,
+      "flat_diameter_mm": 8,
+      "across_flats_mm": 13,
+      "bore_depth_mm": 15.5,
+      "indicative_mass_g": 12.9
+    },
+    {
+      "diameter_mm": 10,
+      "thread_length_mm": 13,
+      "minimum_across_corners_mm": 18.9,
+      "height_mm": 21,
+      "flat_diameter_mm": 10,
+      "across_flats_mm": 17,
+      "bore_depth_mm": 19.5,
+      "indicative_mass_g": 28.8
+    },
+    {
+      "diameter_mm": 12,
+      "thread_length_mm": 16,
+      "minimum_across_corners_mm": 21.1,
+      "height_mm": 25,
+      "flat_diameter_mm": 12,
+      "across_flats_mm": 19,
+      "bore_depth_mm": 23.5,
+      "indicative_mass_g": 41.3
+    },
+    {
+      "diameter_mm": 14,
+      "thread_length_mm": 18.5,
+      "minimum_across_corners_mm": 24.49,
+      "height_mm": 28.5,
+      "flat_diameter_mm": 14,
+      "across_flats_mm": 22,
+      "bore_depth_mm": 26.5,
+      "indicative_mass_g": 63
+    },
+    {
+      "diameter_mm": 16,
+      "thread_length_mm": 22,
+      "minimum_across_corners_mm": 26.75,
+      "height_mm": 32,
+      "flat_diameter_mm": 16,
+      "across_flats_mm": 24,
+      "bore_depth_mm": 30,
+      "indicative_mass_g": 80
+    },
+    {
+      "diameter_mm": 18,
+      "thread_length_mm": 23.5,
+      "minimum_across_corners_mm": 30.14,
+      "height_mm": 36,
+      "flat_diameter_mm": 18,
+      "across_flats_mm": 27,
+      "bore_depth_mm": 34,
+      "indicative_mass_g": 115
+    },
+    {
+      "diameter_mm": 20,
+      "thread_length_mm": 26.5,
+      "minimum_across_corners_mm": 33.53,
+      "height_mm": 39,
+      "flat_diameter_mm": 20,
+      "across_flats_mm": 30,
+      "bore_depth_mm": 37,
+      "indicative_mass_g": 152
+    },
+    {
+      "diameter_mm": 24,
+      "thread_length_mm": 32,
+      "minimum_across_corners_mm": 40.24,
+      "height_mm": 47,
+      "flat_diameter_mm": 24,
+      "across_flats_mm": 36,
+      "bore_depth_mm": 45,
+      "indicative_mass_g": 263
+    },
+    {
+      "diameter_mm": 27,
+      "thread_length_mm": 36,
+      "minimum_across_corners_mm": 45.83,
+      "height_mm": 51,
+      "flat_diameter_mm": 27,
+      "across_flats_mm": 41,
+      "bore_depth_mm": 49,
+      "indicative_mass_g": 367
+    },
+    {
+      "diameter_mm": 30,
+      "thread_length_mm": 40.5,
+      "minimum_across_corners_mm": 51.54,
+      "height_mm": 57,
+      "flat_diameter_mm": 30,
+      "across_flats_mm": 46,
+      "bore_depth_mm": 54.5,
+      "indicative_mass_g": 550
+    }
+  ]
+}

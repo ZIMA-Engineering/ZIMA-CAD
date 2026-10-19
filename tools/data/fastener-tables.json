@@ -12635,6 +12635,97 @@
       "M16×1.5",
       "M16×1.5",
       "M16×1.5"
+    ],
+    "csn_closed_nuts": [
+      "Uzavřené matice ČSN",
+      "CSN closed nuts",
+      "Geschlossene Muttern ČSN",
+      "Écrous borgnes ČSN",
+      "Закрытые гайки ČSN"
+    ],
+    "csn_closed_heading": [
+      "ČSN 02 1431:1970",
+      "ČSN 02 1431:1970",
+      "ČSN 02 1431:1970",
+      "ČSN 02 1431:1970",
+      "ČSN 02 1431:1970"
+    ],
+    "csn_closed_geometry": [
+      "Zakončení pod 45° s rovnou kruhovou ploškou Øk; ústí závitu má vrcholový úhel 120°. k je průměr plošky. Otvor má rovné dno v hloubce p. Dosazení je na XY v Z = 0, osa závitu prochází počátkem.",
+      "Closed end at 45° with a flat circular face Øk; the thread mouth has a 120° included angle. k is the flat diameter. The bore has a flat bottom at depth p. The seating plane is XY at Z = 0 and the thread axis passes through the Origin.",
+      "Abschluss unter 45° mit ebener Kreisfläche Øk; die Gewindemündung hat einen Öffnungswinkel von 120°. k ist der Flächendurchmesser. Die Bohrung endet eben in Tiefe p. Die Auflage liegt in XY bei Z = 0; die Gewindeachse geht durch den Ursprung.",
+      "Extrémité à 45° avec une face circulaire plane Øk ; l’entrée du filetage a un angle inclus de 120°. k est le diamètre du méplat. Le trou a un fond plat à la profondeur p. L’appui est sur XY à Z = 0 et l’axe du filetage passe par l’origine.",
+      "Закрытый конец под 45° с плоской круглой площадкой Øk; угол входа резьбы равен 120°. k — диаметр площадки. Отверстие имеет плоское дно на глубине p. Опорная плоскость — XY при Z = 0; ось резьбы проходит через начало координат."
+    ],
+    "csn_closed_scope": [
+      "Rozměry z původní tabulky 1 ČSN z roku 1970, pouze doložená řada s hrubým stoupáním M6–M30. b je tabulkové minimum použité v modelu, e_min mezní rozměr přes vrcholy; skutečné (e) modelu se počítá z jmenovitého s. Schematický závit, ocel 7 850 kg/m³, hmotnost počítaná z objemu. Nejde o úplný výrobní předpis ani rozměrovou náhradu DIN 1587. Starší rozporná tabulka a kulové studie nejsou podkladem této řady.",
+      "Dimensions from original 1970 CSN Table 1, limited to the evidenced coarse-pitch M6–M30 series. b is the tabulated minimum used by the model; e_min is the limiting width across corners, while actual model (e) is calculated from nominal s. Schematic thread, steel density 7,850 kg/m³, mass calculated from volume. This is not a complete manufacturing specification or a dimensionally identical DIN 1587 replacement. The contradictory older table and spherical studies are not the basis of this family.",
+      "Maße aus der ursprünglichen ČSN-Tabelle 1 von 1970, beschränkt auf die belegte Regelgewindereihe M6–M30. b ist das im Modell verwendete tabellierte Minimum; e_min ist das Eckgrenzmaß, das tatsächliche Modellmaß (e) wird aus Nenn-s berechnet. Schematisches Gewinde, Stahldichte 7.850 kg/m³, Masse aus dem Volumen berechnet. Keine vollständige Fertigungsvorschrift und kein maßgleicher Ersatz für DIN 1587. Die widersprüchliche ältere Tabelle und Kugelstudien sind keine Grundlage dieser Reihe.",
+      "Dimensions de la table 1 ČSN originale de 1970, limitées à la série attestée à pas gros M6–M30. b est le minimum tabulé utilisé dans le modèle ; e_min est la limite sur angles, tandis que la cote réelle (e) est calculée à partir de s nominal. Filetage schématique, acier de masse volumique 7 850 kg/m³, masse calculée par le volume. Ce n’est ni une spécification complète de fabrication ni un remplacement dimensionnellement identique de DIN 1587. L’ancienne table contradictoire et les études sphériques ne fondent pas cette série.",
+      "Размеры из исходной таблицы 1 ČSN 1970 года, только подтверждённый ряд с крупным шагом M6–M30. b — табличный минимум, используемый в модели; e_min — предельный размер по вершинам, фактический размер модели (e) вычисляется по номинальному s. Резьба условная, плотность стали 7 850 кг/м³, масса вычисляется по объёму. Это не полное производственное предписание и не размерно идентичная замена DIN 1587. Противоречивая старая таблица и сферические эскизы не являются основой этого ряда."
+    ],
+    "csn_closed_d": [
+      "d",
+      "d",
+      "d",
+      "d",
+      "d"
+    ],
+    "csn_closed_column_0": [
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]"
+    ],
+    "csn_closed_column_1": [
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]"
+    ],
+    "csn_closed_column_2": [
+      "e_min [mm]",
+      "e_min [mm]",
+      "e_min [mm]",
+      "e_min [mm]",
+      "e_min [mm]"
+    ],
+    "csn_closed_column_3": [
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]"
+    ],
+    "csn_closed_column_4": [
+      "k [mm]",
+      "k [mm]",
+      "k [mm]",
+      "k [mm]",
+      "k [mm]"
+    ],
+    "csn_closed_column_5": [
+      "b min [mm]",
+      "b min [mm]",
+      "b min [mm]",
+      "b min [mm]",
+      "b min [mm]"
+    ],
+    "csn_closed_column_6": [
+      "p [mm]",
+      "p [mm]",
+      "p [mm]",
+      "p [mm]",
+      "p [mm]"
+    ],
+    "csn_closed_art": [
+      "ČSN 02 1431 — výkres nativního modelu",
+      "ČSN 02 1431 — native model drawing",
+      "ČSN 02 1431 — Zeichnung des nativen Modells",
+      "ČSN 02 1431 — dessin du modèle natif",
+      "ČSN 02 1431 — чертёж нативной модели"
     ]
   },
   "sources": {
@@ -12969,6 +13060,10 @@
     "weld_iso": {
       "label": "ISO 21670 · ISO 21670:2014",
       "url": "https://www.iso.org/standard/63369.html"
+    },
+    "csn021431_1970": {
+      "label": "ČSN 02 1431:1970 · original preview, Table 1",
+      "url": "https://nahledy.normy.biz/n.php?i=254"
     }
   },
   "pages": [
@@ -49413,172 +49508,15 @@
     {
       "path": "05-NUTS/04-CAP",
       "title": "directory_05-NUTS_04-CAP",
-      "headers": [
-        "parameter",
-        "symbol_M6",
-        "symbol_M8",
-        "symbol_M10",
-        "symbol_M12",
-        "symbol_(M14)",
-        "symbol_M16",
-        "symbol_(M18)",
-        "symbol_M20",
-        "symbol_M24",
-        "symbol_(M27)",
-        "symbol_M30"
-      ],
-      "rows": [
-        [
-          "d",
-          "M6",
-          "M8×1",
-          "M10×1,25",
-          "M12×1,25",
-          "(M14×1,5)",
-          "M16×1,5",
-          "(M18×1,5)",
-          "M20×1,5",
-          "M24×2",
-          "(M27×2)",
-          "M30×2"
-        ],
-        [
-          "s",
-          "10",
-          "13",
-          "16",
-          "18",
-          "21",
-          "24",
-          "27",
-          "30",
-          "36",
-          "41",
-          "46"
-        ],
-        [
-          "e",
-          "12",
-          "15",
-          "18,5",
-          "20,8",
-          "24,2",
-          "27,7",
-          "31,2",
-          "34,6",
-          "41,6",
-          "47,3",
-          "53,1"
-        ],
-        [
-          "b _min",
-          "7,5",
-          "11",
-          "13",
-          "16",
-          "18,5",
-          "22",
-          "23,5",
-          "26,5",
-          "32",
-          "36",
-          "40,5"
-        ],
-        [
-          "m _5",
-          "13,5",
-          "16,5",
-          "21",
-          "25",
-          "28,5",
-          "32",
-          "36",
-          "39",
-          "47",
-          "51",
-          "57"
-        ],
-        [
-          "k",
-          "6",
-          "8",
-          "10",
-          "12",
-          "14",
-          "16",
-          "18",
-          "20",
-          "24",
-          "27",
-          "30"
-        ],
-        [
-          "p",
-          "13",
-          "16",
-          "20",
-          "24",
-          "27",
-          "30",
-          "34",
-          "37",
-          "45",
-          "49",
-          "55"
-        ],
-        [
-          {
-            "key": "mass_Hmotnost [g]"
-          },
-          "6,5",
-          "13",
-          "26,3",
-          "38,1",
-          "58,8",
-          "80",
-          "115",
-          "152",
-          "263",
-          "367",
-          "550"
-        ]
-      ],
-      "notes": [
-        "units",
-        "pair_order",
-        "brackets"
-      ],
-      "sources": [
-        "iso8992_2005"
-      ],
-      "source_table": "05-NUTS/04-CAP#0",
-      "source_rows": [
-        0,
-        8
-      ],
-      "source_columns": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11
-      ],
-      "review": "historical",
-      "heading": "logical_page_05-NUTS/04-CAP_0_1_0",
-      "source_path": "05-NUTS/04-CAP/01-C02-R001",
       "id": "51c73d20-77f8-5622-a01e-eb6165e6e166",
-      "sections": [],
-      "freeze_header": true,
-      "omit_approximate_mass": true,
-      "thread_dimension_rows": true,
-      "display_row_count": 11
+      "headers": [
+        "symbol",
+        "meaning"
+      ],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "sections": []
     },
     {
       "path": "05-NUTS/05-WELD",
@@ -55660,6 +55598,156 @@
             "de": "HFWN-ISO21670-M08.0-REFERENCE_de.png",
             "fr": "HFWN-ISO21670-M08.0-REFERENCE_fr.png",
             "ru": "HFWN-ISO21670-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
+    },
+    {
+      "path": "05-NUTS/04-CAP/01-CSN021431",
+      "title": "csn_closed_nuts",
+      "heading": "csn_closed_heading",
+      "headers": [
+        "csn_closed_d",
+        "csn_closed_column_0",
+        "csn_closed_column_1",
+        "csn_closed_column_2",
+        "csn_closed_column_3",
+        "csn_closed_column_4",
+        "csn_closed_column_5",
+        "csn_closed_column_6"
+      ],
+      "rows": [
+        [
+          "M6×1",
+          "1",
+          "10",
+          "11.05",
+          "13.5",
+          "6",
+          "7.5",
+          "12.5"
+        ],
+        [
+          "M8×1.25",
+          "1.25",
+          "13",
+          "14.38",
+          "16.5",
+          "8",
+          "10.5",
+          "15.5"
+        ],
+        [
+          "M10×1.5",
+          "1.5",
+          "17",
+          "18.9",
+          "21",
+          "10",
+          "13",
+          "19.5"
+        ],
+        [
+          "M12×1.75",
+          "1.75",
+          "19",
+          "21.1",
+          "25",
+          "12",
+          "16",
+          "23.5"
+        ],
+        [
+          "M14×2",
+          "2",
+          "22",
+          "24.49",
+          "28.5",
+          "14",
+          "18.5",
+          "26.5"
+        ],
+        [
+          "M16×2",
+          "2",
+          "24",
+          "26.75",
+          "32",
+          "16",
+          "22",
+          "30"
+        ],
+        [
+          "M18×2.5",
+          "2.5",
+          "27",
+          "30.14",
+          "36",
+          "18",
+          "23.5",
+          "34"
+        ],
+        [
+          "M20×2.5",
+          "2.5",
+          "30",
+          "33.53",
+          "39",
+          "20",
+          "26.5",
+          "37"
+        ],
+        [
+          "M24×3",
+          "3",
+          "36",
+          "40.24",
+          "47",
+          "24",
+          "32",
+          "45"
+        ],
+        [
+          "M27×3",
+          "3",
+          "41",
+          "45.83",
+          "51",
+          "27",
+          "36",
+          "49"
+        ],
+        [
+          "M30×3.5",
+          "3.5",
+          "46",
+          "51.54",
+          "57",
+          "30",
+          "40.5",
+          "54.5"
+        ]
+      ],
+      "notes": [
+        "units",
+        "csn_closed_geometry",
+        "csn_closed_scope"
+      ],
+      "sources": [
+        "csn021431_1970"
+      ],
+      "freeze_header": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "CN-CSN021431-M08.0-REFERENCE.png",
+          "caption": "csn_closed_art",
+          "localized_paths": {
+            "cs": "CN-CSN021431-M08.0-REFERENCE_cs.png",
+            "en": "CN-CSN021431-M08.0-REFERENCE_en.png",
+            "de": "CN-CSN021431-M08.0-REFERENCE_de.png",
+            "fr": "CN-CSN021431-M08.0-REFERENCE_fr.png",
+            "ru": "CN-CSN021431-M08.0-REFERENCE_ru.png"
           }
         }
       ]
@@ -88228,6 +88316,176 @@
       "omit_approximate_mass": true,
       "thread_dimension_rows": true,
       "display_row_count": 9
+    },
+    {
+      "path": "05-NUTS/04-CAP",
+      "title": "directory_05-NUTS_04-CAP",
+      "headers": [
+        "parameter",
+        "symbol_M6",
+        "symbol_M8",
+        "symbol_M10",
+        "symbol_M12",
+        "symbol_(M14)",
+        "symbol_M16",
+        "symbol_(M18)",
+        "symbol_M20",
+        "symbol_M24",
+        "symbol_(M27)",
+        "symbol_M30"
+      ],
+      "rows": [
+        [
+          "d",
+          "M6",
+          "M8×1",
+          "M10×1,25",
+          "M12×1,25",
+          "(M14×1,5)",
+          "M16×1,5",
+          "(M18×1,5)",
+          "M20×1,5",
+          "M24×2",
+          "(M27×2)",
+          "M30×2"
+        ],
+        [
+          "s",
+          "10",
+          "13",
+          "16",
+          "18",
+          "21",
+          "24",
+          "27",
+          "30",
+          "36",
+          "41",
+          "46"
+        ],
+        [
+          "e",
+          "12",
+          "15",
+          "18,5",
+          "20,8",
+          "24,2",
+          "27,7",
+          "31,2",
+          "34,6",
+          "41,6",
+          "47,3",
+          "53,1"
+        ],
+        [
+          "b _min",
+          "7,5",
+          "11",
+          "13",
+          "16",
+          "18,5",
+          "22",
+          "23,5",
+          "26,5",
+          "32",
+          "36",
+          "40,5"
+        ],
+        [
+          "m _5",
+          "13,5",
+          "16,5",
+          "21",
+          "25",
+          "28,5",
+          "32",
+          "36",
+          "39",
+          "47",
+          "51",
+          "57"
+        ],
+        [
+          "k",
+          "6",
+          "8",
+          "10",
+          "12",
+          "14",
+          "16",
+          "18",
+          "20",
+          "24",
+          "27",
+          "30"
+        ],
+        [
+          "p",
+          "13",
+          "16",
+          "20",
+          "24",
+          "27",
+          "30",
+          "34",
+          "37",
+          "45",
+          "49",
+          "55"
+        ],
+        [
+          {
+            "key": "mass_Hmotnost [g]"
+          },
+          "6,5",
+          "13",
+          "26,3",
+          "38,1",
+          "58,8",
+          "80",
+          "115",
+          "152",
+          "263",
+          "367",
+          "550"
+        ]
+      ],
+      "notes": [
+        "units",
+        "pair_order",
+        "brackets"
+      ],
+      "sources": [
+        "iso8992_2005"
+      ],
+      "source_table": "05-NUTS/04-CAP#0",
+      "source_rows": [
+        0,
+        8
+      ],
+      "source_columns": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "review": "historical",
+      "heading": "logical_page_05-NUTS/04-CAP_0_1_0",
+      "source_path": "05-NUTS/04-CAP/01-C02-R001",
+      "id": "51c73d20-77f8-5622-a01e-eb6165e6e166",
+      "sections": [],
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 11
     }
   ]
 }

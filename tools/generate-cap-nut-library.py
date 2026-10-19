@@ -1,9 +1,8 @@
-"""Stage blind cap-nut candidates from historical tabulated dimensions.
+"""Author nominal CSN 02 1431:1970 closed nuts from reviewed primary dimensions.
 
-The archived drawing does not dimension its spherical crown radius. These
-uninstalled candidates explicitly select R=2*d and a 30-degree seating bevel.
-They are not a claim of a fully specified manufacturing execution or DIN/ISO
-interchangeability. Keep the original dimension table intact.
+The closed end is a 45-degree cone ending in a flat of diameter k. The
+120-degree callout belongs to the thread-mouth countersink. DIN 1587 uses
+its separate generator; the retired spherical CSN studies are not installed.
 """
 import argparse
 import configparser
@@ -21,59 +20,50 @@ sections=importlib.util.module_from_spec(spec);spec.loader.exec_module(sections)
 
 
 def variants():
-    table=json.loads((ROOT/'tools/data/fastener-source-tables.json').read_text(encoding='utf-8'))['05-NUTS/04-CAP']['tables'][0]
-    number=lambda text:float(text.strip('() ').replace(',','.'))
-    result={}
-    for header in table[:2]:
-        for column,title in enumerate(header[1:],1):
-            parts=title.strip('()').replace('×','x')[1:].split('x')
-            d=number(parts[0]);pitch=number(parts[1]) if len(parts)>1 else None
-            v=dict(filename=f'CN-CSN021431-M{d:04.1f}'+(f'x{pitch:04.2f}' if pitch else '')+'.prtz',
-                standard='ČSN 02 1431',family='04-CAP',diameter_mm=d,pitch_mm=pitch,
-                across_flats_mm=number(table[2][column]),height_mm=number(table[5][column]),
-                thread_length_mm=number(table[4][column]),bore_depth_mm=number(table[7][column]),
-                archived_k_mm=number(table[6][column]),dome_radius_mm=2*d,chamfer_degrees=30,
-                material='Steel',density_kg_mm3=7.85e-6,
-                names=dict(zip(caps.LANGUAGES,('Uzavřená matice','Cap nut','Hutmutter','Écrou borgne','Колпачковая гайка'))),
-                review_status='uninstalled candidate; historical dimensions; selected CAD crown R=2*d and seating bevel 30 degrees')
-            result[(d,pitch)]=v
-    return list(result.values())
+    review=json.loads((ROOT/'tools/data/csn-closed-nut-reviewed-dimensions.json').read_text(encoding='utf-8'))
+    result=[]
+    for row in review['rows']:
+        d=row['diameter_mm']
+        result.append(dict(row,filename=f'CN-CSN021431-M{d:04.1f}.prtz',
+            standard='ČSN 02 1431',family='04-CAP/01-CSN021431',pitch_mm=None,
+            closed_profile='cone_flat',crown_angle_degrees=45,mouth_angle_degrees=120,chamfer_degrees=30,
+            material='Steel',density_kg_mm3=7.85e-6,source_url=review['source_url'],
+            names=dict(zip(caps.LANGUAGES,('Uzavřená matice','Closed nut','Geschlossene Mutter','Écrou borgne','Закрытая гайка'))),
+            representation='Nominal dimensions from CSN 02 1431:1970; schematic thread, no complete manufacturing certification'))
+    return result
 
 
 def independent_volume(v):
-    s,h,R,p,rb,c=[v[k] for k in ('across_flats_mm','height_mm','dome_radius_mm','bore_depth_mm','bore_mm','mouth_chamfer_mm')]
+    s,h,k,p,rb,c=[v[key] for key in ('across_flats_mm','height_mm','flat_diameter_mm','bore_depth_mm','bore_mm','mouth_chamfer_mm')]
     rb/=2;r=s/math.sqrt(3);a=s/2
-    assert R>r and p>v['thread_length_mm'] and p<h
-    assert (p-h+R)**2+rb*rb<R*R,'Blind bore would break through the crown'
+    assert 0<k/2<a and p>v['thread_length_mm'] and p<h
+    assert rb<k/2,'Blind bore would break through the cone'
     polygon=[(r*math.cos(i*math.pi/3),r*math.sin(i*math.pi/3)) for i in range(6)]
     area=math.sqrt(3)*s*s/2
-    start=h-R+math.sqrt(R*R-r*r)
+    start=h-(r-k/2)/math.tan(math.radians(v['crown_angle_degrees']))
     bevel=(r-a)*math.tan(math.radians(v['chamfer_degrees']))
     assert start>bevel
-    top=sections.integral(lambda z:sections.disk_polygon(polygon,math.sqrt(max(0,R*R-(z-h+R)**2))),start,h,1e-9)
+    top=sections.integral(lambda z:sections.disk_polygon(polygon,k/2+(h-z)*math.tan(math.radians(v['crown_angle_degrees']))),start,h,1e-9)
     bottom=sections.integral(lambda z:sections.disk_polygon(polygon,a+z/math.tan(math.radians(v['chamfer_degrees']))),0,bevel,1e-9)
-    return bottom+area*(start-bevel)+top-math.pi*rb*rb*p-math.pi*(rb*c*c+c**3/3)
+    slope=math.tan(math.radians(v['mouth_angle_degrees']/2))
+    return bottom+area*(start-bevel)+top-math.pi*rb*rb*p-math.pi*(rb*slope*c*c+slope*slope*c**3/3)
 
 
-def dome(native,v,prism):
-    h,R=v['height_mm'],v['dome_radius_mm'];r=v['across_flats_mm']/math.sqrt(3)
-    sag=R-math.sqrt(R*R-r*r)
-    sk=native.run('sketch.create',name='Cap dome meridian',plane='XZ')['sketch']
+def crown(native,v,prism):
+    h,k=v['height_mm'],v['flat_diameter_mm'];r=v['across_flats_mm']/math.sqrt(3)
+    sk=native.run('sketch.create',name='Closed end meridian',plane='XZ')['sketch']
     entity=lambda g:native.run('sketch.entity.get',sketch=sk,entity=g)['entity']
-    a,b,c=[0,-h],[r,-h],[r,-h+sag]
-    top=native.run('sketch.segment.create',sketch=sk,first=a,second=b,snap_mm=1e-8)['geometry']
-    rim=native.run('sketch.segment.create',sketch=sk,first=b,second=c,snap_mm=1e-8)['geometry']
-    arc=native.run('sketch.arc.create',sketch=sk,center=[0,-h+R],start=c,end=a,clockwise=True,snap_mm=1e-8)['geometry']
-    A,B=entity(top)['first'],entity(top)['second']
+    a,b,c=[k/2,-h],[r,-h],[r,-h+(r-k/2)/math.tan(math.radians(v['crown_angle_degrees']))]
+    slope=native.run('sketch.segment.create',sketch=sk,first=a,second=c,snap_mm=1e-8)['geometry']
+    rim=native.run('sketch.segment.create',sketch=sk,first=c,second=b,snap_mm=1e-8)['geometry']
+    top=native.run('sketch.segment.create',sketch=sk,first=b,second=a,snap_mm=1e-8)['geometry']
+    B,A=entity(top)['first'],entity(top)['second']
     ref=caps.socket_profile.attach(native,sk,caps.socket_profile.source_point(native,prism,r,h))
     native.run('sketch.constraint.create',sketch=sk,kind='point_reference',points=[B,ref])
     native.run('sketch.constraint.create',sketch=sk,kind='horizontal',geometry=[top])
     native.run('sketch.constraint.create',sketch=sk,kind='vertical',geometry=[rim])
-    native.run('sketch.constraint.create',sketch=sk,kind='point_on_line',points=[A],geometry=['sketch_axis:y'])
-    native.run('sketch.constraint.create',sketch=sk,kind='tangent',geometry=[top,arc])
-    radius=native.run('sketch.dimension.create',sketch=sk,kind='radius',geometry=[arc],value=R)['dimension']
-    # Do not merge the rotation axis with the arc centre merely because R=h
-    # happens to put that independent centre at the Origin in one size.
+    flat=native.run('sketch.dimension.create',sketch=sk,kind='distance_x',points=[A],geometry=['sketch_axis:y'],value=k/2)['dimension']
+    angle=native.run('sketch.dimension.create',sketch=sk,kind='angle_between',geometry=['sketch_axis:x',slope],value=v['crown_angle_degrees'])['dimension']
     axis=native.run('sketch.segment.create',sketch=sk,first=[0,.123456789],second=[0,1.123456789],construction=True)['geometry']
     native.run('sketch.segment.centerline',sketch=sk,segment=axis,centerline=True)
     native.run('sketch.constraint.create',sketch=sk,kind='point_reference',points=[entity(axis)['first'],'sketch_origin'])
@@ -83,7 +73,7 @@ def dome(native,v,prism):
     assert solved['remaining_degrees_of_freedom']==0 and solved['maximum_residual']<1e-8,solved
     turn=caps.side(operation='revolution');turn.update(rotation_extent='full',angle_degrees=360)
     feature=native.run('feature.create',sketch=sk,combine='subtract',parameters=dict(axis_segment_id=axis,symmetric=False,sides=[turn,caps.side(operation='none')]))['container']
-    return dict(sketch=sk,radius=radius,feature=feature)
+    return dict(sketch=sk,flat=flat,angle=angle,feature=feature)
 
 
 def author(native,v,target):
@@ -91,7 +81,7 @@ def author(native,v,target):
     thread=next(t for t in catalog if abs(t['nominal_diameter_mm']-v['diameter_mm'])<1e-8 and
         (abs(t['pitch_mm']-v['pitch_mm'])<1e-8 if v['pitch_mm'] else 'x' not in t['designation']))
     v.update(pitch_mm=thread['pitch_mm'],bore_mm=thread['internal_root_diameter_mm'])
-    v['mouth_chamfer_mm']=(v['diameter_mm']-v['bore_mm'])/2
+    v['mouth_chamfer_mm']=(v['diameter_mm']-v['bore_mm'])/2/math.tan(math.radians(v['mouth_angle_degrees']/2))
     v['independent_volume_mm3']=independent_volume(v)
     native.run('new',type='part',name=target.stem)
     sk=native.run('sketch.create',name='Hexagon profile',plane='XY')['sketch'];r=v['across_flats_mm']/math.sqrt(3)
@@ -104,10 +94,10 @@ def author(native,v,target):
     native.run('sketch.constraint.create',sketch=sk,kind='point_on_line',points=[vertex],geometry=['sketch_axis:x'])
     assert native.run('sketch.solve_status',sketch=sk)['remaining_degrees_of_freedom']==0
     prism=native.run('feature.create',sketch=sk,parameters=dict(symmetric=False,sides=[caps.side(v['height_mm']),caps.side(operation='none')]))['container']
-    crown=dome(native,v,prism);bevel=nuts.bevel(native,v,prism,False)
+    closed_end=crown(native,v,prism);bevel=nuts.bevel(native,v,prism,False)
     hole=native.run('opening.create',type='metric',designation=thread['designation'],bore_end='length',thread_end='length',
         bore_length_mm=v['bore_depth_mm'],thread_length_mm=v['thread_length_mm'],runout_pitch_factor=0,
-        chamfer_enabled=True,chamfer_depth_mm=v['mouth_chamfer_mm'],chamfer_angle_degrees=90,
+        chamfer_enabled=True,chamfer_depth_mm=v['mouth_chamfer_mm'],chamfer_angle_degrees=v['mouth_angle_degrees'],
         drill_point_enabled=False,placement=dict(z=0))['container']
     native.run('document.material.set',properties=[dict(key='MATERIAL_NAME',value=v['material']),
         dict(key='MASS_DENSITY',value=str(v['density_kg_mm3']),unit='kg/mm^3',
@@ -130,7 +120,7 @@ def author(native,v,target):
     native.run('document.relations.set',relations=text);native.run('regenerate')
     assert not native.run('history.list')['calculation_errors']
     native.run('save');native.run('close')
-    return dict(sketch=sk,size=size,prism=prism,crown=crown,bevel=bevel,thread=hole)
+    return dict(sketch=sk,size=size,prism=prism,crown=closed_end,bevel=bevel,thread=hole)
 
 
 def main():

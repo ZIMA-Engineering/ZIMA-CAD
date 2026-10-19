@@ -222,62 +222,81 @@ The measurement receipt is
 `build/cylinder-properties-measured-comparison-v3/results.json`. These are Windows
 measurements; Linux has not been verified for this change.
 
-## Blind cap-nut candidates
+## CSN closed nuts: primary-standard correction
 
-`tools/generate-cap-nut-library.py` stages 21 historical CSN 02 1431 diameter/
-pitch combinations from M6 to M30. It preserves s, overall m5, minimum threaded
-depth b and the archived p column as separate dimensions. The current candidate
-interprets p as cylindrical blind-bore depth; this interpretation and the end
-geometry remain under review and must not be treated as an approved standard
-execution. A native revolved arc
-cuts the crown from an Origin-seated hexagonal prism. The arc is supported by
-the actual original prism vertex, not an arbitrary point in space. A native
-threaded opening has a finite bore, finite thread length and no drill point.
+The user confirmed the existing **Closed nuts** category (`05-NUTS/04-CAP`,
+Czech UI "Uzavřené matice") and approved following the original CSN drawing on
+2026-10-20. CSN 02 1431:1970 has a **45-degree closed-end cone terminating in
+flat diameter k**, a **120-degree included thread-mouth countersink**, and a
+flat blind bore at depth p. It is distinct from hemispherical DIN 1587.
 
-The archived figure does not dimension the crown radius or seating bevel.
-These candidates explicitly choose crown R=2*d and a 30-degree seating bevel.
-They remain outside the factory library pending final review, artwork and GUI
-checks; do not relabel them DIN 1587 or claim complete manufacturing validation.
-The user identified an excessively thin end wall in the M8 illustration on
-2026-10-19: m5=16.5 mm and interpreted p=16 mm leave only 0.5 mm at the pole,
-and approximately 0.15 mm axially at the bore rim with the chosen sphere.
-`build/cap-nut-native-candidates-v2/end-wall-review.json` records the same check
-for all 21 candidates (minimum approximately 0.122 mm). Valid solids and passing
-edit tests do not establish manufacturability. Installation remains blocked
-until the p definition, closed-end geometry and dimensions are corroborated.
-Do not arbitrarily shorten the archived p value or substitute another standard.
-The archived k column is retained in the manifest, but its meaning is not
-established by the existing figure and it is not treated as another driver.
+The [original standard preview, Table 1](https://nahledy.normy.biz/n.php?i=254)
+corrects the contradictory archived illustration/table. In particular, M10/M12/
+M14 use s=17/19/22 mm, M8 b_min=10.5 mm, and several bore depths differ. k is a
+flat diameter, not an unresolved height or chosen crown radius. The reviewed
+facts, source-image hashes, interpretation and edition limits are retained in
+`tools/data/csn-closed-nut-reviewed-dimensions.json`; third-party source images
+are not distributed. Only the eleven evidenced coarse-pitch sizes M6–M30 are
+authored. Fine-pitch availability is not inferred from the older archive.
 
-When R equals overall height, the independent arc centre happens to coincide
-with the Origin. The rotation axis must not reuse that centre point: otherwise
-changing R or height would introduce an unintended dependency. The axis owns
-its separate Origin contact. Native repeated-edit checks exercise both drivers
-and the original external support, rather than accepting initial coincidence
-as proof of editability.
+`tools/generate-cap-nut-library.py` authors native constrained hexagon and
+cone-cut meridians, the separate Origin-supported rotation axis, seating bevel
+and finite threaded opening. The cone-cut profile is supported by the actual
+original prism vertex. It uses ordinary Part/Body history and the shared native
+implementation. Explicit regeneration precedes save/reopen, Relations derives
+stock and current mass, and steel density is 7.85e-6 kg/mm³. Indicative tabulated
+mass is never substituted for calculated geometry. The preview does not prove
+all manufacturing tolerances, material classes, coatings or later amendments.
 
-`--cap-nuts` in the native fastener checker verifies one valid solid, a genuinely
-blind end wall, the crown's sphere equation, exact independent section volume,
-stored mass, finite thread display and repeated locked/unlocked Sketch drags.
-`tools/verify-cap-nut-library.py` exercises height, flats, crown radius, bore
-depth and thread length with Undo/Redo and save/reopen. An interrupted run can
-resume completed receipts while retrying the incomplete model in a new folder.
-The checker is pinned to an immutable executable snapshot so another build
-cannot interrupt a verification process.
+All eleven private baseline models and 165 successive driver edits pass in
+`build/csn-closed-nuts-primary-v5/` and
+`build/csn-closed-nuts-primary-edit-v3/results.json`. The five drivers are height,
+flats, flat diameter k, bore depth and thread length, with three edits each,
+Undo/Redo, explicit regeneration, original source-face identity and save/reopen.
+The native checker independently verifies one valid solid, cone and flat-face
+equations, blind bore/end wall, section hatching, adaptive BRep volume against
+independent section integration, saved mass, finite thread display and repeated
+locked/unlocked Sketch dragging. Final M8/M30 GUI checks perform twelve
+coordinate/angle edits and six real point drags with Undo/Redo and native
+save/reopen; their final solids pass the independent checker. All six reference
+Drawings retain seven resolved dimension identities and values through
+regeneration and save/reopen. The eleven Parts, thumbnails, native reference
+and five localized Drawings are installed under `04-CAP/01-CSN021431`;
+packaged-runtime verification remains a release gate.
 
-The M16 GUI fixture passed three actual mouse radius edits, Undo/Redo and
-save/reopen; its saved result passed an independent native geometry check in
-`build/cap-nut-m16-gui-independent`. The R label overlaps the H glyph at its
-lower end; the test selects an exposed part through the ordinary ordered picker.
-`tools/render-cap-nut-library.py` produces native projected views and an axial
-section with axes and six dimensions, localized in all five languages. All six
-drawings in `build/cap-nut-native-section-art-v3` retain dimension values and
-identities through regeneration and save/reopen. These are review candidates,
-not installed library assets; their annotations explicitly identify the chosen
-CAD crown radius.
+The former 21 spherical CSN candidates and their six review Drawings remain
+retired private studies. Their R=2d choice and thin end wall are superseded,
+not migrated into this family. No custom or inserted user definition is
+rewritten. DIN 1587 keeps its own generator, geometry, dimensions and assets.
+The earlier sphere studies also exposed the separately repaired
+[collapsed-triangle Drawing defect](DRAWING_COLLAPSED_TRIANGLES.md).
 
-The crown also exposed the drawing-only collapsed-triangle defect described
-in [DRAWING_COLLAPSED_TRIANGLES.md](DRAWING_COLLAPSED_TRIANGLES.md).
+## Additional families requested on 2026-10-20
+
+These requests extend the current overnight library work; they do not replace
+the program repairs or the completed primary-CSN closed-nut family. All models
+require ordinary editable native history, current calculated mass, source
+review, repeated master edits/dragging, native save/reopen, five localized
+names/pages, thumbnails and associative reference Drawings with axes.
+
+| Requested family | Agreed geometry and source scope | Current status |
+| --- | --- | --- |
+| DIN approximately 6923 flange nuts | Fabory 11610: omit seating serrations as explicitly requested and identify the simplification. Fabory's dimensional catalog and Aspen/BBI sheets corroborate the flange series. | Source review; authoring pending. |
+| DIN 74361 A wheel nuts | Fabory 16217.200.150, M20x1.5, SW27: retain the spherical collar, fine thread and lower clearance geometry. | Primary drawing and dimensional review; authoring pending. |
+| Coupling nuts, trade designation DIN 6334 | Fabory 11400, height 3d and through thread. Fabory identifies this as a customary trade designation rather than a published DIN coupling-nut standard; do not invent manufacturing certification. Aspen and CVT corroborate nominal height/flats. | Source review; authoring pending. |
+| DIN 74361 C spring lock washers | Spherical seating shape using the established native spring-washer split workflow. The primary drawing specifies dimensions in the tightened condition; preserve that distinction rather than simulate spring loading. | Primary profile interpretation; authoring pending. |
+| DIN 74361 F conical nuts | Separate conical seating variants and source-supported included angles, with their own identities. | Primary drawing review; authoring pending. |
+
+The original [DIN 74361-2:1982 facsimile](https://krepcom.ru/upload/iblock/c8b/k3oxxrrbwyh3ty60v5nkcs8e9jxz6i2u/DIN_74361.pdf)
+is retained privately under `build/new-nut-primary-sources-20261020/`, SHA-256
+`b2572a654e8a725c1e1eb691084f8cbd0bfeaab006ebfb87c687ce0ede87a5d5`.
+Additional sources are the [Fabory wheel-nut family](https://www.fabory.com/en/hexagon-wheel-nut-with-spherical-collar-mf-din-74361-a-steel-plain-8/p/16217),
+[Fabory dimensional flange catalog](https://fabory.partcommunity.com/3d-cad-models/din-6923-zeskantmoer-met-flens-fabory?info=fabory/3_nuts/din_6923_v2.prj&languageIso=nl),
+[Aspen flange dimensions](https://www.aspenfasteners.com/content/pdf/Metric_DIN_6923_spec.pdf),
+[Aspen coupling dimensions](https://www.aspenfasteners.com/content/pdf/Metric_DIN_6334_spec.pdf)
+and [Fabory's coupling designation explanation](https://www.fabory.com/nl/Bevestigingsartikelen/Moeren/Verbindingsmoeren/c/010304).
+Only reviewed facts and our authored geometry/artwork enter the factory
+library; third-party source scans remain outside the distributed repository.
 
 ## Knurled nut candidates
 

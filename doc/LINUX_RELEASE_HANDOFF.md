@@ -1,5 +1,23 @@
 # Linux build and distribution handoff â€” 2026-09-15
 
+## Rounded angular/tangent profiles and Drawing text (2026-10-20)
+
+Run the rounded-tangent-wing, relation-dimension-order, Sketcher, serialization,
+dimension/Relations, metadata and translation contracts on the native Linux
+build. Exercise successive coordinate/angle and crown/corner-radius edits,
+fully constrained rejection, actual point dragging, finite native supports,
+external immutability, Undo/Redo and native save/reopen. Reproduce the actual
+four-study edit matrix; Windows now passes all 40 driver cases. Their separate
+source/contour and R2 gates remain unfinished, so do not install the studies.
+See [Rounded tangent outlines](verification/20261020-rounded-tangent-wing.md).
+
+Run Drawing text coverage, image/PDF/DXF exports, dimension layout and the
+Drawing GUI contract. Check the long review note, all five language glyphs and
+physical pen-width calibration with the Linux font/runtime. See
+[Drawing text coverage](verification/20261020-drawing-text-coverage.md).
+These shared C++ changes have no native-format or protected-placement change.
+Linux compilation and execution have not been performed on this Windows host.
+
 ## Coordinate incidence and wing studies (2026-10-19)
 
 Build and run the shared Sketcher/reference/dimension/serialization/Relations

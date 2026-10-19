@@ -291,7 +291,7 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         std::ranges::any_of(sketch.external_references,[](const auto& r){return external_reference_circle(r).has_value();});
     if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||sketch.points.size()>32||
        !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
-       !sketch.bsplines.empty()||!sketch.corner_radii.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
+       !sketch.bsplines.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
@@ -327,6 +327,16 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         }
         const auto external=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
         if(external!=next.external_references.end())return external_reference_circle(*external);
+        return {};
+    };
+    // A corner radius is a scalar modifier of its two native support lines,
+    // not another circular support in the underlying constraint graph. Keep
+    // those lines/vertex in the fit and materialize the modifier only after
+    // convergence. Its visible owned dimension remains authoritative.
+    const auto radius=[&](const std::string& id)->std::optional<double> {
+        if(const auto c=circular(id))return (*c)[2];
+        const auto corner=std::ranges::find(next.corner_radii,id,&SketchCornerRadius::id);
+        if(corner!=next.corner_radii.end())return corner->radius;
         return {};
     };
     // External supports are immutable inputs. Only native point coordinates and
@@ -470,8 +480,8 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         for(const auto& d:next.dimensions) {
             if(d.suppressed||!d.driving)continue;
             if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
-                const auto c=circular(d.geometry_id);if(!c)return {};
-                r.push_back((*c)[2]-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
+                const auto value=radius(d.geometry_id);if(!value)return {};
+                r.push_back(*value-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
             } else if(d.kind==DimensionKind::AngleBetween) {
                 const auto a=line(d.geometry_id),b=line(d.second_geometry_id);if(!a||!b)return {};
                 const double dot=(*a)[2]*(*b)[2]+(*a)[3]*(*b)[3],cross=(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2];
@@ -527,6 +537,7 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     for(auto& p:next.points)if(!p.fixed&&!derived_endpoints.contains(p.id)&&std::ranges::find(anchors,p.id)==anchors.end()){variables.push_back(&p.x);variables.push_back(&p.y);}
     for(auto& a:next.arcs)variables.push_back(&a.radius);
     for(auto& c:next.circles)variables.push_back(&c.radius);
+    for(auto& corner:next.corner_radii)if(!corner.dimension_visible)variables.push_back(&corner.radius);
     if(variables.empty())return false;
     const auto norm=[](const auto& r){double value=0;for(double v:r)value+=v*v;return value;};
     for(int iteration=0;iteration<48;++iteration) {
@@ -546,6 +557,10 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 a.end_angle=std::atan2((*q)[1]-(*c)[1],(*q)[0]-(*c)[0]);
                 while(a.end_angle<=a.start_angle)a.end_angle+=6.283185307179586;
                 if(std::abs(a.end_angle-a.start_angle-old_sweep)>3.141592653589793)return false;
+            }
+            if(!next.corner_radii.empty()) {
+                try { static_cast<void>(next.evaluated_profile_sketch()); }
+                catch(const std::exception&) { return false; }
             }
             sketch=std::move(next);return true;
         }
