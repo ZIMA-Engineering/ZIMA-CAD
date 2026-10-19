@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026101906](releases/2026101906.md#windows-publication-acceptance)
+was published at `2026-10-19T18:56:09Z` from immutable source
+`c25c0a7dec47f335632110b875e475ce058f1be5`. Save/Save As publish physical-dependent Relations;
+Sketch symbols have native solver points and reversible decomposition, Text
+entry is repaired, Drawing contacts are corrected and 30 reviewed weld nuts are
+included. Clean candidate/signed smoke, 1,028 factory loads, 6,935 exact
+factory comparisons, 16 packaged acceptance scenarios, production trust and
+all three public asset downloads pass. All 16,244 package checksums remain
+intact. Trusted 1903 offers the update without installation. The approved symbol
+contract includes updated factory assets; custom libraries, shared C++, aligned
+Qt/OCCT pins and the stable development BAT are preserved. Linked finite GUI,
+unfinished library and Linux verification limits still apply.
+
 Signed Windows [2026101803](releases/2026101803.md#windows-publication-acceptance)
 was published at `2026-10-18T16:08:59Z` from immutable source
 `33408790b100270a770f08515ddae996f1dc7885`. Studs use the seating-plane origin, ISO 4762 sockets
