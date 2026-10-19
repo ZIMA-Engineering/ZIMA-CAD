@@ -4,6 +4,7 @@
 #include <zima/workspace/opening_copy.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/document/placement_orientation.hpp>
+#include <zima/document/feature_parameter_dimensions.hpp>
 #include <cmath>
 #include <numbers>
 #include <iostream>
@@ -169,6 +170,17 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             const auto wire=state->session.document().thread_edges(committed,nullptr,&preview_axis);
             require(!wire.empty()&&preview_axis.has_value(),"Whole-Origin Opening preview missing");
             near(preview_axis->direction.x,0);near(preview_axis->direction.y,0);near(preview_axis->direction.z,reverse?-1:1);
+            const auto inspected=document::primitive_parameter_dimensions(committed);
+            require(!inspected.dimensions.empty(),"Whole-Origin Opening inspection dimensions missing");
+            for(const auto& dimension:inspected.dimensions) {
+                if(dimension.kind==kernel::ViewerDimensionKind::Diameter) {
+                    near(dimension.plane_normal.x,0);near(dimension.plane_normal.y,0);near(dimension.plane_normal.z,reverse?-1:1);
+                }
+                if(dimension.reference.semantic_key=="parameter:bore_length"||dimension.reference.semantic_key=="parameter:thread_length") {
+                    near(dimension.witness_second.x-dimension.witness_first.x,0);near(dimension.witness_second.y-dimension.witness_first.y,0);
+                    near(dimension.witness_second.z-dimension.witness_first.z,(reverse?-1:1)*dimension.value);
+                }
+            }
             auto up_to_thread=committed;up_to_thread.thread.length_end_condition=document::EndCondition::UpTo;
             document::ExtrusionParameters::EndTarget thread_end;thread_end.kind=document::EndTargetKind::Plane;
             thread_end.fallback_origin={15,0,reverse?20.:-20.};up_to_thread.thread.length_end_targets={thread_end};

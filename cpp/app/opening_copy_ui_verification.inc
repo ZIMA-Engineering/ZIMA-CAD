@@ -81,6 +81,26 @@ int verify_opening_copy_ui(QApplication& application,const std::filesystem::path
             pending->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Opening paste OK failed");
             auto saved=save();check(saved.find_container(draft.id)&&*saved.find_container(opening)==source,"Paste changed source or lost clone");
             if(x==15.)check(saved.find_container(draft.id)->placement.reference_valid&&saved.find_container(draft.id)->placement.references.size()>=3,"Pasted whole-Origin references did not persist");
+            if(x==15.) {
+                const auto before_inspection=revision();
+                select(draft.id);auto* row=tree->currentItem();tree->scrollToItem(row);flush();
+                const auto point=tree->visualItemRect(row).center();
+                QMouseEvent double_click(QEvent::MouseButtonDblClick,QPointF(point),QPointF(tree->viewport()->mapToGlobal(point)),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(tree->viewport(),&double_click);flush();
+                check(!dialog(),"Ordinary Opening inspection opened Properties");
+                int axial_dimensions=0,diameter_dimensions=0;
+                for(const auto& dimension:view->mesh().dimensions)if(dimension.reference.owner_id==draft.id) {
+                    if(dimension.kind==kernel::ViewerDimensionKind::Diameter) {
+                        check(std::abs(dimension.plane_normal.x)<1e-8&&std::abs(dimension.plane_normal.y)<1e-8&&std::abs(dimension.plane_normal.z-1)<1e-8,"Opening inspection diameter plane differs from its bore");++diameter_dimensions;
+                    }
+                    if(dimension.reference.semantic_key=="parameter:bore_length"||dimension.reference.semantic_key=="parameter:thread_length") {
+                        const auto a=dimension.witness_first,b=dimension.witness_second;
+                        check(std::abs(b.x-a.x)<1e-8&&std::abs(b.y-a.y)<1e-8&&std::abs(b.z-a.z-dimension.value)<1e-8,"Opening inspection length differs from its bore axis");++axial_dimensions;
+                    }
+                }
+                check(axial_dimensions==2&&diameter_dimensions==2,"Whole-Origin Opening inspection dimensions missing");
+                check(revision()==before_inspection,"Opening inspection changed the document revision");
+            }
             window.findChild<QAction*>("undoAction")->trigger();flush();check(!save().find_container(draft.id),"Opening paste Undo failed");
             window.findChild<QAction*>("redoAction")->trigger();flush();check(save().find_container(draft.id),"Opening paste Redo lost identity");
         }

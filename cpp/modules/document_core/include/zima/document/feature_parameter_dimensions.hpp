@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/document/part_document.hpp>
 #include <zima/document/opening_dimension_policy.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 namespace zima::document {
 // Read-only parameter annotations shared by modeling inspection and Drawings.
@@ -117,7 +118,7 @@ inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer&
                 if (container->feature_kind == FeatureKind::Thread) {
                     const double diameter=container->thread.enabled
                         ? container->thread.profile_diameter : container->thread.nominal_diameter;
-                    const bool referenced_work_plane = std::any_of(
+                    const bool referenced_work_plane = !placement_references_use_whole_origin(container->placement.references)&&std::any_of(
                         container->placement.references.begin(),
                         container->placement.references.end(),
                         [](const auto& reference) {

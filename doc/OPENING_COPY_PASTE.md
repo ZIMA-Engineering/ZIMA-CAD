@@ -41,7 +41,8 @@ new whole-Origin references and offset, independent IDs, repeated pastes,
 Cancel, Undo/Redo, save/reopen, unsupported selections and text-editor shortcut
 preservation. The final native material volume matches three independently
 calculated holes, including the entrance chamfer and drill point. Evidence is
-in `build/opening-copy-origin-fixed/`; the numeric-placement baseline is in
+in `build/opening-copy-origin-fixed/`; the extended inspection run is in
+`build/opening-copy-origin-inspection/`. The numeric-placement baseline is in
 `build/opening-copy-gui-v7/`.
 
 ## Whole-Origin calculation correction
@@ -54,7 +55,9 @@ At a box boundary this removed half the expected volume.
 
 The Opening now consumes the existing whole-Origin capability predicate when
 choosing its work plane. Kernel requests, wire preview and Up-to thread-length
-measurement use the same command-local choice. Single-face FRONT attachment
+measurement use the same command-local choice. Inspection dimensions also consume
+the existing complete-Origin predicate, so axial witnesses and diameter-plane
+normals follow the calculated bore. Single-face FRONT attachment
 retains its existing behavior. No shared placement solver, orientation/offset
 rules, reference storage, native schema or topology identity is changed.
 
@@ -66,6 +69,12 @@ frame, preview axis, retained references, unchanged OK, Undo/Redo, cached native
 reopen and cold calculation for the chamfer/tip variants. Up-to thread length is
 checked against an independent plane intersection. Existing single-plane,
 catalogue, lock and invalid-edit cases also pass.
+
+The extended matrix checks axial dimension witnesses and diameter-plane normals
+in all 32 cases. The GUI test additionally double-clicks the pasted whole-Origin
+feature and verifies both length dimensions, both diameter planes, no Properties
+dialog and unchanged revision. This completes the dependent inspection correction
+in build 2026101902; the unissued 1901 source tag remains immutable.
 
 No new visible text is introduced by the geometry correction. The clipboard
 status message is translated in cs/en/de/fr/ru. Cross-process clipboard transfer,
