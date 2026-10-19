@@ -972,3 +972,24 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
 - This rule concerns model filenames; directory infrastructure retains its
   established `metadata.ini` and localized HTML index filenames.
 - This requirement was explicitly agreed with the user on 2026-10-16.
+
+## Engineering library mass publication (mandatory)
+
+- Before completing or publishing an authored or modified native model in the
+  engineering tables library, explicitly Regenerate it, verify its material
+  density and physical mass, and save the resulting relation parameters.
+  The default `mass = model.mass` relation publishes its value only on explicit
+  Regenerate. Modeling, saving, opening and Drawing regeneration do not replace
+  this step. Never accept a stale default `mass = 0` for a nonzero solid.
+- For an Assembly deliverable, Regenerate and save the source Parts first, then
+  Regenerate and save the Assembly. Check the total against the physical mass
+  of all unsuppressed occurrences, counting repeated components separately.
+  Refresh the Drawing/BOM afterward and verify both row masses and title-block
+  total, including their units. Do not sum rounded display values as exact mass.
+- Missing density or unavailable physical analysis must not be represented as
+  verified zero mass. Identify intentional non-solid/reference-only library
+  models separately. Preserve explicit regeneration and demand-driven analysis;
+  this authoring check does not authorize automatic regeneration on tab changes,
+  metadata inspection or Drawing display.
+- This requirement was requested by the user on 2026-10-19 after the presentation
+  demo retained initial zero mass parameters until the models were regenerated.

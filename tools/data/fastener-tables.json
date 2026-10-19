@@ -12362,6 +12362,279 @@
       "DIN 1587 — Zeichnung des nativen Modells",
       "DIN 1587 — dessin du modèle natif",
       "DIN 1587 — чертёж нативной модели"
+    ],
+    "weld_thread": [
+      "Závit",
+      "Thread",
+      "Gewinde",
+      "Filetage",
+      "Резьба"
+    ],
+    "weld_contact": [
+      "Dosedací plochy tří výstupků leží na XY v Z = 0. Osa závitu prochází počátkem; matice směřuje do +Z. Model představuje stav před svařením.",
+      "The three projection contact faces lie on XY at Z = 0. The thread axis passes through the Origin; the nut extends in +Z. The model represents the unwelded state.",
+      "Die drei Vorsprungkontaktflächen liegen auf XY bei Z = 0. Die Gewindeachse geht durch den Ursprung; die Mutter erstreckt sich in +Z. Das Modell zeigt den ungeschweißten Zustand.",
+      "Les trois faces de contact des bossages sont sur XY à Z = 0. L’axe du filetage passe par l’origine ; l’écrou s’étend vers +Z. Le modèle représente l’état avant soudage.",
+      "Три контактные поверхности выступов лежат в XY при Z = 0. Ось резьбы проходит через начало координат; гайка направлена вдоль +Z. Модель показывает состояние до сварки."
+    ],
+    "weld_nominal": [
+      "Jmenovitá geometrie CAD se schematickým závitem a ocelí o hustotě 7 850 kg/m³. Hmotnost modelu se počítá z objemu; nejde o osvědčení materiálu ani svařitelnosti.",
+      "Nominal CAD geometry with schematic thread and steel density 7,850 kg/m³. Model mass is calculated from volume; this is not a material or weldability certificate.",
+      "CAD-Nenngeometrie mit schematischem Gewinde und Stahldichte 7.850 kg/m³. Die Modellmasse wird aus dem Volumen berechnet; dies ist kein Werkstoff- oder Schweißeignungsnachweis.",
+      "Géométrie CAO nominale avec filetage schématique et acier de masse volumique 7 850 kg/m³. La masse est calculée à partir du volume ; ce n’est pas un certificat de matériau ou de soudabilité.",
+      "Номинальная геометрия САПР со схематической резьбой и плотностью стали 7 850 кг/м³. Масса вычисляется по объёму; это не сертификат материала или свариваемости."
+    ],
+    "weld_iso_height": [
+      "Výška m nezahrnuje výstupky c; celková výška je m + c. Zaoblení kořene R = 0,5 mm a zadní sražení 30° jsou zvolené detaily modelu.",
+      "Height m excludes projections c; overall height is m + c. The root radius R = 0.5 mm and back bevel of 30° are chosen model details.",
+      "Die Höhe m schließt die Vorsprünge c aus; die Gesamthöhe ist m + c. Wurzelradius R = 0,5 mm und rückseitige Fase 30° sind gewählte Modelldetails.",
+      "La hauteur m exclut les bossages c ; la hauteur totale est m + c. Le rayon de raccordement R = 0,5 mm et le chanfrein arrière de 30° sont des détails de modèle choisis.",
+      "Высота m не включает выступы c; общая высота равна m + c. Радиус сопряжения R = 0,5 мм и задняя фаска 30° — выбранные детали модели."
+    ],
+    "weld_din_height": [
+      "Výška m zahrnuje přivařovací výstupky h1. h2 je výška středicího osazení. Zadní sražení 30° je zvolený detail modelu.",
+      "Height m includes the weld projections h1. h2 is the centering pilot height. The back bevel of 30° is a chosen model detail.",
+      "Die Höhe m schließt die Schweißvorsprünge h1 ein. h2 ist die Zentrierbundhöhe. Die rückseitige Fase 30° ist ein gewähltes Modelldetail.",
+      "La hauteur m inclut les bossages de soudage h1. h2 est la hauteur du pilote de centrage. Le chanfrein arrière de 30° est un détail de modèle choisi.",
+      "Высота m включает сварочные выступы h1. h2 — высота центрирующего буртика. Задняя фаска 30° — выбранная деталь модели."
+    ],
+    "weld_din": [
+      "Šestihranná přivařovací matice",
+      "Hexagon weld nut",
+      "Sechskant-Schweißmutter",
+      "Écrou hexagonal à souder",
+      "Шестигранная приварная гайка"
+    ],
+    "weld_din_art": [
+      "DIN 929 — výkres nativního modelu",
+      "DIN 929 — native model drawing",
+      "DIN 929 — Zeichnung des nativen Modells",
+      "DIN 929 — dessin du modèle natif",
+      "DIN 929 — чертёж нативной модели"
+    ],
+    "weld_P": [
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]"
+    ],
+    "weld_s": [
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]"
+    ],
+    "weld_m": [
+      "m [mm]",
+      "m [mm]",
+      "m [mm]",
+      "m [mm]",
+      "m [mm]"
+    ],
+    "weld_d2": [
+      "d2 [mm]",
+      "d2 [mm]",
+      "d2 [mm]",
+      "d2 [mm]",
+      "d2 [mm]"
+    ],
+    "weld_h1": [
+      "h1 [mm]",
+      "h1 [mm]",
+      "h1 [mm]",
+      "h1 [mm]",
+      "h1 [mm]"
+    ],
+    "weld_h2": [
+      "h2 [mm]",
+      "h2 [mm]",
+      "h2 [mm]",
+      "h2 [mm]",
+      "h2 [mm]"
+    ],
+    "weld_iso": [
+      "Šestihranná přivařovací matice s přírubou",
+      "Hexagon weld nut with flange",
+      "Sechskant-Schweißmutter mit Flansch",
+      "Écrou hexagonal à souder à embase",
+      "Шестигранная приварная гайка с фланцем"
+    ],
+    "weld_iso_art": [
+      "ISO 21670 — výkres nativního modelu",
+      "ISO 21670 — native model drawing",
+      "ISO 21670 — Zeichnung des nativen Modells",
+      "ISO 21670 — dessin du modèle natif",
+      "ISO 21670 — чертёж нативной модели"
+    ],
+    "weld_da": [
+      "da [mm]",
+      "da [mm]",
+      "da [mm]",
+      "da [mm]",
+      "da [mm]"
+    ],
+    "weld_dc": [
+      "dc [mm]",
+      "dc [mm]",
+      "dc [mm]",
+      "dc [mm]",
+      "dc [mm]"
+    ],
+    "weld_b": [
+      "b [mm]",
+      "b [mm]",
+      "b [mm]",
+      "b [mm]",
+      "b [mm]"
+    ],
+    "weld_c": [
+      "c [mm]",
+      "c [mm]",
+      "c [mm]",
+      "c [mm]",
+      "c [mm]"
+    ],
+    "weld_f": [
+      "f [mm]",
+      "f [mm]",
+      "f [mm]",
+      "f [mm]",
+      "f [mm]"
+    ],
+    "weld_g": [
+      "g [mm]",
+      "g [mm]",
+      "g [mm]",
+      "g [mm]",
+      "g [mm]"
+    ],
+    "weld_r1": [
+      "r1 [mm]",
+      "r1 [mm]",
+      "r1 [mm]",
+      "r1 [mm]",
+      "r1 [mm]"
+    ],
+    "weld_r2": [
+      "r2 [mm]",
+      "r2 [mm]",
+      "r2 [mm]",
+      "r2 [mm]",
+      "r2 [mm]"
+    ],
+    "weld_thread_M3×0.5": [
+      "M3×0.5",
+      "M3×0.5",
+      "M3×0.5",
+      "M3×0.5",
+      "M3×0.5"
+    ],
+    "weld_thread_M4×0.7": [
+      "M4×0.7",
+      "M4×0.7",
+      "M4×0.7",
+      "M4×0.7",
+      "M4×0.7"
+    ],
+    "weld_thread_M5×0.8": [
+      "M5×0.8",
+      "M5×0.8",
+      "M5×0.8",
+      "M5×0.8",
+      "M5×0.8"
+    ],
+    "weld_thread_M6×1": [
+      "M6×1",
+      "M6×1",
+      "M6×1",
+      "M6×1",
+      "M6×1"
+    ],
+    "weld_thread_M8×1.25": [
+      "M8×1.25",
+      "M8×1.25",
+      "M8×1.25",
+      "M8×1.25",
+      "M8×1.25"
+    ],
+    "weld_thread_M8×1": [
+      "M8×1",
+      "M8×1",
+      "M8×1",
+      "M8×1",
+      "M8×1"
+    ],
+    "weld_thread_M10×1.5": [
+      "M10×1.5",
+      "M10×1.5",
+      "M10×1.5",
+      "M10×1.5",
+      "M10×1.5"
+    ],
+    "weld_thread_M10×1": [
+      "M10×1",
+      "M10×1",
+      "M10×1",
+      "M10×1",
+      "M10×1"
+    ],
+    "weld_thread_M10×1.25": [
+      "M10×1.25",
+      "M10×1.25",
+      "M10×1.25",
+      "M10×1.25",
+      "M10×1.25"
+    ],
+    "weld_thread_M12×1.75": [
+      "M12×1.75",
+      "M12×1.75",
+      "M12×1.75",
+      "M12×1.75",
+      "M12×1.75"
+    ],
+    "weld_thread_M12×1.25": [
+      "M12×1.25",
+      "M12×1.25",
+      "M12×1.25",
+      "M12×1.25",
+      "M12×1.25"
+    ],
+    "weld_thread_M12×1.5": [
+      "M12×1.5",
+      "M12×1.5",
+      "M12×1.5",
+      "M12×1.5",
+      "M12×1.5"
+    ],
+    "weld_thread_M14×2": [
+      "M14×2",
+      "M14×2",
+      "M14×2",
+      "M14×2",
+      "M14×2"
+    ],
+    "weld_thread_M14×1.5": [
+      "M14×1.5",
+      "M14×1.5",
+      "M14×1.5",
+      "M14×1.5",
+      "M14×1.5"
+    ],
+    "weld_thread_M16×2": [
+      "M16×2",
+      "M16×2",
+      "M16×2",
+      "M16×2",
+      "M16×2"
+    ],
+    "weld_thread_M16×1.5": [
+      "M16×1.5",
+      "M16×1.5",
+      "M16×1.5",
+      "M16×1.5",
+      "M16×1.5"
     ]
   },
   "sources": {
@@ -12688,6 +12961,14 @@
     "din1587_support_2": {
       "label": "DIN 1587:2021 preview",
       "url": "https://www.normsplash.com/Samples/DIN/186512567/DIN-1587-2021-en.pdf"
+    },
+    "weld_din": {
+      "label": "DIN 929 · Bollhoff dimensions",
+      "url": "https://eshop-sk.boellhoff.com/out/media/pdf/DIN_929_Stahl___en.pdf"
+    },
+    "weld_iso": {
+      "label": "ISO 21670 · ISO 21670:2014",
+      "url": "https://www.iso.org/standard/63369.html"
     }
   },
   "pages": [
@@ -49302,176 +49583,15 @@
     {
       "path": "05-NUTS/05-WELD",
       "title": "directory_05-NUTS_05-WELD",
-      "headers": [
-        "parameter",
-        "symbol_M4",
-        "symbol_M5",
-        "symbol_M6",
-        "symbol_M7^4)",
-        "symbol_M8",
-        "symbol_M10",
-        "symbol_M12",
-        "symbol_M14",
-        "symbol_M16"
-      ],
-      "rows": [
-        [
-          "c",
-          "4,5",
-          "4,5",
-          "5",
-          "5,5",
-          "6,5",
-          "7",
-          "7,5",
-          "8",
-          "8,5"
-        ],
-        [
-          "d _1",
-          "7",
-          "7",
-          "8",
-          "9",
-          "10",
-          "13",
-          "14",
-          "16",
-          "18"
-        ],
-        [
-          "e _min.",
-          "11",
-          "11",
-          "13,2",
-          "14,3",
-          "15,5",
-          "18,9",
-          "21",
-          "24,4",
-          "26,7"
-        ],
-        [
-          "f ^+0,10 / -0,15",
-          "0,8",
-          "0,8",
-          "0,9",
-          "1",
-          "1",
-          "1,2",
-          "1,4",
-          "1,8",
-          "1,8"
-        ],
-        [
-          "h",
-          "0,4",
-          "0,4",
-          "0,5",
-          "0,5",
-          "0,5",
-          "0,5",
-          "0,5",
-          "0,6",
-          "0,6"
-        ],
-        [
-          "g ^1)",
-          "0,4",
-          "0,4",
-          "0,5",
-          "0,55",
-          "0,55",
-          "0,6",
-          "0,8",
-          "1",
-          "1"
-        ],
-        [
-          "m",
-          "5,5",
-          "5,5",
-          "6",
-          "6",
-          "7",
-          "8,5",
-          "10",
-          "12",
-          "14"
-        ],
-        [
-          "s",
-          "10",
-          "10",
-          "12",
-          "13",
-          "14",
-          "17",
-          "19",
-          "22",
-          "24"
-        ],
-        [
-          "v ^+0,5 / -0,1",
-          "1,3",
-          "1,3",
-          "1,4",
-          "1,5",
-          "1,8",
-          "2",
-          "2,1",
-          "2,3",
-          "2,4"
-        ],
-        [
-          {
-            "key": "mass_Hmotnost [g]"
-          },
-          "2,9",
-          "2,8",
-          "4,2",
-          "4,8",
-          "6,3",
-          "11,3",
-          "15,5",
-          "24,9",
-          "33,3"
-        ]
-      ],
-      "notes": [
-        "units",
-        "pair_order",
-        "brackets"
-      ],
-      "sources": [
-        "iso8992_2005"
-      ],
-      "source_table": "05-NUTS/05-WELD#0",
-      "source_rows": [
-        0,
-        10
-      ],
-      "source_columns": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9
-      ],
-      "review": "historical",
-      "heading": "logical_page_05-NUTS/05-WELD_0_1_0",
-      "source_path": "05-NUTS/05-WELD/01-C02-R001",
       "id": "65ab5ea0-f271-597a-a6a3-d0736407a1e7",
-      "sections": [],
-      "freeze_header": true,
-      "omit_approximate_mass": true,
-      "thread_dimension_rows": true,
-      "display_row_count": 9
+      "headers": [
+        "symbol",
+        "meaning"
+      ],
+      "rows": [],
+      "notes": [],
+      "sources": [],
+      "sections": []
     },
     {
       "path": "05-NUTS/06-TWO-PART",
@@ -55135,6 +55255,411 @@
             "de": "CN-DIN1587-M08.0-REFERENCE_de.png",
             "fr": "CN-DIN1587-M08.0-REFERENCE_fr.png",
             "ru": "CN-DIN1587-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
+    },
+    {
+      "path": "05-NUTS/05-WELD/01-HEXAGON",
+      "title": "weld_din",
+      "headers": [
+        "parameter",
+        "weld_thread_M3×0.5",
+        "weld_thread_M4×0.7",
+        "weld_thread_M5×0.8",
+        "weld_thread_M6×1",
+        "weld_thread_M8×1.25",
+        "weld_thread_M8×1",
+        "weld_thread_M10×1.5",
+        "weld_thread_M10×1",
+        "weld_thread_M10×1.25",
+        "weld_thread_M12×1.75",
+        "weld_thread_M12×1.25",
+        "weld_thread_M12×1.5",
+        "weld_thread_M14×2",
+        "weld_thread_M14×1.5",
+        "weld_thread_M16×2",
+        "weld_thread_M16×1.5"
+      ],
+      "rows": [
+        [
+          "P",
+          "0.5",
+          "0.7",
+          "0.8",
+          "1",
+          "1.25",
+          "1",
+          "1.5",
+          "1",
+          "1.25",
+          "1.75",
+          "1.25",
+          "1.5",
+          "2",
+          "1.5",
+          "2",
+          "1.5"
+        ],
+        [
+          "s",
+          "7.5",
+          "9",
+          "10",
+          "11",
+          "14",
+          "14",
+          "17",
+          "17",
+          "17",
+          "19",
+          "19",
+          "19",
+          "22",
+          "22",
+          "24",
+          "24"
+        ],
+        [
+          "m",
+          "3",
+          "3.5",
+          "4",
+          "5",
+          "6.5",
+          "6.5",
+          "8",
+          "8",
+          "8",
+          "10",
+          "10",
+          "10",
+          "11",
+          "11",
+          "13",
+          "13"
+        ],
+        [
+          "d2",
+          "4.5",
+          "6",
+          "7",
+          "8",
+          "10.5",
+          "10.5",
+          "12.5",
+          "12.5",
+          "12.5",
+          "14.8",
+          "14.8",
+          "14.8",
+          "16.8",
+          "16.8",
+          "18.8",
+          "18.8"
+        ],
+        [
+          "h1",
+          "0.55",
+          "0.65",
+          "0.7",
+          "0.75",
+          "0.9",
+          "0.9",
+          "1.15",
+          "1.15",
+          "1.15",
+          "1.4",
+          "1.4",
+          "1.4",
+          "1.8",
+          "1.8",
+          "1.8",
+          "1.8"
+        ],
+        [
+          "h2",
+          "0.25",
+          "0.35",
+          "0.4",
+          "0.4",
+          "0.5",
+          "0.5",
+          "0.65",
+          "0.65",
+          "0.65",
+          "0.8",
+          "0.8",
+          "0.8",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "notes": [
+        "units",
+        "weld_contact",
+        "weld_nominal",
+        "weld_din_height"
+      ],
+      "sources": [
+        "weld_din"
+      ],
+      "sections": [],
+      "review": "reviewed_catalogue",
+      "freeze_header": true,
+      "display_row_count": 16,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "HWN-DIN929-M08.0-REFERENCE.png",
+          "caption": "weld_din_art",
+          "localized_paths": {
+            "cs": "HWN-DIN929-M08.0-REFERENCE_cs.png",
+            "en": "HWN-DIN929-M08.0-REFERENCE_en.png",
+            "de": "HWN-DIN929-M08.0-REFERENCE_de.png",
+            "fr": "HWN-DIN929-M08.0-REFERENCE_fr.png",
+            "ru": "HWN-DIN929-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
+    },
+    {
+      "path": "05-NUTS/05-WELD/02-FLANGE",
+      "title": "weld_iso",
+      "headers": [
+        "parameter",
+        "weld_thread_M5×0.8",
+        "weld_thread_M6×1",
+        "weld_thread_M8×1.25",
+        "weld_thread_M8×1",
+        "weld_thread_M10×1.5",
+        "weld_thread_M10×1",
+        "weld_thread_M10×1.25",
+        "weld_thread_M12×1.75",
+        "weld_thread_M12×1.25",
+        "weld_thread_M12×1.5",
+        "weld_thread_M14×2",
+        "weld_thread_M14×1.5",
+        "weld_thread_M16×2",
+        "weld_thread_M16×1.5"
+      ],
+      "rows": [
+        [
+          "P",
+          "0.8",
+          "1",
+          "1.25",
+          "1",
+          "1.5",
+          "1",
+          "1.25",
+          "1.75",
+          "1.25",
+          "1.5",
+          "2",
+          "1.5",
+          "2",
+          "1.5"
+        ],
+        [
+          "s",
+          "8",
+          "10",
+          "13",
+          "13",
+          "16",
+          "16",
+          "16",
+          "18",
+          "18",
+          "18",
+          "21",
+          "21",
+          "24",
+          "24"
+        ],
+        [
+          "m",
+          "5",
+          "7",
+          "10",
+          "10",
+          "13",
+          "13",
+          "13",
+          "15",
+          "15",
+          "15",
+          "17",
+          "17",
+          "19.5",
+          "19.5"
+        ],
+        [
+          "da",
+          "6",
+          "7",
+          "9.5",
+          "9.5",
+          "11.5",
+          "11.5",
+          "11.5",
+          "14",
+          "14",
+          "14",
+          "16",
+          "16",
+          "18",
+          "18"
+        ],
+        [
+          "dc",
+          "15.5",
+          "18.5",
+          "22.5",
+          "22.5",
+          "26.5",
+          "26.5",
+          "26.5",
+          "30.5",
+          "30.5",
+          "30.5",
+          "33.5",
+          "33.5",
+          "36.5",
+          "36.5"
+        ],
+        [
+          "b",
+          "2.2",
+          "2.7",
+          "2.7",
+          "2.7",
+          "2.95",
+          "2.95",
+          "2.95",
+          "3.2",
+          "3.2",
+          "3.2",
+          "3.45",
+          "3.45",
+          "3.7",
+          "3.7"
+        ],
+        [
+          "c",
+          "0.8",
+          "0.8",
+          "1",
+          "1",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2"
+        ],
+        [
+          "f",
+          "1.7",
+          "2",
+          "2.5",
+          "2.5",
+          "3",
+          "3",
+          "3",
+          "3",
+          "3",
+          "3",
+          "4",
+          "4",
+          "4",
+          "4"
+        ],
+        [
+          "g",
+          "4",
+          "5",
+          "6",
+          "6",
+          "7",
+          "7",
+          "7",
+          "8",
+          "8",
+          "8",
+          "8",
+          "8",
+          "8",
+          "8"
+        ],
+        [
+          "r1",
+          "0.6",
+          "0.6",
+          "0.8",
+          "0.8",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        [
+          "r2",
+          "0.3",
+          "0.5",
+          "0.8",
+          "0.8",
+          "1",
+          "1",
+          "1",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2",
+          "1.2"
+        ]
+      ],
+      "notes": [
+        "units",
+        "weld_contact",
+        "weld_nominal",
+        "weld_iso_height"
+      ],
+      "sources": [
+        "weld_iso"
+      ],
+      "sections": [],
+      "review": "reviewed_catalogue",
+      "freeze_header": true,
+      "display_row_count": 14,
+      "thread_dimension_rows": true,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "HFWN-ISO21670-M08.0-REFERENCE.png",
+          "caption": "weld_iso_art",
+          "localized_paths": {
+            "cs": "HFWN-ISO21670-M08.0-REFERENCE_cs.png",
+            "en": "HFWN-ISO21670-M08.0-REFERENCE_en.png",
+            "de": "HFWN-ISO21670-M08.0-REFERENCE_de.png",
+            "fr": "HFWN-ISO21670-M08.0-REFERENCE_fr.png",
+            "ru": "HFWN-ISO21670-M08.0-REFERENCE_ru.png"
           }
         }
       ]
@@ -87527,6 +88052,182 @@
       "after": "symbol_(M12×1,25)",
       "source": "https://preview.sist.si/sist-preview/72583/7f0b086055884c2d8a087755135b7622/ISO-8765-2022.pdf",
       "table": 1
+    }
+  ],
+  "retired_pages": [
+    {
+      "path": "05-NUTS/05-WELD",
+      "title": "directory_05-NUTS_05-WELD",
+      "headers": [
+        "parameter",
+        "symbol_M4",
+        "symbol_M5",
+        "symbol_M6",
+        "symbol_M7^4)",
+        "symbol_M8",
+        "symbol_M10",
+        "symbol_M12",
+        "symbol_M14",
+        "symbol_M16"
+      ],
+      "rows": [
+        [
+          "c",
+          "4,5",
+          "4,5",
+          "5",
+          "5,5",
+          "6,5",
+          "7",
+          "7,5",
+          "8",
+          "8,5"
+        ],
+        [
+          "d _1",
+          "7",
+          "7",
+          "8",
+          "9",
+          "10",
+          "13",
+          "14",
+          "16",
+          "18"
+        ],
+        [
+          "e _min.",
+          "11",
+          "11",
+          "13,2",
+          "14,3",
+          "15,5",
+          "18,9",
+          "21",
+          "24,4",
+          "26,7"
+        ],
+        [
+          "f ^+0,10 / -0,15",
+          "0,8",
+          "0,8",
+          "0,9",
+          "1",
+          "1",
+          "1,2",
+          "1,4",
+          "1,8",
+          "1,8"
+        ],
+        [
+          "h",
+          "0,4",
+          "0,4",
+          "0,5",
+          "0,5",
+          "0,5",
+          "0,5",
+          "0,5",
+          "0,6",
+          "0,6"
+        ],
+        [
+          "g ^1)",
+          "0,4",
+          "0,4",
+          "0,5",
+          "0,55",
+          "0,55",
+          "0,6",
+          "0,8",
+          "1",
+          "1"
+        ],
+        [
+          "m",
+          "5,5",
+          "5,5",
+          "6",
+          "6",
+          "7",
+          "8,5",
+          "10",
+          "12",
+          "14"
+        ],
+        [
+          "s",
+          "10",
+          "10",
+          "12",
+          "13",
+          "14",
+          "17",
+          "19",
+          "22",
+          "24"
+        ],
+        [
+          "v ^+0,5 / -0,1",
+          "1,3",
+          "1,3",
+          "1,4",
+          "1,5",
+          "1,8",
+          "2",
+          "2,1",
+          "2,3",
+          "2,4"
+        ],
+        [
+          {
+            "key": "mass_Hmotnost [g]"
+          },
+          "2,9",
+          "2,8",
+          "4,2",
+          "4,8",
+          "6,3",
+          "11,3",
+          "15,5",
+          "24,9",
+          "33,3"
+        ]
+      ],
+      "notes": [
+        "units",
+        "pair_order",
+        "brackets"
+      ],
+      "sources": [
+        "iso8992_2005"
+      ],
+      "source_table": "05-NUTS/05-WELD#0",
+      "source_rows": [
+        0,
+        10
+      ],
+      "source_columns": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "review": "historical",
+      "heading": "logical_page_05-NUTS/05-WELD_0_1_0",
+      "source_path": "05-NUTS/05-WELD/01-C02-R001",
+      "id": "65ab5ea0-f271-597a-a6a3-d0736407a1e7",
+      "sections": [],
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "thread_dimension_rows": true,
+      "display_row_count": 9
     }
   ]
 }

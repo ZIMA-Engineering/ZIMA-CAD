@@ -1,11 +1,12 @@
-# Reviewed weld-nut candidates
+# Reviewed weld-nut library
 
-The historical CSN 02 1455 offer is to be retired from the visible factory
-library by agreement with the user. Preserve its original source evidence.
+The historical CSN 02 1455 offer has been retired from the visible factory
+library by agreement with the user. Its original source evidence is preserved.
 DIN 929 hexagon weld nuts and ISO 21670 flanged hexagon weld nuts are separate
 families with separate dimensions, not interchangeable labels for that source.
-Neither new family has been installed yet; promotion requires the remaining
-editing, GUI, artwork, metadata and table checks.
+The factory library now contains 16 DIN 929 and 14 ISO 21670 native models,
+including the reviewed coarse- and fine-pitch combinations. Each family has
+its own descriptive directory, metadata, size table and native artwork.
 
 ## Placement and native history
 
@@ -65,11 +66,36 @@ mouse dimension editing: three DIN projection-depth edits and six ISO
 width/radius edits, retaining signed contact sides, source identities,
 Undo/Redo, regeneration and native save/reopen. Both saved GUI outputs passed
 the independent BRep checker (`build/weld-nut-din-gui-independent` and
-`build/weld-nut-iso-gui-independent`). Fine-pitch GUI mouse editing and the
-published dimensional artwork remain unverified. Thirty source-preserving
+`build/weld-nut-iso-gui-independent`). M8 x 1 fine-pitch examples also passed the
+same mouse editing, reference-side, Undo/Redo, regeneration and independent
+saved-geometry checks in `build/weld-nut-{din,iso}-fine-gui-independent`.
+Thirty source-preserving
 320 x 240 thumbnails have been rendered; the ISO thumbnail bounds include its
 flange diameter and complete m + c height. An earlier hexagon-only bound cropped
 the flange and was rejected.
+
+`tools/render-weld-nut-library.py` reuses the existing native reference-drawing
+pipeline. DIN artwork has six associative dimensions; ISO artwork has eight.
+Both contain actual thread axes and a first-angle projected right view.
+All twelve base/localized native Drawings retain resolved dimensions, values
+and identities through regeneration and save/reopen. Receipts are in
+`build/weld-nut-{din,iso}-art-verification`; the approved rendered inputs are
+`build/weld-nut-din-art-v3` and `build/weld-nut-iso-art-v2`.
+
+Promotion uses `tools/install-verified-fastener-candidates.py --kind din-weld`
+or `--kind iso-weld`. It requires unchanged source digests, all 624 successive
+driver edits, 48 catalogue changes, the coarse/fine GUI receipts, native drawing
+round trips, unique model filenames/identities, nonzero published mass and
+320 x 240 thumbnails before copying. Each source was explicitly regenerated
+and saved during authoring. No user-authored library file is replaced.
+
+`tools/prepare-weld-nut-pages.py` publishes the two reviewed size tables and
+five-language figures through the established reference-page generator. The
+retired table remains in `retired_pages` and the original curated/source data;
+the numeric-preservation test includes it. Only its generated visible landing
+pages were removed. The new figures use black geometry on an opaque white sheet,
+remaining readable in either application theme. Other unreviewed nut families,
+including the historical blind-cap candidates, are not promoted by this change.
 
 The volume oracle integrates the bevel and rounded projection sections.
 At the ISO hexagon root, intersecting fillet cylinders have mitred hexagon

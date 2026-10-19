@@ -22,6 +22,43 @@ void require(bool condition, const char* message) {
 
 int main(int argc,char** argv) {
     try {
+        {
+            // Opposite contact faces belong to independent occurrences, even
+            // when the same source Part supplies both meshes at exact contact.
+            // Their tessellation diagonals must not become silhouettes.
+            using namespace zima;
+            const auto camera=drawing::standard_camera(drawing::ViewOrientation::Isometric);
+            for(const bool nested:{false,true})for(const bool reverse:{false,true}) {
+                kernel::ViewerMesh mesh;
+                mesh.vertices={{0,0,12},{120,0,12},{120,60,12},{0,60,12}};
+                const std::string parent=nested?"root/subassembly/":"";
+                const std::array paths{parent+"plate-1",parent+"plate-2"};
+                const std::array<unsigned,6> front{0,1,2,0,2,3},back{0,2,1,0,3,2};
+                for(int i=0;i<2;++i) {
+                    const int side=reverse?1-i:i;
+                    const auto& indices=side?back:front;
+                    mesh.triangles.insert(mesh.triangles.end(),indices.begin(),indices.end());
+                    for(int t=0;t<2;++t)mesh.triangle_references.push_back({"same-source",side?"bottom":"top",paths[side]});
+                }
+                auto interactive=drawing::DrawingView{};
+                interactive.camera=camera;
+                drawing::prepare_interactive_view(interactive,std::make_shared<const kernel::ViewerMesh>(mesh));
+                const auto project=[&](auto p){return drawing::Point2{
+                    p.x*camera.horizontal.x+p.y*camera.horizontal.y+p.z*camera.horizontal.z,
+                    p.x*camera.vertical.x+p.y*camera.vertical.y+p.z*camera.vertical.z};};
+                const auto p=project(mesh.vertices[0]),q=project(mesh.vertices[2]);
+                for(const auto& edges:{interactive.projected_edges,drawing::project_edges(mesh,camera)}) {
+                    require(edges.size()==8,"Contact faces invented an internal triangle silhouette");
+                    for(const auto& edge:edges) {
+                        require(edge.points.size()==2,"Contact face boundary is incomplete");
+                        const auto a=edge.points.front(),b=edge.points.back();
+                        const auto same=[](auto a,auto b){return std::hypot(a.x-b.x,a.y-b.y)<1e-8;};
+                        require(!((same(a,p)&&same(b,q))||(same(a,q)&&same(b,p))),
+                            "Opposite occurrence faces leaked their triangulation diagonal");
+                    }
+                }
+            }
+        }
         for(const double scale:{1e-4,1.,1000.})for(const double shift:{0.,1e6}) {
             zima::kernel::ViewerMesh mesh;
             mesh.vertices={{shift,0,0},{shift+scale,0,0},{shift+scale,scale,0},{shift,scale,0},{shift,0,0}};

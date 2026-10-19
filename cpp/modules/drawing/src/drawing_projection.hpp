@@ -145,7 +145,12 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             auto pa=mesh.vertices[ids[side]],pb=mesh.vertices[ids[(side+1)%3]];
             auto ka=key(pa),kb=key(pb);if(kb<ka){std::swap(ka,kb);std::swap(pa,pb);}
             if(ref)++face_edge_counts[{face_key(*ref),ka,kb}];
-            auto& edge=boundaries[{ka,kb,thread?owner(*ref):Owner{}}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
+            // Facing adjacency belongs to one occurrence. Coincident contact
+            // faces of separate Parts have opposite winding; combining them
+            // would promote their internal tessellation edges to silhouettes.
+            // Keep ordinary feature owners together inside that occurrence.
+            const Owner scope{thread?ref->owner_id:std::string{},ref?ref->instance_path:std::string{}};
+            auto& edge=boundaries[{ka,kb,scope}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
             edge.analytic_profile&=ref&&profile_surfaces.contains(face_key(*ref));
             // A cylinder/cone viewed along its analytic axis has no visible
             // generator. An unmatched mesh seam near a cone apex is not a

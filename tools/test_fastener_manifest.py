@@ -67,7 +67,7 @@ class FastenerManifest(unittest.TestCase):
         generator=importlib.util.module_from_spec(spec);spec.loader.exec_module(generator)
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[p for p in data['pages'] if p.get('localized_illustrations')]
-        self.assertEqual(len(pages),13)
+        self.assertEqual(len(pages),35)
         from lxml import html
         for page in pages:
             folder=ROOT/data['root']/page['path']/'0000-index'

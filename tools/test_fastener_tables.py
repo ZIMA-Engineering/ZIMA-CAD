@@ -32,6 +32,22 @@ class Fasteners(unittest.TestCase):
         cls.data = generator.load_data(ROOT / 'tools/data/fastener-tables.json')
         cls.original = json.loads((ROOT / 'tools/data/fastener-source-tables.json').read_text(encoding='utf-8'))
 
+    def test_reviewed_weld_families_replace_only_the_visible_historical_offer(self):
+        pages={p['path']:p for p in self.data['pages']}
+        self.assertEqual(pages['05-NUTS/05-WELD']['rows'],[])
+        retired=[p for p in self.data['retired_pages'] if p['path']=='05-NUTS/05-WELD']
+        self.assertEqual(len(retired),1)
+        self.assertEqual(retired[0]['rows'],self.data['curated_source_tables']['05-NUTS/05-WELD#0']['rows'])
+        for family,count,flats,height in [('01-HEXAGON',16,14,6.5),('02-FLANGE',14,13,10)]:
+            page=pages['05-NUTS/05-WELD/'+family]
+            block=generator.screen_table_blocks(page)[0]
+            self.assertEqual(len(block['rows']),count)
+            representative=next(row for row in block['rows'] if self.data['labels'][row[0]['key']][1]=='M8×1.25')
+            self.assertEqual([float(v) for v in representative[1:4]],[1.25,flats,height])
+            self.assertTrue(page['localized_illustrations'])
+            self.assertEqual(set(page['figures'][0]['localized_paths']),set(generator.LANGUAGES))
+            self.assertIn('weld_contact',page['notes'])
+
     def test_din_cap_nuts_are_separate_and_closed(self):
         from lxml import html
         pages={p['path']:p for p in self.data['pages']}
@@ -126,7 +142,7 @@ class Fasteners(unittest.TestCase):
 
     def test_all_split_cells_reassemble_without_loss(self):
         restored = {}
-        for page in (block for topic in self.data['pages'] for block in generator.table_blocks(topic)):
+        for page in (block for topic in self.data['pages']+self.data.get('retired_pages',[]) for block in generator.table_blocks(topic)):
             if not page.get('source_table'):
                 continue
             target = restored.setdefault(page['source_table'], {})
@@ -289,7 +305,7 @@ class MergedFastenerReferences(unittest.TestCase):
     def test_thread_rows_preserve_every_dimension_and_length_table(self):
         data=generator.load_data(ROOT/'tools/data/fastener-tables.json')
         pages=[page for page in data['pages'] if page.get('thread_dimension_rows')]
-        self.assertEqual(len(pages),28)
+        self.assertEqual(len(pages),29)
         for page in pages:
             blocks=generator.screen_table_blocks(page)
             combined=next(block for block in blocks if block['headers'][0]=='symbol_d')
@@ -331,7 +347,7 @@ class MergedFastenerReferences(unittest.TestCase):
             displayed=[b for b in generator.screen_table_blocks(page) if b['headers'][0]=='symbol_d']
             self.assertEqual(len(displayed),1,page['path'])
             checked+=1
-        self.assertEqual(checked,17)
+        self.assertEqual(checked,18)
 
     def test_castle_dimensions_form_one_table_without_duplicate_cotter_columns(self):
         from lxml import html
