@@ -228,7 +228,7 @@ bool SketchTextPropertiesDialog::submit() {
         commit_(std::move(text));
         return true;
     } catch (const std::exception& failure) {
-        error_->setText(QString::fromUtf8(failure.what()));
+        error_->setText(tr(failure.what()));
         return false;
     }
 }

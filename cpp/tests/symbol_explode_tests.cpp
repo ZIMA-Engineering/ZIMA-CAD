@@ -24,7 +24,7 @@ void verify(const symbols::Definition& definition,const std::string& variant,boo
     std::size_t points{};
     for(const auto& source:definition.evaluate(variant)) {
         points+=source.points.size();
-        if(reflected)for(const auto& text:source.texts)if(text.anchor_point_id.empty())++points;
+        for(const auto& text:source.texts)if(text.anchor_point_id.empty())++points;
         const auto o=source.world_point(0,0),x=source.world_point(1,0),y=source.world_point(0,1);
         const bool mirrored=((x.x-o.x)*(y.y-o.y)-(x.y-o.y)*(y.x-o.x)<0)!=reflected;
         const auto local_position=[&](double x,double y){const auto p=source.world_point(x,y);return position(p.x,p.y);};

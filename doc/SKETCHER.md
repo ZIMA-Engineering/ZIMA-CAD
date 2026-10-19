@@ -732,11 +732,28 @@ with fixed centers/radii.
 
 ### Text anchor
 
-Title-block text highlights its anchor orange on hover and cyan on confirmation.
+New text in ordinary Part and Assembly Sketches has the same native anchor point
+as title-block text. The point highlights orange on hover and cyan on confirmation.
+Drag, dimension or constrain it with the ordinary Sketcher solver; all glyph
+contours follow its resolved position. Fixed or fully constrained anchors cannot
+escape their constraints. Text Properties retains the point identity when changing
+content, height, angle or alignment and rejects conflicting position changes.
+Ordinary text creates an auxiliary point; template point roles remain unchanged.
+
 The anchor remains a separate Sketch point; highlighting does not add another
 selected object. Bottom/Middle/Top alignment uses actual glyph bounds including
 diacritics and multiple lines. Template opening derives outlines from stored
-values, anchors and alignment settings.
+values, anchors and alignment settings. Existing current-format text without an
+optional anchor is left untouched when opened or confirmed unchanged; an explicit
+text edit creates its point. This uses the existing optional native field and does
+not change the file format or require factory-library conversion.
+
+Merging points preserves text incidence. Trimming or deleting an attached curve
+retains a point still owned by text. Explicitly deleting the anchor deletes its
+attached text; deleting only the text retains the separate point and its existing
+constraints. Exploded symbol text preserves its mapped native anchor in ordinary
+Sketches as well as templates. See the
+[Windows verification matrix](verification/20261019-sketch-text-anchor.md).
 
 ### Dragging with locked dimensions
 

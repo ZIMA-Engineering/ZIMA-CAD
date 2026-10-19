@@ -7,6 +7,18 @@ static int verify_sketch_symbol_controls(QApplication& application,
         const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",name},{"arguments",arguments}}.dump()));
         if(!result.ok)throw std::runtime_error(result.message);flush();return result;
     };
+    const auto text_motion=[&](const auto& previous,const auto& moved) {
+        for(const auto& text:previous.texts) {
+            const auto found=std::ranges::find(moved.texts,text.id,&sketcher::SketchText::id);
+            check(found!=moved.texts.end(),"Text drag removed its annotation");
+            const auto* point=moved.find_point(found->anchor_point_id);
+            check(point&&found->anchor_point_id==text.anchor_point_id&&std::abs(found->anchor_x-point->x)<1e-8&&std::abs(found->anchor_y-point->y)<1e-8,"Text detached from its native solver point");
+            check(found->contours.size()==text.contours.size(),"Text drag changed its glyph topology");
+            const auto dx=found->anchor_x-text.anchor_x,dy=found->anchor_y-text.anchor_y;
+            for(std::size_t i=0;i<text.contours.size();++i){check(found->contours[i].size()==text.contours[i].size(),"Text drag changed its glyph vertices");
+                for(std::size_t j=0;j<text.contours[i].size();++j)check(std::abs(found->contours[i][j][0]-text.contours[i][j][0]-dx)<1e-7&&std::abs(found->contours[i][j][1]-text.contours[i][j][1]-dy)<1e-7,"Text contours did not follow their anchor translation");}
+        }
+    };
     try {
         window.resize(1200,900);window.show();flush();
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
@@ -52,8 +64,16 @@ static int verify_sketch_symbol_controls(QApplication& application,
                 }
                 dialog->set_anchor(10,10);dialog->findChild<QPlainTextEdit*>("sketchTextValue")->setPlainText("ZIMA");
                 auto* mode=dialog->findChild<QComboBox*>("sketchTextMode");mode->setCurrentIndex(mode->findData(false));
+                auto* horizontal=dialog->findChild<QComboBox*>("sketchTextHorizontalAlignment");
+                auto* vertical=dialog->findChild<QComboBox*>("sketchTextVerticalAlignment");
+                check(horizontal&&vertical,"Text alignment controls are missing");
+                horizontal->setCurrentIndex(horizontal->findData(static_cast<int>(sketcher::TextHorizontalAlignment::Center)));
+                vertical->setCurrentIndex(vertical->findData(static_cast<int>(sketcher::TextVerticalAlignment::Middle)));
                 if(accept)dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else dialog->reject();flush();
                 check(stored().texts.size()==(accept?1:0),"Text OK/Cancel changed the wrong Sketch state");
+                if(accept){const auto saved=stored();const auto& text=saved.texts.front();double min_x=1e100,min_y=1e100,max_x=-1e100,max_y=-1e100;
+                    for(const auto& contour:text.contours)for(const auto& p:contour){min_x=std::min(min_x,p[0]);max_x=std::max(max_x,p[0]);min_y=std::min(min_y,p[1]);max_y=std::max(max_y,p[1]);}
+                    check(text.horizontal==sketcher::TextHorizontalAlignment::Center&&text.vertical==sketcher::TextVerticalAlignment::Middle&&std::abs((min_x+max_x)/2-text.anchor_x)<1e-8&&std::abs((min_y+max_y)/2-text.anchor_y)<1e-8,"GUI text alignment did not put its native anchor at the glyph centre");}
             }
             auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
             check(undo&&redo,"History actions are missing");undo->trigger();flush();check(stored().texts.empty(),"Text Undo failed");
@@ -81,6 +101,19 @@ static int verify_sketch_symbol_controls(QApplication& application,
                 check(std::abs(value.x-point->x)<1e-8&&std::abs(value.y-point->y)<1e-8,"Mouse drag detached symbol geometry from its point");
             }
             window.grab().save(QString::fromStdString((directory/(assembly?"assembly-symbol-anchor.png":"part-symbol-anchor.png")).string()));
+            for(int step=0;step<3;++step) {
+                const auto previous=stored();const auto& text=previous.texts.front();const auto text_grip=text.anchor_point_id;
+                check(previous.find_point(text_grip),"Created ordinary Text lacks its solver point");
+                const auto from=screen(text.anchor_x,text.anchor_y),to=from+QPointF(-25,-20);
+                const auto candidates=view->selection_candidates_at(from);
+                check(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::SketchPoint&&candidate.semantic_key=="point:"+text_grip;}),"The ordinary picker does not offer the text anchor");
+                view->clear_selection();mouse(QEvent::MouseMove,from,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
+                mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
+                const auto moved=stored();text_motion(previous,moved);
+                check(std::hypot(moved.texts.front().anchor_x-text.anchor_x,moved.texts.front().anchor_y-text.anchor_y)>1e-3,"Mouse drag did not move ordinary Text");
+                undo->trigger();flush();check(stored().texts==previous.texts,"Text drag Undo failed");redo->trigger();flush();check(stored().texts==moved.texts,"Text drag Redo failed");
+            }
+            window.grab().save(QString::fromStdString((directory/(assembly?"assembly-text-anchor.png":"part-text-anchor.png")).string()));
             const auto symbol_state=stored();const auto symbol_mesh=symbols::instance_mesh(symbol_state.symbols.front());
             const auto& stroke=symbol_mesh.edges.front().points;const auto pick=screen((stroke.front().x+stroke.back().x)/2,(stroke.front().y+stroke.back().y)/2);
             view->clear_selection();mouse(QEvent::MouseMove,pick,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,pick,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,pick,Qt::LeftButton,Qt::NoButton);
@@ -111,15 +144,19 @@ static int verify_sketch_symbol_controls(QApplication& application,
             finish->trigger();flush();
             for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())dialog->reject();flush();
         }
-        for(const auto kind:{sketcher::DimensionKind::DistanceX,sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Distance})for(int state:{0,1,2}) {
-            std::cout<<"Symbol GUI dimension kind="<<static_cast<int>(kind)<<" state="<<state<<std::endl;
-            auto sketch=sketcher::Sketch::create_default();sketcher::SymbolInstance symbol;
-            symbol.id="dimensioned-symbol";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;symbol.x=30;symbol.y=40;sketch.add_symbol(symbol);
-            const auto grip=sketch.symbols.front().anchor_point_id,fixed=sketch.add_point(0,0);sketch.set_point_fixed(fixed,true);
-            auto dimension=sketch.create_point_dimension(fixed,grip,kind);dimension.driving=state!=0;dimension.locked=state==2;sketch.apply_dimension(dimension);
+        for(bool text_case:{false,true})for(const auto kind:{sketcher::DimensionKind::DistanceX,sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Distance})for(int state:{0,1,2,3}) {
+            if(!text_case&&state==3)continue;
+            std::cout<<"Annotation GUI dimension text="<<text_case<<" kind="<<static_cast<int>(kind)<<" state="<<state<<std::endl;
+            auto sketch=sketcher::Sketch::create_default();std::string grip;
+            if(text_case){auto text=sketcher::Sketch::create_text();text.value="X";text.height=3;text.anchor_x=30;text.anchor_y=40;text.modeling_geometry=false;
+                app::rebuild_sketch_text_contours(text,false);sketch.add_text(std::move(text));grip=sketch.texts.front().anchor_point_id;}
+            else {sketcher::SymbolInstance symbol;symbol.id="dimensioned-symbol";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;symbol.x=30;symbol.y=40;sketch.add_symbol(symbol);grip=sketch.symbols.front().anchor_point_id;}
+            const auto fixed=sketch.add_point(0,0);sketch.set_point_fixed(fixed,true);
+            auto dimension=sketch.create_point_dimension(fixed,grip,kind);dimension.driving=state!=0;dimension.locked=state>=2;sketch.apply_dimension(dimension);
+            if(state==3){auto other=sketch.create_axis_dimension(grip,kind==sketcher::DimensionKind::DistanceY?"sketch_axis:y":"sketch_axis:x");other.locked=true;sketch.apply_dimension(other);}
             auto doc=document::PartDocument::create_default();auto owner=document::PartDocument::create_sketch_container();owner.feature.sketch_id=sketch.id;sketch.owner_container_id=owner.id;
             doc.sketches={sketch};doc.history={owner};document::BodyHistoryGraph graph;const auto body=graph.create_body("Dimensioned symbol");graph.insert({document::PartHistoryKind::Feature,owner.id});doc.set_body_history(graph);doc.resolve_constructions();
-            const auto path=directory/("dimensioned-symbol-"+std::to_string(static_cast<int>(kind))+"-"+std::to_string(state)+".prtz");doc.save(path);
+            const auto path=directory/(std::string(text_case?"dimensioned-text-":"dimensioned-symbol-")+std::to_string(static_cast<int>(kind))+"-"+std::to_string(state)+".prtz");doc.save(path);
             check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open dimensioned symbol fixture");flush();run("body.activate",{{"body",body}});
             QTreeWidgetItem* row{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
             check(row,"Dimensioned Sketch row missing");window.show_tree_item_properties(row);flush();window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
@@ -139,18 +176,23 @@ static int verify_sketch_symbol_controls(QApplication& application,
             };
             for(double value:{55.,65.,45.}) {
                 if(state) {
+                    const auto before_edit=stored();
                     window.edit_dimension_inline(candidate());flush();auto* editor=window.findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor&&editor->isVisible(),"Symbol dimension value editor missing");
                     editor->setText(QString::number(value)+" mm");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
                     check(std::abs(stored().dimensions.front().value-value)<1e-5,"GUI value edit did not drive symbol point");
+                    text_motion(before_edit,stored());
                 }
                 const auto previous=stored();const auto* p=previous.find_point(grip);const auto from=screen(p->x,p->y),to=from+QPointF(30,15);
                 const auto mouse=[&](QEvent::Type type,QPointF position,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,position,QPointF(view->mapToGlobal(position.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
                 mouse(QEvent::MouseMove,from,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
-                const auto moved=stored();const auto* q=moved.find_point(grip);check(q&&std::hypot(q->x-p->x,q->y-p->y)>1e-5,"GUI dimensioned symbol did not move along a free degree of freedom");
+                const auto moved=stored();const auto* q=moved.find_point(grip);check(q,"GUI drag removed its anchor");
+                if(state==3){check(moved.serialized()==previous.serialized(),"GUI drag changed fully constrained Text");continue;}
+                check(std::hypot(q->x-p->x,q->y-p->y)>1e-5,"GUI annotation did not move along a free degree of freedom");
                 const double measured=kind==sketcher::DimensionKind::DistanceX?std::abs(q->x):kind==sketcher::DimensionKind::DistanceY?std::abs(q->y):std::hypot(q->x,q->y);
                 check(std::abs(measured-std::abs(moved.dimensions.front().value))<1e-5,"GUI symbol drag violated its dimension equation");
                 check(state!=2||std::abs(moved.dimensions.front().value-value)<1e-5,"GUI drag changed locked symbol dimension");
-                check(moved.symbols.front().anchor_point_id==grip&&std::abs(moved.symbols.front().x-q->x)<1e-8&&std::abs(moved.symbols.front().y-q->y)<1e-8,"GUI dimension edit lost symbol incidence");
+                if(text_case)text_motion(previous,moved);
+                else check(moved.symbols.front().anchor_point_id==grip&&std::abs(moved.symbols.front().x-q->x)<1e-8&&std::abs(moved.symbols.front().y-q->y)<1e-8,"GUI dimension edit lost symbol incidence");
                 window.findChild<QAction*>("undoAction")->trigger();flush();check(stored().find_point(grip)->x==p->x&&stored().find_point(grip)->y==p->y,"Dimensioned drag Undo failed");
                 window.findChild<QAction*>("redoAction")->trigger();flush();
             }

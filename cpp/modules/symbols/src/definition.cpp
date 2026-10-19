@@ -267,7 +267,7 @@ void explode_instance(sketcher::Sketch& target,const std::string& instance_id) {
         }
         for(auto text:source.texts) {
             text.id=kernel::make_stable_id();
-            text.anchor_point_id=reflected&&!text.anchor_point_id.empty()?point(text.anchor_point_id):std::string{};
+            text.anchor_point_id=!text.anchor_point_id.empty()?point(text.anchor_point_id):std::string{};
             const auto p=local_position(text.anchor_x,text.anchor_y);text.anchor_x=p[0];text.anchor_y=p[1];text.height*=instance.scale;
             const double total=frame_angle*180./std::numbers::pi+handedness*text.angle_degrees;
             // Symbol contours use Y-up. Ordinary Sketch text uses Y-down;

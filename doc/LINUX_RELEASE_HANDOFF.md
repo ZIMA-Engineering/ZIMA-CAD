@@ -1,5 +1,18 @@
 # Linux build and distribution handoff â€” 2026-09-15
 
+## Ordinary Sketch text anchors (2026-10-19)
+
+Run the shared symbol-anchor, symbol-explode, Sketch text geometry/command,
+Sketcher, Drawing, title-block Family and translation contracts. Run the Sketch
+symbol controls, symbol, template and New Document GUI contracts on Linux.
+Verify ordinary Part/Assembly text anchor dragging, dimensions, center/middle
+alignment, fully constrained rejection, Properties, Undo/Redo and native reopen.
+Check the holed-glyph dependent extrusion and all five localized rejection
+messages. No schema or factory-library conversion is required for this change.
+The finite Windows matrix and remaining variants are documented in
+[Ordinary Sketch text anchors](verification/20261019-sketch-text-anchor.md).
+This follow-up has not been built or exercised on Linux.
+
 ## Save analysis and Sketch symbols (2026-10-19)
 
 Run the shared save-properties, relation-program, symbol-anchor, symbol-explode,

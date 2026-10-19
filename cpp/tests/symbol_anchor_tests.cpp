@@ -15,13 +15,22 @@ sketcher::SymbolInstance symbol(double x=30,double y=40) {
     result.id="projection";result.definition=definition.serialized();result.variant=definition.default_variant;
     result.x=x;result.y=y;return result;
 }
+std::string add_grip(sketcher::Sketch& sketch,int type,double x=30,double y=40) {
+    if(type==1){sketch.add_symbol(symbol(x,y));return sketch.symbols.front().anchor_point_id;}
+    if(type==2){auto text=sketcher::Sketch::create_text();text.value="Anchor";text.modeling_geometry=false;
+        text.anchor_x=x;text.anchor_y=y;text.contours={{{x,y},{x+2,y},{x+2,y+3},{x,y+3}}};
+        sketch.add_text(std::move(text));return sketch.texts.front().anchor_point_id;}
+    return sketch.add_point(x,y);
+}
 void anchor(const sketcher::Sketch& sketch) {
-    if(sketch.symbols.empty())return;
-    const auto& instance=sketch.symbols.front();const auto* p=sketch.find_point(instance.anchor_point_id);
-    check(p,"Symbol has no ordinary native point");
-    near(p->x,instance.x,"Symbol X detached from solver point");near(p->y,instance.y,"Symbol Y detached from solver point");
+    if(sketch.symbols.empty()&&sketch.texts.empty())return;
     const auto mesh=sketch.viewer_mesh();
-    check(std::ranges::any_of(mesh.points,[&](const auto& point){return point.reference.owner_id==sketch.id&&point.reference.semantic_key=="point:"+p->id;}),"Anchor is not offered as a real Sketch point");
+    const auto offered=[&](const auto& id){check(std::ranges::any_of(mesh.points,[&](const auto& point){return point.reference.owner_id==sketch.id&&point.reference.semantic_key=="point:"+id;}),"Anchor is not offered as a real Sketch point");};
+    for(const auto& instance:sketch.symbols){const auto* p=sketch.find_point(instance.anchor_point_id);
+        check(p,"Symbol has no ordinary native point");near(p->x,instance.x,"Symbol X detached from solver point");near(p->y,instance.y,"Symbol Y detached from solver point");offered(p->id);}
+    for(const auto& text:sketch.texts){const auto* p=sketch.find_point(text.anchor_point_id);
+        check(p,"Text has no ordinary native point");near(p->x,text.anchor_x,"Text X detached from solver point");near(p->y,text.anchor_y,"Text Y detached from solver point");
+        near(text.contours.front().front()[0],p->x,"Text contour X detached from its anchor");near(text.contours.front().front()[1],p->y,"Text contour Y detached from its anchor");offered(p->id);}
 }
 void equation(const sketcher::Sketch& sketch) {
     anchor(sketch);
@@ -36,15 +45,14 @@ void equation(const sketcher::Sketch& sketch) {
 }
 int main(){try {
     std::size_t cases{};
-    for(bool with_symbol:{false,true})
+    for(int type:{0,1,2})
     for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})
     for(double side:{-1.,1.})for(bool reverse:{false,true})
     for(const auto kind:{sketcher::DimensionKind::DistanceX,sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Distance})
     for(bool locked:{false,true})for(bool driving:{false,true}) {
         if(locked&&!driving)continue; // Reference dimensions cannot be locked.
-        auto sketch=sketcher::Sketch::create_default();sketch.plane=plane;std::string grip;
-        if(with_symbol){sketch.add_symbol(symbol(side*30,side*40));grip=sketch.symbols.front().anchor_point_id;}
-        else grip=sketch.add_point(side*30,side*40);
+        auto sketch=sketcher::Sketch::create_default();sketch.plane=plane;
+        const auto grip=add_grip(sketch,type,side*30,side*40);
         const auto fixed=sketch.add_point(0,0);sketch.set_point_fixed(fixed,true);
         auto dim=sketch.create_point_dimension(reverse?grip:fixed,reverse?fixed:grip,kind);dim.locked=locked;dim.driving=driving;
         sketch.apply_dimension(dim);equation(sketch);
@@ -57,7 +65,19 @@ int main(){try {
             equation(sketch);near(sketch.find_point(fixed)->x,0,"Fixed support moved");near(sketch.find_point(fixed)->y,0,"Fixed support moved");
         }
         const auto serialized=sketch.serialized();sketch=sketcher::Sketch::from_serialized(serialized);
-        check(sketch.find_point(grip)&&(!with_symbol||sketch.symbols.front().anchor_point_id==grip),"Reopen changed anchor identity");equation(sketch);++cases;
+        check(sketch.find_point(grip),"Reopen changed anchor identity");equation(sketch);++cases;
+    }
+    for(int type:{0,1,2})for(double side:{-1.,1.})for(bool reverse:{false,true}) {
+        auto fixed=sketcher::Sketch::create_default();const auto point=add_grip(fixed,type,side*30,side*40);
+        const auto origin=fixed.add_point(0,0);fixed.set_point_fixed(origin,true);
+        auto length=fixed.create_point_dimension(reverse?point:origin,reverse?origin:point,sketcher::DimensionKind::Distance);length.locked=true;fixed.apply_dimension(length);
+        auto ordinate=fixed.create_axis_dimension(point,"sketch_axis:x");ordinate.locked=true;fixed.apply_dimension(ordinate);
+        for(double value:{55.,65.,45.}) {
+            check(fixed.set_dimension_value(length.id,value),"Fully constrained aligned distance cannot be edited");anchor(fixed);
+            const auto before=fixed.serialized();const auto* p=fixed.find_point(point);
+            for(const auto delta:{std::array{5.,3.},std::array{-8.,4.},std::array{2.,-7.}})
+                check(!fixed.move_point(point,p->x+delta[0],p->y+delta[1])&&fixed.serialized()==before,"Fully constrained aligned drag normalized native data");
+        }
     }
     // Fully constrained anchors reject dragging and conflicting Properties,
     // with no document mutation. Rotation and scale remain independent.
@@ -83,11 +103,11 @@ int main(){try {
             previous=constrained.serialized();check(!constrained.move_point(point,100,100)&&constrained.serialized()==previous,"Dimension edit released a fully constrained symbol");
         }
     }
-    for(bool external:{false,true})for(double side:{-1.,1.})for(double angle:{0.,37.,90.})for(int state:{0,1,2}) {
+    for(int type:{1,2})for(bool external:{false,true})for(double side:{-1.,1.})for(double angle:{0.,37.,90.})for(int state:{0,1,2}) {
         const double radians=angle*std::numbers::pi/180.,c=std::cos(radians),s=std::sin(radians);
         const auto xy=[&](double x,double y){return std::array{x*c-y*s,x*s+y*c};};
         const auto initial=xy(30,side*20);
-        auto supported=sketcher::Sketch::create_default();supported.add_symbol(symbol(initial[0],initial[1]));const auto point=supported.symbols.front().anchor_point_id;
+        auto supported=sketcher::Sketch::create_default();const auto point=add_grip(supported,type,initial[0],initial[1]);
         std::string line;
         if(external) {
             auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Axis);
@@ -113,10 +133,8 @@ int main(){try {
         ++cases;
     }
     // A native point also participates in angular and symmetric dimensions.
-    for(bool with_symbol:{false,true})for(int kind:{0,1,2,3})for(int state:{0,1,2})for(bool reverse:{false,true})for(double side:{-1.,1.}) {
-        auto angular=sketcher::Sketch::create_default();std::string grip;
-        if(with_symbol){angular.add_symbol(symbol(30,side*40));grip=angular.symbols.front().anchor_point_id;}
-        else grip=angular.add_point(30,side*40);
+    for(int type:{0,1,2})for(int kind:{0,1,2,3})for(int state:{0,1,2})for(bool reverse:{false,true})for(double side:{-1.,1.}) {
+        auto angular=sketcher::Sketch::create_default();const auto grip=add_grip(angular,type,30,side*40);
         const auto origin=angular.add_point(0,0),peer=angular.add_point(50,0);
         angular.set_point_fixed(origin,true);angular.set_point_fixed(peer,true);
         const auto line=angular.add_segment(0,0,50,0);
@@ -147,44 +165,47 @@ int main(){try {
             near(angular.find_point(origin)->x,0,"Angular support moved");near(angular.find_point(peer)->x,50,"Angular support moved");
         }
         angular=sketcher::Sketch::from_serialized(angular.serialized());anchor(angular);
-        if(with_symbol) {
-            const auto dimensions=angular.dimensions;angular.remove_symbol(angular.symbols.front().id);
+        if(type) {
+            const auto dimensions=angular.dimensions;
+            if(type==1)angular.remove_symbol(angular.symbols.front().id);else angular.remove_geometry(angular.texts.front().id);
             check(angular.find_point(grip)&&angular.dimensions==dimensions,"Deleting an angular/symmetric symbol discarded its independent point dimension");angular.validate();
         }
         ++cases;
     }
-    {
-        auto bound=sketcher::Sketch::create_default();bound.add_symbol(symbol());const auto point=bound.symbols.front().anchor_point_id;
+    for(int type:{1,2}) {
+        auto bound=sketcher::Sketch::create_default();const auto point=add_grip(bound,type);
         auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
         reference.source_document_id="external-part";reference.source_owner_id="external-point";reference.source_semantic_key="point";reference.cached_points={{2,3}};
         const auto id=reference.id;bound.add_external_reference(reference);
         static_cast<void>(bound.add_point_reference_constraint(point,id));anchor(bound);
-        near(bound.symbols.front().x,2,"External point did not position symbol X");near(bound.symbols.front().y,3,"External point did not position symbol Y");
+        near(bound.find_point(point)->x,2,"External point did not position anchor X");near(bound.find_point(point)->y,3,"External point did not position anchor Y");
         const auto before=bound.serialized();check(!bound.move_point(point,99,99)&&bound.serialized()==before,"Symbol escaped its external point constraint");
     }
     // Merging either selection order retains native incidence. Removing a
     // connected curve must preserve the symbol point and its identity.
-    for(bool reverse:{false,true}) {
-        auto merged=sketcher::Sketch::create_default();merged.add_symbol(symbol(5,5));
-        const auto point=merged.symbols.front().anchor_point_id;
+    for(int type:{1,2})for(bool reverse:{false,true}) {
+        auto merged=sketcher::Sketch::create_default();const auto point=add_grip(merged,type,5,5);
         const auto line=merged.add_segment(7,5,20,5);const auto endpoint=merged.segments.front().first_point_id;
         const auto survivor=merged.merge_points(reverse?endpoint:point,reverse?point:endpoint);
-        check(merged.symbols.front().anchor_point_id==survivor,"Point merge lost symbol incidence");anchor(merged);
+        check((type==1?merged.symbols.front().anchor_point_id:merged.texts.front().anchor_point_id)==survivor,"Point merge lost anchor incidence");anchor(merged);
+        auto trimmed=merged;static_cast<void>(trimmed.retain_curve_intervals(line,{{.5,1.}}));
+        check(trimmed.find_point(survivor),"Trimming erased an independent text/symbol anchor");anchor(trimmed);
         merged.remove_geometry(line);check(merged.find_point(survivor),"Removing a curve erased its symbol anchor");anchor(merged);
+        merged.remove_point(survivor);check(merged.texts.empty()&&merged.symbols.empty(),"Deleting an anchor left orphaned annotation geometry");
     }
     // Shared Part and Assembly mutation paths retain Undo/Redo and native data.
     const auto directory=std::filesystem::temp_directory_path()/("zima-symbol-anchor-"+sketch.id);std::filesystem::create_directory(directory);
-    for(bool assembly:{false,true}) {
-        auto editable=sketcher::Sketch::create_default();editable.add_symbol(symbol());
+    for(int type:{1,2})for(bool assembly:{false,true}) {
+        auto editable=sketcher::Sketch::create_default();const auto point=add_grip(editable,type);
         auto owner=document::PartDocument::create_sketch_container();editable.owner_container_id=owner.id;
         workspace::Workspace live;std::string id;std::filesystem::path path;
         if(assembly) {auto doc=assembly::AssemblyDocument::create_default();doc.sketches={editable};doc.sketch_containers={owner};id=doc.document_id;path=directory/"anchor.asmz";live.add_assembly(doc,path);}
         else {auto doc=document::PartDocument::create_default();doc.sketches={editable};doc.history={owner};id=doc.document_id;path=directory/"anchor.prtz";live.add_part(doc,{},path);}
-        const auto apply=[&](auto& pending){check(pending.move_point(pending.symbols.front().anchor_point_id,60,70),"Workspace symbol move failed");};
+        const auto apply=[&](auto& pending){check(pending.move_point(point,60,70),"Workspace anchor move failed");};
         check(workspace::mutate_document_sketch(live,id,editable.id,apply),"Symbol move did not create a transaction");
         if(assembly) {auto& session=live.open_assembly(id)->session;check(session.undo()&&session.redo(),"Assembly anchor Undo/Redo failed");session.document().save(path);anchor(assembly::AssemblyDocument::load(path).sketches.front());}
         else {auto& session=live.open_part(id)->session;check(session.undo()&&session.redo(),"Part anchor Undo/Redo failed");session.document().save(path);anchor(document::PartDocument::load(path).sketches.front());}
     }
     std::filesystem::remove_all(directory);
-    std::cout<<cases<<" symbol dimension/drag variants, fixed rejection, merge, persistence and Undo/Redo passed\n";
+    std::cout<<cases<<" point/symbol/text dimension/drag variants, fixed rejection, merge, trim, persistence and Undo/Redo passed\n";
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

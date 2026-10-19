@@ -4221,11 +4221,17 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         return !dimension.suppressed&&dimension.driving&&dimension.locked&&
             dimension.kind==DimensionKind::Distance&&
             (dimension.first_point_id==point_id||dimension.second_point_id==point_id);
-    }))
+    })) {
         // A locked point distance defines a circular free path. An arbitrary
         // mouse position need not lie on it: project through the same native
         // equations instead of treating both cursor coordinates as hard pins.
+        // If the existing equations leave no DOF, projection would only
+        // normalize roundoff and must not create a drag transaction. Rank is
+        // needed only on this fallback, never on the ordinary drag path.
+        auto baseline=*this;
+        if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
         solved=next.solve_impl(100,false,{});
+    }
     if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {point_id}))
         solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {}))
@@ -4811,6 +4817,7 @@ std::string Sketch::merge_points(
     }
     for (auto& circle : next.circles) replace(circle.center_point_id);
     for (auto& symbol : next.symbols) replace(symbol.anchor_point_id);
+    for (auto& text : next.texts) replace(text.anchor_point_id);
     for (auto& arc : next.arcs) {
         replace(arc.center_point_id);
         replace(arc.start_point_id);
@@ -6196,7 +6203,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         throw std::invalid_argument("Sketch geometry does not exist");
     }
     const auto point_has_geometry_owner = [&](const std::string& point_id) {
-        return std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
+        return std::ranges::any_of(next.texts,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
+            std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
             std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == point_id || value.second_point_id == point_id;
             }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
@@ -6251,7 +6259,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                   value.second_point_id == geometry_id));
         });
     const auto point_is_referenced = [&](const std::string& point_id) {
-        return std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
+        return std::ranges::any_of(next.texts,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
+            std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
             std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == point_id || value.second_point_id == point_id;
             }) || std::any_of(next.circles.begin(), next.circles.end(), [&](const auto& value) {
@@ -6308,6 +6317,10 @@ void Sketch::remove_point(const std::string& point_id) {
         [&](const auto& value) { return value.vertex_id == point_id; });
     std::set<std::string> removed_geometry_ids;
     std::set<std::string> candidate_point_ids{point_id};
+    std::erase_if(next.texts,[&](const auto& text){
+        if(text.anchor_point_id!=point_id)return false;
+        removed_geometry_ids.insert(text.id);return true;
+    });
     const auto collect_geometry = [&](const std::string& geometry_id,
                                       const auto& point_ids) {
         removed_geometry_ids.insert(geometry_id);
@@ -6394,7 +6407,8 @@ void Sketch::remove_point(const std::string& point_id) {
             geometry_removed(value.third_geometry_id);
     });
     const auto point_is_referenced = [&](const std::string& candidate_id) {
-        return std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==candidate_id;}) ||
+        return std::ranges::any_of(next.texts,[&](const auto& value){return value.anchor_point_id==candidate_id;}) ||
+            std::ranges::any_of(next.symbols,[&](const auto& value){return value.anchor_point_id==candidate_id;}) ||
             std::any_of(next.segments.begin(), next.segments.end(), [&](const auto& value) {
                 return value.first_point_id == candidate_id ||
                     value.second_point_id == candidate_id;
@@ -7758,10 +7772,13 @@ void Sketch::add_text(SketchText text) {
         throw std::invalid_argument("Sketch text already exists");
     }
     auto next = *this;
-    if(next.drawing_template && text.anchor_point_id.empty()) {
+    if(text.anchor_point_id.empty()) {
         text.anchor_point_id=make_id();
-        next.points.push_back({text.anchor_point_id,text.anchor_x,text.anchor_y});
+        SketchPoint point{text.anchor_point_id,text.anchor_x,text.anchor_y};
+        point.construction=!next.drawing_template.has_value();
+        next.points.push_back(std::move(point));
     }
+    if(!next.find_point(text.anchor_point_id))throw std::runtime_error("The native Sketch point does not exist.");
     next.texts.push_back(std::move(text));
     next.validate();
     *this = std::move(next);
@@ -7775,11 +7792,20 @@ void Sketch::update_text(SketchText text) {
         throw std::invalid_argument("Sketch text does not exist");
     }
     const auto text_index=static_cast<std::size_t>(found-next.texts.begin());
-    if(next.drawing_template && !text.anchor_point_id.empty()) {
+    text.anchor_point_id=found->anchor_point_id;
+    if(text==*found)return;
+    if(text.anchor_point_id.empty()) {
+        text.anchor_point_id=make_id();
+        SketchPoint point{text.anchor_point_id,text.anchor_x,text.anchor_y};
+        point.construction=!next.drawing_template.has_value();
+        next.points.push_back(std::move(point));
+    }
+    {
         const auto* point=next.find_point(text.anchor_point_id);
+        if(!point)throw std::runtime_error("The native Sketch point does not exist.");
         if(point && (point->x!=text.anchor_x || point->y!=text.anchor_y))
             if(!next.move_point(text.anchor_point_id,text.anchor_x,text.anchor_y))
-                throw std::runtime_error("Poloha textu je určena vazbami jeho bodu.");
+                throw std::runtime_error("The text position is controlled by its anchor constraints.");
         if(const auto* resolved=next.find_point(text.anchor_point_id)) {
             const double dx=resolved->x-text.anchor_x,dy=resolved->y-text.anchor_y;
             for(auto& contour:text.contours)for(auto& vertex:contour){vertex[0]+=dx;vertex[1]+=dy;}
@@ -9743,7 +9769,6 @@ SolveResult Sketch::solve_impl(
         Sketch* sketch;
         ~TextAnchorGuard() {
             sketch->refresh_symbol_anchors();
-            if(!sketch->drawing_template)return;
             for(auto& text:sketch->texts)if(!text.anchor_point_id.empty())
                 if(const auto* p=sketch->find_point(text.anchor_point_id)) {
                     const double dx=p->x-text.anchor_x,dy=p->y-text.anchor_y;

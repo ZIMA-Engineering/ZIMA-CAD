@@ -74,6 +74,18 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             dialog->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(99);dialog->reject();flush();save->trigger();flush();
             check(drawing::load_template_sketch(target,prepare).symbols.front()==original,"Symbol edit Cancel changed document");
             auto* text_options=new app::SketchTextPropertiesDialog(sketcher::Sketch::create_text(),std::array<double,2>{0,0},{},[](auto){},&window,true,false,std::nullopt,true);
+            {
+                auto locked=sketcher::Sketch::create_default();auto label=sketcher::Sketch::create_text();label.value="Pinned";
+                app::rebuild_sketch_text_contours(label,false);locked.add_text(std::move(label));locked.set_point_fixed(locked.texts.front().anchor_point_id,true);
+                const auto before=locked.serialized();
+                auto* constrained=new app::SketchTextPropertiesDialog(locked.texts.front(),std::array<double,2>{0,0},{},[&](auto pending){locked.update_text(std::move(pending));},&window);
+                constrained->show();constrained->set_anchor(10,0);flush();
+                constrained->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto key=QStringLiteral("The text position is controlled by its anchor constraints.");
+                auto* error=constrained->findChild<QLabel*>("sketchTextError");
+                check(error&&settings.qt_translations.contains(key)&&error->text()==settings.qt_translations.value(key),"Constrained text error does not follow the selected language");
+                check(locked.serialized()==before,"Rejected text Properties changed its fixed anchor");constrained->reject();flush();
+            }
             const auto* readable=text_options->findChild<QComboBox*>("symbolTextDrawingOrientation");
             check(readable&&readable->itemText(0)==settings.qt_translations.value("Se značkou")&&readable->itemText(1)==settings.qt_translations.value("Zachovat čitelnost"),"Symbol text orientation translation differs");
             text_options->reject();flush();
