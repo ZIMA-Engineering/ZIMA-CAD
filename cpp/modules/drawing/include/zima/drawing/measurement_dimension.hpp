@@ -38,6 +38,10 @@ struct MeasurementCandidate {
     // Transient pick metadata, including characteristic points of a curve.
     bool point_target{};
 };
+// View-local strokes retain their parent axis and occurrence in the native
+// Drawing reference. They never turn an end-on physical 3D axis into a line.
+enum class AxisCrossStroke { Horizontal, Vertical };
+std::optional<AxisCrossStroke> measurement_axis_cross_stroke(const kernel::EdgeReference&);
 bool measurement_candidate_precedes(const MeasurementCandidate&, const MeasurementCandidate&);
 // Disposable view-local preparation; checks its actual inputs before reuse.
 // Paper position and cursor/command state are deliberately not cached.

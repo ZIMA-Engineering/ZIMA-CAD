@@ -50,8 +50,11 @@ DrawingView view(kernel::ViewerMesh mesh) {
     return v;
 }
 } // namespace
+#include "drawing_axis_cross_contract.inc"
 int main() {
     try {
+        verify_drawing_axis_cross_contract();
+        verify_exact_circular_contacts();
         {
             kernel::ViewerMesh mesh;mesh.edges={circle("closed",0,0,5),line("straight",{10,0,0},{30,0,0}),circle("open",40,0,5,std::numbers::pi)};
             const auto v=view(mesh);
@@ -244,6 +247,7 @@ int main() {
             second.model_envelope={};second.model_envelope.include({25,5,-5});second.model_envelope.include({35,15,5});
             axes.model_annotations={first,second};
             MeasurementPickRequest request;
+            request.mode=int(DimensionAttachmentKind::Center);
             auto picked=checked_candidates(axes,{15,10},.6,request);
             require(!picked.empty()&&picked[0].attachment.kind==DimensionAttachmentKind::Center&&
                     picked[0].attachment.reference.instance_path=="first","End-on axis arm did not offer its centre");
@@ -267,7 +271,7 @@ int main() {
             require(!picked.empty()&&picked[0].attachment.kind==DimensionAttachmentKind::Line,"Side-on axis not offered as a line");
             require(resolve_dimension_attachment(axes,picked[0].attachment).has_value(),"Picked axis line does not resolve");
             axes.camera={{1,0,0},{0,1,0},{0,0,1}};
-            require(checked_candidates(axes,{10,10},.6,request).empty(),"End-on axis offered a nonexistent line");
+            require(!checked_candidates(axes,{15,10},.6,request).empty(),"End-on axis cross did not offer its displayed stroke");
             request={};request.circles_only=true;
             require(checked_candidates(axes,{10,10},.6,request).empty(),"Axis offered as a measured circle");
             axes.model_annotations[0].unresolved=true;

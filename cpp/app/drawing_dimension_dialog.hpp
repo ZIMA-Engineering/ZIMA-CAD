@@ -663,11 +663,13 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                     (!axis && modes_[row] == int(drawing::DimensionAttachmentKind::Intersection));
                 auto *item = new ui::ReferenceCellItem(enabled ? tr("Vyberte…") : QString());
                 if (enabled && ref.valid()) {
-                    const auto label = QString::fromStdString(ref.semantic_key);
+                    const auto stroke=drawing::measurement_axis_cross_stroke(ref);
+                    const auto label = stroke ? (*stroke==drawing::AxisCrossStroke::Horizontal?
+                        tr("Osový kříž (vodorovná osa)"):tr("Osový kříž (svislá osa)")) : QString::fromStdString(ref.semantic_key);
                     item->setText(label);
                     item->set_reference(QString::fromStdString(ref.owner_id + "/" + ref.semantic_key + "@" +
                                                                ref.instance_path));
-                    item->setToolTip(item->reference());
+                    item->setToolTip(stroke?label:item->reference());
                 }
                 references_->setItem(row, col, item);
                 references_->setCellWidget(

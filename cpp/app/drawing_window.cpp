@@ -1248,6 +1248,7 @@ public:
         if(const auto id=balloon_reference_view();!id.empty()&&sheet_)for(const auto& view:sheet_->views)if(view.id==id){
             const double scale=canvas_zoom()*view.scale;
             drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
+            request.curve_contacts=true;
             for(auto candidate:measurement_pickers_[view.id].candidates(view,measurement_point(view,point),8/scale,request))if(drawing::balloon_bom_row(*sheet_,view,candidate.attachment.reference)){
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }

@@ -46,10 +46,13 @@ void pick(QWidget *w, QPointF p) {
 } // namespace
 #include "drawing_surface_contour_ui.inc"
 #include "drawing_clearance_ui.inc"
+#include "drawing_axis_cross_ui.inc"
 int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_AXIS_CROSS"))return verify_drawing_axis_cross_ui();
+        verify_drawing_axis_cross_ui();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_CLEARANCE"))return verify_drawing_clearance_ui();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_HEAD_CAPTURE")) {
             auto doc=DrawingDocument::load(std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_DRAWING_HEAD_CAPTURE").toStdString()));
@@ -949,6 +952,18 @@ int verify_measurement_dimension_ui() {
                 const auto* references=localized.findChild<QTableWidget*>("drawingDimensionReferences");
                 require(references->item(2,2)->text()==QString::fromUtf8(expected),
                     "Add branch is not localized after switching language");
+                MeasurementPickRequest axis_request;axis_request.lines_only=true;
+                auto horizontal=measurement_candidates(view,{49,10},.1,axis_request);
+                auto vertical=measurement_candidates(view,{45,14},.1,axis_request);
+                require(!horizontal.empty()&&!vertical.empty(),"Localized axis-cross references missing");
+                auto cross_value=make_drawing_dimension(view.id,DrawingDimensionKind::Angular);
+                cross_value.attachments={horizontal.front().attachment,vertical.front().attachment};
+                app::DrawingDimensionDialog cross_dialog(cross_value,false,[&](const auto&){return &view;},[](auto){},&window);
+                const auto* cross_table=cross_dialog.findChild<QTableWidget*>("drawingDimensionReferences");
+                const auto settings=app::ApplicationSettings::load(language_directory.path());
+                require(cross_table->item(0,2)->text()==settings.qt_translations.value("Osový kříž (vodorovná osa)")&&
+                    cross_table->item(1,2)->text()==settings.qt_translations.value("Osový kříž (svislá osa)"),
+                    "Axis-cross reference label did not follow the selected language");
             }
             app::apply_application_translations(*qApp,original_settings);
         }

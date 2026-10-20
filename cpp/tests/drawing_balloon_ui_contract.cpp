@@ -8,13 +8,16 @@
 #include <QKeyEvent>
 #include <QFile>
 #include <iostream>
+#include <numbers>
 namespace {
 void check(bool ok,const char* m){if(!ok)throw std::runtime_error(m);}
 void flush(){QApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);}
 void mouse(QWidget* w,QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent e(type,p,QPointF(w->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(w,&e);flush();}
 void pick(QWidget* w,QPointF p){mouse(w,QEvent::MouseMove,p,Qt::NoButton,Qt::NoButton);mouse(w,QEvent::MouseButtonPress,p,Qt::LeftButton,Qt::LeftButton);mouse(w,QEvent::MouseButtonRelease,p,Qt::LeftButton,Qt::NoButton);}
 }
+#include "drawing_balloon_curve_ui.inc"
 int verify_drawing_balloon_ui(){using namespace zima;using namespace drawing;try{
+    verify_balloon_continuous_curve_ui();
     workspace::Workspace live;auto doc=DrawingDocument::create_default();auto& sheet=doc.sheets.front();
     kernel::ViewerMesh mesh;mesh.edges={{{{0,0,0},{30,0,0}},{"pin","edge","1:a"}},{{{0,20,0},{30,20,0}},{"leaf","edge","1:s4:leaf"}}};
     mesh.edges.push_back({{{0,0,0},{30,0,0}},{"pin","other-edge","1:a"}});

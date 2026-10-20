@@ -2499,5 +2499,7 @@
   "Poloha symbolu je určena vazbami jeho bodu.": "La position du symbole est déterminée par les contraintes de son point.",
   "Invalid symbol placement": "Placement du symbole non valide",
   "Duplicate symbol identity": "Identité de symbole en double",
-  "Rozložit symbol": "Décomposer le symbole"
+  "Rozložit symbol": "Décomposer le symbole",
+  "Osový kříž (vodorovná osa)": "Croix d’axes (axe horizontal)",
+  "Osový kříž (svislá osa)": "Croix d’axes (axe vertical)"
 }

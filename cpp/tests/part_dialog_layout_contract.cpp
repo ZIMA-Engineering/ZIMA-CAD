@@ -40,7 +40,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
         auto settings=app::ApplicationSettings::load(temporary.path());
         app::apply_application_translations(application,settings);app::apply_application_font(application,settings);
         app::apply_application_appearance(application,settings);
-        for(const QSize available:{QSize(1366,768),QSize(1920,1080)}) {
+        for(const QSize available:{QSize(900,650),QSize(1366,768),QSize(1920,1080)}) {
             parent.resize(available);flush();
             const auto check=[&](ui::PropertiesSubWindow* raw,const QString& name) {
                 std::unique_ptr<ui::PropertiesSubWindow> dialog(raw);dialog->setAttribute(Qt::WA_DeleteOnClose,false);
@@ -69,7 +69,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                     if(gained<growth/2)errors<<"extra window height did not reach the reference table";
                 }
                 dialog->resize(original_size);flush();
-                if(name=="revolution"&&available.width()==1366) {
+                if(name=="revolution"&&available.width()<=1366) {
                     auto* scroll=dialog->findChild<QScrollArea*>("propertiesContentScrollArea");
                     if(!scroll||scroll->verticalScrollBar()->maximum()<=0)errors<<"tall properties have no scrollable content";
                     else {
@@ -91,6 +91,16 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                         qobject_cast<QComboBox*>(widget)||qobject_cast<QAbstractButton*>(widget);
                     if(qobject_cast<QAbstractSpinBox*>(widget)&&widget->height()<widget->minimumSizeHint().height())
                         errors<<widget->objectName()+QString(": numeric editor height %1 is below its minimum hint %2").arg(widget->height()).arg(widget->minimumSizeHint().height());
+                    if(auto* spin=qobject_cast<QAbstractSpinBox*>(widget))if(auto* edit=spin->findChild<QLineEdit*>()) {
+                        const auto margins=edit->textMargins();
+                        const int text_height=edit->contentsRect().height()-margins.top()-margins.bottom();
+                        // The font line box includes unused leading; Qt's
+                        // native editor can be one pixel shorter without
+                        // clipping any glyph. Check actual numeric/unit ink.
+                        const int ink_height=edit->fontMetrics().tightBoundingRect(QStringLiteral("0123456789+-.,eE")+edit->text()).height();
+                        if(text_height<ink_height)errors<<widget->objectName()+
+                            QString(": numeric text height %1 clips glyph height %2").arg(text_height).arg(ink_height);
+                    }
                     auto* owner=widget->parentWidget();
                     const bool viewport=owner->parentWidget()&&qobject_cast<QAbstractScrollArea*>(owner->parentWidget());
                     if(editor&&!viewport&&!owner->rect().contains(widget->geometry()))
@@ -109,7 +119,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 if(!errors.empty()) {
                     ++failures;std::cerr<<language.toStdString()<<" "<<available.width()<<" "<<name.toStdString()<<": "<<errors.join(", ").toStdString()<<'\n';
                 }
-                if(!errors.empty()||name=="sweep2d"||name=="shaft-thread"||name=="fillet"||name=="chamfer"||name=="shell"||dialog->findChild<QTableWidget*>("curve3DPoints")) {
+                if(!errors.empty()||(language=="cs"&&name.startsWith("default-"))||name=="sweep2d"||name=="shaft-thread"||name=="fillet"||name=="chamfer"||name=="shell"||dialog->findChild<QTableWidget*>("curve3DPoints")) {
                     const auto output=root/"build/dialog-layout";std::filesystem::create_directories(output);
                     dialog->grab().save(QString::fromStdString(output.generic_string())+"/"+language+"-"+name+"-"+QString::number(available.width())+".png");
                 }

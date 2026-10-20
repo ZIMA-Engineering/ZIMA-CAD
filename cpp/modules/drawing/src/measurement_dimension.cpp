@@ -17,6 +17,25 @@
 namespace zima::drawing {
 namespace {
 constexpr double pi = std::numbers::pi;
+constexpr std::string_view axis_cross_prefix="drawing:axis-cross:";
+kernel::EdgeReference axis_cross_reference(kernel::EdgeReference source,AxisCrossStroke stroke) {
+    source.semantic_key=std::string(axis_cross_prefix)+(stroke==AxisCrossStroke::Horizontal?"h:":"v:")+
+        std::to_string(source.semantic_key.size())+":"+source.semantic_key;
+    return source;
+}
+std::optional<std::pair<kernel::EdgeReference,AxisCrossStroke>> axis_cross_parent(const kernel::EdgeReference& ref) {
+    std::string_view text=ref.semantic_key;
+    if(!text.starts_with(axis_cross_prefix))return {};
+    text.remove_prefix(axis_cross_prefix.size());
+    if(!text.starts_with("h:")&&!text.starts_with("v:"))return {};
+    const auto stroke=text.front()=='h'?AxisCrossStroke::Horizontal:AxisCrossStroke::Vertical;
+    text.remove_prefix(2);const auto separator=text.find(':');
+    if(separator==std::string_view::npos||separator==0)return {};
+    std::size_t size{};const auto parsed=std::from_chars(text.data(),text.data()+separator,size);
+    if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+separator||size==0)return {};
+    text.remove_prefix(separator+1);if(text.size()!=size)return {};
+    auto parent=ref;parent.semantic_key=std::string(text);return std::pair{parent,stroke};
+}
 Point2 add(Point2 a, Point2 b) { return {a.x + b.x, a.y + b.y}; }
 Point2 sub(Point2 a, Point2 b) { return {a.x - b.x, a.y - b.y}; }
 Point2 mul(Point2 a, double t) { return {a.x * t, a.y * t}; }
@@ -205,6 +224,24 @@ double parameter_at(const ProjectedMeasurementCurve &c, Point2 point) {
     }
     return result;
 }
+double contact_parameter(const ProjectedMeasurementCurve& c,Point2 point) {
+    // A true projected circle has an exact radial closest point. Interpolating
+    // its displayed chords first introduces a cursor-dependent angular error.
+    // Keep noncircular and foreshortened curves on their established path.
+    if(!c.circular||!c.center||std::abs(c.sweep)<1e-12)return parameter_at(c,point);
+    const double a=dot(c.cosine_axis,c.cosine_axis),b=dot(c.sine_axis,c.sine_axis);
+    if(a<=1e-18||std::abs(a-b)>1e-12*std::max(a,b)||
+        std::abs(dot(c.cosine_axis,c.sine_axis))>1e-12*std::max(a,b))return parameter_at(c,point);
+    const auto delta=sub(point,*c.center);if(dot(delta,delta)<=1e-24)return parameter_at(c,point);
+    const double angle=std::atan2(dot(delta,c.sine_axis)/b,dot(delta,c.cosine_axis)/a);
+    double best=std::numeric_limits<double>::infinity(),parameter=0;
+    for(int turn=-2;turn<=2;++turn) {
+        const double t=std::clamp((angle+2*pi*turn)/c.sweep,0.,1.);
+        const auto difference=sub(point_at(c,t),point);const double distance=dot(difference,difference);
+        if(distance<best){best=distance;parameter=t;}
+    }
+    return parameter;
+}
 bool on_arc(const ProjectedMeasurementCurve &c, Point2 p) {
     if(!c.line)if(const auto support=straight_support(&c)) {
         const auto u=straight_direction(&c);const auto delta=sub(p,support->first);
@@ -360,6 +397,9 @@ std::optional<Point2> resolve(const DrawingView &view, const std::vector<Project
     }
 }
 } // namespace
+std::optional<AxisCrossStroke> measurement_axis_cross_stroke(const kernel::EdgeReference& ref) {
+    const auto parent=axis_cross_parent(ref);return parent?std::optional{parent->second}:std::nullopt;
+}
 std::optional<std::pair<Point2,Point2>> measurement_line_support(const ProjectedMeasurementCurve& curve) {
     return straight_support(&curve);
 }
@@ -664,8 +704,18 @@ std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const Drawin
                     project((*item.model_axis)[1], view.camera)};
         c.parameters = {0, 1};
         c.center = mul(add(c.points.front(), c.points.back()), .5);
-        c.line = length(sub(c.points.back(), c.points.front())) > 1e-9;
+        const auto displayed=axis_annotation_geometry(view,item);
+        const bool cross=displayed.curves.size()==4;
+        c.line = !cross&&length(sub(c.points.back(), c.points.front())) > 1e-9;
         result.push_back(std::move(c));
+        if(cross)for(const auto stroke:{AxisCrossStroke::Horizontal,AxisCrossStroke::Vertical}) {
+            const std::size_t first=stroke==AxisCrossStroke::Horizontal?0:2;
+            ProjectedMeasurementCurve arm;
+            arm.source=axis_cross_reference({item.source.owner_id,item.source.semantic_id,item.source.instance_path},stroke);
+            arm.axis=true;arm.line=true;arm.center=displayed.center;
+            arm.points={displayed.curves[first].back(),displayed.curves[first+1].back()};
+            arm.parameters={0,1};result.push_back(std::move(arm));
+        }
     }
     return result;
 }
@@ -682,6 +732,14 @@ std::vector<std::vector<Point2>> measurement_reference_geometry(
             kernel::EdgeReference{item.source.owner_id, item.source.semantic_id, item.source.instance_path} == ref)
             for (auto &curve : axis_annotation_geometry(view, item).curves)
                 result.push_back(std::move(curve));
+    if(const auto parent=axis_cross_parent(ref))for(const auto& item:view.model_annotations) {
+        if(origin_annotation(item.source)||item.kind!=ModelAnnotationKind::Axis||!item.model_axis||!item.visible||item.unresolved||
+            kernel::EdgeReference{item.source.owner_id,item.source.semantic_id,item.source.instance_path}!=parent->first)continue;
+        auto geometry=axis_annotation_geometry(view,item);
+        if(geometry.curves.size()!=4)continue;
+        const std::size_t first=parent->second==AxisCrossStroke::Horizontal?0:2;
+        result.push_back(std::move(geometry.curves[first]));result.push_back(std::move(geometry.curves[first+1]));
+    }
     std::vector<std::vector<Point2>> clipped;
     for(const auto& line:result)for(auto fragment:break_fragments(view,line))clipped.push_back(std::move(fragment));
     return clipped;
@@ -1063,6 +1121,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
     } else for(std::size_t i=0;i<curves.size();++i)nearby.push_back(i);
     for (const auto index : nearby) {
         const auto& curve=curves[index];
+        const bool cross_stroke=measurement_axis_cross_stroke(curve.source).has_value();
         // Offer the displayed child geometry, then canonicalize its reference.
         // Do not offer the removed endpoints/midpoint of an untrimmed parent.
         if(prepared ? !prepared->displayed[index] :
@@ -1108,7 +1167,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         }
         const auto mode = request.mode;
         if (mode == int(DimensionAttachmentKind::Center)) {
-            if (curve.center) {
+            if (curve.center&&!cross_stroke) {
                 a.kind = DimensionAttachmentKind::Center;
                 add_candidate(a, *curve.center, std::min(distance, length(sub(cursor, *curve.center))));
             }
@@ -1134,11 +1193,11 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
             add_candidate(a, point_at(curve, a.parameter), distance);
             continue;
         }
-        if (curve.axis && (mode < 0 || mode == int(DimensionAttachmentKind::Point))) {
+        if (curve.axis && !cross_stroke && (mode < 0 || mode == int(DimensionAttachmentKind::Point))) {
             a.kind = DimensionAttachmentKind::Center;
             a.parameter = .5;
             const double center_distance = length(sub(cursor, *curve.center));
-            add_candidate(a, *curve.center, (curve.line ? center_distance : std::min(distance, center_distance)) * .75);
+            add_candidate(a, *curve.center, (curve.line||mode<0 ? center_distance : std::min(distance, center_distance)) * .75);
             if (mode == int(DimensionAttachmentKind::Point) || !curve.line)
                 continue;
         }
@@ -1178,6 +1237,7 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         }
         a.parameter = parameter_at(curve, cursor);
         if(request.curve_contacts) {
+            a.parameter=contact_parameter(curve,cursor);
             a.kind=DimensionAttachmentKind::CurvePoint;
             add_candidate(a,point_at(curve,a.parameter),distance);
         }

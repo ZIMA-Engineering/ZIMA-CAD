@@ -2499,5 +2499,7 @@
   "Poloha symbolu je určena vazbami jeho bodu.": "The symbol position is determined by constraints on its point.",
   "Invalid symbol placement": "Invalid symbol placement",
   "Duplicate symbol identity": "Duplicate symbol identity",
-  "Rozložit symbol": "Explode symbol"
+  "Rozložit symbol": "Explode symbol",
+  "Osový kříž (vodorovná osa)": "Centre cross (horizontal axis)",
+  "Osový kříž (svislá osa)": "Centre cross (vertical axis)"
 }

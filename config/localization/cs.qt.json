@@ -2499,5 +2499,7 @@
   "Poloha symbolu je určena vazbami jeho bodu.": "Poloha symbolu je určena vazbami jeho bodu.",
   "Invalid symbol placement": "Neplatné umístění symbolu",
   "Duplicate symbol identity": "Duplicitní identita symbolu",
-  "Rozložit symbol": "Rozložit symbol"
+  "Rozložit symbol": "Rozložit symbol",
+  "Osový kříž (vodorovná osa)": "Osový kříž (vodorovná osa)",
+  "Osový kříž (svislá osa)": "Osový kříž (svislá osa)"
 }
