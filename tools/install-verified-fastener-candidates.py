@@ -21,7 +21,8 @@ SHAPED={
     'flange-nuts':dict(edits=12,gui_edits=6,model_dimensions=0,gui={'FLN-DIN6923-M05.0.prtz','FLN-DIN6923-M20.0.prtz'}),
     'spherical-wheel-nuts':dict(edits=9,gui_edits=3,model_dimensions=1,gui={'WHN-DIN74361A-M20.0x1.50.prtz'}),
     'conical-wheel-nuts':dict(edits=6,gui_edits=6,model_dimensions=0,gui={'WHN-DIN74361F-M12.0x1.50-A60.prtz','WHN-DIN74361F-M12.0x1.50-A90.prtz'}),
-    'wheel-spring-washers':dict(edits=15,gui_edits=3,model_dimensions=1,gui={'SPHW-DIN74361C-D20.5.prtz'})}
+    'wheel-spring-washers':dict(edits=15,gui_edits=3,model_dimensions=1,gui={'SPHW-DIN74361C-D20.5.prtz'}),
+    'wheel-spring-washer-additions':dict(edits=15,gui_edits=3,model_dimensions=1,gui={'SPHW-DIN74361C-D18.5.prtz','SPHW-DIN74361C-D22.5.prtz'})}
 spec=importlib.util.spec_from_file_location('installer',ROOT/'tools/install-fastener-library.py')
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
 
@@ -43,7 +44,7 @@ def destination(kind,v):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--kind',choices=('special','caps','spring','plain','iso-plain','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','wheel-spring-washers','insert-lock-nuts','pressed-wing-nuts','formed-nose-washers'),required=True)
+    p.add_argument('--kind',choices=('special','caps','spring','plain','iso-plain','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','wheel-spring-washers','insert-lock-nuts','pressed-wing-nuts','formed-nose-washers','wheel-spring-washer-additions'),required=True)
     p.add_argument('--gui-verification',type=Path,help='Independent representative GUI edit receipts, required for knurled nuts')
     p.add_argument('--catalog-verification',type=Path,help='Native thread-catalog edit receipts, required for knurled nuts')
     p.add_argument('--drawing-verification',type=Path,help='Regeneration and reopen receipts for every staged native drawing')
@@ -52,7 +53,7 @@ def main():
     for name in ('models','verification','thumbnails','references'):p.add_argument('--'+name,type=Path,required=True)
     args=p.parse_args();rows=json.loads((args.models/'manifest.json').read_text(encoding='utf-8'))['variants']
     if args.kind=='special':rows=[v for v in rows if v['standard'] in ('DIN 7984','DIN 6912','ISO 14579')]
-    assert len(rows)=={'special':25,'caps':72,'spring':41,'plain':127,'iso-plain':134,'hex-nuts':166,'small-hex-nuts':15,'coupling-nuts':14,'flange-nuts':8,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':53,'small-castle-nuts':15,'knurled-nuts':22,'din-cap-nuts':26,'csn-closed-nuts':11,'din-weld':16,'iso-weld':14,'tab':19,'insert-lock-nuts':13,'pressed-wing-nuts':6,'formed-nose-washers':13}[args.kind]
+    assert len(rows)=={'special':25,'caps':72,'spring':41,'plain':127,'iso-plain':134,'hex-nuts':166,'small-hex-nuts':15,'coupling-nuts':14,'flange-nuts':8,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':53,'small-castle-nuts':15,'knurled-nuts':22,'din-cap-nuts':26,'csn-closed-nuts':11,'din-weld':16,'iso-weld':14,'tab':19,'insert-lock-nuts':13,'pressed-wing-nuts':6,'formed-nose-washers':13,'wheel-spring-washer-additions':2}[args.kind]
     cases={v['filename']:v for v in json.loads(args.verification.read_text(encoding='utf-8'))}
     refs=json.loads((args.references/'illustrations.json').read_text(encoding='utf-8'))
     refs=[v for v in refs if v['standard'] in {r['standard'] for r in rows}]
@@ -132,7 +133,7 @@ def main():
             assert r['dimensions']==(6 if args.kind=='insert-lock-nuts' else 4) and all(r[k] for k in ('regenerate','save_reopen','identities_retained'))
             assert digest(args.references/r['drawing'])==r['source_sha256']
             assert digest(args.references/r['part'])==r['part_sha256']
-    assert len(refs)=={'special':3,'caps':7,'spring':2,'plain':4,'iso-plain':7,'hex-nuts':8,'small-hex-nuts':1,'coupling-nuts':1,'flange-nuts':1,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':2,'small-castle-nuts':1,'knurled-nuts':2,'din-cap-nuts':1,'csn-closed-nuts':1,'din-weld':1,'iso-weld':1,'tab':1,'insert-lock-nuts':1,'pressed-wing-nuts':1,'formed-nose-washers':1}[args.kind]
+    assert len(refs)=={'special':3,'caps':7,'spring':2,'plain':4,'iso-plain':7,'hex-nuts':8,'small-hex-nuts':1,'coupling-nuts':1,'flange-nuts':1,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':2,'small-castle-nuts':1,'knurled-nuts':2,'din-cap-nuts':1,'csn-closed-nuts':1,'din-weld':1,'iso-weld':1,'tab':1,'insert-lock-nuts':1,'pressed-wing-nuts':1,'formed-nose-washers':1,'wheel-spring-washer-additions':1}[args.kind]
     if args.kind in ('din-weld','iso-weld'):
         assert args.gui_verification and args.drawing_verification
         prefix='HWN-DIN929' if args.kind=='din-weld' else 'HFWN-ISO21670'
@@ -305,7 +306,7 @@ def main():
             assert bottom['camera']['depth']==parent['camera']['vertical']
             for view in sheet['views']:
                 assert any(a['kind']==1 and a['visible'] and not a['unresolved'] for a in view['model_annotations'])
-        if args.kind in ('wheel-spring-washers','plain','iso-plain','spring','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','insert-lock-nuts','formed-nose-washers'):
+        if args.kind in ('wheel-spring-washers','plain','iso-plain','spring','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','insert-lock-nuts','formed-nose-washers','wheel-spring-washer-additions'):
             assert len(definition['sheets'])==1
             sheet=definition['sheets'][0];assert sheet['projection_method']=='first_angle'
             assert len(sheet['views'])==2
@@ -321,7 +322,7 @@ def main():
             for view in (parent,child):
                 assert any(a['kind']==1 and a['visible'] and not a['unresolved']
                     for a in view['model_annotations']),'Native illustration axis missing'
-            if args.kind not in ('wheel-spring-washers','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','insert-lock-nuts','formed-nose-washers'):
+            if args.kind not in ('wheel-spring-washers','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','insert-lock-nuts','formed-nose-washers','wheel-spring-washer-additions'):
                 for symbol,angle in (('d1',135),('d2',45)):
                     dimension=next(d for d in sheet['dimensions'] if d['style']['text_override']==symbol)
                     assert dimension['view_id']==parent['id']
@@ -334,7 +335,7 @@ def main():
                     assert abs(actual-angle)<1e-7,'Washer diameter annotations are not mirrored'
         for path in [part,drawing,part.with_suffix('.png'),*(folder/(part.stem+'_'+lang+'.png') for lang in LANGUAGES)]:
             assert path.is_file();copies.append((path,index/path.name))
-        if args.kind in ('flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','wheel-spring-washers','din-cap-nuts','csn-closed-nuts','coupling-nuts','din-weld','iso-weld','insert-lock-nuts','pressed-wing-nuts','formed-nose-washers'):
+        if args.kind in ('flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','wheel-spring-washers','din-cap-nuts','csn-closed-nuts','coupling-nuts','din-weld','iso-weld','insert-lock-nuts','pressed-wing-nuts','formed-nose-washers','wheel-spring-washer-additions'):
             for lang in LANGUAGES:
                 path=folder/(part.stem+'_'+lang+'.drwz')
                 assert path.is_file();copies.append((path,index/path.name))

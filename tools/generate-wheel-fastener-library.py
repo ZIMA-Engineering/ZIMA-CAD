@@ -22,12 +22,12 @@ spec=importlib.util.spec_from_file_location('weld',ROOT/'tools/generate-weld-nut
 weld=importlib.util.module_from_spec(spec);spec.loader.exec_module(weld)
 
 
-def variants(kind='washers'):
+def variants(kind='washers',washer_bores=(20.5,)):
     facts=json.loads((ROOT/'tools/data/wheel-fastener-reviewed-dimensions.json').read_text(encoding='utf-8'))
     result=[]
-    # The requested M20 companion is the reviewed authored profile. Other
-    # source rows remain facts, not unverified offered CAD definitions.
-    for row in [r for r in facts['washer_rows'] if r[0]==20.5] if kind=='washers' else []:
+    # Explicit selection keeps unresolved small profiles out of the offer.
+    assert set(washer_bores)<=set(r[0] for r in facts['washer_rows'])
+    for row in [r for r in facts['washer_rows'] if r[0] in washer_bores] if kind=='washers' else []:
         v=dict(zip(facts['washer_columns'],row));d=v['bore_mm']
         v.update(filename=f'SPHW-DIN74361C-D{d:04.1f}.prtz',standard='DIN 74361 C',family='07-SPHERICAL',
             state='compressed',thickness_mm=v['height_mm'],corner_radius_mm=.1,
@@ -286,8 +286,9 @@ def author_washer(native,v,target):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--stage',type=Path,required=True)
     parser.add_argument('--filename');parser.add_argument('--kind',choices=('washers','spherical-nuts','conical-nuts'),default='washers')
+    parser.add_argument('--washer-bore',type=float,action='append',help='Explicit reviewed source bore; defaults to 20.5 mm')
     args=parser.parse_args();stage=args.stage.resolve();stage.mkdir(parents=True,exist_ok=True);completed=[]
-    for v in variants(args.kind):
+    for v in variants(args.kind,args.washer_bore or (20.5,)):
         if args.filename and args.filename!=v['filename']:continue
         target=stage/v['filename'];assert not target.exists(),target
         evidence=stage/'evidence'/target.stem

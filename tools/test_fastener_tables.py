@@ -148,7 +148,7 @@ class Fasteners(unittest.TestCase):
         from lxml import html
         pages={p['path']:p for p in self.data['pages']}
         families=[('05-NUTS/10-FLANGE',8),('05-NUTS/12-WHEEL/01-SPHERICAL',1),
-            ('05-NUTS/12-WHEEL/02-CONICAL',2),('06-WASHERS/07-SPHERICAL',1)]
+            ('05-NUTS/12-WHEEL/02-CONICAL',2),('06-WASHERS/07-SPHERICAL',3)]
         for path,count in families:
             page=pages[path];self.assertEqual(len(page['rows']),count)
             folder=ROOT/self.data['root']/path;models=list(folder.glob('*.prtz'));self.assertEqual(len(models),count)
@@ -165,7 +165,7 @@ class Fasteners(unittest.TestCase):
         flange=pages[families[0][0]]['rows'];self.assertEqual(next(r for r in flange if r[0]=='M8')[1:5],['1.25','13','8','17.9'])
         spherical=pages[families[1][0]]['rows'][0];self.assertEqual(spherical[:4],['M20×1.5','1.5','27','27'])
         conical=pages[families[2][0]];self.assertEqual({r[-1] for r in conical['rows']},{'60','90'});self.assertEqual(len(conical['figures']),2)
-        washer=pages[families[3][0]];self.assertEqual(washer['rows'],[['20.5','34','24','8','18']])
+        washer=pages[families[3][0]];self.assertEqual(washer['rows'],[['18.5','29','20','7','16'],['20.5','34','24','8','18'],['22.5','34','24','8','18']])
         self.assertIn('compressed',self.data['labels']['shaped_washer_scope'][1])
         self.assertEqual(pages['05-NUTS/12-WHEEL']['rows'],[])
 

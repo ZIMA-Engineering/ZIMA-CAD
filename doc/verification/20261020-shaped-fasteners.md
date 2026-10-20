@@ -50,9 +50,10 @@ retain their original selection path. A normal native Axis feature belongs
 to the same Body, with its length related to height. No substitute solid or
 external geometry is used to display its axis.
 
-Only the M20 washer is offered. The other four original source rows are retained
-as dimensional facts. The initially assumed meridian is inconsistent for the
-M12 nominal row, and the smaller profiles have not been accepted. They are not
+The initial offer contained only the M20 washer. The accepted additions below
+extend it to bores 18.5, 20.5 and 22.5 mm. The other two original source rows
+remain dimensional facts. The initially assumed meridian is inconsistent for the
+M12 nominal row, and those smaller profiles have not been accepted. They are not
 silently extrapolated or installed. Free spring shape, preload, zinc coatings,
 manufacturing tolerances and complete standards certification are outside these
 nominal CAD models. Mass always follows calculated material volume and the
@@ -109,3 +110,35 @@ thumbnail sizes before copying factory assets. Custom libraries remain intact.
 This work changes no native schema, shared placement contract or modeling
 algorithm. Qt 6.11.0 / OCCT 8.0.0 Windows checks passed. Linux execution and
 rendering remain unverified on this Windows host.
+
+
+## Additional type C washers (2026-10-20)
+
+Native bores 18.5 and 22.5 mm now use the same accepted compressed-state
+meridian and ordinary Revolution, corner rounding, native split and Axis paths.
+The original 20.5 mm Part, thumbnail and reference files are preserved byte for
+byte. Both additions passed 15 successive edits each: bore, outside diameter,
+height, spherical radius and inner-flat transition, with three values per driver.
+Every step checks independent BRep/cache/analytic volume, calculated mass,
+contact equations, original face references, locked/unlocked profile dragging,
+Undo/Redo, explicit Regenerate, native save/reopen and unchanged source hashes.
+Both also passed three actual GUI radius edits and independent checking of the
+saved result. Their calculated masses are about 14.217 g and 20.023 g; neither
+is assigned the indicative catalog mass.
+
+The 18.5 mm reference has two first-angle views, an axial section, real axes,
+four associative manual dimensions and the native R16 annotation. All six
+neutral/localized Drawings passed regeneration and Save As/reopen with retained
+owners and values. Five-language table/browser and selectable-text A4 print
+checks passed; all 27 fastener table tests passed. Evidence is under
+`build/wheel-washer-additions-*`. The installer checks every receipt and source
+hash and refuses different existing assets. The table continues to illustrate
+its unchanged 20.5 mm reference and offers the three verified native sizes.
+
+The 12.5 mm nominal row produces negative outside wall thickness with the
+currently interpreted flat-back/spherical-front section. The 14.5 mm row leaves
+about 0.072 mm, less than the selected R0.1 lower corner. These are unresolved
+profile interpretations, not proof that actual standard-compliant products
+cannot exist. No diameter, height, spherical radius, tolerance or density has
+been silently adjusted to force an offered model. Native Linux and the next
+Windows packaged-runtime acceptance remain pending.

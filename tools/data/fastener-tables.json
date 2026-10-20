@@ -13078,11 +13078,11 @@
       "Сферические пружинные шайбы"
     ],
     "shaped_washer_scope": [
-      "Kolová pružná podložka C pro M20, otvor Ø20,5 mm, podle tabulky DIN 74361 části 2 z roku 1982. Model je ve stlačeném, dotaženém stavu: Ø34, přechod Ø24, h = 8 mm, R18. Zvolený šikmý rovnoběžný řez 45° s mezerou 1 mm a dvě zaoblení R0,1 jsou CAD detaily. Skutečná konstrukční osa je v Body a její délka sleduje výšku. Volný pružný stav ani síla předpětí se nesimulují. Tato nabídka obsahuje pouze ověřenou velikost pro M20.",
-      "Type C wheel spring washer for M20, Ø20.5 bore, from DIN 74361 Part 2, 1982 Table 2. The model is in the compressed, tightened condition: Ø34, transition Ø24, h = 8 mm, R18. Selected parallel 45° split with a 1 mm gap and two R0.1 rounds are CAD details. A real native datum axis belongs to its Body and follows height. Free spring shape and preload force are not simulated. This offer contains only the verified M20 size.",
-      "Kugelbund-Federring C für M20, Bohrung Ø20,5 mm, nach DIN 74361 Teil 2, Tabelle 2 von 1982. Das Modell ist zusammengedrückt im angezogenen Zustand: Ø34, Übergang Ø24, h = 8 mm, R18. Gewählter paralleler 45°-Schnitt mit 1 mm Spalt und zwei Rundungen R0,1 sind CAD-Details. Eine echte native Bezugsachse gehört zum Body und folgt der Höhe. Freie Federform und Vorspannkraft werden nicht simuliert. Das Angebot enthält nur die verifizierte Größe für M20.",
-      "Rondelle élastique de roue C pour M20, alésage Ø20,5 mm, selon DIN 74361 partie 2, table 2 de 1982. Modèle comprimé, assemblage serré : Ø34, transition Ø24, h = 8 mm, R18. Coupe parallèle à 45° avec jeu de 1 mm et deux arrondis R0,1 choisis comme détails CAO. Une véritable référence d’axe native appartient au Body et suit la hauteur. Forme libre et effort de précharge non simulés. Cette offre contient uniquement la taille M20 vérifiée.",
-      "Колёсная пружинная шайба C для M20, отверстие Ø20,5 мм, по таблице 2 DIN 74361, часть 2, 1982 года. Модель в сжатом, затянутом состоянии: Ø34, переход Ø24, h = 8 мм, R18. Параллельный косой разрез 45° с зазором 1 мм и два скругления R0,1 — выбранные детали САПР. Настоящая нативная базовая ось принадлежит Body, её длина связана с высотой. Свободная форма пружины и усилие преднатяга не моделируются. Предлагается только проверенный размер для M20."
+      "Kulové pružné podložky C podle DIN 74361 části 2 z roku 1982, v dotaženém stavu. Nabízené nativní otvory: 18,5 / 20,5 / 22,5 mm; rozměry jsou uvedeny v tabulce. Zvolený rovnoběžný řez 45° s mezerou 1 mm a dvě zaoblení R0,1 jsou CAD detaily. Skutečná osa v Body sleduje výšku. Hmotnost se počítá z geometrie s hustotou 7 850 kg/m³. Volný pružný stav ani předpětí se nesimulují.",
+      "Type C spherical spring washers from DIN 74361 Part 2, 1982, in the compressed, tightened condition. Offered native bores: 18.5 / 20.5 / 22.5 mm; dimensions are listed in the table. Selected parallel 45° split with a 1 mm gap and two R0.1 rounds are CAD details. A real native Body axis follows height. Mass is calculated from geometry at 7,850 kg/m³. Free spring shape and preload are not simulated.",
+      "Kugelbund-Federringe C nach DIN 74361 Teil 2 von 1982 im zusammengedrückten, angezogenen Zustand. Angebotene native Bohrungen: 18,5 / 20,5 / 22,5 mm; Maße stehen in der Tabelle. Gewählter paralleler 45°-Schnitt mit 1 mm Spalt und zwei Rundungen R0,1 sind CAD-Details. Eine echte native Body-Achse folgt der Höhe. Masse aus der Geometrie bei 7.850 kg/m³. Freie Federform und Vorspannung werden nicht simuliert.",
+      "Rondelles élastiques sphériques C selon DIN 74361 partie 2 de 1982, à l’état comprimé et serré. Alésages natifs proposés : 18,5 / 20,5 / 22,5 mm ; dimensions dans le tableau. Coupe parallèle à 45° avec jeu de 1 mm et deux arrondis R0,1 choisis comme détails CAO. Un véritable axe natif du Body suit la hauteur. Masse calculée sur la géométrie à 7 850 kg/m³. Forme libre et précharge non simulées.",
+      "Сферические пружинные шайбы C по DIN 74361, часть 2, 1982 года, в сжатом, затянутом состоянии. Предлагаемые нативные отверстия: 18,5 / 20,5 / 22,5 мм; размеры приведены в таблице. Параллельный разрез 45° с зазором 1 мм и два скругления R0,1 — выбранные детали САПР. Настоящая нативная ось Body следует высоте. Масса рассчитана по геометрии при 7 850 кг/м³. Свободная форма пружины и преднатяг не моделируются."
     ],
     "shaped_washer_heading": [
       "DIN 74361 C",
@@ -57023,7 +57023,21 @@
       ],
       "rows": [
         [
+          "18.5",
+          "29",
+          "20",
+          "7",
+          "16"
+        ],
+        [
           "20.5",
+          "34",
+          "24",
+          "8",
+          "18"
+        ],
+        [
+          "22.5",
           "34",
           "24",
           "8",
