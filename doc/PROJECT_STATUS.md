@@ -57,7 +57,7 @@ library, test and approximation boundaries. Linux acceptance remains separate.
 | --- | --- |
 | Current correction/release batch | Completed in Windows 2026102004 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
-| Multiple Up To faces and correction | Agreed ordered consecutive surface intersections, explicit reordering and signed correction; design/implementation still pending. Preserve geometry-side identity and obtain any required persisted-contract approval. |
+| Multiple Up To faces and correction | [Scoped design and factory-conversion plan](FEATURE_ORDERED_UP_TO_PLAN.md) prepared; an isolated 32-case planar OCCT feasibility probe passed. Native-contract approval and production implementation remain pending. Preserve ordered consecutive intersections, explicit reordering and geometry-side identity. |
 | Sketch projection onto faces | Planned within the Feature principle; associative 3D result, direction, clipping and ambiguous intersections still need design. |
 | File Manager directory prototypes | Discuss ordinary/linked metadata types and configurable prototype `0000-index` folders before implementation. |
 | Direct mesh/Surface editing | Design ideas: independent meshes, point groups, primitives, subdivision, deformation, optional explicit point-to-model bindings and conversion to suitable shells/solids. No implemented Blender-style mesh editor is claimed. |
