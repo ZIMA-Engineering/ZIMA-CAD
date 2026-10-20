@@ -6,6 +6,7 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
+#include <zima/sketcher/external_curve_center.hpp>
 #include "exact_external_circle.hpp"
 #include <zima/kernel/stable_id.hpp>
 
@@ -234,6 +235,10 @@ std::optional<std::array<double, 2>> external_point_position(
     const Sketch& sketch, const std::string& reference_id) {
     if (reference_id == "sketch_origin") {
         return std::array{0.0, 0.0};
+    }
+    if(const auto source=external_center_source(reference_id)) {
+        const auto reference=std::ranges::find(sketch.external_references,*source,&SketchExternalReference::id);
+        return reference==sketch.external_references.end()?std::nullopt:external_reference_center(*reference);
     }
     constexpr std::string_view keypoint_prefix{"sketch_keypoint:"};
     if (reference_id.starts_with(keypoint_prefix)) {
@@ -5099,8 +5104,12 @@ std::string Sketch::add_segment_pair_constraint(
 }
 
 std::string Sketch::add_equal_radius_constraint(
-    const std::string& reference_geometry_id,
-    const std::string& driven_geometry_id) {
+    const std::string& reference_input_id,
+    const std::string& driven_input_id) {
+    auto reference_geometry_id=reference_input_id,driven_geometry_id=driven_input_id;
+    const auto external=[&](const std::string& id){return std::ranges::any_of(external_references,[&](const auto& ref){return ref.id==id;});};
+    // An external radius is read-only in either UI selection order, as for T.
+    if(external(driven_geometry_id)&&!external(reference_geometry_id))std::swap(reference_geometry_id,driven_geometry_id);
     const auto reference_radius = circular_curve_radius(
         *this, reference_geometry_id);
     const auto driven_radius = circular_curve_radius(
@@ -6310,6 +6319,10 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                 candidate_point_ids.end() &&
             !point_has_geometry_owner(point_id);
     };
+    const auto removed_external_point=[&](const std::string& point_id) {
+        const auto source=external_center_source(point_id);
+        return external_reference_count!=0&&(point_id==geometry_id||(source&&*source==geometry_id));
+    };
     std::erase_if(next.constraints,
         [&](const auto& value) {
             return value.geometry_id == geometry_id ||
@@ -6317,9 +6330,7 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
                 (value.second_point_id.starts_with("sketch_keypoint:") &&
                  value.second_point_id.find(":" + geometry_id + ":") !=
                      std::string::npos) ||
-                (external_reference_count != 0 &&
-                 (value.first_point_id == geometry_id ||
-                  value.second_point_id == geometry_id)) ||
+                removed_external_point(value.first_point_id) || removed_external_point(value.second_point_id) ||
                 removed_unshared_point(value.first_point_id) ||
                 removed_unshared_point(value.second_point_id);
         });
@@ -6328,9 +6339,9 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             return value.geometry_id == geometry_id ||
                 value.second_geometry_id == geometry_id ||
                 value.third_geometry_id == geometry_id ||
-                (external_reference_count != 0 &&
-                 (value.first_point_id == geometry_id ||
-                  value.second_point_id == geometry_id));
+                removed_external_point(value.first_point_id) || removed_external_point(value.second_point_id) ||
+                removed_external_point(value.geometry_id) || removed_external_point(value.second_geometry_id) ||
+                removed_external_point(value.third_geometry_id);
         });
     const auto point_is_referenced = [&](const std::string& point_id) {
         return std::ranges::any_of(next.texts,[&](const auto& value){return value.anchor_point_id==point_id;}) ||
@@ -8669,6 +8680,24 @@ bool Sketch::refresh_external_references(
             point->x = position[0];
             point->y = position[1];
         }
+    }
+    // A center is a typed point on its original conic reference. If a stable
+    // source edge ceases to be a conic, retain the complete last usable packet
+    // before validating existing C/dimension bindings, just as for a lost edge.
+    std::set<std::string> center_sources,radius_sources;
+    const auto collect_center=[&](const std::string& point){if(const auto id=external_center_source(point))center_sources.emplace(*id);};
+    for(const auto& c:next.constraints){collect_center(c.first_point_id);collect_center(c.second_point_id);}
+    for(const auto& d:next.dimensions){collect_center(d.first_point_id);collect_center(d.second_point_id);collect_center(d.geometry_id);}
+    if(!center_sources.empty())for(const auto& c:next.constraints)if(c.kind==ConstraintKind::EqualRadius){radius_sources.insert(c.geometry_id);radius_sources.insert(c.second_geometry_id);}
+    for(auto& reference:next.external_references) {
+        if(!center_sources.contains(reference.id))continue;
+        const bool radius_required=radius_sources.contains(reference.id);
+        if(external_reference_center(reference)&&(!radius_required||reference.broken||external_reference_circle(reference)))continue;
+        const auto old=std::ranges::find(external_references,reference.id,&SketchExternalReference::id);
+        if(old==external_references.end()||!external_reference_center(*old))continue;
+        auto frozen=*old;frozen.broken=true;
+        froze_profile=true;
+        if(reference!=frozen){reference=std::move(frozen);changed=true;}
     }
     next.validate();
     const bool unavailable_reference=std::ranges::any_of(next.external_references,[](const auto& ref){return ref.broken;});
@@ -14153,6 +14182,9 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
     }
     for (const auto& reference : external_references) {
+        if(const auto center=external_reference_center(reference))
+            result.points.push_back({world_point((*center)[0],(*center)[1]),
+                {id,"external_point:"+external_center_point_id(reference.id)+(reference.broken?":broken":""),{}}});
         if (!is_external_point_kind(reference.kind)) continue;
         if(reference.kind==ExternalReferenceKind::AxisPoint&&reference.broken)continue;
         const auto& point = reference.cached_points.front();
@@ -14374,6 +14406,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     };
     const auto geometry_semantic_key = [&](const std::string& geometry_id) {
         if (geometry_id.empty()) return std::string{};
+        if(external_center_source(geometry_id))return "external_point:"+geometry_id;
         if (geometry_id == "sketch_axis:x" || geometry_id == "sketch_axis:y")
             return geometry_id;
         if (std::ranges::any_of(segments,
@@ -14414,9 +14447,9 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             ? sketch_keypoint_geometry_id(constraint.second_point_id)
             : std::nullopt;
         const bool external_point_binding=constraint.kind==ConstraintKind::PointReference &&
-            std::ranges::any_of(external_references,[&](const auto& reference) {
+            (external_center_source(constraint.second_point_id).has_value()||std::ranges::any_of(external_references,[&](const auto& reference) {
                 return reference.id==constraint.second_point_id && is_external_point_kind(reference.kind);
-            });
+            }));
         if ((constraint.kind == ConstraintKind::PointReference &&
              !referenced_keypoint_geometry && !external_point_binding &&
              constraint.second_point_id != "sketch_origin") ||
@@ -14546,7 +14579,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             } else {
                 const auto external=std::ranges::find(external_references,point_id,&SketchExternalReference::id);
                 participants.push_back(point_id == "sketch_origin" ? "origin:point" :
-                    external!=external_references.end() && is_external_point_kind(external->kind)
+                    external_center_source(point_id)||(external!=external_references.end() && is_external_point_kind(external->kind))
                         ? "external_point:"+point_id : "point:"+point_id);
             }
         }

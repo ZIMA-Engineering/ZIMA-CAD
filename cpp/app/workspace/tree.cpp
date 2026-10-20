@@ -10,6 +10,7 @@
 #include "../solid_state_dialog.hpp"
 #include "../part_reference_index.hpp"
 #include "../surface_wire_visibility.hpp"
+#include <zima/sketcher/external_curve_center.hpp>
 #include "../tree_visibility.hpp"
 
 namespace zima::app {
@@ -50,7 +51,7 @@ void AssemblyWorkspaceWindow::configure_sketch_box_selection(
                     if (const auto reference_id =
                             sketch_external_reference_id_from_key(
                                 candidate.semantic_key)) {
-                        selected_id = *reference_id;
+                        selected_id = std::string(zima::sketcher::external_center_source(*reference_id).value_or(*reference_id));
                     }
                 } else {
                     const auto separator = candidate.semantic_key.find(':');

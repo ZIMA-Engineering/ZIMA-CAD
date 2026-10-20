@@ -153,6 +153,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             dialog.reject();
         }
         for(const auto* key:{
+            "Stejný poloměr: vyberte kružnici nebo oblouk v této skice.",
             "Vodicí dráha se větví nebo má neplatné spojení",
             "IGES export failed",
             "Cannot initialize document fingerprint",

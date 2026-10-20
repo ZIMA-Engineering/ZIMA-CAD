@@ -10,7 +10,36 @@ the contact may lie on its extension. Native endpoints can also bind directly
 to an external point. Both the snapping hint and persisted point binding use C.
 Native point merging and generated curve-keypoint K markers remain distinct.
 
-## Reference profiles
+## Circular and elliptical reference centers
+
+Exact external circles, arcs, ellipses and elliptical arcs expose a selectable
+center cross. Use **C between a native center point and the external center**,
+in either selection order. On circles and arcs, use **= between the two curves**
+separately to copy the read-only source radius. C between circumferences does
+not imply concentricity. Existing explicit Concentric remains available.
+
+When drawing a circle, snapping its center to the external center and its rim
+to the same circular source creates the center binding and equal radius without
+an extra rim contact point. The existing automatic constraint preferences apply.
+Ellipses expose a center; they do not acquire a single circle-radius equality.
+
+Distance, X and Y dimensions can reference the external center directly. The
+existing three-point angular command uses native points: bind a native vertex
+to the external center with C first. Center and radius are independent, so an
+otherwise free native circle retains an editable radius after its center is bound.
+
+The center belongs to its external curve reference. Ordinary selection selects
+that reference in the Tree; Delete removes the reference and its dependent
+attachments while retaining owned native geometry. Undo restores the reference.
+If the source disappears or ceases to support a required center/radius, the last
+usable exact support and owned shape remain, and the link is marked broken.
+
+The persisted derived-point identity is `sketch_external_center:<reference-id>`
+in the existing native constraint/dimension fields. Its exact cached support
+remains in the same native document. No duplicate center, sidecar or bulk custom
+library rewrite is required. See the [finite verification record](verification/20261020-external-conic-centers.md).
+
+## Reference profile geometry
 
 External Geometry / Reference Profile (`Reference obrys`) projects an actual
 calculated body edge into the Sketch. It uses the surviving edge after operations

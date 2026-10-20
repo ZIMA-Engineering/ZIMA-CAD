@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/sketcher/external_curve_center.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -265,6 +266,9 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
         relation = zima::sketcher::ConstraintKind::Coincident;
         if (*reference_id == "sketch_origin") {
             position = std::array{0.0, 0.0};
+        } else if(const auto source=zima::sketcher::external_center_source(*reference_id)) {
+            const auto reference=std::ranges::find(sketch->external_references,*source,&zima::sketcher::SketchExternalReference::id);
+            if(reference!=sketch->external_references.end()&&!reference->broken)position=zima::sketcher::external_reference_center(*reference);
         } else {
             const auto reference = std::find_if(sketch->external_references.begin(),
                 sketch->external_references.end(), [&](const auto& value) {
@@ -477,7 +481,7 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
         const auto is_center=[&](const auto& curves) {
             return std::ranges::any_of(curves,[&](const auto& curve){return curve.center_point_id==support_geometry_id;});
         };
-        if (is_center(sketch->circles) || is_center(sketch->arcs) || is_center(sketch->ellipses) || is_center(sketch->elliptical_arcs))
+        if (zima::sketcher::external_center_source(support_geometry_id) || is_center(sketch->circles) || is_center(sketch->arcs) || is_center(sketch->ellipses) || is_center(sketch->elliptical_arcs))
             return std::nullopt;
     }
     return SketchCandidateSnap{

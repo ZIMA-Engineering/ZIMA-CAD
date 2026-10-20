@@ -10,6 +10,7 @@
 #include "../tree_visibility.hpp"
 #include <zima/ui/operation_activity.hpp>
 #include <QShortcut>
+#include <zima/sketcher/external_curve_center.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -615,8 +616,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         } else if (candidate.kind ==
                        zima::viewer::CandidateKind::SketchExternalReference &&
                    candidate.owner_id == active_sketch_id_) {
-            const auto reference_id = sketch_external_reference_id_from_key(
+            auto reference_id = sketch_external_reference_id_from_key(
                 candidate.semantic_key);
+            if(reference_id)if(const auto source=zima::sketcher::external_center_source(*reference_id))reference_id=std::string(*source);
             if (!reference_id) return;
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
@@ -955,8 +957,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (candidate.kind ==
                     zima::viewer::CandidateKind::SketchExternalReference &&
                 candidate.owner_id == active_sketch_id_) {
-                const auto reference_id = sketch_external_reference_id_from_key(
+                auto reference_id = sketch_external_reference_id_from_key(
                     candidate.semantic_key);
+                if(reference_id)if(const auto source=zima::sketcher::external_center_source(*reference_id))reference_id=std::string(*source);
                 if (!reference_id) return;
                 selected_sketch_external_reference_id_ = *reference_id;
                 QMenu menu(this);

@@ -211,6 +211,7 @@ add_library(zima_sketcher
     modules/sketcher/src/rectilinear_template_solver.cpp
     modules/sketcher/src/sketch_trim.cpp
     modules/sketcher/src/curve_geometry.cpp
+    modules/sketcher/src/external_curve_center.cpp
     modules/sketcher/src/sketch_offset.cpp)
 target_include_directories(zima_sketcher PUBLIC modules/sketcher/include modules/symbols/include)
 target_compile_options(zima_sketcher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
@@ -1998,6 +1999,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_external_circular_profiles_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_external_curve_centers_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_external_curve_centers_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CURVE_CENTERS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 900)
     set_tests_properties(zima_cpp_external_circular_profiles_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CIRCULAR_PROFILES_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
@@ -2442,6 +2447,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_external_circular_profiles_tests tests/external_circular_profiles_tests.cpp)
     target_link_libraries(zima_cpp_external_circular_profiles_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_external_circular_profiles_tests COMMAND zima_cpp_external_circular_profiles_tests)
+    add_executable(zima_cpp_external_curve_centers_tests tests/external_curve_centers_tests.cpp)
+    target_link_libraries(zima_cpp_external_curve_centers_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_external_curve_centers_tests COMMAND zima_cpp_external_curve_centers_tests)
     target_link_libraries(zima_cpp_exact_spline_contract_tests PRIVATE zima_document_core zima_kernel_occt TKBRep TKG3d TKTopAlgo nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_exact_spline_contract_tests COMMAND zima_cpp_exact_spline_contract_tests)
     add_executable(zima_cpp_exact_spline_dialog_tests tests/exact_spline_dialog_tests.cpp app/sketch_bspline_properties_dialog.cpp app/import_options_dialog.cpp)

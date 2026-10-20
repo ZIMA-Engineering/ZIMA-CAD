@@ -1233,17 +1233,28 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
         std::exchange(pending_sketch_snap_geometry_id_, {}),
         std::exchange(pending_sketch_snap_kind_, std::nullopt)});
     const auto& rim_snap = pending_curve_point_snaps_.back();
+    const auto concentric_equal_radius=[&]() -> std::optional<std::pair<double,std::string>> {
+        if((rim_snap.second!=zima::sketcher::ConstraintKind::PointOnCircle&&
+            rim_snap.second!=zima::sketcher::ConstraintKind::PointOnLine)||
+           !automatic_constraint_enabled(zima::sketcher::ConstraintKind::EqualLength))return {};
+        const auto reference=std::ranges::find(sketch->external_references,rim_snap.first,&zima::sketcher::SketchExternalReference::id);
+        if(reference==sketch->external_references.end())return {};
+        const auto circle=zima::sketcher::external_reference_circle(*reference);
+        if(!circle||std::hypot((*circle)[0]-(*pending_circle_center_)[0],(*circle)[1]-(*pending_circle_center_)[1])>1e-8*std::max(1.,(*circle)[2]))return {};
+        return std::pair{(*circle)[2],reference->id};
+    }();
     const bool has_rim_contact_snap = !rim_snap.first.empty() &&
-        rim_snap.second.has_value();
+        rim_snap.second.has_value()&&!concentric_equal_radius;
     double radius = std::hypot(
         (*position)[0] - (*pending_circle_center_)[0],
         (*position)[1] - (*pending_circle_center_)[1]);
-    // A concrete C or C+T contact has precedence over a coincidentally equal
-    // numeric radius. Equality must not move the circle away from that contact.
-    const auto tangent = pending_circle_tangent_inference_
+    // Equal external circles with an already matching center need only =;
+    // an arbitrary rim point would add a redundant contact. Other explicit
+    // C or C+T contacts retain precedence over incidental equal radii.
+    const auto tangent = concentric_equal_radius?std::optional<SketchCircleTangentInference>{}:pending_circle_tangent_inference_
         ? pending_circle_tangent_inference_
         : inferred_sketch_circle_tangent(*position);
-    const auto equal_radius = tangent || has_rim_contact_snap
+    const auto equal_radius = concentric_equal_radius?concentric_equal_radius:tangent || has_rim_contact_snap
         ? std::optional<std::pair<double, std::string>>{}
         : inferred_sketch_circle_radius(*position);
     if (equal_radius) radius = equal_radius->first;

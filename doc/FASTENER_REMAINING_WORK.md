@@ -116,13 +116,16 @@ or move its source tag.
   languages passed. Open Properties also refresh their existing stylesheet on
   a live theme change. See [verification](verification/20261020-transition-thickness.md).
   Acceptance in the next committed Windows package remains pending.
-- External circular/elliptical references need their own selectable center
+- External circular/elliptical references now have their own selectable center
   crosses. The user approved a persistent center-reference contract, then
   clarified the interaction: select **center + center for C**, and separately
   **curve + curve for equal radii** on circles/arcs. Do not reinterpret selecting
-  two circumferences for C as implicit concentricity. Include automatic
-  center/radius snapping and ellipse centers; verify dimensions, repeated drags,
-  source updates/loss, Undo/Redo and native persistence.
+  two circumferences for C as implicit concentricity. Automatic center/radius
+  snapping, conic center following, repeated dimension edits/drags, source
+  updates/loss, Undo/Redo and native persistence passed the finite native/GUI
+  matrix. All six templates and five locales passed. See
+  [verification](verification/20261020-external-conic-centers.md). New Windows
+  package acceptance and native Linux execution remain separate gates.
 
 The user's latest order is to complete these current program fixes, update
 English documentation and all five locales, commit/push and publish a verified
@@ -133,6 +136,16 @@ new Windows release, then resume the unfinished library and modeling work above.
 These are deferred design directions, not implemented capabilities or approval
 to change protected persisted contracts. Current corrections and the agreed
 library/release order retain priority.
+
+- File Manager directory creation: after the current work, review the existing
+  ZIMA-Parts approach and metadata loading before implementing reusable directory
+  prototypes. The proposed combination offers ordinary native-part and linked
+  catalog types, each copying a configured prototype `0000-index/metadata.ini`
+  into the newly created directory. Keep the new directory's metadata independently
+  editable. Decide settings, absent prototypes and existing-directory behavior
+  from the traced implementation. The user tentatively agreed both approaches
+  but explicitly requested discussing and refining the details before coding.
+  This proposal is not implemented yet.
 
 - FEM: the user proposes another Body type inside Part. Scope the analysis,
   mesh ownership, boundary conditions, materials and result storage separately

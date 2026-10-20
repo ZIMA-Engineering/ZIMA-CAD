@@ -955,7 +955,8 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
     } else {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
-            zima::viewer::CandidateKind::SketchCurve});
+            zima::viewer::CandidateKind::SketchCurve,
+            zima::viewer::CandidateKind::SketchExternalReference});
     }
     const auto owner_id = active_sketch_id_;
     const auto pending_geometry_id = pending_pair_geometry_id_;
@@ -981,7 +982,7 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
                     zima::viewer::CandidateKind::SketchExternalReference &&
                 line_references.contains(sketch_external_reference_id_from_key(candidate.semantic_key).value_or(""));
             const auto external_id=sketch_external_reference_id_from_key(candidate.semantic_key);
-            const bool external_circle = equal && !pending_geometry_id.empty() &&
+            const bool external_circle = equal &&
                 candidate.kind == zima::viewer::CandidateKind::SketchExternalReference &&
                 external_id && circular_references.contains(*external_id);
             const bool circular = external_circle || (
@@ -1041,16 +1042,19 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
         }
     }
     if (pending_pair_kind_ == zima::sketcher::ConstraintKind::EqualLength &&
-        !pending_pair_geometry_id_.empty() &&
         candidate.kind == zima::viewer::CandidateKind::SketchExternalReference) {
         geometry_id=sketch_external_reference_id_from_key(candidate.semantic_key).value_or("");
-        is_circular=true;
+        is_circular=active_sketch()&&active_sketch()->circular_radius(geometry_id).has_value();
+        if(!is_circular)geometry_id.clear();
     }
     if (geometry_id.empty()) return;
     if (pending_pair_geometry_id_.empty()) {
         pending_pair_geometry_id_ = geometry_id;
         pending_pair_reference_is_circular_ = is_circular;
         set_sketch_pair_contract();
+        if(is_circular&&candidate.kind==zima::viewer::CandidateKind::SketchExternalReference) {
+            state_->setText(tr("Stejný poloměr: vyberte kružnici nebo oblouk v této skice."));return;
+        }
         state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
             ? tr("Rovnoběžnost: vyberte stojící referenční úsečku nebo osu.")
             : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular

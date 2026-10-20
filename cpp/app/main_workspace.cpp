@@ -6,6 +6,7 @@
 #include <QCryptographicHash>
 #include <QDirIterator>
 #include <zima/sketcher/sketch_trim.hpp>
+#include <zima/sketcher/external_curve_center.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include "../common/datum_display.hpp"
 #include "../tests/gui_profile_fixture.hpp"
@@ -4470,6 +4471,7 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
 
 
 #include "external_circular_profiles_ui_verification.inc"
+#include "external_curve_centers_ui_verification.inc"
 
 int verify_owned_profile_external_reference(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima::document;
@@ -9597,6 +9599,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCLE_ONLY")) return verify_external_circle_selection(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCULAR_PROFILES_ONLY")) return verify_external_circular_profiles_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CURVE_CENTERS_ONLY")) return verify_external_curve_centers_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DELETE_DOCUMENT"))
         return verify_part_deletion(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REOPEN_DOCUMENT"))
