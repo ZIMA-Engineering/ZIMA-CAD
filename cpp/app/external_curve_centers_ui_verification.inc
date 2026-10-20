@@ -31,8 +31,8 @@ int verify_external_curve_centers_ui(QApplication& application,const std::filesy
             const auto body=graph.create_body("Center test");graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
             kernel::OcctKernel kernel;const auto file=directory/("external-center-"+std::to_string(kind)+"-"+std::to_string(mode)+".prtz");
             part.save(file,kernel.evaluate_history(part.kernel_operations()));
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
-            check(window.open_document_path(QString::fromStdString(file.string())),"Cannot open center GUI fixture");flush();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(file))),"Cannot open center GUI fixture");flush();
             check(activate_test_body(application,window,body),"Cannot activate center test Body");
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==target.id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-sketch"){row=*it;break;}
@@ -106,7 +106,7 @@ int verify_external_curve_centers_ui(QApplication& application,const std::filesy
                 for(unsigned i=0;i<3;++i){window.findChild<QAction*>("redoAction")->trigger();flush();}
                 check(read().points==completed.points&&read().circles==completed.circles,"GUI radius Redo changed center or final radius");
             }
-            window.grab().save(QString::fromStdString((directory/("external-center-"+std::to_string(kind)+"-"+std::to_string(mode)+".png")).string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/("external-center-"+std::to_string(kind)+"-"+std::to_string(mode)+".png")))));
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* candidate:window.findChildren<QDialog*>())if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(candidate);dialog&&dialog->isVisible()){dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();}
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();

@@ -3,15 +3,16 @@ static int verify_equal_circle_ui(QApplication& application,const std::filesyste
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto near=[&](double a,double b){check(std::abs(a-b)<1e-7,"Equal-circle GUI equation differs");};
-        const auto source=std::getenv("ZIMA_VERIFY_EQUAL_CIRCLE_SOURCE")
-            ?std::filesystem::u8path(std::getenv("ZIMA_VERIFY_EQUAL_CIRCLE_SOURCE"))
-            :std::filesystem::path(QCoreApplication::applicationDirPath().toStdString())/"equal-circle-fixture.prtz";
+        const auto source_override=qEnvironmentVariable("ZIMA_VERIFY_EQUAL_CIRCLE_SOURCE");
+        const auto source=source_override.isEmpty()
+            ?std::filesystem::u8path(QCoreApplication::applicationDirPath().toStdString())/"equal-circle-fixture.prtz"
+            :std::filesystem::u8path(source_override.toStdString());
         auto doc=document::PartDocument::load(source);check(doc.sketches.size()==1,"Equal-circle fixture must have one Sketch");
         auto sketch=doc.sketches.front();check(sketch.circles.size()==3,"Equal-circle fixture must have three circles");
         std::filesystem::create_directories(directory);const auto path=directory/"equal-circles.prtz";doc.save(path);
-        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1200,900);window.show();
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        check(window.open_document_path(QString::fromStdString(path.string())),"Equal-circle GUI open failed");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Equal-circle GUI open failed");flush();
         check(activate_test_body(application,window,doc.body_history.active_body_id()),"Equal-circle GUI Body activation failed");
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         const auto enter_sketch=[&]{QTreeWidgetItem* row{};
@@ -20,7 +21,7 @@ static int verify_equal_circle_ui(QApplication& application,const std::filesyste
             auto* button=window.findChild<QPushButton*>("sketchOpenButton");if(!button)button=window.findChild<QPushButton*>("featureSketchButton");
             if(!button)button=window.findChild<QPushButton*>("primitiveOwnSketchButton");
             if(button){button->click();flush();}
-            if(!window.findChild<QAction*>("finishSketchAction")->isEnabled())window.grab().save(QString::fromStdString((directory/"equal-circle-entry-failure.png").string()));
+            if(!window.findChild<QAction*>("finishSketchAction")->isEnabled())window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"equal-circle-entry-failure.png"))));
             check(window.findChild<QAction*>("finishSketchAction")->isEnabled(),"Equal-circle GUI Sketch did not enter editing");
             QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();flush();
         };
@@ -92,8 +93,8 @@ static int verify_equal_circle_ui(QApplication& application,const std::filesyste
             const auto after=stored();verify(after);const auto* q=after.find_point(handle);check(std::hypot(q->x-p.x,q->y-p.y)>1e-4,"Equal-circle GUI available centre did not move");
             window.findChild<QAction*>("undoAction")->trigger();flush();same(stored(),before);window.findChild<QAction*>("redoAction")->trigger();flush();same(stored(),after);
         }
-        window.grab().save(QString::fromStdString((directory/"equal-circles.png").string()));leave_sketch();verify(stored());
-        check(window.open_document_path(QString::fromStdString(path.string())),"Equal-circle GUI reopen failed");flush();verify(stored());
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"equal-circles.png"))));leave_sketch();verify(stored());
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Equal-circle GUI reopen failed");flush();verify(stored());
         std::cout<<"Equal-circle GUI: six dimension edits, three locked-distance centre drags, equations, identities, Undo/Redo and native reopen passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

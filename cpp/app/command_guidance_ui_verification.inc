@@ -12,7 +12,7 @@ static int verify_command_guidance_ui(QApplication& application,const std::files
             config.setValue("Application/Language","cs");config.setValue("Application/Theme","light");config.setValue("Application/Vladimir","YES");
             config.setValue("Browser/OpenOnStartup",false);config.setValue("Updates/CheckAtStartup",false);
             for(auto it=inherited.resolved_paths.cbegin();it!=inherited.resolved_paths.cend();++it)config.setValue("Paths/"+it.key(),it.value());
-            config.setValue("Paths/WorkingDirectory",QString::fromStdString(directory.string()));config.sync();
+            config.setValue("Paths/WorkingDirectory",QString::fromStdString(document::path_to_utf8(directory)));config.sync();
         }
         auto part=document::PartDocument::create_default();auto feature=test::rectangular_feature(part,{40,30,10});
         part.history={feature};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Guidance fixture"));
@@ -20,8 +20,8 @@ static int verify_command_guidance_ui(QApplication& application,const std::files
         part.relations="d42 = 1\nlabel = d42 & model.mass\nmass = model.mass\n";
         kernel::OcctKernel kernel;const auto cache=kernel.evaluate_history(part.kernel_operations());
         const auto source=directory/"guidance.prtz";part.save(source,cache);
-        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()),settings_directory.path());window.resize(1200,900);window.show();
-        check(window.open_document_path(QString::fromStdString(source.string())),"Cannot open guidance fixture");flush();
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)),settings_directory.path());window.resize(1200,900);window.show();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(source))),"Cannot open guidance fixture");flush();
         auto* guidance=dynamic_cast<app::CommandGuidance*>(window.findChild<QWidget*>("vladimirGuidanceOverlay"));
         check(guidance&&guidance->isVisible(),"Initial command guidance is missing");
         const auto revision=window.execute_console_command("documents").data;
@@ -43,7 +43,7 @@ static int verify_command_guidance_ui(QApplication& application,const std::files
                 settings.theme=theme;app::apply_application_appearance(application,settings);
                 guidance->set_message(QObject::tr("You can select an object or start a command."));flush();
                 check(guidance->message()==settings.qt_translations.value("You can select an object or start a command."),"Guidance text is untranslated");
-                window.grab().save(QString::fromStdString((directory/(std::string("guidance-")+language+"-"+theme+".png")).string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(std::string("guidance-")+language+"-"+theme+".png")))));
             }
         }
         {QSettings config(config_path,QSettings::IniFormat);config.setValue("Application/Language","cs");config.sync();}

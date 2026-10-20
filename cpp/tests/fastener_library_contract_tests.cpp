@@ -1,3 +1,11 @@
+#ifdef _WIN32
+#include <windows.h>
+// The Windows legacy near macro must not replace the native comparison helper.
+#ifdef near
+#undef near
+#endif
+#endif
+#include <zima/document/file_path.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/drawing_operations.hpp>
@@ -190,7 +198,7 @@ void verify(const fs::path& path,const Json& expected) {
     require(!state->session.is_dirty()&&!state->session.can_undo(),"Inspection modified the native candidate");
 }
 }
-int main(int argc,char** argv) {
+static int run_fastener_contract_tests(int argc,char** argv) {
     try {
         if(argc==4&&std::string(argv[1])=="--verify-native-seating") {
             const auto shape=[](const char* path) {
@@ -269,7 +277,7 @@ int main(int argc,char** argv) {
             auto drawing=drawing::DrawingDocument::load(path);require(drawing.sheets.size()==1&&!drawing.sheets.front().views.empty(),"Wing review requires one sheet with real source views");
             auto& sheet=drawing.sheets.front();const auto source=sheet.views.front();auto source_path=source.source_path;if(source_path.is_relative())source_path=path.parent_path()/source_path;
             workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(source_path));require(id==source.source_document_id,"Wing review source identity mismatch");
-            drawing.source_document_id=id;drawing.source_path=source_path;drawing.source_name=source_path.stem().string();
+            drawing.source_document_id=id;drawing.source_path=source_path;drawing.source_name=document::path_to_utf8(source_path.stem());
             sheet.selected_source_document_id=id;sheet.title_block_locale=locale;
             const auto root=fs::path(__FILE__).parent_path().parent_path().parent_path();std::string upper=locale;std::ranges::transform(upper,upper.begin(),[](unsigned char c){return static_cast<char>(std::toupper(c));});
             workspace::load_drawing_template(drawing,sheet.id,root/"config/formats/ZE-DRAWING-FRAME.frmz",false,&live,path,"ze-frame-variant-A4");
@@ -395,7 +403,7 @@ int main(int argc,char** argv) {
             Json report={{"checked_parts",0},{"trimmed_cylindrical_bodies",0},{"stale",Json::array()},{"errors",Json::array()}};
             for(const auto& entry:fs::recursive_directory_iterator(root)) {
                 if(!entry.is_regular_file()||entry.path().extension()!=".prtz")continue;
-                const auto filename=entry.path().lexically_relative(root).generic_string();
+                const auto filename=document::path_to_utf8(entry.path().lexically_relative(root));
                 try {
                     workspace::Workspace live;
                     const auto id=workspace::insert_native_document(live,workspace::read_native_document(entry.path()));
@@ -1084,7 +1092,7 @@ int main(int argc,char** argv) {
                 TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
                 require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid cap screw BRep");
                 int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
-                require(solids==1,("Cap screw must contain one connected solid: "+path.filename().string()+" ("+std::to_string(solids)+" solids)").c_str());
+                require(solids==1,("Cap screw must contain one connected solid: "+document::path_to_utf8(path.filename())+" ("+std::to_string(solids)+" solids)").c_str());
                 const double d=expected.at("diameter_mm"),l=expected.at("length_mm"),k=expected.at("head_height_mm");
                 const double radius=expected.at("head_diameter_mm").get<double>()/2;
                 const double width=expected.at("drive_width_mm"),depth=expected.at("drive_depth_mm");
@@ -1251,7 +1259,7 @@ int main(int argc,char** argv) {
                     doc.body_history.serialized()!=before.body_history.serialized()) {
                     std::ofstream(output/"history-before.json")<<before.serialized().dump(2);
                     std::ofstream(output/"history-after.json")<<doc.serialized().dump(2);
-                    throw std::runtime_error("Projected factory history difference: "+relative.string());
+                    throw std::runtime_error("Projected factory history difference: "+document::path_to_utf8(relative));
                 }
                 require(!previous.empty()&&previous.back().body_outputs.size()==calculated.back().body_outputs.size(),
                     "Projected factory regeneration changed its Body outputs");
@@ -1289,7 +1297,7 @@ int main(int argc,char** argv) {
                 report.push_back({{"file",row.at("file")},{"face_references",row.at("face_references").size()},
                     {"history",true},{"body_properties",true},{"save_reopen",true}});
                 std::ofstream(output/"report.json")<<report.dump(2);
-                std::cout<<relative.string()<<" verified\n";
+                std::cout<<document::path_to_utf8(relative)<<" verified\n";
             }
             std::cout<<"Projected factory candidates verified: "<<report.size()<<'\n';return 0;
         }
@@ -1357,10 +1365,10 @@ int main(int argc,char** argv) {
                 doc.save(target,fresh);std::vector<kernel::BodyResult> reopened;
                 const auto restored=document::PartDocument::load(target,&reopened);
                 require(restored.history==doc.history&&!reopened.empty(),"Fastener round trip changed authored history");
-                report.push_back({{"file",fs::relative(entry.path(),root).generic_string()},{"threads",threads},
+                report.push_back({{"file",document::path_to_utf8(fs::relative(entry.path(),root))},{"threads",threads},
                     {"saved_and_regenerated_extents",true},{"unique_start_end_rims",true},{"save_reopen",true}});
                 std::ofstream(output/"report.json")<<report.dump(2);
-                std::cout<<report.size()<<" "<<entry.path().filename().string()<<std::endl;
+                std::cout<<report.size()<<" "<<document::path_to_utf8(entry.path().filename())<<std::endl;
             }
             require(!report.empty(),"No shaft-thread fasteners found");return 0;
         }
@@ -1494,7 +1502,7 @@ int main(int argc,char** argv) {
                 }
                 for(const auto& old:drawing.data_sources())if(old.document_id!=source.document_id)
                     static_cast<void>(drawing.remove_data_source(old.document_id));
-                drawing.source_document_id=source.document_id;drawing.source_name=source_path.stem().string();
+                drawing.source_document_id=source.document_id;drawing.source_name=document::path_to_utf8(source_path.stem());
             }
             require(drawing.source_document_id==source.document_id,"Reference Drawing source identity mismatch");
             drawing.source_path=source_path.filename();
@@ -1514,7 +1522,7 @@ int main(int argc,char** argv) {
                         "Reference dimension unresolved after source rebasing");
                 }
             }
-            if(argc==5)drawing.name=output.stem().string();
+            if(argc==5)drawing.name=document::path_to_utf8(output.stem());
             drawing.save(output);
             require(drawing::DrawingDocument::load(output).source_path==source_path.filename(),"Relative native source path did not persist");
             std::cout<<"Native reference Drawing source rebased to sibling Part\n";
@@ -1530,7 +1538,7 @@ int main(int argc,char** argv) {
                 if(fs::exists(candidate)){require(found.empty(),"Duplicate candidate filename");found=candidate;}
             }
             if(found.empty())continue;
-            try{verify(found,variant);}catch(const std::exception& error){throw std::runtime_error(found.filename().string()+": "+error.what());}
+            try{verify(found,variant);}catch(const std::exception& error){throw std::runtime_error(document::path_to_utf8(found.filename())+": "+error.what());}
             ++count;
         }
         require(count>0,"No manifest candidates found");
@@ -1538,3 +1546,24 @@ int main(int argc,char** argv) {
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
+
+#ifdef _WIN32
+// Windows supplies UTF-16 arguments. The shared verifier and its JSON/native
+// paths consume UTF-8, independently of the machine's ANSI code page.
+int wmain(int argc,wchar_t** wide) {
+    std::vector<std::string> arguments;arguments.reserve(argc);
+    for(int i=0;i<argc;++i) {
+        const int length=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,wide[i],-1,nullptr,0,nullptr,nullptr);
+        if(!length){std::cerr<<"Invalid Unicode argument\n";return 1;}
+        std::string text(length,'\0');
+        if(!WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,wide[i],-1,text.data(),length,nullptr,nullptr))return 1;
+        text.pop_back();arguments.push_back(std::move(text));
+    }
+    std::vector<char*> pointers;pointers.reserve(argc+1);
+    for(auto& argument:arguments)pointers.push_back(argument.data());
+    pointers.push_back(nullptr);
+    return run_fastener_contract_tests(argc,pointers.data());
+}
+#else
+int main(int argc,char** argv) {return run_fastener_contract_tests(argc,argv);}
+#endif

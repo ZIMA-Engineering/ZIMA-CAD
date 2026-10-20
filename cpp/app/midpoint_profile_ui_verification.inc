@@ -11,10 +11,10 @@ static int verify_midpoint_profile_ui(QApplication& application,const std::files
             auto doc=document::PartDocument::create_default();doc.sketches={sketch};doc.history={owner};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Midpoint profile");graph.insert({document::PartHistoryKind::Feature,owner.id});doc.set_body_history(graph);doc.resolve_constructions();
             const auto path=directory/("midpoint-profile-"+std::to_string(static_cast<int>(angle))+".prtz");doc.save(path);
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1200,900);window.show();
             const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
             const auto check=midpoint_profile_study::check;
-            check(window.open_document_path(QString::fromStdString(path.string())),"Midpoint GUI fixture open failed");flush();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Midpoint GUI fixture open failed");flush();
             check(activate_test_body(application,window,body),"Midpoint GUI Body activation failed");
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             const auto enter_sketch=[&]{row=nullptr;
@@ -45,7 +45,7 @@ static int verify_midpoint_profile_ui(QApplication& application,const std::files
                     const auto candidates=view->selection_candidates_at({double(x),double(y)});
                     if(!candidates.empty()&&candidates.front().owner_id==sketch.id&&candidates.front().semantic_key=="dimension:"+id){hit=QPointF(x,y);break;}
                 }
-                if(!hit)window.grab().save(QString::fromStdString((directory/"midpoint-label-failure.png").string()));
+                if(!hit)window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"midpoint-label-failure.png"))));
                 check(hit.has_value(),"Midpoint GUI width label is not pickable");mouse(QEvent::MouseButtonDblClick,*hit,Qt::LeftButton,Qt::LeftButton);
                 auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor,"Midpoint GUI width editor did not open");
                 editor->setText(QString::number(target,'f',9));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
@@ -70,9 +70,9 @@ static int verify_midpoint_profile_ui(QApplication& application,const std::files
                 check(value(s,fixture.height)>value(before,fixture.height)+.01,"Free midpoint GUI profile did not move");
                 window.findChild<QAction*>("undoAction")->trigger();flush();same_geometry(stored(),before);window.findChild<QAction*>("redoAction")->trigger();flush();same_geometry(stored(),s);
             }
-            window.grab().save(QString::fromStdString((directory/("midpoint-profile-"+std::to_string(static_cast<int>(angle))+".png")).string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/("midpoint-profile-"+std::to_string(static_cast<int>(angle))+".png")))));
             leave_sketch();
-            flush();verify(stored());check(window.open_document_path(QString::fromStdString(path.string())),"Midpoint GUI saved profile did not reopen");flush();
+            flush();verify(stored());check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Midpoint GUI saved profile did not reopen");flush();
             std::cout<<"Midpoint profile GUI angle="<<angle<<": repeated width edits, locked/free drags, Undo/Redo and native reopen passed\n";
         }
         return 0;

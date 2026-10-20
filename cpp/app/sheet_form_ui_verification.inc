@@ -15,7 +15,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         const auto path=directory/"corner-form-ui.prtz";original.save(path,cache);
         const auto id=original.history.back().id;
         check(preview_only||original.history.back().feature_kind==document::FeatureKind::SheetForm,"Missing corner FORM fixture");
-        window.showMaximized();check(window.open_document_path(QString::fromStdString(path.string())),"Corner FORM could not open");flush();
+        window.showMaximized();check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Corner FORM could not open");flush();
         // Native hover events must not replace a synthetic View probe. Finish
         // camera transitions before fixing the probe's frame, as in other GUI
         // contracts; a moving camera changes the face underneath a test click.
@@ -44,7 +44,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
                 view->fit_points({{p.x-radius,p.y-radius,p.z-radius},{p.x+radius,p.y+radius,p.z+radius}});
             }
             view->set_display_mode(viewer::DisplayMode::ShadedWithEdges);flush();
-            check(view->grabFramebuffer().save(QString::fromStdString((directory/(std::string("corner-form-")+suffix+".png")).string())),"Corner rendering capture failed");
+            check(view->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8((directory/(std::string("corner-form-")+suffix+".png"))))),"Corner rendering capture failed");
         };
         const auto thumbnail_output=qEnvironmentVariable("ZIMA_FORM_THUMBNAIL_OUTPUT");
         if(!thumbnail_output.isEmpty()) {
@@ -144,7 +144,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==id;}),"Corner Properties failed rollback");
         dialog->set_reference_inspected(0,true);dialog->set_reference_inspected(1,true);flush();
         check(dialog->highlighted_reference_entries().size()==2,"Corner inner-plane inspection failed");
-        check(window.grab().save(QString::fromStdString((directory/"corner-form-properties.png").string())),"Corner Properties capture failed");
+        check(window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"corner-form-properties.png")))),"Corner Properties capture failed");
         auto* references=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
         auto* clear_support=references?references->cellWidget(0,0)->findChild<QPushButton*>():nullptr;
         check(clear_support&&clear_support->isVisible(),"Corner support has no shared clear control");
@@ -214,15 +214,15 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
             return 0;
         }
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
-        check(window.open_document_path(QString::fromStdString(path.string())),"Corner FORM save/reopen failed");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Corner FORM save/reopen failed");flush();
         check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner reopen lost native placement");
         const auto choose=[&](const std::filesystem::path& file,const std::function<void()>& trigger) {
             bool selected=false;QTimer timer;timer.setInterval(30);
             QObject::connect(&timer,&QTimer::timeout,&window,[&] {
                 for(auto* widget:QApplication::topLevelWidgets())if(auto* picker=qobject_cast<QFileDialog*>(widget);picker&&picker->isVisible()) {
                     check(picker->nameFilters().size()==1&&picker->nameFilters().front().contains("*.prtz"),"Corner picker offered non-Part files");
-                    picker->selectFile(QString::fromStdString(file.string()));
-                    if(auto* field=picker->findChild<QLineEdit*>("fileNameEdit"))field->setText(QString::fromStdString(file.string()));
+                    picker->selectFile(QString::fromStdString(document::path_to_utf8(file)));
+                    if(auto* field=picker->findChild<QLineEdit*>("fileNameEdit"))field->setText(QString::fromStdString(document::path_to_utf8(file)));
                     selected=true;timer.stop();QMetaObject::invokeMethod(picker,"accept",Qt::DirectConnection);return;
                 }
             });timer.start();trigger();timer.stop();check(selected,"Corner file picker missing");flush();
@@ -243,7 +243,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         const auto stock_result=workspace::calculate_part_with_resolved_references(kernel,stock);
         const auto stock_path=directory/"corner-form-create-ui.prtz";stock.save(stock_path,stock_result);
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
-        check(window.open_document_path(QString::fromStdString(stock_path.string())),"Corner creation stock did not open");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(stock_path))),"Corner creation stock did not open");flush();
         run(QString::fromStdString("body.activate "+stock.body_history.bodies().front().scope.id));mode->trigger();flush();
         const auto source=std::filesystem::absolute(definition.part.form_outward?
             "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz":
@@ -323,7 +323,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         run("undo");run("save");check(!document::PartDocument::load(stock_path).find_container(created_id),"Corner creation Undo failed");
         run("redo");run("save");check(document::PartDocument::load(stock_path).find_container(created_id),"Corner creation Redo failed");
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
-        check(window.open_document_path(QString::fromStdString(stock_path.string())),"Created corner could not reopen");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(stock_path))),"Created corner could not reopen");flush();
         const auto copy_row=[&](const std::string& wanted){for(QTreeWidgetItemIterator it(tree);*it;++it)
             if((*it)->data(0,Qt::UserRole).toString().toStdString()==wanted&&(*it)->data(0,Qt::UserRole+3)=="part-container")return *it;
             return static_cast<QTreeWidgetItem*>(nullptr);};
@@ -387,7 +387,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
             }
         }
         std::cout<<"Corner FORM GUI: creation, centroid axis, exact hover/click planes, definition replacement, rollback/inspection, Cancel, unchanged OK, longitudinal placement, Pattern/Mirror, Unbend/Bend Back display, Undo/Redo and save/reopen passed\n";return 0;
-    }catch(const std::exception& error){window.grab().save(QString::fromStdString((directory/"corner-form-failure.png").string()));std::cerr<<"Corner FORM GUI: "<<error.what()<<'\n';return 1;}
+    }catch(const std::exception& error){window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"corner-form-failure.png"))));std::cerr<<"Corner FORM GUI: "<<error.what()<<'\n';return 1;}
 }
 
 Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,AssemblyWorkspaceWindow& window,
@@ -408,12 +408,12 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto path=directory/("sheet-form-ui-"+QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString()+".prtz");
         part.save(path,calculated);
         const auto source_override=qEnvironmentVariable("ZIMA_SHEET_FORM_SOURCE");
-        const auto source=std::filesystem::absolute(source_override.isEmpty()?
-            "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz":source_override.toStdString());
+        const auto source=std::filesystem::absolute(std::filesystem::u8path(source_override.isEmpty()?
+            "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz":source_override.toStdString()));
         const auto replacement=directory/"sheet-form-replacement.prtz";
         const auto definition=document::read_sheet_form_definition(source);auto renamed=definition.part;
         renamed.name="Replacement Ventilation Window";renamed.save(replacement,*definition.calculated);
-        window.showMaximized();check(window.open_document_path(QString::fromStdString(path.string())),"FORM stock could not open");flush();
+        window.showMaximized();check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"FORM stock could not open");flush();
         check(part.body_owner_for_object(stock.id)!=nullptr,"FORM stock has no owning Body");
         run(QString::fromStdString("body.activate "+part.body_owner_for_object(stock.id)->scope.id));flush();
         auto* mode=window.findChild<QAction*>("applicationModeAction2");check(mode&&mode->isEnabled(),"Sheet workspace unavailable");mode->trigger();flush();
@@ -430,8 +430,8 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             QObject::connect(&timer,&QTimer::timeout,&window,[&]{
                 for(auto* widget:QApplication::topLevelWidgets())if(auto* picker=qobject_cast<QFileDialog*>(widget);picker&&picker->isVisible()) {
                     check(picker->nameFilters().size()==1&&picker->nameFilters().front().contains("*.prtz"),"FORM picker did not filter native Parts");
-                    picker->selectFile(QString::fromStdString(file.string()));
-                    if(auto* field=picker->findChild<QLineEdit*>("fileNameEdit"))field->setText(QString::fromStdString(file.string()));
+                    picker->selectFile(QString::fromStdString(document::path_to_utf8(file)));
+                    if(auto* field=picker->findChild<QLineEdit*>("fileNameEdit"))field->setText(QString::fromStdString(document::path_to_utf8(file)));
                     selected=true;timer.stop();QMetaObject::invokeMethod(picker,"accept",Qt::DirectConnection);return;
                 }
             });timer.start();trigger();timer.stop();check(selected,"FORM file picker did not open");flush();
@@ -590,7 +590,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         dialog->resize(dialog->width()+80,dialog->height()+80);flush();
         check(placement_table->geometry().y()==before_resize.y()&&placement_table->height()==before_resize.height(),
             "Form resizing redistributed space between reference rows");
-        window.grab().save(QString::fromStdString((directory/"sheet-form-placement.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"sheet-form-placement.png"))));
         const std::array preview_axes{
             document::construction_direction_from_local_axis("x",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),
             document::construction_direction_from_local_axis("y",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),
@@ -673,7 +673,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             "FORM double-click changed the document or camera");
         const auto inspection_camera=view->camera_state();
         view->fit_points({{confirmed.x-40,confirmed.y-40,confirmed.z-20},{confirmed.x+40,confirmed.y+40,confirmed.z+20}});flush();
-        check(window.grab().save(QString::fromStdString((directory/"sheet-form-internal-dimensions.png").string())),"FORM internal dimension capture failed");
+        check(window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"sheet-form-internal-dimensions.png")))),"FORM internal dimension capture failed");
         view->set_camera_state(inspection_camera);flush();
         bool edited_internal=false;
         for(std::size_t i=0;i<view->mesh().dimensions.size()&&!edited_internal;++i) {
@@ -736,9 +736,9 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         saved=native().first;check(saved.find_container(id)->sheet_form.source_name==renamed.name&&saved.find_container(id)->placement==placed,"FORM replacement changed feature placement");
         run("undo");check(native().first.find_container(id)->sheet_form==original,"FORM replacement Undo failed");run("redo");
         check(native().first.find_container(id)->sheet_form.source_name==renamed.name,"FORM replacement Redo failed");
-        window.grab().save(QString::fromStdString((directory/"sheet-form-ui.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"sheet-form-ui.png"))));
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
-        check(window.open_document_path(QString::fromStdString(path.string())),"Inserted FORM could not reopen");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Inserted FORM could not reopen");flush();
         check(native().first.find_container(id)->sheet_form.source_name==renamed.name,"FORM save/reopen lost its independent definition");
         // Override fixtures may author separate surface patches. FORM sews these
         // at insertion; ordinary Thicken intentionally consumes its selected
@@ -750,7 +750,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         // patch input for ordinary Thicken Surface, using the real GUI picker.
         const auto skin_path=directory/"sheet-form-thicken-copy.prtz";
         definition.part.save(skin_path,*definition.calculated);
-        check(window.open_document_path(QString::fromStdString(skin_path.string())),"Connected FORM shell cannot open");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(skin_path))),"Connected FORM shell cannot open");flush();
         run(QString::fromStdString("body.activate "+definition.bodies[1]));flush();view->fit_all();flush();
         auto* thicken_action=window.findChild<QAction*>("surfaceThickenAction");
         check(thicken_action&&thicken_action->isEnabled(),"Connected shell thickening unavailable");thicken_action->trigger();flush();
@@ -768,7 +768,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             }
         check(selected_shell&&thick_editor()->inspected(),"Connected shell picking or inspection failed");
         const auto thick_id=thick_editor()->pending.id;
-        window.grab().save(QString::fromStdString((directory/"sheet-form-whole-shell-inspection.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"sheet-form-whole-shell-inspection.png"))));
         thick_editor()->buttons()->button(QDialogButtonBox::Ok)->click();
         QElapsedTimer thick_wait;thick_wait.start();
         while(thick_editor()&&thick_wait.elapsed()<30000){application.processEvents();QThread::msleep(5);}flush();
@@ -782,5 +782,5 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             std::ranges::none_of(thick_body.mesh.triangle_references,[](const auto& face){return face.surface_result;}),
             "GUI thickening left unconsumed shell patches");
         std::cout<<"FORM GUI create, native face pick, planar rotation, rollback, unchanged OK, replacement, Cancel, Undo/Redo and save/reopen passed"<<std::endl;return 0;
-    }catch(const std::exception& failure){window.grab().save(QString::fromStdString((directory/"sheet-form-ui-failure.png").string()));std::cerr<<"FORM GUI: "<<failure.what()<<std::endl;return 1;}
+    }catch(const std::exception& failure){window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"sheet-form-ui-failure.png"))));std::cerr<<"FORM GUI: "<<failure.what()<<std::endl;return 1;}
 }

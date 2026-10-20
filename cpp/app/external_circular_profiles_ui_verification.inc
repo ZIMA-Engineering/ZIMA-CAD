@@ -20,9 +20,9 @@ int verify_external_circular_profiles_ui(QApplication& application,const std::fi
         const auto body=graph.create_body("Profile");graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
         kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
         const auto file=directory/(closed?"circular-contour-ui.prtz":"arc-contour-ui.prtz");part.save(file,calculated);
-        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1100,850);window.show();
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1100,850);window.show();
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        if(!verify(window.open_document_path(QString::fromStdString(file.string())),"Cannot open circular contour fixture"))return 1;
+        if(!verify(window.open_document_path(QString::fromStdString(document::path_to_utf8(file))),"Cannot open circular contour fixture"))return 1;
         flush();if(!verify(activate_test_body(application,window,body),"Cannot activate circular contour Body"))return 1;
         auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
         for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==target.id &&
@@ -62,7 +62,7 @@ int verify_external_circular_profiles_ui(QApplication& application,const std::fi
         const auto& restored=*std::ranges::find(redone.sketches,target.id,&sketcher::Sketch::id);
         if(!verify(restored.points==points&&restored.circles==curves&&restored.arcs==arcs&&restored.import_blocks==result.import_blocks,
             "Mouse contour Redo/save/reopen changed geometry or projection identity"))return 1;
-        window.grab().save(QString::fromStdString((directory/(closed?"circular-contour-ui.png":"arc-contour-ui.png")).string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(closed?"circular-contour-ui.png":"arc-contour-ui.png")))));
     }
     std::cout<<"Circular body contour mouse insertion, native type, Undo/Redo and persistence passed\n";return 0;
 }

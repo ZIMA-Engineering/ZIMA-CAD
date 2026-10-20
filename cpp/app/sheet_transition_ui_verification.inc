@@ -5,33 +5,33 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
     try {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSITION_SOURCE")) {
             std::vector<kernel::BodyResult> bodies;
-            auto part=document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_TRANSITION_SOURCE").toStdString(),&bodies);
+            auto part=document::PartDocument::load(std::filesystem::u8path(qEnvironmentVariable("ZIMA_VERIFY_TRANSITION_SOURCE").toStdString()),&bodies);
             const auto source=std::ranges::find(part.history,document::FeatureKind::SheetTransition,&document::HistoryContainer::feature_kind);
             check(source!=part.history.end(),"Saved transition missing");const auto id=source->id;
             const auto path=directory/"transition-source-copy.prtz";part.save(path,bodies);
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1400,1000);window.show();
-            check(window.open_document_path(QString::fromStdString(path.string())),"Saved transition cannot open");flush();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1400,1000);window.show();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Saved transition cannot open");flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Saved transition View missing");
             view->fit_all();flush();
-            window.grab().save(QString::fromStdString((directory/"transition-source-native.png").string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"transition-source-native.png"))));
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){row=*it;break;}
             check(row,"Saved transition Tree row missing");window.show_tree_item_properties(row);flush();
             auto* dialog=window.findChild<QDialog*>("sheetTransitionDialog");check(dialog,"Saved transition Properties missing");
-            window.grab().save(QString::fromStdString((directory/"transition-source-preview.png").string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"transition-source-preview.png"))));
             dialog->reject();flush();
             check(document::PartDocument::load(path).serialized()==part.serialized(),"Saved transition inspection changed source");
             std::cout<<"Saved transition native/preview inspection and Cancel passed\n";return 0;
         }
-        auto part=document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_SHEET_TRANSITION").toStdString());
+        auto part=document::PartDocument::load(std::filesystem::u8path(qEnvironmentVariable("ZIMA_VERIFY_SHEET_TRANSITION").toStdString()));
         document::set_sheet_metal_defaults(part,{2.5,.5});
         const auto source=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::SheetTransition;});
         check(source!=part.history.end(),"Transition GUI fixture has no transition");const auto initial=*source;
         const auto body=part.body_owner_for_object(initial.id)->scope.id;part.erase_history_object(initial.id);
         kernel::OcctKernel kernel;auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
         const auto path=directory/"transition-ui.prtz";part.save(path,cache);
-        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1400,1000);window.show();
-        check(window.open_document_path(QString::fromStdString(path.string())),"Transition fixture did not open");flush();
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1400,1000);window.show();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Transition fixture did not open");flush();
         check(activate_test_body(application,window,body),"Transition Body could not activate");
         window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
         auto* action=window.findChild<QAction*>("sheetTransitionAction");check(action&&action->isEnabled()&&!action->icon().isNull(),"Transition action unavailable");
@@ -51,7 +51,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(!rectangular_editor->findChild<QSpinBox*>("transitionRightFacets"),"Rectangular transition exposed arc segmentation");
         rectangular_editor->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(25);
         for(unsigned i=0;i<3;++i)rectangular_editor->findChild<QDoubleSpinBox*>(QString("transitionEndRotation%1").arg(i))->setValue(std::array<double,3>{8,-10,12}[i]);
-        flush();window.grab().save(QString::fromStdString((directory/"rectangular-transition-properties.png").string()));
+        flush();window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"rectangular-transition-properties.png"))));
         rectangular_editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("sheetTransitionDialog"),"Rectangular transition did not commit");
         const auto rectangular_saved=save();check(rectangular_saved.history.size()==part.history.size()+1,"Rectangular transition did not insert one history row");
@@ -60,7 +60,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         auto* rectangular_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
         check(rectangular_view,"Rectangular transition View missing");
         rectangular_view->fit_all();flush();
-        window.grab().save(QString::fromStdString((directory/"rectangular-transition-native.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"rectangular-transition-native.png"))));
         check(document::rectangular_sheet_transition(rectangular_feature)&&std::abs(rectangular_feature.placement.x-25)<1e-8,"Rectangular transition lost placement or profile mode");
         check(rectangular_feature.origin_point_visible,"Rectangular endpoint display was not saved");
         check(std::ranges::none_of(rectangular_view->mesh().edges,[](const auto& edge){return edge.preview_terminal_dashed;}),"Rectangular material preview retained dashed envelope");
@@ -97,7 +97,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
                     auto* field=editor->findChild<QDoubleSpinBox*>(QString("transitionEndPosition%1").arg(i));
                     check(field&&field->height()>=field->sizeHint().height(),"Transition XYZ input is vertically compressed");
                 }
-                window.grab().save(QString::fromStdString((directory/(std::string("transition-thickness-")+theme+".png")).string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(std::string("transition-thickness-")+theme+".png")))));
             }
         }
         check(theme_calculations==0,"Live transition theme change calculated geometry");
@@ -153,9 +153,9 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         const auto profile=sketcher::Sketch::from_serialized(editor->pending.sheet_transition.sketches[0]);
         check(std::ranges::any_of(mesh_view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==profile.id;}),"Owned Sketch dimensions missing from View");
         mesh_view->set_view_direction({1,-1,1});mesh_view->fit_all();flush();
-        window.grab().save(QString::fromStdString((directory/"transition-properties.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"transition-properties.png"))));
         auto* parameter_tabs=editor->findChild<QTabWidget*>("transitionParameterTabs");parameter_tabs->setCurrentIndex(1);flush();
-        window.grab().save(QString::fromStdString((directory/"transition-manufacturing.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"transition-manufacturing.png"))));
         parameter_tabs->setCurrentIndex(0);flush();
         auto* view=window.findChild<QWidget*>("modelWorkspace");check(view,"Transition View missing");
         const QPointF point(view->rect().center());QMouseEvent middle(QEvent::MouseButtonDblClick,point,point,point,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);QApplication::sendEvent(view,&middle);flush();
@@ -209,14 +209,14 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(std::ranges::any_of(edited_rectangle.dimensions,[](const auto& value){return std::abs(value.value-220)<1e-8;}),"Rectangle dimension edit was not committed");
         window.finish_parameter_dimensions();flush();
         mesh_view->set_view_direction({1,-1,1});mesh_view->fit_all();flush();
-        window.grab().save(QString::fromStdString((directory/"transition-native.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"transition-native.png"))));
         for(bool unfold:{true,false}) {
             auto* change=window.findChild<QAction*>(unfold?"unbendAction":"bendBackAction");check(change&&change->isEnabled(),"Sheet state action unavailable");
             change->trigger();flush();auto* state_dialog=window.findChild<QDialog*>("sheetStateDialog");check(state_dialog,"Sheet state dialog did not open");
             state_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(!window.findChild<QDialog*>("sheetStateDialog"),"Transition sheet state did not commit");
             check(save().history.back().feature_kind==(unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack),"Wrong committed sheet state");
-            if(unfold)window.grab().save(QString::fromStdString((directory/"transition-native-unfolded.png").string()));
+            if(unfold)window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"transition-native-unfolded.png"))));
         }
         window.close();flush();std::cout<<"Native transition UI passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<"Transition UI: "<<error.what()<<'\n';return 1;}
