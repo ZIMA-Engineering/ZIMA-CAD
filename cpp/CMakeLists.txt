@@ -824,6 +824,24 @@ if(ZIMA_BUILD_TESTS)
     else()
         set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
+    add_executable(zima_cpp_portable_font_contract_tests tests/portable_font_contract_tests.cpp)
+    target_link_libraries(zima_cpp_portable_font_contract_tests PRIVATE Qt6::Core Qt6::Gui)
+    target_compile_options(zima_cpp_portable_font_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    set_target_properties(zima_cpp_portable_font_contract_tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/portable-font/$<CONFIG>/runtime")
+    add_custom_command(TARGET zima_cpp_portable_font_contract_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:zima_cpp_portable_font_contract_tests>/config/fonts"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ZIMA_SKETCH_FONT}" "$<TARGET_FILE_DIR:zima_cpp_portable_font_contract_tests>/config/fonts/osifont-lgpl3fe.ttf"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:zima_cpp_portable_font_contract_tests>/bin"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:zima_cpp_portable_font_contract_tests>" "$<TARGET_FILE_DIR:zima_cpp_portable_font_contract_tests>/bin/$<TARGET_FILE_NAME:zima_cpp_portable_font_contract_tests>")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/portable-font/empty")
+    add_test(NAME zima_cpp_portable_font_windows_layout COMMAND zima_cpp_portable_font_contract_tests)
+    add_test(NAME zima_cpp_portable_font_linux_layout
+        COMMAND "$<TARGET_FILE_DIR:zima_cpp_portable_font_contract_tests>/bin/$<TARGET_FILE_NAME:zima_cpp_portable_font_contract_tests>")
+    set_tests_properties(zima_cpp_portable_font_windows_layout zima_cpp_portable_font_linux_layout PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/portable-font/empty" TIMEOUT 30)
     add_executable(zima_cpp_measurement_contract_tests tests/measurement_contract_tests.cpp)
     add_executable(zima_cpp_face_measurement_demand_tests tests/face_measurement_demand_tests.cpp)
     target_link_libraries(zima_cpp_face_measurement_demand_tests PRIVATE zima_workspace TKBRep TKTopAlgo)

@@ -31,13 +31,13 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         const auto prepare=[](auto& text){app::rebuild_sketch_text_contours(text,true);};
         const auto target=directory/"symbol-ui.tblz";
         drawing::save_template_sketch(drawing::create_template_sketch(true,"Symbols"),target);
-        check(window.open_document_path(QString::fromStdString(target.string())),"Cannot open symbol fixture");window.show();flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(target))),"Cannot open symbol fixture");window.show();flush();
         auto* insert=window.findChild<QAction*>("insertSymbolAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
         auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
         check(insert&&insert->isEnabled()&&tree&&view&&save,"Symbol command unavailable");
         auto chosen_symbol=std::filesystem::current_path()/"config/symbols/drawing-conventions/ZE-PROJECTION-METHOD.symz";
         QTimer chooser;QObject::connect(&chooser,&QTimer::timeout,[&]{if(auto* file=window.findChild<QFileDialog*>()) {
-            file->findChild<QLineEdit*>("fileNameEdit")->setText(QString::fromStdString(chosen_symbol.string()));
+            file->findChild<QLineEdit*>("fileNameEdit")->setText(QString::fromStdString(document::path_to_utf8(chosen_symbol)));
             QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);chooser.stop();
         }});
         for(bool accept:{false,true}) {
@@ -57,7 +57,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         check(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::Symbol,"Tree did not select symbol in View");
         for(const QString language:{"cs","en","de","fr","ru"}) {
             auto settings=app::ApplicationSettings::load();settings.language=language;
-            QSettings config(QString::fromStdString((directory/"symbol-language.ini").string()),QSettings::IniFormat);config.setValue("Application/Language",language);config.sync();
+            QSettings config(QString::fromStdString(document::path_to_utf8((directory/"symbol-language.ini"))),QSettings::IniFormat);config.setValue("Application/Language",language);config.sync();
             QTemporaryDir translated;QFile::copy(config.fileName(),translated.filePath("config.ini"));settings=app::ApplicationSettings::load(translated.path());
             app::apply_application_translations(application,settings);
             bool explode_localized=false;
@@ -120,7 +120,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         const auto edited=drawing::load_template_sketch(target,prepare).symbols.front();check(edited.variant=="third_angle"&&!edited.use_cad_variant,"Symbol variant did not persist");
         view->clear_selection();view->fit_all();flush();
         const auto rendered=view->grabFramebuffer();
-        rendered.save(QString::fromStdString((directory/"symbol-framebuffer.png").string()));
+        rendered.save(QString::fromStdString(document::path_to_utf8((directory/"symbol-framebuffer.png"))));
         std::size_t symbol_pixels=0;
         for(int y=0;y<rendered.height();++y)for(int x=0;x<rendered.width();++x) {
             const auto color=rendered.pixelColor(x,y);
@@ -129,10 +129,10 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             if(color.green()>150&&color.green()>color.red()*1.5&&color.green()>color.blue()*1.5)++symbol_pixels;
         }
         check(symbol_pixels>100,"Symbol geometry is stored but not painted in Sketcher");
-        window.grab().save(QString::fromStdString((directory/"symbol-editor.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-editor.png"))));
         const auto definition=symbols::projection_method();const auto editable=directory/"editable-symbol.symz";
         definition.save(editable);
-        check(window.open_document_path(QString::fromStdString(editable.string())),"Cannot open native symbol document");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(editable))),"Cannot open native symbol document");flush();
         check(!insert->isEnabled(),"Symbol editor offers recursive symbol insertion");
         check(!window.findChild<QComboBox*>("symbolSketchChoice"),"Obsolete symbol Sketch dropdown remains");
         const auto enter_symbol_sketch=[&](const std::string& sketch_id){
@@ -207,7 +207,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             const int old_height=table->height(),row_height=table->rowHeight(0);
             family->resize(family->width(),family->height()+60);flush();
             check(table->height()>=old_height+50&&table->rowHeight(0)==row_height,"Resizing the symbol table did not grow its viewport with fixed rows");
-            window.grab().save(QString::fromStdString((directory/"symbol-family-table.png").string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-family-table.png"))));
             if(accept) {
                 QMouseEvent confirm(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(view->mapToGlobal(QPoint(20,20))),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
                 QApplication::sendEvent(view,&confirm);
@@ -225,10 +225,10 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             }
         }
         view->fit_all();flush();
-        window.grab().save(QString::fromStdString((directory/"symbol-authoring.png").string()));
+        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-authoring.png"))));
         auto model=document::PartDocument::create_default();auto cylinder=test::circular_feature(model,8,25);model.history.push_back(cylinder);model.insert_history_entry(document::PartHistoryKind::Feature,cylinder.id);
         kernel::OcctKernel kernel;const auto model_path=directory/"symbol-attachment.prtz";model.save(model_path,kernel.evaluate_history(model.kernel_operations()));
-        check(window.open_document_path(QString::fromStdString(model_path.string())),"Cannot open model symbol fixture");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(model_path))),"Cannot open model symbol fixture");flush();
         check(insert->isEnabled(),"Model symbol insertion unavailable");view->set_view_direction({1,-1,.5});view->fit_all();flush();
         for(bool accept:{false,true}) {
             chooser.start(100);insert->trigger();chooser.stop();flush();
@@ -244,7 +244,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             QMouseEvent press(QEvent::MouseButtonPress,p,QPointF(view->mapToGlobal(p.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
             QMouseEvent release(QEvent::MouseButtonRelease,p,QPointF(view->mapToGlobal(p.toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
             QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
-            if(!attachment->pending_placement().reference){window.grab().save(QString::fromStdString((directory/"symbol-pick-failure.png").string()));
+            if(!attachment->pending_placement().reference){window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-pick-failure.png"))));
                 const auto offered=view->offered_candidate();std::cerr<<"Pick: "<<p.x()<<","<<p.y()<<" active="<<attachment->active()<<" offered="<<(offered?offered->semantic_key:"none")<<"\n";}
             check(attachment->pending_placement().reference.has_value(),"Model face click did not attach symbol");
             check(!attachment->active(),"Reference input remained armed after symbol attachment");
@@ -298,7 +298,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         check(attachment->active(),"Contact handle did not arm reference replacement");
         attachment->reject();flush();save->trigger();flush();
         check(document::PartDocument::load(model_path).symbol_annotations.front()==stored,"Cancel committed handle preview");
-        view->clear_selection();view->fit_all();flush();window.grab().save(QString::fromStdString((directory/"symbol-attachment.png").string()));
+        view->clear_selection();view->fit_all();flush();window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-attachment.png"))));
         const auto previous_library=chosen_symbol;
         for(const auto* library:{"welding/ZE-WELDING-ISO2553.symz","geometric-tolerances/ZE-GEOMETRIC-TOLERANCES-ISO1101.symz","geometric-tolerances/ZE-DATUM-FEATURE.symz"}) {
             chosen_symbol=std::filesystem::current_path()/"config/symbols"/library;
@@ -319,7 +319,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 std::cerr<<"Unexpected Assembly fixture dialog: "<<message->text().toStdString()<<"\n";message->reject();
             }
         });error_guard.start(100);
-        check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Cannot open Assembly symbol fixture");error_guard.stop();flush();view->set_view_direction({1,-1,.5});view->fit_all();flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(assembly_path))),"Cannot open Assembly symbol fixture");error_guard.stop();flush();view->set_view_direction({1,-1,.5});view->fit_all();flush();
         chooser.start(100);insert->trigger();chooser.stop();flush();
         auto* assembly_symbol=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(assembly_symbol,"Assembly symbol dialog missing");settle_view();
         std::optional<QPointF> assembly_hit;
@@ -338,7 +338,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         drawing_view.camera={{1,0,0},{0,1,0},{0,0,1}};drawing_view.x=100;drawing_view.y=180;drawing_view.scale=1;
         drawing::capture_measurement_geometry(drawing_view,line_mesh);sheet_doc.sheets.front().views={drawing_view};
         const auto drawing_path=directory/"symbol-sheet.drwz";sheet_doc.save(drawing_path);
-        check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot open Drawing symbol fixture");flush();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(drawing_path))),"Cannot open Drawing symbol fixture");flush();
         auto* drawing_window=dynamic_cast<app::DrawingWindow*>(window.findChild<QWidget*>("drawingWorkspace"));
         auto* canvas=drawing_window?drawing_window->findChild<QWidget*>("drawingCanvas"):nullptr;
         auto* insert_sheet=drawing_window?drawing_window->findChild<QAction*>("drawingSymbolAction"):nullptr;
@@ -358,7 +358,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             }
             flush();check(!editor->pending_placement().reference&&editor->active()&&!editor->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),
                 "Empty Drawing click placed or disarmed a symbol");
-            window.grab().save(QString::fromStdString((directory/"symbol-before-reference.png").string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-before-reference.png"))));
             auto* roughness=editor->findChild<QComboBox*>("symbolField:Specification");
             auto* process=editor->findChild<QComboBox*>("symbolVariant");
             check(roughness&&roughness->findText("Ra 6.3")>=0&&process&&process->count()==3,"Roughness variants or value choices are missing from Drawing insertion");
@@ -366,7 +366,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             const auto in_view=[&](QWidget* field){return scroll->viewport()->rect().contains(QRect(field->mapTo(scroll->viewport(),QPoint{}),field->size()));};
             check(in_view(roughness)&&in_view(process)&&in_view(editor->findChild<QTableWidget*>("symbolReference")),"Initial symbol window hides reference, variant or roughness controls");
             check(editor->findChild<QTableWidget*>("symbolReference")->mapTo(editor,QPoint{}).y()<process->mapTo(editor,QPoint{}).y(),"Symbol properties reordered attachment below variant");
-            editor->grab().save(QString::fromStdString((directory/"symbol-properties-full.png").string()));
+            editor->grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-properties-full.png"))));
             roughness->setCurrentText("Ra 6.3");process->setCurrentIndex(process->findData("no_material_removal"));
             const auto rect=drawing_window->sheet_rectangle_for_test();const auto& sheet=drawing_window->document_for_test().sheets.front();
             const double zoom=rect.width()/sheet.width_mm();
@@ -493,7 +493,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         free_symbol->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==2,"Attached Drawing tolerance was not committed");
         save->trigger();flush();
-        drawing_window->render_sheet_for_test(false).save(QString::fromStdString((directory/"symbol-sheet.png").string()));
+        drawing_window->render_sheet_for_test(false).save(QString::fromStdString(document::path_to_utf8((directory/"symbol-sheet.png"))));
         drawing_window->export_pdf(directory/"symbol-sheet.pdf");drawing_window->export_dxf(directory/"symbol-sheet.dxf");
         check(std::filesystem::file_size(directory/"symbol-sheet.pdf")>1000&&std::filesystem::file_size(directory/"symbol-sheet.dxf")>1000,"Symbol export missing");
         auto imported_symbols=sketcher::Sketch::create_default();const auto dxf_check=interchange::import_dxf(directory/"symbol-sheet.dxf",imported_symbols);
@@ -543,7 +543,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             // Resizing can change the visible grip through shelf length alone.
             const auto displacement=kernel::dimension_sub(kernel::annotation_handles(moved_layout,right,up,moved_left,true)[handle],point);
             if(kernel::dimension_dot(displacement,displacement)<1e-8) {
-                window.grab().save(QString::fromStdString((directory/"symbol-grip-failure.png").string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-grip-failure.png"))));
                 throw std::runtime_error("Structured symbol grip does not move its preview: "+symbols::Definition::from_serialized(value.symbol.definition).id+" handle "+std::to_string(handle));
             }
             check(editor->pending_placement().reference==value.reference,"Dragging a structured symbol changed its reference");
@@ -590,7 +590,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                         check(scroll->viewport()->rect().contains(QRect(field->mapTo(scroll->viewport(),QPoint{}),field->size())),"Default tolerance hides datum entries below the viewport");
                     }
                     editor->findChild<QComboBox*>("symbolField:Secondary datum")->setCurrentText("B");editor->findChild<QComboBox*>("symbolField:Tertiary datum")->setCurrentText("C");
-                    editor->grab().save(QString::fromStdString((directory/"tolerance-properties.png").string()));
+                    editor->grab().save(QString::fromStdString(document::path_to_utf8((directory/"tolerance-properties.png"))));
                 }
                 drag_pending_symbol(editor,1,{12,8});
                 const auto length=editor->pending_placement().shelf_length;drag_pending_symbol(editor,2,{12,0});
@@ -625,7 +625,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         save->trigger();flush();
         check(drawing::DrawingDocument::load(drawing_path).sheets.front().symbol_annotations==drawing_window->document_for_test().sheets.front().symbol_annotations,
             "Manual bend-note embedding or placement lost on native save/reopen");
-        drawing_window->render_sheet_for_test(false).save(QString::fromStdString((directory/"weld-tolerance-sheet.png").string()));
+        drawing_window->render_sheet_for_test(false).save(QString::fromStdString(document::path_to_utf8((directory/"weld-tolerance-sheet.png"))));
         drawing_window->export_pdf(directory/"weld-tolerance-sheet.pdf");drawing_window->export_dxf(directory/"weld-tolerance-sheet.dxf");
         auto exported=sketcher::Sketch::create_default();
         check(interchange::import_dxf(directory/"weld-tolerance-sheet.dxf",exported).imported_entities>30,"Weld DXF lacks vector geometry");

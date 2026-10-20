@@ -38,14 +38,14 @@ static int verify_sketch_symbol_controls(QApplication& application,
             if(assembly) {auto doc=assembly::AssemblyDocument::create_default();doc.sketches={sketch};doc.sketch_containers={owner};doc.save(path);}
             else {auto doc=document::PartDocument::create_default();doc.sketches={sketch};doc.history={owner};
                 document::BodyHistoryGraph graph;body=graph.create_body("Symbol controls");graph.insert({document::PartHistoryKind::Feature,owner.id});doc.set_body_history(graph);doc.resolve_constructions();doc.save(path);}
-            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Sketch symbol fixture");flush();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Cannot open Sketch symbol fixture");flush();
             if(!assembly)run("body.activate",{{"body",body}});
             QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)==(assembly?"assembly-sketch":"part-sketch")){row=*i;break;}
             check(row,"Sketch child row is missing");window.show_tree_item_properties(row);flush();
             if(auto* open=window.findChild<QPushButton*>("sketchOpenButton"))open->click();flush();
             if(!finish->isEnabled()||!text_action->isEnabled()) {
-                window.grab().save(QString::fromStdString((directory/"symbol-sketch-entry-failure.png").string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-sketch-entry-failure.png"))));
                 std::cerr<<"Entry assembly="<<assembly<<" header="<<tree->headerItem()->text(0).toStdString()<<" finish="<<finish->isEnabled()<<" text="<<text_action->isEnabled()<<'\n';
                 for(auto* dialog:window.findChildren<QDialog*>())std::cerr<<dialog->objectName().toStdString()<<" visible="<<dialog->isVisible()<<'\n';
                 if(auto* state=window.findChild<QLabel*>("workspaceState"))std::cerr<<state->text().toStdString()<<'\n';
@@ -59,7 +59,7 @@ static int verify_sketch_symbol_controls(QApplication& application,
                     std::cerr<<"Text entry assembly="<<assembly<<" accept="<<accept<<" finish="<<finish->isEnabled()<<" text="<<text_action->isEnabled()<<'\n';
                     for(auto* child:window.findChildren<QDialog*>())std::cerr<<"Dialog "<<child->objectName().toStdString()<<" visible="<<child->isVisible()<<'\n';
                     if(auto* state=window.findChild<QLabel*>("workspaceState"))std::cerr<<state->text().toStdString()<<'\n';
-                    window.grab().save(QString::fromStdString((directory/"symbol-text-entry-failure.png").string()));
+                    window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"symbol-text-entry-failure.png"))));
                     throw std::runtime_error("Text command did not open its dialog in an editable Sketch");
                 }
                 dialog->set_anchor(10,10);dialog->findChild<QPlainTextEdit*>("sketchTextValue")->setPlainText("ZIMA");
@@ -100,7 +100,7 @@ static int verify_sketch_symbol_controls(QApplication& application,
                 check(point&&value.anchor_point_id==grip&&std::hypot(value.x-symbol.x,value.y-symbol.y)>1e-3,"Mouse drag did not move the symbol");
                 check(std::abs(value.x-point->x)<1e-8&&std::abs(value.y-point->y)<1e-8,"Mouse drag detached symbol geometry from its point");
             }
-            window.grab().save(QString::fromStdString((directory/(assembly?"assembly-symbol-anchor.png":"part-symbol-anchor.png")).string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(assembly?"assembly-symbol-anchor.png":"part-symbol-anchor.png")))));
             for(int step=0;step<3;++step) {
                 const auto previous=stored();const auto& text=previous.texts.front();const auto text_grip=text.anchor_point_id;
                 check(previous.find_point(text_grip),"Created ordinary Text lacks its solver point");
@@ -113,7 +113,7 @@ static int verify_sketch_symbol_controls(QApplication& application,
                 check(std::hypot(moved.texts.front().anchor_x-text.anchor_x,moved.texts.front().anchor_y-text.anchor_y)>1e-3,"Mouse drag did not move ordinary Text");
                 undo->trigger();flush();check(stored().texts==previous.texts,"Text drag Undo failed");redo->trigger();flush();check(stored().texts==moved.texts,"Text drag Redo failed");
             }
-            window.grab().save(QString::fromStdString((directory/(assembly?"assembly-text-anchor.png":"part-text-anchor.png")).string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(assembly?"assembly-text-anchor.png":"part-text-anchor.png")))));
             const auto symbol_state=stored();const auto symbol_mesh=symbols::instance_mesh(symbol_state.symbols.front());
             const auto& stroke=symbol_mesh.edges.front().points;const auto pick=screen((stroke.front().x+stroke.back().x)/2,(stroke.front().y+stroke.back().y)/2);
             view->clear_selection();mouse(QEvent::MouseMove,pick,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,pick,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,pick,Qt::LeftButton,Qt::NoButton);
@@ -157,7 +157,7 @@ static int verify_sketch_symbol_controls(QApplication& application,
             auto doc=document::PartDocument::create_default();auto owner=document::PartDocument::create_sketch_container();owner.feature.sketch_id=sketch.id;sketch.owner_container_id=owner.id;
             doc.sketches={sketch};doc.history={owner};document::BodyHistoryGraph graph;const auto body=graph.create_body("Dimensioned symbol");graph.insert({document::PartHistoryKind::Feature,owner.id});doc.set_body_history(graph);doc.resolve_constructions();
             const auto path=directory/(std::string(text_case?"dimensioned-text-":"dimensioned-symbol-")+std::to_string(static_cast<int>(kind))+"-"+std::to_string(state)+".prtz");doc.save(path);
-            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open dimensioned symbol fixture");flush();run("body.activate",{{"body",body}});
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Cannot open dimensioned symbol fixture");flush();run("body.activate",{{"body",body}});
             QTreeWidgetItem* row{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
             check(row,"Dimensioned Sketch row missing");window.show_tree_item_properties(row);flush();window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
             QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();
@@ -201,7 +201,7 @@ static int verify_sketch_symbol_controls(QApplication& application,
         // A newly owned profile has no persisted Sketch yet. Text must use
         // the same active draft accessor as the other Sketcher commands.
         auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;const auto body=graph.create_body("Draft text");part.set_body_history(graph);
-        const auto path=directory/"draft-text.prtz";part.save(path);check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open draft-text fixture");flush();run("body.activate",{{"body",body}});
+        const auto path=directory/"draft-text.prtz";part.save(path);check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Cannot open draft-text fixture");flush();run("body.activate",{{"body",body}});
         window.findChild<QAction*>("extrusionAction")->trigger();flush();
         app::PrimitivePropertiesDialog* parent{};
         for(auto* candidate:window.findChildren<QDialog*>())if(auto* primitive=dynamic_cast<app::PrimitivePropertiesDialog*>(candidate);primitive&&primitive->isVisible())parent=primitive;

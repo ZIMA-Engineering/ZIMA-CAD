@@ -2569,7 +2569,8 @@ void DrawingWindow::open_document() {
     const auto path = open_file(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
     if (path.isEmpty()) return;
     try {
-        document_ = zima::drawing::DrawingDocument::load(path.toStdString()); path_ = path.toStdString();
+        const auto target=std::filesystem::u8path(path.toStdString());
+        document_ = zima::drawing::DrawingDocument::load(target); path_ = target;
         workspace_document_id_.clear();
         if(workspace_!=nullptr) {
             if(auto* existing=workspace_->open_drawing(document_.document_id)) {
@@ -2602,11 +2603,11 @@ void DrawingWindow::quick_export(bool pdf) {
     }catch(const std::exception& error){set_status_message(tr(error.what()));}
 }
 void DrawingWindow::save_pdf() {
-    auto suggested=path_.empty()?std::filesystem::path(document_.name+".pdf"):path_;
+    auto suggested=path_.empty()?std::filesystem::u8path(document_.name+".pdf"):path_;
     suggested.replace_extension(".pdf");
-    const auto path=save_file(this,tr("Uložit jako PDF"),QString::fromStdString(suggested.string()),tr("PDF (*.pdf)"),"pdf");
+    const auto path=save_file(this,tr("Uložit jako PDF"),QString::fromStdString(zima::document::path_to_utf8(suggested)),tr("PDF (*.pdf)"),"pdf");
     if(path.isEmpty())return;
-    try {export_pdf(path.toStdString());set_status_message(tr("PDF uloženo. Tiskněte ve skutečné velikosti (100 %)."));}
+    try {export_pdf(std::filesystem::u8path(path.toStdString()));set_status_message(tr("PDF uloženo. Tiskněte ve skutečné velikosti (100 %)."));}
     catch(const std::exception& error){set_status_message(tr(error.what()));}
 }
 QRectF DrawingWindow::sheet_rectangle_for_test()const{return canvas_->sheet_rectangle();}
@@ -2623,20 +2624,21 @@ void DrawingWindow::export_pdf(const std::filesystem::path& path) {
     drawing_render::export_pdf(document_,path,path_,workspace_,true);
 }
 void DrawingWindow::save_document() {
-    auto path = path_.empty() ? save_file(this, tr("Uložit výkres"), "drawing.drwz", tr("Výkres ZIMA-CAD (*.drwz)"), "drwz") : QString::fromStdString(path_.string());
+    auto path = path_.empty() ? save_file(this, tr("Uložit výkres"), "drawing.drwz", tr("Výkres ZIMA-CAD (*.drwz)"), "drwz") : QString::fromStdString(zima::document::path_to_utf8(path_));
     if (path.isEmpty()) return;
     if (!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
     try {
+        const auto target=std::filesystem::u8path(path.toStdString());
         if(workspace_ && workspace_->open_drawing(workspace_document_id_)) {
             auto pending=zima::workspace::prepare_document_save_if_needed(
-                *workspace_,workspace_document_id_,path.toStdString());
+                *workspace_,workspace_document_id_,target);
             if(!pending)return;
             const auto saved=pending->write();
             if(!zima::workspace::complete_document_save(*workspace_,saved))
                 throw std::runtime_error("Drawing was closed or retargeted during saving");
             const auto* state=workspace_->open_drawing(workspace_document_id_);
             document_=state->document();path_=state->path;
-        } else { document_.save(path.toStdString());path_=path.toStdString(); }
+        } else { document_.save(target);path_=target; }
         sync_workspace_document(false); set_status_message(tr("Výkres uložen."));
     }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }

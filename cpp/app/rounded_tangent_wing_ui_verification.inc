@@ -11,9 +11,9 @@ static int verify_rounded_tangent_wing_ui(QApplication& application,const std::f
             auto doc=document::PartDocument::create_default();doc.sketches={sketch};doc.history={owner};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Rounded tangent wing");graph.insert({document::PartHistoryKind::Feature,owner.id});doc.set_body_history(graph);doc.resolve_constructions();
             const auto path=directory/("rounded-tangent-wing-"+std::to_string(mode)+".prtz");doc.save(path);
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1200,900);window.show();
             const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-            check(window.open_document_path(QString::fromStdString(path.string())),"Rounded wing GUI open failed");flush();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Rounded wing GUI open failed");flush();
             check(activate_test_body(application,window,body),"Rounded wing Body unavailable");
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
@@ -63,10 +63,10 @@ static int verify_rounded_tangent_wing_ui(QApplication& application,const std::f
                     window.findChild<QAction*>("undoAction")->trigger();flush();verify();window.findChild<QAction*>("redoAction")->trigger();flush();verify();
                 }
             }
-            window.grab().save(QString::fromStdString((directory/("rounded-tangent-wing-"+std::to_string(mode)+".png")).string()));
+            window.grab().save(QString::fromStdString(document::path_to_utf8((directory/("rounded-tangent-wing-"+std::to_string(mode)+".png")))));
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dynamic_cast<app::SketchPropertiesDialog*>(dialog))dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
-            flush();verify();check(window.open_document_path(QString::fromStdString(path.string())),"Saved rounded wing GUI fixture did not reopen");flush();verify();
+            flush();verify();check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Saved rounded wing GUI fixture did not reopen");flush();verify();
             std::cout<<"Rounded tangent wing GUI mode="<<mode<<": coordinate, crown/corner R and angle edits, drags, Undo/Redo and native save/reopen passed"<<std::endl;
         }
         return 0;

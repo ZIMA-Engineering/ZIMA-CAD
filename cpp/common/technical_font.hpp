@@ -9,12 +9,14 @@
 namespace zima {
 
 // One bundled technical font, shared by GUI fallback and all annotation views.
-// Executables with resources use the embedded copy; standalone rendering tools
-// can use the same repository font without installing it into the operating system.
+// Prefer the embedded copy or the version-owned Windows/Linux runtime data.
+// Standalone development tools retain the repository fallbacks; no OS font install is needed.
 inline QString technical_font_family() {
     static const QString family = [] {
         const QString relative = QStringLiteral("config/fonts/osifont-lgpl3fe.ttf");
         const QStringList paths{QStringLiteral(":/zima/fonts/osifont-lgpl3fe.ttf"),
+            QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(relative),
+            QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../" + relative),
             relative, QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../../" + relative)};
         for (const auto& path : paths) {
             const int id = QFontDatabase::addApplicationFont(path);

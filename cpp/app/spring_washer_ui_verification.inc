@@ -20,8 +20,8 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         const bool tab=profile.arcs.size()==3&&profile.circles.size()==1;
         check(castle||knurl||cap_nut||weld||hex_nut||shaped||tab||profile.circles.size()==2,"Library profile fixture missing");
         const auto path=directory/"spring-washer-gui.prtz";original.save(path,cache);
-        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
-        check(window.open_document_path(QString::fromStdString(path.string())),"Washer GUI source did not open");flush();
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1200,900);window.show();
+        check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Washer GUI source did not open");flush();
         const auto supports=cap_nut||weld||hex_nut||shaped?profile.external_references:original.sketches.back().external_references;
         std::vector<std::pair<std::size_t,double>> edits;
         if(shaped) {
@@ -100,15 +100,15 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             QApplication::sendEvent(view,&twice);flush();
             auto* edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
             if(!edit) {
-                view->grabFramebuffer().save(QString::fromStdString((directory/"dimension-editor-failure-view.png").string()));
-                window.grab().save(QString::fromStdString((directory/"dimension-editor-failure-window.png").string()));
+                view->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8((directory/"dimension-editor-failure-view.png"))));
+                window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"dimension-editor-failure-window.png"))));
                 std::cerr<<"Dimension label "<<index<<" at "<<label->x()<<','<<label->y()<<", View "<<view->width()<<'x'<<view->height()<<'\n';
             }
             check(edit,"Washer diameter mouse editor missing");
             edit->setText(QString::number(value,'g',15));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
             const auto measured=view->candidate_dimension_value(candidate);
             if(!measured||std::abs(*measured-value)>=1e-8) {
-                window.grab().save(QString::fromStdString((directory/"dimension-value-failure-window.png").string()));
+                window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"dimension-value-failure-window.png"))));
                 std::cerr<<"Library GUI dimension "<<index<<" expected="<<value<<" actual="<<(measured?*measured:-1)<<'\n';
             }
             check(measured&&std::abs(*measured-value)<1e-8,"Washer GUI diameter edit rejected");
@@ -150,7 +150,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
                     mouse(QEvent::MouseMove,from,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
                     mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
                     auto moved=live_sketch();if(std::hypot(moved.find_point(point)->x-p.x,moved.find_point(point)->y-p.y)<=1e-3)
-                        window.grab().save(QString::fromStdString((directory/"closed-nut-drag-failure.png").string()));
+                        window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"closed-nut-drag-failure.png"))));
                     check(std::hypot(moved.find_point(point)->x-p.x,moved.find_point(point)->y-p.y)>1e-3,"Free closed nut handle did not move");
                     const auto status=moved.solve();check(status.maximum_residual<1e-8&&status.remaining_degrees_of_freedom==0,"Dragged closed nut violated equations");
                     check(moved.external_references==previous.external_references,"Closed nut GUI drag changed external support");
@@ -210,7 +210,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             }
         }
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
-        view->grabFramebuffer().save(QString::fromStdString((directory/"spring-washer-gui.png").string()));
+        view->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8((directory/"spring-washer-gui.png"))));
         std::cout<<(hex_nut?"Hexagon nut GUI: three width mouse edits, Undo/Redo, regeneration, native save/reopen and retained profile identities passed\n":csn_closed?"CSN closed nut GUI: six coordinate/angle mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":cap_nut?"Cap nut GUI: three radius mouse edits, independent Origin axis, retained supports, Undo/Redo, regeneration and native save/reopen passed\n":knurl?"Knurled nut GUI: nine height/diameter/radius mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":castle?"Castle nut GUI: repeated slot-width and floor-height mouse edits, Undo/Redo, regeneration and native save/reopen passed\n":tab?"Tab washer GUI: fifteen mouse dimension edits, Undo/Redo, regeneration and native save/reopen passed\n":
             "Spring washer GUI: six mouse diameter edits, Undo/Redo, regeneration, native save/reopen and both external end-plane contacts passed\n");return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

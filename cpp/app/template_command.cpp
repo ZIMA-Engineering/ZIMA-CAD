@@ -1,6 +1,7 @@
 #include <zima/workspace/template_object_operations.hpp>
 #include <zima/drawing_render/template_image_import.hpp>
 #include <zima/workspace/template_operations.hpp>
+#include <zima/document/file_path.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "assembly_workspace_window.hpp"
 #include "file_dialog.hpp"
@@ -147,11 +148,11 @@ void AssemblyWorkspaceWindow::save_template_document(bool copy) {
     const bool title=sketch->drawing_template->kind=="title_block";
     const QString suffix=title?"tblz":"frmz";
     const QString filter=title?tr("Razítko ZIMA-CAD (*.tblz)"):tr("Rámeček ZIMA-CAD (*.frmz)");
-    QString path=QString::fromStdString(part->path.string());
+    QString path=QString::fromStdString(zima::document::path_to_utf8(part->path));
     if(copy||path.isEmpty())path=save_file(this,copy?tr("Uložit kopii šablony"):tr("Uložit šablonu"),
-        QString::fromStdString((working_directory_/(part->session.document().name+"."+suffix.toStdString())).string()),filter,suffix,application_settings_.translations);
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_/std::filesystem::u8path(part->session.document().name+"."+suffix.toStdString()))),filter,suffix,application_settings_.translations);
     if(path.isEmpty())return;
-    auto target=std::filesystem::path(path.toStdString());target.replace_extension("."+suffix.toStdString());
+    auto target=std::filesystem::u8path(path.toStdString());target.replace_extension("."+suffix.toStdString());
     if(copy&&std::filesystem::absolute(target).lexically_normal()==std::filesystem::absolute(part->path).lexically_normal()) {
         QMessageBox::warning(this,tr("Uložit kopii"),tr("Kopie musí mít jiný název než původní šablona."));return;
     }
@@ -159,7 +160,7 @@ void AssemblyWorkspaceWindow::save_template_document(bool copy) {
         QMessageBox::warning(this,tr("Soubor je otevřen"),tr("Cílovou šablonu již upravujete v jiné kartě."));return;
     }
     try {zima::workspace::save_drawing_template(workspace_,id,target,copy,true);
-        working_directory_=target.parent_path();refresh_tabs();state_->setText(tr("Šablona uložena: %1").arg(QString::fromStdString(target.filename().string())));
+        working_directory_=target.parent_path();refresh_tabs();state_->setText(tr("Šablona uložena: %1").arg(QString::fromStdString(zima::document::path_to_utf8(target.filename()))));
     }catch(const std::exception& e){QMessageBox::critical(this,tr("Uložení šablony selhalo"),QString::fromUtf8(e.what()));}
 }
 void AssemblyWorkspaceWindow::start_template_region() {

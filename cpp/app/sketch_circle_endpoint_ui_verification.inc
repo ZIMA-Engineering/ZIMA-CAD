@@ -5,7 +5,7 @@
 int verify_sketch_circle_endpoint_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SPRING_WASHER_SOURCE"))return verify_spring_washer_ui(application,directory,std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_SPRING_WASHER_SOURCE").toStdString()));
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SPRING_WASHER_SOURCE"))return verify_spring_washer_ui(application,directory,std::filesystem::u8path(qEnvironmentVariable("ZIMA_VERIFY_SPRING_WASHER_SOURCE").toStdString()));
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SOCKET_AXIS_MERGE_SOURCE"))return verify_socket_axis_merge_ui(application,directory,std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_SOCKET_AXIS_MERGE_SOURCE").toStdString()));
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_CREATION"))return verify_sketch_origin_creation_ui(application,directory);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BOLT_CENTER_SOURCE"))return verify_bolt_center_ui(application,directory,std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_BOLT_CENTER_SOURCE").toStdString()));
@@ -20,8 +20,8 @@ int verify_sketch_circle_endpoint_ui(QApplication& application,const std::filesy
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;const auto body=graph.create_body("Circle endpoint");
             graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             const auto path=directory/(upper?"circle-upper.prtz":"circle-lower.prtz");part.save(path);
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
-            check(window.open_document_path(QString::fromStdString(path.string())),"Circle endpoint fixture did not open");flush();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Circle endpoint fixture did not open");flush();
             check(activate_test_body(application,window,body),"Circle endpoint Body cannot activate");flush();
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
@@ -79,7 +79,7 @@ int verify_sketch_circle_endpoint_ui(QApplication& application,const std::filesy
             check(final.arcs.front().start_point_id==endpoint||final.arcs.front().end_point_id==endpoint,"Trimmed Arc is not incident to the original point");
             for(const auto& c:final.constraints)if(c.kind==sketcher::ConstraintKind::Tangent)check(c.first_point_id==endpoint,"Trim lost tangent contact identity");
             verification::tangency::arc_equations(final);
-            view->grabFramebuffer().save(QString::fromStdString((directory/(upper?"circle-upper.png":"circle-lower.png")).string()));
+            view->grabFramebuffer().save(QString::fromStdString(document::path_to_utf8((directory/(upper?"circle-upper.png":"circle-lower.png")))));
         }
         std::cout<<"Circle creation GUI: upper/lower native endpoint mouse snaps reuse one point; C/T identity and native save/reopen passed"<<std::endl;
         return 0;

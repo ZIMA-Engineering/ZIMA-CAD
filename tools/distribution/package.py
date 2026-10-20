@@ -313,11 +313,11 @@ def smoke(root, version, gui=True):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30).stdout)
         if value['version'] != version or value['product'] != 'ZIMA-CAD':
             raise ValueError('Executable build identity mismatch')
-    def commands(items):
+    def commands(items, cwd=project):
         args = [binary / ('zima-cad-cli' + suffix), '--working-directory', project]
         for command in items:
             args += ['--command', json.dumps(command) if isinstance(command, dict) else command]
-        output = run(args, cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        output = run(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
         records = [json.loads(line) for line in output.stdout.splitlines()]
         if len(records) != len(items) or not all(r.get('ok') for r in records):
             raise ValueError('CLI smoke command failed')
@@ -361,6 +361,20 @@ def smoke(root, version, gui=True):
               {'command': 'export.image', 'arguments': {'path': 'smoke.jpg', 'sheet': sheet, 'dpi': 30}}])
     if not (project / 'smoke.pdf').read_bytes().startswith(b'%PDF-') or not (project / 'smoke.jpg').read_bytes().startswith(b'\xff\xd8'):
         raise ValueError('PDF/JPEG export failed')
+    # A blank sheet does not prove that the portable CLI can find its font.
+    # A real factory reference must render identically with and without a
+    # repository/source working directory. The former broken lookup produced
+    # missing glyphs only in the ordinary project directory.
+    reference = next((asset for asset in factory_assets if asset.suffix.lower() == '.drwz'), None)
+    if reference is None:
+        raise ValueError('Missing factory Drawing for portable font acceptance')
+    opening = {'command': 'open', 'arguments': {'path': str(reference)}}
+    reference_sheet = commands([opening, 'drawing.sheet.list'])[-1]['data']['items'][0]['sheet']
+    for name, directory in [('font-project.jpg', project), ('font-source.jpg', root / 'source' / version)]:
+        commands([opening, {'command': 'export.image', 'arguments': {
+            'path': name, 'sheet': reference_sheet, 'dpi': 60, 'overwrite': True}}], cwd=directory)
+    if sha(project / 'font-project.jpg') != sha(project / 'font-source.jpg'):
+        raise ValueError('Factory Drawing text rendering depends on the source working directory')
     if gui:
         if linux:
             if os.environ.get('XDG_SESSION_TYPE') != 'wayland':
@@ -374,7 +388,8 @@ def smoke(root, version, gui=True):
     for name, record in json.loads((root / 'checksums.json').read_text(encoding='utf-8')).items():
         if sha(root / name) != record['sha256']:
             raise ValueError('Smoke modified a packaged source/runtime file: ' + name)
-    return {'native_factory_assets': [
+    return {'factory_font_cwd_check': {'drawing': reference.relative_to(runtime).as_posix(),
+            'sha256': sha(project / 'font-project.jpg'), 'result': 'passed'}, 'native_factory_assets': [
         {'path': path.relative_to(runtime).as_posix(), 'sha256': sha(path), 'load': 'passed'}
         for path in factory_assets]}
 
