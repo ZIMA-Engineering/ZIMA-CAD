@@ -49,7 +49,7 @@
   "Pracovní adresář nelze vytvořit.": "The working directory could not be created.",
   "Drážka": "Slot",
   "Drážka skici: určete střed prvního oblouku. Escape příkaz zruší.": "Sketch slot: pick the first arc centre. Escape cancels the command.",
-  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí symetrii vůči ose nebo konstrukční čáře.": "Sketch slot: pick the second arc centre. Snapping offers symmetry about an axis or construction line.",
+  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí H/V mezi středy nebo symetrii vůči ose či konstrukční čáře.": "Sketch slot: pick the second arc centre. Snapping offers H/V between the centres or symmetry about an axis or construction line.",
   "Drážka skici: určete poloměr bodem na boku drážky.": "Sketch slot: define the radius by picking a point on the side of the slot.",
   "Drážka musí mít nenulový poloměr.": "The slot radius must be non-zero.",
   "Drážka vytvořena. Určete střed prvního oblouku další drážky.": "Slot created. Pick the first arc centre of the next slot.",

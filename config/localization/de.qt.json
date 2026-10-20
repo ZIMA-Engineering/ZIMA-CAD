@@ -49,7 +49,7 @@
   "Pracovní adresář nelze vytvořit.": "Das Arbeitsverzeichnis konnte nicht erstellt werden.",
   "Drážka": "Langloch",
   "Drážka skici: určete střed prvního oblouku. Escape příkaz zruší.": "Skizzenlangloch: Mittelpunkt des ersten Bogens wählen. Escape bricht den Befehl ab.",
-  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí symetrii vůči ose nebo konstrukční čáře.": "Skizzenlangloch: Mittelpunkt des zweiten Bogens wählen. Einrasten bietet Symmetrie zu einer Achse oder Konstruktionslinie.",
+  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí H/V mezi středy nebo symetrii vůči ose či konstrukční čáře.": "Skizzenlangloch: Mittelpunkt des zweiten Bogens wählen. Einrasten bietet H/V zwischen den Mittelpunkten oder Symmetrie zu einer Achse oder Konstruktionslinie.",
   "Drážka skici: určete poloměr bodem na boku drážky.": "Skizzenlangloch: Radius durch einen Punkt an der Seite des Langlochs festlegen.",
   "Drážka musí mít nenulový poloměr.": "Der Langlochradius muss größer als null sein.",
   "Drážka vytvořena. Určete střed prvního oblouku další drážky.": "Langloch erstellt. Mittelpunkt des ersten Bogens des nächsten Langlochs wählen.",

@@ -49,7 +49,7 @@
   "Pracovní adresář nelze vytvořit.": "Не удалось создать рабочую папку.",
   "Drážka": "Паз",
   "Drážka skici: určete střed prvního oblouku. Escape příkaz zruší.": "Паз эскиза: укажите центр первой дуги. Escape отменяет команду.",
-  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí symetrii vůči ose nebo konstrukční čáře.": "Паз эскиза: укажите центр второй дуги. Привязка предлагает симметрию относительно оси или вспомогательной линии.",
+  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí H/V mezi středy nebo symetrii vůči ose či konstrukční čáře.": "Паз эскиза: укажите центр второй дуги. Привязка предлагает H/V между центрами или симметрию относительно оси либо вспомогательной линии.",
   "Drážka skici: určete poloměr bodem na boku drážky.": "Паз эскиза: задайте радиус точкой на боковой стороне паза.",
   "Drážka musí mít nenulový poloměr.": "Радиус паза должен быть ненулевым.",
   "Drážka vytvořena. Určete střed prvního oblouku další drážky.": "Паз создан. Укажите центр первой дуги следующего паза.",

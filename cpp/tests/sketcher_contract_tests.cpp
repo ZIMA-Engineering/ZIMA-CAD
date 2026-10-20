@@ -4,6 +4,7 @@
 #include <zima/viewer/picking.hpp>
 #include <zima/document/part_document.hpp>
 #include "sketch_tangent_reference_studies.hpp"
+#include "sketch_slot_direction_studies.hpp"
 #include "form_sweep_profile_study.hpp"
 
 #include <algorithm>
@@ -369,6 +370,7 @@ int main() {
         }
         {
             using namespace zima::sketcher;
+            run_slot_direction_studies();
             std::ifstream file(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/dimensioned-offset-tangent-chain.json");
             require(file.good(),"Shared-centre tangent chain fixture missing");
             const auto base=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));

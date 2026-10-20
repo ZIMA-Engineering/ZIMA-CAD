@@ -1303,6 +1303,17 @@ void AssemblyWorkspaceWindow::create_layout() {
             // parallel, equal-length or symmetry inference.
             else label.clear();
         }
+        if(cursor&&sketch_slot_active_&&pending_segment_start_&&!pending_slot_second_center_&&!cursor_snap) {
+            // Reuse the exact preview endpoint instead of calculating the
+            // complete inference a second time on every pointer movement.
+            const auto& preview=viewer_->transient_edges();
+            if(!preview.empty()&&preview.front().points.size()==2)
+                if(const auto endpoint=sketch->intersect_ray(preview.front().points.back(),local_direction))
+                    *cursor=*endpoint;
+            related=!viewer_->transient_labels().empty();
+            // The preview owns the H/V/S marker at its centre line.
+            label.clear();
+        }
         if (cursor && sketch_arc_active_ && pending_arc_center_ &&
             pending_arc_start_) {
             const double radius = std::hypot(

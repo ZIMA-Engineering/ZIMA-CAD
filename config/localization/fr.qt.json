@@ -49,7 +49,7 @@
   "Pracovní adresář nelze vytvořit.": "Le dossier de travail ne peut pas être créé.",
   "Drážka": "Rainure",
   "Drážka skici: určete střed prvního oblouku. Escape příkaz zruší.": "Rainure d'esquisse : choisissez le centre du premier arc. Échap annule la commande.",
-  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí symetrii vůči ose nebo konstrukční čáře.": "Rainure d'esquisse : choisissez le centre du second arc. L'accrochage propose une symétrie par rapport à un axe ou une ligne de construction.",
+  "Drážka skici: určete střed druhého oblouku. Přichycení nabízí H/V mezi středy nebo symetrii vůči ose či konstrukční čáře.": "Rainure d’esquisse : choisissez le centre du second arc. L’accrochage propose H/V entre les centres ou une symétrie par rapport à un axe ou une ligne de construction.",
   "Drážka skici: určete poloměr bodem na boku drážky.": "Rainure d'esquisse : définissez le rayon par un point sur le côté de la rainure.",
   "Drážka musí mít nenulový poloměr.": "Le rayon de la rainure doit être non nul.",
   "Drážka vytvořena. Určete střed prvního oblouku další drážky.": "Rainure créée. Choisissez le centre du premier arc de la prochaine rainure.",
