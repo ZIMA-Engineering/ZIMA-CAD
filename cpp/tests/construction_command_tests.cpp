@@ -238,14 +238,21 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
 #include "cylinder_face_placement_contract.inc"
 int main(int argc, char** argv) { try {
     if (argc == 2 && std::string_view(argv[1]) == "--refresh-start-templates") {
-        for (const auto* name : {"START_PART_mm.prtz", "START_SKELETON_mm.prtz"}) {
+        for (const auto* name : {"START_PART_mm.prtz", "START_SKELETON_mm.prtz", "START_PART_in.prtz", "START_SKELETON_in.prtz"}) {
             const auto path = fs::path("config/templates") / name;
             std::vector<kernel::BodyResult> calculated;
             const auto part = document::PartDocument::load(path, &calculated);
             part.save(path, calculated);
+            std::vector<kernel::BodyResult> reopened;
+            require(document::PartDocument::load(path,&reopened).serialized(reopened)==part.serialized(calculated),
+                "Regenerated start Part template did not reopen unchanged");
         }
-        const fs::path path = "config/templates/START_ASSEMBLY_mm.asmz";
-        assembly::AssemblyDocument::load(path).save(path);
+        for(const auto* name:{"START_ASSEMBLY_mm.asmz","START_ASSEMBLY_in.asmz"}) {
+            const auto path=fs::path("config/templates")/name;
+            const auto source=assembly::AssemblyDocument::load(path);source.save(path);
+            require(assembly::AssemblyDocument::load(path).serialized()==source.serialized(),
+                "Regenerated start Assembly template did not reopen unchanged");
+        }
         std::cout << "Native start templates regenerated with the current serializer\n";
         return 0;
     }

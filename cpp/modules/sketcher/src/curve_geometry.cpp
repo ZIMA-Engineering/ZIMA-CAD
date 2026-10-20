@@ -88,6 +88,10 @@ Curve conic(V center,double rx,double ry,double rotation,bool reverse,double sta
 }
 }
 
+kernel::BSplineGeometry circular_curve_geometry(V center,double radius,double start,double end) {
+    return conic(center,radius,radius,0,false,start,end);
+}
+
 kernel::BSplineGeometry clamp_curve_geometry(Curve curve) {
     const auto n=curve.poles.size();const auto p=curve.degree;
     if(p<1||n<=p||curve.knots.size()!=n+p+1||curve.weights.size()!=n)

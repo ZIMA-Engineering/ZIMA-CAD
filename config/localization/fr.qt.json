@@ -1,4 +1,5 @@
 {
+  "Sketch import block is invalid": "Le bloc de géométrie importée de l’esquisse est invalide",
   "Extrusion end references require a point, a plane or an original face.": "La fin d’extrusion nécessite un point, un plan ou une face d’origine.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Sélectionnez un point d’une esquisse précédente, un plan ou une face d’origine.",
   "Cíl vytažení byl nastaven.": "Cible de fin d’extrusion définie.",

@@ -801,7 +801,7 @@ void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile
                     [&] {
                         const auto& curve=std::get<ExtrusionRequest::BSplineCurve>(profile.curves.front());
                         return curve.periodic || (!curve.knots.empty() &&
-                            curve.start.x==curve.end.x && curve.start.y==curve.end.y && curve.start.z==curve.end.z);
+                            std::hypot(curve.start.x-curve.end.x,curve.start.y-curve.end.y,curve.start.z-curve.end.z)<=1e-12);
                     }();
                 if (profile.curves.empty() || (profile.curves.size() < 2 && !single_closed_spline && !allow_open_profile)) {
                     throw std::invalid_argument(

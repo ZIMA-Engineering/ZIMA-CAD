@@ -1,4 +1,5 @@
 {
+  "Sketch import block is invalid": "Блок импортированной геометрии эскиза недействителен",
   "Extrusion end references require a point, a plane or an original face.": "Для окончания выдавливания требуется точка, плоскость или исходная грань.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Выберите точку предыдущего эскиза, плоскость или исходную грань.",
   "Cíl vytažení byl nastaven.": "Цель окончания выдавливания задана.",

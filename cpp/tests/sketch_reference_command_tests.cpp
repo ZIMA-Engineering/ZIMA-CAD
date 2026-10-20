@@ -43,9 +43,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         if(import_first)static_cast<void>(outline.add_external_profile_geometry(reference.id));
         static_cast<void>(outline.add_segment(1,0,0,0,1e-9));static_cast<void>(outline.add_segment(0,0,0,1,1e-9));
         if(!import_first)static_cast<void>(outline.add_external_profile_geometry(reference.id));
-        require(outline.points.size()==4,"Exact import duplicated a shared boundary endpoint");
-        const auto profile=outline.bsplines.front();const auto linked=outline.serialized();
-        require(!outline.move_point(profile.control_point_ids.front(),2,2)&&outline.serialized()==linked,
+        require(outline.points.size()==3&&outline.arcs.size()==1&&outline.bsplines.empty(),"Circular import did not share its actual centre and boundary endpoints");
+        const auto profile=outline.arcs.front();const auto linked=outline.serialized();
+        require(!outline.move_point(profile.start_point_id,2,2)&&outline.serialized()==linked,
             "Shared exact endpoint escaped its read-only source");
         auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_extrusion_container(outline.id);
         outline.owner_container_id=feature.id;feature.extrusion.sketch_id=outline.id;feature.extrusion.length_forward=2;feature.extrusion.height=2;
@@ -55,8 +55,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(!result.empty()&&result.back().calculation_errors.empty()&&std::abs(result.back().volume-std::acos(-1.)/2)<1e-7,
             "Exact imported boundary cannot create its independently checked quarter-cylinder volume");
         const auto roundtrip=sketcher::Sketch::from_serialized(outline.serialized());
-        require(roundtrip.bsplines.front().control_point_ids==profile.control_point_ids&&roundtrip.import_blocks.front().point_ids==profile.control_point_ids,
-            "Native reopen changed exact endpoint identity or ordered pole mapping");
+        require(roundtrip.arcs.front()==profile&&roundtrip.import_blocks.front().point_ids==outline.import_blocks.front().point_ids,
+            "Native reopen changed circular profile identity or source endpoint mapping");
     }
     // Independent world-to-local check: moving the destination frame must
     // reproject the fixed source, including geometry linked to its endpoints.
@@ -128,8 +128,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             }
         }
     }
-    // Removing an unusable projection is opt-in for deliberate frame edits.
-    // Ordinary source refresh retains its broken identity for later repair.
+    // Unusable projections retain their identity and last native geometry,
+    // including during deliberate destination-frame edits.
     for (const bool axis_point : {false,true}) {
         auto sketch=sketcher::Sketch::create_default();
         kernel::ViewerReferenceGeometry source;
@@ -145,7 +145,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         static_cast<void>(ordinary.refresh_external_references("source-document",source));
         require(ordinary.external_references.size()==1&&ordinary.external_references.front().broken,"Ordinary refresh erased an unavailable identity");
         static_cast<void>(sketch.refresh_external_references("source-document",source,false,nullptr,true));
-        require(sketch.external_references.empty()&&sketch.segments.front().id==own,"Frame edit retained a collapsed external projection or removed native geometry");
+        require(sketch.external_references.size()==1&&sketch.external_references.front().broken&&sketch.segments.front().id==own,"Frame edit detached a collapsed projection or removed native geometry");
     }
     for (const bool fixed : {false,true}) {
         auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id="destination-container";
@@ -166,8 +166,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto kept=std::ranges::find(sketch.external_references,other.id,&sketcher::SketchExternalReference::id);
         require(kept!=sketch.external_references.end()&&kept->cached_points.front()==std::array{3.,8.},"Frame edit lost an unrelated valid projection");
         if(fixed) {
-            require(std::ranges::none_of(sketch.external_references,[&](const auto& r){return r.id==ref.id;}),"Impossible fixed-point projection was retained");
-            require(std::ranges::none_of(sketch.constraints,[&](const auto& c){return c.first_point_id==ref.id||c.second_point_id==ref.id;}),"Removed projection left a dangling point relation");
+            require(std::ranges::any_of(sketch.external_references,[&](const auto& r){return r.id==ref.id&&r.broken;}),"Impossible fixed-point projection was auto-detached");
+            require(std::ranges::any_of(sketch.constraints,[&](const auto& c){return c.first_point_id==ref.id||c.second_point_id==ref.id;}),"Unresolved projection discarded its authored point relation");
         }else require(std::hypot(sketch.find_point(point)->x+5,sketch.find_point(point)->y-7)<1e-8,"Frame reprojection did not move the dependent point");
         require(source.points.size()==sources.size()&&std::ranges::equal(source.points,sources,[](const auto& a,const auto& b){return a.position==b.position&&a.reference==b.reference;}),"Frame edit modified its immutable source");
         const auto stored=sketch.serialized();
@@ -190,8 +190,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         sketch.set_point_fixed(sketch.segments.front().second_point_id,true);
         sketch.resolved_origin={17,-3,0};
         static_cast<void>(sketch.refresh_external_references("source-document",source,false,nullptr,true));
-        require(sketch.external_references.empty()&&sketch.segments.front().id==line,"Multiple incompatible projections were not retired without deleting native geometry");
-        require(sketch.solve().status!=sketcher::SolveStatus::Conflicting,"Reference retirement left conflicting equations");
+        require(sketch.external_references.size()==2&&std::ranges::all_of(sketch.external_references,[](const auto& r){return r.broken;})&&sketch.segments.front().id==line,"Multiple incompatible projections lost their unresolved identities or native geometry");
+        require(sketch.solve().status!=sketcher::SolveStatus::Conflicting,"Frozen reference geometry left conflicting equations");
     }
     {
         {
@@ -430,7 +430,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     cached.back().mesh.original_references.edges.push_back(spline);state->session.commit(state->session.document(),std::move(cached));
     const auto spline_ref=command("sketch.reference.create",{{"kind","edge"},{"owner",box},{"key",spline.reference.semantic_key}}).at("reference").get<std::string>();
     const auto curve=command("sketch.reference.project",{{"reference",spline_ref}}).at("geometry").get<std::string>();
-    require(current().bsplines.size()==1,"Exact source was fitted to display samples");
+    require(std::ranges::any_of(current().arcs,[&](const auto& arc){return arc.id==curve;}),"Exact circular source did not become a native arc");
     for(int i=0;i<=256;++i){const auto p=kernel::bspline_value(current().supporting_curve(curve),i/256.);require(std::abs(p.x*p.x+p.y*p.y-1)<1e-12,"Rational source lost exact weights");}
     const auto verify_display=[&] {
         const auto& sketch=current();const auto before=sketch.serialized();const auto mesh=sketch.viewer_mesh();

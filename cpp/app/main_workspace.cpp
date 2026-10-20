@@ -4469,6 +4469,8 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
 }
 
 
+#include "external_circular_profiles_ui_verification.inc"
+
 int verify_owned_profile_external_reference(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima::document;
     PartDocument document;std::vector<zima::kernel::BodyResult> calculated;
@@ -9594,6 +9596,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY")) return verify_component_references(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY")) return verify_unresolved_sweep_sketches(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCLE_ONLY")) return verify_external_circle_selection(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CIRCULAR_PROFILES_ONLY")) return verify_external_circular_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DELETE_DOCUMENT"))
         return verify_part_deletion(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REOPEN_DOCUMENT"))

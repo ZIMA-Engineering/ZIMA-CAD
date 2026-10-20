@@ -2,6 +2,8 @@
 #include <zima/sketcher/sketch.hpp>
 
 namespace zima::sketcher {
+[[nodiscard]] kernel::BSplineGeometry circular_curve_geometry(
+    kernel::Vec3 center, double radius, double start, double end);
 // Clamp the full active knot interval without approximating or changing the curve.
 // Input may have unclamped/periodic control data; output satisfies BSplineGeometry.
 [[nodiscard]] kernel::BSplineGeometry clamp_curve_geometry(

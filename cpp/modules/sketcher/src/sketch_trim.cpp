@@ -1050,6 +1050,18 @@ SketchTrimResult apply_sketch_trim(
     // can split both owners of one tangent; restoring per curve loses the
     // first owner's remapping when the second owner is removed.
     for (auto constraint : sketch.constraints) {
+        // The generated source-radius driver belongs to the native analytic
+        // profile. Exact retained supports own this dependency after Trim;
+        // restoring EqualRadius against a NURBS survivor is invalid.
+        if(constraint.kind==ConstraintKind::EqualRadius && std::ranges::any_of(sketch.import_blocks,[&](const auto& block) {
+            if(!block.external_profile || block.external_profile->kind==ExternalProfileKind::SourceCurve)return false;
+            const auto derived=[&](const std::string& curve,const std::string& source) {
+                return block.source_path=="external-reference:"+source && removed_by_id.contains(curve) &&
+                    std::ranges::find(block.geometry_ids,curve)!=block.geometry_ids.end() &&
+                    std::ranges::any_of(next.curve_supports,[&](const auto& support){return support.id==curve;});
+            };
+            return derived(constraint.geometry_id,constraint.second_geometry_id)||derived(constraint.second_geometry_id,constraint.geometry_id);
+        }))continue;
         const auto keypoint_owner = keypoint_curve_id(constraint);
         const bool trimmed = removed_by_id.contains(constraint.geometry_id) ||
             removed_by_id.contains(constraint.second_geometry_id);

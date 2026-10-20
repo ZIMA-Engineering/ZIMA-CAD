@@ -1,6 +1,8 @@
 #include <zima/sketcher/curve_geometry.hpp>
+#include "exact_external_circle.hpp"
 #include <algorithm>
 #include <functional>
+#include <numbers>
 #include <set>
 
 namespace zima::sketcher {
@@ -155,13 +157,37 @@ void Sketch::free_offset(const std::string& id) {
     std::erase_if(next.offsets,[&](const auto& c){return c.id==id;});
     next.refresh_curve_dependencies();next.validate();*this=std::move(next);
 }
+std::optional<kernel::BSplineGeometry> Sketch::external_profile_curve(const SketchImportBlock& block) const {
+    if(!block.external_profile)return {};
+    const auto ref=std::ranges::find_if(external_references,[&](const auto& r){return block.source_path=="external-reference:"+r.id;});
+    if(ref==external_references.end()||ref->broken||!ref->exact_spline)return {};
+    auto curve=*ref->exact_spline;
+    const auto& profile=*block.external_profile;
+    if(profile.kind!=ExternalProfileKind::SourceCurve) {
+        const auto circle=detail::exact_external_circle(curve);
+        if(!circle || circle->closed!=(profile.kind==ExternalProfileKind::Circle) ||
+            (!circle->closed&&(circle->sweep<0)!=profile.source_reversed))return {};
+        double start=profile.parameter_origin,end=start+2*std::numbers::pi;
+        if(!circle->closed) {
+            const auto first=profile.source_reversed?circle->last:circle->first;
+            start=std::atan2(first[1]-circle->center[1],first[0]-circle->center[0]);
+            end=start+std::abs(circle->sweep);
+        }
+        curve=circular_curve_geometry({circle->center[0],circle->center[1],0},circle->radius,start,end);
+    }
+    const double c=std::cos(block.rotation),s=std::sin(block.rotation);
+    for(auto& p:curve.poles) p={c*p.x-s*p.y+block.translation_x,s*p.x+c*p.y+block.translation_y,0};
+    return curve;
+}
+
 void Sketch::refresh_curve_dependencies() {
     refresh_symbol_anchors();
     // A projected source updates only its own support. Offsets never reference an external edge.
     for(auto& support:curve_supports)for(const auto& block:import_blocks) {
-        if(!block.source_path.starts_with("external-reference:")||std::ranges::find(block.geometry_ids,support.id)==block.geometry_ids.end())continue;
-        const auto reference_id=block.source_path.substr(19);
-        for(const auto& ref:external_references)if(ref.id==reference_id&&!ref.broken&&ref.exact_spline)support.geometry=*ref.exact_spline;
+        if(!block.external_profile)continue;
+        const bool owned=std::ranges::find(block.geometry_ids,support.id)!=block.geometry_ids.end() ||
+            std::ranges::any_of(curve_trims,[&](const auto& trim){return trim.support_id==support.id&&std::ranges::find(block.geometry_ids,trim.id)!=block.geometry_ids.end();});
+        if(owned)if(const auto curve=external_profile_curve(block))support.geometry=*curve;
     }
     for(auto& trim:curve_trims) {
         const auto support=std::find_if(curve_supports.begin(),curve_supports.end(),[&](const auto& c){return c.id==trim.support_id;});

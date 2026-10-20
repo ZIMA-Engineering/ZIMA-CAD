@@ -13,10 +13,12 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <numbers>
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 using namespace zima;
 void require(bool b,const char* m){if(!b)throw std::runtime_error(m);}
+std::string phase;
 int main(){try{
     // Capture full-period, trimmed, reversed and located OCCT edges through
     // the same adapter as body calculation, then independently compare Value.
@@ -60,7 +62,9 @@ int main(){try{
     auto ref=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
     ref.source_document_id="source";ref.source_owner_id="import";ref.source_semantic_key="source-quarter-circle";
     // Deliberately coarse display cache must not define the projected curve.
-    ref.cached_points={{1,0},{0,1}};ref.exact_spline=exact;
+    // A genuinely noncircular ellipse continues through the general NURBS path.
+    ref.cached_points={{1,0},{0,1.5}};ref.exact_spline=exact;
+    for(auto& p:ref.exact_spline->poles)p.y*=1.5;
     sketch.add_external_reference(ref);
     const auto id=sketch.add_external_profile_geometry(ref.id);
     require(sketch.bsplines.size()==1,"Exact source was replaced with a sampled line");
@@ -69,10 +73,10 @@ int main(){try{
     require(restored.bsplines==sketch.bsplines && restored.external_references==sketch.external_references,
         "Exact projected spline did not survive persistence");
     for(const auto& e:restored.viewer_mesh().edges)if(e.reference.semantic_key=="bspline:"+id)
-        for(const auto& p:e.points)require(std::abs(p.x*p.x+p.y*p.y-1)<1e-13,"Sketch viewer changed rational geometry");
+        for(const auto& p:e.points)require(std::abs(p.x*p.x+p.y*p.y/2.25-1)<1e-13,"Sketch viewer changed rational geometry");
     kernel::ViewerReferenceGeometry geometry;
     kernel::ViewerEdge edge;edge.reference={"import","source-quarter-circle",{}};
-    edge.points={{1,0,0},{0,1,0}};edge.exact_spline=exact;geometry.edges.push_back(edge);
+    edge.points={{1,0,0},{0,1.5,0}};edge.exact_spline=ref.exact_spline;geometry.edges.push_back(edge);
     const auto packet=document::serialize_viewer_reference_geometry(geometry);
     require(document::load_viewer_reference_geometry(packet).edges.front().exact_spline==edge.exact_spline,
         "Reference packet lost exact data");
@@ -90,6 +94,24 @@ int main(){try{
     require(restored.bsplines.front().id==id && restored.bsplines.front().control_point_ids==poles,
         "Source change replaced native curve identity");
     require(std::abs(restored.find_point(poles.front())->x-1.01)<1e-12,"Source change failed to update poles");
+    {
+        auto incompatible=updated;
+        incompatible.edges.front().exact_spline=kernel::BSplineGeometry{1,{{0,0,0},{1,2,0},{2,1,0},{3,3,0}},
+            {0,0,.3,.6,1,1},{1,1,1,1}};
+        incompatible.edges.front().points=incompatible.edges.front().exact_spline->poles;
+        const auto before_points=restored.points;const auto before_reference=restored.external_references.front();
+        require(restored.refresh_external_references("source",incompatible),"Incompatible spline update was ignored");
+        require(restored.external_references.front().broken&&restored.points==before_points&&
+            restored.external_references.front().exact_spline==before_reference.exact_spline&&
+            restored.external_references.front().cached_points==before_reference.cached_points,
+            "Incompatible spline replaced its last valid projected support");
+        restored=sketcher::Sketch::from_serialized(restored.serialized());
+        const auto frozen=restored.serialized();
+        require(!restored.refresh_external_references("source",incompatible)&&restored.serialized()==frozen,
+            "Repeated incompatible source created a spurious change");
+        require(restored.refresh_external_references("source",updated)&&!restored.external_references.front().broken,
+            "Returning compatible spline did not repair its retained link");
+    }
     const auto retained=restored.points;
     require(restored.refresh_external_references("source",{}),"Missing source was ignored");
     require(restored.external_references.front().broken && restored.points==retained,
@@ -99,7 +121,7 @@ int main(){try{
         restored.bsplines.front().id==id,"Detach changed native geometry");
     // Closed profile calculation verifies knots and rational weights reach OCCT.
     sketch.remove_geometry(ref.id);
-    static_cast<void>(sketch.add_segment(0,1,0,0));
+    static_cast<void>(sketch.add_segment(0,1.5,0,0));
     static_cast<void>(sketch.add_segment(0,0,1,0));
     auto doc=document::PartDocument::create_default();doc.sketches.push_back(sketch);
     doc.history.push_back(document::PartDocument::create_extrusion_container(sketch.id));
@@ -107,8 +129,8 @@ int main(){try{
     auto& request=std::get<kernel::ExtrusionRequest>(operations.front().primitive);
     request.direction={0,0,10};
     kernel::OcctKernel kernel;
-    auto bodies=kernel.evaluate_history(operations);
-    require(std::abs(bodies.back().volume-2.5*std::numbers::pi)<1e-7,"Rational profile extrusion volume is wrong");
+    phase="elliptical projected boundary";auto bodies=kernel.evaluate_history(operations);
+    require(std::abs(bodies.back().volume-3.75*std::numbers::pi)<1e-7,"Rational profile extrusion volume is wrong");
     bool captured=false;
     for(const auto& e:bodies.back().mesh.original_references.edges)if(e.exact_spline){
         e.exact_spline->validate();captured=true;}
@@ -131,7 +153,7 @@ int main(){try{
     auto ring_doc=document::PartDocument::create_default();ring_doc.sketches.push_back(ring);
     ring_doc.history.push_back(document::PartDocument::create_extrusion_container(ring.id));
     auto ring_ops=ring_doc.kernel_operations();std::get<kernel::ExtrusionRequest>(ring_ops.front().primitive).direction={0,0,10};
-    const auto ring_bodies=kernel.evaluate_history(ring_ops);
+    phase="circle offset ring";const auto ring_bodies=kernel.evaluate_history(ring_ops);
     require(std::abs(ring_bodies.back().volume-360*std::numbers::pi)<1e-6,"Offset circle extrusion is not exact");
     for(bool swap:{false,true})for(bool reverse:{false,true})for(bool flip:{false,true}) {
         auto ellipse_sketch=sketcher::Sketch::create_default();
@@ -141,7 +163,34 @@ int main(){try{
         auto ellipse_doc=document::PartDocument::create_default();ellipse_doc.sketches.push_back(ellipse_sketch);
         ellipse_doc.history.push_back(document::PartDocument::create_extrusion_container(ellipse_sketch.id));
         auto ellipse_ops=ellipse_doc.kernel_operations();std::get<kernel::ExtrusionRequest>(ellipse_ops.front().primitive).direction={0,0,10};
+        phase="ellipse offset ring "+std::to_string(swap)+std::to_string(reverse)+std::to_string(flip);
+        if(std::getenv("ZIMA_EXACT_SPLINE_TRACE")) {
+            const auto describe=[](const auto& loop) {std::visit([](const auto& profile) {
+                if constexpr(requires{profile.curves;})for(const auto& curve:profile.curves)std::visit([](const auto& c) {
+                    std::cerr<<"curve "<<typeid(c).name()<<" closure "<<std::hypot(c.start.x-c.end.x,c.start.y-c.end.y,c.start.z-c.end.z);
+                    if constexpr(requires{c.end_parameter;})std::cerr<<" span "<<c.end_parameter-c.start_parameter;
+                    std::cerr<<'\n';
+                },curve);
+                else std::cerr<<"loop "<<typeid(profile).name()<<'\n';
+            },loop);};
+            const auto& request=std::get<kernel::ExtrusionRequest>(ellipse_ops.front().primitive);describe(request.outer_profile);
+            for(const auto& loop:request.inner_profiles)describe(loop);
+        }
         const auto ellipse_bodies=kernel.evaluate_history(ellipse_ops);
+        if(!swap&&!reverse&&!flip)for(int invalid:{0,1,2}) {
+            auto candidate=ellipse_ops;
+            auto& curved=std::get<kernel::ExtrusionRequest::CurvedProfile>(std::get<kernel::ExtrusionRequest>(candidate.front().primitive).inner_profiles.front());
+            auto& curve=std::get<kernel::ExtrusionRequest::BSplineCurve>(curved.curves.front());
+            if(invalid==0)curve.end.x+=1e-5;
+            if(invalid==1) {
+                const auto open=sketcher::trim_curve_geometry({curve.degree,curve.control_points,curve.knots,curve.weights},.1,.9);
+                curve.control_points=open.poles;curve.knots=open.knots;curve.weights=open.weights;
+                curve.start=open.poles.front();curve.end=open.poles.back();
+            }
+            if(invalid==2)curve.end.x=std::numeric_limits<double>::infinity();
+            bool rejected=false;try{static_cast<void>(kernel.evaluate_history(candidate));}catch(const std::exception&){rejected=true;}
+            require(rejected,"Invalid single spline was accepted as a closed boundary");
+        }
         const double perimeter=40*std::comp_ellint_2(std::sqrt(.75));
         const double expected=(perimeter+((reverse!=flip)?1:-1)*std::numbers::pi)*10;
         require(std::abs(ellipse_bodies.back().volume-expected)<.01,"Ellipse offset profile orientation/axis order is wrong");
@@ -152,10 +201,10 @@ int main(){try{
         auto part=document::PartDocument::create_default();part.sketches.push_back(narrow);
         part.history.push_back(document::PartDocument::create_extrusion_container(narrow.id));
         auto operations=part.kernel_operations();std::get<kernel::ExtrusionRequest>(operations.front().primitive).direction={0,0,10};
-        const auto result=kernel.evaluate_history(operations);
+        phase="narrow circle offset ring";const auto result=kernel.evaluate_history(operations);
         const double expected=std::numbers::pi*(20*distance-distance*distance)*10;
         require(std::abs(result.back().volume-expected)<1e-6,"Small circular offset was merged or misclassified");
     }
     std::cout<<"Exact spline projection, persistence, refresh, detach and extrusion passed\n";
     return 0;
-}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}catch(const std::exception& e){std::cerr<<phase<<": "<<e.what()<<'\n';return 1;}}

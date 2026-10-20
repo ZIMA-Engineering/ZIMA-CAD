@@ -41,19 +41,17 @@ or move its source tag.
 
 ### Program corrections reported during completion (2026-10-20)
 
-- New active Sketch reference correction requested during follow-up: preserve
-  native circle/arc semantics when an exact projection remains circular, in both
-  External Reference and Reference to contour. The current exact-spline branch
-  creates a native BSpline before analytic reconstruction; mathematical shape
-  preservation alone does not provide ordinary circle/arc editing semantics.
-  Preserve exact noncircular projections, rigid corrections, source ownership,
-  shared points, signed sides, trim dependencies and source immutability.
-  Missing references must retain the last valid native geometry and Sketch
-  placement, keep an explicit unresolved identity and permit later repair or
-  explicit detach. The user explicitly rejected automatic loss of owned
-  geometry. Frame-edit retirement also needs review. Trace and test the native
-  refresh/solver/GUI contracts before changing them; obtain scoped agreement
-  if a required persisted-contract extension proves necessary.
+- The approved Sketch reference correction now preserves native Circle/Arc
+  semantics for exact circular projections in External Reference and Reference
+  to contour. Noncircular projections retain exact NURBS. The approved native
+  projection metadata preserves corrections, arc direction and circle seams
+  after Trim. Lost or incompatible sources retain the last usable support and
+  owned geometry with an unresolved identity; the same source can repair the
+  link and explicit detachment preserves the owned shape. Native equations,
+  repeated dimensions/drags, native persistence, Undo/Redo, real contour/tangent
+  GUI, affected factory data, start templates and all five language catalogs
+  passed. See [verification](verification/20261020-external-circular-profiles.md)
+  for the finite matrix, separate axis-point policy and Linux/package gaps.
 - Disk-space emergency: removed two unsigned candidate ZIP copies, a disposable
   portable-font runtime, exact checksum-verified 2026101906 test source/runtime
   copies and four obsolete local signed archives. The complete latest 2026102002

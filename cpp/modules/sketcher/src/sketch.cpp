@@ -6,6 +6,7 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
+#include "exact_external_circle.hpp"
 #include <zima/kernel/stable_id.hpp>
 
 #include <nlohmann/json.hpp>
@@ -63,6 +64,8 @@ std::optional<std::array<double, 3>> external_reference_circle(
     if (reference.broken || reference.infinite ||
         (reference.kind != ExternalReferenceKind::Edge &&
          reference.kind != ExternalReferenceKind::Face)) return std::nullopt;
+    if(reference.exact_spline)if(const auto circle=detail::exact_external_circle(*reference.exact_spline))
+        return std::array{circle->center[0],circle->center[1],circle->radius};
     const auto* points = &reference.cached_points;
     if (points->empty()) {
         if (reference.cached_paths.size() != 1) return std::nullopt;
@@ -157,6 +160,11 @@ double plane_offset_delta_for_normal_displacement(
 }
 
 namespace {
+bool has_frozen_support(const SketchExternalReference& reference) {
+    return reference.broken &&
+        (reference.kind==ExternalReferenceKind::Edge||reference.kind==ExternalReferenceKind::Face||reference.kind==ExternalReferenceKind::Axis) &&
+        (reference.cached_points.size()>=2||std::ranges::any_of(reference.cached_paths,[](const auto& path){return path.size()>=2;}));
+}
 
 std::string make_id() {
     return zima::kernel::make_stable_id();
@@ -2338,6 +2346,10 @@ const SketchPoint* Sketch::find_point(const std::string& point_id) const {
 }
 
 void Sketch::validate() const {
+    if(std::ranges::any_of(external_references,has_frozen_support)) {
+        auto frozen=*this;for(auto& reference:frozen.external_references)if(has_frozen_support(reference))reference.broken=false;
+        frozen.validate();return;
+    }
     { std::set<std::string> ids;for(const auto& symbol:symbols){symbol.validate();if(!ids.insert(symbol.id).second)throw std::invalid_argument("Duplicate symbol identity");
         if(symbol.anchor_point_id.empty()||!find_point(symbol.anchor_point_id))throw std::invalid_argument("Invalid symbol placement");} }
     validate_curve_dependencies();
@@ -3032,6 +3044,18 @@ void Sketch::validate() const {
             block.point_ids.empty() || !std::isfinite(block.translation_x) ||
             !std::isfinite(block.translation_y) || !std::isfinite(block.rotation)) {
             throw std::runtime_error("Sketch import block is invalid");
+        }
+        if (block.source_path.starts_with("external-reference:") != block.external_profile.has_value() ||
+            (block.external_profile && (!std::isfinite(block.external_profile->parameter_origin) ||
+                !std::ranges::any_of(external_references,[&](const auto& ref) {
+                    return block.source_path=="external-reference:"+ref.id;
+                })))) throw std::runtime_error("Sketch import block is invalid");
+        if(block.external_profile) {
+            const auto& profile=*block.external_profile;
+            if((profile.kind!=ExternalProfileKind::SourceCurve&&profile.kind!=ExternalProfileKind::Circle&&profile.kind!=ExternalProfileKind::Arc) ||
+                (profile.kind!=ExternalProfileKind::Arc&&profile.source_reversed) ||
+                (profile.kind!=ExternalProfileKind::Circle&&profile.parameter_origin!=0))
+                throw std::runtime_error("Sketch import block is invalid");
         }
         for (const auto& geometry_id : block.geometry_ids) {
             if (!geometry_exists(geometry_id) ||
@@ -7746,6 +7770,19 @@ std::string Sketch::add_import_block(
     }
     SketchImportBlock block{make_id(), std::move(name), std::move(source_path),
         std::move(geometry_ids), std::move(point_ids)};
+    if(block.source_path.starts_with("external-reference:")) {
+        block.external_profile=SketchExternalProfile{};
+        const auto ref=std::ranges::find_if(external_references,[&](const auto& r){return block.source_path=="external-reference:"+r.id;});
+        if(ref!=external_references.end()&&ref->exact_spline&&block.geometry_ids.size()==1) {
+            const auto circle=detail::exact_external_circle(*ref->exact_spline);
+            if(circle&&std::ranges::any_of(circles,[&](const auto& c){return c.id==block.geometry_ids.front();}))
+                block.external_profile->kind=ExternalProfileKind::Circle;
+            if(circle&&std::ranges::any_of(arcs,[&](const auto& c){return c.id==block.geometry_ids.front();})) {
+                block.external_profile->kind=ExternalProfileKind::Arc;
+                block.external_profile->source_reversed=circle->sweep<0;
+            }
+        }
+    }
     const auto id = block.id;
     auto next = *this;
     next.import_blocks.push_back(std::move(block));
@@ -7930,6 +7967,22 @@ std::string Sketch::add_external_profile_geometry(
     if (reference->exact_spline && !(reference->exact_spline->degree==1 &&
             reference->exact_spline->poles.size()==2)) {
         reference->exact_spline->validate();
+        if(const auto circle=detail::exact_external_circle(*reference->exact_spline)) {
+            auto next=*this;std::string id;std::vector<std::string> points;
+            if(circle->closed) {
+                id=next.add_circle(circle->center[0],circle->center[1],circle->radius,false,1e-9);
+                points={next.circles.back().center_point_id};
+            } else {
+                id=next.add_arc(circle->center[0],circle->center[1],circle->first[0],circle->first[1],
+                    circle->last[0],circle->last[1],false,1e-9,circle->sweep<0);
+                const auto& arc=next.arcs.back();
+                points={arc.center_point_id,circle->sweep<0?arc.end_point_id:arc.start_point_id,
+                    circle->sweep<0?arc.start_point_id:arc.end_point_id};
+            }
+            static_cast<void>(next.add_equal_radius_constraint(reference_id,id));
+            static_cast<void>(next.add_import_block("Externí profil",link,{id},points));
+            next.validate();*this=std::move(next);return id;
+        }
         auto next = *this;
         SketchBSpline spline;
         spline.id=make_id(); spline.degree=reference->exact_spline->degree;
@@ -8529,9 +8582,10 @@ bool Sketch::refresh_external_references(
     if (!changed && !(remove_unresolvable && std::ranges::any_of(next.external_references,
             [&](const auto& r){return r.broken && r.source_document_id==source_document_id;}))) return false;
     constexpr std::string_view external_profile_prefix{"external-reference:"};
+    bool froze_profile=false;
     for (const auto& block : next.import_blocks) {
         if (!block.source_path.starts_with(external_profile_prefix) ||
-            block.geometry_ids.size() != 1 || block.point_ids.size() < 2) continue;
+            block.point_ids.empty()) continue;
         const auto reference_id = block.source_path.substr(
             external_profile_prefix.size());
         const auto reference = std::find_if(next.external_references.begin(),
@@ -8541,17 +8595,55 @@ bool Sketch::refresh_external_references(
                     value.cached_points.size() >= 2;
             });
         if (reference == next.external_references.end()) continue;
+        const auto freeze_reference=[&] {
+            const auto previous=std::ranges::find(external_references,reference_id,&SketchExternalReference::id);
+            if(previous!=external_references.end())*reference=*previous;
+            reference->broken=true;froze_profile=true;
+        };
+        if(block.external_profile && block.external_profile->kind!=ExternalProfileKind::SourceCurve &&
+            !next.external_profile_curve(block)) {
+            freeze_reference();
+            continue;
+        }
+        if(block.geometry_ids.size()!=1)continue;
+        const double cosine=std::cos(block.rotation),sine=std::sin(block.rotation);
+        const auto transformed=[&](double x,double y){return std::array{
+            cosine*x-sine*y+block.translation_x,sine*x+cosine*y+block.translation_y};};
+        const auto set_point=[&](const std::string& id,const std::array<double,2>& source) {
+            auto* point=next.find_point(id);const auto position=transformed(source[0],source[1]);
+            point->x=position[0];point->y=position[1];
+        };
+        const auto circle=std::ranges::find(next.circles,block.geometry_ids.front(),&SketchCircle::id);
+        const auto arc=std::ranges::find(next.arcs,block.geometry_ids.front(),&SketchArc::id);
+        if(reference->exact_spline&&(circle!=next.circles.end()||arc!=next.arcs.end())) {
+            const auto source=detail::exact_external_circle(*reference->exact_spline);
+            if(!source || (circle!=next.circles.end())!=source->closed) {freeze_reference();continue;}
+            if(circle!=next.circles.end()) {
+                if(block.point_ids!=std::vector{circle->center_point_id}) {freeze_reference();continue;}
+                set_point(circle->center_point_id,source->center);circle->radius=source->radius;
+            } else {
+                const std::vector expected{arc->center_point_id,source->sweep<0?arc->end_point_id:arc->start_point_id,
+                    source->sweep<0?arc->start_point_id:arc->end_point_id};
+                if(block.point_ids!=expected) {freeze_reference();continue;}
+                set_point(block.point_ids[0],source->center);set_point(block.point_ids[1],source->first);set_point(block.point_ids[2],source->last);
+                const auto* center=next.find_point(arc->center_point_id);const auto* first=next.find_point(arc->start_point_id);const auto* last=next.find_point(arc->end_point_id);
+                arc->radius=source->radius;arc->start_angle=std::atan2(first->y-center->y,first->x-center->x);
+                arc->end_angle=std::atan2(last->y-center->y,last->x-center->x);
+                while(arc->end_angle<=arc->start_angle)arc->end_angle+=2*std::numbers::pi;
+            }
+            continue;
+        }
         const auto spline = std::find_if(next.bsplines.begin(), next.bsplines.end(),
             [&](const auto& value) { return value.id == block.geometry_ids.front(); });
         if (spline == next.bsplines.end() ||
             spline->control_point_ids != block.point_ids) continue;
         if(std::ranges::any_of(next.curve_trims,[&](const auto& trim){return trim.id==spline->id;})) {
-            if(!reference->exact_spline)reference->broken=true;
+            if(!reference->exact_spline)freeze_reference();
             continue;
         }
         if (!spline->knots.empty()) {
             if (!reference->exact_spline || reference->exact_spline->poles.size()!=block.point_ids.size()) {
-                reference->broken=true;
+                freeze_reference();
                 continue;
             }
             const auto& a=reference->exact_spline->poles.front();const auto& b=reference->exact_spline->poles.back();
@@ -8562,7 +8654,7 @@ bool Sketch::refresh_external_references(
             for (std::size_t i=0; i<block.point_ids.size(); ++i) {
                 auto* p=next.find_point(block.point_ids[i]);
                 const auto& source=reference->exact_spline->poles[i];
-                p->x=source.x; p->y=source.y;
+                const auto position=transformed(source.x,source.y);p->x=position[0];p->y=position[1];
             }
             continue;
         }
@@ -8573,24 +8665,17 @@ bool Sketch::refresh_external_references(
                 static_cast<double>(index) *
                 (reference->cached_points.size() - 1) /
                 static_cast<double>(block.point_ids.size() - 1)));
-            point->x = reference->cached_points[source_index][0];
-            point->y = reference->cached_points[source_index][1];
+            const auto position=transformed(reference->cached_points[source_index][0],reference->cached_points[source_index][1]);
+            point->x = position[0];
+            point->y = position[1];
         }
     }
-    if (remove_unresolvable) {
-        std::vector<std::string> unavailable;
-        for (const auto& reference : next.external_references)
-            if (reference.broken && reference.source_document_id == source_document_id)
-                unavailable.push_back(reference.id);
-        for (const auto& id : unavailable)
-            if (std::ranges::any_of(next.external_references, [&](const auto& r){return r.id == id;}))
-                next.remove_geometry(id);
-    }
     next.validate();
+    const bool unavailable_reference=std::ranges::any_of(next.external_references,[](const auto& ref){return ref.broken;});
     const bool unavailable_axis_point=std::ranges::any_of(next.external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;});
     const bool external_circle=!remove_unresolvable&&next.arcs.empty()&&next.circles.empty()&&
         std::ranges::any_of(next.external_references,[](const auto& r){return external_reference_circle(r).has_value();});
-    const auto projected = remove_unresolvable || !next.arcs.empty() || !next.circles.empty() || external_circle
+    const auto projected = remove_unresolvable || unavailable_reference || !next.arcs.empty() || !next.circles.empty() || external_circle
         ? std::optional<Sketch>(next) : std::nullopt;
     auto solved = unavailable_axis_point ? SolveResult{SolveStatus::UnderConstrained} : next.solve();
     if(solved.status==SolveStatus::Conflicting && projected) {
@@ -8605,41 +8690,62 @@ bool Sketch::refresh_external_references(
             }
         }
     }
-    if (remove_unresolvable && (solved.status == SolveStatus::Invalid || solved.status == SolveStatus::Conflicting)) {
-        // A deliberate destination-frame edit may make a previously usable
-        // reference incompatible with driving equations. Retire only changed
-        // projections; unchanged sources and ordinary regeneration keep their
-        // existing broken-reference/rejection semantics.
-        next = *projected;
-        std::vector<std::string> moved;
-        for (const auto& reference : next.external_references) {
-            const auto old = std::ranges::find(external_references, reference.id, &SketchExternalReference::id);
-            if (reference.source_document_id == source_document_id && old != external_references.end() &&
-                (reference.cached_points != old->cached_points || reference.cached_paths != old->cached_paths ||
-                 reference.exact_spline != old->exact_spline)) moved.push_back(reference.id);
+    if ((remove_unresolvable || unavailable_reference) &&
+        (solved.status == SolveStatus::Invalid || solved.status == SolveStatus::Conflicting)) {
+        // Freeze the last valid geometry of unavailable/incompatible links.
+        // Keep unrelated successful projections and all authored identities.
+        const auto restore=[&](Sketch& target,const Sketch& source,const std::string& id) {
+            auto ref=std::ranges::find(target.external_references,id,&SketchExternalReference::id);
+            const auto old=std::ranges::find(source.external_references,id,&SketchExternalReference::id);
+            if(ref==target.external_references.end()||old==source.external_references.end())return;
+            *ref=*old;ref->broken=false; // Private solve against the frozen cache.
+            for(const auto& block:source.import_blocks)if(block.source_path=="external-reference:"+id) {
+                for(const auto& point:block.point_ids)if(auto* p=target.find_point(point))if(const auto* q=source.find_point(point))*p=*q;
+                const auto copy=[&](auto& destination,const auto& values){for(const auto& geometry:block.geometry_ids) {
+                    const auto a=std::ranges::find(destination,geometry,[](const auto& v){return v.id;});
+                    const auto b=std::ranges::find(values,geometry,[](const auto& v){return v.id;});
+                    if(a!=destination.end()&&b!=values.end())*a=*b;
+                }};
+                copy(target.circles,source.circles);copy(target.arcs,source.arcs);copy(target.ellipses,source.ellipses);
+                copy(target.elliptical_arcs,source.elliptical_arcs);copy(target.bsplines,source.bsplines);
+            }
+        };
+        auto retained=*projected;std::set<std::string> frozen,missing;
+        for(const auto& attempt:projected->external_references) {
+            const auto old=std::ranges::find(external_references,attempt.id,&SketchExternalReference::id);
+            if(old==external_references.end())continue;
+            const bool moved=old->cached_points!=attempt.cached_points||old->cached_paths!=attempt.cached_paths||old->exact_spline!=attempt.exact_spline;
+            if(attempt.broken||(remove_unresolvable&&moved)) {
+                frozen.insert(attempt.id);if(attempt.broken)missing.insert(attempt.id);
+                restore(retained,*this,attempt.id);
+            }
         }
-        while (!moved.empty() && (solved.status == SolveStatus::Invalid || solved.status == SolveStatus::Conflicting)) {
-            bool single_removal = false;
-            for (const auto& id : moved) {
-                auto trial = next; trial.remove_geometry(id);
-                const auto result = trial.solve();
-                if (result.status != SolveStatus::Invalid && result.status != SolveStatus::Conflicting) {
-                    next = std::move(trial); solved = result; single_removal = true; break;
+        auto result=retained.solve();
+        if(result.status!=SolveStatus::Invalid&&result.status!=SolveStatus::Conflicting) {
+            // Restore each usable candidate where its real projected geometry
+            // satisfies the remaining equations. A missing link stays frozen.
+            const auto candidates=frozen;
+            for(const auto& id:candidates)if(!missing.contains(id)) {
+                auto trial=retained;restore(trial,*projected,id);const auto solved=trial.solve();
+                if(solved.status!=SolveStatus::Invalid&&solved.status!=SolveStatus::Conflicting) {
+                    retained=std::move(trial);frozen.erase(id);
                 }
             }
-            if (single_removal) break;
-            const auto id = moved.front(); moved.erase(moved.begin());
-            next.remove_geometry(id);
-            std::erase_if(moved,[&](const auto& child){return std::ranges::none_of(next.external_references,[&](const auto& r){return r.id==child;});});
-            auto trial = next; solved = trial.solve();
-            if (solved.status != SolveStatus::Invalid && solved.status != SolveStatus::Conflicting) next = std::move(trial);
+        } else {
+            // Even the frozen equations cannot solve: preserve the complete
+            // last owned shape, leaving the unresolved inputs available to fix.
+            retained=*this;
         }
+        for(auto& reference:retained.external_references)if(frozen.contains(reference.id))reference.broken=true;
+        retained.validate();const bool changed=retained.serialized()!=serialized();
+        *this=std::move(retained);return changed;
     }
     if (solved.status == SolveStatus::Invalid ||
         solved.status == SolveStatus::Conflicting) {
         throw std::runtime_error(
             "Refreshed external reference conflicts with Sketch constraints");
     }
+    if(froze_profile&&next.serialized()==serialized())return false;
     *this = std::move(next);
     return true;
 }
@@ -8686,6 +8792,10 @@ void Sketch::transform_import_block(
     block->translation_x = translation_x;
     block->translation_y = translation_y;
     block->rotation = rotation;
+    if(block->external_profile && block->external_profile->kind==ExternalProfileKind::Circle &&
+        std::ranges::any_of(next.circles,[&](const auto& c){return std::ranges::find(block->geometry_ids,c.id)!=block->geometry_ids.end();}))
+        block->external_profile->parameter_origin=-rotation;
+    next.refresh_curve_dependencies();
     next.validate();
     *this = std::move(next);
 }
@@ -9819,6 +9929,17 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
 SolveResult Sketch::solve_impl(
     std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
     const std::vector<std::string>& preferred_point_ids) {
+    if(std::ranges::any_of(external_references,has_frozen_support)) {
+        // Solve against immutable last-known geometry without declaring its
+        // source link resolved. Public reference queries still report it lost.
+        auto frozen=*this;std::set<std::string> unavailable;
+        for(auto& reference:frozen.external_references)if(has_frozen_support(reference)) {
+            unavailable.insert(reference.id);reference.broken=false;
+        }
+        const auto result=frozen.solve_impl(maximum_iterations,calculate_degrees_of_freedom,preferred_point_ids);
+        for(auto& reference:frozen.external_references)if(unavailable.contains(reference.id))reference.broken=true;
+        *this=std::move(frozen);return result;
+    }
     struct TextAnchorGuard {
         Sketch* sketch;
         ~TextAnchorGuard() {
@@ -15462,11 +15583,19 @@ nlohmann::json Sketch::serialized_json() const {
     write_roles(elliptical_arc_values,elliptical_arcs);
     write_roles(spline_values,bsplines);
     nlohmann::json import_block_values = nlohmann::json::array();
-    for (const auto& block : import_blocks) import_block_values.push_back({
+    for (const auto& block : import_blocks) {
+        nlohmann::json value{
         {"id", block.id}, {"name", block.name}, {"source_path", block.source_path},
         {"geometry_ids", block.geometry_ids}, {"point_ids", block.point_ids},
         {"translation_x", block.translation_x},
-        {"translation_y", block.translation_y}, {"rotation", block.rotation}});
+        {"translation_y", block.translation_y}, {"rotation", block.rotation}};
+        if(block.external_profile) {
+            const auto& profile=*block.external_profile;
+            value["external_profile"]={{"version",1},{"kind",profile.kind==ExternalProfileKind::Circle?"circle":profile.kind==ExternalProfileKind::Arc?"arc":"source_curve"},
+                {"source_reversed",profile.source_reversed},{"parameter_origin",profile.parameter_origin}};
+        }
+        import_block_values.push_back(std::move(value));
+    }
     nlohmann::json text_values = nlohmann::json::array();
     for (const auto& text : texts) {
         nlohmann::json contours = nlohmann::json::array();
@@ -15726,13 +15855,30 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
     read_roles("ellipses",sketch.ellipses);
     read_roles("elliptical_arcs",sketch.elliptical_arcs);
     read_roles("bsplines",sketch.bsplines);
-    for (const auto& value : root.at("import_blocks")) sketch.import_blocks.push_back({
+    for (const auto& value : root.at("import_blocks")) {
+        SketchImportBlock block{
         value.at("id").get<std::string>(), value.at("name").get<std::string>(),
         value.at("source_path").get<std::string>(),
         value.at("geometry_ids").get<std::vector<std::string>>(),
         value.at("point_ids").get<std::vector<std::string>>(),
         value.at("translation_x").get<double>(),
-        value.at("translation_y").get<double>(), value.at("rotation").get<double>()});
+        value.at("translation_y").get<double>(), value.at("rotation").get<double>()};
+        if(block.source_path.starts_with("external-reference:")) {
+            if(!value.contains("external_profile"))throw std::runtime_error("Sketch import block is invalid");
+            const auto& profile=value.at("external_profile");
+            if(!profile.is_object()||!profile.contains("kind")||!profile.at("kind").is_string()||
+                !profile.contains("version")||!profile.at("version").is_number_integer()||
+                !profile.contains("source_reversed")||!profile.at("source_reversed").is_boolean()||
+                !profile.contains("parameter_origin")||!profile.at("parameter_origin").is_number())
+                throw std::runtime_error("Sketch import block is invalid");
+            const auto kind=profile.at("kind").get<std::string>();
+            if(profile.at("version").get<int>()!=1 || (kind!="circle"&&kind!="arc"&&kind!="source_curve"))
+                throw std::runtime_error("Sketch import block is invalid");
+            block.external_profile=SketchExternalProfile{kind=="circle"?ExternalProfileKind::Circle:kind=="arc"?ExternalProfileKind::Arc:ExternalProfileKind::SourceCurve,
+                profile.at("source_reversed").get<bool>(),profile.at("parameter_origin").get<double>()};
+        } else if(value.contains("external_profile"))throw std::runtime_error("Sketch import block is invalid");
+        sketch.import_blocks.push_back(std::move(block));
+    }
     for (const auto& value : root.at("texts")) {
         SketchText text;
         text.id = value.at("id").get<std::string>();

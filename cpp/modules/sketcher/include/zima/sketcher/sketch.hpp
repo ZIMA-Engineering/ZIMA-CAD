@@ -201,6 +201,15 @@ struct SketchOffset {
     bool operator==(const SketchOffset&) const = default;
 };
 
+enum class ExternalProfileKind { SourceCurve, Circle, Arc };
+struct SketchExternalProfile {
+    ExternalProfileKind kind{ExternalProfileKind::SourceCurve};
+    bool source_reversed{};
+    // The circle's canonical seam survives trimming and later rigid corrections.
+    double parameter_origin{};
+    bool operator==(const SketchExternalProfile&) const = default;
+};
+
 struct SketchImportBlock {
     std::string id;
     std::string name;
@@ -210,6 +219,7 @@ struct SketchImportBlock {
     double translation_x{};
     double translation_y{};
     double rotation{};
+    std::optional<SketchExternalProfile> external_profile;
     bool operator==(const SketchImportBlock&) const = default;
 };
 
@@ -459,6 +469,8 @@ public:
     void update_offset(const std::string& geometry_id, double distance, bool flipped);
     void free_offset(const std::string& geometry_id);
     void refresh_curve_dependencies();
+    [[nodiscard]] std::optional<kernel::BSplineGeometry> external_profile_curve(
+        const SketchImportBlock& block) const;
     void validate_curve_dependencies() const;
     [[nodiscard]] std::vector<std::string> retain_curve_intervals(
         const std::string& geometry_id, const std::vector<std::array<double,2>>& intervals);

@@ -177,7 +177,9 @@
                 window.findChild<QAction*>("sketchTrimAction")->trigger();flush();
                 const auto topology=sketcher::sketch_trim_topology(sketch,true);
                 std::vector<sketcher::SketchTrimPiece> pieces;
-                for(const auto& piece:topology)if(piece.end-piece.start>1e-4 && std::ranges::any_of(sketch.bsplines,[&](const auto& b){return b.id==piece.geometry_id;}))pieces.push_back(piece);
+                for(const auto& piece:topology)if(piece.end-piece.start>1e-4 && std::ranges::any_of(sketch.import_blocks,[&](const auto& block){
+                    return block.external_profile && std::ranges::find(block.geometry_ids,piece.geometry_id)!=block.geometry_ids.end();
+                }))pieces.push_back(piece);
                 check(pieces.size()==2,"GUI tangent Reference Profile has no two selectable trim pieces");
                 const auto& piece=pieces[(scenario-19)%2];
                 expected_trim=sketch;static_cast<void>(sketcher::apply_sketch_trim(*expected_trim,{piece}));
