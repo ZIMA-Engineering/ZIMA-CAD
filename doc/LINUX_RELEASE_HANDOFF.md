@@ -1,4 +1,30 @@
-# Linux build and distribution handoff â€” 2026-09-15
+# Linux build and distribution handoff - 2026-09-15
+
+## Slot centre inference and 3D angular text (2026-10-20)
+
+Run the shared Sketcher contract, including `sketch_slot_direction_studies.hpp`,
+and the real Slot GUI matrix (`ZIMA_VERIFY_SKETCH_SLOT_ONLY`). Verify H/V on
+both arc centres, both manual selection orders, automatic toggles, construction
+line interference, repeated R/D and centre-distance editing, point dragging,
+read-only external supports, Undo/Redo and Unicode native reopening. Check the
+prompt after live changes to cs/en/de/fr/ru and both themes.
+
+Run the dimension layout contract: 1,344 projected angular landing variants,
+actual label picking and dragging, and Light/Dark/Light. Verify measured rays,
+angle value/reference identity, planar Sketch/Drawing text, printing and vector
+exports. These changes use shared C++; they do not change the native format,
+Qt/OCCT pins or container placement. Reproduce the UTF-8 GUI helper checks with
+non-ASCII working and source paths. Windows results do not establish Linux
+compilation or GUI verification. See [Slot](verification/20261020-slot-center-alignment.md),
+[angular text](verification/20261020-angular-text-landing.md) and
+[Unicode diagnostics](verification/20261020-unicode-gui-verifiers.md).
+
+Run the native document/archive/Save-properties/Workspace suites and paired
+Save Copy GUI checks with Unicode paths. Verify unchanged serialized bytes,
+source identities, collision rejection and temporary cleanup. Windows extended
+I/O spelling is confined to its OS boundary; Linux must build and exercise the
+same shared implementation. See [native I/O](verification/20261020-native-unicode-io.md).
+
 
 ## Reviewed closed, coupling, flange and wheel fasteners (2026-10-20)
 

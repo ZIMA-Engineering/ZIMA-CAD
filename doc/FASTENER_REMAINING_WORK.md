@@ -131,6 +131,34 @@ The user's latest order is to complete these current program fixes, update
 English documentation and all five locales, commit/push and publish a verified
 new Windows release, then resume the unfinished library and modeling work above.
 
+### Additional program corrections requested on 2026-10-20
+
+- Sketch Slot: verify and complete both automatic H/V inference while locating
+  the second arc centre and ordinary manual H/V between the two native centres.
+  Include repeated radius/diameter and centre-distance edits, point dragging,
+  native/external supports, dimension locks, Undo/Redo and native reopening.
+  The bounded inference correction passes 64 native cases, 384 numeric edits,
+  1,440 actual drags, and 28 Light/Dark mouse cases including inline dimensions,
+  five prompt languages, zero preview base-scene publications and Unicode/CJK
+  native reopening. See [Slot verification](verification/20261020-slot-center-alignment.md).
+- Angular dimensions in the 3D View: after the Slot verification, replace the
+  current terminal leader presentation with a bend at the end behind the arrow,
+  followed by a horizontal landing with the dimension text above it. Preserve
+  the arrow tip at its measured reference, angle/sector identity, ordinary text
+  dragging and existing dimension editing. Trace the shared annotation layout
+  before changing rendering; verify both viewing directions, small/large angles,
+  Light/Dark themes and dependent Drawing/export behavior where shared. This
+  presentation request does not authorize changing native persisted contracts.
+  The implementation passes 1,344 projection cases and real Light/Dark/Light
+  label picking and text drags; planar Drawing/Sketch text remains separate.
+  See [angular text verification](verification/20261020-angular-text-landing.md).
+- Unicode native I/O: corrected GUI helper paths and native checker arguments
+  exposed ANSI temporary-name conversion and a Save As temporary-length boundary.
+  The file I/O correction preserves stored bytes and native identity. Four
+  focused native suites and the actual deep GUI reproduction with all eight
+  naming policies pass; fresh committed-package acceptance remains pending. See
+  [native I/O verification](verification/20261020-native-unicode-io.md).
+
 ### Further ideas collected during program corrections (2026-10-20)
 
 These are deferred design directions, not implemented capabilities or approval
