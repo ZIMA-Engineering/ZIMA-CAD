@@ -442,12 +442,20 @@ void RelationsDialog::refresh_dimension_diagnostics() {
     if(!has_relation_inputs_)return;
     std::vector<zima::document::RelationError> issues;
     try {static_cast<void>(zima::document::RelationProgram(editor_->toPlainText().toStdString()).without_missing_dimensions(relation_inputs_,&issues));}
-    catch(const zima::document::RelationError&){unavailable_dimensions_->hide();return;}
+    catch(const zima::document::RelationError& error){
+        unavailable_dimensions_->hide();editor_->mark_lines({});
+        if(guidance_changed)guidance_changed(tr("Line %1: %2 %3").arg(error.line).arg(tr(error.message.c_str()),QString::fromStdString(error.detail)));
+        return;
+    }
     std::vector<int> lines;for(const auto& issue:issues)lines.push_back(issue.line);editor_->mark_lines(lines);
     unavailable_dimensions_->setVisible(!issues.empty());
     if(!issues.empty()) {
         const auto& issue=issues.front();unavailable_dimensions_->setText(tr("Line %1: %2 %3").arg(issue.line).arg(tr(issue.message.c_str()),QString::fromStdString(issue.detail)));
     }
+    if(guidance_changed)guidance_changed(issues.empty()
+        ? tr("Edit Relations or select a dimension to insert its identifier.")
+        : unavailable_dimensions_->text()+QStringLiteral("\n")+
+          tr("Check the dimension reference in Relations; affected expressions are skipped until it is restored."));
 }
 void RelationsDialog::set_dimension_catalog(
     std::vector<zima::document::DimensionParameter> parameters,

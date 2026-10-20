@@ -1044,6 +1044,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_relations_editor_contract COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_command_guidance_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_command_guidance_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMMAND_GUIDANCE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_relations_editor_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RELATIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
@@ -1163,6 +1167,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_equal_circle_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EQUAL_CIRCLE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 240 FIXTURES_REQUIRED equal_circle_fixture)
+    add_test(NAME zima_cpp_command_guidance_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/command-guidance-gui")
+    set_tests_properties(zima_cpp_command_guidance_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMMAND_GUIDANCE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 240)
     add_test(NAME zima_cpp_midpoint_profile_ui_contract COMMAND zima-cad-cpp --verify-startup
         "--working-directory=${CMAKE_BINARY_DIR}/midpoint-profile-gui")
     set_tests_properties(zima_cpp_midpoint_profile_ui_contract PROPERTIES

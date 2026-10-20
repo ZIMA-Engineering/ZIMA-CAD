@@ -71,6 +71,7 @@ private:
     QComboBox* language_{};
     QComboBox* theme_{};
     QCheckBox* application_font_{};
+    QCheckBox* vladimir_{};
     QComboBox* tolerance_layout_{};
     QCheckBox* names_uppercase_{};
     QCheckBox* names_diacritics_{};

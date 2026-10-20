@@ -46,6 +46,15 @@ int main(int argc, char** argv) {
         write(root + "/config/" + platform + "/config.ini", "[Paths]\nTemplates=../my-templates\n");
         QDir().mkpath(root + "/Projects");
         auto settings = zima::app::ApplicationSettings::load(root + "/Projects", exe);
+        require(settings.vladimir,"Missing Vladimir setting must default to YES");
+        {
+            QSettings shared(root + "/config/config.ini",QSettings::IniFormat);
+            shared.setValue("Application/Vladimir","NO");shared.sync();
+            require(!zima::app::ApplicationSettings::load(root + "/Projects",exe).vladimir,"Vladimir NO was ignored");
+            shared.setValue("Application/Vladimir","yes");shared.sync();
+            require(zima::app::ApplicationSettings::load(root + "/Projects",exe).vladimir,"Vladimir YES was ignored");
+            shared.remove("Application/Vladimir");shared.sync();
+        }
         require(settings.language == "de" && settings.units["Length"] == "cm", "common overrides lost");
         require(QDir::cleanPath(settings.resolved_paths["Templates"]) == root + "/config/my-templates", "platform-relative path wrong");
         require(settings.resolved_paths["WorkingDirectory"] == root + "/Projects", "portable project default wrong");
@@ -86,7 +95,7 @@ int main(int argc, char** argv) {
         require(settings.sheet_cut_tolerance==.025&&cli.documents.templates.sheet_cut_tolerance==.025,
             "GUI/CLI Sheet Cut default layers differ");
         const auto platform_before = read(root + "/config/" + platform + "/config.ini");
-        settings.language = "fr";settings.sheet_cut_tolerance=.075; QString error;
+        settings.language = "fr";settings.sheet_cut_tolerance=.075;settings.vladimir=false; QString error;
         require(settings.drawing_view_style=="hidden_edges"&&settings.drawing_pdf_directory=="pdf"&&settings.drawing_dxf_directory=="export","Drawing defaults are missing");
         settings.drawing_pdf_directory="output/pdf";settings.drawing_dxf_directory="output/dxf";settings.drawing_view_style="shaded_with_edges";
         if (!settings.save(&error)) throw std::runtime_error("portable save failed: " + error.toStdString());
@@ -96,6 +105,7 @@ int main(int argc, char** argv) {
         QSettings saved(root + "/config/config.ini", QSettings::IniFormat);
         require(saved.value("Application/Language") == "fr" && !saved.contains("Paths/Localization"), "save pinned version paths");
         require(saved.value("SheetMetal/CutTolerance").toDouble()==.075,"Sheet Cut default was not saved");
+        require(saved.value("Application/Vladimir")=="NO"&&!zima::app::ApplicationSettings::load(root+"/Projects",exe).vladimir,"Vladimir did not survive save/reload as NO");
         require(saved.value("SweepPrecision/Sweep2D").toDouble()==.001&&saved.value("SweepPrecision/HelicalSweep").toDouble()==.1,
             "Sweep defaults were not saved");
         const auto drawing_settings=zima::app::ApplicationSettings::load(root+"/Projects",exe);

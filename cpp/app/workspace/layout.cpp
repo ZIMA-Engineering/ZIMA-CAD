@@ -1678,8 +1678,14 @@ void AssemblyWorkspaceWindow::create_layout() {
     file_manager_stack_->setObjectName("fileManagerStack");file_manager_stack_->hide();
     layout->addWidget(file_manager_stack_,1);
     setCentralWidget(central);
-    state_ = new QLabel(this);
+    command_guidance_ = new CommandGuidance(viewer_);
+    command_guidance_->set_guidance_enabled(application_settings_.vladimir);
+    state_ = new CommandStatusLabel(this);
     state_->setObjectName("workspaceState");
+    state_->message_changed = [this](const QString& message) {
+        command_guidance_->set_message(message == tr("Připraveno.")
+            ? tr("You can select an object or start a command.") : message);
+    };
     // Progress visibility and changing status text must not resize the canvas.
     const int status_height=std::max(20,state_->fontMetrics().height());
     state_->setFixedHeight(status_height);

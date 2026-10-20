@@ -788,6 +788,7 @@ void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_
             next.qt_translations = application_settings_.qt_translations;
         }
         application_settings_ = std::move(next);
+        command_guidance_->set_guidance_enabled(application_settings_.vladimir);
         reload_file_managers();
         if(browser_runtime_)browser_runtime_->configure(application_settings_.browser);
         drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));

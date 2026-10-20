@@ -13,6 +13,7 @@
 #include "application_instance.hpp"
 #include "tree_reference_state.hpp"
 #include "component_reference_kind.hpp"
+#include "command_feedback.hpp"
 
 #include <QMainWindow>
 
@@ -251,7 +252,8 @@ private:
     QSplitter* document_splitter_{};
     QWidget* model_workspace_{};
     DrawingWindow* drawing_workspace_{};
-    QLabel* state_{};
+    CommandStatusLabel* state_{};
+    CommandGuidance* command_guidance_{};
     QProgressBar* operation_progress_{};
     zima::ui::OperationActivity* operation_activity_{};
     std::uint64_t status_activity_token_{};

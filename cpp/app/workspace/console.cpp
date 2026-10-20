@@ -46,6 +46,7 @@ const char* candidate_kind(viewer::CandidateKind kind) {
 }
 }
 void AssemblyWorkspaceWindow::report_operation_error(const QString& title,const QString& message) {
+    state_->setText(title + QStringLiteral(": ") + message);
     if(console_executing_)console_operation_error_=title+QStringLiteral(": ")+message;
     else QMessageBox::critical(this,title,message);
 }

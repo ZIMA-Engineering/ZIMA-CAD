@@ -2502,5 +2502,10 @@
   "Rozložit symbol": "Разложить символ",
   "Osový kříž (vodorovná osa)": "Осевой крест (горизонтальная ось)",
   "Osový kříž (svislá osa)": "Осевой крест (вертикальная ось)",
-  "This relation refers to an unavailable dimension and will be skipped.": "Эта связь ссылается на недоступный размер и будет пропущена."
+  "This relation refers to an unavailable dimension and will be skipped.": "Эта связь ссылается на недоступный размер и будет пропущена.",
+  "Show Vladimír guidance": "Показывать подсказки Владимира",
+  "Show command guidance in the upper-left corner of the View.": "Показывать инструкции команд в левом верхнем углу вида.",
+  "You can select an object or start a command.": "Можно выбрать объект или запустить команду.",
+  "Edit Relations or select a dimension to insert its identifier.": "Измените связи или выберите размер, чтобы вставить его идентификатор.",
+  "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Проверьте ссылку на размер в связях; затронутые выражения пропускаются до её восстановления."
 }

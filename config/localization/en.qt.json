@@ -2502,5 +2502,10 @@
   "Rozložit symbol": "Explode symbol",
   "Osový kříž (vodorovná osa)": "Centre cross (horizontal axis)",
   "Osový kříž (svislá osa)": "Centre cross (vertical axis)",
-  "This relation refers to an unavailable dimension and will be skipped.": "This relation refers to an unavailable dimension and will be skipped."
+  "This relation refers to an unavailable dimension and will be skipped.": "This relation refers to an unavailable dimension and will be skipped.",
+  "Show Vladimír guidance": "Show Vladimír guidance",
+  "Show command guidance in the upper-left corner of the View.": "Show command guidance in the upper-left corner of the View.",
+  "You can select an object or start a command.": "You can select an object or start a command.",
+  "Edit Relations or select a dimension to insert its identifier.": "Edit Relations or select a dimension to insert its identifier.",
+  "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Check the dimension reference in Relations; affected expressions are skipped until it is restored."
 }

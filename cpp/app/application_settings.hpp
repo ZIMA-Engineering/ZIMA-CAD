@@ -62,6 +62,7 @@ struct ApplicationSettings {
     QString theme{QStringLiteral("light")};
     bool use_iso_application_font{false};
     bool stacked_tolerances{};
+    bool vladimir{true};
     browser::Preferences browser;
     FileManagerPreferences file_manager;
     double sheet_cut_tolerance{0.05};

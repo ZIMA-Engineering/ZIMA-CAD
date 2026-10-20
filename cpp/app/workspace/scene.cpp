@@ -1128,6 +1128,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if (workspace_.size() == 0) {
         workspace_stack_->setCurrentWidget(model_workspace_);
         operation_activity_->set_view(viewer_);
+        command_guidance_->set_view(viewer_);
         tree_->setHeaderLabels({QString{}});
         publish_mesh({});
         close_document_action_->setEnabled(false);
@@ -1150,6 +1151,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             workspace_.open_drawing(workspace_.displayed_document_id())) {
         workspace_stack_->setCurrentWidget(drawing_workspace_);
         operation_activity_->set_view(drawing_workspace_->findChild<QWidget*>("drawingCanvas"));
+        command_guidance_->set_view(drawing_workspace_->findChild<QWidget*>("drawingCanvas"));
         drawing_workspace_->edit_workspace_document(drawing->document().document_id);
         refresh_drawing_tree();
         active_application_ = ApplicationMode::Drawing;
@@ -1192,6 +1194,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     }
     workspace_stack_->setCurrentWidget(model_workspace_);
     operation_activity_->set_view(viewer_);
+    command_guidance_->set_view(viewer_);
     const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
     if (assembly == nullptr) {
         const auto* part = workspace_.open_part(workspace_.displayed_document_id());

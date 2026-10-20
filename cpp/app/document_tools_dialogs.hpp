@@ -104,6 +104,7 @@ public:
     void end_entry();
     void insert_dimension(const QString& identifier,const QString& value);
     void set_relation_inputs(zima::document::RelationInputs);
+    std::function<void(const QString&)> guidance_changed;
 protected:
     bool submit() override;
 private:

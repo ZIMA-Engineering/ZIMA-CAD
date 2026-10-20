@@ -421,6 +421,7 @@ void AssemblyWorkspaceWindow::edit_relations() {
             refresh_tabs();
             preserve_view_on_refresh_=true;refresh_scene();
         }, application_settings_, this);
+    dialog->guidance_changed=[this](const QString& message){state_->setText(message);};
     const auto catalog=[&](const auto& doc){
         dialog->set_relation_inputs(workspace::relation_inputs(doc,{}));
         const auto definitions=workspace::relation_dimensions(doc);auto dimensions=doc.dimension_parameters();
@@ -441,6 +442,7 @@ void AssemblyWorkspaceWindow::edit_relations() {
         if(properties_dialog_==dialog)properties_dialog_=nullptr;
         construction_dimension_object_id_=previous_dimensions;viewer_->set_candidate_filter({});viewer_->set_candidate_priority({});
         viewer_->set_original_container_selection(false);viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_scene();
+        state_->setText(tr("Připraveno."));
     });
     dialog->show();update_relation_selection();
 }

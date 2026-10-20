@@ -41,6 +41,19 @@ or move its source tag.
 
 ### Program corrections reported during completion (2026-10-20)
 
+- New active Sketch reference correction requested during follow-up: preserve
+  native circle/arc semantics when an exact projection remains circular, in both
+  External Reference and Reference to contour. The current exact-spline branch
+  creates a native BSpline before analytic reconstruction; mathematical shape
+  preservation alone does not provide ordinary circle/arc editing semantics.
+  Preserve exact noncircular projections, rigid corrections, source ownership,
+  shared points, signed sides, trim dependencies and source immutability.
+  Missing references must retain the last valid native geometry and Sketch
+  placement, keep an explicit unresolved identity and permit later repair or
+  explicit detach. The user explicitly rejected automatic loss of owned
+  geometry. Frame-edit retirement also needs review. Trace and test the native
+  refresh/solver/GUI contracts before changing them; obtain scoped agreement
+  if a required persisted-contract extension proves necessary.
 - Disk-space emergency: removed two unsigned candidate ZIP copies, a disposable
   portable-font runtime, exact checksum-verified 2026101906 test source/runtime
   copies and four obsolete local signed archives. The complete latest 2026102002
@@ -84,6 +97,11 @@ or move its source tag.
   Light/Dark-aware main text and a green name accent. Keep the tone positive,
   factual and actionable. Add global `Vladimir=YES/NO`, default `YES`, with an
   immediately effective control in Global Settings.
+  The shared status-based first implementation and Relations guidance now pass
+  native widget and integrated main-window checks, all five languages and both
+  themes. See [verification](verification/20261020-vladimir-command-guidance.md)
+  for scope and remaining coverage; this is not a claim of bespoke guidance for
+  every command. Release-package and native Linux acceptance remain pending.
 
 - An update on another machine could show Engineering Tables as an unavailable
   directory. Reproduction found that File Manager resolved factory source paths
@@ -120,6 +138,13 @@ library/release order retain priority.
   Refinement should initially preserve the shape; subsequent editing provides
   local control. Rounding mesh edges should produce editable mesh geometry.
   Do not force every edit into the existing parametric Feature history.
+  The user's target applications are shaping an automobile body and a boat
+  keel. This establishes smooth engineering surfaces as the intended output,
+  with the mesh as an editing means. Evaluate Sketch sections/guides, symmetry,
+  boundary and curvature continuity, and accurate native surface conversion
+  against representative examples. Faceted conversion alone does not establish
+  acceptance of these smooth-surface use cases. Specific continuity targets,
+  accuracy and manufacturing requirements remain to be scoped with examples.
 - Preserve the established classification of parametric geometry. The agreed
   direction is a separate modeling environment, provisionally **Surfaces**,
   for direct mesh editing. Its Tree lists mesh objects such as **Mesh 1** and
@@ -138,6 +163,45 @@ library/release order retain priority.
   identity, follow source changes during explicit regeneration, and report lost
   references without silently rebinding to another object. The user emphasized
   that these links provide the necessary connection to existing CAD geometry.
+- Subsequent brainstorming remains provisional rather than a closed feature
+  specification. Mesh editing uses dedicated commands; ordinary Extrusion and
+  Revolution do not directly modify mesh geometry. **Create mesh** starts from
+  selected faces or a complete Body and produces an independent mesh of the
+  current shape. It creates no automatic source-following link. Points follow
+  a native surface only after the user explicitly adds that constraint.
+- Point groups belong below their mesh in the Tree. They identify sets of
+  points for subsequent selection and editing. The user clarified that these
+  are point groups, rather than groups of whole meshes. A rounding command
+  could collect its resulting points in a named group such as **Rounding 1**;
+  that idea does not imply a parametric history operation.
+- Other candidate commands include basic mesh objects (Cube, sphere, cylinder,
+  cone, plane and torus) and subdivision. Distinguish shape-preserving local
+  refinement from subdivision with smoothing. Connected faces share native mesh
+  vertices and edges; edits must retain that connectivity and explicit point
+  constraints as applicable. Primitive details and exact topology are open.
+- Sketch-guided deformation: draw a Sketch curve, select a mesh region and use
+  the curve as a shaping guide, for example for bending or an indentation.
+  Consider adjustable influence and a smooth transition into the surrounding
+  mesh. The user accepted distinguishing a one-time deformation from an
+  explicitly requested associative link that follows later Sketch changes.
+  No deformation algorithm, persistence extension or implementation is selected.
+- Mesh conversion must eventually produce actual native BRep Shell or Solid
+  geometry, so that the freely shaped result can enter ordinary CAD workflows.
+  A Solid requires a closed, valid shell. Distinguish preservation of mesh
+  facets from reconstruction of smooth surfaces with an explicit geometric
+  tolerance. Validate boundaries, connectivity and self-intersections; do not
+  present an arbitrary mesh as a verified solid. Conversion scope, algorithms,
+  source/result association and persisted representation remain design work.
+- AI-assisted generative design is a further target use case, including parts
+  for 3D printing. The user specifies functional interfaces, for example a pin
+  at A and attachments at B/C. The future workflow also needs explicit loads,
+  supports, permitted/protected space, material, manufacturing constraints and
+  an optimization objective such as minimum mass subject to strength/stiffness
+  requirements. Keep these engineering inputs distinct from the editable mesh.
+  Candidate generation, mesh shaping, FEM evaluation and manufacturing checks
+  form an iterative loop, with the required interfaces retained. Native geometry
+  and print export are downstream outputs. This is a desired workflow, not a
+  verified optimizer, FEM implementation or guarantee of a global optimum.
 
 ### Active drawing correction, requested on 2026-10-20
 

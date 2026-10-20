@@ -106,6 +106,11 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     application_font_->setChecked(settings_.use_iso_application_font);
     application_font_->setToolTip(tr("Výkresy, skici a View vždy používají ISO font."));
     form->addRow(application_font_);
+    vladimir_ = new QCheckBox(tr("Show Vladimír guidance"), this);
+    vladimir_->setObjectName("globalVladimirGuidance");
+    vladimir_->setChecked(settings_.vladimir);
+    vladimir_->setToolTip(tr("Show command guidance in the upper-left corner of the View."));
+    form->addRow(vladimir_);
     tolerance_layout_ = new QComboBox(this);
     tolerance_layout_->setObjectName("globalToleranceLayout");
     tolerance_layout_->addItem(tr("V řádku"), false);
@@ -436,6 +441,7 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 bool GlobalSettingsDialog::submit() {
     settings_.document_naming = {names_uppercase_->isChecked(), names_diacritics_->isChecked(), names_spaces_->isChecked()};
     settings_.stacked_tolerances = tolerance_layout_->currentData().toBool();
+    settings_.vladimir = vladimir_->isChecked();
     settings_.browser.home=browser_home_->text().trimmed();
     if(!settings_.browser.home.isEmpty()&&!browser::allowed_url(QUrl(settings_.browser.home))){
         show_browser();QMessageBox::warning(this,tr("Web browser"),tr("Enter a valid HTTP or HTTPS address."));return false;

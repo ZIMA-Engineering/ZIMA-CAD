@@ -46,6 +46,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include "command_feedback.hpp"
 #include <QAbstractProxyModel>
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
@@ -1257,6 +1258,45 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMMAND_GUIDANCE_ONLY")) {
+            using namespace zima::app;
+            zima::viewer::MeshView view(&parent);view.setGeometry(0,0,700,500);
+            zima::kernel::ViewerMesh mesh;mesh.edges.push_back({{{-10,0,0},{10,0,0}},{"feature","edge",{}}});
+            view.set_mesh(mesh);view.show();view.raise();application.processEvents();view.repaint();application.processEvents();
+            const auto camera=view.camera_state();const auto frame=view.grabFramebuffer();const auto plain=view.grab().toImage();
+            QWidget drawing(&parent);CommandGuidance guidance(&view);CommandStatusLabel status(&parent);int messages=0;
+            status.message_changed=[&](const QString& text){++messages;guidance.set_message(text);};
+            const auto hint=QObject::tr("Vyberte díl nebo těleso ve View; jeho řádek se označí v seznamu.");
+            status.setText(hint);status.setText(hint);application.processEvents();
+            require(messages==1&&guidance.message()==hint,"Command feedback did not preserve/deduplicate the real status");
+            require(guidance.isVisible()&&guidance.pos()==QPoint(12,12),"Guidance is not upper-left in the View");
+            require(view.grabFramebuffer()==frame&&view.camera_state()==camera,"Guidance changed the native framebuffer or camera");
+            require(view.grab().toImage()!=plain,"Guidance is missing from the interactive canvas");
+            require(parent.childAt(view.mapTo(&parent,guidance.geometry().center()))!=&guidance,"Guidance intercepts canvas input");
+            for(const auto& theme:{QString("light"),QString("dark")}) {
+                auto settings=ApplicationSettings{};settings.theme=theme;apply_application_appearance(application,settings);application.processEvents();
+                QImage text(guidance.size(),QImage::Format_ARGB32_Premultiplied);text.fill(Qt::transparent);
+                guidance.render(&text,QPoint{},QRegion{},QWidget::DrawChildren);
+                int transparent=0,ink=0,green=0;
+                for(int y=0;y<text.height();++y)for(int x=0;x<text.width();++x) {
+                    const auto color=text.pixelColor(x,y);transparent+=color.alpha()==0;ink+=color.alpha()>128;
+                    green+=color.alpha()>128&&color.green()>color.red()*1.4&&color.green()>color.blue()*1.4;
+                }
+                require(transparent>text.width()*text.height()/2&&ink>20&&green>10,"Guidance lost its transparent presentation or name accent");
+                if(theme=="light")text.save("build/vladimir-light.png");else text.save("build/vladimir-dark.png");
+            }
+            guidance.set_message(QString(150,'W')+"\n<literal & text>");view.resize(180,150);application.processEvents();
+            require(view.rect().contains(guidance.geometry()),"Guidance escaped a small resized canvas");
+            require(guidance.message().contains("<literal & text>"),"Guidance lost literal user content");
+            drawing.setGeometry(10,10,400,250);drawing.show();guidance.set_view(&drawing);application.processEvents();
+            require(guidance.parentWidget()==&drawing&&guidance.isVisible(),"Guidance did not follow the active drawing canvas");
+            guidance.set_guidance_enabled(false);require(guidance.isHidden(),"Vladimir NO left guidance visible");
+            guidance.set_message("New command while disabled");require(guidance.isHidden(),"Disabled guidance was redisplayed by feedback");
+            guidance.set_guidance_enabled(true);require(guidance.isVisible(),"Vladimir YES did not restore current guidance");
+            guidance.set_message({});require(guidance.isHidden(),"An empty command left stale guidance visible");
+            guidance.set_view(&view); // Restore stack-owned widget ownership before drawing is destroyed.
+            std::cout<<"Command guidance status, themes, transparency, canvas input, resize, transfer and visibility passed\n";return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_INTERACTION_COLORS_ONLY")){verify_interaction_colors(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
