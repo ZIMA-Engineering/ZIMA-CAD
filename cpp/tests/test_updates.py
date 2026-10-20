@@ -204,6 +204,23 @@ class Updates(unittest.TestCase):
         self.assertEqual(self.selected(), V1)
         self.assertFalse((self.root / FOLDER / V2).exists())
 
+    def test_update_installs_previously_absent_factory_directories(self):
+        relative = 'config/lib/03-ENGINEERING-TABLES/05-FASTENERS/0000-index/metadata.ini'
+        self.assertFalse((self.root / FOLDER / V1 / 'config/lib').exists())
+        user = self.root / 'config/my-library/custom.txt'
+        user.parent.mkdir(parents=True); user.write_bytes(b'keep user library')
+        shared = self.root / 'config/config.ini'
+        shared.write_bytes(b'[FileManager]\nCustom=keep\n')
+        payload = b'[Directory]\nLabel=en\n'
+        self.prepare(self.package(extra={f'{FOLDER}/{V2}/{relative}': payload}))
+        result = self.run_update('install', '--target', V2, '--apply')
+        self.assertEqual(result['status'], 'installed')
+        self.assertEqual((self.root / FOLDER / V2 / relative).read_bytes(), payload)
+        self.assertEqual(shared.read_bytes(), b'[FileManager]\nCustom=keep\n')
+        self.assertEqual(user.read_bytes(), b'keep user library')
+        self.assertEqual(self.run_update('rollback', '--apply')['version'], V1)
+        self.assertEqual(user.read_bytes(), b'keep user library')
+
     def test_single_platform_archive_is_offered_and_installed(self):
         package = self.package(include_other=False)
         other = 'linux' if FOLDER == 'windows' else 'windows'

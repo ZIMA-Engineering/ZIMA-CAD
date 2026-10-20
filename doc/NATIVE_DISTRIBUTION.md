@@ -1004,6 +1004,18 @@ selected version's factory library. This is directory selection, not an implicit
 per-file merge of template/material libraries. Put editable copies in the shared
 user directories; do not edit the factory library in a version directory.
 
+File Manager's built-in source tokens resolve against the active version's
+factory configuration. Formats, materials, symbols and templates also respect
+explicit resource-directory settings. Newly shipped built-in source IDs are
+added when loading an older saved source list; existing ordering, disabled
+states, read-only preferences and custom paths remain intact. Recognized
+materialized defaults inside this installation's managed version directories
+follow the active version. Explicit custom source paths retain their meaning.
+Loading does not rewrite configuration. An update may introduce a completely
+new factory directory: extraction creates its parents without requiring any
+corresponding directory in the previous version or shared user configuration.
+See the [finite Windows verification](verification/20261020-factory-source-updates.md).
+
 Existing numbered INI backups (`config.ini.1`, `.2`, ...) are preserved. Before
 any future configuration format conversion, the updater must create a complete
 snapshot under `.updates/config-backups/<old-build>/<transaction>/`, with a file

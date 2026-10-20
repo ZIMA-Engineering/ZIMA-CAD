@@ -527,7 +527,9 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg Qt6::WebEngineWidgets)
     target_compile_options(zima_file_manager_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_file_manager_ui COMMAND zima_file_manager_ui_tests)
-    set_tests_properties(zima_file_manager_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox")
+    add_test(NAME zima_file_manager_portable_sources_ui COMMAND zima_file_manager_ui_tests --portable-factory-sources)
+    set_tests_properties(zima_file_manager_ui zima_file_manager_portable_sources_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox")
+    set_tests_properties(zima_file_manager_ui PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/..")
 endif()
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp

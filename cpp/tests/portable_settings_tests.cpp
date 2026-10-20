@@ -16,9 +16,11 @@ void write(const QString& path, const QByteArray& bytes) {
     require(f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size(), "fixture write failed");
 }
 QByteArray read(const QString& path) { QFile f(path); require(f.open(QIODevice::ReadOnly), "fixture read failed"); return f.readAll(); }
+#include "portable_factory_sources_contract.hpp"
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     try {
+        verify_portable_factory_sources();
         const QString sample=QString::fromUtf8("  Příruba   čelní.PRTZ  ");
         require(zima::DocumentNaming{}.normalize(sample)==sample,"Absent naming settings changed a name");
         const zima::DocumentNaming naming{true,true,true};

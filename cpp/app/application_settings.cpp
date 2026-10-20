@@ -232,28 +232,29 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         return result.text(QStringLiteral("file_manager.source.") + id, fallback);
     };
     const QString config_directory = QFileInfo(result.config_path).absolutePath();
+    const QString factory_directory = QFileInfo(result.base_config_path).absolutePath();
+    QList<FileManagerSource> factory_sources;
     const auto add_factory_source = [&](const QString& id, const QString& fallback,
                                         const QString& configured, const QString& resolved) {
-        result.file_manager.sources.push_back({
+        factory_sources.push_back({
             id, source_label(id, fallback), configured, resolved, true, true, true});
     };
+    add_factory_source("formats", QStringLiteral("Formáty ZIMA-CAD"),
+        QStringLiteral("formats"), result.resolved_paths.value("Formats"));
+    add_factory_source("materials", QStringLiteral("Materiály ZIMA-CAD"),
+        QStringLiteral("materials"), result.resolved_paths.value("Materials"));
+    add_factory_source("symbols", QStringLiteral("Symboly ZIMA-CAD"),
+        QStringLiteral("symbols"), result.resolved_paths.value("Symbols"));
+    add_factory_source("templates", QStringLiteral("Šablony ZIMA-CAD"),
+        QStringLiteral("templates"), result.resolved_paths.value("Templates"));
+    add_factory_source("sheet_metal", QStringLiteral("Plechové prvky"),
+        QStringLiteral("lib/01-SHEETMETAL"), QDir(factory_directory).absoluteFilePath("lib/01-SHEETMETAL"));
+    add_factory_source("native", QStringLiteral("Nativní knihovna ZIMA-CAD"),
+        QStringLiteral("lib/02-NATIVE"), QDir(factory_directory).absoluteFilePath("lib/02-NATIVE"));
+    add_factory_source("engineering_tables", QStringLiteral("Strojírenské tabulky"),
+        QStringLiteral("lib/03-ENGINEERING-TABLES"), QDir(factory_directory).absoluteFilePath("lib/03-ENGINEERING-TABLES"));
     const QString encoded_sources = value("FileManager/Sources", QString{});
-    if (encoded_sources.isEmpty()) {
-        add_factory_source("formats", QStringLiteral("Formáty ZIMA-CAD"),
-            result.configured_paths.value("Formats"), result.resolved_paths.value("Formats"));
-        add_factory_source("materials", QStringLiteral("Materiály ZIMA-CAD"),
-            result.configured_paths.value("Materials"), result.resolved_paths.value("Materials"));
-        add_factory_source("symbols", QStringLiteral("Symboly ZIMA-CAD"),
-            result.configured_paths.value("Symbols"), result.resolved_paths.value("Symbols"));
-        add_factory_source("templates", QStringLiteral("Šablony ZIMA-CAD"),
-            result.configured_paths.value("Templates"), result.resolved_paths.value("Templates"));
-        add_factory_source("sheet_metal", QStringLiteral("Plechové prvky"),
-            QStringLiteral("lib/01-SHEETMETAL"), QDir(config_directory).absoluteFilePath("lib/01-SHEETMETAL"));
-        add_factory_source("native", QStringLiteral("Nativní knihovna ZIMA-CAD"),
-            QStringLiteral("lib/02-NATIVE"), QDir(config_directory).absoluteFilePath("lib/02-NATIVE"));
-        add_factory_source("engineering_tables", QStringLiteral("Strojírenské tabulky"),
-            QStringLiteral("lib/03-ENGINEERING-TABLES"), QDir(config_directory).absoluteFilePath("lib/03-ENGINEERING-TABLES"));
-    } else {
+    if (!encoded_sources.isEmpty()) {
         const auto array = QJsonDocument::fromJson(encoded_sources.toUtf8()).array();
         for (const auto& entry : array) {
             const auto object = entry.toObject();
@@ -269,9 +270,30 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
             source.resolved_path = QDir::isAbsolutePath(source.path)
                 ? QDir::cleanPath(source.path)
                 : QDir(config_directory).absoluteFilePath(source.path);
+            const auto factory=std::ranges::find(factory_sources,source.id,&FileManagerSource::id);
+            if(source.factory&&factory!=factory_sources.end()) {
+                bool default_path=QDir::cleanPath(QDir::fromNativeSeparators(source.path))==factory->path;
+                if(installed&&!default_path) {
+                    // Older Settings saves could materialize a factory path in
+                    // a version directory. Recognize only our managed layout;
+                    // explicit paths to custom libraries retain their meaning.
+                    const auto relative=QDir(qpath(installed->root)).relativeFilePath(source.resolved_path);
+                    const auto components=relative.split('/');
+                    const auto suffix=factory->path.split('/');
+                    if(components.size()==3+suffix.size()&&components[0]==qpath(installed->runtime.parent_path().filename())&&
+                       components[1].size()==10&&std::ranges::all_of(components[1],[](QChar c){return c>='0'&&c<='9';})&&
+                       components[2]=="config"&&components.mid(3)==suffix)default_path=true;
+                }
+                if(default_path){source.path=factory->path;source.resolved_path=factory->resolved_path;}
+            }
             result.file_manager.sources.push_back(std::move(source));
         }
     }
+    // A user source list from an older version must acquire newly shipped
+    // factory roots. Preserve existing order, disabled states and custom rows.
+    for(const auto& source:factory_sources)
+        if(std::ranges::none_of(result.file_manager.sources,[&](const auto& current){return current.id==source.id;}))
+            result.file_manager.sources.push_back(source);
     result.file_manager.company_name = value("FileManager/CompanyName", "ZIMA-Engineering");
     result.file_manager.company_logo = value("FileManager/CompanyLogo", QString{});
     if (!result.file_manager.company_logo.isEmpty() && !QDir::isAbsolutePath(result.file_manager.company_logo))

@@ -243,9 +243,11 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 }
 }
 
+#include "portable_factory_file_manager_ui_contract.hpp"
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
+        if(argc==2&&std::string(argv[1])=="--portable-factory-sources") {verify_portable_factory_file_manager_ui(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--factory-fasteners") {
             for(const auto* leaf:{"04-SCREWS/01-HEX-HEAD/07-SMALL-HEX","04-SCREWS/02-FITTED","04-SCREWS/03-STUDS",
                     "04-SCREWS/04-CAP-HEAD/01-SOCKET","04-SCREWS/04-CAP-HEAD/02-SLOTTED","04-SCREWS/04-CAP-HEAD/03-LARGE","04-SCREWS/04-CAP-HEAD/04-BUTTON-A2"})
