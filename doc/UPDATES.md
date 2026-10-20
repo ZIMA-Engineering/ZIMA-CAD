@@ -1,5 +1,19 @@
 # Application updates
 
+Signed Windows [2026102002](releases/2026102002.md#windows-publication-acceptance)
+was published at `2026-10-20T03:05:33Z` from immutable source `7832721320cfab145a9edd3eea6ee8e260bf7c38`.
+It includes Sketch text anchors and rounded/angular editing repairs, Relations
+target ordering, complete Drawing glyph coverage, version-owned portable fonts,
+Unicode template/Drawing paths and 37 reviewed native fasteners with mass,
+five-language tables and 42 reference Drawings. Clean candidate/signed smoke,
+1,114 factory loads, real-reference font/CWD equality, 7,168
+exact resource comparisons, 25 packaged acceptance scenarios,
+Unicode GUI paths, production trust and all three public downloads pass.
+All 16,748 immutable checksums remain intact. Trusted 1906
+offers the update without installation. Rejected candidate 2001 was never
+published. Custom libraries and the development BAT are preserved; linked
+wing-nut, spherical-washer size and native Linux verification limits apply.
+
 Signed Windows [2026101906](releases/2026101906.md#windows-publication-acceptance)
 was published at `2026-10-19T18:56:09Z` from immutable source
 `c25c0a7dec47f335632110b875e475ce058f1be5`. Save/Save As publish physical-dependent Relations;
