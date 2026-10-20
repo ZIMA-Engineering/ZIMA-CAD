@@ -40,20 +40,20 @@ namespace zima::document {
     const std::filesystem::path& target) {
     const auto directory = target.parent_path().empty()
         ? std::filesystem::current_path() : target.parent_path();
-    if (!std::filesystem::is_directory(directory)) return {};
+    if (!std::filesystem::is_directory(native_file_io_path(directory))) return {};
     std::vector<std::filesystem::path> result;
-    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+    for (const auto& entry : std::filesystem::directory_iterator(native_file_io_path(directory))) {
         if (!std::filesystem::is_regular_file(entry.symlink_status())) continue;
         if (entry.path().filename().stem() != target.filename() ||
             archive_version(entry.path()).empty()) continue;
-        result.push_back(entry.path());
+        result.push_back(directory/entry.path().filename());
     }
     std::ranges::sort(result, archive_version_less);
     return result;
 }
 inline void archive_existing_file(const std::filesystem::path& target) {
-    if (!std::filesystem::exists(target)) return;
-    if (!std::filesystem::is_regular_file(target))
+    if (!std::filesystem::exists(native_file_io_path(target))) return;
+    if (!std::filesystem::is_regular_file(native_file_io_path(target)))
         throw std::runtime_error("Document target is not a regular file");
     const auto existing = archive_paths(target);
     auto version = existing.empty() ? std::string{"1"}
@@ -63,7 +63,7 @@ inline void archive_existing_file(const std::filesystem::path& target) {
         auto archive = target;
         archive += "." + version;
         std::error_code error;
-        if (std::filesystem::copy_file(target, archive, std::filesystem::copy_options::none, error)) return;
+        if (std::filesystem::copy_file(native_file_io_path(target), native_file_io_path(archive), std::filesystem::copy_options::none, error)) return;
         if (error == std::errc::file_exists) { version = next_archive_version(std::move(version)); continue; }
         throw std::filesystem::filesystem_error("Cannot archive existing document", target, archive, error);
     }

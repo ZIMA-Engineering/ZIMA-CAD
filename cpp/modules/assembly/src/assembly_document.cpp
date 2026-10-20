@@ -74,8 +74,8 @@ std::string trim_ini(std::string value) {
 }
 
 IniSections read_ini(const std::filesystem::path& path) {
-    std::ifstream input(path);
-    if (!input) throw std::runtime_error("Cannot open assembly: " + path.string());
+    std::ifstream input(zima::document::native_file_io_path(path));
+    if (!input) throw std::runtime_error("Cannot open assembly: " + zima::document::path_to_utf8(path));
     IniSections result;
     std::string line;
     std::string section;
@@ -95,7 +95,7 @@ IniSections read_ini(const std::filesystem::path& path) {
         result[section][trim_ini(line.substr(0, separator))] =
             trim_ini(line.substr(separator + 1));
     }
-    if (!input.eof()) throw std::runtime_error("Cannot read assembly: " + path.string());
+    if (!input.eof()) throw std::runtime_error("Cannot read assembly: " + zima::document::path_to_utf8(path));
     return result;
 }
 
@@ -109,19 +109,21 @@ std::string ini_value(
 }
 
 void write_ini(const std::filesystem::path& path, const IniSections& ini) {
-    const auto temporary = path.string() + ".tmp";
+    auto temporary = path;
+    temporary += ".tmp";
+    temporary = zima::document::native_file_io_path(temporary);
     {
         std::ofstream output(temporary, std::ios::trunc);
-        if (!output) throw std::runtime_error("Cannot write assembly: " + path.string());
+        if (!output) throw std::runtime_error("Cannot write assembly: " + zima::document::path_to_utf8(path));
         for (const auto& [section, values] : ini) {
             output << "[" << section << "]\n";
             for (const auto& [key, value] : values) output << key << "=" << value << "\n";
             output << "\n";
         }
-        if (!output) throw std::runtime_error("Assembly write failed: " + path.string());
+        if (!output) throw std::runtime_error("Assembly write failed: " + zima::document::path_to_utf8(path));
     }
     zima::document::archive_existing_file(path);
-    std::filesystem::rename(temporary, path);
+    std::filesystem::rename(temporary, zima::document::native_file_io_path(path));
 }
 
 void append_viewer_mesh(zima::kernel::ViewerMesh& target,

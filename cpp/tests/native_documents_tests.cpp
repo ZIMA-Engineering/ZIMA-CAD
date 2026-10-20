@@ -8,10 +8,12 @@
 #include <future>
 #include <iostream>
 #include <stdexcept>
+#include <type_traits>
+#include <zima/document/versioned_file.hpp>
 namespace {
 void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 template<class F>void fails(F&& f,const char* message){bool failed=false;try{f();}catch(const std::exception&){failed=true;}require(failed,message);}
-std::string bytes(const std::filesystem::path& path){std::ifstream in(path,std::ios::binary);return {std::istreambuf_iterator<char>(in),{}};}
+std::string bytes(const std::filesystem::path& path){std::ifstream in(zima::document::native_file_io_path(path),std::ios::binary);return {std::istreambuf_iterator<char>(in),{}};}
 }
 int main(){
     using namespace zima;using namespace zima::workspace;namespace fs=std::filesystem;
@@ -29,6 +31,23 @@ int main(){
             require(copied["links"][1]["source_path"]==document::path_to_utf8(source_directory/"external.prtz"),"Document copy lost an external file path");
             require(copied["links"][2]["source_path"]==document::path_to_utf8(target)&&copied["links"][2]["source_document_id"]=="copy","Document copy lost a self reference");
         }
+#ifdef _WIN32
+        {
+            const fs::path short_path=LR"(relative\model.prtz)";
+            require(document::native_file_io_path(short_path)==short_path,"Native I/O changed an ordinary short path");
+            const fs::path explicit_path=LR"(\\?\C:\data\model.prtz)",device=LR"(\\.\pipe\zima-test)";
+            require(document::native_file_io_path(explicit_path)==explicit_path&&document::native_file_io_path(device)==device,"Native I/O changed an explicit Windows namespace");
+            const auto unc=fs::path(LR"(\\server\share)")/std::wstring(140,L'a')/std::wstring(140,L'b')/L"model.prtz";
+            require(document::native_file_io_path(unc).native().starts_with(LR"(\\?\UNC\server\share\)"),"Native long UNC I/O prefix is wrong");
+            const auto relative=fs::path(L"zima-io-prefix-test")/std::wstring(140,L'a')/std::wstring(140,L'b')/L"model.prtz";
+            require(document::native_file_io_path(relative).native().starts_with(LR"(\\?\)"),"Native relative long path did not resolve for I/O");
+            const auto parent=fs::current_path();
+            require(parent.native().size()<247,"Native I/O boundary fixture root is too long");
+            const auto boundary=parent/std::wstring(247-parent.native().size(),L'x');
+            require(boundary.native().size()==248&&document::native_file_io_path(boundary).native().starts_with(LR"(\\?\)"),
+                    "Native I/O missed the Windows directory-creation boundary");
+        }
+#endif
         const auto template_root=fs::absolute("config/templates");
         const NativeTemplateSettings settings{template_root,"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Těleso 1"};
         const auto part_template_bytes=bytes(template_root/settings.part_template);
@@ -45,6 +64,52 @@ int main(){
         check_labels(template_part);check_labels(template_assembly);
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-native-documents-"+document::PartDocument::create_default().document_id);
         fs::create_directory(directory);
+        {
+            const auto ascii=directory/"native-io-ascii",unicode=directory/fs::path(u8"\u010desk\u00fd adres\u00e1\u0159-\u691c\u67fb");
+            fs::create_directories(ascii);fs::create_directories(unicode);
+            const auto verify=[&](auto model,const char* extension,bool temporary_write,bool long_name=false) {
+                using Model=std::decay_t<decltype(model)>;
+                model.name="\xc5\xbd\x6c\x75\xc5\xa5\x6f\x75\xc4\x8d\x6b\xc3\xbd\x20\xd0\x9f\xd1\x80\xd0\xb8\xd0\xbc\xd0\xb5\xd1\x80\x20\xe6\xa4\x9c\xe6\x9f\xbb";
+                auto a=ascii/"model";a+=extension;
+                auto b=unicode/fs::path(u8"d\u00edl-\u691c\u67fb");b+=extension;
+                if(long_name) {
+                    const auto prefix=(unicode/"x").native().size()-1;
+                    const auto suffix=std::char_traits<char>::length(extension);
+                    require(prefix+suffix<259,"Native test temporary root is too long");
+                    b=unicode/(std::string(259-prefix-suffix,'x')+extension);
+                    require(b.native().size()==259,"Long native fixture does not reach the Windows filename limit");
+                }
+                model.save(a);model.save(b);
+                require(bytes(a)==bytes(b),"Native Unicode path changed persisted document bytes");
+                const auto initial=bytes(b);const auto id=model.document_id;
+                auto loaded=Model::load(b);require(loaded.document_id==id&&loaded.name==model.name,"Native Unicode document did not reopen with its identity/name");
+                model.name="\x53\x65\x63\x6f\x6e\x64\x20\x72\x65\x76\x69\x73\x69\x6f\x6e\x20\xd0\x9f\xd1\x80\xd0\xb8\xd0\xbc\xd0\xb5\xd1\x80\x20\xe6\xa4\x9c\xe6\x9f\xbb";model.save(b);
+                auto archive=b;archive+=".1";
+                require(fs::is_regular_file(document::native_file_io_path(archive))&&bytes(archive)==initial,"Unicode overwrite did not archive the exact original");
+                loaded=Model::load(b);require(loaded.document_id==id&&loaded.name==model.name,"Unicode overwrite lost document identity/name");
+                const auto archived=Model::load(archive);require(archived.document_id==id,"Long Unicode archive did not reopen");
+                if(temporary_write) {
+                    const auto before=bytes(b);auto temporary=b;temporary+=".tmp";fs::create_directory(document::native_file_io_path(temporary));
+                    model.name="Rejected write";
+                    fails([&]{model.save(b);},"Native write ignored an unavailable temporary target");
+                    require(bytes(b)==before&&document::archive_paths(b).size()==1&&fs::is_directory(document::native_file_io_path(temporary)),"Failed Unicode write changed the original, archives or pre-existing temporary directory");
+                    fs::remove(document::native_file_io_path(temporary));
+                }
+                if(long_name) {
+                    // Remove over-limit archive names explicitly: the ordinary
+                    // recursive cleanup root itself has a short spelling.
+                    fs::remove(document::native_file_io_path(archive));
+                    fs::remove(document::native_file_io_path(b));
+                }
+            };
+            verify(document::PartDocument::create_default(),".prtz",true);
+            verify(assembly::AssemblyDocument::create_default(),".asmz",true);
+            verify(drawing::DrawingDocument::create_default(),".drwz",false);
+            verify(document::PartDocument::create_default(),".prtz",true,true);
+            verify(assembly::AssemblyDocument::create_default(),".asmz",true,true);
+            verify(drawing::DrawingDocument::create_default(),".drwz",false,true);
+            std::cout<<"Native Unicode/CJK Part, Assembly and Drawing: identical bytes, overwrite archives, reopen and failed-write preservation passed\n";
+        }
         {
             const auto fixture=fs::absolute("cpp/tests/fixtures/parity/ventilation-linux.prtz");
             const auto before=bytes(fixture);
@@ -234,6 +299,22 @@ int main(){
         stored_drawing.save(directory/"stored.drwz");
         const auto stored_drawing_id=insert_native_document(workspace,read_native_document(directory/"stored.drwz"));
         require(workspace.open_drawing(stored_drawing_id)->document().source_document_id==model_id,"Drawing open lost model reference");
+        {
+            const auto unicode=directory/fs::path(u8"\u010desk\u00fd adres\u00e1\u0159-\u691c\u67fb");
+            const auto unicode_part=unicode/fs::path(u8"solid-\u691c\u67fb.prtz");model.save(unicode_part,boundaries);
+            require(bytes(unicode_part)==bytes(model_path),"Unicode cached Part changed native bytes");
+            std::vector<kernel::BodyResult> restored_cache;const auto restored=document::PartDocument::load(unicode_part,&restored_cache);
+            require(restored.serialized(restored_cache)==model.serialized(boundaries),"Unicode cached Part lost geometry or references");
+            auto group=assembly::AssemblyDocument::create_default();
+            const auto occurrence=assembly::AssemblyDocument::create_part_occurrence("component",model_id,unicode_part,boundaries.back());
+            group.components={occurrence};const auto unicode_group=unicode/fs::path(u8"assembly-\u691c\u67fb.asmz");group.save(unicode_group);
+            const auto reopened=assembly::AssemblyDocument::load(unicode_group);
+            require(reopened.components.front().source_path==unicode_part&&reopened.components.front().source_document_id==model_id&&reopened.components.front().occurrence_id==occurrence.occurrence_id,"Unicode Assembly lost its native dependency/occurrence identity");
+            auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=model_id;drawing.source_path=unicode_part;
+            const auto unicode_drawing=unicode/fs::path(u8"drawing-\u691c\u67fb.drwz");drawing.save(unicode_drawing);
+            const auto loaded=drawing::DrawingDocument::load(unicode_drawing);
+            require(loaded.source_path==unicode_part&&loaded.source_document_id==model_id,"Unicode Drawing lost its native source reference");
+        }
         require(fs::canonical(directory).parent_path()==fs::canonical(fs::temp_directory_path()),"Unsafe cleanup path");fs::remove_all(directory);
         std::cout<<"Native read/create, templates, fresh identities, cache, references, collisions and failures passed without QApplication\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

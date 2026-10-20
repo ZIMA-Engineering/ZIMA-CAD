@@ -171,7 +171,7 @@ std::vector<std::string> comma_values(const std::string& value) {
 
 using IniData = std::map<std::string, std::map<std::string, std::string>>;
 IniData read_ini(const std::filesystem::path& path) {
-    std::ifstream stream(path);
+    std::ifstream stream(zima::document::native_file_io_path(path));
     if (!stream) throw std::runtime_error("Cannot read Drawing INI document");
     IniData result; std::string section; std::string line;
     while (std::getline(stream, line)) {
@@ -769,7 +769,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     }
     zima::document::apply_document_copy_identity(root, copy);
     zima::document::archive_existing_file(path);
-    std::ofstream stream(path);
+    std::ofstream stream(zima::document::native_file_io_path(path));
     if (!stream) throw std::runtime_error("Cannot write Drawing document");
     // Keep the document envelope compatible with zima_cad/storage.py.  The
     // C++ drawing model has no Python entity fields, so its complete payload

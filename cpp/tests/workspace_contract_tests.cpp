@@ -4,6 +4,7 @@
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <zima/workspace/relation_operations.hpp>
+#include <zima/document/file_path.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -306,6 +307,37 @@ int main() {
             require(imported_copy_boundaries.back().body_boundaries.at(imported_body).back().source_fingerprint==
                     zima::kernel::history_fingerprint(branch_ops,branch_ops.size()),
                     "Copied STEP body cache kept the old relative-path fingerprint");
+#ifdef _WIN32
+            // A valid target can have a longer private copy-staging directory.
+            // Keep logical references free of the Windows I/O namespace prefix.
+            const auto long_directory=directory/std::wstring(248-directory.native().size(),L'x');
+            require(long_directory.native().size()==249,"Unexpected copy path fixture length");
+            fs::create_directory(zima::document::native_file_io_path(long_directory));
+            const auto long_target=long_directory/L"\u017d-\u691c\u67fb.prtz";
+            require(long_target.native().size()==259,"Unexpected copy target length");
+            const auto long_files=copies.save_copy(original.document_id,long_target,directory);
+            const auto long_model=PartDocument::load(long_target);
+            auto long_drawing_path=long_target;long_drawing_path.replace_extension(".drwz");
+            const auto long_drawing=zima::drawing::DrawingDocument::load(long_drawing_path);
+            require(long_files.size()==2&&long_files.front()==long_target&&
+                    long_model.document_id!=original.document_id&&
+                    long_drawing.source_document_id==long_model.document_id&&
+                    long_drawing.source_path==long_target,
+                    "Long Unicode copy lost identity or persisted an internal I/O path");
+            rejected=false;
+            try {static_cast<void>(copies.save_copy(original.document_id,long_target,directory));}
+            catch(const std::invalid_argument&) {rejected=true;}
+            require(rejected&&PartDocument::load(long_target).document_id==long_model.document_id,
+                    "Long copy collision overwrote the existing independent model");
+            const auto reverse_long=long_directory/L"\u017d-\u691c\u67fb-2.drwz";
+            require(copies.save_copy(drawing_copy.document_id,reverse_long,directory).size()==2,
+                    "Drawing-originated long Unicode copy failed");
+            for(const auto& entry:fs::directory_iterator(zima::document::native_file_io_path(long_directory)))
+                require(entry.is_regular_file(),"Copy left a private staging directory behind");
+            require(bytes(source_path)==original_bytes&&bytes(drawing_path)==drawing_bytes,
+                    "Long copy modified an original document");
+            fs::remove_all(zima::document::native_file_io_path(long_directory));
+#endif
             fs::remove_all(directory);
         }
         zima::workspace::Workspace workspace;

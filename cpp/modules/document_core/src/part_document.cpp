@@ -384,9 +384,9 @@ std::string trim_ini(std::string value) {
 }
 
 IniSections read_ini(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);
+    std::ifstream input(native_file_io_path(path),std::ios::binary);
     if (!input) {
-        throw std::runtime_error("Cannot open document: " + path.string());
+        throw std::runtime_error("Cannot open document: " + path_to_utf8(path));
     }
     IniSections result;
     std::string line;
@@ -417,7 +417,7 @@ IniSections read_ini(const std::filesystem::path& path) {
         }
     }
     if(!line.empty())consume_line();
-    if (!input.eof()) throw std::runtime_error("Cannot read document: " + path.string());
+    if (!input.eof()) throw std::runtime_error("Cannot read document: " + path_to_utf8(path));
     return result;
 }
 
@@ -1039,11 +1039,13 @@ void write_part_ini(
     // Release the expanded history before opening the output stream.
     root.clear();
     profile.phase("release serialized history");
-    const auto temporary = path.string() + ".tmp";
+    auto temporary = path;
+    temporary += ".tmp";
+    temporary = native_file_io_path(temporary);
     bool output_opened=false;
     try {
         std::ofstream output(temporary, std::ios::trunc);
-        if (!output) throw std::runtime_error("Cannot write document: " + path.string());
+        if (!output) throw std::runtime_error("Cannot write document: " + path_to_utf8(path));
         output_opened=true;
         for (const auto& [section, values] : ini) {
             output << "[" << section << "]\n";
@@ -1053,7 +1055,7 @@ void write_part_ini(
         // Closing can report a buffered write failure that was not visible
         // before the final flush. Never replace the original after that error.
         output.close();
-        if (!output) throw std::runtime_error("Document write failed: " + path.string());
+        if (!output) throw std::runtime_error("Document write failed: " + path_to_utf8(path));
     } catch (...) {
         std::error_code error;
         if(output_opened)std::filesystem::remove(temporary, error);
@@ -1063,7 +1065,7 @@ void write_part_ini(
     ini.clear();
     profile.phase("release encoded text");
     archive_existing_file(path);
-    std::filesystem::rename(temporary, path);
+    std::filesystem::rename(temporary, native_file_io_path(path));
 }
 
 void require_positive(double value, const char* field) {

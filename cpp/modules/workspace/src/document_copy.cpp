@@ -17,12 +17,13 @@
 namespace zima::workspace {
 namespace {
 namespace fs = std::filesystem;
+using zima::document::native_file_io_path;
 fs::path normalized(const fs::path& path) {
     return path.empty() ? fs::path{} : fs::absolute(path).lexically_normal();
 }
 struct StagingDirectory {
     fs::path path;
-    ~StagingDirectory() { std::error_code error; fs::remove_all(path,error); }
+    ~StagingDirectory() { std::error_code error; fs::remove_all(native_file_io_path(path),error); }
 };
 }
 
@@ -247,9 +248,9 @@ std::vector<std::filesystem::path> Workspace::save_copy(
         }
         const std::set<fs::path> directories{source_path.parent_path(),normalized(drawing_search_directory)};
         for (const auto& directory:directories) {
-            if (directory.empty() || !fs::is_directory(directory)) continue;
-            for (const auto& entry:fs::directory_iterator(directory)) {
-                const auto path=normalized(entry.path());
+            if (directory.empty() || !fs::is_directory(native_file_io_path(directory))) continue;
+            for (const auto& entry:fs::directory_iterator(native_file_io_path(directory))) {
+                const auto path=directory/entry.path().filename();
                 auto extension=path.extension().string();
                 std::transform(extension.begin(),extension.end(),extension.begin(),
                     [](unsigned char c) { return std::tolower(c); });
@@ -276,30 +277,30 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     }
     // Preflight the whole set before any destination is written.
     for (const auto& file:pending)
-        if ((fs::exists(file.target)&&(!overwrite_library||!fs::is_regular_file(file.target))) || document_id_for_path(file.target))
+        if ((fs::exists(native_file_io_path(file.target))&&(!overwrite_library||!fs::is_regular_file(native_file_io_path(file.target)))) || document_id_for_path(file.target))
             throw std::invalid_argument("Cílový soubor již existuje: "+zima::document::path_to_utf8(file.target));
     const auto staging_path=target.parent_path()/(".zima-copy-"+new_id);
-    if (!fs::create_directory(staging_path)) throw std::runtime_error("Nelze připravit adresář pro kopii.");
+    if (!fs::create_directory(native_file_io_path(staging_path))) throw std::runtime_error("Nelze připravit adresář pro kopii.");
     StagingDirectory staging{staging_path};
     for (const auto& file:pending) reserve_file(file.target);
     for (const auto& file:pending) file.write(staging.path/file.target.filename());
     std::vector<fs::path> published;
     const auto previous=staging.path/"previous-library";
-    if(overwrite_library&&fs::exists(target)) {
+    if(overwrite_library&&fs::exists(native_file_io_path(target))) {
         zima::document::archive_existing_file(target);
-        fs::rename(target,previous);
+        fs::rename(native_file_io_path(target),native_file_io_path(previous));
     }
     try {
         for (const auto& file:pending) {
             // Atomic publication without overwrite or a partially written
             // destination. Staging lives on the same filesystem; removing
             // its link afterwards leaves the complete destination file.
-            fs::create_hard_link(staging.path/file.target.filename(),file.target);
+            fs::create_hard_link(native_file_io_path(staging.path/file.target.filename()),native_file_io_path(file.target));
             published.push_back(file.target);
         }
     } catch (...) {
-        for (const auto& path:published) { std::error_code error; fs::remove(path,error); }
-        if(fs::exists(previous))fs::rename(previous,target);
+        for (const auto& path:published) { std::error_code error; fs::remove(native_file_io_path(path),error); }
+        if(fs::exists(native_file_io_path(previous)))fs::rename(native_file_io_path(previous),native_file_io_path(target));
         throw;
     }
     return published;
