@@ -26,8 +26,9 @@ Unbend/Bend Back, import/export and document Undo/Redo also exist. Their focused
 guides define supported scope and remaining cases. Older requests below are
 retained as dated design context, not repeated implementation assignments.
 
-The immediate order is program corrections and complete Windows release
-acceptance, including documentation and all five UI languages. Preserve the
+The current correction batch is accepted in signed Windows
+[2026102004](doc/releases/2026102004.md), including documentation and all five UI
+languages. Further newly reported program defects retain priority. Preserve the
 unfinished cast-wing/toothed-washer studies and the exclusion of two-part locking
 nuts. The next agreed Feature work is ordered multiple Up To faces with signed
 correction, followed by scoped surface projection. File Manager directory

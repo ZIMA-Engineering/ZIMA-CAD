@@ -84,3 +84,12 @@ Fresh committed-package acceptance is still pending. No new
 product UI text or translations are introduced by the I/O correction; paths and
 user-authored names are preserved. Native Linux execution and real network UNC
 share I/O remain unverified on this Windows host.
+
+## Packaged Windows acceptance
+
+Signed [Windows 2026102004](../releases/2026102004.md) passed fresh committed
+build, candidate/signed native smoke, 42 finite packaged scenarios, immutable
+source/resource comparisons, production trust and public asset verification.
+The affected Unicode GUI paths and Slot/Save Copy workflows pass in the actual
+extracted runtime.
+Native Linux execution remains unverified on this Windows host.

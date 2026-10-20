@@ -1372,3 +1372,16 @@ production styles. The linked corner remains unrounded for manual evaluation.
 Linux execution remains a separate host acceptance requirement.
 
 Signed Windows [2026101602](releases/2026101602.md) was published on 2026-10-16 from immutable source commit `2f9c671d0c35aa307daa7f6666005cb0e62de344`. Clean compilation, dependency/archive gates, all 22 factory native assets, production trust and sixteen isolated packaged GUI scenarios passed. Exact committed resources, three public asset downloads and update discovery from trusted 2026101601 passed. Personal working data remained unchanged. The normal local launcher uses the current development build. Linux execution remains unverified.
+
+## Signed Windows 2026102004 - public acceptance
+
+Published from immutable source `b96503988b7ba8f98951e9ca2076cf211685c4e0` after candidate and signed native
+smoke (1,185 factory loads each), 42 finite packaged acceptance scenarios, 7,353
+exact factory resource comparisons and 17,179 immutable checksums. All 1,026
+Engineering Tables documents publish current positive mass without regeneration.
+The independent reader inspected 1,030 Parts and integrated 146 trimmed-cylinder
+bodies with no stale values or errors. Production trust, all three anonymous
+public asset downloads and trusted 2026102002 update discovery passed. No live
+update installation/activation is claimed. User data and the stable local
+`zima-cad.bat` are preserved; Linux execution remains separate host work.
+See [release identity and finite limits](releases/2026102004.md).

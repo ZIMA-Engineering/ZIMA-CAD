@@ -78,3 +78,12 @@ The native matrix also independently checks the external anchor equation.
 The five-language source/catalog contract passes. Packaged Windows acceptance
 and native Linux execution remain separate gates. The diagnostic executable
 does not replace the user's normal CAD launcher or EXE.
+
+## Packaged Windows acceptance
+
+Signed [Windows 2026102004](../releases/2026102004.md) passed fresh committed
+build, candidate/signed native smoke, 42 finite packaged scenarios, immutable
+source/resource comparisons, production trust and public asset verification.
+The affected Unicode GUI paths and Slot/Save Copy workflows pass in the actual
+extracted runtime.
+Native Linux execution remains unverified on this Windows host.

@@ -36,28 +36,26 @@ Its linked editing and single-parent-file workflow were already included in
 Six old standalone primitives are removed; current modeling uses the Feature
 and profile workflows rather than the former primitive commands.
 
-## Current source changes and release acceptance
+## Latest released correction batch
 
-The latest accepted public Windows release at this review is
-[2026102002](releases/2026102002.md). Candidate 2003 was rejected before
-publication after a Unicode-path verifier failure. Its earlier smoke passes do
-not establish acceptance. Candidate [2026102004](releases/2026102004.md) remains
-unpublished until its complete fresh-build, archive, signed-runtime and GUI
-acceptance gates pass.
+Signed Windows [2026102004](releases/2026102004.md) is accepted and public from
+`b96503988b7ba8f98951e9ca2076cf211685c4e0`. It passed 42 finite packaged scenarios, all 1,185 native factory
+loads in both candidate and signed smoke, 1,026 current mass Relations, production
+trust and anonymous public asset verification. The previous 2003 candidate was
+rejected before publication; its failure remains recorded, not reclassified.
 
-Current source work includes Drawing axis-cross dimension contacts and curve
+The released batch includes Drawing axis-cross dimension contacts and curve
 balloons; analytic external references and conic centers; sheet-transition
 thickness inheritance; saveable missing-dimension Relations; localized Vladimír
-guidance; factory-source update repairs; Slot center H/V and 3D angular text
-landings. Unicode diagnostics and native long-path saving receive additional
-verification. The linked release notes distinguish implementation from package
-acceptance and describe approved native data/library updates.
+guidance; factory-source update repairs; Slot center H/V; 3D angular text landings;
+and Unicode/long-path saving. See the linked release for the precise native-data,
+library, test and approximation boundaries. Linux acceptance remains separate.
 
 ## Still unfinished or planned
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current corrections and Windows release | Finish remaining GUI/package checks, English documentation and five-language review; commit/push and publish only the verified signed package. |
+| Current correction/release batch | Completed in Windows 2026102004 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Multiple Up To faces and correction | Agreed ordered consecutive surface intersections, explicit reordering and signed correction; design/implementation still pending. Preserve geometry-side identity and obtain any required persisted-contract approval. |
 | Sketch projection onto faces | Planned within the Feature principle; associative 3D result, direction, clipping and ambiguous intersections still need design. |
@@ -69,8 +67,8 @@ acceptance and describe approved native data/library updates.
 | Continuing verification | Real-project geometry/reference recovery, larger Assemblies, solver edge cases, production Drawing workflows and a later comprehensive Undo/Redo audit. Undo/Redo itself is already implemented. |
 | Linux | Each new change/release requires native build and GUI/package verification on the Linux host. Windows results do not establish that acceptance. |
 
-The agreed immediate order remains program corrections and release acceptance,
-then the approved modeling follow-ups. FEM, voice and direct mesh brainstorming
+This correction/release batch is complete. Resume the agreed remaining library
+and modeling follow-ups; newly reported program defects retain priority. FEM, voice and direct mesh brainstorming
 do not interrupt the current work. Native Sketch offsets already exist;
 STEP-derived offsets are outside the requested scope.
 

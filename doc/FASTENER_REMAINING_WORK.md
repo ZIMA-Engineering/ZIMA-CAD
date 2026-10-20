@@ -1,14 +1,16 @@
 # Remaining fastener authoring - 2026-10-20
 
-Windows 2026102002 is published and immutable. The following work is authorized
-for a subsequent version. This is a completion checklist, not a claim that these
-families already contain accepted native models.
+Windows [2026102004](releases/2026102004.md) is published and immutable.
+Its accepted rows include the reviewed pressed wing nuts, symbolic steel insert
+lock nuts, formed-nose washers and compressed spherical washers. The table below
+distinguishes them from unfinished cast/toothed-washer work and excluded families.
+See [current project status](PROJECT_STATUS.md) for program and modeling priorities.
 
 | Family | Current state | Remaining work |
 | --- | --- | --- |
 | Historical wing nuts | Six pressed M3-M10 Parts installed; four private cast studies remain | The accepted pressed path moves the axisymmetric hub seam out of the wing plane. The exact failing case, 210 successive edits, M3/M10 mouse edits, six native Drawings and five-language pages passed; see [acceptance](PRESSED_WING_NUT_LIBRARY.md). Earlier private candidates remain rejected. Cast perimeter/root transitions, M16 source-radius disagreement and M24 indicative mass remain outstanding. |
-| Non-metallic insert lock nuts | Thirteen ISO 10511:2012 Parts, M3-M36, installed | User-selected single steel Part with a blue symbolic insert Body; both use steel density. All thirteen physical checks and 143 successive edit/persistence checks passed. M3/M36 native GUI scenarios and six native Drawings passed. Five-language tables retain the separate archived CSN dimensions. See [acceptance scope](INSERT_LOCK_NUT_LIBRARY.md); committed-source/release acceptance remains pending with the other families. |
-| Formed-nose tab washers | Thirteen formed M4-M27 native Flat/Bend/Flat Parts installed beside the preserved flat family | Original CSN 02 1753 (1962) preview reviewed; M4/M22 outside diameters differ from the archived shared table. All 273 successive edits, original identities, actual M4/M27 GUI edits, unfolding, thirteen seating Assemblies and six framed dimensioned Drawings passed. See [acceptance](FORMED_NOSE_WASHER_LIBRARY.md); committed-source/release acceptance remains pending. |
+| Non-metallic insert lock nuts | Thirteen ISO 10511:2012 Parts, M3-M36, installed | User-selected single steel Part with a blue symbolic insert Body; both use steel density. All thirteen physical checks and 143 successive edit/persistence checks passed. M3/M36 native GUI scenarios and six native Drawings passed. Five-language tables retain the separate archived CSN dimensions. See [acceptance scope](INSERT_LOCK_NUT_LIBRARY.md); committed-source and signed Windows 2026102004 acceptance passed. |
+| Formed-nose tab washers | Thirteen formed M4-M27 native Flat/Bend/Flat Parts installed beside the preserved flat family | Original CSN 02 1753 (1962) preview reviewed; M4/M22 outside diameters differ from the archived shared table. All 273 successive edits, original identities, actual M4/M27 GUI edits, unfolding, thirteen seating Assemblies and six framed dimensioned Drawings passed. See [acceptance](FORMED_NOSE_WASHER_LIBRARY.md); committed-source and signed Windows 2026102004 acceptance passed. |
 | Toothed and serrated washers | Archived dimensions/illustration; no factory models | Review the three distinct historical constructions and available ISO correspondence; author actual teeth, slits and formed geometry without substituting an ordinary plain washer; verify dependent edits and drawings. |
 | Spherical wheel washers | All five compressed native bores 12.5-22.5 mm installed | The two smallest explicitly select R/h6 within the original ±0.5 mm radius and +1/0 mm height tolerances. Each pair of additions passed 30 successive edits, actual GUI and six Drawings; the small pair has the company frame/title block at 2:1. All 32 preceding binary assets are unchanged. See [finite acceptance](verification/20261020-shaped-fasteners.md). |
 | Two-part locking nuts | Table only | Explicitly excluded by the user on 2026-10-20; do not implement in this follow-up. |
@@ -84,7 +86,7 @@ or move its source tag.
   Undo/Redo, save/reopen, real dialog and all five language checks pass. See
   [verification](verification/20261020-missing-dimension-relations.md).
   Do not silently discard all Relations or treat stale dependent values as
-  newly calculated. Package acceptance remains pending.
+  newly calculated. Signed Windows 2026102004 package acceptance passed.
 - New requested shared contextual command helper, named **Vladimír** by the
   user: extend the existing green Section guidance into reusable command-state
   guidance. Show the active task, expected next selection, rejection reason and
@@ -99,7 +101,7 @@ or move its source tag.
   native widget and integrated main-window checks, all five languages and both
   themes. See [verification](verification/20261020-vladimir-command-guidance.md)
   for scope and remaining coverage; this is not a claim of bespoke guidance for
-  every command. Release-package and native Linux acceptance remain pending.
+  every command. Signed Windows 2026102004 acceptance passed; native Linux acceptance remains pending.
 
 - An update on another machine could show Engineering Tables as an unavailable
   directory. Reproduction found that File Manager resolved factory source paths
@@ -108,14 +110,14 @@ or move its source tag.
   custom paths, order and disabled states are preserved. Portable settings,
   actual File Manager navigation and an isolated signed update introducing a
   new directory passed. See [verification](verification/20261020-factory-source-updates.md).
-  Acceptance in the next committed release package remains pending.
+  Committed signed Windows 2026102004 package acceptance passed.
 - Sheet Transition now inherits document thickness unless **Custom thickness**
   is enabled. The user approved the required native switch. Round and L/U
   transitions, volume/reference identity, Family/Relations, sheet states,
   Undo/Redo, native persistence, templates, actual GUI, units and all five
   languages passed. Open Properties also refresh their existing stylesheet on
   a live theme change. See [verification](verification/20261020-transition-thickness.md).
-  Acceptance in the next committed Windows package remains pending.
+  Committed signed Windows 2026102004 package acceptance passed.
 - External circular/elliptical references now have their own selectable center
   crosses. The user approved a persistent center-reference contract, then
   clarified the interaction: select **center + center for C**, and separately
@@ -124,8 +126,8 @@ or move its source tag.
   snapping, conic center following, repeated dimension edits/drags, source
   updates/loss, Undo/Redo and native persistence passed the finite native/GUI
   matrix. All six templates and five locales passed. See
-  [verification](verification/20261020-external-conic-centers.md). New Windows
-  package acceptance and native Linux execution remain separate gates.
+  [verification](verification/20261020-external-conic-centers.md). Signed Windows 2026102004
+  package acceptance passed; native Linux execution remains a separate gate.
 
 The user's latest order is to complete these current program fixes, update
 English documentation and all five locales, commit/push and publish a verified
@@ -156,7 +158,7 @@ new Windows release, then resume the unfinished library and modeling work above.
   exposed ANSI temporary-name conversion and a Save As temporary-length boundary.
   The file I/O correction preserves stored bytes and native identity. Four
   focused native suites and the actual deep GUI reproduction with all eight
-  naming policies pass; fresh committed-package acceptance remains pending. See
+  naming policies pass; fresh signed Windows 2026102004 package acceptance passed. See
   [native I/O verification](verification/20261020-native-unicode-io.md).
 
 ### Further ideas collected during program corrections (2026-10-20)

@@ -68,3 +68,12 @@ part of the fresh candidate 2004 acceptance.
 The corrected build uses the new identity
 [2026102004](../releases/2026102004.md). Native Linux compilation and GUI execution
 remain separate verification work on the Linux host.
+
+## Packaged Windows acceptance
+
+Signed [Windows 2026102004](../releases/2026102004.md) passed fresh committed
+build, candidate/signed native smoke, 42 finite packaged scenarios, immutable
+source/resource comparisons, production trust and public asset verification.
+The affected Unicode GUI paths and Slot/Save Copy workflows pass in the actual
+extracted runtime.
+Native Linux execution remains unverified on this Windows host.

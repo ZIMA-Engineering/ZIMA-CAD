@@ -54,12 +54,13 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest accepted signed Windows release is
-[2026102002](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102002).
-It includes Sketcher editing repairs, portable Drawing-font fixes and reviewed
-fastener library additions. See its [verification and limits](doc/releases/2026102002.md).
-Newer source changes are described in the [current status](doc/PROJECT_STATUS.md);
-source availability does not by itself establish a published portable release.
-Linux verification follows the separate handoff.
+[2026102004](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102004).
+It includes external conic references/centers, Sketcher editing and Slot H/V,
+3D angular text landings, Unicode Save/Save As, Drawing contacts, sheet-transition
+thickness inheritance, localized guidance and reviewed native fastener additions.
+See its [verification and limits](doc/releases/2026102004.md).
+The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
+work. Linux verification follows the separate handoff.
 
 ## Command line
 

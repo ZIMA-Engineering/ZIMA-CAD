@@ -71,3 +71,20 @@ the user's private remodeled pressed M10 nut were not bulk-converted or audited
 as factory files. Native Linux execution remains unverified on this Windows host.
 No user-visible application text changed in this audit; localization was reviewed
 and requires no new translation keys.
+
+## Signed Windows 2026102004 confirmation
+
+The fresh signed Unicode installation repeats the actual native CLI audit over
+all 1,026 Engineering Tables documents: all are `current_mass`, positive, bound
+to mass Relations and within their saved decimal precision. None used diagnostic
+in-memory regeneration. Evidence: `build/release-2004-library-mass/results.jsonl`
+and `summary.json`. The independent reader loads 1,030 Parts; its exact adaptive
+volume integration covers the 146 trimmed-cylinder bodies, with zero stale
+values/errors (`build/release-2004-independent-factory-properties.json`).
+This subset must not be presented as independent integration of every body.
+
+The new Assembly/screw PDF exports render pixel-identically to the previously
+visually inspected proofs, retaining 1.446/0.053 kg title-block masses. Four
+original model hashes remain unchanged. Pixel/hash evidence is under
+`build/demo-pdf-mass-review-2004`. Published asset identity and platform limits
+are in [Windows 2026102004](../releases/2026102004.md).

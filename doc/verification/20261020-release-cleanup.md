@@ -59,3 +59,27 @@ receipts improves directory organization; it is not a material disk-space saving
 No product UI or localization text changed in this cleanup. The normal repository
 `zima-cad.bat` remains unchanged. Future incremental builds may recompile the
 removed object files. Native Linux verification is outside this Windows cleanup.
+
+## Accepted 2026102004 staging retirement
+
+After signed Windows 2026102004 passed public-download and updater-discovery
+checks, its disposable staging inputs were retired. The signed and unsigned
+accepted archives, complete runnable verification installation and its source,
+compiler configuration evidence, smoke outputs and JSON receipts remain available.
+
+| Generated data | Logical bytes removed | Independent scope check |
+| --- | ---: | --- |
+| Completed candidate extraction | 5,875,337,939 | Accepted archive hash and complete candidate smoke passed; reports and sample exports retained |
+| Completed compiler staging tree | 4,797,520,390 | All three executable hashes matched the accepted runtime; no running process used the tree |
+| Exported source, pristine candidate tree and staging ZIP duplicate | 9,669,309,840 | Full source inventory matched the retained signed source; pristine files matched the accepted ZIP checksums; duplicate ZIP SHA-256 matched the retained archive |
+
+The small rounded-wing GUI fixture was retained at its compiled diagnostic path.
+The Qt SDK, release Git clone, user projects and every user verification
+installation were preserved. Receipts are
+`build/release-2004-candidate-extraction-cleanup.json`,
+`build/release-2004-compiled-stage-cleanup.json`,
+`build/release-2004-stage-retirement-proof.json` and
+`build/release-2004-retired-inputs-cleanup.json`.
+The last receipt observed 29,270,351,872 free bytes after cleanup; concurrent
+activity and NTFS allocation mean this is not a measured saving attributable
+solely to the removed logical bytes. No UI strings changed.

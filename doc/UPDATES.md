@@ -614,3 +614,16 @@ runtime/source checksums. The release includes linked Body surfaces and
 experimental FORM candidates; practical rounding/style acceptance and Linux
 execution remain explicitly separate. See the release record for SHA-256,
 timings, limitations and evidence locations.
+
+## Signed Windows 2026102004 - public acceptance
+
+Published from immutable source `b96503988b7ba8f98951e9ca2076cf211685c4e0` after candidate and signed native
+smoke (1,185 factory loads each), 42 finite packaged acceptance scenarios, 7,353
+exact factory resource comparisons and 17,179 immutable checksums. All 1,026
+Engineering Tables documents publish current positive mass without regeneration.
+The independent reader inspected 1,030 Parts and integrated 146 trimmed-cylinder
+bodies with no stale values or errors. Production trust, all three anonymous
+public asset downloads and trusted 2026102002 update discovery passed. No live
+update installation/activation is claimed. User data and the stable local
+`zima-cad.bat` are preserved; Linux execution remains separate host work.
+See [release identity and finite limits](releases/2026102004.md).

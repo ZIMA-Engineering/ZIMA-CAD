@@ -59,3 +59,12 @@ as immutable source geometry.
 The five-language localization contract passes; this rendering change adds no
 user-visible text. Fresh packaged Windows acceptance remains separate. Native
 Linux build/GUI verification remains outstanding on the Linux host.
+
+## Packaged Windows acceptance
+
+Signed [Windows 2026102004](../releases/2026102004.md) passed fresh committed
+build, candidate/signed native smoke, 42 finite packaged scenarios, immutable
+source/resource comparisons, production trust and public asset verification.
+The dedicated 1,344-case angular matrix and live View checks above were
+run in the native Windows source build; no separate packaged 1,344-case run is claimed.
+Native Linux execution remains unverified on this Windows host.
