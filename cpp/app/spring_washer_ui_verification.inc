@@ -8,7 +8,7 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         const bool castle=slot!=original.sketches.end();
         const auto meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Knurled nut meridian";});
         const bool knurl=meridian!=original.sketches.end();
-        const auto cap_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Cap dome meridian"||sketch.name=="DIN cap meridian"||sketch.name=="Closed end meridian"||sketch.name=="Pressed wing outline";});
+        const auto cap_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Cap dome meridian"||sketch.name=="DIN cap meridian"||sketch.name=="Closed end meridian"||sketch.name=="Pressed wing outline"||sketch.name=="Nose washer base";});
         const bool cap_nut=cap_meridian!=original.sketches.end();
         const bool csn_closed=cap_nut&&cap_meridian->name=="Closed end meridian";
         const auto weld_profile=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Weld projection profile"||sketch.name=="Flange weld projection profile";});

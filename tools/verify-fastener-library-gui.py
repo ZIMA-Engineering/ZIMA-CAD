@@ -14,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--models',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--kind',choices=('insert-lock-nuts','pressed-wing-nuts'),default='insert-lock-nuts')
+    parser.add_argument('--kind',choices=('insert-lock-nuts','pressed-wing-nuts','formed-nose-washers'),default='insert-lock-nuts')
     parser.add_argument('--gui',type=Path,default=ROOT/'build/cpp-windows-release/zima-cad-cpp.exe')
     args=parser.parse_args();out=args.output.resolve();assert out.is_relative_to(ROOT/'build') and not out.exists();out.mkdir(parents=True)
     checker=pin_checker(out);rows=json.loads((args.models/'manifest.json').read_text(encoding='utf-8'))['variants'];receipts=[]

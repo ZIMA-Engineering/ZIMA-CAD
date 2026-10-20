@@ -192,6 +192,53 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==4&&std::string(argv[1])=="--verify-native-seating") {
+            const auto shape=[](const char* path) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(fs::u8path(path)));
+                const auto* state=live.open_part(id);require(state,"Seating source is not a Part");
+                const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Seating requires one calculated Body");
+                TopoDS_Shape result;BRep_Builder builder;std::istringstream stream(boundary.body_outputs.begin()->second.get().kernel_shape.get());
+                BRepTools::Read(result,stream,builder);require(!result.IsNull()&&BRepCheck_Analyzer(result).IsValid(),"Invalid seating source");return result;
+            };
+            const auto first=shape(argv[2]),second=shape(argv[3]);BRepAlgoAPI_Common common(first,second);
+            require(common.IsDone(),"Seating material intersection failed");GProp_GProps properties;
+            BRepGProp::VolumeProperties(common.Shape(),properties,1e-12);
+            BRepExtrema_DistShapeShape distance(first,second);distance.Perform();
+            require(distance.IsDone()&&distance.Value()<1e-7,"Seating sources do not touch");
+            require(std::abs(properties.Mass())<1e-8,"Seating sources have material interference");
+            std::cout<<Json{{"material_intersection_mm3",properties.Mass()},{"contact_distance_mm",distance.Value()}}.dump()<<'\n';return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--formed-nose-washers") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            std::size_t checked{};
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/expected.at("filename").get<std::string>()));
+                const auto* state=live.open_part(id);require(state,"Expected native nose washer Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Nose washer calculation failed");
+                const auto& output=boundary.body_outputs.begin()->second.get();TopoDS_Shape shape;BRep_Builder builder;
+                std::istringstream stream(output.kernel_shape.get());BRepTools::Read(shape,stream,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid nose washer BRep");
+                std::size_t solids{};for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                require(solids==1&&output.solid_present&&output.physical_properties_current,"Nose washer lost its connected physical solid");
+                GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties,1e-12);
+                const double volume=properties.Mass();require(volume>0,"Nose washer has zero volume");
+                require(std::abs(volume-output.volume)<1e-8*volume,"Nose washer physical cache differs from BRep");
+                require(std::abs(volume-expected.at("independent_volume_mm3").get<double>())<1e-8*volume,"Nose washer independent section integral differs");
+                Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+                const std::array<double,6> actual{x0,y0,z0,x1,y1,z1};
+                for(std::size_t i=0;i<6;++i)near(actual[i],expected.at("bounds_mm")[i],"Nose washer physical extent");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume*expected.at("density_kg_mm3").get<double>())<=.50001e-6,"Nose washer BOM mass is stale");
+                require(doc.history.size()==3&&doc.sketches.size()==3,"Nose washer lost its native sheet history");
+                const auto bend=std::ranges::find_if(doc.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::Bend;});
+                require(bend!=doc.history.end()&&bend->bend.sheet_attachment&&bend->bend.radius_follows_thickness,"Nose washer lost its attached native Bend");
+                near(bend->bend.angle_degrees,expected.at("angle_degrees"),"Nose washer Bend angle");
+                for(const auto& sketch:doc.sketches)verify_profile_dragging(sketch);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Nose washer inspection changed the source");++checked;
+            }
+            std::cout<<checked<<" native nose washers: real Bend, connected BRep, independent volume, bounds, mass and profile dragging passed\n";return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--recalculate-candidate") {
             auto doc=document::PartDocument::load(fs::u8path(argv[2]));kernel::OcctKernel kernel;
             const auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc,nullptr);
@@ -216,7 +263,7 @@ int main(int argc,char** argv) {
             }
             std::cout<<rows.dump(2)<<'\n';return 0;
         }
-        if(argc==4&&std::string(argv[1])=="--wing-review-title") {
+        if(argc==4&&(std::string(argv[1])=="--wing-review-title"||std::string(argv[1])=="--reference-title")) {
             const auto path=fs::absolute(fs::u8path(argv[2]));const std::string locale=argv[3];
             require(std::set<std::string>{"cs","en","de","fr","ru"}.contains(locale),"Unsupported study title language");
             auto drawing=drawing::DrawingDocument::load(path);require(drawing.sheets.size()==1&&!drawing.sheets.front().views.empty(),"Wing review requires one sheet with real source views");

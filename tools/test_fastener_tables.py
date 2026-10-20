@@ -32,6 +32,20 @@ class Fasteners(unittest.TestCase):
         cls.data = generator.load_data(ROOT / 'tools/data/fastener-tables.json')
         cls.original = json.loads((ROOT / 'tools/data/fastener-source-tables.json').read_text(encoding='utf-8'))
 
+    def test_formed_nose_rows_preserve_original_diameters_and_archived_table(self):
+        pages={p['path']:p for p in self.data['pages']}
+        page=pages['06-WASHERS/05-LOCK/02-FORMED-NOSE']
+        rows={r[0]:tuple(float(v) for v in r[1:]) for r in page['rows']}
+        self.assertEqual(len(rows),13)
+        self.assertEqual(rows['M4'],(4.3,14,2.5,5.5,2.1,.3))
+        self.assertEqual(rows['M22'],(23,46,7,20,5,1))
+        parent=pages['06-WASHERS/05-LOCK']
+        self.assertEqual(parent['source_table'],'06-WASHERS/05-LOCK#0')
+        self.assertEqual(page['sources'],['formed_nose_1962'])
+        self.assertEqual(set(page['figures'][0]['localized_paths']),set(generator.LANGUAGES))
+        for language in generator.LANGUAGES:
+            self.assertIn('1962',generator.render(self.data,page,language))
+
     def test_pressed_wing_native_rows_keep_the_historical_family_separate(self):
         pages={p['path']:p for p in self.data['pages']}
         page=pages['05-NUTS/09-WING/01-PRESSED']

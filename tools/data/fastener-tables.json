@@ -13307,6 +13307,76 @@
       "ČSN 02 1665 · Zeichnung des nativen Modells",
       "ČSN 02 1665 · dessin du modèle natif",
       "ČSN 02 1665 · чертёж нативной модели"
+    ],
+    "formed_nose_title": [
+      "Pojistná podložka s nosem",
+      "External tab washer",
+      "Sicherungsblech mit Nase",
+      "Rondelle-frein à ergot",
+      "Стопорная шайба с носиком"
+    ],
+    "formed_nose_scope": [
+      "Nativní ohnuté modely M4–M27 podle původního náhledu ČSN 02 1753 z roku 1962, nikoli ověření vydání 2003. Vnější D je u M4 14 mm a u M22 46 mm; společná archivní tabulka zůstává zachována. Tabule, skutečný ohyb 90° a navázaná rovná část nosu. Zvolený vnitřní poloměr r = t a K = 0,5. Hmotnost se počítá z geometrie při hustotě oceli 7 850 kg/m³. Rozměry a tolerance montážní díry nejsou nahrazeny zkušebním protikusem.",
+      "Native formed M4–M27 models use the original 1962 CSN 02 1753 preview; the 2003 edition is not verified. Outside D is 14 mm for M4 and 46 mm for M22; the combined archived table remains preserved. Flat sheet, real 90° Bend and attached straight nose leg. Selected inside radius r = t and K = 0.5. Mass is calculated from geometry at steel density 7,850 kg/m³. Test fixtures do not replace the mounting-hole dimensions and tolerances.",
+      "Native gebogene Modelle M4–M27 nach der ursprünglichen Vorschau CSN 02 1753 von 1962; Ausgabe 2003 nicht geprüft. Außen-D beträgt 14 mm für M4 und 46 mm für M22; die gemeinsame historische Tabelle bleibt erhalten. Blech, echte 90°-Biegung und angeschlossener gerader Nasenteil. Gewählter Innenradius r = t, K = 0,5. Masse aus der Geometrie mit Stahldichte 7.850 kg/m³. Prüfkörper ersetzen keine Maße und Toleranzen der Montagebohrung.",
+      "Modèles natifs formés M4–M27 selon l’aperçu original CSN 02 1753 de 1962 ; édition 2003 non vérifiée. D extérieur vaut 14 mm pour M4 et 46 mm pour M22 ; le tableau historique commun reste conservé. Tôle, vrai pli à 90° et partie droite de l’ergot attachée. Rayon intérieur choisi r = t, K = 0,5. Masse calculée sur la géométrie avec une densité d’acier de 7 850 kg/m³. Les pièces d’essai ne remplacent pas les dimensions et tolérances du trou de montage.",
+      "Нативные гнутые модели M4–M27 по исходному обзору CSN 02 1753 1962 года; издание 2003 не проверено. Наружный D равен 14 мм для M4 и 46 мм для M22; общая архивная таблица сохранена. Лист, настоящий гиб 90° и связанная прямая часть носика. Выбран внутренний радиус r = t, K = 0,5. Масса рассчитана по геометрии при плотности стали 7 850 кг/м³. Испытательные детали не заменяют размеры и допуски монтажного отверстия."
+    ],
+    "formed_nose_bolt": [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    "formed_nose_d": [
+      "d [mm]",
+      "d [mm]",
+      "d [mm]",
+      "d [mm]",
+      "d [mm]"
+    ],
+    "formed_nose_D": [
+      "D [mm]",
+      "D [mm]",
+      "D [mm]",
+      "D [mm]",
+      "D [mm]"
+    ],
+    "formed_nose_f": [
+      "f [mm]",
+      "f [mm]",
+      "f [mm]",
+      "f [mm]",
+      "f [mm]"
+    ],
+    "formed_nose_l": [
+      "l [mm]",
+      "l [mm]",
+      "l [mm]",
+      "l [mm]",
+      "l [mm]"
+    ],
+    "formed_nose_h": [
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]"
+    ],
+    "formed_nose_t": [
+      "t [mm]",
+      "t [mm]",
+      "t [mm]",
+      "t [mm]",
+      "t [mm]"
+    ],
+    "formed_nose_art": [
+      "ČSN 02 1753 (1962) · výkres nativního modelu",
+      "ČSN 02 1753 (1962) · native model drawing",
+      "ČSN 02 1753 (1962) · Zeichnung des nativen Modells",
+      "ČSN 02 1753 (1962) · dessin du modèle natif",
+      "ČSN 02 1753 (1962) · чертёж нативной модели"
     ]
   },
   "sources": {
@@ -13677,6 +13747,10 @@
     "pressed_wing_stn": {
       "label": "STN 02 1665 · historical excerpt, p. 16",
       "url": "https://cloud6.edupage.org/cloud/Vyber_noriem_PDF.pdf?z:LUPeiSrXT3T/KEbijWTB1cDo8rhSxS69cRvC%2Band2TKNbHFceQEhSDQH2eAjAm4J="
+    },
+    "formed_nose_1962": {
+      "label": "ČSN 02 1753 (1962)",
+      "url": "https://nahledy.normy.biz/n.php?i=283"
     }
   },
   "pages": [
@@ -57101,6 +57175,165 @@
             "de": "PWN-CSN021665-M08.0-REFERENCE_de.png",
             "fr": "PWN-CSN021665-M08.0-REFERENCE_fr.png",
             "ru": "PWN-CSN021665-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
+    },
+    {
+      "path": "06-WASHERS/05-LOCK/02-FORMED-NOSE",
+      "title": "formed_nose_title",
+      "heading": "formed_nose_title",
+      "id": "2f348c7d-090a-59a7-b296-0e64603bf721",
+      "headers": [
+        "formed_nose_bolt",
+        "formed_nose_d",
+        "formed_nose_D",
+        "formed_nose_f",
+        "formed_nose_l",
+        "formed_nose_h",
+        "formed_nose_t"
+      ],
+      "rows": [
+        [
+          "M4",
+          "4.3",
+          "14",
+          "2.5",
+          "5.5",
+          "2.1",
+          "0.3"
+        ],
+        [
+          "M5",
+          "5.3",
+          "17",
+          "3.5",
+          "7",
+          "2.5",
+          "0.5"
+        ],
+        [
+          "M6",
+          "6.4",
+          "18",
+          "3.5",
+          "7.5",
+          "2.5",
+          "0.5"
+        ],
+        [
+          "M8",
+          "8.4",
+          "22",
+          "3.5",
+          "9",
+          "3.6",
+          "0.8"
+        ],
+        [
+          "M10",
+          "10.5",
+          "26",
+          "4.5",
+          "10",
+          "4.6",
+          "0.8"
+        ],
+        [
+          "M12",
+          "13",
+          "30",
+          "4.5",
+          "12",
+          "5",
+          "1"
+        ],
+        [
+          "M14",
+          "15",
+          "32",
+          "4.5",
+          "13",
+          "5",
+          "1"
+        ],
+        [
+          "M16",
+          "17",
+          "36",
+          "5.5",
+          "15",
+          "5",
+          "1"
+        ],
+        [
+          "M18",
+          "19",
+          "40",
+          "6",
+          "17",
+          "5",
+          "1"
+        ],
+        [
+          "M20",
+          "21",
+          "42",
+          "6",
+          "18",
+          "5",
+          "1"
+        ],
+        [
+          "M22",
+          "23",
+          "46",
+          "7",
+          "20",
+          "5",
+          "1"
+        ],
+        [
+          "M24",
+          "25",
+          "50",
+          "7",
+          "21",
+          "6",
+          "1"
+        ],
+        [
+          "M27",
+          "28",
+          "58",
+          "8",
+          "23",
+          "9",
+          "1.5"
+        ]
+      ],
+      "notes": [
+        "units",
+        "formed_nose_scope"
+      ],
+      "sources": [
+        "formed_nose_1962"
+      ],
+      "sections": [],
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "display_row_count": 13,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "NTW-M08-REFERENCE.png",
+          "caption": "formed_nose_art",
+          "localized_paths": {
+            "cs": "NTW-M08-REFERENCE_cs.png",
+            "en": "NTW-M08-REFERENCE_en.png",
+            "de": "NTW-M08-REFERENCE_de.png",
+            "fr": "NTW-M08-REFERENCE_fr.png",
+            "ru": "NTW-M08-REFERENCE_ru.png"
           }
         }
       ]

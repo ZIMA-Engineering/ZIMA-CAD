@@ -94,7 +94,7 @@ def notes(v,lang):
     texts.append(dict(text=detail[i],x_mm=190,y_mm=168,height_mm=2.2));return dict(locale=lang,texts=texts)
 
 
-def main():
+def main(reference_stem=None):
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('stage','output'):p.add_argument('--'+key,type=Path,required=True)
     args=p.parse_args();stage=args.stage.resolve();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
@@ -103,9 +103,10 @@ def main():
     checker=pin_checker(out)
     for standard,angle in groups:
         values=[v for v in rows if v['standard']==standard and v.get('included_angle_degrees',0)==angle]
-        v=min(values,key=lambda v:abs(v.get('diameter_mm',20)-8))
+        v=min(values,key=lambda v:abs(v.get('diameter_mm',v.get('nominal_mm',20))-8))
         folder=out/(standard.replace('ČSN','CSN').replace(' ','').replace(':','-')+(f'-A{angle:g}' if angle else ''));folder.mkdir()
-        target=folder/(Path(v['filename']).stem+'-REFERENCE.drwz');native=art.studs.api.Native(ROOT/'build/cpp-windows-release/zima-cad-cli.exe',folder/'evidence')
+        stem=reference_stem(v) if reference_stem else Path(v['filename']).stem
+        target=folder/(stem+'-REFERENCE.drwz');native=art.studs.api.Native(ROOT/'build/cpp-windows-release/zima-cad-cli.exe',folder/'evidence')
         try:sid,expected,model_dimensions=reference(native,v,stage/v['filename'],target)
         finally:native.close()
         subprocess.run([str(checker),'--rebase-reference-drawing',str(target)],check=True)
