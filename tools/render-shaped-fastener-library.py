@@ -14,12 +14,13 @@ renderer=importlib.util.module_from_spec(spec);spec.loader.exec_module(renderer)
 art=renderer.art;LANGUAGES=renderer.LANGUAGES
 
 
-def reference(native,v,source,target):
+def reference(native,v,source,target,sheet_scale=None):
     identifier=next(d['id'] for d in native.run('open',path=str(source)) if d['active'])
     washer=v.get('state')=='compressed';h=v['height_mm']
     outside=v.get('outside_mm',v.get('flange_diameter_mm',2*v.get('across_flats_mm',1)/math.sqrt(3)))/2
     section=native.run('section.create',plane='XY',path_mm=[[-2*outside,0],[2*outside,0]],name='A-A',show_cut=True)['object']
-    native.run('new',type='drawing',name=target.stem);sheet=native.run('drawing.sheet.list')['items'][0];sid=sheet['sheet'];scale=42/(2*outside)
+    native.run('new',type='drawing',name=target.stem);sheet=native.run('drawing.sheet.list')['items'][0];sid=sheet['sheet'];scale=42/(2*outside) if sheet_scale is None else sheet_scale
+    if sheet_scale is not None:native.run('drawing.sheet.set',sheet=sid,scale=scale)
     top=native.run('drawing.view.create',sheet=sid,source=identifier,camera=dict(horizontal=[0,1,0],vertical=[1,0,0],depth=[0,0,1]),
         x_mm=sheet['width_mm']-65,y_mm=sheet['height_mm']-58,scale=scale,display_style='visible_edges',show_caption=False)['view']
     side=native.run('drawing.view.create',sheet=sid,parent_view=top,projection_direction='right',distance_mm=65)['view']
@@ -94,7 +95,7 @@ def notes(v,lang):
     texts.append(dict(text=detail[i],x_mm=190,y_mm=168,height_mm=2.2));return dict(locale=lang,texts=texts)
 
 
-def main(reference_stem=None):
+def main(reference_stem=None,sheet_scale=None):
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('stage','output'):p.add_argument('--'+key,type=Path,required=True)
     args=p.parse_args();stage=args.stage.resolve();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
@@ -107,7 +108,7 @@ def main(reference_stem=None):
         folder=out/(standard.replace('ČSN','CSN').replace(' ','').replace(':','-')+(f'-A{angle:g}' if angle else ''));folder.mkdir()
         stem=reference_stem(v) if reference_stem else Path(v['filename']).stem
         target=folder/(stem+'-REFERENCE.drwz');native=art.studs.api.Native(ROOT/'build/cpp-windows-release/zima-cad-cli.exe',folder/'evidence')
-        try:sid,expected,model_dimensions=reference(native,v,stage/v['filename'],target)
+        try:sid,expected,model_dimensions=reference(native,v,stage/v['filename'],target,**({} if sheet_scale is None else dict(sheet_scale=sheet_scale)))
         finally:native.close()
         subprocess.run([str(checker),'--rebase-reference-drawing',str(target)],check=True)
         for lang in LANGUAGES:

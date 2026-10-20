@@ -25,10 +25,18 @@ weld=importlib.util.module_from_spec(spec);spec.loader.exec_module(weld)
 def variants(kind='washers',washer_bores=(20.5,)):
     facts=json.loads((ROOT/'tools/data/wheel-fastener-reviewed-dimensions.json').read_text(encoding='utf-8'))
     result=[]
-    # Explicit selection keeps unresolved small profiles out of the offer.
+    # Explicit selection preserves the previously accepted default assets.
     assert set(washer_bores)<=set(r[0] for r in facts['washer_rows'])
     for row in [r for r in facts['washer_rows'] if r[0] in washer_bores] if kind=='washers' else []:
         v=dict(zip(facts['washer_columns'],row));d=v['bore_mm']
+        selected=facts.get('washer_selected_sections',{}).get(format(d,'g'))
+        if selected:
+            for key in ('sphere_radius_mm','height_mm'):
+                nominal=v[key];delta=selected[key]-nominal
+                lo,hi=facts['washer_tolerances'][key]
+                assert lo<=delta<=hi,(key,nominal,selected)
+                v['source_nominal_'+key]=nominal;v[key]=selected[key]
+            v['section_selection']=selected['reason']
         v.update(filename=f'SPHW-DIN74361C-D{d:04.1f}.prtz',standard='DIN 74361 C',family='07-SPHERICAL',
             state='compressed',thickness_mm=v['height_mm'],corner_radius_mm=.1,
             split_gap_mm=1,split_angle_degrees=45,density_kg_mm3=7.85e-6,material='Spring steel',

@@ -51,12 +51,11 @@ to the same Body, with its length related to height. No substitute solid or
 external geometry is used to display its axis.
 
 The initial offer contained only the M20 washer. The accepted additions below
-extend it to bores 18.5, 20.5 and 22.5 mm. The other two original source rows
-remain dimensional facts. The initially assumed meridian is inconsistent for the
-M12 nominal row, and those smaller profiles have not been accepted. They are not
-silently extrapolated or installed. Free spring shape, preload, zinc coatings,
-manufacturing tolerances and complete standards certification are outside these
-nominal CAD models. Mass always follows calculated material volume and the
+extend it to all five source bores: 12.5, 14.5, 18.5, 20.5 and 22.5 mm. The two
+smallest use explicitly selected dimensions within the primary table's radius
+and height tolerances, recorded below. Free spring shape, preload, zinc coatings,
+full manufacturing tolerance variation and complete standards certification are
+outside these CAD models. Mass always follows calculated material volume and the
 assigned 7,850 kg/m3 density, rather than indicative catalog mass.
 
 ## Verification and persistence
@@ -135,10 +134,40 @@ checks passed; all 27 fastener table tests passed. Evidence is under
 hash and refuses different existing assets. The table continues to illustrate
 its unchanged 20.5 mm reference and offers the three verified native sizes.
 
-The 12.5 mm nominal row produces negative outside wall thickness with the
-currently interpreted flat-back/spherical-front section. The 14.5 mm row leaves
-about 0.072 mm, less than the selected R0.1 lower corner. These are unresolved
-profile interpretations, not proof that actual standard-compliant products
-cannot exist. No diameter, height, spherical radius, tolerance or density has
-been silently adjusted to force an offered model. Native Linux and the next
+The initial nominal-only section gave a negative outside wall for bore 12.5 mm
+and only 0.072 mm for 14.5 mm. Reviewing the original table header established
+the specified radius tolerance of ±0.5 mm and compressed-height tolerance of
++1/0 mm. The completed small models use the following explicit selections:
+
+| Bore | Source nominal R / h6 | Selected R / h6 | Outside wall before R0.1 | Calculated mass |
+| --- | --- | --- | --- | --- |
+| 12.5 mm | 12 / 5 mm | 12.5 / 6 mm | 0.716273558 mm | 8.946600 g |
+| 14.5 mm | 14 / 6 mm | 14.5 / 6 mm | 0.675276165 mm | 11.218039 g |
+
+Both retain the tabulated outside and inner-flat transition diameters. The wall
+is independently derived as `h6 - sqrt(R² - (d8/2)²) + sqrt(R² - (d7/2)²)`.
+The reviewed source JSON retains the nominal rows and separately records the
+tolerances and selected sections. The factory table displays actual initial CAD
+dimensions and explains the selection in all five languages. Indicative source
+masses remain source facts; saved mass follows geometry at 7,850 kg/m³.
+
+Both additions passed 30 successive native edits with Undo/Redo, Regenerate,
+save/reopen, independent volume/mass/contact equations, original face identities
+and locked/unlocked profile dragging. Actual GUI tests performed three radius
+edits on each Part. Six new reference Drawings have two first-angle views,
+section hatching, axes, four manual dimensions and the actual model R12.5.
+They retain the native A4 frame and localized company title-block Family,
+ZIMA-Engineering, date, positive source mass and true 2:1 scale. Short localized
+reference names keep the title inside its cell. The full English sheet was
+visually checked after correcting the initial long-name overflow; every
+localized title passed native field and identity checks.
+
+Evidence: `build/wheel-washer-small-v1`, `wheel-washer-small-edits-v1`,
+`wheel-washer-small-gui-v1`, `wheel-washer-small-reference-v3`,
+`wheel-washer-small-drawings-v3`, and `wheel-washer-small-thumbnails-v1`.
+The earlier reference v2 is superseded because its long title overflowed.
+Every staged Drawing passed native regeneration and Save As/reopen. Installation
+checked all source/output hashes and receipts; all 32 preceding native/artwork
+assets in this family remain byte-identical. All 27 fastener table tests and
+five-language browser/selectable-text A4 checks passed. Native Linux and the next
 Windows packaged-runtime acceptance remain pending.

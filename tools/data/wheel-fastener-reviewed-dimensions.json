@@ -108,5 +108,32 @@
       90
     ]
   ],
-  "scope": "Nominal CAD geometry from the original edition. User-requested M20x1.5 SW27 type A; two separately identified type F seat angles. Schematic native threads. Do not infer interchangeability with a later DIN 74361 edition."
+  "scope": "Nominal CAD geometry from the original edition. User-requested M20x1.5 SW27 type A; two separately identified type F seat angles. Schematic native threads. Do not infer interchangeability with a later DIN 74361 edition.",
+  "washer_tolerances": {
+    "bore_mm": [
+      0,
+      0.5
+    ],
+    "height_mm": [
+      0,
+      1
+    ],
+    "sphere_radius_mm": [
+      -0.5,
+      0.5
+    ],
+    "outside_and_transition_diameters": "Approximate values in the primary table."
+  },
+  "washer_selected_sections": {
+    "12.5": {
+      "sphere_radius_mm": 12.5,
+      "height_mm": 6,
+      "reason": "Select the upper permitted sphere radius and compressed height; retain both tabulated approximate diameters. This leaves 0.716273558 mm of outer wall before the selected R0.1 round."
+    },
+    "14.5": {
+      "sphere_radius_mm": 14.5,
+      "height_mm": 6,
+      "reason": "Select the upper permitted sphere radius and nominal compressed height; retain both tabulated approximate diameters. This leaves 0.675276165 mm of outer wall before the selected R0.1 round."
+    }
+  }
 }
