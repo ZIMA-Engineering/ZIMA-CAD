@@ -7,6 +7,8 @@
 #include <string>
 #include <set>
 #include <variant>
+#include <vector>
+#include <utility>
 
 namespace zima::document {
 
@@ -43,6 +45,11 @@ struct RelationProgramData;
 class RelationProgram {
 public:
     explicit RelationProgram(const std::string& source);
+    // Preserve the authored source while disabling assignments whose persisted
+    // dimension no longer exists, including their dependent targets. Other
+    // validation and calculation errors retain their ordinary strict behavior.
+    [[nodiscard]] RelationProgram without_missing_dimensions(const RelationInputs&,
+        std::vector<RelationError>* skipped = nullptr) const;
     // All names, assignments and cycles are checked, including inactive branches.
     void validate(const RelationInputs&) const;
     // Typed angles use the document's angular unit; scalar sin/cos/tan inputs
@@ -63,6 +70,7 @@ public:
         const std::set<std::string>& fixed_unit_names = {},
         double old_degrees_per_angle_unit = 1) const;
 private:
+    explicit RelationProgram(std::shared_ptr<const RelationProgramData> data):data_(std::move(data)){}
     [[nodiscard]] std::map<std::string, RelationValue> evaluate_impl(const RelationInputs&,
         int, bool dimensions_only, double degrees_per_angle_unit, bool physical_only) const;
     std::shared_ptr<const RelationProgramData> data_;

@@ -7,6 +7,7 @@
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include "application_settings.hpp"
@@ -361,6 +362,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(arrow&&arrow->text()==settings.qt_translations.value("Insert dimension from View"),"Relation picker is untranslated");
             check(dialog.findChild<QPushButton*>("relationsImport")->text()==settings.qt_translations.value("Import text…"),"Relation import is untranslated");
             check(dialog.findChild<QPushButton*>("relationsExport")->text()==settings.qt_translations.value("Export text…"),"Relation export is untranslated");
+            auto* editor=dialog.findChild<QPlainTextEdit*>("relationsEditor");editor->setPlainText("d42 = 1\nlabel = d42 & model.mass\nmass = model.mass\n");
+            dialog.set_relation_inputs({{"model.mass",{{1.,{0,0,1}},false,true}}});
+            const auto* diagnostic=dialog.findChild<QLabel*>("relationsUnavailableDimensions");
+            const auto expected=settings.qt_translations.value("Line %1: %2 %3").arg(1).arg(settings.qt_translations.value("This relation refers to an unavailable dimension and will be skipped."),"d42");
+            check(diagnostic&&!diagnostic->isHidden()&&diagnostic->text()==expected,"Unavailable dimension diagnostic is untranslated");
+            check(editor->extraSelections().size()==2,"Unavailable relation rows are not both marked");
         }
         {
             assembly::PartOccurrence occurrence;occurrence.name="Source";

@@ -398,6 +398,11 @@ RelationsDialog::RelationsDialog(
     auto* insert_button=new QPushButton(tr("Insert text…"),this);insert_button->setObjectName("relationsInsertText");
     actions->addWidget(import_button);actions->addWidget(export_button);actions->addWidget(insert_button);actions->addStretch();content_layout()->addLayout(actions);
     editor_=new RelationTextEditor(this);editor_->setPlainText(QString::fromStdString(relations));content_layout()->addWidget(editor_,3);
+    unavailable_dimensions_=new QLabel(this);unavailable_dimensions_->setObjectName("relationsUnavailableDimensions");
+    unavailable_dimensions_->setWordWrap(true);unavailable_dimensions_->hide();content_layout()->addWidget(unavailable_dimensions_);
+    diagnostics_timer_=new QTimer(this);diagnostics_timer_->setSingleShot(true);diagnostics_timer_->setInterval(150);
+    connect(editor_,&QPlainTextEdit::textChanged,diagnostics_timer_,qOverload<>(&QTimer::start));
+    connect(diagnostics_timer_,&QTimer::timeout,this,[this]{refresh_dimension_diagnostics();});
     pick_dimension_=new QPushButton(zima::ui::reference_arrow_icon(Qt::RightArrow),tr("Insert dimension from View"),this);
     pick_dimension_->setObjectName("relationsPickDimension");pick_dimension_->setCheckable(true);actions->insertWidget(0,pick_dimension_);
     picked_dimension_=new QLabel(this);picked_dimension_->setObjectName("relationsPickedDimension");content_layout()->addWidget(picked_dimension_);
@@ -430,6 +435,20 @@ RelationsDialog::RelationsDialog(
     });
 }
 
+void RelationsDialog::set_relation_inputs(zima::document::RelationInputs values) {
+    relation_inputs_=std::move(values);has_relation_inputs_=true;refresh_dimension_diagnostics();
+}
+void RelationsDialog::refresh_dimension_diagnostics() {
+    if(!has_relation_inputs_)return;
+    std::vector<zima::document::RelationError> issues;
+    try {static_cast<void>(zima::document::RelationProgram(editor_->toPlainText().toStdString()).without_missing_dimensions(relation_inputs_,&issues));}
+    catch(const zima::document::RelationError&){unavailable_dimensions_->hide();return;}
+    std::vector<int> lines;for(const auto& issue:issues)lines.push_back(issue.line);editor_->mark_lines(lines);
+    unavailable_dimensions_->setVisible(!issues.empty());
+    if(!issues.empty()) {
+        const auto& issue=issues.front();unavailable_dimensions_->setText(tr("Line %1: %2 %3").arg(issue.line).arg(tr(issue.message.c_str()),QString::fromStdString(issue.detail)));
+    }
+}
 void RelationsDialog::set_dimension_catalog(
     std::vector<zima::document::DimensionParameter> parameters,
     const zima::document::DimensionIdentifiers& identifiers,

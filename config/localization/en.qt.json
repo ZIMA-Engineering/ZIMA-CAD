@@ -2501,5 +2501,6 @@
   "Duplicate symbol identity": "Duplicate symbol identity",
   "Rozložit symbol": "Explode symbol",
   "Osový kříž (vodorovná osa)": "Centre cross (horizontal axis)",
-  "Osový kříž (svislá osa)": "Centre cross (vertical axis)"
+  "Osový kříž (svislá osa)": "Centre cross (vertical axis)",
+  "This relation refers to an unavailable dimension and will be skipped.": "This relation refers to an unavailable dimension and will be skipped."
 }

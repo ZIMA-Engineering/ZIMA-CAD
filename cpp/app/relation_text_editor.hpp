@@ -6,6 +6,7 @@
 #include <QKeyEvent>
 #include <QFontDatabase>
 #include <QRegularExpression>
+#include <vector>
 
 namespace zima::app {
 class RelationSyntax final : public QSyntaxHighlighter {
@@ -65,10 +66,19 @@ public:
         connect(this,&QPlainTextEdit::textChanged,this,[this]{setExtraSelections({});});margins();
     }
     void show_error(int line) {
+        mark_lines({line});
         auto block=document()->findBlockByNumber(std::max(0,line-1));if(!block.isValid())return;
-        QTextEdit::ExtraSelection selection;selection.cursor=QTextCursor(block);
-        selection.format.setBackground(QColor(220,60,60,70));selection.format.setProperty(QTextFormat::FullWidthSelection,true);
-        setExtraSelections({selection});setTextCursor(selection.cursor);ensureCursorVisible();setFocus();
+        setTextCursor(QTextCursor(block));ensureCursorVisible();setFocus();
+    }
+    void mark_lines(const std::vector<int>& lines) {
+        QList<QTextEdit::ExtraSelection> selections;
+        for(const auto line:lines) {
+            auto block=document()->findBlockByNumber(std::max(0,line-1));if(!block.isValid())continue;
+            QTextEdit::ExtraSelection selection;selection.cursor=QTextCursor(block);
+            selection.format.setBackground(QColor(220,60,60,70));selection.format.setProperty(QTextFormat::FullWidthSelection,true);
+            selections.push_back(selection);
+        }
+        setExtraSelections(selections);
     }
 protected:
     void resizeEvent(QResizeEvent* event) override {

@@ -2501,5 +2501,6 @@
   "Duplicate symbol identity": "Identité de symbole en double",
   "Rozložit symbol": "Décomposer le symbole",
   "Osový kříž (vodorovná osa)": "Croix d’axes (axe horizontal)",
-  "Osový kříž (svislá osa)": "Croix d’axes (axe vertical)"
+  "Osový kříž (svislá osa)": "Croix d’axes (axe vertical)",
+  "This relation refers to an unavailable dimension and will be skipped.": "Cette relation fait référence à une cote indisponible et sera ignorée."
 }

@@ -63,7 +63,8 @@ template<class Doc> void convert_units(Doc& doc,const std::map<std::string,std::
 template<class Doc> void dimensions(Doc& doc,const std::map<std::string,double>& physical) {
     if(doc.relations.empty())return;
     const auto definitions=relation_dimensions(doc);
-    const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),true,degrees_per_angle_unit(doc));
+    const auto source_inputs=inputs(doc,physical);
+    const auto calculated=document::RelationProgram(doc.relations).without_missing_dimensions(source_inputs).evaluate(source_inputs,static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),true,degrees_per_angle_unit(doc));
     std::vector<std::pair<document::FamilyColumn,double>> pending;
     for(const auto& [name,value]:calculated)if(const auto d=definitions.find(name);d!=definitions.end()) {
         const double native=std::get<double>(value.data)*d->second.native_scale;
@@ -94,7 +95,8 @@ template<class Doc> void dimensions(Doc& doc,const std::map<std::string,double>&
 }
 template<class Doc> auto physical_parameter_values(const Doc& doc,const std::map<std::string,double>& physical) {
     if(doc.relations.empty())return std::map<std::string,document::RelationValue>{};
-    return document::RelationProgram(doc.relations).evaluate_physical_parameters(inputs(doc,physical),
+    const auto source_inputs=inputs(doc,physical);
+    return document::RelationProgram(doc.relations).without_missing_dimensions(source_inputs).evaluate_physical_parameters(source_inputs,
         static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),degrees_per_angle_unit(doc));
 }
 template<class Doc> bool parameter_changed(const Doc& doc,const std::string& name,const std::string& text) {
@@ -113,8 +115,9 @@ template<class Doc> bool parameters(Doc& doc,const std::map<std::string,double>&
     if(doc.relations.empty())return false;
     const auto definitions=physical_only?std::map<std::string,RelationDimension>{}:relation_dimensions(doc);
     const int decimals=static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3));
+    const auto source_inputs=inputs(doc,physical);
     const auto calculated=physical_only?physical_parameter_values(doc,physical):
-        document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),decimals,false,degrees_per_angle_unit(doc));
+        document::RelationProgram(doc.relations).without_missing_dimensions(source_inputs).evaluate(source_inputs,decimals,false,degrees_per_angle_unit(doc));
     bool changed=false;
     for(const auto& [name,value]:calculated)if(!definitions.contains(name)) {
         if(name=="color") {

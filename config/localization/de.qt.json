@@ -2501,5 +2501,6 @@
   "Duplicate symbol identity": "Doppelte Symbolidentität",
   "Rozložit symbol": "Symbol auflösen",
   "Osový kříž (vodorovná osa)": "Achsenkreuz (waagerechte Achse)",
-  "Osový kříž (svislá osa)": "Achsenkreuz (senkrechte Achse)"
+  "Osový kříž (svislá osa)": "Achsenkreuz (senkrechte Achse)",
+  "This relation refers to an unavailable dimension and will be skipped.": "Diese Relation verweist auf ein nicht verfügbares Maß und wird übersprungen."
 }

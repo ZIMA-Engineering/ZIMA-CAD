@@ -39,6 +39,106 @@ or move its source tag.
 
 ## Requested follow-up after nut completion
 
+### Program corrections reported during completion (2026-10-20)
+
+- Disk-space emergency: removed two unsigned candidate ZIP copies, a disposable
+  portable-font runtime, exact checksum-verified 2026101906 test source/runtime
+  copies and four obsolete local signed archives. The complete latest 2026102002
+  verification installation was retained after automatic approval review rejected
+  removing its source copy. Approximately 10.4 GiB of generated copies were
+  removed; the observed free space afterward was 12.5 GiB. Current development
+  binaries, dependencies, user settings, projects, source and factory libraries
+  were preserved. Local receipts: `build/disk-cleanup-20261020-*`.
+- User file `Projects/31.prtz`: two unlocked driving centre-distance dimensions
+  in three equal circles were rejected despite two remaining degrees of freedom.
+  The same synthetic case failed before the correction and passes afterward.
+  The circular simultaneous fitter had restricted EqualRadius to arcs. Adding
+  native circle/circle pairs fixes both actual file edits while preserving the
+  existing mixed circle/arc rejection path. Locked-distance centre-drag
+  projection also needs that fit when sequential projection fails. The finite
+  256-case native matrix, 64 additional base-centre drag cases and actual-file
+  GUI checks pass. See [verification](verification/20261020-equal-circle-dimension-edits.md)
+  for independent equations, repeated edits, persistence and coverage gaps.
+- The user remodeled `PWN-CSN021665-M10.0.prtz` interactively: symmetric wing
+  placement and inward root rounding, contained by the central hub. Preserve the
+  user's changed asset and compare its authored history against Git before
+  revising the generator or restoring dimension-dependent Relations. The user
+  removed the driving dimension Relations because deleting an Fx dimension
+  prevented Save; the saved copy retains its mass and stock expressions.
+- Approved desired missing-Relations behavior: preserve authored source, skip
+  unavailable dimension assignments and dependent expressions, identify affected
+  rows, and still evaluate independent valid physical parameters during Save.
+  Save must not change driving geometry. The transient Relation subset,
+  dependency propagation and editor diagnostics are implemented; native Save,
+  Undo/Redo, save/reopen, real dialog and all five language checks pass. See
+  [verification](verification/20261020-missing-dimension-relations.md).
+  Do not silently discard all Relations or treat stale dependent values as
+  newly calculated. Package acceptance remains pending.
+- New requested shared contextual command helper, named **Vladimír** by the
+  user: extend the existing green Section guidance into reusable command-state
+  guidance. Show the active task, expected next selection, rejection reason and
+  confirmation/cancellation controls from actual command state. Address solver
+  and Relations safety first; preserve protected shared placement contracts and
+  localize every new user-visible message in all five supported languages.
+  The agreed presentation is upper-left text without any background panel,
+  Light/Dark-aware main text and a green name accent. Keep the tone positive,
+  factual and actionable. Add global `Vladimir=YES/NO`, default `YES`, with an
+  immediately effective control in Global Settings.
+
+- An update on another machine could show Engineering Tables as an unavailable
+  directory. Reproduction found that File Manager resolved factory source paths
+  against shared writable configuration instead of the running version's factory
+  configuration. Version ownership and missing-source completion are corrected;
+  custom paths, order and disabled states are preserved. Portable settings,
+  actual File Manager navigation and an isolated signed update introducing a
+  new directory passed. See [verification](verification/20261020-factory-source-updates.md).
+  Acceptance in the next committed release package remains pending.
+- The user also reported that Sheet Transition keeps an independent thickness.
+  Trace its GUI, native parameters and regeneration against the existing sheet
+  feature policy. Default to the document sheet thickness, with an explicit
+  independent override as for other sheet features. This is authorized program
+  work after the factory-source correction. Obtain the separately required
+  agreement before any necessary native persistence contract change.
+
+### Further ideas collected during program corrections (2026-10-20)
+
+These are deferred design directions, not implemented capabilities or approval
+to change protected persisted contracts. Current corrections and the agreed
+library/release order retain priority.
+
+- FEM: the user proposes another Body type inside Part. Scope the analysis,
+  mesh ownership, boundary conditions, materials and result storage separately
+  before choosing a solver or native representation.
+- Voice input for the CAD AI: investigate speech decoding and synchronization
+  with the actual hovered/selected object while the user speaks. Keep ordinary
+  pointer interaction responsive; do not add continuous geometry calculation
+  or costly full-scene capture to mouse movement. Record enough temporal and
+  semantic context to resolve pointing without guessing ambiguous references.
+  No decoder or external service has been selected.
+- Free mesh modeling: the user wants Blender-like direct movement of individual
+  or grouped control points, local refinement and optional point constraints.
+  Refinement should initially preserve the shape; subsequent editing provides
+  local control. Rounding mesh edges should produce editable mesh geometry.
+  Do not force every edit into the existing parametric Feature history.
+- Preserve the established classification of parametric geometry. The agreed
+  direction is a separate modeling environment, provisionally **Surfaces**,
+  for direct mesh editing. Its Tree lists mesh objects such as **Mesh 1** and
+  **Mesh 2**, rather than each point edit. Merging Mesh 2 into Mesh 1 leaves
+  Mesh 1 as the result, with Undo/Redo for the merge. The exact native document
+  ownership and use of the resulting shape in Part remain open design work.
+  This supersedes the initial suggestion to make each mesh rounding operation
+  an ordinary history Feature. It does not redefine the separate FEM proposal.
+  The user subsequently clarified that a mesh should normally be authored in
+  its own Body to keep it organized, while a normal Body may also contain mesh
+  geometry alongside parametric geometry. The editing environment must not
+  impose an exclusive separate-document restriction. Mixed-Body evaluation,
+  dependencies and conversion behavior remain to be designed explicitly.
+  Associative constraints from mesh points to native parametric solid geometry
+  are a required capability: preserve exact vertex/edge/face ownership and side
+  identity, follow source changes during explicit regeneration, and report lost
+  references without silently rebinding to another object. The user emphasized
+  that these links provide the necessary connection to existing CAD geometry.
+
 ### Active drawing correction, requested on 2026-10-20
 
 The user requested independently selectable horizontal and vertical strokes of

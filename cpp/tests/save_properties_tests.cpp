@@ -23,8 +23,40 @@ void save(workspace::Workspace& w,const std::string& id,const std::filesystem::p
     auto result=std::async(std::launch::async,[job=std::move(job)]{return job.write();}).get();
     check(workspace::complete_document_save(w,result),"Save completion failed");
 }
+void deleted_dimension_save() {
+    auto doc=document::PartDocument::create_default();doc.history.push_back(test::rectangular_feature(doc,{10,20,30}));
+    document::BodyHistoryGraph history;static_cast<void>(history.create_body("Deleted Fx dimension"));
+    history.insert({document::PartHistoryKind::Feature,doc.history.front().id});doc.set_body_history(history);
+    auto& sketch=doc.sketches.front();auto dim=sketch.create_segment_dimension(sketch.segments.front().id);sketch.apply_dimension(dim);
+    doc.synchronize_dimension_identifiers();const auto symbol=doc.dimension_identifiers.identifier(sketch.id,"dimension:"+dim.id);
+    doc.physical_parameters["MASS_DENSITY"]="7850";doc.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
+    doc.relations=symbol+" = 10\nstock = \"W\" & "+symbol+"\ndependent = stock & model.mass\nmass = model.mass\n";
+    doc.user_parameters["stock"]="preserved stock";doc.user_parameters["dependent"]="preserved dependent";doc.user_parameters["mass"]="0";
+    kernel::OcctKernel kernel;auto cache=kernel.evaluate_history(doc.kernel_operations());
+    const auto shape=cache.back().kernel_shape;const auto packet=document::serialize_body_result(cache.back());
+    const auto dir=std::filesystem::temp_directory_path()/("zima-deleted-fx-"+doc.document_id);std::filesystem::create_directories(dir);
+    const auto path=dir/"deleted-fx.prtz";doc.save(path,cache);
+    workspace::Workspace live;live.add_part(doc,cache,path);live.activate(doc.document_id);auto& session=live.open_part(doc.document_id)->session;
+    auto removed=doc;removed.sketches.front().remove_dimension(dim.id);removed.synchronize_dimension_identifiers();session.commit(removed,cache);
+    save(live,doc.document_id,path);
+    check(session.document().relations==doc.relations,"Save discarded unavailable Relations source");
+    check(session.document().user_parameters.at("mass")=="0.047","Independent physical Relation was skipped");
+    check(session.document().user_parameters.at("stock")=="preserved stock"&&session.document().user_parameters.at("dependent")=="preserved dependent","Unavailable dependent values were replaced");
+    check(session.calculated_boundaries().back().kernel_shape==shape&&document::serialize_body_result(session.calculated_boundaries().back())==packet,"Missing Fx Save changed geometry or references");
+    const auto reopened=document::PartDocument::load(path);check(reopened.relations==doc.relations,"Reopen lost unavailable relation source");
+    std::vector<document::RelationError> issues;static_cast<void>(document::RelationProgram(reopened.relations).without_missing_dimensions(workspace::relation_inputs(reopened,{}),&issues));
+    check(issues.size()==3,"Missing Fx diagnostics lost affected rows");
+    auto regenerated=reopened;workspace::apply_relation_dimensions(regenerated,{});check(regenerated.sketches.front().serialized()==reopened.sketches.front().serialized(),"Regenerate applied unavailable dimensions");
+    check(!workspace::prepare_document_save_if_needed(live,doc.document_id,path),"Unchanged unavailable Relations Save was not a no-op");
+    check(session.undo(),"Missing Fx deletion Undo failed");issues.clear();
+    static_cast<void>(document::RelationProgram(session.document().relations).without_missing_dimensions(workspace::relation_inputs(session.document(),{}),&issues));check(issues.empty(),"Undo did not restore the dimension binding");
+    check(session.redo(),"Missing Fx deletion Redo failed");save(live,doc.document_id,path);
+    std::filesystem::remove_all(dir);
+    std::cout<<"Deleted Fx Save, independent mass, preserved source/dependents, native reopen and Undo/Redo passed\n";
+}
 }
 int main() {try {
+    deleted_dimension_save();
     namespace fs=std::filesystem;
     kernel::OcctKernel kernel;
     auto doc=document::PartDocument::create_default();

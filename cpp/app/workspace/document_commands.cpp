@@ -422,6 +422,7 @@ void AssemblyWorkspaceWindow::edit_relations() {
             preserve_view_on_refresh_=true;refresh_scene();
         }, application_settings_, this);
     const auto catalog=[&](const auto& doc){
+        dialog->set_relation_inputs(workspace::relation_inputs(doc,{}));
         const auto definitions=workspace::relation_dimensions(doc);auto dimensions=doc.dimension_parameters();
         std::erase_if(dimensions,[&](const auto& d){return !definitions.contains(doc.dimension_identifiers.identifier(d.owner_id,d.semantic_key));});
         std::map<std::string,std::string> values;

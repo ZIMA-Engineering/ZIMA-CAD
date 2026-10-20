@@ -2501,5 +2501,6 @@
   "Duplicate symbol identity": "Duplicitní identita symbolu",
   "Rozložit symbol": "Rozložit symbol",
   "Osový kříž (vodorovná osa)": "Osový kříž (vodorovná osa)",
-  "Osový kříž (svislá osa)": "Osový kříž (svislá osa)"
+  "Osový kříž (svislá osa)": "Osový kříž (svislá osa)",
+  "This relation refers to an unavailable dimension and will be skipped.": "Relace odkazuje na nedostupnou kótu a bude přeskočena."
 }

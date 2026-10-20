@@ -108,10 +108,37 @@ void unit_conversion() {
         }
     }
 }
+void missing_dimensions() {
+    RelationInputs input{{"d1",{{10.,{1,0,0}},true}}, {"d2",{{20.,{1,0,0}},true}},
+        {"model.mass",{{12.,{0,0,1}},false,true}}};
+    const std::string source="# keep the authored text\nd42 = d1 * 2\nstock = \"M\" & d42\nlabel = stock & model.mass\nmass = model.mass\nd2 = d1 * 3\n";
+    const RelationProgram original(source);std::vector<RelationError> issues;
+    const auto active=original.without_missing_dimensions(input,&issues);
+    check(issues.size()==3&&issues[0].line==2&&issues[1].line==3&&issues[2].line==4);
+    for(const auto& issue:issues)check(issue.detail=="d42");
+    check(original.target_expressions().size()==5&&active.target_expressions().size()==2);
+    const auto calculated=active.evaluate(input);check(calculated.size()==2&&std::get<double>(calculated.at("d2").data)==30.);
+    const auto physical=active.evaluate_physical_parameters(input);check(physical.size()==1&&std::get<double>(physical.at("mass").data)==12.);
+    input["d42"]={{15.,{1,0,0}},true};issues.clear();
+    const auto restored=original.without_missing_dimensions(input,&issues).evaluate(input);
+    check(issues.empty()&&restored.size()==5&&std::get<double>(restored.at("d42").data)==20.);
+    input.erase("d42");issues.clear();
+    const RelationProgram guarded("if d42 > 1\nlabel = model.mass\nelse\nlabel = 0\nendif\nmass = model.mass");
+    const auto safe=guarded.without_missing_dimensions(input,&issues).evaluate_physical_parameters(input);
+    check(issues.size()==2&&safe.size()==1&&safe.contains("mass"));
+    rejects([&]{RelationProgram("d42 = 1\nx = 1 / 0").without_missing_dimensions(input).evaluate(input);},2);
+    rejects([&]{RelationProgram("d42 = 1\nx = misspelled").without_missing_dimensions(input).evaluate(input);},2);
+    rejects([&]{RelationProgram("d42 = 1\nif misspelled > 0\nendif\nmass = model.mass").without_missing_dimensions(input).evaluate(input);},2);
+    rejects([&]{RelationProgram("d42 = 1\nx = y\ny = x").without_missing_dimensions(input).evaluate(input);});
+    rejects([&]{RelationProgram("d42 = 1\nmodel.mass = 1").without_missing_dimensions(input).evaluate(input);},2);
+    rejects([&]{RelationProgram("d42 = 1\nd2 = model.mass").without_missing_dimensions(input).evaluate(input);},2);
+    std::cout<<"Missing dimension targets, transitive dependents, guards, restoration and strict independent errors passed\n";
+}
 int main() {
     try {
         angle_units();
         unit_conversion();
+        missing_dimensions();
         RelationInputs inputs{{"d1",{{50.,{1,0,0}},true}}, {"d2",{{100.,{1,0,0}},true}},
             {"d3",{{1.,{1,0,0}},true}}, {"angle",{{30.,{0,1,0}},true}},
             {"material",{{std::string("Ocel")},true}}, {"model.mass",{{12.,{0,0,1}},false,true}}};

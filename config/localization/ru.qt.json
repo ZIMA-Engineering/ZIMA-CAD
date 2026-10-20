@@ -2501,5 +2501,6 @@
   "Duplicate symbol identity": "Повторяющийся идентификатор символа",
   "Rozložit symbol": "Разложить символ",
   "Osový kříž (vodorovná osa)": "Осевой крест (горизонтальная ось)",
-  "Osový kříž (svislá osa)": "Осевой крест (вертикальная ось)"
+  "Osový kříž (svislá osa)": "Осевой крест (вертикальная ось)",
+  "This relation refers to an unavailable dimension and will be skipped.": "Эта связь ссылается на недоступный размер и будет пропущена."
 }

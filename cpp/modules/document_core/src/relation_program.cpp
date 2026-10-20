@@ -305,6 +305,46 @@ RelationProgram::RelationProgram(const std::string& source) {
     data_=std::move(data);
 }
 
+RelationProgram RelationProgram::without_missing_dimensions(const RelationInputs& inputs,std::vector<RelationError>* skipped) const {
+    const auto missing=[&](const std::string& name){return name.size()>1&&name[0]=='d'&&std::ranges::all_of(name.substr(1),digit)&&!inputs.contains(name);};
+    std::map<std::string,std::set<std::string>> dependencies;
+    std::map<std::string,std::vector<std::string>> dependents;
+    std::map<std::string,std::string> unavailable;
+    std::vector<std::string> pending;
+    for(const auto& row:data_->assignments) {
+        auto& names_used=dependencies[row.target];names(row.expression,names_used);
+        for(const auto& guard:row.guards)names(guard.condition,names_used);
+        std::string absent=missing(row.target)?row.target:std::string{};
+        for(const auto& name:names_used)if(missing(name)){absent=name;break;}
+        if(!absent.empty()&&unavailable.emplace(row.target,absent).second)pending.push_back(row.target);
+    }
+    for(const auto& [target,used]:dependencies)for(const auto& name:used)dependents[name].push_back(target);
+    for(std::size_t i=0;i<pending.size();++i) {
+        const auto name=pending[i];
+        for(const auto& target:dependents[name])if(unavailable.emplace(target,unavailable.at(name)).second)pending.push_back(target);
+    }
+    if(unavailable.empty())return *this;
+    auto active=std::make_shared<RelationProgramData>();active->source=data_->source;
+    std::set<Node> conditions;
+    std::set<Node> guarded_conditions;
+    for(const auto& row:data_->assignments)for(const auto& guard:row.guards)guarded_conditions.insert(guard.condition);
+    // Empty conditional blocks still carry independent validation. Disabling
+    // an unrelated deleted dimension must not hide their misspelled names.
+    for(const auto& condition:data_->conditions)if(!guarded_conditions.contains(condition)) {
+        conditions.insert(condition);active->conditions.push_back(condition);
+    }
+    for(const auto& row:data_->assignments) {
+        if(const auto issue=unavailable.find(row.target);issue!=unavailable.end()) {
+            if(skipped)skipped->emplace_back(row.expression->line,row.expression->column,
+                "This relation refers to an unavailable dimension and will be skipped.",issue->second);
+            continue;
+        }
+        active->assignments.push_back(row);
+        for(const auto& guard:row.guards)if(conditions.insert(guard.condition).second)active->conditions.push_back(guard.condition);
+    }
+    return RelationProgram(std::move(active));
+}
+
 void RelationProgram::validate(const RelationInputs& inputs) const {
     std::map<std::string,std::set<std::string>> graph;
     std::map<std::string,const Expr*> locations;

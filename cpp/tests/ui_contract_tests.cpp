@@ -1288,6 +1288,16 @@ int main(int argc, char* argv[]) {
             accepted.setAttribute(Qt::WA_DeleteOnClose,false);accepted.show();application.processEvents();
             accepted.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
             require(committed&&saved=="stock = \"⌀ černá / нержавейка\"\n","OK lost the authored Unicode source");
+            {
+                const std::string source="d42 = 1\nlabel = d42 & model.mass\nmass = model.mass\n";std::string retained;
+                RelationsDialog missing({},source,[&](auto value){retained=value;},settings,&parent);
+                missing.setAttribute(Qt::WA_DeleteOnClose,false);missing.set_relation_inputs({{"model.mass",{{1.,{0,0,1}},false,true}}});missing.show();application.processEvents();
+                auto* text=missing.findChild<QPlainTextEdit*>("relationsEditor");auto* warning=missing.findChild<QLabel*>("relationsUnavailableDimensions");
+                require(text->extraSelections().size()==2&&!warning->isHidden(),"Missing dimension rows or diagnostic were not shown");
+                require(text->toPlainText().toStdString()==source,"Marking missing dimensions rewrote authored Relations");
+                missing.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+                require(retained==source,"Unavailable dimensions prevented preserving the source with OK");
+            }
             zima::viewer::MeshView view(&parent);view.setGeometry(0,0,700,500);
             zima::kernel::ViewerMesh mesh;
             mesh.edges.push_back({{{-10,0,0},{10,0,0}}, {"feature","edge",{}}});

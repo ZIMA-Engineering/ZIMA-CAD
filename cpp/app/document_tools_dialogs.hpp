@@ -3,6 +3,7 @@
 #include "application_settings.hpp"
 
 #include <zima/document/relations.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/document/dimension_identifiers.hpp>
 #include <zima/ui/properties_subwindow.hpp>
@@ -22,6 +23,7 @@ class QTableWidget;
 class QTabWidget;
 class QPushButton;
 class QLabel;
+class QTimer;
 class QFileSystemModel;
 class QTreeView;
 class QListWidget;
@@ -101,6 +103,7 @@ public:
     bool entering_dimension() const;
     void end_entry();
     void insert_dimension(const QString& identifier,const QString& value);
+    void set_relation_inputs(zima::document::RelationInputs);
 protected:
     bool submit() override;
 private:
@@ -108,6 +111,11 @@ private:
     RelationTextEditor* editor_{};
     QPushButton* pick_dimension_{};
     QLabel* picked_dimension_{};
+    QLabel* unavailable_dimensions_{};
+    QTimer* diagnostics_timer_{};
+    zima::document::RelationInputs relation_inputs_;
+    bool has_relation_inputs_{};
+    void refresh_dimension_diagnostics();
     QTextCursor insertion_cursor_;
 };
 
