@@ -12,7 +12,30 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
-## Current work and queued requests (2026-10-07)
+## Current status and work order (2026-10-20)
+
+Use the [current capability and backlog index](doc/PROJECT_STATUS.md) for what
+exists today, what is awaiting release acceptance and what remains planned.
+**Family Table is implemented**: native Part/Assembly variants, one shared parent
+file, parameter/presence overrides, Assembly insertion/Replace and Drawing variant
+selection. See [Family Table](doc/FAMILY_TABLE.md); this is not a future feature.
+
+Multibody Parts, native Sketch offsets and Trim, direct Sketch dragging,
+2D/3D/helical Sweeps, model Sections, surface tools, sheet-metal Bend and
+Unbend/Bend Back, import/export and document Undo/Redo also exist. Their focused
+guides define supported scope and remaining cases. Older requests below are
+retained as dated design context, not repeated implementation assignments.
+
+The immediate order is program corrections and complete Windows release
+acceptance, including documentation and all five UI languages. Preserve the
+unfinished cast-wing/toothed-washer studies and the exclusion of two-part locking
+nuts. The next agreed Feature work is ordered multiple Up To faces with signed
+correction, followed by scoped surface projection. File Manager directory
+prototypes still require discussion. FEM, voice/pointer context and direct mesh
+editing are queued design work. See [the detailed queue](doc/FASTENER_REMAINING_WORK.md).
+New native persisted or protected placement contracts require the agreed review.
+
+## Earlier priorities and queued requests (2026-10-07)
 
 ### Shared operation activity indicator (requested 2026-10-07)
 
@@ -596,12 +619,13 @@ completion of the agreed features.
 
 ## 1. Core and Parametric Container Model
 
-**Status: In progress**
+**Status: Implemented native foundation; continued verification and extensions**
 
 - document and container hierarchy
 - feature history
 - local coordinate systems
-- parametric primitive solids
+- unified Point/Axis/Plane/Sketch/Extrusion-Revolution Features; the old six
+  standalone primitive commands have been removed
 - container references and attachments
 - in-view parameter editing
 - persistent ZIMA-CAD document formats
@@ -621,7 +645,7 @@ completion of the agreed features.
 
 ## 2. Sketcher
 
-**Status: In progress**
+**Status: Implemented parametric Sketcher; continuing solver and interaction studies**
 
 - implemented foundation:
   - interactive points, segments, rectangles, circles and construction geometry
@@ -656,43 +680,22 @@ completion of the agreed features.
     mirrored geometry with persistent point-pair symmetry constraints
   - Czech **Totožnost** naming for point identity and the same green relation
     symbol in every Sketch constraint-list row as in the 3D view
-- remaining work:
-  - DXF import into the active Sketch with unit, layer and geometry mapping
-  - DXF export of Sketch geometry with preserved real dimensions
-  - direct manipulation (dragging) of sketch points and geometry with the left
-    mouse button, including live constraint solving during the drag
-  - intelligent entity input with inference, snapping and predictable
-    continuation between consecutively created entities
-  - one central cancel state machine shared by `Esc` and the toolbar, plus
-    right-button cycling of explicitly previewed valid inference variants
-  - one central confirm action shared by view-focused `Enter` and a short
-    middle click, without stealing Enter from active value/text editors
-  - finish the basic geometry set with polygons and ellipse support, and
-    further stabilize arc and spline editing; Trim is deliberately deferred
-  - improve coverage, numerical stability, diagnostics and recovery of the
-    parametric constraint solver
-  - make every constraint independently selectable in the tree and view;
-    selecting it must reveal all participating geometry and dependencies, and
-    Delete must remove the relation without damaging unrelated geometry
-  - complete consistent constraint-symbol placement, hover, selection and
-    dependency highlighting for coincident, tangent, equal, midpoint,
-    symmetry and future relation types
-  - consolidate constraints into independently identified records and solve
-    constraints and driving dimensions as one equation/residual system
-  - preserve the solution nearest to the previous valid sketch state to avoid
-    unexpected branch flips
-  - under-, fully- and over-constrained state visualization
-  - automatic grey reference dimensions for remaining degrees of freedom;
-    each geometric constraint or driving dimension should remove the
-    corresponding reference dimension, in the style of Pro/ENGINEER
-  - stable references between sketches and 3D geometry
-  - stable semantic identities for external topology references
-  - production-level recovery of invalid, redundant or conflicting relations
-  - central ID remapping for topology-changing operations such as Trim
+- Additional implemented tools include polygons, ellipses/elliptical arcs,
+  native text and symbols with solver anchors, live point dragging, Trim,
+  native offsets and supported DXF import/export. See [Sketcher](doc/SKETCHER.md),
+  [DXF/import](doc/IGES_DXF_IMPORT.md) and [offsets](doc/SKETCH_OFFSET.md).
+- Remaining work is continued finite regression coverage for mixed constraints,
+  successive dimension edits/drags, branch stability, conflict diagnostics,
+  reference recovery and new user-reported combinations. Existing tools and
+  stable identities are not a missing implementation; universal solver
+  convergence is not claimed. See [current corrections](doc/PROJECT_STATUS.md).
+  Additional inference/constraint feedback and optional automatic reference
+  dimensions for remaining degrees of freedom remain follow-up ideas beyond
+  the existing Sketcher foundation; scope them before implementation.
 
 ## 3. Protrusion / Extrusion
 
-**Status: In progress**
+**Status: Implemented through the shared Feature command; extent extensions queued**
 
 - property-panel workflow with return to the originating editor context
 - sketch and main container-origin selection from feature properties
@@ -706,8 +709,8 @@ completion of the agreed features.
   dimensions, editable Sketch frame and RX/RY/RZ-corrected manipulator origin
 - persistent purple extent handles with continuous drag and 1 mm displayed
   snapping, plus matching editable yellow length dimensions
-- staged Apply/OK evaluation: cyan standalone preview remains live across
-  direction and extent changes, while the final Boolean runs only on OK
+- transient editing preview with the shared OK/Cancel contract; explicit OK
+  calculates and commits, Cancel restores input and unchanged OK is a no-op
 - closed profiles produce ordinary solids and open profiles produce thin
   solids with one-side, other-side or symmetric wall thickness
 - persisted thin topology roles (Inside/Outside and Start/End) participate in
@@ -720,7 +723,7 @@ completion of the agreed features.
 
 ## 4. Revolve
 
-**Status: Basic implementation**
+**Status: Implemented through the shared Feature command**
 
 - full and partial revolution
 - first sketch construction line used as the revolution axis
@@ -728,8 +731,8 @@ completion of the agreed features.
 - shared line, arc and spline profile builder with Protrusion
 - independent profile-plane offset used by both geometry and angular dimensions
 - revolved thin features
-- staged Apply/OK evaluation equivalent to Protrusion, including persistent
-  cyan preview for forward, reverse and two-sided angle changes
+- shared transient preview and OK/Cancel evaluation equivalent to Extrusion,
+  including forward, reverse and two-sided angle changes
 - stable Start/End direction semantics and positive displayed angles; negative
   in-view input flips direction
 - 360-degree initial one-sided proposal and independent remembered 45-degree
@@ -738,38 +741,29 @@ completion of the agreed features.
 
 ## 5. Sweep
 
-**Status: Partially implemented**
+**Status: 2D, 3D and Helical Sweep implemented; extensions remain**
 
 The C++ application provides Sweep/Loft along a polyline or interpolating
 3D curve, profile stations and correspondence. With corner rounding disabled,
 straight segments have independent perpendicular caps and no corner transition;
 their overlapping volumes are united. Original cap references remain available
 for subsequent drill-point operations. See [3D Curve and Sweep/Loft](doc/3D_CURVE_AND_SWEEP.md).
-This is distinct from the planned multi-body document architecture.
+Multibody Part ownership is also implemented; see [Bodies](doc/MULTIBODY_AND_BOOLEANS.md).
+2D Sweep and Helical Sweep have their own implemented workflows; see
+[2D Sweep](doc/SWEEP_2D.md) and [Helical Sweep](doc/HELICAL_SWEEP.md).
 
 Further sweep scope:
 
-- profile sweep along a path
-- profile orientation control
-- guide curves
-- additive and subtractive operations
-- parametric helix path and sweep along a helix for springs
+- additional guide/orientation cases beyond the documented supported paths
 - a dedicated spring-oriented definition designed around engineering inputs;
   do not reproduce the Pro/ENGINEER spring interaction model
 - basic bent Pipe as a semantic 3D-Curve/Sweep feature with diameter, wall
   thickness, bend radius and stable connector frames
 
-### 3D curve path foundation
+### 3D curve path foundation - implemented
 
-- add a parent **3D Curve** container whose ordered children are ordinary
-  Point containers
-- each child Point keeps the standard Origin, X/Y/Z placement, stable ID and
-  positional-reference workflow
-- tree order, including **Insert here**, defines the curve point order
-- moving, inserting, deleting or reordering a Point updates the displayed 3D
-  curve and later supplies a path for Sweep
-- begin with a polyline through the points; a spline interpolation mode may be
-  added without introducing a separate 3D Sketcher
+Ordered native points, placement/reference entry, insertion/reordering and
+Polyline/Spline paths already supply 3D Sweep. See [3D Curve](doc/3D_CURVE_AND_SWEEP.md).
 
 ## 6. Blend / Loft
 
@@ -782,7 +776,7 @@ Further sweep scope:
 
 ## 7. Advanced Part Modeling
 
-**Status: Multi-edge Fillet and symmetric Chamfer implemented and inspected**
+**Status: Fillet, all three Chamfer modes, Shell, holes/threads, Mirror/Pattern and surface tools implemented**
 
 - multi-edge history Fillet with one shared radius, stable semantic edge
   references, unified creation/editing properties and last-valid-body recovery
@@ -790,7 +784,8 @@ Further sweep scope:
 - exact boundary-wire hover/selection and normal-section in-view dimensions;
   circular Fillet radius and Chamfer witnesses are anchored to both persisted
   rim circles
-- two-distance and distance-plus-angle Chamfer modes (planned)
+- two-distance and distance-plus-angle Chamfer modes, including editable grips;
+  see [edge-treatment verification](doc/EDGE_TREATMENT_COMMANDS.md)
 - shell and thickness
 - holes and threads
 - Hole as a semantic feature with through/blind, counterbore/countersink and
@@ -814,16 +809,17 @@ Further sweep scope:
 
 ## 8. Sheet Metal
 
-**Status: Planned**
+**Status: Implemented sheet modeling and supported unfolding/refolding; extensions remain**
 
-- base sheet creation
-- bends and flanges
-- hems
-- corner treatment and bend relief
-- sheet-metal cuts
-- folded and unfolded states
-- bend allowance, K-factor and bend tables
-- flat-pattern DXF export
+Flat, Bend, revolved/twisted sheet, transitions, cuts and FORM operations exist.
+Independent Unbend/Bend Back support documented cylindrical/conical regions,
+attached material and edits between states. See [Sheet Metal](doc/SHEET_METAL.md)
+and [state operations](doc/SHEET_STATE_DEVELOPMENT.md).
+
+Remaining scope includes a seam for closed 360-degree regions, bending an
+existing flat sheet along an arbitrary line, additional hems/reliefs and
+manufacturing cases, and production flat-pattern interchange verification.
+These follow-ups do not make the existing Sheet Metal application "planned".
 
 ## 9. Assemblies
 
@@ -873,14 +869,13 @@ Further sweep scope:
     avoid full scene/tree/highlight rebuilds, improve Assembly opening and tab
     switching, and measure memory use with deeply nested Assemblies on a
     representative production model
-  - DXF import from the Part and Assembly applications, with explicit creation
-    and placement of a Sketch instead of treating DXF as a solid body
+  - extend real-project verification of the implemented STEP/IGES/DXF workflows
   - add diagnostics and recovery for invalid, conflicting and redundant mates
   - extend stable semantic topology IDs to the remaining unsupported geometry
     and dependency workflows
   - extend explicit tree selection to every supported reference type
   - add component grounding controls
-  - insertion and nesting of subassemblies
+  - additional deep/repeated-subassembly ownership and reference-recovery cases
   - degrees-of-freedom visualization
   - interference and collision checking
   - extend the implemented title-block BOM Repeat Region into a complete
@@ -888,58 +883,31 @@ Further sweep scope:
 
 ## 10. Drawing
 
-**Status: Functional foundation; active development**
+**Status: Implemented technical Drawing workflow; production verification and extensions continue**
 
-- `.drwz` document creation, loading, versioned saving and document tabs
-- automatic same-name drawing creation/opening from Part and Assembly tree headers
-- reverse navigation from a drawing to its source part or assembly
-- persistent relative source-model link with document identity metadata
-- multiple sheets with add/remove controls and a separate format per sheet
-- fixed ISO sheet rules: A4 portrait; A3, A2, A1 and A0 landscape
-- paper geometry in real millimetres, using a bottom-right origin with positive
-  X to the left and positive Y upward
-- black 2D workspace with a white paper-format outline and white geometry
-- wheel zoom, middle-button pan, disabled rotation and animated Fit Sheet
-- insertion and cursor placement of model and projected views, including eight
-  45-degree projection directions under first- or third-angle projection rules
-- selectable drawing views with left-button dragging, persistent projected
-  alignment and Delete removal including dependent projected-view cleanup
-- per-view Wireframe, Hidden Line, No Hidden, Shaded with Edges and Shaded
-  modes; global model display buttons are disabled and unselected in Drawing
-- optional auxiliary/smooth-edge display and grey hidden-line presentation
-- native renderer-owned topology projection with curved silhouettes, visible
-  edge precedence and component/model colors; shaded views use interpolated
-  normals, a software Z-buffer and cached rasterization
-- embedded View Properties panel with name, scale source, local scale and an
-  optional movable 5 mm white caption showing name and `M1:1`-style scale
-- basic Family Table instance selector in the drawing workspace
-- first ISO-style yellow linear drawing dimensions with associative placement
-- runtime regeneration from the live linked model when the drawing tab is
-  activated; obsolete persisted 2D projection caches are intentionally not
-  supported
-- remaining work:
-  - finish the Drawing workspace as a complete production workflow and verify
-    it progressively on real Part and Assembly examples
-  - complete hover and selection of real model points, edges and faces through
-    drawing views and reuse it consistently in every drawing command
-  - continue stabilizing curved silhouettes, coincident geometry and hidden
-    line classification for multi-body parts and assemblies
-  - bent/offset sections, Sketcher constraints for section lines and detail views
-  - complete ISO dimensions, tolerances, datums, surface/feature symbols,
-    position annotations, leaders, labels and editable annotation placement
-  - extend the implemented ISO technical lettering and paper-space title-block
-    text into the remaining drawing annotations
-  - extend the implemented editable sheet-frame/title-block templates and
-    parameter-driven fields with production zones and table workflows
-  - complete assembly drawing BOM/table workflows beyond the implemented
-    title-block Repeat Region, Item Number and Quantity fields
-  - sheet-metal flat-pattern drawings
-  - DXF export and production verification of the implemented PDF export
+- native documents, multiple sheets, model sources and Family Table variants
+- ordinary/projected views and documented section/detail/crop/break workflows
+- view properties, scale, display modes and interactive depth-tested geometry
+- associative measured dimensions and chains, model Show/Erase and text placement
+- native frames/title blocks, parameter fields, BOM regions and balloons
+- native symbols, technical text and PDF/DXF/PNG/JPEG exports
+- exact occurrence/source/reference identities and document Undo/Redo
 
+See [Drawings](doc/DRAWINGS.md), [the manual](doc/USER_MANUAL.md) and
+[shared commands](doc/DRAWING_COMMANDS.md) for supported scope. Ordinary tab
+display consumes current calculated model data; it must not regenerate bodies
+or run precise vector hidden-line calculation. Explicit output prepares precise
+print/vector geometry under the established contract.
+
+Remaining work includes broader real-project occlusion/reference cases,
+additional annotation and table workflows, manufacturing flat-pattern cases,
+and production export verification. Current axis-cross contacts and arbitrary
+curve balloon anchors are development corrections with their own finite
+verification and release gates, not a missing Drawing foundation.
 
 ## Next-work clarification (2026-09-15)
 
-First finish **Holes** for drilled hydraulic channels: owned-Sketch segments
+Historical order, superseded by the current index: **Holes** is implemented for drilled hydraulic channels: owned-Sketch segments
 specify cylinder axes and lengths, with one common diameter and subtraction only.
 The historical request to complete **Sketcher offsets** for native and external
 curves is superseded by the 2026-09-19 scope correction above. AI integration follows the

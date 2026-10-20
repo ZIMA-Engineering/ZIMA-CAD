@@ -1,14 +1,25 @@
 # Family Table
 
+## Status - implemented
+
+Family Table is an existing native Part/Assembly feature, not a planned tool.
+It includes dimension/presence overrides, linked members sharing one parent file,
+Assembly insertion and Replace, Drawing variant selection, persistence and
+Undo/Redo. Linked editing and single-file storage were already included in
+[Windows 2026091508](releases/2026091508.md). Later verification and extensions
+are recorded below. See [current project status](PROJECT_STATUS.md) for the
+separate release and remaining-work boundaries.
+
 ## Workflow
 
 Open **Tools > Family Table** in a Part or Assembly. The internal properties
 window requests 2280 px width (three times its former width) and stays inside the
 main window. Horizontal scrolling accommodates additional columns.
-The same command and icon sit immediately after **Parameters** in the View toolbar
+The same command and icon sit immediately after **Parameters** in the Tree header
 and in the context menu of a Part or Assembly filename at the root of Tree. A
 root command always edits that root document even while a nested component is
-active; the toolbar command follows the active Part or Assembly.
+active; the header command follows the active Part or Assembly. Symbol Sketch
+editing also exposes its applicable Family action in the command toolbar.
 
 The first row represents the generic document. Click its reference cell, then
 click an original solid in View or an owned item in Tree. The column uses the

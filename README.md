@@ -3,6 +3,22 @@
 ZIMA-CAD is developed as a C++/Qt application with OCCT used only for explicit
 solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 
+## Implemented capabilities and remaining work
+
+**Family Table is implemented**, including native Part/Assembly variants, shared
+parent-file storage, dimension and presence overrides, Assembly insertion and
+replacement, and Drawing variant selection. See the [Family Table guide](doc/FAMILY_TABLE.md).
+
+The application also includes parametric Sketcher, multibody Parts, combined
+Extrusion/Revolution Features, 2D/3D/helical Sweeps, surface tools, sheet-metal
+modeling and unfolding, Assemblies, technical Drawings, Relations, native
+libraries, and shared GUI/CLI commands. Each feature has documented boundaries;
+this list does not claim every future extension or solver case is complete.
+
+See [current project status](doc/PROJECT_STATUS.md) for the maintained distinction
+between implemented tools, development changes awaiting release, and planned work.
+[ROADMAP.md](ROADMAP.md) records the current order and dated design decisions.
+
 ## Build and run
 
 The C++ build requires CMake 3.24+, a C++20 compiler, Qt 6.5+ (Core, Gui,
@@ -37,14 +53,13 @@ a Linux runtime. User configuration and projects live outside version directorie
 See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
-Signed Windows [2026101103](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026101103)
-includes linked surfaces from a preceding Body, experimental solid-cutter/outward
-FORM definitions, file-selector ownership fixes and the Sketcher/Tree/selection
-updates. [Release verification and limits](doc/releases/2026101103.md) record
-the twelve packaged GUI scenarios, native geometry checks and public update
-acceptance. The original FORM styles remain available; manual corner rounding
-and the final candidate style decision remain open. Linux verification follows
-the separate handoff.
+The latest accepted signed Windows release is
+[2026102002](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102002).
+It includes Sketcher editing repairs, portable Drawing-font fixes and reviewed
+fastener library additions. See its [verification and limits](doc/releases/2026102002.md).
+Newer source changes are described in the [current status](doc/PROJECT_STATUS.md);
+source availability does not by itself establish a published portable release.
+Linux verification follows the separate handoff.
 
 ## Command line
 
@@ -111,9 +126,10 @@ Current modeling tools and interaction contracts:
 - [Multibody Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
 - [Mirror and Pattern: linked body and component copies](doc/MIRROR_AND_PATTERN.md)
 - [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)
+- [Family Table: native Part/Assembly variants and Drawing selection](doc/FAMILY_TABLE.md)
 - [Surface Extrusion and Revolution](doc/SURFACE_PROFILES.md)
 - [Application tools, Insert menu and document tabs](doc/APPLICATION_TOOLS.md)
-- [Sheet Metal defaults and planned Bend](doc/SHEET_METAL.md)
+- [Sheet Metal, bends, unfolding and refolding](doc/SHEET_METAL.md)
 - [3D Sweep: Loft, Thin, and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)

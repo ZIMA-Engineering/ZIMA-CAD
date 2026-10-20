@@ -152,7 +152,11 @@ The projection factory asset contains separate first-angle and third-angle
 Sketches. The chosen library outer-circle diameter is 6 mm. Its intended factory
 title-block occurrence uses scale 0.5 to fit the existing 5 mm row.
 
-**Still pending:** New/Open `.symz` authoring, the graphical family-table editor,
+**Historical checkpoint, superseded by native ownership above:** New/Open `.symz`
+authoring, the graphical Family Table editor, native solver insertion points
+and Sketcher Explode now exist; see [the user guide](SYMBOLS_USER_GUIDE.md).
+This former pending list must not be used as the current project TODO. Its other
+annotation proposals were:
 model-owned surface references and leaders, constant-screen-size 3D annotation
 presentation, direct Drawing insertion, general View visibility, dynamic text
 borders. Initial surface-texture and undefined-edge library examples are available

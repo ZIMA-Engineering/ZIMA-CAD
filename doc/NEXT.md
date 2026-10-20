@@ -1,4 +1,20 @@
-# Next Work
+# Development follow-ups and historical design notes
+
+## Current work index - 2026-10-20
+
+Use [current project status](PROJECT_STATUS.md) for implemented capabilities,
+development changes awaiting release and the actual remaining queue. Family Table,
+multibody Parts, Sketch dragging/Trim/offsets, native text/symbol editing,
+2D/3D/helical Sweep, Sections, surface tools, sheet-metal states, DXF workflows
+and document Undo/Redo already exist. Their former foundation requests are not
+new TODOs. Detailed dated notes below preserve design context and verification
+ideas; they do not override the current contracts or newer user instructions.
+
+Finish current corrections and verified Windows release first, then the agreed
+ordered Up To surface chain and signed correction. Surface projection, File
+Manager prototypes, remaining library studies, FEM, direct meshes and voice/pointer
+context retain the scope and order in the [current queue](FASTENER_REMAINING_WORK.md).
+Two-part locking nuts and STEP-derived Sketch offsets are outside that scope.
 
 These accumulated design notes include historical stages. Check current focused
 contracts and [ROADMAP.md](../ROADMAP.md) before selecting work; newer explicit
@@ -133,187 +149,95 @@ user instructions and completed native features supersede older pending items.
   entity/face/edge/triangle counts, making new quadratic or repeated work
   visible before it becomes a user-facing regression.
 
-## Current Priority: Complete the Technical Drawing Foundation
+## Technical Drawing production follow-ups
 
-- Exercise `.drwz` creation from both `.prtz` and `.asmz` documents on real
-  projects and verify source-link recovery after move and rename operations.
-- Exercise standard and eight-way 45-degree projected views, first-/third-angle
-  rules, parent/child movement, view captions and Delete cleanup on larger real
-  parts and assemblies.
-- Stabilize the shared model/drawing edge classification, especially curved
-  silhouettes, exact tangent views, coincident geometry and occlusion between
-  multiple bodies.
-- Finish hidden-line classification so every curved boundary is consistently
-  visible, hidden or suppressed in all five display modes.
-- Complete hover and selection of actual model points, edges and faces through
-  a drawing view before building further annotation commands on top of it.
-- Extend the first associative yellow linear drawing dimension to the complete
-  ISO dimension set, including angular, radial, diameter, ordinate and position
-  dimensions, tolerances, leaders, datums and technical symbols.
-- Add movable/selectable drawing annotations with consistent hover, selection,
-  Delete and property editing.
-- Extend the implemented ISO technical font and exact millimetre title-block
-  text sizing to the remaining paper-space annotations.
-- Extend the implemented editable sheet-frame/title-block templates and
-  parameter-driven fields with production zones and table workflows.
-- Add Drawing section views after model-space Part/Assembly Section definitions
-  and selection/annotation ownership are stable; reuse the model definition
-  rather than inventing an incompatible Drawing-only section contract.
-- Keep paper-space geometry in millimetres with the bottom-right sheet origin;
-  A4 remains portrait and A3 through A0 remain landscape.
-- Keep runtime drawing geometry derived from renderer-owned model topology;
-  persisted legacy 2D projection caches are intentionally unsupported.
+The Drawing foundation exists: sheets/views, supported projected and section/detail
+workflows, Family variants, associative dimensions/chains, Show/Erase, movable
+annotations, frames/title blocks, BOM regions/balloons, symbols and PDF/DXF/image
+output. See [Drawings](DRAWINGS.md), [the manual](USER_MANUAL.md) and
+[command coverage](DRAWING_COMMANDS.md).
+
+Continue real Part/Assembly cases: curved silhouettes, coincident boundaries,
+hidden geometry, reference repair after model edits, additional annotation/table
+workflows and production flat patterns. Preserve actual source/occurrence identity
+and paper-space millimetres. Interactive views use current calculated geometry;
+precise output preparation belongs to explicit printing/vector export, not tab
+activation, view placement, panning or zooming.
 
 ## DXF Interchange
 
-- Add DXF import directly into the active Sketch. Preserve real dimensions,
-  provide an explicit unit choice when the file is ambiguous and map supported
-  layers and entities without creating hidden placement corrections.
-- Add DXF import commands to the Part and Assembly applications. These commands
-  must create or populate an explicitly placed Sketch; DXF is two-dimensional
-  reference/profile geometry, not an imported solid body.
-- Add DXF export from Sketcher for supported profile and construction geometry,
-  with real model-space dimensions and documented handling of layers, text,
-  splines and unsupported constraints.
-- Keep DXF file parsing separate from Sketch interaction. Import must produce
-  normal persisted ZIMA Sketch entities with stable IDs so they can be edited,
-  constrained, regenerated and saved like manually created geometry.
+Implemented: supported DXF import into ordinary native Sketch geometry from
+Sketcher, Part and Assembly, and Sketch/Drawing DXF export. See
+[import scope](IGES_DXF_IMPORT.md), [export commands](EXPORT_COMMANDS.md) and
+[Sketch commands](SKETCH_COMMANDS.md).
+Remaining work is representative unit/layer/entity round-trip verification and
+additional explicitly scoped entities, preserving exact native geometry and
+reference identity. Do not reimplement the existing parser or import workflow.
 
 ## Unified Import and Export
 
-- Build one application-aware Import/Export framework instead of unrelated
-  commands. The active Sketcher, Part, Assembly and Drawing determine which
-  formats and destinations are valid while sharing file, units, diagnostics
-  and progress handling.
-- Importing DXF inside Sketcher populates the active Sketch. Importing DXF from
-  Part or Assembly creates an ordinary explicitly placed Sketch and then uses
-  the same importer; DXF is never treated as a solid body.
-- STEP Part import now creates one Body per source Part occurrence; Assembly
-  import creates ordinary `.prtz`/`.asmz` sources and preserves nested and
-  repeated components. STEP export preserves that product hierarchy and uses
-  the persisted calculated state. See [STEP import/export](STEP_IMPORT_EXPORT.md).
-- Follow up with STEP face colors and configurable export options. Nested
-  Assembly STL export remains separate work.
-- Add image export from the current view. PNG is the default for sharp CAD
-  edges and optional transparent background; JPEG is a secondary lossy option.
-  Render offscreen at requested resolution rather than capturing window pixels.
+The shared import/export framework, supported STEP/IGES/DXF paths, nested
+Assembly exchange and PNG/JPEG View export are implemented. STEP Part import
+creates Bodies and Assembly import preserves ordinary native sources and repeated
+occurrences. See [STEP](STEP_IMPORT_EXPORT.md), [import](IMPORT_COMMANDS.md),
+[export](EXPORT_COMMANDS.md) and [View output](VIEW_EXPORT_COMMAND.md).
+Continue representative unit, product hierarchy, appearance and format-option
+verification. Keep imported reference data in the native documents and use the
+calculated current state for export; do not reread external files on passive display.
 
 ## Display Properties
 
-- Add per-object opacity as viewer/document display state, independent of body
-  geometry and material. In Assembly it belongs to each component instance and
-  must not modify the source `.prtz`.
-- Keep edges readable and hover orange/selection cyan on transparent objects;
-  RMB cycling must still allow selection of geometry behind them.
-- Add **Make others transparent** for in-context component editing and restore
-  the previously stored per-instance opacity when editing ends.
-- Colored wireframe by object/instance is deliberately deferred; it has much
-  lower practical priority than transparency and is rarely used.
-- Add per-face appearance overrides in Part. Store color and later surface-
-  finish metadata against persisted semantic `FaceRef` identities, never an
-  OCCT traversal index or transient result-body face number.
-- A face override follows supported topology ancestry through regeneration. If
-  the face disappears or splits ambiguously, retain the appearance record as
-  unresolved for repair instead of transferring it silently to another face.
-- Assembly normally inherits face appearances from the source `.prtz` and may
-  optionally store an instance-local override without modifying that source.
-  Whole-component color, per-face color, opacity, hover orange and confirmed
-  cyan selection remain independent layers with explicit precedence.
-- Persist imported STEP face colors into the same ordinary ZIMA appearance
-  model during explicit import so later display never rereads STEP or traverses
-  live OCCT topology.
+Object/occurrence styles, opacity and semantic per-face appearance overrides
+are implemented. See [appearance commands](APPEARANCE_COMMANDS.md) and
+[model interaction](MODELING_INTERACTION.md). Preserve source-Part inheritance,
+independent Assembly occurrence overrides, native identities and restoration of
+temporary editing presentation. Continue split/merge/reference-recovery and
+transparent-object selection cases. Neutral graphics follow live themes; explicit
+hover/confirmation colors follow the current [UI convention](UI_VISUAL_CONVENTIONS.md),
+not the obsolete orange/cyan proposal.
+The proposed temporary **Make others transparent** editing shortcut and restoration
+policy remain a separate follow-up; existing opacity support alone does not
+establish that shortcut's implementation.
 
 ## Model Sections
 
-- Implement **Section** in Part and Assembly first, following the useful
-  model-space workflow known from Pro/ENGINEER/Creo. It is a named persisted
-  model display/inspection definition, not only a Drawing command.
-- A Section references one or more stable datum/planar definitions, stores its
-  kept side and optional offset, and can be activated, deactivated and edited
-  without changing the underlying solid history.
-- The 3D viewer clips displayed bodies and renders clear section boundaries and
-  optional hatch/fill. Picking must distinguish real persisted model topology
-  from transient cut contours; a display-only section contour is not silently
-  accepted as a permanent modeling reference.
-- Assembly Sections may cut all components or an explicit stable component
-  subset while retaining instance colors, per-face appearances and opacity.
-- Drawing section views should later consume the same named Part/Assembly
-  Section definition where appropriate instead of maintaining an unrelated
-  duplicate plane/side model.
-- OCCT may calculate section geometry only when the user explicitly activates,
-  applies or regenerates a Section. Persist the viewer packet needed for later
-  display; camera movement, hover and Properties must not invoke hidden OCCT.
+Implemented in Part/Assembly with persisted definitions, exact component scope,
+shared placement and Drawing integration. See [Sections](SECTIONS.md) and
+[section commands](SECTION_COMMANDS.md). Extend production cases and diagnostics
+without changing source solids or inventing permanent references from transient
+cut contours. Passive display and Properties consume calculated data; they must
+not invoke hidden OCCT work.
 
 ## Surface Modeling
 
-- Keep the ordinary Part application solid-only. A closed profile creates an
-  ordinary solid or, when explicitly selected, a hollow thin solid. An open
-  profile creates a thin solid; neither silently creates a standalone surface
-  body. One unbranched open chain or closed loop of segments, arcs, ellipses,
-  elliptic arcs, splines and evaluated sketch-corner radii is implemented.
-- **Implemented:** the Thin ViewerMesh preview contains both offset boundaries,
-  every corner-longitudinal edge and open-chain end caps. Thickness-side and
-  symmetric switches atomically replace the cyan overlay after button-event
-  cleanup and never fall back to displaying the old shaded result body.
-- Continue stabilizing the thin-solid foundation: Inside/Outside and Start/End
-  identities, detailed self-intersection diagnostics and reference recovery
-  when switching between thin and ordinary solid results.
-- Add a solid-cut operation driven by a selected surface or surface body. The
-  operation must define the retained side explicitly and store stable
-  references to the cutting surface.
-- Design standalone surface creation as part of an explicit future
-  surface-modeling workspace, not as a third implicit Add/Subtract state in
-  ordinary Protrusion or Revolve.
-- Add **Flip** wherever a Protrusion/Revolve surface participates in trimming
-  a solid. Flip reverses the persisted cutting half-space, while an in-view
-  arrow previews the currently removed/retained side. Apply recalculates the
-  preview and OK commits it through the ordinary staged feature workflow.
-- Keep `output_kind` (solid/surface), Boolean combination (add/subtract/none)
-  and cutting-side `flip` as separate persisted concepts. Viewer arrows and
-  Properties consume these values without reconstructing OCCT topology.
-- Design the first surface-modeling application and history entities: surface
-  creation, trim, extend, join/sew and surface-body inspection.
-- Keep surface bodies distinct from solids in the document model, tree,
-  selection filters and operation validation.
-- Add a deliberate conversion from a valid closed set of surfaces to a solid;
-  do not silently interpret an open surface as a solid body.
-- Persist all selection and topology data required for later editing during
-  explicit Apply/OK/regeneration. Surface hover, tree display and Properties
-  opening must not trigger hidden OCCT reconstruction.
+Implemented: explicit Surface results in profile Features and General Surface,
+Fill, Sewing, Surface Intersection, Surface Trim and Surfaces from solid. These
+are native Modeling commands; a separate future workspace is not required to
+use them. See [surface tools](NETWORK_SURFACE.md) and
+[profile surface results](SURFACE_PROFILES.md).
+
+Remaining work includes additional supported joining/closing, trimming and
+reference-recovery cases, plus the separately agreed Feature projection and
+ordered limiting-surface extension. Do not imply an arbitrary open surface is
+a solid or promise that every proposed surface can cut one. Preserve explicit
+material sides, source identity, preview/OK/Cancel ownership and the protected
+native contracts. Blender-style direct meshes are a separate planned workflow.
 
 ## 3D Curve Container
 
-- Implement a parent 3D Curve container containing an ordered list of normal
-  Point containers, not a new 3D Sketcher and not an embedded private point
-  representation.
-- Every child Point retains the existing container contract: mandatory Origin,
-  one Point entity, stable ID, X/Y/Z fallback and ordinary persisted placement
-  references.
-- The order of Point containers in the tree is the path order. **Insert here**
-  determines the insertion position; delete and reorder operations update the
-  path deterministically.
-- The first implementation draws a 3D polyline between the evaluated Point
-  origins. Keep the representation ready for a later Polyline/Spline mode and
-  use the result as the first Sweep path input.
-- Viewer display, hover and selection consume the persisted ordered points.
-  OCCT may create the calculated edge/wire only at Apply, OK or regeneration.
+Implemented: ordered native Point definitions, shared placement/reference entry,
+point insertion/reordering and Polyline/Spline paths used by Sweep. See
+[3D Curve and Sweep](3D_CURVE_AND_SWEEP.md). Continue real-project reference and
+editing verification rather than schedule the foundation again.
 
 ## Sweep, Helix and Springs
 
-- Implement ordinary Sweep after the 3D Curve container: one stable profile,
-  one stable path, controlled profile orientation and Add/Subtract behavior.
-  Start with the predictable perpendicular-profile case before guide curves.
-- Add a dedicated parametric Helix path/container and sweep-along-helix support
-  for springs. Do not copy the Pro/ENGINEER spring workflow: its interaction
-  and parameter model are intentionally considered unsuitable. Design the
-  ZIMA workflow explicitly with the user before implementation.
-- The spring definition should expose engineering intent directly (axis,
-  handedness, coil/mean diameter, wire/profile, pitch or total length, turns
-  and end treatment) instead of forcing construction through an opaque generic
-  sweep setup. The exact minimal parameter set and end-condition behavior are
-  still a design task, not yet a fixed implementation contract.
-- Helix and Sweep follow the same Start/End identities, stable references and
-  mandatory own-value fallback rule as other history features.
+2D/3D Sweep, profile stations/Loft, Thin modes and Helical Sweep are implemented;
+see [3D](3D_CURVE_AND_SWEEP.md), [2D](SWEEP_2D.md) and [helical](HELICAL_SWEEP.md).
+Continue supported orientation/corner/reference cases and measured performance.
+A dedicated spring command with engineering end conditions remains a design
+task. Existing Helical Sweep is usable today; it is not the same promise as that
+future semantic spring workflow. Agree its minimal parameters with the user.
 
 ## Basic Piping
 
@@ -419,15 +343,15 @@ user instructions and completed native features supersede older pending items.
   payload, offset, direction and last valid calculated length. Flip exchanges
   those side definitions where appropriate; symmetric mode keeps stable
   Start/End identities.
-- Model each Up-to target as a collection from the beginning, even while the
-  first implementation limits the collection to one selected face. Keep the
-  compact target row in Properties; replace its trailing delete-only control
-  with a collection button that opens a small shared internal SubWindow listing
-  every selected target face, its state and removal/replacement controls. A
-  later **Up to face set/envelope** mode can then allow different profile rays
-  to terminate on the nearest valid positive intersection across several
-  planes, cylinders, spheres or cones without changing serialization or the
-  dialog contract.
+- Planned extension, clarified on 2026-10-20: multiple Up To targets form an
+  ordered consecutive surface chain. Adjacent surfaces intersect to define
+  the joined limiting shape; this is not a nearest-hit priority/fallback list.
+  Keep explicit Up/Down reordering and signed correction.
+  Native persisted changes require the agreed approval before implementation.
+- Use the shared reference-entry list, stable item identity and explicit Up/Down
+  reordering for the planned chain. Validate adjacent intersections and report
+  gaps; retained patch sides and extension beyond selected face bounds still
+  need design. Reuse current placement without changing its protected contract.
 - Persist the branch/side decision and one frozen analytic fallback descriptor
   for every successfully resolved target: plane origin/normal, cylinder
   axis/radius/range, sphere centre/radius or cone axis/apex/angle, expressed in
@@ -438,46 +362,31 @@ user instructions and completed native features supersede older pending items.
   for a plane perpendicular to the extrusion direction; otherwise preserve
   the last valid calculated feature body as the final fallback rather than
   flattening an inclined or curved terminal face.
-- For a target collection, every required profile ray must have one continuous
-  nearest valid branch across the envelope. Missing coverage, tangency
-  ambiguity, discontinuous branch switching or an invalid/open result keeps
-  the last valid feature body and reports the collection as repairable instead
-  of silently choosing a distant intersection or another similar face.
+- For the planned surface chain, validate the joined limiting shape and signed
+  correction explicitly. Missing adjacency, ambiguity or an invalid/open result
+  must reject the pending edit without replacing the last valid body. Do not
+  silently substitute another target or a distant branch.
+
 
 ## Pattern and Mirror
 
-Implemented as of 2026-09-07: **Zrcadlo** and linear/circular **Pole** for
-Part bodies and Assembly components. Both use one source, their own origin
-and the shared creation/editing contract. Copies retain source geometry
-provenance and are edited through their source. Part results are available
-as Boolean operands; an Assembly pattern stores distinct occurrence paths.
-Assembly copies are calculated geometry snapshots, including reflected
-geometry, rather than ordinary components with a negative-handed placement.
-Open dependency changes are pulled only by explicit Regenerate.
-See [Mirror and Pattern](MIRROR_AND_PATTERN.md) for the current behavior.
+Implemented: linked Part/Assembly Mirror and linear/circular Pattern, stable
+occurrences, dependent/independent mirrored-Part document workflows and their
+documented source/identity rules. See [Mirror and Pattern](MIRROR_AND_PATTERN.md),
+[derived commands](DERIVED_COPY_COMMANDS.md) and [copies](DOCUMENT_COPY.md).
 
-Possible extensions beyond this implementation:
-
-- Curve-driven, table-driven and reference-driven patterns, multiple sources,
-  and patterns of individual history features.
-- Per-occurrence suppression with stable identities for surviving occurrences;
-  deleted occurrences must not silently redirect references to another copy.
-- Reference-loss recovery that preserves the last valid own direction/axis
-  while displaying the unresolved driver.
-- **Create mirrored Part** as a separate document workflow: a dependent `.prtz`
-  linked to its source or an independent `.prtz` with no regeneration link.
-  These modes would require an output path, document identity, metadata and
-  Drawing/BOM policy. They are distinct from the implemented linked Assembly
-  container and are not implemented by it.
+Possible extensions remain curve/table/reference-driven patterns, multiple
+sources and scoped feature patterns beyond current capabilities. Verify survivor
+identities, source/reference loss and repeated/nested occurrences before extending
+them. Creating a mirrored Part is not a missing foundation anymore.
 
 ## Undo and Redo
 
-- Implement central document Undo/Redo late, after the Part, Assembly, Drawing,
-  stable-reference and transaction models have settled. Building it over a
-  changing data model would repeatedly invalidate the command architecture.
-- Continue preparing for it now: transient previews never become document
-  history, stable IDs survive edits, and every confirmed operation should be
-  expressible as one atomic before/after document transaction.
+Document Undo/Redo and shared atomic transactions are implemented. Every changed
+command must verify its own transient preview, OK/Cancel, Undo/Redo and native
+reopening now. The deferred task is a comprehensive cross-command audit after
+the agreed modeling features, not implementation of Undo/Redo from scratch.
+See [Part transactions](PART_SESSION_TRANSACTIONS.md) and the current rules.
 
 ## Assembly Stabilization
 
@@ -558,70 +467,18 @@ Possible extensions beyond this implementation:
 
 ## Basic Sketcher Completion
 
-- Treat the current Sketcher feature set as the first functionally complete
-  version. Keep further work focused on editing polish, solver quality,
-  performance and regression fixes instead of expanding the basic tool set.
-- Complete editing of Sketch text after creation: reopen its text properties,
-  change content, font/height, alignment and placement, regenerate the contour
-  geometry without losing its stable Sketch entity ownership, and support
-  Undo/Redo plus save/reload.
-- Add intelligent entity input: inference, snapping, continuation and clear
-  previews while creating connected geometry.
-- Implement one central Sketch cancel action shared by the `Esc` key and a
-  toolbar button. The first invocation cancels the in-progress point/entity or
-  current candidate, the next returns to Select, and Select-mode Escape clears
-  hover/selection. It must not close a Properties window or discard its staged
-  values.
-- Implement one matching Sketch confirm action shared by a short middle click
-  and view-focused `Enter`. An editor-focused Enter commits only that text or
-  numeric value and must never also submit geometry or close Properties.
-- Extend right-button candidate cycling from overlapping geometry to the valid
-  inference/constraint variants of the entity being entered. The orange
-  preview must identify the exact variant that the following confirmation will
-  persist; invalid, redundant and conflicting variants never enter the cycle.
-- Audit the remaining native parameter/edit dialogs and migrate them to the
-  shared internal `Qt.WindowType.SubWindow` properties presentation. Start
-  with the three remaining `QInputDialog` workflows: Family Table column name,
-  document rename and choosing an already open Drawing source. Native file
-  choosers remain system dialogs because they select filesystem resources,
-  not editable feature parameters.
-- Every internal dialog belongs to exactly one `MainWindow` instance. Its
-  parent, bounds, active Apply/OK/Cancel routing, middle-button confirmation
-  and keyboard actions must never use application-global state or affect a
-  second concurrently open ZIMA-CAD window.
-- External Sketch point references stay hidden until the cursor enters their
-  snap radius; keep this hover-only behavior for future dense reference types.
-- Continue migrating interactive tools to the central `SelectionController`.
-  Fillet already uses a declarative one-stable-edge request and switches the
-  viewer between topology and ordinary object interaction centrally. Reuse the
-  same request/validator path for Chamfer, Assembly mates and Sketch external
-  references; do not add further per-command selection flags.
-- Keep container Properties on the shared `ConstraintCapability` policy. Every
-  container exposes the complete local-frame placement `X/Y/Z + RX/RY/RZ` and
-  may consume only its bounded independent position/orientation references.
-  Migrate remaining dialog-specific checks to this policy.
-- Add polygon input and ellipse geometry.
-- Add the DXF import/export workflows specified in **DXF Interchange** and test
-  round trips on profiles containing segments, arcs, circles and splines.
-- Continue stabilization of centre arcs and spline editing.
-- Improve the solver's numerical stability, branch preservation, diagnostics
-  and recovery for redundant, conflicting and under-constrained systems.
-- Continue solver development as an ongoing Sketcher project: report remaining
-  degrees of freedom clearly, identify redundant/conflicting relations, keep
-  the selected solution branch during edits and add regression cases for dense
-  real-world sketches.
-- Make constraint records selectable in both tree and view. Selection must
-  highlight every participating entity and dependency; Delete must remove the
-  selected relation cleanly.
-- Complete constraint symbols and their hover/selection/dependency display for
-  every implemented relation, including symmetry and tangent relations.
-- Extend the now-stable multi-level Extrusion/Revolve, repeated multi-solid cuts
-  and additive joining to wider multi-body ancestry and additional curved
-  profile combinations.
-- Keep Trim deferred until topology-changing operations have central ID
-  remapping and reference recovery.
-- After the geometry and interaction rules are settled, evaluate replacing the
-  current incremental solver with one unified equation/residual system.
+The native Sketcher foundation is implemented: curves/profiles, polygons,
+ellipses, text editing and solver anchors, symbols/Explode, supported DXF,
+live constraint dragging, dimensions, Trim and offsets. See [Sketcher](SKETCHER.md),
+[symbol guide](SYMBOLS_USER_GUIDE.md) and [current corrections](PROJECT_STATUS.md).
+
+Continue repeated-edit/drag matrices, branch stability, finite support equations,
+external read-only identity, conflict diagnostics and topology-changing reference
+recovery. Do not infer universal convergence from an initial successful solve.
+New dialogs reuse the internal Properties and shared confirmation contract:
+OK/Cancel, short middle-click reference-entry completion, and middle-button
+double-click confirmation. Do not restore obsolete Apply or short-click-OK rules.
+Light/dark and all five language checks accompany applicable UI changes.
 
 ## Native viewer boundary
 

@@ -1,5 +1,11 @@
 # CAD command coverage
 
+For the current distinction between implemented features, release acceptance and
+planned work, see [project status](PROJECT_STATUS.md). Family Table, multibody
+Parts, native Sketch editing and the Sheet Metal tools are implemented.
+The dated counts and verification runs below are historical evidence, not a
+promise that every future roadmap extension exists.
+
 ## Catalog baseline — 2026-09-18
 
 The catalog audit on this date recorded **324 commands** for the supported CAD
@@ -39,8 +45,8 @@ through explicit command references and parameters. A CLI without a View does
 not invent a camera or selection.
 
 This closes coverage for existing supported features, not every future roadmap
-item. AI integration and the comprehensive Undo/Redo audit remain separate
-stages. See [CLI/GUI audit](CLI_GUI_AUDIT.md), [CLI usage](CAD_COMMAND_LINE.md)
+item. The implemented AI console has its own verification scope, while the
+comprehensive Undo/Redo audit remains a later stage. See [CLI/GUI audit](CLI_GUI_AUDIT.md), [CLI usage](CAD_COMMAND_LINE.md)
 and [CAD console](CAD_CONSOLE.md).
 
 ## Completion criteria
@@ -69,12 +75,12 @@ parameters, detailed limits and the verification evidence for each stage.
 | CLI process and catalog | UTF-8, scripts, stdin, config, context and data Tree; typed strings/numbers/integers/booleans/objects/arrays validated before mutation | [CLI](CAD_COMMAND_LINE.md) |
 | Documents | New/Open/Save/Save As, activation/close, working directory, archives, file deletion and rename; shared data/file transactions | [Document operations](DOCUMENT_OPERATIONS.md), [archives](ARCHIVE_COMMANDS.md), [rename](NATIVE_FILE_RENAME.md), [Unicode paths](UNICODE_NATIVE_FILE_COMMANDS.md) |
 | Regenerate and Undo/Redo | Shared Part/Assembly/Drawing operations; regressions accompany each changed transaction | [Part transactions](PART_SESSION_TRANSACTIONS.md), [state publication](WORKSPACE_STATE_PUBLICATION.md) |
-| Primitives | Box, cylinder, sphere, cone, pyramid and wedge creation, queries and parameter changes, including locks and precision | [Placement](PLACEMENT_COMMANDS.md), [value locks](VALUE_LOCK_COMMANDS.md) |
+| Unified Feature | Point, Axis, Plane, Sketch and combined Extrusion/Revolution; the old six standalone primitive commands and their native support have been removed | [Feature types](UNIFIED_FEATURE_TYPES.md), [value locks](VALUE_LOCK_COMMANDS.md) |
 | Sketch-driven Holes | Finite cylinders along non-construction segments, common diameter, Part subtraction, shared GUI/CLI commit | [Holes](HOLES.md) |
 | Sheet Metal | Flat, Bend, Revolved Sheet, Twisted Sheet with measured flat-pattern correction, Sheet Cut; Unbend/Bend Back for supported selected material regions with intervening cuts and additions | [Sheet Metal](SHEET_METAL.md), [state operations](SHEET_STATE_DEVELOPMENT.md) |
 | Part history | Dependency-valid movement, suppression, deletion and insertion cursor, including bodies and Booleans | [History commands](HISTORY_COMMANDS.md), [reordering](HISTORY_TREE_REORDER.md) |
 | Bodies and Booleans | Create/query/activate, name, visibility, body/global cursors, Boolean operations, order and deletion; original placement references | [Body commands](BODY_COMMANDS.md), [multibody model](MULTIBODY_AND_BOOLEANS.md) |
-| Placement | `placement.get/set`, locks, shared reference entry/removal for bodies, constructions, six primitives, Part profiles and other supported containers; component placement through `component.set` | [Placement references](PLACEMENT_REFERENCE_COMMANDS.md), [removal](PLACEMENT_REFERENCE_REMOVAL.md), [work planes](WORK_PLANES.md) |
+| Placement | `placement.get/set`, locks, shared reference entry/removal for Bodies, constructions, Features, Part profiles and other supported containers; component placement through `component.set` | [Placement references](PLACEMENT_REFERENCE_COMMANDS.md), [removal](PLACEMENT_REFERENCE_REMOVAL.md), [work planes](WORK_PLANES.md) |
 | Construction geometry | List/get/create/set/delete, root and curve-point references, tangents, corner radii and ordered points; embedded path-point changes commit the complete Sweep | [Construction](CONSTRUCTION_COMMANDS.md), [construction references](CONSTRUCTION_REFERENCE_COMMANDS.md), [Sweep point references](SWEEP_POINT_REFERENCES.md) |
 | Sketch geometry | Standalone and owned Sketches, Part/Assembly properties, points, segments, circles/arcs, ellipses, B-splines, rectangles/polygons, move, construction geometry and native text; DXF into owned profiles | [Sketch commands](SKETCH_COMMANDS.md), [Sketch properties](SKETCH_PROPERTIES_COMMANDS.md), [Assembly Sketches](ASSEMBLY_SKETCH_PROPERTIES.md) |
 | Sketch constraints and editing | All 15 supported constraint kinds, solver and removal; 16 dimension kinds with values, properties, labels and deletion; offset create/get/set/free, complete support/interval preservation, intersection trim, mirror, oriented rectangle, tangent and corner radius | [Sketcher](SKETCHER.md), [offset](SKETCH_OFFSET.md), [inline dimensions](INLINE_DIMENSION_COMMANDS.md) |
