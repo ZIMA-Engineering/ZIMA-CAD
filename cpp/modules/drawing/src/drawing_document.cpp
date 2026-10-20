@@ -25,6 +25,7 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <locale>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -1192,8 +1193,13 @@ std::string resolve_title_block_text(
             continue;
         }
         if (token == "sheet.scale") {
-            const int denominator = static_cast<int>(std::lround(1.0 / sheet.default_scale));
-            resolved << "1:" << denominator;
+            // Match the existing view-description convention, including
+            // enlargement and fractional ratios without integer rounding.
+            std::ostringstream ratio;ratio.imbue(std::locale::classic());
+            ratio<<std::setprecision(6);
+            if(sheet.default_scale>=1)ratio<<sheet.default_scale<<":1";
+            else ratio<<"1:"<<1/sheet.default_scale;
+            resolved<<ratio.str();
             continue;
         }
         if (token.starts_with("drawing.") || token.starts_with("local.")) {

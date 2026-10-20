@@ -1424,6 +1424,20 @@ int verify_drawing_format_controls(QApplication& application,zima::app::DrawingW
             editor.document_for_test().sheets.front().title_block_definition==title_definition&&
             !editor.document_for_test().sheets.front().frame_lines.empty(),"Sheet Properties OK lost frame/title block"))return 1;
     editor.grab().save(QString::fromStdString((directory/"native-format-a2-title.png").string()));
+    for(const auto& [scale,text]:std::vector<std::pair<double,std::string>>{{.25,"1:4"},{.4,"1:2.5"},{1.,"1:1"},{2.,"2:1"},{2.5,"2.5:1"},{4.,"4:1"}}) {
+        const auto before=editor.document_for_test().sheets.front().default_scale;
+        const auto label_before=editor.title_field_text_for_test("SCALE");
+        sheet_action->trigger();flush();sheet_dialog=editor.findChild<QDialog*>("drawingSheetProperties");
+        sheet_dialog->findChild<QDoubleSpinBox*>("drawingSheetScale")->setValue(scale);
+        sheet_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        if(!verify(editor.document_for_test().sheets.front().default_scale==before&&editor.title_field_text_for_test("SCALE")==label_before,
+            "Sheet scale Cancel changed its title"))return 1;
+        sheet_action->trigger();flush();sheet_dialog=editor.findChild<QDialog*>("drawingSheetProperties");
+        sheet_dialog->findChild<QDoubleSpinBox*>("drawingSheetScale")->setValue(scale);
+        sheet_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(editor.title_field_text_for_test("SCALE")==std::optional<std::string>{text},"Rendered title scale differs from Sheet Properties"))return 1;
+    }
+    editor.grab().save(QString::fromStdString((directory/"native-title-scale-4-to-1.png").string()));
     return 0;
 }
 int verify_drawing_format_only(QApplication& application,const std::filesystem::path& directory) {
@@ -1488,6 +1502,7 @@ int verify_native_title_block(QApplication& application,zima::app::AssemblyWorks
     if(!verify(region&&region->isEnabled()&&finish&&finish->isEnabled(),"Language Sketch lacks BOM region or Finish commands"))return 1;
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     const auto& frame=original.sketches.front();
+    window.grab().save(QString::fromStdString((directory/"native-title-block-sketch.png").string()));
     if(!verify(view&&std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==frame.id||edge.reference.owner_id==frame.owner_container_id;}),
         "Editing a language Sketch hides its preceding visible Frame"))return 1;
     const auto& suppressed=original.sketches.at(2);

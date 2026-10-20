@@ -95,3 +95,40 @@ thread Drawing, Drawing templates, template editing UI, symbol integration and
 five-language translations. The packaging suite passed eight checks with two
 platform/environment skips. No user-visible text or translations changed.
 Existing published ZIPs were not rebuilt by this repository cleanup.
+
+## Scale field and preceding Sketch context (2026-10-20)
+
+The `&sheet.scale` token now uses the actual sheet scale, following the existing
+view-description convention: `2:1` for enlargement, `1:4` for reduction and
+`1:2.5` for fractional reductions. The former integer reciprocal incorrectly
+reported enlargement as `1:1` or `1:0` and rounded fractional ratios. This is
+numeric formatting only; no native format or template data changed.
+
+The native contract checks ten scales from 0.001 to 1000 in all five title-block
+locales, composed expressions and Drawing save/reopen. The actual Sheet
+Properties GUI checks six scales with OK and Cancel, retained Family frames
+and title fields, and native save/reopen. The formed-nose reference Drawings
+independently verify `2:1`, positive calculated mass, constructor and date in
+all five languages. No translated application text was added or changed;
+the five-language catalog contract passed.
+
+The full title-block GUI also exposed a separate missing-context defect:
+`sketch_input_mesh` retained visible Sketches in passive Bodies but omitted
+preceding Sketches in the active Body. The same display path now includes both,
+using the existing visibility rules and the rollback Body cursor to exclude
+downstream entries. This retains the common Frame while editing a language
+Sketch, including the shared grip-preview path. It does not calculate solids,
+change constraints or modify the protected placement contract.
+
+The Windows native title-block GUI passed with preceding Frame visibility,
+suppressed language exclusion, ordinary Body activation, Family selection and
+Cancel, insertion, format changes and reopen. Sketch grip and context-conversion
+GUI regressions passed. These are finite display/context checks, not an
+exhaustive Sketcher dimension/solver matrix. Native Linux execution and release
+package acceptance remain outstanding.
+
+The first dependent nested-Body Sketch GUI run terminated with a segmentation
+fault before diagnostic output. Its isolated rerun and two consecutive repeats
+passed without code changes, including placed occurrence picking and dragging.
+The cause of that first termination is unconfirmed; the repetitions are not
+evidence that the transient failure has been fixed.

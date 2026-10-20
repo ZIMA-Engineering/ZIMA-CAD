@@ -264,13 +264,18 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_input_mesh(
         auto mesh=session.body_context_mesh(&context);
         filter_surface_shell_datums(mesh,document,&context);
         if(part_rollback_&&part_rollback_->part_document_id==document.document_id) {
-            // Sketch-only passive Bodies have no calculated solid packet.
-            // Retain their visible profiles while editing another Body,
-            // including grip previews. Reference entry still owns eligibility.
+            // Sketch-only inputs have no calculated solid packet. Retain
+            // preceding visible profiles of the active Body as well as passive
+            // Bodies, including grip previews. The rollback cursor excludes
+            // downstream profiles; reference entry still owns eligibility.
             for(const auto& sketch:document.sketches) {
-                const auto* body=document.body_owner_for_object(sketch.owner_container_id);
-                if(!body||body->scope.id==context.active_body_id()||
-                    sketch.id==active_sketch_id_||!sketch_visible_outside_sketcher(document,sketch))continue;
+                const auto* body=context.owner(sketch.owner_container_id);
+                if(!body||sketch.id==active_sketch_id_||!sketch_visible_outside_sketcher(document,sketch))continue;
+                if(body->scope.id==context.active_body_id()) {
+                    const auto entry=std::ranges::find(body->entries,sketch.owner_container_id,
+                        &zima::document::PartHistoryEntry::id);
+                    if(entry==body->entries.end()||static_cast<std::size_t>(entry-body->entries.begin())>=body->cursor)continue;
+                }
                 auto profile=sketch_viewer_mesh(sketch);
                 auto references=profile.original_references;
                 remove_sketch_computation_points(profile);

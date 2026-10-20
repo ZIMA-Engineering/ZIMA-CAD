@@ -573,6 +573,26 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         // Title-block token resolution: mirrors Python's title_block.py
         // resolve_title_block_text() unit tests (model/system/local token
         // scopes, Czech-labelled parameter aliases, and BOM row tokens).
+        {
+            using namespace zima::drawing;
+            TitleBlockContext context;TitleBlockField field;field.id="SCALE";field.expression="&sheet.scale";field.value="fallback";
+            auto scaled=DrawingDocument::create_default();auto& sheet=scaled.sheets.front();sheet.title_block_fields={field};
+            for(const auto* language:{"cs","en","de","fr","ru"}) {
+                sheet.title_block_locale=language;
+                for(const auto& [scale,text]:std::vector<std::pair<double,std::string>>{
+                    {.001,"1:1000"},{.25,"1:4"},{.4,"1:2.5"},{.5,"1:2"},{2./3,"1:1.5"},
+                    {1.,"1:1"},{2.,"2:1"},{2.5,"2.5:1"},{4.,"4:1"},{1000.,"1000:1"}}) {
+                    sheet.default_scale=scale;
+                    require(resolve_title_block_text(field,context,sheet)==text,"Title scale was rounded or treated as reduction only");
+                    auto composed=field;composed.expression="M &sheet.scale";
+                    require(resolve_title_block_text(composed,context,sheet)=="M "+text,"Title scale lost its surrounding expression");
+                }
+            }
+            sheet.default_scale=2.5;const auto scale_path=path.parent_path()/"zima-title-scale-contract.drwz";
+            scaled.save(scale_path);const auto reopened=DrawingDocument::load(scale_path);std::filesystem::remove(scale_path);
+            require(resolve_title_block_text(reopened.sheets.front().title_block_fields.front(),context,reopened.sheets.front())=="2.5:1",
+                "Native Drawing save/reopen lost the title's actual sheet scale");
+        }
         require(zima::drawing::title_block_tokens(
                     "Číslo &document.file_stem.&model.verze / &drawing.edice") ==
                 std::vector<std::string>{
