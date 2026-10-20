@@ -20,6 +20,13 @@ packaging scripts. The repository-owned build and validation pipeline must verif
 - extraction and GUI startup from a normal Windows user directory;
 - a deterministic Part calculation smoke test.
 
+Committed-source export streams `git archive` directly through the existing safe
+TAR-member extraction checks instead of storing another complete temporary TAR.
+This avoids an extra full-source disk copy. Export still reads Git objects only,
+preserves file contents/modes and recorded submodules, rejects unsupported entries
+and terminates the producer if extraction fails. It does not relax archive or
+source acceptance gates.
+
 The Python application and its Python-only packaging scripts were removed on
 2026-09-15. Their source is available in Git history. Conda and Python are not
 C++ runtime requirements. The current Windows vcpkg manifest selects Qt,

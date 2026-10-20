@@ -143,22 +143,33 @@ def inventory(folder):
 def export_source(repo, commit, destination):
     """Git objects only; untracked/modified files and submodule worktrees are never copied."""
     destination.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryFile() as data:
-        run(['git', '-C', repo, 'archive', '--format=tar', commit], stdout=data)
-        data.seek(0)
-        with tarfile.open(fileobj=data) as archive:
-            for member in archive:
-                name = safe_name('ZIMA-CAD/source/0000000001/' + member.name.rstrip('/'))
-                target = destination / member.name
-                if member.isdir():
-                    target.mkdir(parents=True, exist_ok=True)
-                elif member.isfile():
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with target.open('xb') as output, archive.extractfile(member) as source:
-                        shutil.copyfileobj(source, output)
-                    target.chmod(member.mode & 0o777)
-                else:
-                    raise ValueError('Unsupported committed source entry: ' + name)
+    arguments = ['git', '-C', str(repo), 'archive', '--format=tar', commit]
+    with subprocess.Popen(arguments, stdout=subprocess.PIPE) as process:
+        try:
+            archive = tarfile.open(fileobj=process.stdout, mode='r|')
+            with archive:
+                for member in archive:
+                    name = safe_name('ZIMA-CAD/source/0000000001/' + member.name.rstrip('/'))
+                    target = destination / member.name
+                    if member.isdir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    elif member.isfile():
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with target.open('xb') as output, archive.extractfile(member) as source:
+                            shutil.copyfileobj(source, output)
+                        target.chmod(member.mode & 0o777)
+                    else:
+                        raise ValueError('Unsupported committed source entry: ' + name)
+            # Drain TAR padding as well: waiting with a full pipe can deadlock.
+            while process.stdout.read(1024 * 1024):
+                pass
+            if process.wait():
+                raise subprocess.CalledProcessError(process.returncode, arguments)
+        except BaseException:
+            if process.poll() is None:
+                process.terminate()
+            process.wait()
+            raise
     for record in git(repo, 'ls-tree', '-rz', commit).split(b'\0'):
         if not record:
             continue
