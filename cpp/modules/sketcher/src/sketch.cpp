@@ -4217,6 +4217,47 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     if(!translated_drag_component&&(dragging_curve_center||dragging_native_tangent_pair))
         static_cast<void>(seed_circular_equations(next,{point_id}));
     auto solved = next.solve_impl(100, false, {point_id});
+    const bool midpoint_component=std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::Midpoint;});
+    // Fit the actual handle before the generic distance fallback releases its
+    // pin. A free midpoint-centred rigid profile must follow the cursor rather
+    // than redistribute its displacement among the other vertices.
+    if(solved.status==SolveStatus::Conflicting&&midpoint_component&&seed_circular_equations(next,{point_id},true))
+        solved=next.solve_impl(100,false,{point_id});
+    if(solved.status==SolveStatus::Conflicting&&midpoint_component) {
+        // A screen ray need not lie exactly on the remaining free path of a
+        // midpoint-centred component. Project through the same equations when
+        // pinning both cursor coordinates is impossible. Include intentionally
+        // relaxed drag dimensions when checking whether movement is permitted.
+        auto baseline=*this;baseline.dimensions=next.dimensions;
+        if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
+        auto projected=next;
+        // Refine both endpoints of the direction estimate: otherwise existing
+        // solve roundoff is magnified when a small fit becomes a full drag.
+        if(seed_circular_equations(baseline,{},true,true)&&seed_circular_equations(projected,{},true,true)) {
+            const auto checked=projected.solve_impl(100,false,{});
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                // An unpinned minimum-change fit shares the displacement
+                // between all participating points. Use its permitted direction
+                // to project the cursor, then fit with that real point pinned.
+                // The final fit must succeed; never publish an attenuated drag
+                // or assume that a curved free path is a straight line.
+                const auto* p=projected.find_point(point_id);
+                const auto* start=baseline.find_point(point_id);
+                const double dx=p->x-start->x,dy=p->y-start->y,squared=dx*dx+dy*dy;
+                if(squared>1e-18) {
+                    const double along=((x-start->x)*dx+(y-start->y)*dy)/squared;
+                    auto pinned=baseline;
+                    auto* anchor=pinned.find_point(point_id);anchor->x=start->x+along*dx;anchor->y=start->y+along*dy;
+                    if(seed_circular_equations(pinned,{point_id},true)) {
+                        const auto valid=pinned.solve_impl(100,false,{point_id});
+                        if(valid.status!=SolveStatus::Conflicting&&valid.status!=SolveStatus::Invalid) {
+                            next=std::move(pinned);solved=valid;
+                        }
+                    }
+                }
+            }
+        }
+    }
     if(solved.status==SolveStatus::Conflicting&&std::ranges::any_of(next.dimensions,[&](const auto& dimension) {
         return !dimension.suppressed&&dimension.driving&&dimension.locked&&
             dimension.kind==DimensionKind::Distance&&
@@ -9565,12 +9606,12 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && seed_equal_length_components(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
-    if(result.status==SolveStatus::Conflicting && std::ranges::any_of(next.dimensions,[](const auto& d){
+    if(result.status==SolveStatus::Conflicting && (std::ranges::any_of(next.dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
-    })) {
+    })||std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::Midpoint;}))) {
         // The sequential corrections may already have distorted the two line
-        // directions. A coordinate edit in that same angular graph also needs
-        // the coupled fit, just like an angle edit or support regeneration.
+        // directions or the two halves of an anchored midpoint. Changes in
+        // that graph need a coupled fit, including ordinary length edits.
         // Fit from the original branch and retain ordinary final validation.
         auto candidate=*this;candidate.dimensions=next.dimensions;
         if(seed_circular_equations(candidate,{},true)) {
@@ -9755,10 +9796,10 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
                 *this = std::move(before);
         }
     }
-    if(result.status==SolveStatus::Conflicting&&std::ranges::any_of(dimensions,[](const auto& d){
+    if(result.status==SolveStatus::Conflicting&&(std::ranges::any_of(dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
-    })) {
-        // Updated read-only supports need the same coupled angular fit as an
+    })||std::ranges::any_of(constraints,[](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::Midpoint;}))) {
+        // Updated read-only supports need the same coupled angular/midpoint fit as an
         // explicit value edit; sequential line projections can otherwise undo
         // each other while the valid profile changes height or width.
         auto candidate=*this;

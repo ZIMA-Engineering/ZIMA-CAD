@@ -1149,6 +1149,14 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_rounded_tangent_wing_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_rounded_tangent_wing_tests COMMAND zima_cpp_rounded_tangent_wing_tests)
     set_tests_properties(zima_cpp_rounded_tangent_wing_tests PROPERTIES TIMEOUT 300)
+    add_executable(zima_cpp_midpoint_profile_tests tests/midpoint_profile_tests.cpp)
+    target_link_libraries(zima_cpp_midpoint_profile_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_midpoint_profile_tests COMMAND zima_cpp_midpoint_profile_tests)
+    add_test(NAME zima_cpp_midpoint_profile_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/midpoint-profile-gui")
+    set_tests_properties(zima_cpp_midpoint_profile_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_MIDPOINT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_trimmed_rectangle_arc_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_executable(zima_cpp_trimmed_rectangle_extrusion_tests tests/trimmed_rectangle_extrusion_tests.cpp)
     target_link_libraries(zima_cpp_trimmed_rectangle_extrusion_tests PRIVATE zima_workspace)

@@ -71,6 +71,14 @@ and native/GUI checks are complete; see
 
 ### Corrected private geometry diagnostic
 
+A parametric external fan-washer prototype subsequently reproduced a separate
+program defect in midpoint-centred rectangular Sketches: their initial solve
+passed, but repeated width/thickness edits and real off-path mouse drags did not.
+Program correction takes priority over installing those private candidates.
+The bounded correction and finite regression matrix are recorded in
+[midpoint profile verification](verification/20261020-midpoint-profile-editing.md).
+It adds no native format or protected placement contract change.
+
 Save As intentionally exports a copy and keeps the source document active.
 The initial private hub trace mistakenly continued in that source session.
 Its suppression snapshots therefore did not isolate operations, and its modified

@@ -92,6 +92,14 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
         } else if(c.kind==ConstraintKind::EqualLength) {
             auto a=segment_row(c.geometry_id),b=segment_row(c.second_geometry_id);if(!a||!b)return false;
             for(std::size_t i=0;i<count;++i)(*a)[i]-=(*b)[i];add(std::move(*a),0);
+        } else if(c.kind==ConstraintKind::Midpoint) {
+            const auto segment=std::ranges::find(sketch.segments,c.geometry_id,&SketchSegment::id);
+            if(segment==sketch.segments.end())return false;
+            for(int axis=0;axis<2;++axis) {
+                const auto p=coordinate(c.first_point_id,axis),a=coordinate(segment->first_point_id,axis),b=coordinate(segment->second_point_id,axis);
+                if(!p||!a||!b)return false;
+                Row row(count);row[*p]=1;row[*a]-=.5;row[*b]-=.5;add(std::move(row),0);
+            }
         } else return false;
     }
     struct Distance {std::size_t a,b;double length;};
@@ -284,7 +292,7 @@ bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>&
 // A failed circular drag needs simultaneous point, radius and tangent updates.
 // This bounded seed covers native line/circle/arc graphs; unsupported equations
 // leave the transaction untouched and the ordinary solver verifies the result.
-bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component) {
+bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component,bool refine_drag_direction) {
     // A line-only native profile can still have circular equations through
     // immutable projected supports (e.g. a washer split following both rims).
     const bool external_circle=!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&
@@ -459,6 +467,14 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     const auto endpoint=point(id);
                     r.push_back(((*endpoint)[0]-center[0])*(*l)[2]+((*endpoint)[1]-center[1])*(*l)[3]);
                 }
+            } else if(c.kind==ConstraintKind::Midpoint) {
+                const auto segment=std::ranges::find(next.segments,c.geometry_id,&SketchSegment::id);
+                const auto p=point(c.first_point_id);
+                if(segment==next.segments.end()||!p)return {};
+                const auto a=point(segment->first_point_id),b=point(segment->second_point_id);
+                if(!a||!b)return {};
+                r.push_back((*p)[0]-((*a)[0]+(*b)[0])/2);
+                r.push_back((*p)[1]-((*a)[1]+(*b)[1])/2);
             } else if(c.kind==ConstraintKind::MidpointOnLine) {
                 const auto segment=std::ranges::find(next.segments,c.geometry_id,&SketchSegment::id);
                 const auto support=line(c.second_geometry_id);
@@ -542,7 +558,7 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     const auto norm=[](const auto& r){double value=0;for(double v:r)value+=v*v;return value;};
     for(int iteration=0;iteration<48;++iteration) {
         const auto residual=equations();if(!residual)return false;
-        if(std::ranges::all_of(*residual,[](double v){return std::isfinite(v)&&std::abs(v)<1e-9;})) {
+        if(std::ranges::all_of(*residual,[&](double v){return std::isfinite(v)&&std::abs(v)<(refine_drag_direction?1e-12:1e-9);})) {
             if(line_component)for(const auto& segment:sketch.segments) {
                 const auto* a=sketch.find_point(segment.first_point_id);const auto* b=sketch.find_point(segment.second_point_id);
                 const auto p=point(segment.first_point_id),q=point(segment.second_point_id);
