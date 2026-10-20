@@ -621,6 +621,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             app::SheetTransitionDialog transition(feature,[](auto){},&parent);
             transition.setAttribute(Qt::WA_DeleteOnClose,false);transition.show();application.processEvents();
             check(transition.windowTitle()==settings.qt_translations.value("Vlastnosti přechodu plechu"),"Transition title is untranslated");
+            check(transition.findChild<QCheckBox*>("transitionThicknessOverride")->text()==settings.qt_translations.value("Vlastní tloušťka"),"Transition thickness override is untranslated");
             check(transition.findChild<QCheckBox*>("transitionReliefs")->text()==settings.qt_translations.value("Odlehčit oba rohy na obdélníkovém konci"),"Collective corner relief is untranslated");
             check(transition.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("Skica půlkruhu"),"Transition profile prompt is untranslated");
             transition.hide();

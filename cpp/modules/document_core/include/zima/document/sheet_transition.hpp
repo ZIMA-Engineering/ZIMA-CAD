@@ -1,13 +1,15 @@
 #pragma once
 #include <zima/document/part_document.hpp>
+#include <zima/document/metadata.hpp>
 namespace zima::document {
 [[nodiscard]] HistoryContainer create_sheet_transition(bool rectangular=false);
 [[nodiscard]] bool has_sheet_transition(const PartDocument&);
 [[nodiscard]] bool rectangular_sheet_transition(const HistoryContainer&);
 void set_rectangular_transition_sides(HistoryContainer&,unsigned sides);
 void reframe_sheet_transition(HistoryContainer&);
-[[nodiscard]] std::vector<std::string> sheet_transition_bend_keys(const HistoryContainer&);
-[[nodiscard]] kernel::ViewerMesh sheet_transition_preview(const HistoryContainer&);
+[[nodiscard]] SheetTransitionParameters resolved_sheet_transition_parameters(const HistoryContainer&,const SheetMetalDefaults&);
+[[nodiscard]] std::vector<std::string> sheet_transition_bend_keys(const HistoryContainer&,const SheetMetalDefaults& = {});
+[[nodiscard]] kernel::ViewerMesh sheet_transition_preview(const HistoryContainer&,const SheetMetalDefaults& = {});
 [[nodiscard]] std::array<kernel::ViewerPoint,2> sheet_transition_axis_points(const HistoryContainer&,bool editing=false);
 [[nodiscard]] kernel::ViewerReferenceGeometry sheet_transition_profile_plane(const HistoryContainer&);
 [[nodiscard]] kernel::ViewerReferenceGeometry sheet_transition_end_references(const HistoryContainer&);

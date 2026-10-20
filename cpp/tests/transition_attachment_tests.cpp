@@ -17,6 +17,13 @@ void check(bool value,const char* message){if(!value)throw std::runtime_error(me
 void solid(const kernel::BodyResult& body) {
     for(const auto& [owner,error]:body.calculation_errors)throw std::runtime_error("Attached transition calculation failed: "+error);
     check(body.volume>0,"Attached transition has no material");
+    if(body.kernel_shape==kernel::kernel_body_compound) {
+        unsigned solids=0;double volume=0;
+        for(const auto& [id,output]:body.body_outputs)if(output->has_solid()) {
+            solid(output.get());++solids;volume+=output->volume;
+        }
+        check(solids==1&&std::abs(volume-body.volume)<1e-6,"Attached transition Part has an unexpected solid Body count or volume");return;
+    }
     TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(body.kernel_shape);
     BRepTools::Read(shape,data,builder);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid attached transition B-Rep");

@@ -1,4 +1,5 @@
 {
+  "Vlastní tloušťka": "Vlastní tloušťka",
   "Sketch import block is invalid": "Blok importované geometrie skici je neplatný",
   "Extrusion end references require a point, a plane or an original face.": "Zakončení vytažení vyžaduje bod, rovinu nebo původní plochu.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Vyberte bod předchozí skici, rovinu nebo původní plochu.",

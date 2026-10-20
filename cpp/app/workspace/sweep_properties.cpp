@@ -130,7 +130,8 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         zima::workspace::commit_sweep(workspace_,kernel_,document_id,std::move(c),
             editing?zima::workspace::SweepEditMode::Replace:zima::workspace::SweepEditMode::Create);
     };
-    SweepPlacementDialog* dialog=general?static_cast<SweepPlacementDialog*>(new GeneralSurfaceDialog(initial,commit,this)):transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
+    const auto sheet_defaults=transition?zima::document::sheet_metal_defaults(part->session.document()):zima::document::SheetMetalDefaults{};
+    SweepPlacementDialog* dialog=general?static_cast<SweepPlacementDialog*>(new GeneralSurfaceDialog(initial,commit,this)):transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this,sheet_defaults)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
     properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
@@ -166,7 +167,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         feature_reference_pick_={};feature_reference_end_={};
         start_primitive_reference_selection(i);
     };
-    dialog->changed=[this,dialog,planar,transition,general,geometry,body_id]{
+    dialog->changed=[this,dialog,planar,transition,general,geometry,body_id,sheet_defaults]{
         const auto* planar_editor=dynamic_cast<Sweep2DDialog*>(dialog);
         if(!dialog->isVisible()&&!(planar_editor&&planar_editor->point_order_open()))return;
         const bool valid=dialog->resolve_pending_placement(geometry);
@@ -212,7 +213,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                 preview_mesh=zima::document::general_surface_definition_mesh(c);
             }
             else if(planar)preview_mesh=zima::document::PartDocument::sweep2d_preview_mesh(c);
-            else if(transition)preview_mesh=zima::document::sheet_transition_preview(c);
+            else if(transition)preview_mesh=zima::document::sheet_transition_preview(c,sheet_defaults);
             else edges=zima::document::PartDocument::helical_preview_edges(c);
             dialog->set_status(general?QString{}:transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):tr("Dráha připravena. OK vytvoří těleso."));
         }catch(const std::exception& e){dialog->set_status((transition||general)?tr(e.what()):QString::fromUtf8(e.what()));}

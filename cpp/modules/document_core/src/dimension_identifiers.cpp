@@ -181,7 +181,8 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         for (const auto& sketch : feature.sweep2d.sketches()) embedded_sketch(out, sketch);
         break;
     case FeatureKind::SheetTransition:
-        add({"end_x","end_y","end_z","end_rx","end_ry","end_rz","thickness","inside_radius"});
+        add({"end_x","end_y","end_z","end_rx","end_ry","end_rz","inside_radius"});
+        if(feature.sheet_transition.thickness_override)add({"thickness"});
         for(const auto& sketch:feature.sheet_transition.sketches)embedded_sketch(out,sketch);
         break;
     case FeatureKind::HelicalSweep:

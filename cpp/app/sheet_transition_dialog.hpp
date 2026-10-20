@@ -13,12 +13,14 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSignalBlocker>
 #include <functional>
 namespace zima::app {
 class SheetTransitionDialog final:public SweepPlacementDialog {
 public:
-    SheetTransitionDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
-        : SweepPlacementDialog(tr("Vlastnosti přechodu plechu"),std::move(initial),parent),commit_(std::move(commit)) {
+    SheetTransitionDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent,
+                          document::SheetMetalDefaults defaults={})
+        : SweepPlacementDialog(tr("Vlastnosti přechodu plechu"),std::move(initial),parent),commit_(std::move(commit)),defaults_(defaults) {
         setObjectName("sheetTransitionDialog");setAttribute(Qt::WA_DeleteOnClose);
         auto* form=new QFormLayout;content_layout()->addLayout(form);name_=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name_);
         connect(name_,&QLineEdit::textChanged,this,[this](const QString& name){pending.name=name.toStdString();});
@@ -38,7 +40,10 @@ public:
         }
         auto* note=new QLabel(tr("Skici určují vnější rozměry a umístění. Tloušťka směřuje dovnitř; osy rozvinu patří na vnitřní povrch."),this);note->setWordWrap(true);form->addRow(note);
         const auto value=[&](const QString& label,const char* object,double initial,double minimum,double maximum,ui::InputQuantity quantity=ui::InputQuantity::Length){auto* box=new ui::UnitDoubleSpinBox(quantity,this);box->setObjectName(object);box->set_display_decimals(4);box->setRange(minimum,maximum);box->setValue(initial);form->addRow(label,box);return box;};
-        thickness_=value(tr("Tloušťka"),"transitionThickness",pending.sheet_transition.thickness,.001,1000);
+        custom_thickness_=new QCheckBox(tr("Vlastní tloušťka"),this);custom_thickness_->setObjectName("transitionThicknessOverride");
+        custom_thickness_->setChecked(pending.sheet_transition.thickness_override);form->addRow(custom_thickness_);
+        thickness_=value(tr("Tloušťka"),"transitionThickness",document::resolved_sheet_transition_parameters(pending,defaults_).thickness,.001,1000000);
+        thickness_->setEnabled(pending.sheet_transition.thickness_override);
         radius_=value(tr("Vnitřní poloměr ohybu"),"transitionRadius",pending.sheet_transition.inside_radius,.001,1000);
         factor_=value(tr("K-faktor"),"transitionKFactor",pending.sheet_transition.k_factor,0,1,ui::InputQuantity::Scalar);
         const bool rectangular=document::rectangular_sheet_transition(pending);
@@ -75,6 +80,12 @@ public:
             connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});
         }
         status_=new QLabel(this);status_->setWordWrap(true);content_layout()->addWidget(status_);
+        connect(custom_thickness_,&QCheckBox::toggled,this,[this](bool enabled){
+            if(enabled)pending.sheet_transition.thickness=thickness_->value();
+            pending.sheet_transition.thickness_override=enabled;
+            {const QSignalBlocker blocker(thickness_);thickness_->setValue(document::resolved_sheet_transition_parameters(pending,defaults_).thickness);}
+            thickness_->setEnabled(enabled);notify();
+        });
         for(auto* field:{thickness_,radius_,factor_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{read_parameters();notify();});
         for(auto* field:counts_)if(field)connect(field,&QSpinBox::valueChanged,this,[this]{read_parameters();notify();});
     }
@@ -84,7 +95,7 @@ public:
     bool set_inline_parameter_value(std::string_view key,double value) override {
         constexpr std::array<std::string_view,6> keys{"end_x","end_y","end_z","end_rx","end_ry","end_rz"};
         for(unsigned i=0;i<6;++i)if(key==keys[i]){end_fields_[i]->setValue(value);return true;}
-        if(key=="thickness"){thickness_->setValue(value);return true;}
+        if(key=="thickness"){if(!pending.sheet_transition.thickness_override)return false;thickness_->setValue(value);return true;}
         if(key=="inside_radius"){radius_->setValue(value);return true;}
         return SweepPlacementDialog::set_inline_parameter_value(key,value);
     }
@@ -94,7 +105,7 @@ private:
         if(reliefs_)relief_depth_->setEnabled(reliefs_->isChecked());
     }
     void notify(){if(changed)changed();}
-    void read_parameters(){auto& p=pending.sheet_transition;p.thickness=thickness_->value();p.inside_radius=radius_->value();p.k_factor=factor_->value();
+    void read_parameters(){auto& p=pending.sheet_transition;if(p.thickness_override)p.thickness=thickness_->value();p.inside_radius=radius_->value();p.k_factor=factor_->value();
         p.end_notches=notches_->isChecked();p.end_notch_depth=notch_depth_->value();
         p.short_bend_axes=short_axes_->isChecked();p.bend_axis_end_length=axis_length_->value();
         if(reliefs_){p.rectangle_reliefs=reliefs_->isChecked();p.rectangle_relief_depth=relief_depth_->value();}
@@ -102,11 +113,13 @@ private:
     bool submit()override {
         try {read_parameters();document::reframe_sheet_transition(pending);
             auto& p=pending.sheet_transition;p.relieved_bends.clear();
-            if(p.rectangle_reliefs){const auto keys=document::sheet_transition_bend_keys(pending);p.relieved_bends.insert(keys.begin(),keys.end());}
+            if(p.rectangle_reliefs){const auto keys=document::sheet_transition_bend_keys(pending,defaults_);p.relieved_bends.insert(keys.begin(),keys.end());}
             commit_(pending);return true;}
         catch(const std::exception& error){set_status(tr(error.what()));return false;}
     }
     std::function<void(document::HistoryContainer)> commit_;
+    document::SheetMetalDefaults defaults_;
+    QCheckBox* custom_thickness_{};
     QCheckBox *notches_{},*short_axes_{},*reliefs_{};
     QDoubleSpinBox *notch_depth_{},*axis_length_{},*relief_depth_{};
     QLineEdit* name_{};std::array<QSpinBox*,2> counts_{};std::array<QDoubleSpinBox*,6> end_fields_{};QDoubleSpinBox *thickness_{},*radius_{},*factor_{};QLabel* status_{};

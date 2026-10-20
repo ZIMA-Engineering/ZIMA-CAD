@@ -111,6 +111,7 @@ void placement_and_pattern_inputs(QApplication& application,QWidget& parent,doub
     for(const bool rectangular:{false,true}) {
         auto definition=document::create_sheet_transition(rectangular);
         definition.sheet_transition.thickness=.123456789;
+        definition.sheet_transition.thickness_override=true;
         auto* transition=new app::SheetTransitionDialog(definition,[](auto){},&parent);
         transition->setLocale(QLocale::c());
         input(transition,"transitionThickness",scale);near(transition->pending.sheet_transition.thickness,.125*scale);

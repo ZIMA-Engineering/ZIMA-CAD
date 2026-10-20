@@ -24,6 +24,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
             std::cout<<"Saved transition native/preview inspection and Cancel passed\n";return 0;
         }
         auto part=document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_SHEET_TRANSITION").toStdString());
+        document::set_sheet_metal_defaults(part,{2.5,.5});
         const auto source=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::SheetTransition;});
         check(source!=part.history.end(),"Transition GUI fixture has no transition");const auto initial=*source;
         const auto body=part.body_owner_for_object(initial.id)->scope.id;part.erase_history_object(initial.id);
@@ -78,6 +79,28 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         action->trigger();flush();auto* d=dialog();
         check(d->windowType()==Qt::SubWindow,"Transition properties are not an internal subwindow");
         auto* editor=dynamic_cast<app::SheetTransitionDialog*>(d);check(editor,"Wrong transition editor");
+        auto* custom=editor->findChild<QCheckBox*>("transitionThicknessOverride");
+        auto* thickness=editor->findChild<QDoubleSpinBox*>("transitionThickness");
+        check(custom&&!custom->isChecked()&&thickness&&!thickness->isEnabled()&&thickness->value()==2.5,"New transition does not inherit document thickness");
+        check(!editor->set_inline_parameter_value("thickness",9),"Inherited thickness accepted an inline override");
+        custom->click();check(thickness->isEnabled()&&editor->pending.sheet_transition.thickness_override,"Custom thickness did not enable editing");
+        thickness->setValue(3);custom->click();
+        check(!thickness->isEnabled()&&thickness->value()==2.5&&!editor->pending.sheet_transition.thickness_override,"Disabling custom thickness did not restore document value");
+        custom->click();check(thickness->isEnabled()&&thickness->value()==2.5,"Enabling custom thickness did not start with effective thickness");
+        unsigned theme_calculations=0;
+        {workspace::CalculationExecutionScope counted([&](auto run){++theme_calculations;run();});
+            for(const auto* theme:{"light","dark","light"}) {
+                app::ApplicationSettings appearance;appearance.theme=theme;app::apply_application_appearance(application,appearance);flush();
+                check(editor->palette().color(QPalette::Window)==application.palette().color(QPalette::Window),"Open Properties retained the preceding theme palette");
+                check(custom->palette().color(QPalette::WindowText)!=custom->palette().color(QPalette::Window),"Thickness checkbox has no theme contrast");
+                for(unsigned i=0;i<3;++i) {
+                    auto* field=editor->findChild<QDoubleSpinBox*>(QString("transitionEndPosition%1").arg(i));
+                    check(field&&field->height()>=field->sizeHint().height(),"Transition XYZ input is vertically compressed");
+                }
+                window.grab().save(QString::fromStdString((directory/(std::string("transition-thickness-")+theme+".png")).string()));
+            }
+        }
+        check(theme_calculations==0,"Live transition theme change calculated geometry");
         check(editor->width()<=std::max(editor->minimumWidth(),editor->minimumSizeHint().width())+2,"Transition did not open at minimum width");
         check(sketcher::Sketch::from_serialized(editor->pending.sheet_transition.sketches[1]).plane_reference_owner_id==editor->pending.container_origin.id,"Rectangle is not attached to main Origin");
         check(sketcher::Sketch::from_serialized(editor->pending.sheet_transition.sketches[0]).plane_reference_owner_id==editor->pending.sheet_transition.end_origin_id,"Round profile is not attached to second Origin");
@@ -156,9 +179,17 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
         check(row,"Transition absent from Tree");window.show_tree_item_properties(row);flush();
         d=dialog();
+        check(d->findChild<QCheckBox*>("transitionThicknessOverride")->isChecked()&&d->findChild<QDoubleSpinBox*>("transitionThickness")->isEnabled(),"Reopening lost custom thickness");
         check(std::ranges::any_of(mesh_view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==feature.id&&dimension.reference.semantic_key=="parameter:end_z";}),"Reopened container has no editable distance");
-        d->findChild<QDoubleSpinBox*>("transitionThickness")->setValue(4);d->reject();flush();
+        d->findChild<QCheckBox*>("transitionThicknessOverride")->click();d->reject();flush();
         check(save().find_container(feature.id)->sheet_transition==feature.sheet_transition,"Edit Cancel changed transition");
+        row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
+        check(row,"Transition missing after Cancel");window.show_tree_item_properties(row);flush();
+        unsigned calculations=0;
+        {workspace::CalculationExecutionScope counted([&](auto run){++calculations;run();});
+            dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();}
+        check(calculations==0,"Unchanged transition OK invoked geometry calculation");
+        check(save().find_container(feature.id)->sheet_transition==feature.sheet_transition,"Unchanged OK changed transition parameters");
         window.show_parameter_dimensions(feature.id);flush();
         const auto dimension=std::ranges::find_if(mesh_view->mesh().dimensions,[&](const auto& value){return value.reference.owner_id==feature.id&&value.reference.semantic_key=="parameter:end_z";});
         check(dimension!=mesh_view->mesh().dimensions.end(),"Standalone transition dimension missing");

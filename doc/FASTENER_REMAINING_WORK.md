@@ -109,12 +109,24 @@ or move its source tag.
   actual File Manager navigation and an isolated signed update introducing a
   new directory passed. See [verification](verification/20261020-factory-source-updates.md).
   Acceptance in the next committed release package remains pending.
-- The user also reported that Sheet Transition keeps an independent thickness.
-  Trace its GUI, native parameters and regeneration against the existing sheet
-  feature policy. Default to the document sheet thickness, with an explicit
-  independent override as for other sheet features. This is authorized program
-  work after the factory-source correction. Obtain the separately required
-  agreement before any necessary native persistence contract change.
+- Sheet Transition now inherits document thickness unless **Custom thickness**
+  is enabled. The user approved the required native switch. Round and L/U
+  transitions, volume/reference identity, Family/Relations, sheet states,
+  Undo/Redo, native persistence, templates, actual GUI, units and all five
+  languages passed. Open Properties also refresh their existing stylesheet on
+  a live theme change. See [verification](verification/20261020-transition-thickness.md).
+  Acceptance in the next committed Windows package remains pending.
+- External circular/elliptical references need their own selectable center
+  crosses. The user approved a persistent center-reference contract, then
+  clarified the interaction: select **center + center for C**, and separately
+  **curve + curve for equal radii** on circles/arcs. Do not reinterpret selecting
+  two circumferences for C as implicit concentricity. Include automatic
+  center/radius snapping and ellipse centers; verify dimensions, repeated drags,
+  source updates/loss, Undo/Redo and native persistence.
+
+The user's latest order is to complete these current program fixes, update
+English documentation and all five locales, commit/push and publish a verified
+new Windows release, then resume the unfinished library and modeling work above.
 
 ### Further ideas collected during program corrections (2026-10-20)
 

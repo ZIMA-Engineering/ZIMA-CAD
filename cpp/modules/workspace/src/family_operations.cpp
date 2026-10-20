@@ -39,7 +39,11 @@ Slots feature_slots(document::HistoryContainer& f) {
         }
         return result;
     }
-    case FeatureKind::SheetTransition:return {{"end_x",&f.sheet_transition.end_position.x},{"end_y",&f.sheet_transition.end_position.y},{"end_z",&f.sheet_transition.end_position.z},{"end_rx",&f.sheet_transition.end_rotation.x},{"end_ry",&f.sheet_transition.end_rotation.y},{"end_rz",&f.sheet_transition.end_rotation.z},{"thickness",&f.sheet_transition.thickness},{"inside_radius",&f.sheet_transition.inside_radius}};
+    case FeatureKind::SheetTransition: {
+        Slots result{{"end_x",&f.sheet_transition.end_position.x},{"end_y",&f.sheet_transition.end_position.y},{"end_z",&f.sheet_transition.end_position.z},{"end_rx",&f.sheet_transition.end_rotation.x},{"end_ry",&f.sheet_transition.end_rotation.y},{"end_rz",&f.sheet_transition.end_rotation.z},{"inside_radius",&f.sheet_transition.inside_radius}};
+        if(f.sheet_transition.thickness_override)result.emplace("thickness",&f.sheet_transition.thickness);
+        return result;
+    }
     case FeatureKind::Extrusion: return {{"length_forward",&f.extrusion.length_forward},{"length_reverse",&f.extrusion.length_reverse},{"profile_offset",&f.extrusion.profile_plane_offset},{"thin_thickness",&f.extrusion.thin_thickness}};
     case FeatureKind::Revolution: return {{"angle",&f.revolution.angle_degrees},{"length_reverse",&f.revolution.angle_reverse},{"profile_offset",&f.revolution.profile_plane_offset},{"thin_thickness",&f.revolution.thin_thickness}};
     case FeatureKind::Fillet: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size}};

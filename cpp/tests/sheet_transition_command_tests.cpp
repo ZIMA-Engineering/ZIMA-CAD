@@ -9,6 +9,9 @@
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/metadata.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <transition_sketches.hpp>
 #include <transition_sheet.hpp>
@@ -16,6 +19,7 @@
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <TopExp_Explorer.hxx>
+#include <nlohmann/json.hpp>
 #include <sstream>
 #include <chrono>
 #include <iostream>
@@ -34,6 +38,15 @@ void check_transition_lines(const kernel::BodyResult& body) {
     check(hidden>0&&borders>0,"Transition display did not distinguish smooth junctions from borders");
 }
 void check_solid(const kernel::BodyResult& body) {
+    check(body.calculation_errors.empty(),"Transition calculation contains errors");
+    check(body.physical_properties_current&&body.volume>0,"Transition verification requires current physical analysis");
+    if(body.kernel_shape==kernel::kernel_body_compound) {
+        unsigned solids=0;double volume=0;
+        for(const auto& [id,output]:body.body_outputs)if(output->has_solid()) {
+            check_solid(output.get());++solids;volume+=output->volume;
+        }
+        check(solids==1&&std::abs(volume-body.volume)<1e-6,"Transition Part does not contain exactly one complete solid Body");return;
+    }
     TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(body.kernel_shape);BRepTools::Read(shape,stream,builder);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Transition has invalid B-Rep");
     unsigned solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
@@ -102,7 +115,123 @@ void check_assembly_datums(const kernel::BodyResult& body,const std::string& own
     check(kernel::sheet_material::dot(a.normal,b.normal)<-1+1e-7,"End plane lost opposite-side choice at zero offset");
 }
 }
+void check_inherited_transition_thickness() {
+    for(unsigned mode=0;mode<3;++mode) {
+        auto part=document::PartDocument::create_default();
+        static_cast<void>(part.body_history.create_body("Thickness test"));
+        document::set_sheet_metal_defaults(part,{2.25,.5});
+        auto feature=document::create_sheet_transition(mode!=0);
+        if(mode==1)document::set_rectangular_transition_sides(feature,2);
+        feature.sheet_transition.thickness=7.25; // Disabled stored value must not drive material.
+        check(!feature.sheet_transition.thickness_override,"Transition does not default to inherited thickness");
+        check(document::resolved_sheet_transition_parameters(feature,{}).thickness==1.,"Unset document thickness lost its standard default");
+        kernel::OcctKernel kernel;workspace::Workspace live;const auto id=part.document_id;
+        live.add_part(part);live.activate(id);
+        check(workspace::commit_sheet_transition(live,kernel,id,feature),"Inherited transition creation failed");
+        auto* state=live.open_part(id);
+        const auto thick_volume=state->session.calculated_boundaries().back().volume;
+        const auto face_keys=[](const kernel::BodyResult& body) {
+            std::set<std::pair<std::string,std::string>> result;
+            for(const auto& face:body.mesh.original_references.triangle_references)
+                if(!face.owner_id.empty())result.emplace(face.owner_id,face.semantic_key);
+            return result;
+        };
+        const auto identities=face_keys(state->session.calculated_boundaries().back());
+        check(!identities.empty(),"Transition has no original face identities");
+        check_solid(state->session.calculated_boundaries().back());
+        auto check_thickness=[&](const document::PartDocument& doc,const document::HistoryContainer& f,double expected) {
+            const auto resolved=document::resolved_sheet_transition_parameters(f,document::sheet_metal_defaults(doc));
+            check(resolved.thickness==expected,"Wrong effective transition thickness");
+            const auto operation=document::sheet_transition_operation(doc,f);
+            check(!operation.sheet_regions.empty(),"Missing transition material regions");
+            for(const auto& region:operation.sheet_regions)check(region.thickness==expected,"Material region ignored effective thickness");
+            auto explicit_feature=f;explicit_feature.sheet_transition.thickness_override=true;explicit_feature.sheet_transition.thickness=expected;
+            const auto inherited_preview=document::sheet_transition_preview(f,document::sheet_metal_defaults(doc));
+            const auto explicit_preview=document::sheet_transition_preview(explicit_feature);
+            check(inherited_preview.edges.size()==explicit_preview.edges.size(),"Effective thickness changed preview edge count");
+            for(std::size_t i=0;i<inherited_preview.edges.size();++i)
+                check(inherited_preview.edges[i].points==explicit_preview.edges[i].points,"Preview differs from explicit effective thickness");
+            std::vector<document::DimensionParameter> parameters;document::append_dimension_parameters(parameters,f);
+            check(std::ranges::any_of(parameters,[](const auto& p){return p.semantic_key=="parameter:thickness";})==f.sheet_transition.thickness_override,"Inherited thickness exposed an editable dimension");
+        };
+        check_thickness(state->session.document(),feature,2.25);
+        for(unsigned malformed=0;malformed<3;++malformed) {
+            auto packet=state->session.document().serialized();unsigned changed=0;
+            for(auto& entry:packet["history"])if(entry.contains("sheet_transition")) {
+                auto& parameters=entry["sheet_transition"];++changed;
+                if(malformed==0)parameters.erase("thickness_override");
+                else parameters["thickness_override"]=malformed==1?nlohmann::json(1):nlohmann::json("YES");
+            }
+            check(changed==1,"Persistence probe did not find one transition");
+            bool rejected=false;try{static_cast<void>(document::PartDocument::from_serialized(packet));}catch(const std::exception&){rejected=true;}
+            check(rejected,"Native transition accepted an absent or nonboolean thickness switch");
+        }
+        {
+            auto family=state->session.document();const auto before=family.serialized();bool rejected=false;
+            try {static_cast<void>(workspace::assign_driving_dimension(family,{"dimension",feature.id,"parameter:thickness"},4));}
+            catch(const std::invalid_argument&){rejected=true;}
+            check(rejected&&family.serialized()==before,"Family drove inherited thickness or changed it on rejection");
+        }
+        auto changed=state->session.document();document::set_sheet_metal_defaults(changed,{1.5,.5});
+        auto calculated=workspace::calculate_part_with_resolved_references(kernel,changed,&state->session.calculated_boundaries());
+        check_solid(calculated.back());check(calculated.back().volume<thick_volume,"Document thickness change reused stale transition geometry");
+        check(face_keys(calculated.back())==identities,"Document thickness changed original face identities");
+        const auto thin_volume=calculated.back().volume;
+        workspace::commit_part_document(live,id,std::move(changed),std::move(calculated));
+        check_thickness(state->session.document(),feature,1.5);
+        check(state->session.document().find_container(feature.id)->sheet_transition.thickness==7.25,"Resolving thickness mutated authored override");
+        check(workspace::step_part_document_history(live,id,false)&&std::abs(state->session.calculated_boundaries().back().volume-thick_volume)<1e-6,"Default thickness Undo failed");
+        check(workspace::step_part_document_history(live,id,true)&&std::abs(state->session.calculated_boundaries().back().volume-thin_volume)<1e-6,"Default thickness Redo failed");
+        auto custom=*state->session.document().find_container(feature.id);custom.sheet_transition.thickness_override=true;custom.sheet_transition.thickness=2.25;
+        check(workspace::commit_sheet_transition(live,kernel,id,custom),"Custom transition thickness failed");
+        check_thickness(state->session.document(),custom,2.25);
+        {
+            auto family=state->session.document();
+            check(workspace::assign_driving_dimension(family,{"dimension",feature.id,"parameter:thickness"},1.75),"Family cannot drive explicit thickness");
+            check_thickness(family,*family.find_container(feature.id),1.75);
+            const auto name=family.dimension_identifiers.identifier(feature.id,"parameter:thickness");
+            check(!name.empty(),"Explicit thickness has no stable dimension identity");
+            family.relations=name+" = 1.8\n";workspace::apply_relation_dimensions(family,{});
+            check_thickness(family,*family.find_container(feature.id),1.8);
+            family.find_container(feature.id)->sheet_transition.thickness_override=false;
+            workspace::apply_relation_dimensions(family,{});check_thickness(family,*family.find_container(feature.id),1.5);
+            family.find_container(feature.id)->sheet_transition.thickness_override=true;
+            family.relations=name+" = 1.9\n";workspace::apply_relation_dimensions(family,{});
+            check_thickness(family,*family.find_container(feature.id),1.9);
+        }
+        check(std::abs(state->session.calculated_boundaries().back().volume-thick_volume)<1e-6,"Explicit thickness differs from inherited solid");
+        auto frozen=state->session.document();document::set_sheet_metal_defaults(frozen,{3.5,.5});
+        auto frozen_cache=workspace::calculate_part_with_resolved_references(kernel,frozen,&state->session.calculated_boundaries());
+        check_thickness(frozen,custom,2.25);
+        check(std::abs(frozen_cache.back().volume-thick_volume)<1e-6,"Document setting changed explicit thickness");
+        workspace::commit_part_document(live,id,std::move(frozen),std::move(frozen_cache));
+        const auto generation=state->session.data_generation();unsigned calculations=0;
+        {workspace::CalculationExecutionScope counted([&](auto run){++calculations;run();});
+            check(!workspace::commit_sheet_transition(live,kernel,id,custom),"Unchanged thickness OK committed");}
+        check(calculations==0&&state->session.data_generation()==generation,"Unchanged thickness OK calculated or mutated state");
+        check(workspace::step_part_document_history(live,id,false),"Explicit default Undo failed");
+        custom.sheet_transition.thickness_override=false;
+        check(workspace::commit_sheet_transition(live,kernel,id,custom),"Returning to document thickness failed");
+        check_thickness(state->session.document(),custom,1.5);
+        check(std::abs(state->session.calculated_boundaries().back().volume-thin_volume)<1e-6,"Returning to document thickness changed material");
+        for(bool unfold:{true,false}) {
+            auto change=document::PartDocument::create_sketch_container();change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;change.sheet_state.all=true;
+            check(workspace::commit_sheet_state(live,kernel,id,change),"Inherited thickness sheet state failed");
+            check_solid(state->session.calculated_boundaries().back());
+            check(std::abs(state->session.calculated_boundaries().back().volume-thin_volume)<(unfold?thin_volume*2e-4:1e-5),"Inherited thickness sheet state changed volume");
+        }
+        const auto file=std::filesystem::absolute("build/transition-model/inherited-"+std::to_string(mode)+".prtz");
+        std::filesystem::create_directories(file.parent_path());state->session.document().save(file,state->session.calculated_boundaries());
+        auto reopened=document::PartDocument::load(file);
+        check(!reopened.find_container(feature.id)->sheet_transition.thickness_override,"Native reopen lost inherited thickness");
+        check_thickness(reopened,*reopened.find_container(feature.id),1.5);
+        kernel::OcctKernel cold;const auto restored=workspace::calculate_part_with_resolved_references(cold,reopened);
+        check_solid(restored.back());check(std::abs(restored.back().volume-thin_volume)<1e-5,"Cold regeneration lost inherited thickness");
+        std::cout<<"Thickness inheritance/custom/state/Undo/save mode="<<mode<<" volumes="<<thick_volume<<","<<thin_volume<<'\n';
+    }
+}
 int main()try {
+    if(std::getenv("ZIMA_VERIFY_TRANSITION_THICKNESS")){check_inherited_transition_thickness();return 0;}
     if(std::getenv("ZIMA_VERIFY_TRANSITION_MARKS")) {
         auto feature=document::create_sheet_transition();
         const auto input=research::transition::read_sketches(sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]),sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]));
@@ -195,7 +324,7 @@ int main()try {
     }
     for(auto angle:std::array<kernel::Vec3,4>{{{0,0,0},{5,0,0},{-5,0,0},{8,-10,0}}}) {
         auto feature=document::create_sheet_transition();feature.sheet_transition.end_rotation=angle;
-        feature.sheet_transition.thickness=3;check_material_preview(feature);
+        feature.sheet_transition.thickness_override=true;feature.sheet_transition.thickness=3;check_material_preview(feature);
     }
     {
         auto part=document::PartDocument::create_default();auto feature=document::create_sheet_transition();
@@ -221,7 +350,7 @@ int main()try {
         const auto& changed_panel=std::get<kernel::ExtrusionRequest>(changed_group.children.front());
         check(original_panel.profile_region_id==changed_panel.profile_region_id&&original_panel.outer_edge_source_ids==changed_panel.outer_edge_source_ids,"L/U renamed an unchanged wall's source ancestry");
         rectangular.sheet_transition.end_rotation={8,-10,12};
-        rectangular.sheet_transition.thickness=3;check_material_preview(rectangular);
+        rectangular.sheet_transition.thickness_override=true;rectangular.sheet_transition.thickness=3;check_material_preview(rectangular);
         workspace::Workspace test;kernel::OcctKernel geometry;const auto document_id=doc.document_id;
         std::cout<<"Rotated rectangular transition, sides "<<sides<<std::endl;
         check_solid(geometry.evaluate_history({document::sheet_transition_operation(doc,rectangular)}).back());
@@ -276,7 +405,16 @@ int main()try {
     }
     const auto start=std::chrono::steady_clock::now();
     check(workspace::commit_sheet_transition(live,kernel,id,feature),"Creation did not commit");
-    auto* state=live.open_part(id);const auto created=state->session.document().serialized();
+    auto* state=live.open_part(id);const auto created_document=state->session.document();const auto created=created_document.serialized();
+    const auto restored_created=[&] {
+        auto expected=created_document;
+        // Undo retains retired dN allocations so a re-enabled custom thickness
+        // recovers its original identifier, as for existing Flat overrides.
+        expected.dimension_identifiers.retain(state->session.document().dimension_identifiers);
+        const auto actual=state->session.document().serialized();
+        if(actual!=expected.serialized())std::cerr<<nlohmann::json::diff(expected.serialized(),actual).dump(2)<<'\n';
+        return actual==expected.serialized();
+    };
     for(bool rectangular:{false,true}) {
         bool rejected=false;
         try{static_cast<void>(workspace::commit_sheet_transition(live,kernel,id,document::create_sheet_transition(rectangular)));}
@@ -303,7 +441,7 @@ int main()try {
     auto invalid=feature;invalid.sheet_transition.inside_radius=10000;
     bool rejected=false;try{static_cast<void>(workspace::commit_sheet_transition(live,kernel,id,invalid));}catch(const std::exception&){rejected=true;}
     check(rejected&&state->session.document().serialized()==created,"Invalid edit mutated document");
-    auto edited=feature;edited.sheet_transition.facets={6,3};edited.sheet_transition.thickness=1.2;
+    auto edited=feature;edited.sheet_transition.facets={6,3};edited.sheet_transition.thickness_override=true;edited.sheet_transition.thickness=1.2;
     edited.sheet_transition.inside_radius=1.4;edited.sheet_transition.k_factor=.4;
     edited.sheet_transition.end_notches=true;edited.sheet_transition.short_bend_axes=true;edited.sheet_transition.rectangle_reliefs=true;
     edited.sheet_transition.relieved_bends.insert(document::sheet_transition_bend_keys(edited).front());
@@ -322,17 +460,17 @@ int main()try {
         const auto dxf=workspace::prepare_sheet_dxf(reopened,recalculated,cold);
         check(!dxf.export_options.bend_axis_ids.empty(),"Marked DXF lost bend axes");
     }
-    check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Edit Undo failed");
+    check(workspace::step_part_document_history(live,id,false)&&restored_created(),"Edit Undo failed");
     auto moved=feature;moved.sheet_transition.end_position.z=200;
     check(workspace::commit_sheet_transition(live,kernel,id,moved),"Second Origin movement did not commit");
     check(state->session.calculated_boundaries().back().calculation_errors.empty()&&state->session.calculated_boundaries().back().volume>volume,"Second Origin movement did not regenerate transition");
-    check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Origin edit Undo failed");
+    check(workspace::step_part_document_history(live,id,false)&&restored_created(),"Origin edit Undo failed");
     auto placed=feature;placed.placement.x=23;placed.placement.y=-11;placed.placement.z=8;
     placed.placement.rotation_x=17;placed.placement.rotation_y=-13;placed.placement.rotation_z=27;
     placed.placement.absolute_rotation_x=17;placed.placement.absolute_rotation_y=-13;placed.placement.absolute_rotation_z=27;
     check(workspace::commit_sheet_transition(live,kernel,id,placed),"Rigid placement did not commit");
     check(std::abs(state->session.calculated_boundaries().back().volume-volume)<1e-4,"Rigid placement changed volume");
-    check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Rigid placement Undo failed");
+    check(workspace::step_part_document_history(live,id,false)&&restored_created(),"Rigid placement Undo failed");
     for(const auto rotation:std::array<kernel::Vec3,3>{{{0,-15,0},{0,15,0},{8,-10,0}}}) {
         auto rotated=feature;rotated.sheet_transition.end_rotation=rotation;
         std::cout<<"Manufacturing relative tilt "<<rotation.x<<','<<rotation.y<<','<<rotation.z<<std::endl;

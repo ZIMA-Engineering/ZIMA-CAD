@@ -1,4 +1,5 @@
 {
+  "Vlastní tloušťka": "Custom thickness",
   "Sketch import block is invalid": "The Sketch import block is invalid",
   "Extrusion end references require a point, a plane or an original face.": "Extrusion end references require a point, a plane or an original face.",
   "Vyberte bod předchozí skici, rovinu nebo původní plochu.": "Select a point from an earlier sketch, a plane or an original face.",

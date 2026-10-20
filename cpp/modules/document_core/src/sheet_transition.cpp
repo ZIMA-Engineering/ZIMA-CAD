@@ -72,6 +72,12 @@ kernel::ViewerMesh transition_material_wire(const research::transition::SheetRes
     return result;
 }
 }
+SheetTransitionParameters resolved_sheet_transition_parameters(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
+    auto result=feature.sheet_transition;
+    if(!result.thickness_override)result.thickness=defaults.thickness_mm.value_or(1.);
+    validate_sheet_metal_defaults({result.thickness,result.k_factor});
+    return result;
+}
 ContainerOrigin sheet_transition_end_origin(const HistoryContainer& feature) {
     auto result=create_container_origin(feature.id+":transition-end");
     result.parent_id=feature.container_origin.id;
@@ -209,8 +215,9 @@ std::array<kernel::ViewerPoint,2> sheet_transition_axis_points(const HistoryCont
     b.label.clear(); // The feature name labels the pair only once.
     return {a,b};
 }
-std::vector<std::string> sheet_transition_bend_keys(const HistoryContainer& source) {
-    auto feature=source;reframe_sheet_transition(feature);const auto& p=feature.sheet_transition;
+std::vector<std::string> sheet_transition_bend_keys(const HistoryContainer& source,const SheetMetalDefaults& defaults) {
+    auto feature=source;feature.sheet_transition=resolved_sheet_transition_parameters(source,defaults);
+    reframe_sheet_transition(feature);const auto& p=feature.sheet_transition;
     const auto a=sketcher::Sketch::from_serialized(p.sketches[0]),b=sketcher::Sketch::from_serialized(p.sketches[1]);
     const research::transition::SheetOptions options{p.thickness,p.inside_radius,p.k_factor};
     const auto material=[&]{
@@ -222,8 +229,9 @@ std::vector<std::string> sheet_transition_bend_keys(const HistoryContainer& sour
     for(std::size_t i=0;i<material.bends.size();++i)result.push_back(bend_key(feature,material.bends[i].boundary_index));
     return result;
 }
-kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
-    auto feature=source;reframe_sheet_transition(feature);kernel::ViewerMesh result;
+kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source,const SheetMetalDefaults& defaults) {
+    auto feature=source;feature.sheet_transition=resolved_sheet_transition_parameters(source,defaults);
+    reframe_sheet_transition(feature);kernel::ViewerMesh result;
     std::array<sketcher::Sketch,2> sketches;
     for(unsigned i=0;i<2;++i) {
         sketches[i]=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[i]);
@@ -251,8 +259,9 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     }catch(const std::exception&){throw;}
     return result;
 }
-kernel::HistoryOperation sheet_transition_operation(const PartDocument&,const HistoryContainer& feature) {
-    auto framed=feature;reframe_sheet_transition(framed);const auto& parameters=framed.sheet_transition;
+kernel::HistoryOperation sheet_transition_operation(const PartDocument& document,const HistoryContainer& feature) {
+    auto framed=feature;framed.sheet_transition=resolved_sheet_transition_parameters(feature,sheet_metal_defaults(document));
+    reframe_sheet_transition(framed);const auto& parameters=framed.sheet_transition;
     if(feature.combine_mode!=CombineMode::Add)throw std::invalid_argument("Invalid transition sheet parameters");
     const auto first=sketcher::Sketch::from_serialized(parameters.sketches[1]),second=sketcher::Sketch::from_serialized(parameters.sketches[0]);
     kernel::HistoryOperation operation;std::set<std::string> parents;kernel::Vec3 round_center,rectangle_center;

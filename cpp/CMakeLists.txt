@@ -2329,11 +2329,15 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_transition_attachment_tests tests/transition_attachment_tests.cpp)
     target_link_libraries(zima_cpp_transition_attachment_tests PRIVATE zima_workspace TKBRep TKTopAlgo)
     add_test(NAME zima_cpp_transition_attachment_tests COMMAND zima_cpp_transition_attachment_tests)
-    set_tests_properties(zima_cpp_transition_attachment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 900)
+    set_tests_properties(zima_cpp_transition_attachment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 900 ENVIRONMENT "ZIMA_CPP_EAGER_ANALYSIS=1")
     target_link_libraries(zima_cpp_sheet_transition_command_tests PRIVATE zima_workspace TKBRep TKTopAlgo)
     add_test(NAME zima_cpp_sheet_transition_command_tests COMMAND zima_cpp_sheet_transition_command_tests)
     set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
-    set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES FIXTURES_SETUP sheet_transition_fixture)
+    set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES FIXTURES_SETUP sheet_transition_fixture ENVIRONMENT "ZIMA_CPP_EAGER_ANALYSIS=1")
+    add_test(NAME zima_cpp_sheet_transition_thickness_contract COMMAND zima_cpp_sheet_transition_command_tests)
+    set_tests_properties(zima_cpp_sheet_transition_thickness_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 240
+        ENVIRONMENT "ZIMA_VERIFY_TRANSITION_THICKNESS=1;ZIMA_CPP_EAGER_ANALYSIS=1")
     add_test(NAME zima_cpp_sheet_transition_marking_contract COMMAND zima_cpp_sheet_transition_command_tests)
     set_tests_properties(zima_cpp_sheet_transition_marking_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180

@@ -537,11 +537,12 @@ void apply_application_appearance(QApplication& application,const ApplicationSet
         palette.setColor(QPalette::Disabled,role,QColor(dark?"#85909d":"#747d88"));
     palette.setColor(QPalette::Disabled,QPalette::Highlight,QColor(dark?"#46535f":"#c9d0d8"));
     application.setPalette(palette);
-    // Toolbar stylesheets retain a resolved palette from their initial polish.
-    // Reapply the existing rules so already-open strips adopt the new theme.
+    // Stylesheets retain a resolved palette from their initial polish.
+    // Reapply the existing rules so open strips and Properties adopt the theme.
     for(auto* widget:application.allWidgets())
-        if(auto* toolbar=qobject_cast<QToolBar*>(widget);toolbar&&!toolbar->styleSheet().isEmpty())
-            toolbar->setStyleSheet(toolbar->styleSheet());
+        if(!widget->styleSheet().isEmpty()&&
+           (qobject_cast<QToolBar*>(widget)||widget->property("zimaPropertiesSubWindow").toBool()))
+            widget->setStyleSheet(widget->styleSheet());
 }
 
 void apply_application_font(QApplication& application,

@@ -569,7 +569,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     else if(key=="end_rx"){p.end_rotation.x=next_value;changed=true;}
                     else if(key=="end_ry"){p.end_rotation.y=next_value;changed=true;}
                     else if(key=="end_rz"){p.end_rotation.z=next_value;changed=true;}
-                    else if(key=="thickness")positive(p.thickness);
+                    else if(key=="thickness"&&p.thickness_override)positive(p.thickness);
                     else if(key=="inside_radius")positive(p.inside_radius);
                 } else if (container->feature_kind == FeatureKind::ShaftThread) {
                     if (key=="root_diameter") positive(container->shaft_thread.root_diameter);

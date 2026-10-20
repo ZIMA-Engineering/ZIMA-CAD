@@ -11451,7 +11451,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.end_origin_id=data.at("end_origin_id");
             p.end_position={data.at("end_position")[0],data.at("end_position")[1],data.at("end_position")[2]};
             p.end_rotation={data.at("end_rotation")[0],data.at("end_rotation")[1],data.at("end_rotation")[2]};
-            p.thickness=data.at("thickness");p.inside_radius=data.at("inside_radius");p.k_factor=data.at("k_factor");
+            p.thickness=data.at("thickness");p.thickness_override=data.at("thickness_override");p.inside_radius=data.at("inside_radius");p.k_factor=data.at("k_factor");
             const auto& marking=data.at("bend_marking");
             p.end_notches=marking.at("end_notches");p.end_notch_depth=marking.at("end_notch_depth");
             p.short_bend_axes=marking.at("short_axes");p.bend_axis_end_length=marking.at("axis_end_length");
@@ -12647,7 +12647,7 @@ nlohmann::json PartDocument::serialized(
             }
             serialized["boundary_surface"]=std::move(data);
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
-            const auto& p=container.sheet_transition;serialized["sheet_transition"]={{"sketches",p.sketches},{"end_origin_id",p.end_origin_id},{"end_position",{p.end_position.x,p.end_position.y,p.end_position.z}},{"end_rotation",{p.end_rotation.x,p.end_rotation.y,p.end_rotation.z}},{"facets",p.facets},{"thickness",p.thickness},{"inside_radius",p.inside_radius},{"k_factor",p.k_factor},{"bend_marking",{{"end_notches",p.end_notches},{"end_notch_depth",p.end_notch_depth},{"short_axes",p.short_bend_axes},{"axis_end_length",p.bend_axis_end_length},{"rectangle_reliefs",p.rectangle_reliefs},{"relief_depth",p.rectangle_relief_depth},{"relieved_bends",p.relieved_bends}}}};
+            const auto& p=container.sheet_transition;serialized["sheet_transition"]={{"sketches",p.sketches},{"end_origin_id",p.end_origin_id},{"end_position",{p.end_position.x,p.end_position.y,p.end_position.z}},{"end_rotation",{p.end_rotation.x,p.end_rotation.y,p.end_rotation.z}},{"facets",p.facets},{"thickness",p.thickness},{"thickness_override",p.thickness_override},{"inside_radius",p.inside_radius},{"k_factor",p.k_factor},{"bend_marking",{{"end_notches",p.end_notches},{"end_notch_depth",p.end_notch_depth},{"short_axes",p.short_bend_axes},{"axis_end_length",p.bend_axis_end_length},{"rectangle_reliefs",p.rectangle_reliefs},{"relief_depth",p.rectangle_relief_depth},{"relieved_bends",p.relieved_bends}}}};
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
             save_profile_parameters(container, serialized);
         } else if (container.feature_kind == FeatureKind::Feature) {
