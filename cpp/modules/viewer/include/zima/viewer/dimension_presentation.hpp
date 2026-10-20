@@ -187,8 +187,11 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         shift = 0;
     const double length = QLineF(a, b).length();
     // The user owns label placement, including text wider than the arrow span.
-    out.outside = out.oblique || radial || std::abs(shift) > length / 2;
-    auto text_direction = out.oblique ? QPointF(1, 0) : along;
+    // Model angular labels share the outside horizontal landing used by
+    // spatial linear dimensions. Sketch/Drawing circular text stays planar.
+    const bool spatial_angular_text=angular&&angular_text_shelf;
+    out.outside = out.oblique || radial || spatial_angular_text || std::abs(shift) > length / 2;
+    auto text_direction = out.oblique || spatial_angular_text ? QPointF(1, 0) : along;
     if (text_direction.x() < -1e-6 ||
         (std::abs(text_direction.x()) <= 1e-6 && text_direction.y() > 0))
         text_direction = -text_direction;
@@ -233,20 +236,25 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         out.outside = false;
     }
     if (out.outside && !planar_angular_text) {
-        if (out.oblique) {
+        if (out.oblique || spatial_angular_text) {
             const double side = requested.x() < middle.x() - gap ? -1 : 1;
             attachment = (a.x() * side > b.x() * side) ? a : b;
             // The leader is an extension of the dimension, never a free diagonal
             // to the requested text position. An arc continues along its end tangent.
             const auto outward = collapsed_measure?along*(along.x()*side<0?-1.:1.):dimension_screen_unit(
                 attachment == a ? a - line[1] : b - line[line.size() - 2]);
-            const auto half_label = QPointF(side * text_width / 2, 0);
+            // An arc's end tangent can point back across the requested side.
+            // Keep its landing outward from the elbow, rather than folding
+            // across the tail and selecting the other end of the shelf.
+            const double shelf_side=spatial_angular_text&&std::abs(outward.x())>1e-9
+                ?std::copysign(1.,outward.x()):side;
+            const auto half_label = QPointF(shelf_side * text_width / 2, 0);
             double minimum_extension = arrow * 1.7;
             if (!text_bounds.isNull()) {
                 // The opaque label can reach backwards from a near-vertical
                 // elbow. Keep its entire mask beyond the arrow/tail, using the
                 // same font bounds as painting and picking (including tolerances).
-                const auto bounds = text_bounds.translated(side < 0 ? -text_width : 0, -gap);
+                const auto bounds = text_bounds.translated(shelf_side < 0 ? -text_width : 0, -gap);
                 double backwards = 0;
                 for (const auto corner : {bounds.topLeft(), bounds.topRight(), bounds.bottomLeft(), bounds.bottomRight()})
                     backwards = std::max(backwards, -dimension_screen_dot(corner, outward));

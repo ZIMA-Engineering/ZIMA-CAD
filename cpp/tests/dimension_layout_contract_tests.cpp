@@ -43,6 +43,45 @@ template <class F> void rejects(F f) {
     }
     require(rejected, "Invalid presentation accepted");
 }
+void verify_spatial_angular_landing() {
+    unsigned cases{};
+    for(int projection:{0,1,2})for(double start:{0.,90.,180.,270.})
+    for(double sweep:{-170.,-90.,-15.,15.,90.,170.,270.})
+    for(double side:{-1.,1.})for(bool reverse:{false,true})for(bool basic:{false,true})for(int pixels:{12,24}) {
+        const auto project=[&](kernel::Vec3 p){
+            if(projection==0)return QPointF(p.x*7,-p.y*7);
+            const auto q=QPointF((p.x-p.y)*7,(-p.x-p.y)*3.5-p.z*7);
+            return projection==1?q:QPointF(-q.x(),q.y());
+        };
+        const auto point=[](double angle){const double r=angle*std::numbers::pi/180.;return kernel::Vec3{8*std::cos(r),8*std::sin(r),0};};
+        kernel::ViewerDimension d;d.kind=kernel::ViewerDimensionKind::Angular;
+        d.line_first=point(start);d.line_second=point(start+sweep);d.sweep_degrees=sweep;d.value=std::abs(sweep);
+        d.label_position=kernel::Vec3{side*25,12,0};d.arrows_reversed=reverse;
+        kernel::DimensionTextStyle style;style.tolerance_mode=basic?"basic":"";d.source_text_style=style;
+        QFont font=zima::technical_font();font.setPixelSize(pixels);
+        const QString text=QString::fromUtf8("90° g +0,5 /-0,2");
+        const auto shown=viewer::dimension_text_presentation(d,project,font,text,2,1.5);
+        require(shown.valid&&shown.outside&&shown.text_angle==0,"Spatial angular text does not use the horizontal outside landing");
+        require(shown.curves.size()>=5&&shown.arrows.size()==2,"Spatial angular landing lost measured strokes");
+        const auto& arc=shown.curves[2];const auto& leader=shown.curves[3];const auto& shelf=shown.curves[4];
+        require(arc.size()==49&&leader.size()==2&&shelf.size()==2,"Spatial angular landing topology changed");
+        const bool first=QLineF(leader.front(),arc.front()).length()<1e-6;
+        require(first||QLineF(leader.front(),arc.back()).length()<1e-6,"Angular leader detached from its measured endpoint");
+        const auto tangent=first?arc.front()-arc[1]:arc.back()-arc[arc.size()-2];
+        const auto tail=leader.back()-leader.front();
+        near((tangent.x()*tail.y()-tangent.y()*tail.x())/std::max(1.,QLineF(QPointF{},tangent).length()),0);
+        require(viewer::dimension_screen_dot(tangent,tail)>0&&QLineF(leader.front(),leader.back()).length()>=17-1e-6,
+            "Angular landing does not follow the arrow tail");
+        near(shelf.front().y(),shelf.back().y());
+        require(QLineF(leader.back(),shelf.front()).length()<1e-6||QLineF(leader.back(),shelf.back()).length()<1e-6,
+            "Angular tail and horizontal shelf do not share their elbow");
+        const auto bounds=viewer::dimension_text_box(font,text,2,basic).translated(shown.text_baseline);
+        require(bounds.bottom()<shelf.front().y(),"Angular text mask overlaps its landing");
+        near(QLineF(shown.arrows[0].first,arc.front()).length(),0);near(QLineF(shown.arrows[1].first,arc.back()).length(),0);
+        ++cases;
+    }
+    std::cout<<"Spatial angular landing: "<<cases<<" projection, sector, side, arrow, font and tolerance variants passed\n";
+}
 void flush() { QApplication::processEvents(); }
 void verify_drawing_angular_clearance() {
     QImage proof(1000,800,QImage::Format_RGB32);proof.fill(Qt::white);
@@ -195,6 +234,41 @@ Q_NEVER_INLINE void verify_vertical_dimension_clearance() {
             }
         }
     std::cout << "Vertical ISO label/arrow clearance passed" << std::endl;
+}
+void verify_spatial_angular_view() {
+    auto* app=qobject_cast<QApplication*>(QCoreApplication::instance());const auto original=app->palette();
+    viewer::MeshView view;view.resize(1000,700);view.show();
+    kernel::ViewerDimension d;d.kind=kernel::ViewerDimensionKind::Angular;d.reference={"angular-landing","dimension:angle",{}};
+    d.witness_first={0,0,0};d.line_first={20,0,0};d.line_second={0,20,0};d.plane_normal={0,0,1};d.value=d.sweep_degrees=90;d.unit_suffix="°";d.label_position=kernel::Vec3{40,15,0};
+    kernel::DimensionLayout layout;int commits{};
+    view.set_dimension_layout_resolver([&](const auto&)->std::optional<kernel::DimensionLayout>{return layout;});
+    view.set_dimension_layout_commit([&](const auto& reference,auto value){require(reference==d.reference,"Angular text drag changed reference identity");layout=value;++commits;});
+    kernel::ViewerMesh mesh;mesh.vertices={{0,0,0},{20,0,0},{0,20,0},{40,15,0}};mesh.dimensions={d};view.set_mesh(mesh);
+    view.set_selection_contract({viewer::CandidateKind::Dimension});view.set_view_direction({1,1,1});
+    for(auto* animation:view.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+    view.fit_all();flush();const viewer::ViewerCandidate candidate{viewer::CandidateKind::Dimension,0,0,d.reference.owner_id,d.reference.semantic_key,{}};
+    for(int step=0;step<3;++step) {
+        const bool dark=step==1;auto palette=original;
+        palette.setColor(QPalette::Window,dark?QColor("#262b30"):QColor("#f0f0f0"));
+        palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);palette.setColor(QPalette::Text,dark?Qt::white:Qt::black);
+        app->setPalette(palette);flush();
+        const auto at=view.candidate_dimension_label_position(candidate);require(at.has_value(),"Angular landing lost its label position");
+        const auto hits=view.selection_candidates_at(*at);
+        require(std::ranges::any_of(hits,[&](const auto& c){return c.kind==candidate.kind&&c.owner_id==candidate.owner_id&&c.semantic_key==candidate.semantic_key;}),"Angular landing text is not pickable after a live theme change");
+        view.clear_selection();view.confirm_reference(d.reference.owner_id,d.reference.semantic_key,{},viewer::CandidateKind::Dimension);const auto grip=view.dimension_handle_position(candidate,0);require(grip.has_value(),"Angular landing lost its text grip");
+        mouse(&view,QEvent::MouseMove,*grip,Qt::NoButton,Qt::NoButton);mouse(&view,QEvent::MouseButtonPress,*grip,Qt::LeftButton,Qt::LeftButton);
+        mouse(&view,QEvent::MouseMove,*grip+QPointF(24,-12),Qt::NoButton,Qt::LeftButton);mouse(&view,QEvent::MouseButtonRelease,*grip+QPointF(24,-12),Qt::LeftButton,Qt::NoButton);
+        require(commits==step+1,"Angular landing text drag did not commit exactly once");
+        const auto moved=view.dimension_handle_position(candidate,0);require(moved&&QLineF(*moved,*grip).length()>1,"Angular landing text did not actually move");
+        const auto& actual=view.mesh().dimensions.front();
+        require(actual.value==90&&actual.sweep_degrees==90&&actual.witness_first==d.witness_first&&actual.witness_second==d.witness_second&&actual.reference==d.reference,
+            "Angular text placement changed its measured geometry");
+        near(kernel::dimension_dot(kernel::dimension_unit(kernel::dimension_sub(actual.line_first,actual.witness_first)),kernel::dimension_unit(d.line_first)),1);
+        near(kernel::dimension_dot(kernel::dimension_unit(kernel::dimension_sub(actual.line_second,actual.witness_first)),kernel::dimension_unit(d.line_second)),1);
+        const auto image=view.grabFramebuffer();require(!image.isNull()&&(image.pixelColor(8,8).lightness()<128)==dark,"Angular landing background does not follow the live theme");
+        require(image.save(QString("build/angular-landing-theme-%1.png").arg(step)),"Cannot save angular landing theme proof");
+    }
+    app->setPalette(original);view.close();flush();std::cout<<"Spatial angular View: Light/Dark/Light picking, three actual text drags and unchanged measured geometry passed\n";
 }
 void verify_model_dimension_units() {
     kernel::ViewerDimension source;source.value=25.4;source.reference={"part","length",""};
@@ -398,6 +472,8 @@ void verify_annotation_units() {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        verify_spatial_angular_landing();
+        verify_spatial_angular_view();
         // Polar grips change presentation only; circle radii and measured rays stay fixed.
         for(auto kind:{kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter,kernel::ViewerDimensionKind::Angular}){
             kernel::ViewerDimension source;source.kind=kind;source.plane_normal={0,0,1};
