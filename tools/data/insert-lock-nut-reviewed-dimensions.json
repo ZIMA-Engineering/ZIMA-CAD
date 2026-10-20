@@ -1,0 +1,26 @@
+{
+  "standard": "ISO 10511:2012",
+  "source_url": "https://cdn.standards.iteh.ai/samples/61369/9332a361b820448895a2594727485014/ISO-10511-2012.pdf",
+  "source_table": "Table 1, printed page 2",
+  "current_edition_url": "https://www.iso.org/standard/86036.html",
+  "edition_scope": "The reviewed model dimensions are the 2012 edition, not a claim of conformity to the technically revised 2025 edition. The archived CSN 02 1492 dimensions remain separate source evidence, not relabeled ISO dimensions.",
+  "columns": ["diameter_mm", "pitch_mm", "across_flats_mm", "height_mm", "minimum_thread_height_mm", "minimum_wrench_height_mm", "minimum_bearing_diameter_mm", "maximum_mouth_diameter_mm"],
+  "rows": [
+    [3,0.5,5.5,3.9,1.55,1.24,4.56,3.45],
+    [4,0.7,7,5,1.95,1.56,5.9,4.6],
+    [5,0.8,8,5,2.45,1.96,6.9,5.75],
+    [6,1,10,6,2.9,2.32,8.9,6.75],
+    [8,1.25,13,6.76,3.7,2.96,11.6,8.75],
+    [10,1.5,16,8.56,4.7,3.76,14.6,10.8],
+    [12,1.75,18,10.23,5.7,4.56,16.6,13],
+    [14,2,21,11.32,6.42,5.14,19.6,15.1],
+    [16,2,24,12.42,7.42,5.94,22.5,17.3],
+    [20,2.5,30,14.9,9.1,7.28,27.7,21.6],
+    [24,3,36,17.8,10.9,8.72,33.2,25.9],
+    [30,3.5,46,22.2,13.9,11.12,42.8,32.4],
+    [36,4,55,25.5,16.9,13.52,51.1,38.9]
+  ],
+  "steel_density_kg_mm3": 0.00000785,
+  "representation_decision": "On 2026-10-20 the user replaced the proposed steel-plus-PA6 Assembly with a single steel Part. An ordinary second Body represents the insert symbolically in blue. Both Bodies use the document's steel density; the resulting mass is explicitly a homogeneous-steel approximation, not the physical two-material product mass. No document format or per-Body material extension is needed.",
+  "selected_cad_details": "The manufacturer-defined prevailing-torque feature is represented by a rounded retaining collar and a symbolic annulus. Collar outside radius is 0.46s, wall is 0.3P, lip thickness is 0.2P, outside corner radius is 0.125P, lip bore radius is D/2+0.15P and insert bore radius is D/2-0.1P. These are declared nominal CAD choices, not additional normative dimensions or a simulation of insertion, crimping or prevailing torque. Bottom seating is Z=0; there is no raised washer face. Selected outer bevel is 30 degrees and thread mouth is 120 degrees. Cosmetic threads follow the existing native catalog."
+}

@@ -32,6 +32,25 @@ class Fasteners(unittest.TestCase):
         cls.data = generator.load_data(ROOT / 'tools/data/fastener-tables.json')
         cls.original = json.loads((ROOT / 'tools/data/fastener-source-tables.json').read_text(encoding='utf-8'))
 
+    def test_pressed_wing_native_rows_keep_the_historical_family_separate(self):
+        pages={p['path']:p for p in self.data['pages']}
+        page=pages['05-NUTS/09-WING/01-PRESSED']
+        # Independently transcribed STN excerpt p. 16: d1, D, e, g1, g2,
+        # overall h, hub p, wing R1, hub R2 (archived R5).
+        expected={
+            'M3':(4.4,6.2,15,2.2,2.7,7.7,2.4,4,4.8),
+            'M4':(5.8,8.3,20,3,4,10.5,3.2,6,6.5),
+            'M5':(6.7,10.4,25,3.5,4.7,13.5,4,7,8.1),
+            'M6':(8.7,12.4,31,4,5.5,16,4.8,8,9.7),
+            'M8':(10.6,16.6,40,5,8,20,6.4,11,10.1),
+            'M10':(12.7,20.7,51,6,9.5,25.5,8,15,12.1)}
+        self.assertEqual({r[0]:tuple(float(x) for x in r[2:]) for r in page['rows']},expected)
+        self.assertEqual(pages['05-NUTS/09-WING']['source_table'],'05-NUTS/09-WING#0')
+        self.assertEqual(page['sources'],['pressed_wing_stn'])
+        self.assertEqual(set(page['figures'][0]['localized_paths']),set(generator.LANGUAGES))
+        for language in generator.LANGUAGES:
+            self.assertIn('01-PRESSED/0000-index/index_'+language+'.html',generator.render(self.data,pages['05-NUTS/09-WING'],language))
+
     def test_reviewed_weld_families_replace_only_the_visible_historical_offer(self):
         pages={p['path']:p for p in self.data['pages']}
         self.assertEqual(pages['05-NUTS/05-WELD']['rows'],[])

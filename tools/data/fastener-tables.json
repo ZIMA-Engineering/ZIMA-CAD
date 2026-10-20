@@ -13132,6 +13132,181 @@
       "DIN 74361 C — Zeichnung des nativen Modells",
       "DIN 74361 C — dessin du modèle natif",
       "DIN 74361 C — чертёж нативной модели"
+    ],
+    "insert_lock_archived": [
+      "ČSN 02 1492 · archivní rozměry, samostatný podklad",
+      "CSN 02 1492 · archived dimensions, separate reference",
+      "CSN 02 1492 · historische Maße, separate Referenz",
+      "CSN 02 1492 · dimensions archivées, référence distincte",
+      "CSN 02 1492 · архивные размеры, отдельный источник"
+    ],
+    "insert_lock_heading": [
+      "ISO 10511:2012 · nízké matice",
+      "ISO 10511:2012 · thin nuts",
+      "ISO 10511:2012 · niedrige Muttern",
+      "ISO 10511:2012 · écrous bas",
+      "ISO 10511:2012 · низкие гайки"
+    ],
+    "insert_lock_scope": [
+      "Modely M3–M36 vycházejí z přezkoumané tabulky ISO 10511:2012, nikoli z technicky změněného vydání 2025 ani z odlišných archivních rozměrů ČSN. Jeden ocelový Part; vložka je symbolické modré těleso a celý objem se pro hmotnost počítá jako ocel 7 850 kg/m³. Nejde o skutečnou hmotnost výrobku ocel/PA6. Límec, zápich a přesah vložky jsou zvolené CAD detaily; deformace a pojistný moment se nesimulují. Závit je schematický. Relations vážou vložku na šířku, výšku a zvolený závit matice. Sražení ústí zůstává samostatně upravitelné.",
+      "The M3–M36 models use the reviewed ISO 10511:2012 table, not the technically revised 2025 edition or the different archived CSN dimensions. One steel Part; the insert is a symbolic blue Body and all volume uses steel density 7,850 kg/m³ for mass. This is not the physical steel/PA6 product mass. Collar, recess and insert interference are selected CAD details; deformation and prevailing torque are not simulated. Threads are schematic. Relations connect the insert to nut width, height and selected thread. The mouth chamfer remains independently editable.",
+      "Die Modelle M3–M36 verwenden die geprüfte Tabelle ISO 10511:2012, nicht die technisch überarbeitete Ausgabe 2025 oder abweichende historische CSN-Maße. Ein Stahl-Part; der Einsatz ist ein symbolischer blauer Körper und das gesamte Volumen wird mit 7.850 kg/m³ als Stahl berechnet. Dies ist nicht die tatsächliche Masse des Stahl/PA6-Produkts. Bund, Vertiefung und Einsatzübermaß sind gewählte CAD-Details; Verformung und Sicherungsmoment werden nicht simuliert. Schematische Gewinde. Relations koppeln den Einsatz an Breite, Höhe und gewähltes Gewinde. Die Mündungsfase bleibt unabhängig editierbar.",
+      "Les modèles M3–M36 utilisent le tableau vérifié ISO 10511:2012, pas l’édition 2025 révisée ni les dimensions CSN archivées différentes. Un Part en acier ; l’insert est un corps bleu symbolique et tout le volume est calculé en acier à 7 850 kg/m³. Ce n’est pas la masse physique du produit acier/PA6. Collerette, logement et serrage de l’insert sont des détails CAO choisis ; déformation et couple de freinage ne sont pas simulés. Filetages schématiques. Les Relations lient l’insert à la largeur, à la hauteur et au filetage choisi. Le chanfrein d’entrée reste modifiable séparément.",
+      "Модели M3–M36 используют проверенную таблицу ISO 10511:2012, а не технически пересмотренное издание 2025 или отличающиеся архивные размеры CSN. Один стальной Part; вставка — условное синее тело, весь объём рассчитывается как сталь плотностью 7 850 кг/м³. Это не физическая масса изделия сталь/PA6. Буртик, выемка и натяг вставки — выбранные детали САПР; деформация и стопорящий момент не моделируются. Резьба условная. Relations связывают вставку с шириной, высотой и выбранной резьбой гайки. Входная фаска остаётся независимо редактируемой."
+    ],
+    "insert_lock_d": [
+      "d",
+      "d",
+      "d",
+      "d",
+      "d"
+    ],
+    "insert_lock_col_0": [
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]"
+    ],
+    "insert_lock_col_1": [
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]",
+      "s [mm]"
+    ],
+    "insert_lock_col_2": [
+      "h max [mm]",
+      "h max [mm]",
+      "h max [mm]",
+      "h max [mm]",
+      "h max [mm]"
+    ],
+    "insert_lock_col_3": [
+      "m min [mm]",
+      "m min [mm]",
+      "m min [mm]",
+      "m min [mm]",
+      "m min [mm]"
+    ],
+    "insert_lock_col_4": [
+      "m′ min [mm]",
+      "m′ min [mm]",
+      "m′ min [mm]",
+      "m′ min [mm]",
+      "m′ min [mm]"
+    ],
+    "insert_lock_col_5": [
+      "dw min [mm]",
+      "dw min [mm]",
+      "dw min [mm]",
+      "dw min [mm]",
+      "dw min [mm]"
+    ],
+    "insert_lock_col_6": [
+      "da max [mm]",
+      "da max [mm]",
+      "da max [mm]",
+      "da max [mm]",
+      "da max [mm]"
+    ],
+    "insert_lock_art": [
+      "ISO 10511:2012 — výkres nativního modelu",
+      "ISO 10511:2012 — native model drawing",
+      "ISO 10511:2012 — Zeichnung des nativen Modells",
+      "ISO 10511:2012 — dessin du modèle natif",
+      "ISO 10511:2012 — чертёж нативной модели"
+    ],
+    "pressed_wing_title": [
+      "Křídlová matice lisovaná za studena",
+      "Cold-pressed wing nut",
+      "Kaltgepresste Flügelmutter",
+      "Écrou à oreilles pressé à froid",
+      "Холодноштампованная барашковая гайка"
+    ],
+    "pressed_wing_scope": [
+      "Šest nativních modelů M3–M10. Rozměry historické ČSN 02 1665 jsou porovnány s výběrem STN 02 1665. R1 je oblouk křídla, R2 oblouk náboje; archiv jej označuje R5. Zde h znamená celkovou výšku a p výšku náboje. Úhly neurčené tabulkou jsou zvoleny 70°; nejde o úplný výrobní předpis. Závit je schematický. Hmotnost se počítá z geometrie při hustotě oceli 7 850 kg/m³, nekopíruje se z orientační tabulky. Odlévané velikosti M12–M24 zůstávají samostatně rozpracované.",
+      "Six native M3–M10 models. Historical CSN 02 1665 dimensions are compared with the STN 02 1665 excerpt. R1 is the wing arc and R2 the hub arc, called R5 in the archive. Here h is overall height and p hub height. Angles not specified by the table are selected as 70°; this is not a complete manufacturing specification. Threads are schematic. Mass is calculated from geometry at steel density 7,850 kg/m³, not copied from indicative weights. Cast M12–M24 sizes remain separate unfinished studies.",
+      "Sechs native Modelle M3–M10. Historische Maße nach CSN 02 1665 sind mit dem Auszug STN 02 1665 verglichen. R1 bezeichnet den Flügelbogen, R2 den Nabenbogen, im Archiv R5. Hier ist h die Gesamthöhe und p die Nabenhöhe. Nicht angegebene Winkel sind mit 70° gewählt; keine vollständige Fertigungsvorschrift. Schematische Gewinde. Die Masse wird aus der Geometrie mit Stahldichte 7.850 kg/m³ berechnet, nicht aus Richtgewichten kopiert. Gegossene Größen M12–M24 bleiben separate unfertige Studien.",
+      "Six modèles natifs M3–M10. Les dimensions historiques CSN 02 1665 sont comparées à l’extrait STN 02 1665. R1 est l’arc de l’oreille, R2 celui du moyeu, nommé R5 dans l’archive. Ici h est la hauteur totale et p celle du moyeu. Les angles non spécifiés sont choisis à 70° ; ce n’est pas une spécification complète de fabrication. Filetages schématiques. Masse calculée sur la géométrie avec une densité d’acier de 7 850 kg/m³, sans copier les masses indicatives. Les tailles moulées M12–M24 restent des études inachevées distinctes.",
+      "Шесть нативных моделей M3–M10. Исторические размеры CSN 02 1665 сопоставлены с выдержкой STN 02 1665. R1 — дуга крыла, R2 — дуга ступицы, в архиве R5. Здесь h — общая высота, p — высота ступицы. Неуказанные углы приняты 70°; это не полная производственная спецификация. Резьба условная. Масса рассчитана по геометрии при плотности стали 7 850 кг/м³, а не скопирована из ориентировочной таблицы. Литые размеры M12–M24 остаются отдельными незавершёнными исследованиями."
+    ],
+    "pressed_wing_P": [
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]",
+      "P [mm]"
+    ],
+    "pressed_wing_d1": [
+      "d1 [mm]",
+      "d1 [mm]",
+      "d1 [mm]",
+      "d1 [mm]",
+      "d1 [mm]"
+    ],
+    "pressed_wing_D": [
+      "D [mm]",
+      "D [mm]",
+      "D [mm]",
+      "D [mm]",
+      "D [mm]"
+    ],
+    "pressed_wing_e": [
+      "e [mm]",
+      "e [mm]",
+      "e [mm]",
+      "e [mm]",
+      "e [mm]"
+    ],
+    "pressed_wing_g1": [
+      "g1 [mm]",
+      "g1 [mm]",
+      "g1 [mm]",
+      "g1 [mm]",
+      "g1 [mm]"
+    ],
+    "pressed_wing_g2": [
+      "g2 [mm]",
+      "g2 [mm]",
+      "g2 [mm]",
+      "g2 [mm]",
+      "g2 [mm]"
+    ],
+    "pressed_wing_h": [
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]",
+      "h [mm]"
+    ],
+    "pressed_wing_p": [
+      "p [mm]",
+      "p [mm]",
+      "p [mm]",
+      "p [mm]",
+      "p [mm]"
+    ],
+    "pressed_wing_R1": [
+      "R1 [mm]",
+      "R1 [mm]",
+      "R1 [mm]",
+      "R1 [mm]",
+      "R1 [mm]"
+    ],
+    "pressed_wing_R2": [
+      "R2 [mm]",
+      "R2 [mm]",
+      "R2 [mm]",
+      "R2 [mm]",
+      "R2 [mm]"
+    ],
+    "pressed_wing_art": [
+      "ČSN 02 1665 · výkres nativního modelu",
+      "ČSN 02 1665 · native model drawing",
+      "ČSN 02 1665 · Zeichnung des nativen Modells",
+      "ČSN 02 1665 · dessin du modèle natif",
+      "ČSN 02 1665 · чертёж нативной модели"
     ]
   },
   "sources": {
@@ -13494,6 +13669,14 @@
     "shaped_washer_source": {
       "label": "DIN 74361 Part 2 · original 1982 edition",
       "url": "https://krepcom.ru/upload/iblock/c8b/k3oxxrrbwyh3ty60v5nkcs8e9jxz6i2u/DIN_74361.pdf"
+    },
+    "insert_lock_2012": {
+      "label": "ISO 10511:2012 · Table 1",
+      "url": "https://cdn.standards.iteh.ai/samples/61369/9332a361b820448895a2594727485014/ISO-10511-2012.pdf"
+    },
+    "pressed_wing_stn": {
+      "label": "STN 02 1665 · historical excerpt, p. 16",
+      "url": "https://cloud6.edupage.org/cloud/Vyber_noriem_PDF.pdf?z:LUPeiSrXT3T/KEbijWTB1cDo8rhSxS69cRvC%2Band2TKNbHFceQEhSDQH2eAjAm4J="
     }
   },
   "pages": [
@@ -50163,136 +50346,304 @@
     {
       "path": "05-NUTS/07-LOCKING",
       "title": "directory_05-NUTS_07-LOCKING",
+      "id": "5b3253da-e1d1-5720-8c74-09622975ffa9",
+      "heading": "insert_lock_heading",
       "headers": [
-        "parameter",
-        "symbol_(M4)",
-        "symbol_M5",
-        "symbol_M6",
-        "symbol_M8",
-        "symbol_M10",
-        "symbol_M12",
-        "symbol_(M14)",
-        "symbol_M16",
-        "symbol_M20",
-        "symbol_M24"
+        "insert_lock_d",
+        "insert_lock_col_0",
+        "insert_lock_col_1",
+        "insert_lock_col_2",
+        "insert_lock_col_3",
+        "insert_lock_col_4",
+        "insert_lock_col_5",
+        "insert_lock_col_6"
       ],
       "rows": [
         [
-          "e _min.",
-          "7,7",
-          "8,8",
-          "11,1",
-          "14,4",
-          "18,9",
-          "21,1",
-          "24,5",
-          "26,8",
-          "33,5",
-          "39,9"
+          "M3",
+          "0.5",
+          "5.5",
+          "3.9",
+          "1.55",
+          "1.24",
+          "4.56",
+          "3.45"
         ],
         [
-          "m _1",
-          "5",
-          "5",
-          "6",
-          "8",
-          "10",
-          "12",
-          "14",
-          "16",
-          "20",
-          "24"
-        ],
-        [
-          "m _2",
-          "3,2",
-          "3,5",
-          "4,5",
-          "6",
+          "M4",
+          "0.7",
           "7",
-          "9",
-          "10",
-          "11",
-          "15",
-          "16"
+          "5",
+          "1.95",
+          "1.56",
+          "5.9",
+          "4.6"
         ],
         [
-          "m _3",
-          "2,9",
-          "3,2",
-          "4",
-          "5,5",
-          "6,5",
+          "M5",
+          "0.8",
           "8",
-          "9,5",
-          "10,5",
-          "14",
-          "15"
+          "5",
+          "2.45",
+          "1.96",
+          "6.9",
+          "5.75"
         ],
         [
-          "s",
-          "7",
-          "8",
-          "10",
-          "13",
-          "17",
-          "19",
-          "22",
-          "24",
-          "30",
-          "36"
-        ],
-        [
-          {
-            "key": "mass_Hmotnost [g]"
-          },
+          "M6",
           "1",
-          "1,4",
-          "2,4",
-          "5,1",
-          "10,6",
-          "17,2",
-          "26",
-          "34",
-          "65",
-          "100"
+          "10",
+          "6",
+          "2.9",
+          "2.32",
+          "8.9",
+          "6.75"
+        ],
+        [
+          "M8",
+          "1.25",
+          "13",
+          "6.76",
+          "3.7",
+          "2.96",
+          "11.6",
+          "8.75"
+        ],
+        [
+          "M10",
+          "1.5",
+          "16",
+          "8.56",
+          "4.7",
+          "3.76",
+          "14.6",
+          "10.8"
+        ],
+        [
+          "M12",
+          "1.75",
+          "18",
+          "10.23",
+          "5.7",
+          "4.56",
+          "16.6",
+          "13"
+        ],
+        [
+          "M14",
+          "2",
+          "21",
+          "11.32",
+          "6.42",
+          "5.14",
+          "19.6",
+          "15.1"
+        ],
+        [
+          "M16",
+          "2",
+          "24",
+          "12.42",
+          "7.42",
+          "5.94",
+          "22.5",
+          "17.3"
+        ],
+        [
+          "M20",
+          "2.5",
+          "30",
+          "14.9",
+          "9.1",
+          "7.28",
+          "27.7",
+          "21.6"
+        ],
+        [
+          "M24",
+          "3",
+          "36",
+          "17.8",
+          "10.9",
+          "8.72",
+          "33.2",
+          "25.9"
+        ],
+        [
+          "M30",
+          "3.5",
+          "46",
+          "22.2",
+          "13.9",
+          "11.12",
+          "42.8",
+          "32.4"
+        ],
+        [
+          "M36",
+          "4",
+          "55",
+          "25.5",
+          "16.9",
+          "13.52",
+          "51.1",
+          "38.9"
         ]
       ],
       "notes": [
         "units",
-        "pair_order",
-        "brackets"
+        "insert_lock_scope"
       ],
       "sources": [
-        "iso8992_2005"
+        "insert_lock_2012"
       ],
-      "source_table": "05-NUTS/07-LOCKING#0",
-      "source_rows": [
-        0,
-        6
+      "sections": [
+        {
+          "headers": [
+            "parameter",
+            "symbol_(M4)",
+            "symbol_M5",
+            "symbol_M6",
+            "symbol_M8",
+            "symbol_M10",
+            "symbol_M12",
+            "symbol_(M14)",
+            "symbol_M16",
+            "symbol_M20",
+            "symbol_M24"
+          ],
+          "rows": [
+            [
+              "e _min.",
+              "7,7",
+              "8,8",
+              "11,1",
+              "14,4",
+              "18,9",
+              "21,1",
+              "24,5",
+              "26,8",
+              "33,5",
+              "39,9"
+            ],
+            [
+              "m _1",
+              "5",
+              "5",
+              "6",
+              "8",
+              "10",
+              "12",
+              "14",
+              "16",
+              "20",
+              "24"
+            ],
+            [
+              "m _2",
+              "3,2",
+              "3,5",
+              "4,5",
+              "6",
+              "7",
+              "9",
+              "10",
+              "11",
+              "15",
+              "16"
+            ],
+            [
+              "m _3",
+              "2,9",
+              "3,2",
+              "4",
+              "5,5",
+              "6,5",
+              "8",
+              "9,5",
+              "10,5",
+              "14",
+              "15"
+            ],
+            [
+              "s",
+              "7",
+              "8",
+              "10",
+              "13",
+              "17",
+              "19",
+              "22",
+              "24",
+              "30",
+              "36"
+            ],
+            [
+              {
+                "key": "mass_Hmotnost [g]"
+              },
+              "1",
+              "1,4",
+              "2,4",
+              "5,1",
+              "10,6",
+              "17,2",
+              "26",
+              "34",
+              "65",
+              "100"
+            ]
+          ],
+          "notes": [
+            "units",
+            "pair_order",
+            "brackets"
+          ],
+          "sources": [
+            "iso8992_2005"
+          ],
+          "source_table": "05-NUTS/07-LOCKING#0",
+          "source_rows": [
+            0,
+            6
+          ],
+          "source_columns": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "review": "historical",
+          "heading": "insert_lock_archived",
+          "source_path": "05-NUTS/07-LOCKING/01-C02-R001",
+          "omit_approximate_mass": true
+        }
       ],
-      "source_columns": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-      ],
-      "review": "historical",
-      "heading": "logical_page_05-NUTS/07-LOCKING_0_1_0",
-      "source_path": "05-NUTS/07-LOCKING/01-C02-R001",
-      "id": "5b3253da-e1d1-5720-8c74-09622975ffa9",
-      "sections": [],
       "freeze_header": true,
       "omit_approximate_mass": true,
       "thread_dimension_rows": true,
-      "display_row_count": 10
+      "display_row_count": 23,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "NILN-ISO10511-M08.0-REFERENCE.png",
+          "caption": "insert_lock_art",
+          "localized_paths": {
+            "cs": "NILN-ISO10511-M08.0-REFERENCE_cs.png",
+            "en": "NILN-ISO10511-M08.0-REFERENCE_en.png",
+            "de": "NILN-ISO10511-M08.0-REFERENCE_de.png",
+            "fr": "NILN-ISO10511-M08.0-REFERENCE_fr.png",
+            "ru": "NILN-ISO10511-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
     },
     {
       "path": "05-NUTS/08-KNURLED",
@@ -56629,6 +56980,130 @@
         }
       ],
       "figures_side_by_side": false
+    },
+    {
+      "path": "05-NUTS/09-WING/01-PRESSED",
+      "title": "pressed_wing_title",
+      "heading": "pressed_wing_title",
+      "id": "943c7040-54ef-5b16-ae74-cc92fe3113c9",
+      "headers": [
+        "symbol_d",
+        "pressed_wing_P",
+        "pressed_wing_d1",
+        "pressed_wing_D",
+        "pressed_wing_e",
+        "pressed_wing_g1",
+        "pressed_wing_g2",
+        "pressed_wing_h",
+        "pressed_wing_p",
+        "pressed_wing_R1",
+        "pressed_wing_R2"
+      ],
+      "rows": [
+        [
+          "M3",
+          "0.5",
+          "4.4",
+          "6.2",
+          "15",
+          "2.2",
+          "2.7",
+          "7.7",
+          "2.4",
+          "4",
+          "4.8"
+        ],
+        [
+          "M4",
+          "0.7",
+          "5.8",
+          "8.3",
+          "20",
+          "3",
+          "4",
+          "10.5",
+          "3.2",
+          "6",
+          "6.5"
+        ],
+        [
+          "M5",
+          "0.8",
+          "6.7",
+          "10.4",
+          "25",
+          "3.5",
+          "4.7",
+          "13.5",
+          "4",
+          "7",
+          "8.1"
+        ],
+        [
+          "M6",
+          "1",
+          "8.7",
+          "12.4",
+          "31",
+          "4",
+          "5.5",
+          "16",
+          "4.8",
+          "8",
+          "9.7"
+        ],
+        [
+          "M8",
+          "1.25",
+          "10.6",
+          "16.6",
+          "40",
+          "5",
+          "8",
+          "20",
+          "6.4",
+          "11",
+          "10.1"
+        ],
+        [
+          "M10",
+          "1.5",
+          "12.7",
+          "20.7",
+          "51",
+          "6",
+          "9.5",
+          "25.5",
+          "8",
+          "15",
+          "12.1"
+        ]
+      ],
+      "notes": [
+        "units",
+        "pressed_wing_scope"
+      ],
+      "sources": [
+        "pressed_wing_stn"
+      ],
+      "sections": [],
+      "freeze_header": true,
+      "omit_approximate_mass": true,
+      "display_row_count": 6,
+      "localized_illustrations": true,
+      "figures": [
+        {
+          "path": "PWN-CSN021665-M08.0-REFERENCE.png",
+          "caption": "pressed_wing_art",
+          "localized_paths": {
+            "cs": "PWN-CSN021665-M08.0-REFERENCE_cs.png",
+            "en": "PWN-CSN021665-M08.0-REFERENCE_en.png",
+            "de": "PWN-CSN021665-M08.0-REFERENCE_de.png",
+            "fr": "PWN-CSN021665-M08.0-REFERENCE_fr.png",
+            "ru": "PWN-CSN021665-M08.0-REFERENCE_ru.png"
+          }
+        }
+      ]
     }
   ],
   "original_source_sha256": {

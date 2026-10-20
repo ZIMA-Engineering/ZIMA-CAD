@@ -10,7 +10,8 @@ No factory data, native schema or user library has been converted or overwritten
 
 Publication is blocked by the missing accepted perimeter R2 rounding,
 the M16 source-radius discrepancy and
-remaining shape/mass review. The six smaller pressed variants are not authored.
+remaining shape/mass review. The six smaller pressed variants are now installed
+and separately verified; see [Pressed wing nuts](PRESSED_WING_NUT_LIBRARY.md).
 The native BRep/constraint checks below do not establish manufacturing conformity.
 
 ## Source identification and radius mapping

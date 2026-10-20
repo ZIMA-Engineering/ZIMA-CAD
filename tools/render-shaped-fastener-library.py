@@ -104,7 +104,7 @@ def main():
     for standard,angle in groups:
         values=[v for v in rows if v['standard']==standard and v.get('included_angle_degrees',0)==angle]
         v=min(values,key=lambda v:abs(v.get('diameter_mm',20)-8))
-        folder=out/(standard.replace(' ','')+(f'-A{angle:g}' if angle else ''));folder.mkdir()
+        folder=out/(standard.replace('ČSN','CSN').replace(' ','').replace(':','-')+(f'-A{angle:g}' if angle else ''));folder.mkdir()
         target=folder/(Path(v['filename']).stem+'-REFERENCE.drwz');native=art.studs.api.Native(ROOT/'build/cpp-windows-release/zima-cad-cli.exe',folder/'evidence')
         try:sid,expected,model_dimensions=reference(native,v,stage/v['filename'],target)
         finally:native.close()

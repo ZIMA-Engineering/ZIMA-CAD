@@ -17,6 +17,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAdaptor_Curve2d.hxx>
 #include <BRepGProp.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <GProp_GProps.hxx>
@@ -191,6 +192,30 @@ void verify(const fs::path& path,const Json& expected) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==4&&std::string(argv[1])=="--recalculate-candidate") {
+            auto doc=document::PartDocument::load(fs::u8path(argv[2]));kernel::OcctKernel kernel;
+            const auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc,nullptr);
+            require(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Fresh candidate calculation failed");
+            for(std::size_t i=0;i<calculated.size();++i)for(const auto& [body,output]:calculated[i].body_outputs)
+                std::cout<<i<<' '<<body<<' '<<output.get().volume<<'\n';
+            doc.save(fs::u8path(argv[3]),calculated);std::cout<<"Candidate calculated without previous boundaries\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--inspect-candidate-properties") {
+            workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(fs::u8path(argv[2])));
+            const auto* state=live.open_part(id);require(state,"Expected native Part");Json rows=Json::array();
+            for(const auto& [body,output]:state->session.calculated_boundaries().back().body_outputs) {
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(output.get().kernel_shape.get());BRepTools::Read(shape,stream,builder);
+                GProp_GProps fixed,adaptive,gk;BRepGProp::VolumeProperties(shape,fixed);
+                const double error=BRepGProp::VolumeProperties(shape,adaptive,1e-12);BRepGProp::VolumePropertiesGK(shape,gk,1e-12,false,true);
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                std::size_t solids{};for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                rows.push_back({{"body",body},{"valid",BRepCheck_Analyzer(shape).IsValid()},{"cached",output.get().volume},
+                    {"solid_count",solids},{"solid_present",output.get().solid_present},{"properties_current",output.get().physical_properties_current},
+                    {"fixed",fixed.Mass()},{"adaptive",adaptive.Mass()},{"adaptive_error",error},{"gk",gk.Mass()},
+                    {"bounds",{x0,y0,z0,x1,y1,z1}}});
+            }
+            std::cout<<rows.dump(2)<<'\n';return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--wing-review-title") {
             const auto path=fs::absolute(fs::u8path(argv[2]));const std::string locale=argv[3];
             require(std::set<std::string>{"cs","en","de","fr","ru"}.contains(locale),"Unsupported study title language");
@@ -208,6 +233,43 @@ int main(int argc,char** argv) {
             for(std::size_t i=0;i<sheet.title_block_fields.size();++i)require(saved.title_block_fields[i].id==sheet.title_block_fields[i].id&&saved.title_block_fields[i].expression==sheet.title_block_fields[i].expression,"Wing review title field identity changed");
             for(std::size_t i=0;i<sheet.title_block_images.size();++i)require(saved.title_block_images[i].id==sheet.title_block_images[i].id&&saved.title_block_images[i].data_base64==sheet.title_block_images[i].data_base64,"Wing review embedded artwork changed");
             std::cout<<"Native wing review source, frame and title Family variant embedded: "<<locale<<'\n';return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--pressed-wing-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            std::size_t checked=0;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto id=workspace::insert_native_document(live,workspace::read_native_document(folder/expected.at("filename").get<std::string>()));
+                const auto* state=live.open_part(id);require(state,"Pressed wing nut is not a native Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==1,"Pressed wing calculation failed");
+                const auto& result=boundary.body_outputs.begin()->second.get();TopoDS_Shape shape;BRep_Builder builder;
+                std::istringstream stream(result.kernel_shape.get());BRepTools::Read(shape,stream,builder);
+                require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid pressed wing BRep");
+                int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;require(solids==1,"Pressed wing nut is disconnected");
+                const double span=expected.at("span_mm"),h=expected.at("height_mm"),base=expected.at("hub_base_diameter_mm");
+                Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                near(x0,-span/2,"Pressed wing negative span");near(x1,span/2,"Pressed wing positive span");
+                near(y0,-base/2,"Pressed hub negative radius");near(y1,base/2,"Pressed hub positive radius");
+                near(z0,0,"Pressed wing seating plane");near(z1,h,"Pressed wing overall height");
+                GProp_GProps volume;BRepGProp::VolumeProperties(shape,volume,1e-12);
+                require(volume.Mass()>0&&result.physical_properties_current,"Pressed wing physical properties missing");
+                require(std::abs(result.volume-volume.Mass())<1e-8*volume.Mass(),"Pressed wing cached mass integral differs from adaptive BRep integral");
+                near(volume.Mass(),expected.at("independent_volume_mm3"),"Pressed wing independent nominal-section integral");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume.Mass()*expected.at("density_kg_mm3").get<double>())<=.50001e-6,
+                    "Pressed wing BOM mass is stale");
+                bool bore=false,crown=false;
+                for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+                    BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));if(surface.GetType()!=GeomAbs_Cylinder)continue;
+                    const auto cylinder=surface.Cylinder();
+                    bore|=std::abs(std::abs(cylinder.Axis().Direction().Z())-1)<1e-8&&std::abs(cylinder.Radius()-expected.at("bore_mm").get<double>()/2)<1e-6;
+                    crown|=std::abs(std::abs(cylinder.Axis().Direction().Y())-1)<1e-8&&std::abs(cylinder.Radius()-expected.at("outside_radius_mm").get<double>())<1e-6;
+                }
+                require(bore&&crown,"Pressed wing bore or original crown cylinder missing");
+                require(doc.history.size()==6&&doc.sketches.size()==3,"Pressed wing authored history differs from the expected native operations");
+                for(const auto& sketch:doc.sketches)verify_profile_dragging(sketch);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Pressed wing inspection modified the source");++checked;
+            }
+            std::cout<<checked<<" pressed wing nuts: connected BRep, seat, independent volume, mass and constrained dragging passed\n";return 0;
         }
         if(argc==3&&std::string(argv[1])=="--wing-studies") {
             const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;Json report=Json::array();
@@ -328,6 +390,54 @@ int main(int argc,char** argv) {
             std::cout<<report.at("checked_parts")<<" native Parts inspected; "<<report.at("trimmed_cylindrical_bodies")
                 <<" trimmed cylindrical bodies; "<<report.at("stale").size()<<" stale volumes; "<<report.at("errors").size()<<" errors\n";
             return report.at("stale").empty()&&report.at("errors").empty()?0:1;
+        }
+        if(argc==3&&std::string(argv[1])=="--insert-lock-nuts") {
+            const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;
+            std::size_t checked=0;
+            for(const auto& expected:manifest.at("variants")) {
+                workspace::Workspace live;const auto path=folder/fs::u8path(expected.at("filename").get<std::string>());
+                const auto id=workspace::insert_native_document(live,workspace::read_native_document(path));
+                const auto* state=live.open_part(id);require(state,"Lock nut must be a native Part");
+                const auto& doc=state->session.document();const auto& boundary=state->session.calculated_boundaries().back();
+                require(boundary.calculation_errors.empty()&&boundary.body_outputs.size()==2,"Lock nut requires two ordinary calculated Bodies in one Part");
+                const double pi=std::acos(-1.),s=expected.at("across_flats_mm"),h=expected.at("height_mm"),z=expected.at("hex_height_mm"),
+                    r=expected.at("bore_mm").get<double>()/2,d=expected.at("diameter_mm"),lip=expected.at("lip_mm"),
+                    ro=expected.at("collar_outside_radius_mm"),rc=ro-expected.at("collar_wall_mm").get<double>(),
+                    ri=expected.at("lip_bore_radius_mm"),round=expected.at("corner_radius_mm"),insert_r=expected.at("insert_bore_radius_mm");
+                const double t=std::tan(pi/6),sec=1/std::cos(pi/6),a=s/2,mouth=expected.at("mouth_depth_mm");
+                const double removed=12*t*a*a*a*((sec*t+std::log(sec+t))/3-t+pi/18);
+                const double hole=pi*r*r*z+pi*(r*std::tan(pi/3)*mouth*mouth+std::pow(std::tan(pi/3),2)*std::pow(mouth,3)/3);
+                const double collar=pi*((ro*ro-rc*rc)*(h-lip-z)+(ro*ro-ri*ri)*lip)
+                    -pi*((2-pi/2)*ro*round*round+(-5./3+pi/2)*std::pow(round,3));
+                const double shell_volume=std::sqrt(3.)*s*s*z/2-removed-hole+collar;
+                const double insert_volume=pi*(rc*rc-insert_r*insert_r)*(h-lip-z);
+                require(shell_volume>0&&insert_volume>0,"Nonpositive independent lock nut volumes");
+                std::vector<TopoDS_Shape> shapes;double total=0;int blue=0;
+                for(const auto& [body_id,output]:boundary.body_outputs) {
+                    const auto& result=output.get();TopoDS_Shape shape;BRep_Builder builder;
+                    std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+                    require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid lock nut Body BRep");
+                    int solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+                    require(solids==1,"Each lock nut Body must contain one connected solid");
+                    const bool insert=doc.appearance.bodies.contains(body_id)&&doc.appearance.bodies.at(body_id).color=="#2455a4";
+                    blue+=insert;GProp_GProps props;BRepGProp::VolumeProperties(shape,props,1e-11);
+                    near(props.Mass(),insert?insert_volume:shell_volume,"Lock nut independent volume");
+                    near(result.volume,props.Mass(),"Lock nut cached physical volume");total+=props.Mass();
+                    Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);double x0,y0,z0,x1,y1,z1;bounds.Get(x0,y0,z0,x1,y1,z1);
+                    near(z0,insert?z:0,"Lock nut bottom plane");near(z1,insert?h-lip:h,"Lock nut top plane");
+                    near(x1,insert?rc:s/std::sqrt(3.),"Lock nut positive X extent");near(x0,-x1,"Lock nut centered X extent");
+                    near(y1,insert?rc:s/2,"Lock nut positive Y extent");near(y0,-y1,"Lock nut centered Y extent");
+                    shapes.push_back(shape);
+                }
+                require(blue==1,"Symbolic insert must retain its blue Body appearance");
+                BRepAlgoAPI_Common common(shapes[0],shapes[1]);common.Build();require(common.IsDone(),"Cannot inspect Body intersection");
+                GProp_GProps overlap;BRepGProp::VolumeProperties(common.Shape(),overlap,1e-11);near(overlap.Mass(),0,"Symbolic insert overlaps steel shell");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-total*expected.at("steel_density_kg_mm3").get<double>())<=.50001e-6,
+                    "Lock nut BOM must apply the requested homogeneous steel density to both Bodies");
+                for(const auto& profile:doc.sketches)verify_profile_dragging(profile);
+                require(!state->session.is_dirty()&&!state->session.can_undo(),"Lock nut inspection modified native state");++checked;
+            }
+            std::cout<<checked<<" steel Part lock nuts: valid Bodies, analytic volumes, zero overlap, color and homogeneous mass passed\n";return 0;
         }
         if(argc==3&&std::string(argv[1])=="--hex-nuts") {
             const auto folder=fs::absolute(fs::u8path(argv[2]));Json manifest;std::ifstream input(folder/"manifest.json");input>>manifest;

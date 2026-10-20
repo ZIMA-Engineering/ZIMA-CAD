@@ -23,6 +23,10 @@ def thumbnail(native, path, variant, output):
             'thickness_mm':variant.get('overall_height_mm',variant['height_mm'])}
     elif 'height_mm' in variant and 'knurl_pitch_mm' in variant:
         variant={**variant,'thickness_mm':variant['height_mm']}
+    elif 'height_mm' in variant and 'span_mm' in variant:
+        e=variant['span_mm']/2;r=variant['hub_base_diameter_mm']/2
+        variant={**variant,'outside_mm':2*e,'thickness_mm':variant['height_mm'],
+            'bounds_mm':[-e,e,-r,r,0,variant['height_mm']]}
     if 'outside_mm' in variant and 'thickness_mm' in variant:
         # Washers rest on XY. The axial split is on the viewer-facing side.
         q = math.sqrt(.5)

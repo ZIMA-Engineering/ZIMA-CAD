@@ -35,6 +35,7 @@ def read(path):
 
 
 def destination(kind,v):
+    if kind in ('insert-lock-nuts','pressed-wing-nuts'):return BASE/'05-NUTS'/v['family']
     if kind in ('hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):return BASE/'05-NUTS'/v['family']
     if kind in ('special','caps'):return BASE/'04-SCREWS'/('06-PAN-HEAD' if v['family']=='04-BUTTON-A2' else '04-CAP-HEAD')/v['family']
     return BASE/'06-WASHERS'/('03-SPRING' if kind=='spring' else v['family'])
@@ -42,7 +43,7 @@ def destination(kind,v):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--kind',choices=('special','caps','spring','plain','iso-plain','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','wheel-spring-washers'),required=True)
+    p.add_argument('--kind',choices=('special','caps','spring','plain','iso-plain','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','wheel-spring-washers','insert-lock-nuts','pressed-wing-nuts'),required=True)
     p.add_argument('--gui-verification',type=Path,help='Independent representative GUI edit receipts, required for knurled nuts')
     p.add_argument('--catalog-verification',type=Path,help='Native thread-catalog edit receipts, required for knurled nuts')
     p.add_argument('--drawing-verification',type=Path,help='Regeneration and reopen receipts for every staged native drawing')
@@ -50,7 +51,7 @@ def main():
     for name in ('models','verification','thumbnails','references'):p.add_argument('--'+name,type=Path,required=True)
     args=p.parse_args();rows=json.loads((args.models/'manifest.json').read_text(encoding='utf-8'))['variants']
     if args.kind=='special':rows=[v for v in rows if v['standard'] in ('DIN 7984','DIN 6912','ISO 14579')]
-    assert len(rows)=={'special':25,'caps':72,'spring':41,'plain':127,'iso-plain':134,'hex-nuts':166,'small-hex-nuts':15,'coupling-nuts':14,'flange-nuts':8,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':53,'small-castle-nuts':15,'knurled-nuts':22,'din-cap-nuts':26,'csn-closed-nuts':11,'din-weld':16,'iso-weld':14,'tab':19}[args.kind]
+    assert len(rows)=={'special':25,'caps':72,'spring':41,'plain':127,'iso-plain':134,'hex-nuts':166,'small-hex-nuts':15,'coupling-nuts':14,'flange-nuts':8,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':53,'small-castle-nuts':15,'knurled-nuts':22,'din-cap-nuts':26,'csn-closed-nuts':11,'din-weld':16,'iso-weld':14,'tab':19,'insert-lock-nuts':13,'pressed-wing-nuts':6}[args.kind]
     cases={v['filename']:v for v in json.loads(args.verification.read_text(encoding='utf-8'))}
     refs=json.loads((args.references/'illustrations.json').read_text(encoding='utf-8'))
     refs=[v for v in refs if v['standard'] in {r['standard'] for r in rows}]
@@ -70,10 +71,10 @@ def main():
             assert all(r[k] for k in ('regenerate','save_reopen','identities_retained'))
             assert digest(args.references/r['drawing'])==r['source_sha256']
             assert digest(args.references/r['part'])==r['part_sha256']
-    if args.kind=='coupling-nuts':
+    if args.kind=='pressed-wing-nuts':
         assert args.gui_verification and args.drawing_verification
         gui=json.loads(args.gui_verification.read_text(encoding='utf-8'))
-        assert {r['filename'] for r in gui}=={'CPN-DIN6334-M08.0.prtz','CPN-DIN6334-M36.0.prtz'}
+        assert {r['filename'] for r in gui}=={'PWN-CSN021665-M03.0.prtz','PWN-CSN021665-M10.0.prtz'}
         for r in gui:
             assert r['source_sha256']==digest(args.models/r['filename']) and r['mouse_dimension_edits']==3
             assert all(r[k] for k in ('independent_geometry','undo_redo','save_reopen','regenerate'))
@@ -82,10 +83,26 @@ def main():
         expected={p.relative_to(args.references).as_posix() for p in args.references.rglob('*.drwz')}
         assert {r['drawing'].replace('\\','/') for r in proof}==expected and len(expected)==6
         for r in proof:
-            assert r['dimensions']==4 and all(r[k] for k in ('regenerate','save_reopen','identities_retained'))
+            assert r['dimensions']==7 and r['model_dimensions']==1
+            assert all(r[k] for k in ('regenerate','save_reopen','identities_retained'))
             assert digest(args.references/r['drawing'])==r['source_sha256']
             assert digest(args.references/r['part'])==r['part_sha256']
-    assert len(refs)=={'special':3,'caps':7,'spring':2,'plain':4,'iso-plain':7,'hex-nuts':8,'small-hex-nuts':1,'coupling-nuts':1,'flange-nuts':1,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':2,'small-castle-nuts':1,'knurled-nuts':2,'din-cap-nuts':1,'csn-closed-nuts':1,'din-weld':1,'iso-weld':1,'tab':1}[args.kind]
+    if args.kind in ('coupling-nuts','insert-lock-nuts'):
+        assert args.gui_verification and args.drawing_verification
+        gui=json.loads(args.gui_verification.read_text(encoding='utf-8'))
+        assert {r['filename'] for r in gui}==({'NILN-ISO10511-M03.0.prtz','NILN-ISO10511-M36.0.prtz'} if args.kind=='insert-lock-nuts' else {'CPN-DIN6334-M08.0.prtz','CPN-DIN6334-M36.0.prtz'})
+        for r in gui:
+            assert r['source_sha256']==digest(args.models/r['filename']) and r['mouse_dimension_edits']==3
+            assert all(r[k] for k in ('independent_geometry','undo_redo','save_reopen','regenerate'))
+            assert digest(Path(r['output']))==r['output_sha256']
+        proof=json.loads(args.drawing_verification.read_text(encoding='utf-8'))
+        expected={p.relative_to(args.references).as_posix() for p in args.references.rglob('*.drwz')}
+        assert {r['drawing'].replace('\\','/') for r in proof}==expected and len(expected)==6
+        for r in proof:
+            assert r['dimensions']==(6 if args.kind=='insert-lock-nuts' else 4) and all(r[k] for k in ('regenerate','save_reopen','identities_retained'))
+            assert digest(args.references/r['drawing'])==r['source_sha256']
+            assert digest(args.references/r['part'])==r['part_sha256']
+    assert len(refs)=={'special':3,'caps':7,'spring':2,'plain':4,'iso-plain':7,'hex-nuts':8,'small-hex-nuts':1,'coupling-nuts':1,'flange-nuts':1,'spherical-wheel-nuts':1,'conical-wheel-nuts':2,'wheel-spring-washers':1,'castle-nuts':2,'small-castle-nuts':1,'knurled-nuts':2,'din-cap-nuts':1,'csn-closed-nuts':1,'din-weld':1,'iso-weld':1,'tab':1,'insert-lock-nuts':1,'pressed-wing-nuts':1}[args.kind]
     if args.kind in ('din-weld','iso-weld'):
         assert args.gui_verification and args.drawing_verification
         prefix='HWN-DIN929' if args.kind=='din-weld' else 'HFWN-ISO21670'
@@ -167,6 +184,14 @@ def main():
         elif args.kind in SHAPED:
             assert case['successive_edits']==SHAPED[args.kind]['edits']
             assert all(case[k] for k in ('reference_identity','independent_volume_and_mass','contact_equations','locked_unlocked_profile_dragging'))
+        elif args.kind=='pressed-wing-nuts':
+            assert case['successive_edits']==35 and v['standard']=='ČSN 02 1665'
+            assert all(case[k] for k in ('reference_identity','independent_volume_and_mass','dependent_contact_equations','derived_stock'))
+            assert v['family']=='09-WING/01-PRESSED'
+        elif args.kind=='insert-lock-nuts':
+            assert case['successive_edits']==11 and all(case[k] for k in ('original_reference_identity','dependent_insert','independent_brep_volume'))
+            assert v['standard']=='ISO 10511:2012' and source.suffix=='.prtz'
+            assert abs(v['saved_mass_kg']-v['expected_mass_kg'])<=.50001e-6
         elif args.kind in ('hex-nuts','small-hex-nuts','coupling-nuts'):
             assert case['successive_edits']==6 and case['catalog_edits']>=2 and case['thread_follows_height']
             assert case['reference_identity'] and case['analytical_volume_after_each_edit'] and case['derived_stock']
@@ -221,7 +246,26 @@ def main():
         definition=json.loads(read(drawing)['Document']['param.cpp_drawing'])
         assert definition['source_path']==part.name
         assert all(v['source_path']==part.name for s in definition['sheets'] for v in s['views'])
-        if args.kind in ('wheel-spring-washers','plain','iso-plain','spring','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab'):
+        if args.kind=='pressed-wing-nuts':
+            assert len(definition['sheets'])==1
+            sheet=definition['sheets'][0];assert sheet['projection_method']=='first_angle' and len(sheet['views'])==3
+            parent=next(v for v in sheet['views'] if not v['parent_view_id'])
+            right=next(v for v in sheet['views'] if v['projection_direction']=='right')
+            bottom=next(v for v in sheet['views'] if v['projection_direction']=='bottom')
+            for child in (right,bottom):
+                assert child['parent_view_id']==parent['id'] and child['scale']==parent['scale']
+                assert child['source_document_id']==parent['source_document_id']
+            assert right['y']==parent['y'] and right['x']<parent['x']
+            assert right['camera']['horizontal']==parent['camera']['depth']
+            assert right['camera']['vertical']==parent['camera']['vertical']
+            assert right['camera']['depth']==[-x for x in parent['camera']['horizontal']]
+            assert bottom['x']==parent['x'] and bottom['y']<parent['y']
+            assert bottom['camera']['horizontal']==parent['camera']['horizontal']
+            assert bottom['camera']['vertical']==[-x for x in parent['camera']['depth']]
+            assert bottom['camera']['depth']==parent['camera']['vertical']
+            for view in sheet['views']:
+                assert any(a['kind']==1 and a['visible'] and not a['unresolved'] for a in view['model_annotations'])
+        if args.kind in ('wheel-spring-washers','plain','iso-plain','spring','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','tab','insert-lock-nuts'):
             assert len(definition['sheets'])==1
             sheet=definition['sheets'][0];assert sheet['projection_method']=='first_angle'
             assert len(sheet['views'])==2
@@ -237,7 +281,7 @@ def main():
             for view in (parent,child):
                 assert any(a['kind']==1 and a['visible'] and not a['unresolved']
                     for a in view['model_annotations']),'Native illustration axis missing'
-            if args.kind not in ('wheel-spring-washers','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld'):
+            if args.kind not in ('wheel-spring-washers','hex-nuts','small-hex-nuts','coupling-nuts','flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','castle-nuts','small-castle-nuts','knurled-nuts','din-cap-nuts','csn-closed-nuts','din-weld','iso-weld','insert-lock-nuts'):
                 for symbol,angle in (('d1',135),('d2',45)):
                     dimension=next(d for d in sheet['dimensions'] if d['style']['text_override']==symbol)
                     assert dimension['view_id']==parent['id']
@@ -250,7 +294,7 @@ def main():
                     assert abs(actual-angle)<1e-7,'Washer diameter annotations are not mirrored'
         for path in [part,drawing,part.with_suffix('.png'),*(folder/(part.stem+'_'+lang+'.png') for lang in LANGUAGES)]:
             assert path.is_file();copies.append((path,index/path.name))
-        if args.kind in ('flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','wheel-spring-washers','din-cap-nuts','csn-closed-nuts','coupling-nuts','din-weld','iso-weld'):
+        if args.kind in ('flange-nuts','spherical-wheel-nuts','conical-wheel-nuts','wheel-spring-washers','din-cap-nuts','csn-closed-nuts','coupling-nuts','din-weld','iso-weld','insert-lock-nuts','pressed-wing-nuts'):
             for lang in LANGUAGES:
                 path=folder/(part.stem+'_'+lang+'.drwz')
                 assert path.is_file();copies.append((path,index/path.name))

@@ -8,14 +8,15 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
         const bool castle=slot!=original.sketches.end();
         const auto meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Knurled nut meridian";});
         const bool knurl=meridian!=original.sketches.end();
-        const auto cap_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Cap dome meridian"||sketch.name=="DIN cap meridian"||sketch.name=="Closed end meridian";});
+        const auto cap_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Cap dome meridian"||sketch.name=="DIN cap meridian"||sketch.name=="Closed end meridian"||sketch.name=="Pressed wing outline";});
         const bool cap_nut=cap_meridian!=original.sketches.end();
         const bool csn_closed=cap_nut&&cap_meridian->name=="Closed end meridian";
         const auto weld_profile=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Weld projection profile"||sketch.name=="Flange weld projection profile";});
         const bool weld=weld_profile!=original.sketches.end();
         const auto shaped_meridian=std::ranges::find_if(original.sketches,[](const auto& sketch){return sketch.name=="Flange meridian"||sketch.name=="Spherical collar meridian"||sketch.name=="Conical wheel seat meridian"||sketch.name=="Spherical washer meridian";});
         const bool shaped=shaped_meridian!=original.sketches.end();
-        const bool hex_nut=!castle&&!knurl&&!cap_nut&&!weld&&original.sketches.front().name=="Hexagon profile";
+        const bool hex_nut=!castle&&!knurl&&!cap_nut&&!weld&&
+            (original.sketches.front().name=="Hexagon profile"||original.sketches.front().name=="Steel hexagon");
         const auto profile=castle?*slot:knurl?*meridian:cap_nut?*cap_meridian:weld?*weld_profile:shaped?*shaped_meridian:original.sketches.front();
         const bool tab=profile.arcs.size()==3&&profile.circles.size()==1;
         check(castle||knurl||cap_nut||weld||hex_nut||shaped||tab||profile.circles.size()==2,"Library profile fixture missing");

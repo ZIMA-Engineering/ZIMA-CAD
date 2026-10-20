@@ -147,7 +147,9 @@ async function main() {
         await fs.writeFile(path.join(folder, `01_${language}.jpg`), image);
         if (language === 'cs') await fs.writeFile(path.join(folder, '01.jpg'), image);
         const pdfPath = path.join(evidence, (topic.path || 'root').replaceAll('/', '_') + `_${language}.pdf`);
+        await page.emulateMedia({ media: 'print' });
         await page.pdf({ path: pdfPath, format: 'A4', preferCSSPageSize: true, printBackground: true });
+        await page.emulateMedia({ media: 'screen' });
         }
         await page.emulateMedia({ colorScheme: 'dark' });
         const contrast = await page.evaluate(() => {
