@@ -1154,6 +1154,15 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_midpoint_profile_tests tests/midpoint_profile_tests.cpp)
     target_link_libraries(zima_cpp_midpoint_profile_tests PRIVATE zima_document_core)
     add_test(NAME zima_cpp_midpoint_profile_tests COMMAND zima_cpp_midpoint_profile_tests)
+    add_executable(zima_cpp_equal_circle_dimension_tests tests/equal_circle_dimension_tests.cpp)
+    target_link_libraries(zima_cpp_equal_circle_dimension_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_equal_circle_dimension_tests COMMAND zima_cpp_equal_circle_dimension_tests "${CMAKE_BINARY_DIR}/equal-circle-fixture.prtz")
+    set_tests_properties(zima_cpp_equal_circle_dimension_tests PROPERTIES FIXTURES_SETUP equal_circle_fixture)
+    add_test(NAME zima_cpp_equal_circle_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/equal-circle-gui")
+    set_tests_properties(zima_cpp_equal_circle_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EQUAL_CIRCLE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 240 FIXTURES_REQUIRED equal_circle_fixture)
     add_test(NAME zima_cpp_midpoint_profile_ui_contract COMMAND zima-cad-cpp --verify-startup
         "--working-directory=${CMAKE_BINARY_DIR}/midpoint-profile-gui")
     set_tests_properties(zima_cpp_midpoint_profile_ui_contract PROPERTIES

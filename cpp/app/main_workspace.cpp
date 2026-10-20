@@ -9373,6 +9373,7 @@ int verify_selection_filter(QApplication& application,
 #include "sketch_symbol_controls_ui_verification.inc"
 #include "sketch_coordinate_incidence_ui_verification.inc"
 #include "midpoint_profile_ui_verification.inc"
+#include "equal_circle_ui_verification.inc"
 #include "rounded_tangent_wing_ui_verification.inc"
 
 #include "derived_copy_save_ui_verification.inc"
@@ -9384,6 +9385,7 @@ int verify_startup_contract(
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORTED_BODY_ONLY"))return verify_imported_body_interaction(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COPY_SAVE_ONLY"))return verify_derived_copy_save(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {

@@ -485,7 +485,15 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     (((*a)[1]+(*b)[1])/2-(*support)[1])*(*support)[2]);
             } else if(c.kind==ConstraintKind::EqualRadius) {
                 const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id),b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
-                if(a==next.arcs.end()||b==next.arcs.end())return {};r.push_back(a->radius-b->radius);
+                if(a!=next.arcs.end()&&b!=next.arcs.end())r.push_back(a->radius-b->radius);
+                else {
+                    // Circle centres need the same coupled fit. Keep mixed
+                    // circle/arc creation on its established path, including
+                    // rejection when a fixed arc endpoint blocks resizing.
+                    const auto x=std::ranges::find(next.circles,c.geometry_id,&SketchCircle::id),y=std::ranges::find(next.circles,c.second_geometry_id,&SketchCircle::id);
+                    if(x==next.circles.end()||y==next.circles.end())return {};
+                    r.push_back(x->radius-y->radius);
+                }
             } else if(c.kind==ConstraintKind::Symmetric) {
                 const auto a=point(c.first_point_id),b=point(c.second_point_id);const auto l=line(c.geometry_id);if(!a||!b||!l)return {};
                 const double projection=((*a)[0]-(*l)[0])*(*l)[2]+((*a)[1]-(*l)[1])*(*l)[3];

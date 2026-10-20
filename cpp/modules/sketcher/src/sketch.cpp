@@ -4272,6 +4272,8 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto baseline=*this;
         if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
         solved=next.solve_impl(100,false,{});
+        if(solved.status==SolveStatus::Conflicting&&seed_circular_equations(next,{}))
+            solved=next.solve_impl(100,false,{});
     }
     if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {point_id}))
         solved = next.solve_impl(100, false, {point_id});
