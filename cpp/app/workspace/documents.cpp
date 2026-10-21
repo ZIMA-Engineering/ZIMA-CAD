@@ -501,7 +501,7 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
         tools->setVisible(!workspace_.displayed_document_id().empty()&&active_sketch_id_.empty()&&!template_sketch());
     if (document_kind_button_ == nullptr) return;
     const std::string displayed = workspace_.displayed_document_id();
-    if (displayed.empty()) {
+    if (displayed.empty() || !active_sketch_id_.empty()) {
         document_kind_button_->hide();
         return;
     }
@@ -542,6 +542,7 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
 }
 
 void AssemblyWorkspaceWindow::navigate_document_kind() {
+    if(!active_sketch_id_.empty())return;
     const std::string displayed = workspace_.displayed_document_id();
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
         const auto source_document_id=drawing_workspace_->selected_source_id();

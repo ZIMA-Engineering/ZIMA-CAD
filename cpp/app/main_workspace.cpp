@@ -6071,6 +6071,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 
 #include "sketch_intersection_ui_verification.inc"
 #include "sketch_slot_ui_verification.inc"
+#include "sketch_document_button_ui_verification.inc"
 #include "system_setup_ui_verification.inc"
 
 #include "form_sweep_sketch_ui_verification.inc"
@@ -9389,6 +9390,7 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DOCUMENT_BUTTON_ONLY"))return verify_sketch_document_button_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMMAND_GUIDANCE_ONLY"))return verify_command_guidance_ui(application,test_directory);

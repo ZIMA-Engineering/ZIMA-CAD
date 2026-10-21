@@ -1,5 +1,9 @@
 ﻿# ZIMA-CAD Sketcher
 
+The Drawing shortcut above the Tree is hidden while editing a Sketch. Finish
+the Sketch to restore ordinary document navigation. See the
+[visibility verification](verification/20261021-sketch-drawing-shortcut.md).
+
 ## Tangent contacts, axes and external points (2026-10-06)
 
 Horizontal and Vertical accept a native point and a persisted external point in
