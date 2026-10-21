@@ -61,8 +61,9 @@ inline zima::kernel::BodyResult component_source(const PartDocument& document, c
             edge.display_owner_id = sketch.owner_container_id.empty()
                 ? sketch.id : sketch.owner_container_id;
         std::erase_if(mesh.points, [](const auto& point) {
-            return point.construction ||
-                (!point.reference.semantic_key.starts_with("point:") &&
+            // filter_hidden_3d_geometry already removed hidden auxiliary
+            // points. Keep visible centerline endpoints with their real role.
+            return (!point.reference.semantic_key.starts_with("point:") &&
                  point.reference.semantic_key != "external_point:sketch_origin");
         });
         for (auto& point : mesh.points)

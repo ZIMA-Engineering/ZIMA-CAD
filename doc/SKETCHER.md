@@ -4,6 +4,14 @@ The Drawing shortcut above the Tree is hidden while editing a Sketch. Finish
 the Sketch to restore ordinary document navigation. See the
 [visibility verification](verification/20261021-sketch-drawing-shortcut.md).
 
+Outside Sketch editing, visible Sketch centerlines (including a Revolution's
+authored axis) belong to **Axes**, independently of **Sketches**. Their private
+endpoints use the same brown axis color and hide with the line. A point shared
+with an ordinary profile retains its profile role. In the active Sketch,
+construction geometry remains editable and points keep the ordinary Sketcher
+foreground color. Explicit reference entry and inspection retain their normal
+visibility exceptions. See the [axis display verification](verification/20261021-sketch-axis-visibility.md).
+
 ## Tangent contacts, axes and external points (2026-10-06)
 
 Horizontal and Vertical accept a native point and a persisted external point in

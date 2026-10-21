@@ -597,7 +597,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const Vec3& ray_origin,
     const Vec3& ray_direction,
     double world_tolerance, bool offer_result_faces, bool offer_original_containers, bool offer_original_faces,
-    const PickingIndex* display_index, const PickingIndex* reference_index) {
+    const PickingIndex* display_index, const PickingIndex* reference_index,
+    const std::function<bool(const zima::kernel::ViewerEdge&)>& edge_visible) {
     std::vector<ViewerCandidate> result;
     using FaceIdentity = std::tuple<std::string_view,std::string_view,std::string_view>;
     const auto identity = [](const auto& ref) -> FaceIdentity { return {ref.owner_id,ref.semantic_key,ref.instance_path}; };
@@ -809,6 +810,10 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         for (const auto& edge : ordered_edge_candidates(
                 source, ray_origin, ray_direction, world_tolerance,
                 geometry==CandidateGeometry::Display?display_index:reference_index)) {
+            // Filter before creating both the exact edge and its owning
+            // Container/occurrence offer. A hidden wire must not offer its
+            // parent from an invisible position in otherwise empty space.
+            if(edge_visible&&edge.edge<source.edges.size()&&!edge_visible(source.edges[edge.edge]))continue;
             if(geometry==CandidateGeometry::OriginalReference&&obsolete_state_reference(edge.reference))continue;
             if (edge.edge < source.edges.size() &&
                 source.edges[edge.edge].parameter_seam) continue;

@@ -1087,6 +1087,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_feature_axis_highlight_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_feature_axis_highlight_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY=1")
+    add_test(NAME zima_cpp_sketch_axis_visibility_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_sketch_axis_visibility_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_AXIS_VISIBILITY_ONLY=1")
     add_test(NAME zima_cpp_numeric_value_locks_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_numeric_value_locks_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")

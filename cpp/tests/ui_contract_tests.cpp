@@ -893,6 +893,8 @@ int verify_stable_placement_rows() {
     return 0;
 }
 
+#include "sketch_axis_visibility_ui.inc"
+
 void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
     using namespace zima;
     viewer::MeshView view(&parent);view.setGeometry(0,0,600,500);
@@ -1015,22 +1017,9 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
                 "Restored rotation centerline omitted from authored feature highlighting");
         }
     }
-    // Rotation's authored Sketch axis must have brown grips in active and passive views.
-    auto sketch=sketcher::Sketch::create_default();
-    const auto segment=sketch.add_segment(-20,0,20,0);sketch.set_segment_centerline(segment,true);
-    for(const bool passive:{false,true}) {
-        auto packet=sketch.viewer_mesh();if(passive)sketch.filter_hidden_3d_geometry(packet,true);
-        packet.vertices={{-50,-50,0},{50,50,0}};
-        view.set_mesh(packet);view.clear_selection();view.set_selection_contract({});
-        view.set_display_mode(viewer::DisplayMode::Wire);
-        view.set_reference_visibility(viewer::ReferenceVisibility::Sketches,true);application.processEvents();
-        const auto frame=view.grabFramebuffer();
-        for(const double x:{-20.,20.})
-            require(framebuffer_contains_color_near(frame,view.size(),project(x,0),QColor(173,110,46),3),
-                "Rotation Sketch axis grip is white instead of the axis color");
-    }
     view.grabFramebuffer().save("build/axis-endpoints-brown.png");
     std::cout<<"Feature axis lines and grips retain colors, native persistence and instance/reference isolation\n";
+    view.hide();verify_sketch_axis_visibility(application,parent);
 }
 
 #include "interaction_color_verification.inc"
@@ -1302,6 +1291,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_AXIS_VISIBILITY_ONLY")) {verify_sketch_axis_visibility(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
             using namespace zima::app;
             ApplicationSettings settings;std::string saved;bool committed=false;

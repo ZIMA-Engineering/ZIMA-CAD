@@ -463,7 +463,42 @@ struct MeshView::Impl {
         return (key.semantic_key != "origin" && !key.semantic_key.starts_with("origin:")) ||
             !origin_visibility_filter || origin_visibility_filter(key);
     }
+    bool active_sketch_geometry(const auto& reference) const {
+        return !active_sketch_owner_id.empty()&&reference.owner_id==active_sketch_owner_id&&
+            reference.instance_path==editing_curve_path;
+    }
+    bool passive_sketch_axis(const kernel::ViewerEdge& edge) const {
+        return is_sketch_wire_edge(edge)&&edge.construction&&edge.dash_dot&&!active_sketch_geometry(edge.reference);
+    }
+    bool sketch_axis_entry_requested() const {
+        return std::ranges::any_of(allowed_kinds,[](auto kind){return kind==CandidateKind::Axis||kind==CandidateKind::SketchAxis;});
+    }
+    bool sketch_axis_visible(const kernel::ViewerEdge& edge) const {
+        const auto key=edge_key(edge.reference);
+        return show_axes||sketch_axis_entry_requested()||constraint_reference_edges.contains(key)||
+            assembly_reference_edges.contains(key)||constraint_reference_owner_ids.contains(edge.reference.owner_id)||
+            feature_preview_owner_ids.contains(edge.reference.owner_id);
+    }
+    bool sketch_wire_visible(const kernel::ViewerEdge& edge) const {
+        return passive_sketch_axis(edge)?sketch_axis_visible(edge):
+            edge.reference.semantic_key.starts_with("symbol:")?show_symbols:show_sketches;
+    }
+    bool passive_sketch_axis_point(const kernel::ViewerPoint& point) const {
+        // The Sketch publishes real point incidence: an axis-only point has
+        // construction=true; a point shared with a profile retains its profile
+        // role. This uses no position matching or invented reference identity.
+        return point.construction&&point.reference.semantic_key.starts_with("point:")&&
+            !point.reference.semantic_key.starts_with("point:from:")&&!active_sketch_geometry(point.reference);
+    }
     bool helper_point_visible(const kernel::ViewerPoint& point) const {
+        if(passive_sketch_axis_point(point)) {
+            const bool explicit_entry=sketch_axis_entry_requested()||std::ranges::any_of(allowed_kinds,[](auto kind){
+                return kind==CandidateKind::Vertex||kind==CandidateKind::SketchPoint;});
+            return show_axes||explicit_entry||constraint_reference_owner_ids.contains(point.reference.owner_id)||
+                constraint_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
+                assembly_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
+                feature_preview_owner_ids.contains(point.reference.owner_id);
+        }
         auto axis_key=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
         const auto parent=marker_parents.find({point.reference.owner_id,point.reference.instance_path});
         // Unified Feature Axis endpoints keep their real Start/End ancestry.
@@ -1254,7 +1289,8 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             impl_->mesh, impl_->persisted_reference_mesh,
             ray_origin, ray_direction, world_tolerance, impl_->offer_result_faces,impl_->offer_original_containers,impl_->offer_original_faces,
             impl_->display_picking_index?&*impl_->display_picking_index:nullptr,
-            impl_->reference_picking_index?&*impl_->reference_picking_index:nullptr);
+            impl_->reference_picking_index?&*impl_->reference_picking_index:nullptr,
+            [this](const auto& edge){return !impl_->passive_sketch_axis(edge)||impl_->sketch_axis_visible(edge);});
     if (sketch_only) {
         for (auto& candidate : candidates) {
             const std::vector<std::size_t>* indices = nullptr;
@@ -4220,8 +4256,9 @@ if (impl_->show_origins) {
         std::any_of(impl_->mesh.axes.begin(),impl_->mesh.axes.end(),[&](const auto& axis){
             return impl_->constraint_reference_edges.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path});
         });
-    const bool sketch_geometry_visible = (impl_->show_sketches || impl_->show_symbols) && std::any_of(
-        impl_->mesh.edges.begin(), impl_->mesh.edges.end(), is_sketch_wire_edge);
+    const bool sketch_geometry_visible = std::any_of(
+        impl_->mesh.edges.begin(), impl_->mesh.edges.end(),[&](const auto& edge){
+            return is_sketch_wire_edge(edge)&&impl_->sketch_wire_visible(edge);});
     const bool curve3d_geometry_visible = std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
         [](const auto& edge) {
@@ -4688,7 +4725,7 @@ if (impl_->show_origins) {
             for (const auto& edge : impl_->mesh.edges) {
                 if (!is_sketch_wire_edge(edge)) continue;
                 if (edge.construction != construction_pass) continue;
-                if(!(edge.reference.semantic_key.starts_with("symbol:")?impl_->show_symbols:impl_->show_sketches))continue;
+                if(!impl_->sketch_wire_visible(edge))continue;
                 if(edge.filled_text)continue; // Filled annotation; selection still draws its exact wire.
                 const bool text = edge.reference.semantic_key.starts_with("text:");
                 const bool external = edge.reference.semantic_key.starts_with(
@@ -5235,7 +5272,7 @@ if (impl_->show_origins) {
                                 "external_point:sketch_origin"
                             ? QColor(0, 0, 0)
                         : marker_key.starts_with("point:")
-                            ? marker_key.starts_with("point:from:")
+                            ? marker_key.starts_with("point:from:")||impl_->passive_sketch_axis_point(point)
                                 ? interaction::axis : theme.foreground
                         : marker_key.starts_with(
                                 "corner_radius_handle:")
@@ -5649,6 +5686,8 @@ if (impl_->show_origins) {
                    highlighted->semantic_key.starts_with("external_face:"))) ||
                  highlighted->kind == CandidateKind::SketchTrimPiece) &&
                 highlighted->geometry_index < selectable_edges.size() &&
+                (!impl_->passive_sketch_axis(selectable_edges[highlighted->geometry_index])||
+                    impl_->sketch_axis_visible(selectable_edges[highlighted->geometry_index])) &&
                 // Sketch wires were already recolored in their styled pass.
                 // A second solid stroke fills dash gaps and truncates centerlines.
                 !(sketch_geometry_visible &&
@@ -5687,7 +5726,8 @@ if (impl_->show_origins) {
                         highlighted->kind == CandidateKind::SketchPoint ||
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
                          highlighted->semantic_key.starts_with("external_point:"))) &&
-                       highlighted->geometry_index < selectable_points.size()) {
+                       highlighted->geometry_index < selectable_points.size() &&
+                       impl_->helper_point_visible(selectable_points[highlighted->geometry_index])) {
                 painter.setPen(QPen(color, 2.0));
                 painter.setBrush(color);
                 painter.drawEllipse(project(
