@@ -60,6 +60,27 @@ run this calculation. A copy of the user's partial-bottom case also succeeds.
 
 ## Remaining publication gate
 
+Late Sketch command-strip finish: the user requested the shared azure separator
+after Polygon, immediately before Circle. The common grouping helper also keeps
+the Insert menu consistent. Sketch Trim now uses red scissors (`#ed5555`), and
+Sketch Mirror uses Offset's exact purple (`#ca76ff`) for its reflected half.
+Neutral source/axis/hinge details still follow the shared palette-aware renderer.
+Qt SVG rendering was inspected at 16/18/24/32/64 px on Light, Dark and active azure
+backgrounds; the user accepted the displayed preview. The normal GUI is rebuilt.
+Existing Sketch entry/View and five-language localization checks pass
+(`sketch-circle-separator-checks.log`, 62.94 s). The icons introduce no UI text,
+model calculation, persisted field or new rendering implementation.
+
+The earlier clean `8ba67dde` candidate passed complete package smoke, all 1,185
+factory loads and 14 additional GUI scenarios. Its verified ZIP is retained as
+an unpublished baseline while the final command-strip finish is rebuilt from a
+new clean commit. Its first additional Origin probe exposed a diagnostic-only
+`path::string()` to JSON conversion in a Unicode fixture directory. Those legacy
+probe workspaces now use ASCII paths; the actual executable stays in the Unicode
+installation. Standard package smoke separately verifies real native save/reopen,
+PDF/JPEG, fonts and GUI startup in Unicode paths. Do not describe the legacy
+diagnostic fixture paths themselves as Unicode coverage.
+
 The final user-reported Up To inspection-eye/window-height correction reuses
 the existing Feature natural-height fitting path after side-operation and
 symmetry changes. Previously, only changing the Feature type refitted the

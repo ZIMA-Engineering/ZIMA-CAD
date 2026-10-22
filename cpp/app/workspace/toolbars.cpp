@@ -267,6 +267,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              sketch_bspline_action_,
                              sketch_interpolating_spline_action_}) {
             add_command(action);
+            if(action==sketch_polygon_action_)add_group_separator();
         }
         add_group_separator();
         add_command(sketch_constraints_action_);
