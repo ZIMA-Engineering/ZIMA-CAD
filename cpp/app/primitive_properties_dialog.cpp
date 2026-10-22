@@ -784,6 +784,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         };
         connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,
             [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
+        // Side operation changes add/remove rows (notably Extrusion draft).
+        // Refit the same natural-height layout used by Feature type changes;
+        // otherwise its cached viewport height can clip the Up To eye.
+        for(std::size_t side=0;side<2;++side)
+            connect(feature_panel_->findChild<QComboBox*>(QString("featureSideMode%1").arg(side)),
+                &QComboBox::currentIndexChanged,this,
+                [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
+        connect(feature_panel_->findChild<QCheckBox*>("featureSymmetric"),&QCheckBox::toggled,this,
+            [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         QTimer::singleShot(0,this,fit_feature_controls);
         profile_plane_=feature_panel_->plane_control();
         profile_plane_offset_=feature_panel_->offset_control();

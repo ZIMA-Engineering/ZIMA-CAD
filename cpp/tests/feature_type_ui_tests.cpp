@@ -21,6 +21,7 @@
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QToolButton>
 #include <iostream>
 static void verify_rendering(QApplication& application,QWidget& parent) {
     using namespace zima;
@@ -31,7 +32,8 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
     for(const auto type:{document::FeatureType::Axis,document::FeatureType::Plane,document::FeatureType::Modeling,document::FeatureType::Point}) {
         auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
-        feature.name="";feature.feature.type=type;sketch.owner_container_id=feature.id;
+        feature.name="";feature.feature.type=type;feature.feature.show_point=true;
+        sketch.owner_container_id=feature.id;
         sketch.plane=type==document::FeatureType::Axis?sketcher::SketchPlane::XZ:sketcher::SketchPlane::XY;
         sketch.plane_auto=false;part.history={feature};part.sketches={sketch};part.resolve_constructions();
         auto mesh=part.feature_result_mesh(feature);
@@ -151,6 +153,56 @@ int main(int argc,char** argv) {
         auto* second_end=dialog.findChild<QComboBox*>("featureSideEnd1");
         auto* first_angle=dialog.findChild<QDoubleSpinBox*>("featureSideValue0");
         auto* second_angle=dialog.findChild<QDoubleSpinBox*>("featureSideValue1");
+        {
+        const auto original_palette=application.palette();
+        for(const auto& theme:{QStringLiteral("light"),QStringLiteral("dark"),QStringLiteral("light")}) {
+        zima::app::ApplicationSettings appearance;appearance.theme=theme;
+        zima::app::apply_application_appearance(application,appearance);
+        zima::app::PrimitivePropertiesDialog probe(feature,true,true,[](auto){},&parent);
+        probe.show();flush();
+        auto* probe_mode=probe.findChild<QComboBox*>("featureSideMode0");
+        auto* probe_end=probe.findChild<QComboBox*>("featureSideEnd0");
+        // The fixed-size inspection eye must fit its reference row after a
+        // compact operation becomes an Extrusion, including a short viewport.
+        for(const int available_height:{1400,720}) {
+            parent.resize(1600,available_height);
+            for(const int operation:{2,1,3,1}) {
+                probe_mode->setCurrentIndex(operation);flush();
+                probe_end->setCurrentIndex(operation==2?2:1);flush();
+                if(operation==3)continue;
+                auto* area=probe.findChild<QScrollArea*>("featureParametersScroll");
+                if(area->verticalScrollBar()->maximum()>0&&probe.height()<parent.height()-30)
+                    throw std::runtime_error("Feature operation change leaves unused height while scrolling its rows");
+                for(auto* eye:probe.findChildren<QToolButton*>("referenceInspectionButton")) {
+                    if(!eye->isVisible())continue;
+                    auto* row=eye->parentWidget();
+                    std::cout<<"UpTo eye="<<eye->width()<<'x'<<eye->height()
+                        <<" row="<<row->width()<<'x'<<row->height()
+                        <<" dialog="<<probe.height()<<std::endl;
+                    if(eye->size()!=QSize(30,30)||!row->rect().contains(eye->geometry()))
+                        throw std::runtime_error("Feature UpTo inspection eye is clipped by its reference row");
+                    // A short View legitimately needs scrolling. Its complete
+                    // fixed-size row must remain reachable in both viewports.
+                    for(auto* ancestor=row;ancestor;ancestor=ancestor->parentWidget())
+                        if(auto* area=qobject_cast<QScrollArea*>(ancestor))area->ensureWidgetVisible(eye);
+                    flush();
+                    for(auto* ancestor=row->parentWidget();ancestor&&!qobject_cast<QScrollArea*>(ancestor);ancestor=ancestor->parentWidget()) {
+                        const QRect bounds(eye->mapTo(ancestor,QPoint()),eye->size());
+                        if(!ancestor->rect().contains(bounds)) {
+                            probe.grab().save(QDir::tempPath()+"/zima-up-to-eye-clipping.png");
+                            std::cout<<"clip="<<ancestor->objectName().toStdString()
+                                <<" bounds="<<bounds.x()<<','<<bounds.y()<<','<<bounds.width()<<','<<bounds.height()
+                                <<" ancestor="<<ancestor->width()<<'x'<<ancestor->height()<<std::endl;
+                            throw std::runtime_error("Feature UpTo inspection eye is clipped by "+ancestor->objectName().toStdString());
+                        }
+                    }
+                }
+            }
+        }
+        parent.resize(1600,1000);flush();
+        }
+        application.setPalette(original_palette);
+        }
         const auto verify_rotation=[&](bool ok){if(!ok)throw std::runtime_error("Feature rotation controls allow overlap or change an extrusion");};
         first->setCurrentIndex(2);second->setCurrentIndex(2);
         first_angle->setValue(300);verify_rotation(second_angle->value()==60);

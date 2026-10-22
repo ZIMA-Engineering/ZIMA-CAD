@@ -23,6 +23,31 @@ user instructions and completed native features supersede older pending items.
 
 ## Restart handoff - 2026-10-22
 
+### Up To multi-face editor proposal - 2026-10-22
+
+The user requested recording this proposal, not implementing multi-face Up To
+as part of the current release correction. Each Feature side/branch should
+have its own shared reference-entry table in the **Up To** section, with at
+least three visible rows. Place that branch's correction field immediately
+below its table. Reuse the established entry, removal and independent inspection
+controls; preserve logical Side 1/Side 2 identity when reversing directions.
+
+Current status: the editor replaces the previous target on selection, and native
+Extrusion calculation explicitly requires exactly one end reference per side.
+The stored vector alone does not establish multi-face support. Complete the
+ordered surface-chain and signed-correction behavior together with its GUI,
+reference identities, geometry verification, persistence and Undo/Redo checks.
+The separately reported clipped inspection eye/window-height defect is a
+current layout correction and must not be presented as multi-face completion.
+
+The user subsequently authorized completing the Windows publication first,
+then the agreed Sketch intersection/reference commands, multi-face Up To and
+correction, view-relative H/V, and a new **Projection** Feature type consuming a
+Sketch. The earlier Sketch-to-face projection proposal in
+[the detailed queue](FASTENER_REMAINING_WORK.md) supplies its design context.
+Review existing projection and 3D-curve implementations before specifying the
+new type; do not report its command, target behavior or persistence as finished.
+
 ### Additional user steering before publication
 
 The user explicitly requested these additional corrections in the same batch:

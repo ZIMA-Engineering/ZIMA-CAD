@@ -60,6 +60,27 @@ run this calculation. A copy of the user's partial-bottom case also succeeds.
 
 ## Remaining publication gate
 
+The final user-reported Up To inspection-eye/window-height correction reuses
+the existing Feature natural-height fitting path after side-operation and
+symmetry changes. Previously, only changing the Feature type refitted the
+cached parameter viewport; adding Extrusion rows could leave unused window
+space while clipping/scrolling the bottom reference row. The 30 x 30 inspection
+button and all reference semantics remain unchanged. The focused GUI matrix
+covers Light -> Dark -> Light, tall/short parent Views and repeated
+Revolution/Extrusion/Twist switches, including complete reachability by scrolling.
+Removing the correction reproduces the unnecessary-scrolling assertion
+(`feature-up-to-layout-baseline.log`, 2.79 s); the correction passes the matrix
+(`feature-up-to-layout-final.log`, 13.54 s). Localization/catalog and existing
+five-language UI coverage passes separately (`feature-up-to-layout-localization.log`,
+13.35 s). Its first run could not create a fixture in the default temporary
+directory; the successful repeat uses the established writable test-temp root.
+An older rendering test now explicitly enables
+the origin dot it intends to inspect, following the already accepted unchecked
+Point/Text defaults. Initial diagnostic assertions incorrectly treated legitimate
+viewport scrolling as clipping; the final oracle distinguishes fixed row bounds
+from scrollable visibility. No model, format or shared placement change is made.
+There are no new/changed UI strings; existing five-language localization applies.
+
 The scalar Feature direction parameter, Relations binding, negative linear extent
 entry and mouse crossing pass their native and GUI checks. The subsequent
 Revolution signed-angle and opposite-end grip limit extension also passes native
