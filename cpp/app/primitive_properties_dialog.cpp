@@ -2688,7 +2688,7 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
 }
 zima::document::ConstructionReference PrimitivePropertiesDialog::prepare_reference_candidate(
         std::size_t index,zima::document::ConstructionReference reference) const {
-    if(profile_plane_&&automatic_work_plane(profile_plane_))
+    if(!entering_whole_origin()&&profile_plane_&&automatic_work_plane(profile_plane_))
         zima::document::prepare_profile_plane_reference(index,reference,placement_->combined_references(3));
     return reference;
 }

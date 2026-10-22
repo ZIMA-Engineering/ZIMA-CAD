@@ -650,7 +650,7 @@ bool SketchPropertiesDialog::owns_reference_owner(
 
 zima::document::ConstructionReference SketchPropertiesDialog::prepare_reference_candidate(
         std::size_t index,zima::document::ConstructionReference reference) const {
-    if(automatic_work_plane(plane_))
+    if(!entering_whole_origin()&&automatic_work_plane(plane_))
         zima::document::prepare_profile_plane_reference(index,reference,placement_->combined_references(3));
     return reference;
 }

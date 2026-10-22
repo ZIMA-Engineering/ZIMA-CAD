@@ -1145,10 +1145,24 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     return result;
                 };
                 const auto before=axes();
-                verify_origin_icons(dialog,resource_icon("origin-feature"));
+                QTreeWidgetItem* parent_origin{};
+                for(QTreeWidgetItemIterator it(tree);*it&&!parent_origin;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==active_body&&
+                        (*it)->data(0,Qt::UserRole+3)=="part-body")
+                        for(int i=0;i<(*it)->childCount();++i) {
+                            auto* child=(*it)->child(i);const auto role=child->data(0,Qt::UserRole+3).toString();
+                            if(role=="document-origin"||role=="construction-origin"){parent_origin=child;break;}
+                        }
+                check(parent_origin,"Default Sketch owning Body Origin missing");
+                const auto parent_origin_id=parent_origin->data(0,Qt::UserRole).toString().toStdString();
+                verify_origin_icons(dialog,parent_origin->icon(0));
                 dialog->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
                 check(dialog->pending_value().first.plane==sketcher::SketchPlane::XY&&axes()==before,
                     "Default changed the actual XY Sketch preview frame");
+                const auto placed=dialog->pending_value().second;
+                check(document::placement_references_use_whole_origin(placed.references)&&
+                    std::ranges::all_of(placed.references,[&](const auto& ref){return ref.owner_id==parent_origin_id;}),
+                    "Default Sketch did not attach to its owning Body Origin");
                 const auto key="Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.";
                 check(dialog->findChild<QComboBox*>("sketchPlane")->toolTip()==ApplicationSettings::load(translation_directory.path()).qt_translations.value(key),
                     "Default XY work-plane explanation is untranslated");

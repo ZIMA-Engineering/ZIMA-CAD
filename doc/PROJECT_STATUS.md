@@ -38,6 +38,13 @@ and profile workflows rather than the former primitive commands.
 
 ## Latest released correction batch
 
+The unreleased 2026102201 batch also includes the approved
+[whole-Origin profile correction](PROFILE_WHOLE_ORIGIN_CORRECTION.md): Default
+Origin and whole-Origin Tree entry inherit aligned Feature/Sketch axes without
+reinterpreting existing stored placements. Windows GUI, persistence, parent
+identity, five-language, FORM/library and template checks pass; final signed
+package acceptance/publication remains pending.
+
 Signed Windows [2026102004](releases/2026102004.md) is accepted and public from
 `b96503988b7ba8f98951e9ca2076cf211685c4e0`. It passed 42 finite packaged scenarios, all 1,185 native factory
 loads in both candidate and signed smoke, 1,026 current mass Relations, production

@@ -10,6 +10,7 @@
 #include <functional>
 
 #include <QString>
+#include <QScopedValueRollback>
 
 namespace zima::app {
 
@@ -19,6 +20,11 @@ namespace zima::app {
 class PlacementReferenceDialog {
 public:
     virtual ~PlacementReferenceDialog() = default;
+    // A complete frame must bypass command-local individual-plane authoring.
+    // Restore the previous context on every exit from the bulk-entry path.
+    [[nodiscard]] QScopedValueRollback<bool> whole_origin_entry_scope() {
+        return QScopedValueRollback<bool>(whole_origin_entry_, true);
+    }
     [[nodiscard]] virtual zima::document::Placement placement_seed() const = 0;
     [[nodiscard]] virtual std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const = 0;
@@ -57,6 +63,10 @@ public:
     // Inline View dimensions edit the same pending widgets as the dialog.
     virtual bool set_inline_parameter_value(
         std::string_view key, double value) = 0;
+protected:
+    [[nodiscard]] bool entering_whole_origin() const { return whole_origin_entry_; }
+private:
+    bool whole_origin_entry_{};
 };
 
 }  // namespace zima::app

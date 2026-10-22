@@ -327,11 +327,10 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
                 }
             } else if (auto* sketch = dynamic_cast<SketchPropertiesDialog*>(dialog)) {
                 const auto pending=sketch->pending_value().first;
-                // A Flat's owned Sketch is displayed below its own pending
-                // container. Starting at that Sketch would choose the Flat's
-                // own Origin, which reference entry correctly rejects.
-                edited_id=dialog->objectName()=="flatPropertiesDialog"
-                    ? pending.owner_container_id : pending.id;
+                // Placement belongs to the owning history container. Starting
+                // at its Sketch row would select that same container's own
+                // Origin rather than the parent frame (also true for Flat).
+                edited_id=pending.owner_container_id.empty()?pending.id:pending.owner_container_id;
             }
             const auto path = workspace_.active_occurrence_path();
             const auto origin_child = [&](QTreeWidgetItem* row) -> QTreeWidgetItem* {
@@ -1511,6 +1510,7 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
         if (!placement_origin_allowed(origin_id)) return false;
         if (primitive_reference_dialog_->owns_reference_owner(origin_id)) return false;
         if (*pending_primitive_reference_index_ >= 3) return false;
+        const auto origin_entry = primitive_reference_dialog_->whole_origin_entry_scope();
         struct CapturedPlaneReference {
             std::string owner_id;
             std::string instance_path;

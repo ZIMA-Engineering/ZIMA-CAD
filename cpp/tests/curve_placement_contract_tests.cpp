@@ -374,9 +374,12 @@ void ordered_frames() {
     for (bool plane_first : {false,true}) {
         document::Placement p;
         p.references = plane_first ? std::vector{face,edge,point} : std::vector{edge,face,point};
+        const auto authored=p.references;
         document::normalize_container_front_references(p.references);
+        check(p.references==authored,"Normalization reinterpreted explicit FRONT/TOP roles");
         check(indexed_resolve(p,g),"FRONT/TOP sequence rejected");
-        const kernel::Vec3 n = plane_first ? kernel::Vec3{0,0,1} : kernel::Vec3{1,0,0};
+        // The roles are explicitly authored, independently of input order.
+        const kernel::Vec3 n{1,0,0};
         verify_frame(p,n);
         // The real owned Sketch must use the identical frame during history
         // resolution; offsets and manual work-plane choices stay independent.
@@ -388,7 +391,7 @@ void ordered_frames() {
             model.history_order={{document::PartHistoryKind::Feature,source.id},{document::PartHistoryKind::Feature,target.id}};
             model.resolve_constructions();verify_frame(model.history.back().placement,n);
             const auto& resolved=model.sketches.back();
-            const auto expected=automatic?n:top(model.history.back().placement);
+            const auto expected=automatic&&!plane_first?n:top(model.history.back().placement);
             near(resolved.resolved_normal.x,expected.x);near(resolved.resolved_normal.y,expected.y);near(resolved.resolved_normal.z,expected.z);
             near(resolved.resolved_origin.x,10+3*expected.x);near(resolved.resolved_origin.y,3*expected.y);near(resolved.resolved_origin.z,3*expected.z);
         }

@@ -5,6 +5,7 @@
 #include "assembly_workspace_window.hpp"
 #include "sketch_properties_dialog.hpp"
 #include <zima/document/part_document.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QApplication>
 #include <QAction>
@@ -19,6 +20,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTreeWidget>
+#include <QTableWidget>
 #include <QTreeWidgetItemIterator>
 #include <QPointer>
 #include <chrono>
@@ -366,6 +368,8 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
 }
 
 namespace zima::app {
+#include "profile_origin_ui_verification.inc"
+
 int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& window, const std::filesystem::path& directory) {
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -375,6 +379,8 @@ int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& win
     };
     std::string stage;
     try {
+        stage="whole Origin";verify_profile_origin_ui(application,window,directory);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ORIGIN_ONLY"))return 0;
         window.showMaximized();flush();
         for(const std::string kind:{"sketch","holes","extrusion","revolution","plane"}) {
             stage=kind;

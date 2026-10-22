@@ -31,6 +31,16 @@ acceptance/publication status is in [its record](releases/2026102201.md) and the
 Check those records and Git status after restart rather than assuming a running
 build or process survived.
 
+The user's subsequent test found a whole-Origin profile orientation defect.
+The approved correction is implemented and verified; see [its GUI reproduction
+and acceptance](PROFILE_WHOLE_ORIGIN_CORRECTION.md). Feature and Sketch now inherit
+aligned positive axes through the button and Tree paths. Stored models are not
+rewritten. Windows publication still requires final package acceptance. The
+original release candidate compiled but its
+private package source copy exhausted C:. Only that incomplete package copy
+was removed. The candidate build/source stage remains at `C:/zcb/p2201/c` for
+verified timestamp-preserving reuse after the final approved fix commit.
+
 The accepted selection contract is the actual analytical creation/Properties
 preview wire, at normal width and visible through the model. Whole-solid hover,
 click and inspection never fill faces. Individual placement/reference selection
