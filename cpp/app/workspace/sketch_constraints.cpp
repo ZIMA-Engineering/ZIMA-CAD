@@ -92,14 +92,19 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();
-    viewer_->set_selection_contract(kind == zima::sketcher::ConstraintKind::Coincident
+    auto candidate_kinds=kind == zima::sketcher::ConstraintKind::Coincident
         ? std::vector{zima::viewer::CandidateKind::SketchPoint,
                       zima::viewer::CandidateKind::SketchAxis,
                       zima::viewer::CandidateKind::SketchSegment,
                       zima::viewer::CandidateKind::SketchExternalReference}
         : std::vector{zima::viewer::CandidateKind::SketchPoint,
                       zima::viewer::CandidateKind::SketchSegment,
-                      zima::viewer::CandidateKind::SketchExternalReference});
+                      zima::viewer::CandidateKind::SketchExternalReference};
+    // A preselected native point has already completed the first C input.
+    // Offer the same curve supports as after picking that point in the command.
+    if(kind==zima::sketcher::ConstraintKind::Coincident&&!selected_reference.empty())
+        candidate_kinds.push_back(zima::viewer::CandidateKind::SketchCurve);
+    viewer_->set_selection_contract(std::move(candidate_kinds));
     viewer_->set_candidate_priority(sketch_point_pick_priority);
     {
         const auto owner_id=active_sketch_id_;
