@@ -8451,14 +8451,20 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 }
                                 const bool r1_is_occt_first =
                                     semantic_start_is_first != treatment.reverse;
+                                // The indexed overload applies the law to one
+                                // constituent edge. Attach radii to the actual
+                                // contour endpoints so a multi-edge rail has
+                                // one law over its complete physical length.
                                 algorithm.SetRadius(
                                     r1_is_occt_first
                                         ? treatment.radius_start
                                         : treatment.radius_end,
+                                    contour, algorithm.FirstVertex(contour));
+                                algorithm.SetRadius(
                                     r1_is_occt_first
                                         ? treatment.radius_end
                                         : treatment.radius_start,
-                                    contour, 1);
+                                    contour, algorithm.LastVertex(contour));
                             }
                         }
                     }
@@ -10828,6 +10834,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         append_reference_geometry(grouped->profile_references,
                             std::move(child_data.profile_references));
                         grouped->shape = fuse.Shape();
+                        // Joined child vertices can have two original parents
+                        // at the profile plane. Resolve the operational junction
+                        // through the same Boolean ancestry as an ordinary Add;
+                        // group_inputs retain both original side references.
+                        grouped->vertices = complete_boolean_vertices(
+                            grouped->shape, grouped->faces, grouped->edges,
+                            grouped->vertices, operation.owner_id, "add");
                     }
                     if(!grouped)grouped.emplace();
                     grouped->profile_references.points.insert(grouped->profile_references.points.end(),

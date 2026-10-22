@@ -1737,6 +1737,8 @@ if(ZIMA_BUILD_TESTS)
         FIXTURES_REQUIRED zima_imported_datum_source)
     add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
     set_tests_properties(zima_cpp_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_symmetric_endpoint_contract COMMAND zima_cpp_profile_command_tests --symmetric-endpoints)
+    set_tests_properties(zima_cpp_symmetric_endpoint_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_assembly_sketch_properties_tests tests/assembly_sketch_properties_tests.cpp)
     target_link_libraries(zima_cpp_assembly_sketch_properties_tests PRIVATE zima_command_host)
@@ -1923,6 +1925,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_symmetric_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_symmetric_edge_treatment_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_SYMMETRIC_ENDPOINTS=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 150)
     add_test(NAME zima_cpp_treatment_selection_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_treatment_selection_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_TREATMENT_SELECTION_ONLY=1"

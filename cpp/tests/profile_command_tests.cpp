@@ -9,6 +9,7 @@
 #include <numbers>
 #include <cmath>
 #include <algorithm>
+#include <set>
 #include <source_location>
 using namespace zima;
 using commands::Json;
@@ -626,6 +627,117 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-revolution.prtz",&cache);
     require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"Revolution native persistence lost axis or parameters");near(cache.back().volume,30*std::numbers::pi);
 }
+void symmetric_endpoint_references(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","symmetric-endpoints"}});
+    const auto id=f.stock(10,10,10).at("container").get<std::string>();
+    using Identity=std::tuple<std::string,std::string,std::string>;
+    const auto identity=[](const auto& r){return Identity{r.owner_id,r.semantic_key,r.instance_path};};
+    const auto verify=[&](const kernel::BodyResult& published,double half_length,double offset=0.) {
+        const auto& body=published.body_boundaries.empty()?published:
+            published.body_boundaries.at(f.doc().body_history.active_body_id()).get().back();
+        std::set<Identity> edges,ends,central;
+        for(const auto& edge:body.mesh.edges) {
+            if(!edge.reference.valid())continue;
+            require(edge.edge_treatment_endpoint_references.size()==2,"Symmetric edge has no stable endpoints");
+            require(edge.points.size()>=2,"Symmetric edge has no geometry");
+            edges.insert(identity(edge.reference));
+            for(std::size_t i=0;i<2;++i) {
+                const auto& r=edge.edge_treatment_endpoint_references[i];
+                const auto& p=i==0?edge.points.front():edge.points.back();
+                require(r.valid(),"Symmetric endpoint is invalid");
+                near(std::abs(p.x),5);near(std::abs(p.y),5);
+                require(std::abs(p.z-offset)<1e-6||std::abs(std::abs(p.z-offset)-half_length)<1e-6,"Endpoint left its analytical box");
+                ends.insert(identity(r));if(std::abs(p.z-offset)<1e-6)central.insert(identity(r));
+            }
+        }
+        require(edges.size()==16&&ends.size()==12&&central.size()==4,"Shared profile junctions did not resolve uniquely");
+        for(const auto& r:central)require(std::get<1>(r).starts_with("boolean:add:vertex"),"Shared junction bypassed existing Boolean ancestry");
+        return std::pair{edges,ends};
+    };
+    const auto baseline=verify(f.part().session.calculated_boundaries().back(),5);
+    const auto revision=f.part().session.revision();
+    const auto listed=f.run("edge_treatment.edges");require(listed.at("total")==16,"Missing symmetric edges");
+    require(f.part().session.revision()==revision,"Endpoint inspection changed the document");
+    for(double length:{7.,3.,5.}) {
+        f.set_feature(id,[&](auto& p){p["sides"][0]["length"]=length;});
+        require(verify(f.part().session.calculated_boundaries().back(),length)==baseline,"Length edit replaced endpoint ancestry");
+        near(f.volume(),200*length);
+    }
+    f.set_feature(id,[](auto& p){p["reversed_sides"]=true;});
+    require(verify(f.part().session.calculated_boundaries().back(),5)==baseline,"Reversal changed stable endpoint identities");
+    f.set_feature(id,[](auto& p){p["profile_plane_offset"]=11.;});
+    verify(f.part().session.calculated_boundaries().back(),5,11.);
+    f.run("undo");verify(f.part().session.calculated_boundaries().back(),5);
+    f.run("redo");verify(f.part().session.calculated_boundaries().back(),5,11.);
+    f.run("undo");f.run("undo");
+    f.run("save");std::vector<kernel::BodyResult> saved;
+    const auto loaded=document::PartDocument::load(directory/"symmetric-endpoints.prtz",&saved);
+    require(verify(saved.back(),5)==baseline,"Native reopen lost endpoint identities");
+    kernel::OcctKernel cold;const auto rebuilt=cold.evaluate_history(loaded.kernel_operations());
+    require(verify(rebuilt.back(),5)==baseline,"Cold regeneration changed endpoint identities");
+    // Both original half-edges must traverse the same complete physical rail.
+    std::size_t rails{};Json selected;
+    for(const auto& edge:listed.at("items"))if(edge.at("key").get<std::string>().starts_with("generated:")) {
+        const auto route=f.run("edge_treatment.route",{{"seed",{{"owner",edge.at("owner")},{"key",edge.at("key")}}}});
+        require(route.at("endpoints_complete")==true&&route.at("closed")==false&&route.at("edges").size()==2&&route.at("endpoints").size()==2,
+            "Symmetric rail did not cross its shared profile junction");
+        near(std::abs(route.at("endpoints")[0].at("position_mm")[2].get<double>()),5);
+        near(std::abs(route.at("endpoints")[1].at("position_mm")[2].get<double>()),5);
+        selected=route;++rails;
+    }
+    require(rails==8,"Missing a logical side of the four symmetric rails");
+    auto start=selected.at("endpoints")[0];start.erase("position_mm");
+    const auto routes=Json::array({Json{{"edges",selected.at("edges")},{"start",start}}});
+    const auto fillet=f.run("fillet.create",{{"routes",routes},{"radius_mm",1}}).at("container");
+    const auto measured=[&] {auto b=f.part().session.calculated_boundaries().back();kernel.ensure_body_properties(b);return b.volume;};
+    const auto radius_at=[&](const Json& endpoint) {
+        const auto position=endpoint.at("position_mm").get<std::array<double,3>>();double maximum=-1;
+        for(const auto& edge:f.part().session.calculated_boundaries().back().mesh.edges)
+            if(edge.reference.owner_id==fillet.get<std::string>()&&!edge.points.empty()&&std::ranges::all_of(edge.points,[&](const auto& p){return std::abs(p.z-position[2])<1e-6;}))
+                for(const auto& p:edge.points)maximum=std::max(maximum,std::hypot(p.x-position[0],p.y-position[1]));
+        require(maximum>=0,"Variable Fillet has no real cap curve");return maximum;
+    };
+    near(measured(),1000-10*(1-std::numbers::pi/4));
+    f.run("fillet.set",{{"container",fillet},{"mode","linear"},{"radius_end_mm",2}});
+    const auto linear=measured();require(linear>1000-40*(1-std::numbers::pi/4)&&linear<1000-10*(1-std::numbers::pi/4),"Variable symmetric Fillet left constant-radius bounds");
+    near(radius_at(selected.at("endpoints")[0]),1);near(radius_at(selected.at("endpoints")[1]),2);
+    f.run("fillet.set",{{"container",fillet},{"reverse",true}});near(measured(),linear);
+    near(radius_at(selected.at("endpoints")[0]),2);near(radius_at(selected.at("endpoints")[1]),1);
+    f.run("undo");near(measured(),linear);f.run("redo");near(measured(),linear);
+    f.run("save");saved.clear();const auto rounded=document::PartDocument::load(directory/"symmetric-endpoints.prtz",&saved);
+    near(saved.back().volume,linear);near(cold.evaluate_history(rounded.kernel_operations()).back().volume,linear);
+    for(int kind=0;kind<4;++kind) {
+        f.run("new",{{"type","part"},{"name","joined-endpoints-"+std::to_string(kind)}});
+        const auto profile=f.rectangle(2,0,2,10);
+        document::FeatureParameters p;p.sides[0].length=5;p.sides[1].length=7;
+        p.sides[1].operation=document::FeatureSideOperation::Extrusion;
+        if(kind>0) {
+            const auto axis=f.line(profile,0,-1,0,11);
+            f.run("sketch.segment.centerline",{{"sketch",profile},{"segment",axis},{"centerline",true}});
+            p.axis_segment_id=axis;p.sides[1].operation=document::FeatureSideOperation::Revolution;
+            p.sides[1].angle_degrees=30;
+            if(kind<3) {p.sides[0].operation=document::FeatureSideOperation::Revolution;p.sides[0].angle_degrees=60;}
+            if(kind==2) {p.symmetric=true;p.sides[0].angle_degrees=45;}
+            if(kind==3)p.sides[1].angle_degrees=90;
+        }
+        const auto owner=f.create_feature(profile,p).at("container").get<std::string>();
+        const double expected=kind==0?240:kind==3?100+30*std::numbers::pi:30*std::numbers::pi;
+        near(f.volume(),expected);
+        const auto endpoints=[&] {
+            const auto rows=f.run("edge_treatment.edges").at("items");
+            require(!rows.empty(),"Joined operation has no body edges");
+            for(const auto& row:rows)for(const auto& segment:row.at("segments"))
+                require(segment.at("endpoints").size()==2,"Joined Extrusion/Revolution lost a native endpoint");
+            return rows;
+        };
+        const auto original=endpoints();
+        f.set_feature(owner,[](auto& values){values["reversed_sides"]=true;});near(f.volume(),expected);endpoints();
+        f.run("undo");require(endpoints()==original,"Direction Undo replaced endpoint metadata");
+        f.run("redo");endpoints();f.run("undo");f.run("save");
+        std::vector<kernel::BodyResult> cache;const auto native=document::PartDocument::load(directory/("joined-endpoints-"+std::to_string(kind)+".prtz"),&cache);
+        near(cache.back().volume,expected);near(cold.evaluate_history(native.kernel_operations()).back().volume,expected);
+    }
+}
 void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","retained-feature-definitions"}});
     const auto empty_cut_sketch=f.rectangle(100,100,10,10);
@@ -684,7 +796,9 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
 int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");
     if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
-    kernel::OcctKernel kernel;retired_profile_commands(kernel,directory);front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    kernel::OcctKernel kernel;
+    if(argc==2&&std::string_view(argv[1])=="--symmetric-endpoints") {symmetric_endpoint_references(kernel,directory);fs::remove_all(directory);std::cout<<"Symmetric endpoint references passed\n";return 0;}
+    retired_profile_commands(kernel,directory);front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     point_end_targets(kernel,directory);
     directed_rotation_targets(kernel,directory);
     retained_definitions(kernel,directory);

@@ -47,6 +47,13 @@ original points connect edges; spatial proximity is insufficient. Routes may cro
 source containers within one occurrence. Two possible continuations stop traversal.
 A direction returning to the same side of a point is not tangent continuation.
 
+Symmetric/two-sided Features keep both authored half-edge identities. Their
+shared operational junction uses the existing Boolean ancestry, so the route
+crosses the profile plane and reports the two exterior ends. Variable Fillet
+attaches R1/R2 to those complete-contour ends, including after reversal. Existing
+files with incomplete endpoint caches need explicit Regenerate; read-only queries
+do not silently calculate them. See the [finite endpoint and radius-law matrix](verification/20261022-symmetric-feature-endpoints.md).
+
 GUI supplies image scale to skip near-zero polyline samples; camera-free CLI uses
 0.000001 mm. This tolerance never joins distinct point IDs. Missing/ambiguous sources
 are rejected; incomplete endpoint references are reported. GUI route restoration

@@ -61,8 +61,12 @@ Post-release development restricts [ordinary Sketch Reference entry](verificatio
 to individual geometry and repairs [Fillet on connected segments of one original curve](verification/20261022-connected-fillet-curves.md),
 verified on isolated copies of `2000.prtz`. These corrections are in the current
 local build and source, not retroactively in the immutable 2201 archive.
-The separate pre-existing symmetric-extrusion longitudinal endpoint-cache issue
-found by those checks remains open; see the linked verification limits.
+The subsequent [symmetric Feature endpoint correction](verification/20261022-symmetric-feature-endpoints.md)
+completes shared operational junctions through existing Boolean ancestry and
+repairs the variable Fillet radius law across a complete multi-edge rail.
+Focused native, real mouse/GUI, FORM GUI and localization checks pass. An older
+standalone FORM test has separate archive-reader/fixture assumptions under audit;
+the verification record preserves that failure and release-baseline comparison.
 
 ## Still unfinished or planned
 

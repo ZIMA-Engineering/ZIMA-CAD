@@ -63,6 +63,11 @@ The original and isolated input remain byte-identical:
 
 ## Baseline failures and remaining limits
 
+The later [symmetric Feature endpoint correction](20261022-symmetric-feature-endpoints.md)
+addresses the separately discovered cache issue and its dependent multi-edge
+variable Fillet law. The baseline/fixture investigation below remains historical
+evidence; it is not a claim that changing the fixture itself repaired production.
+
 The first related run passed only the traversal test. Two older analytical
 box tests expected 12 edges and two longitudinal endpoints from a symmetric
 two-side Feature. Both the unchanged release and modified implementation expose

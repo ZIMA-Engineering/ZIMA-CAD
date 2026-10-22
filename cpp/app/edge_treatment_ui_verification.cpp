@@ -336,12 +336,13 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             }
             return 0;
         }
+        const bool symmetric_fixture=qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_ENDPOINTS");
         for(int mode=0;mode<5;++mode) {
             const bool fillet=mode<2;
             const std::string prefix=fillet?"fillet":"chamfer";
             const auto name=stem+"-"+std::to_string(mode);
             run("new",{{"type","part"},{"name",name}});
-            const auto box=zima::test::gui_rectangular_profile(window,20,20,20,true).data.at("container").get<std::string>();
+            const auto box=zima::test::gui_rectangular_profile(window,20,20,20,!symmetric_fixture).data.at("container").get<std::string>();
             // Horizontal as well as vertical edges expose an incorrect default
             // XY annotation plane on Chamfer distance dimensions.
             const auto file=directory/(name+".prtz");run("save");
@@ -352,11 +353,11 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             if(fillet) {args["radius_mm"]=2;if(mode==1){args["mode"]="linear";args["radius_end_mm"]=3;}}
             else {args["distance_a_mm"]=2;if(mode==3){args["mode"]="two_distances";args["distance_b_mm"]=3;}if(mode==4){args["mode"]="distance_angle";args["angle_degrees"]=35;}}
             if(mode==1) {
-                const auto edges=run("edge_treatment.edges",{{"owner",box}}).at("items");
-                const auto found=std::ranges::find_if(edges,[&](const auto& item){return item.at("key")==edge;});
-                check(found!=edges.end(),"Missing input edge for explicit R1");
-                check(found->at("segments")[0].at("endpoints").size()==2,"Variable Fillet fixture has no two persisted R1 endpoints");
-                auto start=found->at("segments")[0].at("endpoints")[0];start.erase("position_mm");
+                const auto route=run("edge_treatment.route",{{"seed",{{"owner",box},{"key",edge}}}});
+                check(route.at("endpoints_complete")==true&&route.at("endpoints").size()==2,"Variable Fillet fixture has no two persisted R1 endpoints");
+                check(route.at("edges").size()==(symmetric_fixture?2:1),"Variable Fillet did not traverse its physical rail");
+                args["routes"][0]["edges"]=route.at("edges");
+                auto start=route.at("endpoints")[0];start.erase("position_mm");
                 args["routes"][0]["start"]=start;
             }
             const auto owner=run((prefix+".create").c_str(),args).at("container").get<std::string>();
@@ -449,11 +450,18 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         for(const bool fillet:{true,false})for(const bool commit:{false,true}) {
             const auto name=stem+"-create-"+std::to_string(fillet)+"-"+std::to_string(commit);
             run("new",{{"type","part"},{"name",name}});
-            const auto box=zima::test::gui_rectangular_profile(window,20,20,20,true).data.at("container").get<std::string>();
+            const auto box=zima::test::gui_rectangular_profile(window,20,20,20,!symmetric_fixture).data.at("container").get<std::string>();
+            std::string rail;
+            if(symmetric_fixture) {
+                const auto rows=run("edge_treatment.edges").at("items");
+                const auto found=std::ranges::find_if(rows,[](const auto& row){return row.at("key").template get<std::string>().starts_with("generated:");});
+                check(found!=rows.end(),"Symmetric creation fixture has no authored rail");rail=found->at("key");
+            }
             window.findChild<QAction*>(fillet?"filletAction":"chamferAction")->trigger();flush();
             auto* pending=dialog();const auto owner=pending->container_id();
-            pick(viewer::CandidateKind::Edge,box,{});
+            pick(viewer::CandidateKind::Edge,box,rail);
             check(pending->pending_value().edge_treatment.routes.size()==1,"Mouse did not select a creation edge");
+            if(symmetric_fixture)check(pending->pending_value().edge_treatment.routes.front().size()==2,"Mouse did not offer both halves of the symmetric rail");
             drag(owner,"parameter:primary",0);const auto layout=pending->dimension_layouts();
             finish(commit);run("save");const auto file=directory/(name+".prtz");
             const auto saved=document::PartDocument::load(file);

@@ -60,7 +60,16 @@ on the reported curves. It preserves the original keys and adds no hover OCCT.
 The published archive is unchanged. The regression investigation separately found
 missing longitudinal endpoint caches on symmetric two-side extrusions, reproduced
 in the immutable release. Keep that native ancestry issue visible; correcting
-one-sided analytical test fixtures does not fix it. Final publication cleanup left approximately 29 GB free before the
+one-sided analytical test fixtures does not fix it. The subsequent
+[symmetric Feature correction](verification/20261022-symmetric-feature-endpoints.md)
+now completes operational junctions and the full-contour variable Fillet law,
+with focused native and actual symmetric mouse-selection/editing checks. Ordinary
+and FORM GUI matrices also pass. Existing affected documents need explicit
+Regenerate to refresh old endpoint caches. The separate older standalone FORM
+test remains under audit; do not silently drop its failure or weaken tolerance.
+Continue with the approved Sketch intersection commands, then multi-face Up To,
+Sketch Projection Feature and view-relative H/V for quarter turns/flips.
+Final publication cleanup left approximately 29 GB free before the
 subsequent development build; periodic verified cleanup remains requested.
 After the two post-release fixes, another 80 unused Debug Qt DLL copies were
 verified against the pinned SDK and Release dependency closure, then removed
