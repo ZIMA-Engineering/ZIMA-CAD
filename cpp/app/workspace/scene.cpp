@@ -29,7 +29,12 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
+    if(!sketch_intersection_choices_.empty() && (!sketch_external_intersection_active_ ||
+            !sketch_intersection_inputs_ || *sketch_intersection_inputs_!=sketch_intersection_inputs())) {
+        sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();
+    }
     const auto publish_mesh=[&](zima::kernel::ViewerMesh mesh,bool fit=true) {
+        if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Workspace scene publication\n");
         if(properties_dialog_&&active_sketch_id_.empty()) {
             std::set<std::string> editing_profiles;
             if(property_owned_sketch_draft_)editing_profiles.insert(property_owned_sketch_draft_->id);
@@ -46,7 +51,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 edge.reference.instance_path==workspace_.active_occurrence_path()&&
                 !edge.reference.semantic_key.starts_with("external_"))edge.color=zima::interaction::sketch_construction.name().toStdString();
         }
-        if(sketch_external_reference_active_&&!sketch_external_profile_active_)if(const auto* sketch=active_sketch()) {
+        if(sketch_external_reference_active_&&!sketch_external_profile_active_&&!sketch_external_intersection_active_)if(const auto* sketch=active_sketch()) {
             zima::kernel::ViewerMesh basis;
             zima::kernel::ViewerEdge axes;axes.points={sketch->world_point(0,0),sketch->world_point(1,0),sketch->world_point(0,1)};
             basis.edges.push_back(std::move(axes));basis=place_sketch_mesh(*sketch,std::move(basis));
@@ -61,6 +66,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 points[0],sub(points[1],points[0]),sub(points[2],points[0]));
             mesh.original_references.edges.insert(mesh.original_references.edges.end(),
                 std::make_move_iterator(curves.begin()),std::make_move_iterator(curves.end()));
+        }
+        if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty()) {
+            auto choices=sketch_intersection_choice_mesh();
+            mesh.edges.insert(mesh.edges.end(),std::make_move_iterator(choices.edges.begin()),std::make_move_iterator(choices.edges.end()));
+            mesh.points.insert(mesh.points.end(),std::make_move_iterator(choices.points.begin()),std::make_move_iterator(choices.points.end()));
         }
         viewer_->set_mesh(std::move(mesh),fit);
     };
@@ -1134,6 +1144,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         symbol_action_->setEnabled(false);
         sketch_external_reference_action_->setEnabled(false);
         sketch_external_profile_action_->setEnabled(false);
+        sketch_intersection_reference_action_->setEnabled(false);
+        sketch_intersection_profile_action_->setEnabled(false);
         rebuild_application_toolbar();
         update_document_area_visibility();
         return;
@@ -1158,7 +1170,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                              sketch_normal_view_action_,
                              sketch_flip_view_action_, sketch_rotate_view_action_,
                              sketch_external_reference_action_,
-                             sketch_external_profile_action_, sketch_point_action_,
+                             sketch_external_profile_action_, sketch_intersection_reference_action_,
+                             sketch_intersection_profile_action_, sketch_point_action_,
                              sketch_construction_action_, sketch_segment_action_,
                              sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
@@ -1274,7 +1287,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             active_sketch_id_.empty() && !selection_action_->isChecked()
             ? std::vector<zima::viewer::CandidateKind>{}
             : sketch_external_reference_active_
-                ? sketch_external_reference_candidate_kinds(sketch_external_profile_active_)
+                ? sketch_external_reference_candidate_kinds(sketch_external_profile_active_,sketch_external_intersection_active_,!sketch_intersection_choices_.empty())
             : sketch_rectangle_axis_selecting_
                 ? std::vector{zima::viewer::CandidateKind::SketchSegment}
             : sketch_trim_active_
@@ -1438,8 +1451,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             const auto source_owners = sketch_external_reference_source_owners(
                 document, active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
             viewer_->set_candidate_filter(
-                [source_owners,profile=sketch_external_profile_active_](const auto& candidate) {
-                    const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile);
+                [this,source_owners,profile=sketch_external_profile_active_](const auto& candidate) {
+                    if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty())return sketch_intersection_branch_candidate(candidate);
+                    const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile,sketch_external_intersection_active_);
                     const auto source=sketch_external_reference_source_candidate(candidate);
                     return stable_geometry && candidate.instance_path.empty() &&
                         source_owners.contains(source.owner_id) &&
@@ -2003,6 +2017,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         sketch_rotate_view_action_->setEnabled(!active_sketch_id_.empty());
         sketch_external_reference_action_->setEnabled(!active_sketch_id_.empty()&&!part->symbol_definition);
         sketch_external_profile_action_->setEnabled(!active_sketch_id_.empty()&&!part->symbol_definition);
+        sketch_intersection_reference_action_->setEnabled(!active_sketch_id_.empty()&&!part->symbol_definition);
+        sketch_intersection_profile_action_->setEnabled(!active_sketch_id_.empty()&&!part->symbol_definition);
         sketch_point_action_->setEnabled(!active_sketch_id_.empty());
         sketch_construction_action_->setEnabled(!active_sketch_id_.empty());
         sketch_segment_action_->setEnabled(!active_sketch_id_.empty());
@@ -2255,7 +2271,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
         : (active_part != nullptr || active_assembly_sketch) &&
                 sketch_external_reference_active_
-            ? sketch_external_reference_candidate_kinds(sketch_external_profile_active_)
+            ? sketch_external_reference_candidate_kinds(sketch_external_profile_active_,sketch_external_intersection_active_,!sketch_intersection_choices_.empty())
         : sketch_placement_active
             ? std::vector{zima::viewer::CandidateKind::SketchAxis,
                           zima::viewer::CandidateKind::SketchSegment,
@@ -2284,10 +2300,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if (active_assembly_sketch && sketch_external_reference_active_) {
         const auto top_assembly_id = document.document_id;
         viewer_->set_candidate_filter([this, top_assembly_id](const auto& candidate) {
+            if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty())return sketch_intersection_branch_candidate(candidate);
             const auto& prefix = workspace_.active_occurrence_path();
             if (!prefix.empty() && (!candidate.instance_path.starts_with(prefix) ||
                 candidate.instance_path == prefix)) return false;
-            if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_) ||
+            if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_) ||
                 candidate.instance_path.empty()) return false;
             try {
                 return workspace_.resolve_occurrence(top_assembly_id,
@@ -2307,7 +2324,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         viewer_->set_candidate_filter(
             [this, allowed_local_owners, active_document_id,
              top_assembly_id, dependent_path](const auto& candidate) {
-                if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_) ||
+                if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty())return sketch_intersection_branch_candidate(candidate);
+                if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_) ||
                     candidate.instance_path.empty()) return false;
                 if (candidate.instance_path == dependent_path) {
                     return allowed_local_owners.contains(sketch_external_reference_source_candidate(candidate).owner_id);
@@ -2522,6 +2540,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     sketch_rotate_view_action_->setEnabled(has_active_part_sketch);
     sketch_external_reference_action_->setEnabled(has_active_part_sketch);
     sketch_external_profile_action_->setEnabled(has_active_part_sketch);
+    sketch_intersection_reference_action_->setEnabled(has_active_part_sketch);
+    sketch_intersection_profile_action_->setEnabled(has_active_part_sketch);
     sketch_point_action_->setEnabled(has_active_part_sketch);
     sketch_construction_action_->setEnabled(has_active_part_sketch);
     sketch_segment_action_->setEnabled(has_active_part_sketch);

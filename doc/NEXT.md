@@ -30,9 +30,12 @@ removes false crossings produced by coincident reference display chords. The
 and five languages in both themes pass. Broader checks also found and corrected
 [preselected point to circular C input](verification/20261022-preselected-circle-coincidence.md).
 The user's file remains byte-identical; no native format or factory asset changed.
-Continue the already approved Sketch intersection editor/binding integration,
-then the recorded following queue. These small fixes do not implement those
-pending commands or change the published Windows archive.
+The approved [Sketch intersection editor/binding integration](verification/20261022-sketch-intersection-editor.md)
+now implements face/plane reference and associated contour selection, with native
+and GUI verification. Its finite support and remaining gaps are recorded there.
+The current Windows archive remains unchanged until committed-source package
+acceptance. Continue ordered multi-face Up To/correction after its separately
+required native-contract approval, then the recorded Projection/H/V queue.
 
 ## Restart handoff - 2026-10-22
 

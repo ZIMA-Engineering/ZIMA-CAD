@@ -90,7 +90,8 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
 
 bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries);
+    const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
+    const kernel::OcctKernel* explicit_kernel = nullptr);
 
 bool prune_missing_drill_point_references(
     zima::document::PartDocument& document,

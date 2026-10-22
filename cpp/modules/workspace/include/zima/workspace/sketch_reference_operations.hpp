@@ -2,6 +2,35 @@
 #include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::workspace {
+// Owned General Surface definitions are parent-local; their interactive
+// display Sketch is already in Body coordinates. Consumers declare the frame.
+enum class SketchIntersectionFrame { Definition, Body };
+// Explicit source choice/calculation only. Results use the declared Sketch
+// frame; an owned General Surface definition retains its parent-local frame.
+[[nodiscard]] kernel::ViewerReferenceGeometry part_sketch_face_intersection(
+    const kernel::OcctKernel&,const document::DocumentSession&,const sketcher::Sketch&,
+    const kernel::FaceReference&,const std::string& draft_body_id = {},
+    SketchIntersectionFrame = SketchIntersectionFrame::Definition);
+[[nodiscard]] std::vector<sketcher::SketchExternalReference> prepare_sketch_intersection_branches(
+    const Workspace&,const kernel::OcctKernel&,const std::string& document,const sketcher::Sketch&,
+    const kernel::FaceReference& offered,const kernel::FaceReference& original,
+    const std::string& draft_body_id = {},bool draft_section = false);
+[[nodiscard]] std::vector<sketcher::SketchExternalReference> calculate_part_sketch_intersections(
+    const kernel::OcctKernel&,const document::DocumentSession&,const sketcher::Sketch&);
+[[nodiscard]] kernel::ViewerReferenceGeometry assembly_sketch_face_intersection(
+    const Workspace&,const kernel::OcctKernel&,const std::string& document,const sketcher::Sketch&,
+    const sketcher::SketchExternalReference& source,const kernel::FaceReference& offered,
+    const document::PartDocument* candidate_part = nullptr,const std::string& draft_body_id = {},
+    SketchIntersectionFrame = SketchIntersectionFrame::Definition);
+[[nodiscard]] std::vector<sketcher::SketchExternalReference> calculate_assembly_sketch_intersections(
+    const kernel::OcctKernel&,const assembly::AssemblyDocument&,const sketcher::Sketch&);
+[[nodiscard]] bool refresh_context_sketch_intersections(
+    const Workspace&,const kernel::OcctKernel&,document::PartDocument&);
+// Validate the same ownership/dependency contract as ordinary reference entry,
+// without projecting a face outline before the explicit intersection query.
+[[nodiscard]] sketcher::SketchExternalReference prepare_sketch_intersection_source(
+    const Workspace&,const std::string& document,const sketcher::Sketch&,const kernel::FaceReference& original,
+    const std::string& draft_body_id = {},bool draft_section = false);
 // Project persisted ZIMA viewer data into a Sketch; never calls the solid kernel.
 // Shared by interactive reference picking and explicit command input.
 void populate_external_reference_cache(const sketcher::Sketch&,

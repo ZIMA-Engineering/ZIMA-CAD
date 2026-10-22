@@ -8,7 +8,9 @@
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/sketcher/external_curve_center.hpp>
 #include "exact_external_circle.hpp"
+#include "exact_spline_coincidence.hpp"
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -2611,9 +2613,21 @@ void Sketch::validate() const {
     }
     ids.clear();
     std::vector<std::tuple<ExternalReferenceKind, bool, std::string, std::string,
-                           std::string, std::string, std::string, std::string>>
+                           std::string, std::string, std::string, std::string,
+                           std::string, std::string, std::string>>
         external_sources;
     for (const auto& reference : external_references) {
+        if (reference.intersection && (reference.intersection->face_owner_id.empty() ||
+                reference.intersection->face_semantic_key.empty() || reference.intersection->branch_key.empty() ||
+                reference.body_edge || reference.infinite || (reference.kind != ExternalReferenceKind::Edge &&
+                    reference.kind != ExternalReferenceKind::Point && !is_external_endpoint_kind(reference.kind))))
+            throw std::runtime_error("Sketch intersection binding is invalid");
+        if(reference.intersection) {
+            auto owner=reference.intersection->face_owner_id,key=reference.intersection->face_semantic_key;
+            while(const auto parent=zima::kernel::boolean_face_parent(key)){owner=parent->first;key=parent->second;}
+            if(owner!=reference.source_owner_id||key!=reference.source_semantic_key)
+                throw std::runtime_error("Sketch intersection binding is invalid");
+        }
         if (reference.exact_spline) reference.exact_spline->validate();
         static_cast<void>(external_reference_kind_name(reference.kind));
         if (reference.id.empty() || !ids.insert(reference.id).second ||
@@ -2636,7 +2650,10 @@ void Sketch::validate() const {
             reference.source_owner_id, reference.source_semantic_key,
             reference.source_instance_path,
             reference.context_assembly_document_id,
-            reference.context_instance_path};
+            reference.context_instance_path,
+            reference.intersection ? reference.intersection->face_owner_id : std::string{},
+            reference.intersection ? reference.intersection->face_semantic_key : std::string{},
+            reference.intersection ? reference.intersection->branch_key : std::string{}};
         if (std::ranges::find(external_sources, source) !=
             external_sources.end()) {
             throw std::runtime_error("Sketch external reference is duplicated");
@@ -6204,7 +6221,7 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             if(is_external_endpoint_kind(endpoint.kind) && endpoint.source_document_id==source_edge->source_document_id &&
                 endpoint.source_owner_id==source_edge->source_owner_id && endpoint.source_semantic_key==source_edge->source_semantic_key &&
                 endpoint.source_instance_path==source_edge->source_instance_path && endpoint.context_assembly_document_id==source_edge->context_assembly_document_id &&
-                endpoint.context_instance_path==source_edge->context_instance_path)children.push_back(endpoint.id);
+                endpoint.context_instance_path==source_edge->context_instance_path && endpoint.intersection==source_edge->intersection)children.push_back(endpoint.id);
         }
         for(const auto& child:children)next.remove_geometry(child);
     }
@@ -7961,7 +7978,8 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
             value.source_instance_path == reference.source_instance_path &&
             value.context_assembly_document_id ==
                 reference.context_assembly_document_id &&
-            value.context_instance_path == reference.context_instance_path;
+            value.context_instance_path == reference.context_instance_path &&
+            value.intersection == reference.intersection;
     };
     if (std::ranges::any_of(external_references, [&](const auto& value) {
             return value.id == reference.id || same_source(value);
@@ -8146,7 +8164,7 @@ std::string Sketch::add_external_profile_geometry(
                     candidate.source_owner_id==endpoint.source_owner_id && candidate.source_semantic_key==endpoint.source_semantic_key &&
                     candidate.source_instance_path==endpoint.source_instance_path &&
                     candidate.context_assembly_document_id==endpoint.context_assembly_document_id &&
-                    candidate.context_instance_path==endpoint.context_instance_path;
+                    candidate.context_instance_path==endpoint.context_instance_path && candidate.intersection==endpoint.intersection;
             });
             const auto endpoint_id = existing==next.external_references.end() ? endpoint.id : existing->id;
             if(existing==next.external_references.end())next.external_references.push_back(std::move(endpoint));
@@ -8505,8 +8523,9 @@ bool Sketch::refresh_external_references(
     const zima::kernel::ViewerReferenceGeometry& source_geometry,
     bool axis_points_only,
     const zima::kernel::ViewerReferenceGeometry* body_geometry,
-    bool remove_unresolvable) {
-    if (source_document_id.empty() && !axis_points_only) {
+    bool remove_unresolvable,
+    const std::vector<SketchExternalReference>* calculated_intersections) {
+    if (source_document_id.empty() && !axis_points_only && !calculated_intersections) {
         throw std::invalid_argument(
             "Sketch external reference source document ID is required");
     }
@@ -8519,8 +8538,29 @@ bool Sketch::refresh_external_references(
             candidate.instance_path == reference.source_instance_path;
     };
     for (auto& reference : next.external_references) {
+        // An explicit cache-only update must not invalidate ordinary projected
+        // references from the same document by feeding them an empty packet.
+        if(source_document_id.empty()&&calculated_intersections&&!reference.intersection)continue;
         if (axis_points_only && reference.kind != ExternalReferenceKind::AxisPoint) continue;
         if (!source_document_id.empty() && reference.source_document_id != source_document_id) continue;
+        if(reference.intersection) {
+            // Read-only display/snapshot refresh never calculates or substitutes
+            // a projected face outline for a selected intersection branch.
+            if(!calculated_intersections)continue;
+            const auto found=std::ranges::find(*calculated_intersections,reference.id,&SketchExternalReference::id);
+            if(found==calculated_intersections->end())continue;
+            if(found->intersection!=reference.intersection || found->kind!=reference.kind)
+                throw std::invalid_argument("Calculated intersection identity changed");
+            auto updated=reference;
+            updated.broken=found->broken;
+            if(!found->broken) {
+                updated.cached_points=found->cached_points;
+                updated.cached_paths=found->cached_paths;
+                updated.exact_spline=found->exact_spline;
+            }
+            if(updated!=reference){reference=std::move(updated);changed=true;}
+            continue;
+        }
         std::optional<std::vector<std::array<double, 2>>> resolved;
         bool face_projection_resolved = false;
         if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
@@ -14082,6 +14122,20 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             }
         circular_ids.push_back(reference.id);
     }
+    for(const auto& reference:external_references) {
+        if(reference.broken||!reference.exact_spline)continue;
+        const auto add_coincident=[&](const auto& other) {
+            if(detail::coincident_exact_spline_support(*this,reference.id,other)) {
+                coincident_curves[reference.id].insert(other);
+                coincident_curves[other].insert(reference.id);
+            }
+        };
+        for(const auto& spline:bsplines)add_coincident(spline.id);
+        for(const auto& previous:external_references) {
+            if(previous.id==reference.id)break;
+            if(previous.exact_spline)add_coincident(previous.id);
+        }
+    }
     struct PlacementLine {
         std::string id;
         std::array<double, 2> origin;
@@ -14658,7 +14712,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             return support!=external_references.end() && support->kind==ExternalReferenceKind::Edge &&
                 support->source_document_id==endpoint.source_document_id && support->source_owner_id==endpoint.source_owner_id &&
                 support->source_semantic_key==endpoint.source_semantic_key && support->source_instance_path==endpoint.source_instance_path &&
-                support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path;
+                support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path && support->intersection==endpoint.intersection;
         };
         std::string label=constraint_marker_label(constraint.kind);
         if (constraint.kind == ConstraintKind::PointReference) {
@@ -15715,7 +15769,7 @@ nlohmann::json Sketch::serialized_json() const {
         }
         external_reference_values.push_back({
             {"id", reference.id},
-            {"kind", external_reference_kind_name(reference.kind)},
+            {"kind", reference.intersection ? std::string("intersection_")+external_reference_kind_name(reference.kind) : std::string(external_reference_kind_name(reference.kind))},
             {"body_edge", reference.body_edge},
             {"source_document_id", reference.source_document_id},
             {"source_owner_id", reference.source_owner_id},
@@ -15729,6 +15783,10 @@ nlohmann::json Sketch::serialized_json() const {
             {"exact_spline", zima::kernel::spline_json(reference.exact_spline)},
             {"infinite", reference.infinite},
             {"broken", reference.broken}});
+        if(reference.intersection) external_reference_values.back()["intersection"]={
+            {"face_owner_id",reference.intersection->face_owner_id},
+            {"face_semantic_key",reference.intersection->face_semantic_key},
+            {"branch_key",reference.intersection->branch_key}};
     }
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
@@ -15992,10 +16050,17 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
     }
     for (const auto& value : root.at("external_references")) {
         SketchExternalReference reference;
+        auto kind=value.at("kind").get<std::string>();
+        const bool intersection=kind.starts_with("intersection_");
+        if(intersection) {
+            kind.erase(0,std::string_view("intersection_").size());
+            const auto& binding=value.at("intersection");
+            reference.intersection=SketchIntersectionBinding{binding.at("face_owner_id").get<std::string>(),
+                binding.at("face_semantic_key").get<std::string>(),binding.at("branch_key").get<std::string>()};
+        } else if(value.contains("intersection"))throw std::runtime_error("Sketch intersection mode and binding disagree");
         reference.body_edge = value.at("body_edge").get<bool>();
         reference.id = value.at("id").get<std::string>();
-        reference.kind = external_reference_kind_from_name(
-            value.at("kind").get<std::string>());
+        reference.kind = external_reference_kind_from_name(kind);
         reference.source_document_id =
             value.at("source_document_id").get<std::string>();
         reference.source_owner_id =

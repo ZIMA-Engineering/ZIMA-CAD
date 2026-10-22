@@ -253,6 +253,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(selection_action_);
         add_command(sketch_external_reference_action_);
         add_command(sketch_external_profile_action_);
+        add_command(sketch_intersection_reference_action_);
+        add_command(sketch_intersection_profile_action_);
         tools_toolbar_->addSeparator();
         add_command(sketch_trim_action_);
         add_command(sketch_mirror_action_);

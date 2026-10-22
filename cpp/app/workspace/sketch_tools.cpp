@@ -74,6 +74,11 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
         sketch_external_profile_action_->setChecked(false);
     }
     sketch_external_profile_active_ = false;
+    sketch_external_intersection_active_=false;
+    sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();
+    for(auto* action:{sketch_intersection_reference_action_,sketch_intersection_profile_action_})if(action) {
+        const QSignalBlocker blocker(action);action->setChecked(false);
+    }
     sketch_point_active_ = false;
     sketch_segment_active_ = false;
     sketch_segment_construction_ = false;
@@ -274,6 +279,11 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
         return true;
     }
     if (!right_click_behavior && sketch_external_reference_active_) {
+        if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty()) {
+            sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();
+            preserve_view_on_refresh_=true;refresh_scene();
+            state_->setText(tr("Průsečnice: vyberte zdrojovou plochu."));return true;
+        }
         set_sketch_external_reference_mode(false);
         state_->setText(tr("Výběr referencí byl ukončen."));
         return true;

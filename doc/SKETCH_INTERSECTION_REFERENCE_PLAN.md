@@ -80,8 +80,9 @@ Sketch plane as a transient support, and calls the existing surface-intersection
 implementation. It preserves bounded domains and returns exact curve/point
 packets. Compound Body publication retains a separate local calculation key and
 placement; the query resolves those existing records rather than guessing an
-identity from a mesh or replaying history. No production UI path calls this
-service yet, and it does not change document serialization.
+identity from a mesh or replaying history. This foundation initially had no
+production UI consumer or serialization change. The editor integration below
+now consumes it and persists explicit selected-branch bindings.
 
 The first native matrix covers single line/circle branches, two disconnected
 open branches with distinct native boundary ancestry, empty results, coincident
@@ -93,8 +94,8 @@ and its [94-case extension](verification/20261022-sketch-intersection-closed-dom
 for their historical cases and gaps. The separately approved
 [source-boundary extension](verification/20261022-sketch-intersection-source-bindings.md)
 now passes 108 cases, including cold open-solid sources and transformed copies.
-It strengthens existing native binding completeness; editor/selected-branch
-integration and its full Sketch manipulation matrix remain pending.
+It strengthens existing native binding completeness. The subsequent editor
+integration and its finite manipulation matrix are recorded below.
 
 Before changing serialization, inventory committed native documents for the
 affected persisted definition. Existing authored references must retain their
@@ -117,3 +118,50 @@ unverified variants. Localize controls/errors in cs/en/de/fr/ru and verify both
 themes and live language changes. Measure explicit calculation and scene counts.
 Linux completion requires its native host. Do not claim package acceptance before
 the repository's committed-source runtime gates pass.
+
+## Editor integration (2026-10-22)
+
+The current implementation uses an explicit `intersection_` discriminator on
+persisted external-reference kinds, with a required `intersection` object carrying
+the exact offered face owner/key and selected native branch key. The existing
+source owner/key retain original face ancestry; the existing occurrence/context
+fields retain their exact meaning. Ordinary projected references keep their
+current discriminator and data. An older reader rejects the new kind instead of
+silently interpreting a selected section as a projected outline. This is an
+additive current variant, not a legacy migration path.
+
+The read-only committed-source inventory at `6ea08e046` contains 1,210 native
+assets and no authored intersection bindings. Existing factory FORM/library
+geometry therefore requires no conversion for this additive variant. All six
+start templates pass changed-code save/reopen and remain byte-identical; actual
+mm/inch new-document GUI activation and command checks pass. User assets are not
+rewritten.
+
+Explicit Part calculation refreshes cached selected branches only after source
+geometry and placement frames settle. Endpoints and multiple branches of one face
+share an operation-local face query; missing/ambiguous branches keep their own
+last valid caches and become broken. Ordinary projection snapshots skip these
+queries. Cache-only contextual updates must not feed empty projection packets to
+ordinary references from the same source document.
+
+Assembly queries consume native input snapshots before the owning cutter and
+follow exact nested occurrence paths. Already transformed copy geometry is read
+in its actual copy frame. The kernel localizes only a private query packet's
+selected occurrence metadata before reusing the shared surface-intersection
+algorithm; it does not modify stored bindings or source shapes. A contextual Part
+reference must not silently acquire Assembly-owned modified geometry.
+
+The two editor actions share ordinary reference command ownership, draft commits,
+Cancel and middle-button behavior. A face choice calculates explicitly. Several
+branches are transient native-reference wires; selecting a prepared branch runs
+no kernel operation. Source/session identities, calculated generations and the
+actual Sketch definition invalidate prepared choices. Ordinary Reference still
+admits individual original geometry, without enabling whole-face projection.
+
+The [editor verification record](verification/20261022-sketch-intersection-editor.md)
+documents the native/GUI matrices, localization/themes, explicit work counts,
+template gates and remaining limits. It includes certified full-domain spline
+extrusion slices and signed cylinder/plane endpoint domains, without changing
+existing source bindings or ordinary Surface Intersection/Trim feature names.
+Portable publication remains a separate committed-source gate; finite checks
+are not a claim of universal Part/Assembly/editor coverage.

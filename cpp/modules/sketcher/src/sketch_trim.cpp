@@ -1,6 +1,7 @@
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include "exact_spline_coincidence.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -243,7 +244,8 @@ std::vector<std::array<double, 2>> curve_intersections(
     std::vector<std::array<double, 2>> result;
     // Coincidence is a support, not hundreds of crossings between two
     // differently sampled copies of the same circle.
-    if(sketch.coincident_circular_support(first.geometry_id,second.geometry_id))return result;
+    if(sketch.coincident_circular_support(first.geometry_id,second.geometry_id)||
+        detail::coincident_exact_spline_support(sketch,first.geometry_id,second.geometry_id))return result;
     for (std::size_t first_index = 0;
          first_index + 1 < first.points.size(); ++first_index) {
         for (std::size_t second_index = 0;

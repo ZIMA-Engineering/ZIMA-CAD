@@ -2510,5 +2510,21 @@
   "You can select an object or start a command.": "Vous pouvez sélectionner un objet ou lancer une commande.",
   "Edit Relations or select a dimension to insert its identifier.": "Modifiez les relations ou sélectionnez une cote pour insérer son identifiant.",
   "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Vérifiez la référence à la cote dans les relations ; les expressions concernées sont ignorées jusqu’à sa restauration.",
-  "Feature direction must be +1 or -1.": "La direction de la fonction doit être +1 ou -1."
+  "Feature direction must be +1 or -1.": "La direction de la fonction doit être +1 ou -1.",
+  "Referenční průsečnice": "Intersection de référence",
+  "Průsečnice → obrys": "Intersection → contour",
+  "Vytvoří asociativní průsečnici vybrané plochy s rovinou skici.": "Crée une intersection associative entre la face sélectionnée et le plan de l’esquisse.",
+  "Převede vybranou průsečnici na navázanou geometrii skici.": "Convertit l’intersection sélectionnée en géométrie d’esquisse associée.",
+  "Průsečnice: vyberte zdrojovou plochu.": "Intersection : sélectionnez la face source.",
+  "Zdroj průsečnice se změnil. Vyberte plochu znovu.": "La source de l’intersection a changé. Sélectionnez à nouveau la face.",
+  "Průsečnice byla uložena. Vyberte další plochu.": "Intersection enregistrée. Sélectionnez une autre face.",
+  "Vyberte další větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Sélectionnez une autre branche d’intersection. Un clic bref du bouton central revient à la sélection des faces.",
+  "Plocha nemá průsečnici s rovinou skici.": "La face ne coupe pas le plan de l’esquisse.",
+  "Vyberte větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Sélectionnez une branche d’intersection. Un clic bref du bouton central revient à la sélection des faces.",
+  "Průsečnici nelze vytvořit. Zdroj nebo větev není k dispozici.": "Impossible de créer l’intersection. La source ou la branche est indisponible.",
+  "Sketch intersection binding is invalid": "La liaison d’intersection de l’esquisse est invalide.",
+  "Calculated intersection identity changed": "L’identité de l’intersection calculée a changé.",
+  "Sketch intersection mode and binding disagree": "Le mode et la liaison d’intersection de l’esquisse ne correspondent pas.",
+  "průsečnice": "intersection",
+  "bod průsečnice": "point d’intersection"
 }

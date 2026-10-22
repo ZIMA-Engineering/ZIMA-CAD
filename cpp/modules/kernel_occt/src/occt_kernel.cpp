@@ -136,6 +136,7 @@
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <GeomConvert.hxx>
 #include <Geom_Surface.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_PointsToBSplineSurface.hxx>
 #include <GeomProjLib.hxx>
@@ -6841,8 +6842,16 @@ std::vector<std::optional<double>> OcctKernel::measure_face_areas(
 
 ViewerReferenceGeometry OcctKernel::intersect_face_plane(
         const BodyResult& body,const FacePlaneIntersectionRequest& request) const {
+    struct QueryTiming {
+        bool enabled{std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr};
+        std::chrono::steady_clock::time_point start{enabled?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{}};
+        ~QueryTiming() {
+            if(enabled)std::fprintf(stderr,"Sketch face-plane query: %.3f ms\n",
+                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+        }
+    } timing;
     const auto finite=[](Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);};
-    if(!request.face.valid()||!request.face.instance_path.empty()||request.plane_owner_id.empty()||
+    if(!request.face.valid()||request.plane_owner_id.empty()||
         !finite(request.origin)||!finite(request.normal)||std::hypot(request.normal.x,request.normal.y,request.normal.z)<=1e-12||
         !std::isfinite(request.tolerance)||request.tolerance<=0.)
         throw std::invalid_argument("Intersection face reference is invalid.");
@@ -6890,13 +6899,25 @@ ViewerReferenceGeometry OcctKernel::intersect_face_plane(
         }
         return place_bound_geometry(bound_face_geometry(*source,true),placed_source?*placed_source:*source);
     }();
+    auto selected_face=request.face;
+    if(!selected_face.instance_path.empty()) {
+        // A calculated copy already owns its exact transformed native shapes.
+        // Localize only this private query's selected occurrence metadata so
+        // the shared two-surface algorithm retains its ordinary local contract.
+        const auto localize=[&](auto& values) {
+            std::erase_if(values,[&](const auto& value){return value.reference.instance_path!=selected_face.instance_path;});
+            for(auto& value:values)value.reference.instance_path.clear();
+        };
+        localize(input.faces);localize(input.edges);localize(input.vertices);
+        selected_face.instance_path.clear();
+    }
     const FaceReference plane{request.plane_owner_id,"sketch-plane",{}};
     const auto support=BRepBuilderAPI_MakeFace(gp_Pln(
         gp_Pnt(request.origin.x,request.origin.y,request.origin.z),
         gp_Dir(request.normal.x,request.normal.y,request.normal.z))).Face();
     input.faces.push_back({support,plane});
-    SurfaceIntersectionRequest intersection{{request.face,plane},request.tolerance};
-    const auto curves=make_surface_intersection_data(intersection,request.plane_owner_id,input.faces,input.edges,input.vertices);
+    SurfaceIntersectionRequest intersection{{selected_face,plane},request.tolerance};
+    const auto curves=make_surface_intersection_data(intersection,request.plane_owner_id,input.faces,input.edges,input.vertices,true);
     if(curves.edges.empty()&&curves.vertices.empty())return {};
     auto result=make_result(curves.shape,{},curves.edges,curves.vertices,true,false,true,{},0.,false);
     std::erase_if(result.mesh.original_references.points,[](const auto& point){return !point.reference.valid();});

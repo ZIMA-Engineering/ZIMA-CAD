@@ -365,6 +365,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sketch_properties.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
+    modules/workspace/src/sketch_intersection_operations.cpp
     modules/workspace/src/native_documents.cpp
     modules/workspace/src/part_references.cpp
     modules/workspace/src/model_calculation.cpp
@@ -1493,6 +1494,21 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketch_reference_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_reference_command_tests COMMAND zima_cpp_sketch_reference_command_tests)
     set_tests_properties(zima_cpp_sketch_reference_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_sketch_face_plane_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_face_plane_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME zima_cpp_sketch_spline_intersection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_spline_intersection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1;ZIMA_VERIFY_FACE_PLANE_SINGLE=1;ZIMA_VERIFY_FACE_PLANE_SPLINE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME zima_cpp_sketch_trimmed_intersection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_trimmed_intersection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1;ZIMA_VERIFY_FACE_PLANE_SINGLE=1;ZIMA_VERIFY_FACE_PLANE_TRIMMED=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    add_executable(zima_cpp_sketch_intersection_reference_tests tests/sketch_intersection_reference_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_intersection_reference_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_sketch_intersection_reference_tests COMMAND zima_cpp_sketch_intersection_reference_tests)
     add_executable(zima_cpp_coincident_reference_circle_tests tests/coincident_reference_circle_tests.cpp)
     target_link_libraries(zima_cpp_coincident_reference_circle_tests PRIVATE zima_document_core)
     add_test(NAME zima_cpp_coincident_reference_circle_tests COMMAND zima_cpp_coincident_reference_circle_tests)

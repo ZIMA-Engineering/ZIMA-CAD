@@ -251,6 +251,15 @@ struct SketchText {
     bool operator==(const SketchText&) const = default;
 };
 
+// The source fields below retain the original face ancestry. This binding
+// retains the exact offered fragment and one native intersection branch.
+struct SketchIntersectionBinding {
+    std::string face_owner_id;
+    std::string face_semantic_key;
+    std::string branch_key;
+    bool operator==(const SketchIntersectionBinding&) const = default;
+};
+
 struct SketchExternalReference {
     std::string id;
     ExternalReferenceKind kind{ExternalReferenceKind::Edge};
@@ -266,6 +275,7 @@ struct SketchExternalReference {
     bool infinite{};
     bool broken{};
     std::optional<zima::kernel::BSplineGeometry> exact_spline; // Sketch coordinates, z=0.
+    std::optional<SketchIntersectionBinding> intersection;
     bool operator==(const SketchExternalReference&) const = default;
 };
 
@@ -677,7 +687,8 @@ public:
         const zima::kernel::ViewerReferenceGeometry& source_geometry,
         bool axis_points_only = false,
         const zima::kernel::ViewerReferenceGeometry* body_geometry = nullptr,
-        bool remove_unresolvable = false);
+        bool remove_unresolvable = false,
+        const std::vector<SketchExternalReference>* calculated_intersections = nullptr);
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>

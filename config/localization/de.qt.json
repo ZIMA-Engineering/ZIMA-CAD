@@ -2510,5 +2510,21 @@
   "You can select an object or start a command.": "Sie können ein Objekt auswählen oder einen Befehl starten.",
   "Edit Relations or select a dimension to insert its identifier.": "Bearbeiten Sie die Beziehungen oder wählen Sie ein Maß, um dessen Kennung einzufügen.",
   "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Prüfen Sie den Maßbezug in den Beziehungen; betroffene Ausdrücke werden bis zur Wiederherstellung übersprungen.",
-  "Feature direction must be +1 or -1.": "Die Elementrichtung muss +1 oder -1 sein."
+  "Feature direction must be +1 or -1.": "Die Elementrichtung muss +1 oder -1 sein.",
+  "Referenční průsečnice": "Referenzschnittkurve",
+  "Průsečnice → obrys": "Schnittkurve → Kontur",
+  "Vytvoří asociativní průsečnici vybrané plochy s rovinou skici.": "Erstellt eine assoziative Schnittkurve der ausgewählten Fläche mit der Skizzenebene.",
+  "Převede vybranou průsečnici na navázanou geometrii skici.": "Wandelt die ausgewählte Schnittkurve in verknüpfte Skizzengeometrie um.",
+  "Průsečnice: vyberte zdrojovou plochu.": "Schnittkurve: Quellfläche auswählen.",
+  "Zdroj průsečnice se změnil. Vyberte plochu znovu.": "Die Quelle der Schnittkurve wurde geändert. Wählen Sie die Fläche erneut aus.",
+  "Průsečnice byla uložena. Vyberte další plochu.": "Schnittkurve gespeichert. Wählen Sie eine weitere Fläche aus.",
+  "Vyberte další větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Wählen Sie einen weiteren Schnittkurvenzweig aus. Ein kurzer Mittelklick kehrt zur Flächenauswahl zurück.",
+  "Plocha nemá průsečnici s rovinou skici.": "Die Fläche schneidet die Skizzenebene nicht.",
+  "Vyberte větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Wählen Sie einen Schnittkurvenzweig aus. Ein kurzer Mittelklick kehrt zur Flächenauswahl zurück.",
+  "Průsečnici nelze vytvořit. Zdroj nebo větev není k dispozici.": "Die Schnittkurve kann nicht erstellt werden. Quelle oder Zweig ist nicht verfügbar.",
+  "Sketch intersection binding is invalid": "Die Verknüpfung der Skizzenschnittkurve ist ungültig.",
+  "Calculated intersection identity changed": "Die Identität der berechneten Schnittkurve hat sich geändert.",
+  "Sketch intersection mode and binding disagree": "Modus und Verknüpfung der Skizzenschnittkurve stimmen nicht überein.",
+  "průsečnice": "Schnittkurve",
+  "bod průsečnice": "Schnittpunkt"
 }

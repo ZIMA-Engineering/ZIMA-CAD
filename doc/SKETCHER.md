@@ -1,10 +1,20 @@
 ﻿# ZIMA-CAD Sketcher
 
 Ordinary **Reference** selects one original edge/curve, vertex, axis or datum
-plane. It does not offer whole body faces; face selection belongs to the planned
+plane. It does not offer whole body faces; face selection belongs to the
 Face × Sketch-plane intersection command. Existing stored Face references retain
 their geometry and identity. **Reference to outline** keeps its separate actual
 body-edge contract. See the [entry correction and finite checks](verification/20261022-individual-sketch-reference-entry.md).
+
+**Intersection reference** calculates the selected face's actual intersection with
+the active Sketch plane. Select individual branches when several are offered.
+**Intersection → contour** creates associated native Sketch geometry from the
+same selection. Certified circles/arcs retain their center and radius; genuine
+nonconic curves retain exact rational geometry. A short middle click returns from
+branch selection to face entry, then ends entry. Explicit regeneration refreshes
+the selected native branch; missing or ambiguous branches stay broken with their
+last usable geometry. See [ownership, persistence and finite verification](verification/20261022-sketch-intersection-editor.md)
+for supported cases and remaining limits.
 
 The Drawing shortcut above the Tree is hidden while editing a Sketch. Finish
 the Sketch to restore ordinary document navigation. See the

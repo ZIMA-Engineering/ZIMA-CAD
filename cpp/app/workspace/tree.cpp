@@ -180,7 +180,9 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
                 : tr("%1 — %2").arg(document_name, owner_name);
         };
         for (const auto& reference : sketch.external_references) {
-            const QString kind = reference.kind ==
+            const QString kind = reference.intersection
+                ? sketcher::is_external_point_kind(reference.kind)?tr("bod průsečnice"):tr("průsečnice")
+                : reference.kind ==
                     zima::sketcher::ExternalReferenceKind::Face ? tr("plocha")
                 : reference.kind == zima::sketcher::ExternalReferenceKind::Edge
                     ? tr("hrana")

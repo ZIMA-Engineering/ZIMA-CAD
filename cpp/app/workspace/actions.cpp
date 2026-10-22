@@ -552,6 +552,16 @@ void AssemblyWorkspaceWindow::create_actions() {
         "sketchExternalProfileAction");
     sketch_external_profile_action_->setCheckable(true);
     sketch_external_profile_action_->setEnabled(false);
+    sketch_intersection_reference_action_=make_action(tr("Referenční průsečnice"),"sketch-reference");
+    sketch_intersection_reference_action_->setObjectName("sketchIntersectionReferenceAction");
+    sketch_intersection_reference_action_->setCheckable(true);
+    sketch_intersection_reference_action_->setEnabled(false);
+    sketch_intersection_profile_action_=make_action(tr("Průsečnice → obrys"),"sketch-segment");
+    sketch_intersection_profile_action_->setObjectName("sketchIntersectionProfileAction");
+    sketch_intersection_profile_action_->setCheckable(true);
+    sketch_intersection_profile_action_->setEnabled(false);
+    sketch_intersection_reference_action_->setToolTip(tr("Vytvoří asociativní průsečnici vybrané plochy s rovinou skici."));
+    sketch_intersection_profile_action_->setToolTip(tr("Převede vybranou průsečnici na navázanou geometrii skici."));
     sketch_point_action_ = make_action(tr("Bod"), "point");
     sketch_point_action_->setObjectName("sketchPointAction");
     sketch_point_action_->setEnabled(false);
@@ -774,14 +784,23 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { rotate_active_sketch_view(); });
     connect(sketch_external_reference_action_, &QAction::toggled, this,
         [this](bool enabled) {
-            if (enabled) sketch_external_profile_active_ = false;
+            if (enabled) {sketch_external_profile_active_ = false;sketch_external_intersection_active_=false;}
             set_sketch_external_reference_mode(enabled);
         });
     connect(sketch_external_profile_action_, &QAction::toggled, this,
         [this](bool enabled) {
             sketch_external_profile_active_ = enabled;
+            if(enabled)sketch_external_intersection_active_=false;
             set_sketch_external_reference_mode(enabled);
         });
+    connect(sketch_intersection_reference_action_,&QAction::toggled,this,[this](bool enabled) {
+        if(enabled){sketch_external_intersection_active_=true;sketch_external_profile_active_=false;}
+        set_sketch_external_reference_mode(enabled);
+    });
+    connect(sketch_intersection_profile_action_,&QAction::toggled,this,[this](bool enabled) {
+        if(enabled){sketch_external_intersection_active_=true;sketch_external_profile_active_=true;}
+        set_sketch_external_reference_mode(enabled);
+    });
     connect(sketch_point_action_, &QAction::triggered, this,
         [this] { start_sketch_point(); });
     connect(sketch_construction_action_, &QAction::triggered, this,

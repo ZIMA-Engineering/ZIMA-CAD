@@ -214,7 +214,7 @@ calculate_part_reference_state(
             incremental_source=&calculated;continue;
         }
         const bool external_references_changed =
-            refresh_sketch_external_references(document, calculated);
+            refresh_sketch_external_references(document, calculated,&kernel);
         const bool drill_points_changed =
             prune_missing_drill_point_references(document, calculated);
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
@@ -280,6 +280,21 @@ void calculate_resolved_assembly_cuts(
         document.origin_viewer_mesh().original_references);
     append_reference_geometry(reference_geometry,
         document.construction_viewer_mesh().original_references);
+    const auto order=document.complete_history_order();
+    const auto order_index=[&](const std::string& id) {
+        const auto found=std::ranges::find(order,id,&assembly::AssemblyDocument::HistoryEntry::id);
+        return static_cast<std::size_t>(found-order.begin());
+    };
+    const auto refresh_intersection=[&](auto& sketch) {
+        if(std::ranges::none_of(sketch.external_references,[](const auto& r){return r.intersection.has_value();}))return;
+        const auto values=calculate_assembly_sketch_intersections(kernel,document,sketch);
+        if(!values.empty())static_cast<void>(sketch.refresh_external_references({}, {},false,nullptr,false,&values));
+    };
+    std::set<std::string> refreshed_sketches;
+    const auto refresh_standalone_before=[&](std::size_t boundary) {
+        for(auto& sketch:document.sketches)if(document.find_sketch_container(sketch.owner_container_id)&&
+            order_index(sketch.owner_container_id)<boundary&&refreshed_sketches.insert(sketch.id).second)refresh_intersection(sketch);
+    };
     for (auto& cut : document.cuts) {
         cut.input_component_bodies.clear();
         // Datums also need their input boundary when Properties rolls back
@@ -288,6 +303,7 @@ void calculate_resolved_assembly_cuts(
             cut.input_component_bodies.emplace(
                 component.occurrence_id, component.calculated_source);
         }
+        refresh_standalone_before(order_index(cut.definition.id));
         if (cut.definition.suppressed) continue;
         for(auto& sketch:document.sketches)if(sketch.owner_container_id==cut.definition.id&&
             std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.body_edge;})) {
@@ -325,6 +341,7 @@ void calculate_resolved_assembly_cuts(
                 return sketch.owner_container_id == cut.definition.id;
             });
         if (owned_sketch != cutter_document.sketches.end()) {
+            refresh_intersection(*owned_sketch);
             const auto target = std::find_if(document.sketches.begin(),
                 document.sketches.end(), [&](const auto& sketch) {
                     return sketch.id == owned_sketch->id;
@@ -365,12 +382,14 @@ void calculate_resolved_assembly_cuts(
                 cutter_operations.front().mesh_deflection);
         }
     }
+    refresh_standalone_before(order.size());
     document.calculate_derived_copies(kernel);
     if(!document.sections.empty()){
         auto geometry=document.build_drawing_scene().original_references;
         append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);
         append_reference_geometry(geometry,document.construction_viewer_mesh().original_references);
         zima::document::resolve_section_placements(document.sections,geometry);
+        for(auto& section:document.sections)refresh_intersection(section.sketch);
     }
 }
 
@@ -407,8 +426,9 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     const bool references_changed =
         refresh_sketch_external_references(next, calculated) |
         workspace.refresh_context_external_references(next) |
+        refresh_context_sketch_intersections(workspace,kernel,next) |
         prune_missing_drill_point_references(next, calculated);
-    if (references_changed) calculated = calculate_part(kernel, next, &calculated, relation_policy);
+    if (references_changed) calculated = calculate_part_with_resolved_references(kernel, next, &calculated, relation_policy);
     apply_relation_parameters(next,document::physical_values(next,calculated));
     const bool sketches_changed = next.sketches.size() != previous.sketches.size() ||
         !std::equal(next.sketches.begin(), next.sketches.end(), previous.sketches.begin(),
@@ -555,9 +575,10 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
                     : calculated.back().mesh.original_references);
                 const bool references_changed =
                     refresh_sketch_external_references(next, calculated) |
-                    workspace.refresh_context_external_references(next);
+                    workspace.refresh_context_external_references(next) |
+                    refresh_context_sketch_intersections(workspace,kernel,next);
                 if (references_changed) {
-                    calculated = calculate_part(kernel, next, &calculated, policy);
+                    calculated = calculate_part_with_resolved_references(kernel, next, &calculated, policy);
                 }
                 if (references_changed ||
                     next.constructions != previous_constructions) {
@@ -582,9 +603,18 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
         auto next = regenerated->session.document();
         const bool references_changed =
             refresh_assembly_sketch_external_references(next);
+        const auto intersection_sketches=[](const auto& document) {
+            std::vector<std::string> result;
+            visit_document_sketches(document,[&](const auto& sketch) {
+                if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.intersection.has_value();}))result.push_back(sketch.serialized());
+                return true;
+            });return result;
+        };
+        const auto before_intersections=intersection_sketches(next);
         calculate_resolved_assembly_cuts(kernel, next,true);
+        const bool intersections_changed=before_intersections!=intersection_sketches(next);
         const bool analysis_changed=complete_assembly_analysis(workspace,kernel,next);
-        if (references_changed || !next.cuts.empty()) {
+        if (references_changed || intersections_changed || !next.cuts.empty()) {
             regenerated->session.commit(std::move(next));
         } else if(analysis_changed)regenerated->session.update_source_geometry(std::move(next));
     }

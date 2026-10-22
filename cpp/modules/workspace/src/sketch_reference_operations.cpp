@@ -180,9 +180,10 @@ std::optional<std::string> source_document(const Workspace& live,const std::stri
     return std::nullopt;
 }
 }
-sketcher::SketchExternalReference prepare_sketch_external_reference(const Workspace& live,
+namespace {
+sketcher::SketchExternalReference prepare_reference(const Workspace& live,
     const std::string& doc,const sketcher::Sketch& sketch,Kind kind,const std::string& owner,
-    const std::string& key,const std::string& path,const std::string& draft_body_id,bool draft_section,bool body_edge) {
+    const std::string& key,const std::string& path,const std::string& draft_body_id,bool draft_section,bool body_edge,bool project) {
     auto reference=sketcher::Sketch::create_external_reference(kind);
     reference.body_edge=body_edge;
     reference.source_owner_id=owner;reference.source_semantic_key=key;reference.source_instance_path=path;
@@ -193,7 +194,7 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
         if(path==reference.context_instance_path) {
             // Picking the edited occurrence itself is the ordinary earlier
             // feature contract; no cross-document edge or scene path persists.
-            return prepare_sketch_external_reference(live,doc,sketch,kind,owner,key,{},draft_body_id,draft_section,body_edge);
+            return prepare_reference(live,doc,sketch,kind,owner,key,{},draft_body_id,draft_section,body_edge,project);
         }
         const auto source=live.resolve_occurrence(reference.context_assembly_document_id,assembly::InstancePath::decode(path));
         if(!source||source->source_kind!=assembly::ComponentSourceKind::Part)
@@ -207,6 +208,7 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
         };
         visit_document_sketches(part->session.document(),compatible);compatible(sketch);
         require_acyclic_document_dependency(live,doc,reference.source_document_id);
+        if(!project)return reference;
         auto geometry=body_edge ? context_sketch_body_reference_geometry(live,reference.context_assembly_document_id,
             assembly::InstancePath::decode(reference.context_instance_path),reference.source_document_id)
             : context_original_reference_geometry(live,reference.context_assembly_document_id,
@@ -225,6 +227,7 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
     const auto source=source_document(live,doc,sketch,reference,nullptr,draft_body_id,draft_section);
     if(!source)throw SketchOperationError("invalid_reference_source","The reference must identify an earlier Part object or an exact Assembly occurrence.");
     reference.source_document_id=*source;
+    if(!project)return reference;
     auto geometry=collect(live,doc,sketch,{reference},draft_body_id);
     if(body_edge) {
         if(const auto* part=live.open_part(doc))geometry=part_sketch_body_reference_geometry(part->session,sketch,draft_body_id);
@@ -233,6 +236,19 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
     populate_external_reference_cache(sketch,reference,geometry);
     return reference;
 }
+}
+sketcher::SketchExternalReference prepare_sketch_external_reference(const Workspace& live,
+    const std::string& doc,const sketcher::Sketch& sketch,Kind kind,const std::string& owner,
+    const std::string& key,const std::string& path,const std::string& draft_body_id,bool draft_section,bool body_edge) {
+    return prepare_reference(live,doc,sketch,kind,owner,key,path,draft_body_id,draft_section,body_edge,true);
+}
+sketcher::SketchExternalReference prepare_sketch_intersection_source(const Workspace& live,
+    const std::string& doc,const sketcher::Sketch& sketch,const kernel::FaceReference& original,
+    const std::string& draft_body_id,bool draft_section) {
+    return prepare_reference(live,doc,sketch,Kind::Face,original.owner_id,original.semantic_key,
+        original.instance_path,draft_body_id,draft_section,false,false);
+}
+
 void require_sketch_reference_context(const Workspace& live,const std::string& doc,const Reference& reference) {
     if(reference.context_assembly_document_id.empty())return;
     if(!live.open_part(doc)||live.active_document_id()!=doc||live.displayed_document_id()!=reference.context_assembly_document_id||

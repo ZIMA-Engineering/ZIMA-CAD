@@ -2510,5 +2510,21 @@
   "You can select an object or start a command.": "Можно выбрать объект или запустить команду.",
   "Edit Relations or select a dimension to insert its identifier.": "Измените связи или выберите размер, чтобы вставить его идентификатор.",
   "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Проверьте ссылку на размер в связях; затронутые выражения пропускаются до её восстановления.",
-  "Feature direction must be +1 or -1.": "Направление элемента должно быть +1 или -1."
+  "Feature direction must be +1 or -1.": "Направление элемента должно быть +1 или -1.",
+  "Referenční průsečnice": "Опорная линия пересечения",
+  "Průsečnice → obrys": "Пересечение → контур",
+  "Vytvoří asociativní průsečnici vybrané plochy s rovinou skici.": "Создаёт ассоциативное пересечение выбранной грани с плоскостью эскиза.",
+  "Převede vybranou průsečnici na navázanou geometrii skici.": "Преобразует выбранное пересечение в связанную геометрию эскиза.",
+  "Průsečnice: vyberte zdrojovou plochu.": "Пересечение: выберите исходную грань.",
+  "Zdroj průsečnice se změnil. Vyberte plochu znovu.": "Источник пересечения изменился. Выберите грань заново.",
+  "Průsečnice byla uložena. Vyberte další plochu.": "Пересечение сохранено. Выберите следующую грань.",
+  "Vyberte další větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Выберите следующую ветвь пересечения. Короткий щелчок средней кнопкой возвращает к выбору грани.",
+  "Plocha nemá průsečnici s rovinou skici.": "Грань не пересекает плоскость эскиза.",
+  "Vyberte větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Выберите ветвь пересечения. Короткий щелчок средней кнопкой возвращает к выбору грани.",
+  "Průsečnici nelze vytvořit. Zdroj nebo větev není k dispozici.": "Не удалось создать пересечение. Источник или ветвь недоступны.",
+  "Sketch intersection binding is invalid": "Связь пересечения эскиза недействительна.",
+  "Calculated intersection identity changed": "Идентификатор вычисленного пересечения изменился.",
+  "Sketch intersection mode and binding disagree": "Режим и связь пересечения эскиза не соответствуют друг другу.",
+  "průsečnice": "линия пересечения",
+  "bod průsečnice": "точка пересечения"
 }

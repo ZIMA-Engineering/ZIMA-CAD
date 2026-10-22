@@ -5,6 +5,8 @@
 #include "../surface_wire_visibility.hpp"
 #include "../sketch_external_reference_kind.hpp"
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
+#include <cstdio>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -13,6 +15,7 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
     const bool was_active = sketch_external_reference_active_;
     const bool requested_profile_mode = sketch_external_profile_active_;
+    const bool requested_intersection_mode=sketch_external_intersection_active_;
     if (enabled) {
         if (properties_dialog_ != nullptr || active_sketch_id_.empty()) {
             enabled = false;
@@ -21,6 +24,7 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
     if (enabled) {
         cancel_sketch_segment();
         sketch_external_profile_active_ = requested_profile_mode;
+        sketch_external_intersection_active_=requested_intersection_mode;
         sketch_external_reference_active_ = true;
         selected_sketch_segment_id_.clear();
         selected_sketch_circle_id_.clear();
@@ -40,19 +44,27 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
     {
         const QSignalBlocker blocker(sketch_external_reference_action_);
         sketch_external_reference_action_->setChecked(
-            enabled && !sketch_external_profile_active_);
+            enabled && !sketch_external_profile_active_&&!sketch_external_intersection_active_);
     }
     {
         const QSignalBlocker blocker(sketch_external_profile_action_);
         sketch_external_profile_action_->setChecked(
-            enabled && sketch_external_profile_active_);
+            enabled && sketch_external_profile_active_&&!sketch_external_intersection_active_);
     }
-    if (!enabled) sketch_external_profile_active_ = false;
+    for(auto* action:{sketch_intersection_reference_action_,sketch_intersection_profile_action_}) {
+        const QSignalBlocker blocker(action);
+        action->setChecked(enabled&&sketch_external_intersection_active_&&
+            (action==sketch_intersection_profile_action_)==sketch_external_profile_active_);
+    }
+    if (!enabled) {sketch_external_profile_active_ = false;sketch_external_intersection_active_=false;
+        sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();}
     if (enabled || was_active) {
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(enabled
-            ? sketch_external_profile_active_
+            ? sketch_external_intersection_active_
+                ? tr("Průsečnice: vyberte zdrojovou plochu.")
+                : sketch_external_profile_active_
                 ? tr("Reference → obrys: vyberte hranu tělesa.")
                 : tr("Reference: vyberte hranu, obrysovou křivku, vrchol, osu "
                      "nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.")
@@ -62,6 +74,7 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
 
 void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     const zima::viewer::ViewerCandidate& candidate) {
+    if(sketch_external_reference_active_&&sketch_external_intersection_active_){accept_sketch_intersection_reference(candidate);return;}
     const auto kind=sketch_external_reference_kind(candidate);
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
@@ -90,6 +103,97 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         state_->setText(tr("Reference byla uložena. Vyberte další zdroj."));
     }catch(const std::exception& error) {
         state_->setText(tr("Referenci nelze vytvořit: %1").arg(QObject::tr(error.what())));
+    }
+}
+
+AssemblyWorkspaceWindow::SketchIntersectionInputs AssemblyWorkspaceWindow::sketch_intersection_inputs() const {
+    SketchIntersectionInputs result;result.document=workspace_.active_document_id();result.occurrence=workspace_.active_occurrence_path();
+    if(const auto* sketch=active_sketch())result.sketch=sketch->serialized();
+    for(const auto& state:workspace_.documents()) {
+        if(const auto* part=std::get_if<workspace::PartState>(&state))result.generations.emplace_back(part->runtime_identity,part->session.data_generation());
+        else if(const auto* assembly=std::get_if<workspace::AssemblyState>(&state))result.generations.emplace_back(assembly->runtime_identity,assembly->session.data_generation());
+    }
+    return result;
+}
+bool AssemblyWorkspaceWindow::sketch_intersection_branch_candidate(const zima::viewer::ViewerCandidate& candidate) const {
+    if(candidate.kind!=viewer::CandidateKind::SketchExternalReference||candidate.owner_id!=active_sketch_id_)return false;
+    return std::ranges::any_of(sketch_intersection_choices_,[&](const auto& branch) {
+        return candidate.semantic_key==(sketcher::is_external_point_kind(branch.kind)?"external_point:":"external_edge:")+branch.id;
+    });
+}
+kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_intersection_choice_mesh() const {
+    const auto* active=active_sketch();if(!active||sketch_intersection_choices_.empty())return {};
+    auto sketch=sketcher::Sketch::create_default();sketch.id=active->id;sketch.owner_container_id=active->owner_container_id;
+    sketch.plane=active->plane;sketch.plane_offset=active->plane_offset;sketch.plane_reference_owner_id=active->plane_reference_owner_id;
+    sketch.resolved_origin=active->resolved_origin;sketch.resolved_x_axis=active->resolved_x_axis;
+    sketch.resolved_y_axis=active->resolved_y_axis;sketch.resolved_normal=active->resolved_normal;
+    sketch.external_references=sketch_intersection_choices_;
+    auto mesh=place_sketch_mesh(*active,sketch.viewer_mesh());
+    std::erase_if(mesh.edges,[](const auto& edge){return !edge.reference.semantic_key.starts_with("external_edge:");});
+    std::erase_if(mesh.points,[&](const auto& point){return !std::ranges::any_of(sketch_intersection_choices_,[&](const auto& branch) {
+        return point.reference.semantic_key=="external_point:"+branch.id;
+    });});
+    const auto path=workspace_.active_occurrence_path();
+    const bool context=workspace_.open_assembly(workspace_.displayed_document_id())&&!path.empty();
+    const auto occurrence=assembly::InstancePath::decode(path);
+    for(auto& edge:mesh.edges) {
+        edge.reference.instance_path=path;
+        if(context)for(auto& point:edge.points)point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),occurrence,point);
+    }
+    for(auto& point:mesh.points) {
+        point.reference.instance_path=path;
+        if(context)point.position=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),occurrence,point.position);
+    }
+    return mesh;
+}
+void AssemblyWorkspaceWindow::accept_sketch_intersection_reference(const viewer::ViewerCandidate& candidate) {
+    try {
+        const auto* active=active_sketch();if(!active)return;
+        if(!sketch_intersection_choices_.empty()) {
+            if(!sketch_intersection_inputs_||*sketch_intersection_inputs_!=sketch_intersection_inputs()) {
+                sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();preserve_view_on_refresh_=true;refresh_scene();
+                state_->setText(tr("Zdroj průsečnice se změnil. Vyberte plochu znovu."));return;
+            }
+            if(!sketch_intersection_branch_candidate(candidate))return;
+            const auto found=std::ranges::find_if(sketch_intersection_choices_,[&](const auto& branch) {
+                return candidate.semantic_key==(sketcher::is_external_point_kind(branch.kind)?"external_point:":"external_edge:")+branch.id;
+            });
+            auto pending=*active;const auto branch=*found;pending.add_external_reference(branch);
+            if(sketch_external_profile_active_) {
+                if(sketcher::is_external_point_kind(branch.kind)) {
+                    const auto& p=branch.cached_points.front();const auto point=pending.add_point(p[0],p[1]);
+                    static_cast<void>(pending.add_point_reference_constraint(point,branch.id));
+                } else static_cast<void>(pending.add_external_profile_geometry(branch.id));
+            }
+            if(!mutate_active_sketch([&](auto& target){target=std::move(pending);}))return;
+            std::erase_if(sketch_intersection_choices_,[&](const auto& value){return value.id==branch.id;});sketch_intersection_inputs_=sketch_intersection_inputs();
+            preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            state_->setText(sketch_intersection_choices_.empty()?tr("Průsečnice byla uložena. Vyberte další plochu."):
+                tr("Vyberte další větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy."));return;
+        }
+        if(!sketch_external_reference_has_stable_geometry(candidate,false,true))return;
+        auto source=sketch_external_reference_source_candidate(candidate);auto path=candidate.instance_path;
+        const auto owner=workspace_.active_document_id();
+        if(workspace_.open_assembly(owner)&&owner!=workspace_.displayed_document_id()) {
+            const auto& prefix=workspace_.active_occurrence_path();
+            if(prefix.empty()||!path.starts_with(prefix))return;path.erase(0,prefix.size());
+        }
+        sketch_intersection_choices_=workspace::prepare_sketch_intersection_branches(workspace_,kernel_,owner,*active,
+            {candidate.owner_id,candidate.semantic_key,path},{source.owner_id,source.semantic_key,path},
+            sketch_reference_draft_body_id(),section_dialog_!=nullptr);
+        if(sketch_intersection_choices_.empty()){state_->setText(tr("Plocha nemá průsečnici s rovinou skici."));return;}
+        sketch_intersection_inputs_=sketch_intersection_inputs();
+        if(sketch_intersection_choices_.size()==1) {
+            const auto& branch=sketch_intersection_choices_.front();auto pick=candidate;
+            pick.kind=viewer::CandidateKind::SketchExternalReference;pick.owner_id=active_sketch_id_;
+            pick.semantic_key=(sketcher::is_external_point_kind(branch.kind)?"external_point:":"external_edge:")+branch.id;
+            accept_sketch_intersection_reference(pick);return;
+        }
+        preserve_view_on_refresh_=true;refresh_scene();
+        state_->setText(tr("Vyberte větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy."));
+    }catch(const std::exception& error) {
+        std::fprintf(stderr,"Sketch intersection reference: %s\n",error.what());
+        state_->setText(tr("Průsečnici nelze vytvořit. Zdroj nebo větev není k dispozici."));
     }
 }
 

@@ -1,7 +1,49 @@
 // Explicit calculation only. Native parents define names; traversal only
 // locates shapes. An ambiguous ancestry is rejected instead of renumbered.
+// Two generatrices created by one axial plane cut may have identical native
+// face/endpoint ancestry. The analytic cylinder/plane pair defines two signed
+// roots independently of traversal, XYZ ordering or nearest-point selection.
+std::optional<std::string> cylinder_plane_edge_domain(const TopoDS_Edge& edge,
+        const std::array<TopoDS_Face,2>& selected,const std::vector<OwnedFace>& faces,double tolerance) {
+    const BRepAdaptor_Curve curve(edge);
+    if(curve.GetType()!=GeomAbs_Line)return {};
+    for(const auto& face:selected) {
+        const BRepAdaptor_Surface surface(face);
+        if(surface.GetType()!=GeomAbs_Cylinder)continue;
+        TopTools_IndexedMapOfShape domain;TopExp::MapShapes(face,TopAbs_EDGE,domain);
+        if(!domain.Contains(edge))continue;
+        const auto cylinder=surface.Cylinder();const auto axis=cylinder.Axis().Direction();
+        if(!curve.Line().Direction().IsParallel(axis,1e-10))continue;
+        std::optional<std::string> result;
+        for(const auto& adjacent:faces) {
+            if(adjacent.shape.IsSame(face))continue;
+            TopTools_IndexedMapOfShape boundary;TopExp::MapShapes(adjacent.shape,TopAbs_EDGE,boundary);
+            if(!boundary.Contains(edge))continue;
+            const BRepAdaptor_Surface support(TopoDS::Face(adjacent.shape));
+            if(support.GetType()!=GeomAbs_Plane)return {};
+            const auto plane=support.Plane();const auto normal=plane.Axis().Direction();
+            if(std::abs(axis.Dot(normal))>1e-10)return {};
+            const gp_Vec radial(cylinder.Location(),curve.Line().Location());
+            const auto tangent=axis.Crossed(normal);
+            const double height=gp_Vec(cylinder.Location(),plane.Location()).Dot(gp_Vec(normal));
+            const double square=cylinder.Radius()*cylinder.Radius()-height*height;
+            const double root=radial.Dot(gp_Vec(tangent));
+            if(square<=tolerance*tolerance||std::abs(root)<=tolerance||
+                plane.Distance(curve.Line().Location())>tolerance||
+                std::abs(std::abs(root)-std::sqrt(square))>tolerance)return {};
+            const auto token=":domain:cylinder-plane:"+encoded_topology_reference(adjacent.reference)+
+                (root<0?":negative":":positive");
+            if(result&&*result!=token)return {};
+            result=token;
+        }
+        return result;
+    }
+    return {};
+}
+
 PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& request,const std::string& owner,
-    const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices) {
+    const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,
+    bool sketch_association=false) {
     if(!std::isfinite(request.tolerance)||request.tolerance<=0||request.faces[0]==request.faces[1])
         throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
     std::array<TopoDS_Face,2> selected;
@@ -42,17 +84,83 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
     section.Approximation(true);section.ComputePCurveOn1(true);section.ComputePCurveOn2(true);section.Build();
     if(!section.IsDone())throw std::runtime_error("Surface intersection calculation failed.");
     PrimitiveData result;result.shape=section.Shape();
+    // A full-domain planar slice of a spline extrusion is its exact VIso,
+    // not a newly fitted section spline. Section still owns domain discovery,
+    // vertices and ancestry. Certify the complete native parameter interval
+    // and constant-height support before retaining the source pole basis.
+    // Partial domains and non-isoparametric sections keep the general result.
+    // Only Sketch association requests this basis; existing Surface Intersection
+    // and Trim features retain their established section representation.
+    Handle(ShapeBuild_ReShape) exact_sections=new ShapeBuild_ReShape;
+    bool replaced=false;
+    for(unsigned side=0;sketch_association&&side<2;++side) {
+        const auto extrusion=Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(BRep_Tool::Surface(selected[side]));
+        const BRepAdaptor_Surface other(selected[1-side]);
+        if(extrusion.IsNull()||other.GetType()!=GeomAbs_Plane)continue;
+        auto basis=extrusion->BasisCurve();
+        while(const auto trimmed=Handle(Geom_TrimmedCurve)::DownCast(basis))basis=trimmed->BasisCurve();
+        const auto spline=Handle(Geom_BSplineCurve)::DownCast(basis);
+        if(spline.IsNull())continue;
+        const auto plane=other.Plane();const gp_Vec normal(plane.Axis().Direction()),direction(extrusion->Direction());
+        constexpr double roundoff=64*std::numeric_limits<double>::epsilon();
+        if(normal.Crossed(direction).Magnitude()>roundoff)continue;
+        const double height=gp_Vec(spline->Pole(1),plane.Location()).Dot(normal)/direction.Dot(normal);
+        double scale=std::max(1.,std::abs(height));
+        for(int i=1;i<=spline->NbPoles();++i)scale=std::max(scale,spline->Pole(i).Distance(plane.Location()));
+        const double epsilon=roundoff*scale;
+        bool planar=true;
+        for(int i=1;i<=spline->NbPoles();++i)
+            planar&=std::abs(gp_Vec(spline->Pole(i),plane.Location()).Dot(normal)-height*direction.Dot(normal))<=epsilon;
+        if(!planar)continue;
+        const auto iso=extrusion->VIso(height);
+        const double low=iso->FirstParameter(),high=iso->LastParameter();
+        const double parameter_epsilon=roundoff*std::max({1.,std::abs(low),std::abs(high)});
+        for(TopExp_Explorer it(result.shape,TopAbs_EDGE);it.More();it.Next()) {
+            const auto edge=TopoDS::Edge(it.Current());double first,last;
+            const auto pc=BRep_Tool::CurveOnSurface(edge,selected[side],first,last);
+            const auto parametric=Handle(Geom2d_BSplineCurve)::DownCast(pc);
+            if(parametric.IsNull())continue;
+            const auto a=pc->Value(first),b=pc->Value(last);
+            const bool forward=std::abs(a.X()-low)<=parameter_epsilon&&std::abs(b.X()-high)<=parameter_epsilon;
+            const bool reverse=std::abs(b.X()-low)<=parameter_epsilon&&std::abs(a.X()-high)<=parameter_epsilon;
+            if(!forward&&!reverse)continue;
+            bool constant=true;double previous=parametric->Pole(1).X();
+            for(int i=1;i<=parametric->NbPoles();++i) {
+                const auto pole=parametric->Pole(i);
+                constant&=std::abs(pole.Y()-height)<=epsilon&&pole.X()>=low-parameter_epsilon&&pole.X()<=high+parameter_epsilon&&
+                    (forward?pole.X()>=previous-parameter_epsilon:pole.X()<=previous+parameter_epsilon);
+                previous=pole.X();
+            }
+            if(!constant)continue;
+            const auto exact=Handle(Geom_Curve)::DownCast(iso->Copy());if(reverse)exact->Reverse();
+            TopoDS_Vertex start,end;TopExp::Vertices(edge,start,end);
+            BRepBuilderAPI_MakeEdge replacement(exact,start,end,exact->FirstParameter(),exact->LastParameter());
+            if(!replacement.IsDone())continue;
+            exact_sections->Replace(edge,replacement.Edge());replaced=true;
+        }
+    }
+    if(replaced)result.shape=exact_sections->Apply(result.shape);
     TopTools_IndexedMapOfShape result_edges,result_vertices,curve_vertices;
     TopExp::MapShapes(result.shape,TopAbs_EDGE,result_edges);TopExp::MapShapes(result.shape,TopAbs_VERTEX,result_vertices);
     for(int i=1;i<=result_edges.Extent();++i)TopExp::MapShapes(result_edges.FindKey(i),TopAbs_VERTEX,curve_vertices);
+    std::map<std::string,TopTools_IndexedMapOfShape> edge_descendants;
+    if(sketch_association)for(const auto& source:edges)if(source_edges.Contains(source.shape))
+        edge_descendants[encoded_topology_reference(source.reference)].Add(source.shape);
+    std::vector<std::set<std::string>> edge_parents(source_edges.Extent()+1);
+    for(const auto& source:edges)if(const auto index=source_edges.FindIndex(source.shape)) {
+        auto token=encoded_topology_reference(source.reference);
+        if(sketch_association&&edge_descendants.at(token).Extent()>1)
+            if(const auto domain=cylinder_plane_edge_domain(TopoDS::Edge(source.shape),selected,faces,request.tolerance))token+=*domain;
+        edge_parents[index].insert(std::move(token));
+    }
     const auto endpoint_parents=[&](const TopoDS_Vertex& vertex) {
         const auto point=BRep_Tool::Pnt(vertex);std::set<std::string> parents;
         for(const auto& source:vertices)if(source_vertices.Contains(source.shape)&&
             BRep_Tool::Pnt(TopoDS::Vertex(source.shape)).Distance(point)<=request.tolerance)
             parents.insert(encoded_topology_reference(source.reference));
-        for(const auto& source:edges)if(source_edges.Contains(source.shape)) {
-            BRepExtrema_DistShapeShape distance(vertex,source.shape);
-            if(distance.IsDone()&&distance.Value()<=request.tolerance)parents.insert(encoded_topology_reference(source.reference));
+        for(int index=1;index<=source_edges.Extent();++index)if(!edge_parents[index].empty()) {
+            BRepExtrema_DistShapeShape distance(vertex,source_edges.FindKey(index));
+            if(distance.IsDone()&&distance.Value()<=request.tolerance)parents.insert(edge_parents[index].begin(),edge_parents[index].end());
         }
         return parents;
     };

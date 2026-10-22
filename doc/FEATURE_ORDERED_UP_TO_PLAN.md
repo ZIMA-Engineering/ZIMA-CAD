@@ -103,6 +103,13 @@ VentilationWindow. Repeated Container/Entity representations are not distinct
 models. Evidence: `tmp/feature-limit-structural-scope-2004.json`. This inventory
 does not establish successful conversion or permission to rewrite custom files.
 
+A fresh read-only inventory at `6ea08e046da3b1315d9612f4e91775fd144a4631`
+confirms these same counts: 1,185 factory assets, 1,016 affected Feature documents,
+four FORM definitions and 6,396 repeated serialized Feature records, with no
+parse errors. It streams committed Git objects rather than private working files.
+Evidence: `build/feature-ordered-up-to-current-inventory.json`. The separate
+native-contract approval request remains pending; this check changes no model.
+
 After approval, calculate, save and reopen all affected factory models using
 the changed native implementation in isolated committed-source copies. Verify
 history, role Bodies, geometry, volume/mass, Relations, original references and

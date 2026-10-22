@@ -1449,6 +1449,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         if(measurement_dialog_){measurement_dialog_->end_entry();return true;}
         if(auto* dialog=dynamic_cast<AppearanceDialog*>(properties_dialog_)){dialog->end_entry();viewer_->clear_selection();return true;}
         if(template_region_picking_){cancel_sketch_segment();preserve_view_on_refresh_=true;refresh_scene();return true;}
+        if(sketch_external_reference_active_&&sketch_external_intersection_active_)
+            return cancel_current_sketch_step(false);
         if (finish_active_reference_selection()) return true;
         if (finish_parameter_dimensions()) return true;
         // Sketch geometry is confirmed exclusively by LMB.  Consume every

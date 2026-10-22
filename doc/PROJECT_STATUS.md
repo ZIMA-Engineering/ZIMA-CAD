@@ -31,6 +31,14 @@ Linux verification. The linked guides give supported cases and finite checks.
 | Distribution | Native Windows portable releases, version-owned runtime/resources/source and authenticated updater; Linux has separate native-host acceptance | [Distribution](NATIVE_DISTRIBUTION.md), [updates](UPDATES.md), [Linux](LINUX_RELEASE_HANDOFF.md) |
 
 Family Table is therefore an existing feature, not a future implementation task.
+
+The current development build also provides **Intersection reference** and
+**Intersection → contour** in Sketcher. They select bounded native face/Sketch-plane
+branches and persist their exact source/branch definitions. Certified circles and
+arcs remain native conics. See the [finite editor matrix and limits](verification/20261022-sketch-intersection-editor.md).
+This development status does not replace the immutable released build identified
+below or claim completion of ordered multi-face Up To, Projection or view-relative
+H/V.
 Its linked editing and single-parent-file workflow were already included in
 [Windows 2026091508](releases/2026091508.md); later work extends and verifies it.
 Six old standalone primitives are removed; current modeling uses the Feature

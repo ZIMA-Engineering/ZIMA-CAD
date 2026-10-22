@@ -2510,5 +2510,21 @@
   "You can select an object or start a command.": "You can select an object or start a command.",
   "Edit Relations or select a dimension to insert its identifier.": "Edit Relations or select a dimension to insert its identifier.",
   "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Check the dimension reference in Relations; affected expressions are skipped until it is restored.",
-  "Feature direction must be +1 or -1.": "Feature direction must be +1 or -1."
+  "Feature direction must be +1 or -1.": "Feature direction must be +1 or -1.",
+  "Referenční průsečnice": "Intersection reference",
+  "Průsečnice → obrys": "Intersection → contour",
+  "Vytvoří asociativní průsečnici vybrané plochy s rovinou skici.": "Create an associative intersection of the selected face with the sketch plane.",
+  "Převede vybranou průsečnici na navázanou geometrii skici.": "Convert the selected intersection into associated sketch geometry.",
+  "Průsečnice: vyberte zdrojovou plochu.": "Intersection: select the source face.",
+  "Zdroj průsečnice se změnil. Vyberte plochu znovu.": "The intersection source changed. Select the face again.",
+  "Průsečnice byla uložena. Vyberte další plochu.": "Intersection saved. Select another face.",
+  "Vyberte další větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Select another intersection branch. A short middle click returns to face selection.",
+  "Plocha nemá průsečnici s rovinou skici.": "The face does not intersect the sketch plane.",
+  "Vyberte větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy.": "Select an intersection branch. A short middle click returns to face selection.",
+  "Průsečnici nelze vytvořit. Zdroj nebo větev není k dispozici.": "Cannot create the intersection. The source or branch is unavailable.",
+  "Sketch intersection binding is invalid": "The sketch intersection binding is invalid.",
+  "Calculated intersection identity changed": "The calculated intersection identity changed.",
+  "Sketch intersection mode and binding disagree": "The sketch intersection mode and binding do not match.",
+  "průsečnice": "intersection",
+  "bod průsečnice": "intersection point"
 }

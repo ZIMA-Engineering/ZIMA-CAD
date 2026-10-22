@@ -167,7 +167,7 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
 
 bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
+    const std::vector<zima::kernel::BodyResult>& calculated_boundaries,const kernel::OcctKernel* explicit_kernel) {
     bool has_sketches=!document.sketches.empty()||!document.sections.empty();
     if(!has_sketches)for(const auto& feature:document.history)
         document::visit_feature_sketches(feature,[&](const auto&,std::size_t){has_sketches=true;});
@@ -179,6 +179,9 @@ bool refresh_sketch_external_references(
     }
     const auto source = sketch_external_reference_source_geometry(
         document, calculated_boundaries);
+    // The input boundaries and resolved placement frames are fixed for this
+    // settling pass. Share one private query context across its Sketches.
+    std::optional<document::DocumentSession> intersection_context;
     const auto refresh=[&](zima::sketcher::Sketch& sketch) {
         const auto allowed_owners = sketch_external_reference_source_owners(
             document, sketch.id);
@@ -221,8 +224,13 @@ bool refresh_sketch_external_references(
                     geometry=document::general_surface_local_reference_geometry(parent,std::move(geometry));
                     body=document::general_surface_local_reference_geometry(parent,std::move(body));
                 }
+        std::vector<sketcher::SketchExternalReference> intersections;
+        if(explicit_kernel && std::ranges::any_of(sketch.external_references,[](const auto& r){return r.intersection.has_value();})) {
+            if(!intersection_context)intersection_context.emplace(document,calculated_boundaries);
+            intersections=calculate_part_sketch_intersections(*explicit_kernel,*intersection_context,sketch);
+        }
         return sketch.refresh_external_references(
-            document.document_id,geometry,false,&body);
+            document.document_id,geometry,false,&body,false,explicit_kernel?&intersections:nullptr);
     };
     const auto before=document.reference_errors;
     std::map<std::string,std::string> errors;

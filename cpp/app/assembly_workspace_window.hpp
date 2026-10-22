@@ -332,6 +332,8 @@ private:
     QAction* sketch_rotate_view_action_{};
     QAction* sketch_external_reference_action_{};
     QAction* sketch_external_profile_action_{};
+    QAction* sketch_intersection_reference_action_{};
+    QAction* sketch_intersection_profile_action_{};
     QAction* sketch_point_action_{};
     QAction* sketch_construction_action_{};
     QAction* sketch_segment_action_{};
@@ -628,6 +630,14 @@ private:
     SketchTextPropertiesDialog* sketch_text_dialog_{};
     bool sketch_external_reference_active_{};
     bool sketch_external_profile_active_{};
+    bool sketch_external_intersection_active_{};
+    struct SketchIntersectionInputs {
+        std::string document,occurrence,sketch;
+        std::vector<std::pair<std::shared_ptr<const int>,std::uint64_t>> generations;
+        bool operator==(const SketchIntersectionInputs&) const = default;
+    };
+    std::optional<SketchIntersectionInputs> sketch_intersection_inputs_;
+    std::vector<zima::sketcher::SketchExternalReference> sketch_intersection_choices_;
     bool sketch_coincident_active_{};
     std::string pending_coincident_point_id_;
     zima::sketcher::ConstraintKind pending_point_pair_constraint_kind_{
@@ -928,6 +938,10 @@ private:
     void show_sketch_text_properties(
         const std::string& sketch_id, const std::string& text_id = {});
     void set_sketch_external_reference_mode(bool enabled);
+    [[nodiscard]] SketchIntersectionInputs sketch_intersection_inputs() const;
+    [[nodiscard]] bool sketch_intersection_branch_candidate(const zima::viewer::ViewerCandidate&) const;
+    void accept_sketch_intersection_reference(const zima::viewer::ViewerCandidate&);
+    [[nodiscard]] zima::kernel::ViewerMesh sketch_intersection_choice_mesh() const;
     void accept_sketch_external_reference(
         const zima::viewer::ViewerCandidate& candidate);
     void align_active_sketch_view(bool fit_view = true);
