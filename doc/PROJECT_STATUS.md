@@ -1,6 +1,6 @@
 # Current project status
 
-Reviewed on 2026-10-20 against the current C++ implementation, focused feature
+Reviewed on 2026-10-22 against the current C++ implementation, focused feature
 guides, verification records and public GitHub release. This is the current
 capability index. Dated design proposals in the roadmap and development notes
 must not be read as a list of features still missing today.
@@ -38,42 +38,35 @@ and profile workflows rather than the former primitive commands.
 
 ## Latest released correction batch
 
-The unreleased 2026102201 batch also includes the approved
-[whole-Origin profile correction](PROFILE_WHOLE_ORIGIN_CORRECTION.md): Default
-Origin and whole-Origin Tree entry inherit aligned Feature/Sketch axes without
-reinterpreting existing stored placements. Windows GUI, persistence, parent
-identity, five-language, FORM/library and template checks pass; final signed
-package acceptance/publication remains pending.
-It additionally contains verified numeric Feature Direction/Relations and
-negative extent/angle reversal, opposite-end Revolution grip limits, Symmetric
-hover and Slot entry corrections, default Point/Text display, inward axis-based
-Opening authoring and partial-bottom Drill Points. See the
-[correction matrix](PRE_RELEASE_CORRECTIONS_20261022.md). Factory definitions
-and start templates are refreshed. The user's normal-build test was positive;
-the arithmetic follow-up is verified and release is authorized. Final immutable
-package acceptance and publication remain pending.
+Signed Windows [2026102201](releases/2026102201.md#windows-publication-acceptance)
+was published at `2026-10-22T13:49:48Z` from immutable source
+`a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. It includes original preview-wire selection, aligned profile/Origin
+entry, stable side reversal and numeric Direction/Relations, negative arithmetic
+length/angle input, Revolution grip limits, Sketch entry/inspection corrections,
+axis-based Opening direction, partial-bottom Drill Points and the accepted Sketch
+command grouping/icons. Candidate and signed native smoke load all 1,185 factory
+assets. Fourteen candidate and seven fresh signed GUI scenarios,
+7,353 exact factory resource comparisons,
+17,224 signed immutable checksums, production trust,
+all authenticated draft downloads and all anonymous public downloads pass.
+Trusted 2004 offers the update without installation. The native factory/template
+refresh is included; private user files and the development BAT are preserved.
+Linked diagnostic-path, finite geometry/GUI and native Linux limits remain explicit.
 
-Signed Windows [2026102004](releases/2026102004.md) is accepted and public from
-`b96503988b7ba8f98951e9ca2076cf211685c4e0`. It passed 42 finite packaged scenarios, all 1,185 native factory
-loads in both candidate and signed smoke, 1,026 current mass Relations, production
-trust and anonymous public asset verification. The previous 2003 candidate was
-rejected before publication; its failure remains recorded, not reclassified.
-
-The released batch includes Drawing axis-cross dimension contacts and curve
-balloons; analytic external references and conic centers; sheet-transition
-thickness inheritance; saveable missing-dimension Relations; localized Vladimír
-guidance; factory-source update repairs; Slot center H/V; 3D angular text landings;
-and Unicode/long-path saving. See the linked release for the precise native-data,
-library, test and approximation boundaries. Linux acceptance remains separate.
+The preceding [2026102004](releases/2026102004.md) release remains immutable;
+its accepted library/mass and other historical verification are preserved in
+that release record. Newer verification does not erase earlier rejected probes.
 
 ## Still unfinished or planned
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Completed in Windows 2026102004 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
+| Current correction/release batch | Completed in Windows 2026102201 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
-| Multiple Up To faces and correction | [Scoped design and factory-conversion plan](FEATURE_ORDERED_UP_TO_PLAN.md) prepared; an isolated 32-case planar OCCT feasibility probe passed. Native-contract approval and production implementation remain pending. Preserve ordered consecutive intersections, explicit reordering and geometry-side identity. |
-| Sketch projection onto faces | Planned within the Feature principle; associative 3D result, direction, clipping and ambiguous intersections still need design. |
+| Sketch intersection references | Approved Face × Sketch-plane scope and 51-case native foundation; editor commands, persistent selected branches and the full manipulation matrix remain pending. See [plan](SKETCH_INTERSECTION_REFERENCE_PLAN.md). |
+| View-relative H/V | Requested display/input mapping for 90-degree turns and view flips; retain the internal geometric constraints and persisted meanings. |
+| Multiple Up To faces and correction | [Scoped design and factory-conversion plan](FEATURE_ORDERED_UP_TO_PLAN.md) prepared; an isolated 32-case planar OCCT feasibility probe passed. Native-contract approval and production implementation remain pending. Preserve ordered consecutive intersections, explicit reordering and geometry-side identity. Each side uses the shared table with at least three visible rows and its correction below. |
+| Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |
 | File Manager directory prototypes | Discuss ordinary/linked metadata types and configurable prototype `0000-index` folders before implementation. |
 | Direct mesh/Surface editing | Design ideas: independent meshes, point groups, primitives, subdivision, deformation, optional explicit point-to-model bindings and conversion to suitable shells/solids. No implemented Blender-style mesh editor is claimed. |
 | FEM | Requested analysis as an additional Body type within a Part; supported materials, boundary conditions, meshing, persistence and independently checked results remain to be designed/implemented. |
@@ -112,7 +105,7 @@ passes all 1,185 native factory loads, existing frames/native Sketch data in
 The separately approved [Feature side reversal](verification/20261022-feature-side-reversal.md)
 retains the original panels, locks, references and logical Start/End while
 reversing physical direction; its focused native and actual GUI matrices pass.
-Final factory integration and Windows publication are in progress. Linux
+Factory integration and Windows 2026102201 publication are complete. Linux
 execution remains unverified. The preceding
 [GPU-wire investigation](verification/20261021-feature-selection-gpu-wire.md)
 retains historical `1000.prtz` feature 003 measurements. The

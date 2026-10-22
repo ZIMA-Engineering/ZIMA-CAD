@@ -23,6 +23,33 @@ user instructions and completed native features supersede older pending items.
 
 ## Restart handoff - 2026-10-22
 
+Windows 2026102201 is now [public and accepted](releases/2026102201.md#windows-publication-acceptance)
+from `a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. The final signed/archive/public-download and previous-updater
+gates pass. Earlier pending-publication paragraphs below describe historical
+stages, not a remaining approval or release blocker. Continue the agreed Sketch
+intersection/reference commands, multi-face Up To/correction, view-relative H/V
+and Sketch Projection Feature; preserve the recorded ordering and protected
+contract approvals. The accepted red Trim scissors, Offset-purple mirrored half
+and separator before Circle are included. Do not re-request release authorization.
+
+The user reaffirmed periodic disk cleanup during continued work. Retire verified
+duplicate packages, disposable build stages and obsolete acceptance copies after
+their required gates finish. Retain the current development build/SDKs, required
+diagnostic fixtures, recent accepted signed archives and all private projects,
+custom libraries, settings and recovery data. Verify resolved cleanup targets and
+recoverability before deletion; do not turn this into a separate scheduled job.
+
+Newest post-release priority from the user: inspect `Projects/2000.prtz`, reported
+Feature `Vytažení 003`. Ordinary Sketch Reference hover should offer the selected
+individual boundary edge/arc rather than the entire face and its several curves;
+whole-face entry is reserved for the planned intersection command. Preserve
+existing stored reference definitions while tracing the new-entry filter. Also
+investigate the failed curved-edge Fillet on that Feature, distinguishing the
+lightweight preview from the actual exact calculation before blaming OCCT.
+The user permits testing the original model, but this does not require modifying
+it unnecessarily. They explicitly deferred this investigation until after the
+Windows publication so it must not restart release preparation.
+
 ### Up To multi-face editor proposal - 2026-10-22
 
 The user requested recording this proposal, not implementing multi-face Up To

@@ -1,5 +1,20 @@
 # Application updates
 
+Signed Windows [2026102201](releases/2026102201.md#windows-publication-acceptance)
+was published at `2026-10-22T13:49:48Z` from immutable source
+`a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. It includes original preview-wire selection, aligned profile/Origin
+entry, stable side reversal and numeric Direction/Relations, negative arithmetic
+length/angle input, Revolution grip limits, Sketch entry/inspection corrections,
+axis-based Opening direction, partial-bottom Drill Points and the accepted Sketch
+command grouping/icons. Candidate and signed native smoke load all 1,185 factory
+assets. Fourteen candidate and seven fresh signed GUI scenarios,
+7,353 exact factory resource comparisons,
+17,224 signed immutable checksums, production trust,
+all authenticated draft downloads and all anonymous public downloads pass.
+Trusted 2004 offers the update without installation. The native factory/template
+refresh is included; private user files and the development BAT are preserved.
+Linked diagnostic-path, finite geometry/GUI and native Linux limits remain explicit.
+
 Signed Windows [2026102002](releases/2026102002.md#windows-publication-acceptance)
 was published at `2026-10-20T03:05:33Z` from immutable source `7832721320cfab145a9edd3eea6ee8e260bf7c38`.
 It includes Sketch text anchors and rounded/angular editing repairs, Relations

@@ -1,5 +1,12 @@
 # Pre-release correction verification, 2026-10-22
 
+Windows 2026102201 is signed, accepted and [public](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102201)
+from `a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. Candidate/signed smoke, final GUI checks, production trust,
+draft/public downloads and previous signed updater discovery pass. The detailed
+[release acceptance](releases/2026102201.md#windows-publication-acceptance)
+supersedes historical pending-publication statements below. Native Linux
+execution remains a separate unverified platform gate.
+
 This is a work-in-progress report. Publication remains blocked until the complete
 requested correction batch passes and the user tests the normal Windows build.
 The approved numeric Feature direction/Relations/negative-grip extension remains
@@ -58,7 +65,7 @@ run this calculation. A copy of the user's partial-bottom case also succeeds.
   GUI probe failed because the verification retained a retired Tree item pointer;
   it was corrected and passed separately as recorded above.
 
-## Remaining publication gate
+## Completed Windows publication gate
 
 Late Sketch command-strip finish: the user requested the shared azure separator
 after Polygon, immediately before Circle. The common grouping helper also keeps
