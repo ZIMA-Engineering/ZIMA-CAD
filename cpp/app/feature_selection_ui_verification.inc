@@ -120,21 +120,24 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         };
         find_hit(view->mesh().edges);find_hit(view->mesh().original_references.edges);
         check(position.has_value(),"Selection Feature absent from ordinary common picker");
-        QMouseEvent offer(QEvent::MouseMove,*position,QPointF(view->mapToGlobal(position->toPoint())),
-            Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&offer);flush();
         const auto wanted=[&] {
             const auto candidate=view->offered_candidate();
             return candidate&&candidate->kind==viewer::CandidateKind::Container&&
                 (candidate->owner_id==feature.id||candidate->owner_id==feature.feature.sketch_id);
         };
-        for(unsigned cycle=0;cycle<64&&!wanted();++cycle) {
-            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
-                QMouseEvent event(type,*position,QPointF(view->mapToGlobal(position->toPoint())),Qt::RightButton,
-                    type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
-                QApplication::sendEvent(view,&event);flush();
+        const auto offer_feature=[&] {
+            QMouseEvent offer(QEvent::MouseMove,*position,QPointF(view->mapToGlobal(position->toPoint())),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&offer);flush();
+            for(unsigned cycle=0;cycle<64&&!wanted();++cycle) {
+                for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,*position,QPointF(view->mapToGlobal(position->toPoint())),Qt::RightButton,
+                        type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&event);flush();
+                }
             }
-        }
-        check(wanted(),"RMB cycling cannot offer the library feature behind another object");
+            check(wanted(),"RMB cycling cannot offer the library feature behind another object");
+        };
+        offer_feature();
         mouse(view,*position);
         static_cast<void>(view->grabFramebuffer());
         const auto preview_vertices=view->property("gpuSourceWireVertexCount").toInt();
@@ -164,6 +167,46 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         check(!selection_preview.empty()&&std::ranges::all_of(selection_preview,[](const auto& edge) {
             return edge.reference.semantic_key.starts_with("preview:");
         }),"Feature selection used calculated topology instead of the command preview");
+        if(modeling) {
+            const auto dimensions=[&] {
+                return std::ranges::count_if(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==feature.id;});
+            };
+            const auto numeric=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d) {
+                return d.reference.owner_id==feature.id&&d.reference.semantic_key=="parameter:side0_length";
+            });
+            if(numeric!=view->mesh().dimensions.end()) {
+                viewer::ViewerCandidate target{viewer::CandidateKind::Dimension,0,
+                    static_cast<std::size_t>(numeric-view->mesh().dimensions.begin()),feature.id,numeric->reference.semantic_key,{}};
+                const auto label=view->candidate_dimension_label_position(target);
+                check(label.has_value(),"Inspection parameter has no visible label");
+                mouse(view,*label);
+                QMouseEvent edit(QEvent::MouseButtonDblClick,*label,QPointF(view->mapToGlobal(*label)),
+                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&edit);flush();
+                auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(field&&field->isVisible(),"Inspection no-op editor did not open");
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);flush();
+                check(dimensions()>0&&window.execute_console_command("documents").data==state,
+                    "Unchanged parameter editor changed the model or lost inspection");
+                mouse(view,*position);
+                for(auto type:{QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                    QMouseEvent done(type,*position,QPointF(view->mapToGlobal(position->toPoint())),Qt::MiddleButton,
+                        type==QEvent::MouseButtonDblClick?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&done);flush();
+                }
+                check(dimensions()==0&&window.execute_console_command("documents").data==state,
+                    "MMB double-click could not finish inspection after unchanged edit and selection");
+                // Finishing inspection clears the prior selection. At an
+                // overlapping library edge, offer the same owner again.
+                offer_feature();
+                mouse(view,*position);
+                QMouseEvent again(QEvent::MouseButtonDblClick,*position,QPointF(view->mapToGlobal(position->toPoint())),
+                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&again);flush();
+                check(dimensions()>0,"Repeated inspection did not restore parameter dimensions");
+                tree->clearSelection();flush();
+                check(dimensions()==0&&window.execute_console_command("documents").data==state,
+                    "Clearing Tree selection orphaned displayed parameter dimensions");
+            }
+        }
         QTreeWidgetItem* properties_row{};
         for(QTreeWidgetItemIterator it(tree);*it;++it)
             if((*it)->data(0,Qt::UserRole+3)=="part-container"&&

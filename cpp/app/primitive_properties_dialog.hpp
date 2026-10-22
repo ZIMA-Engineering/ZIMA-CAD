@@ -55,6 +55,7 @@ public:
     [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& sheet_form_preview() const { return sheet_form_preview_; }
     bool sheet_reference_allowed(std::size_t,const zima::document::ConstructionReference&) const;
     [[nodiscard]] bool is_sheet_form() const { return initial_.feature_kind==zima::document::FeatureKind::SheetForm; }
+    void preserve_opening_direction() { opening_direction_initialized_=true; }
     bool is_sheet_revolution() const { return initial_.revolution.sheet_metal; }
     bool is_sheet_edge_feature() const { return initial_.revolution.sheet_metal ||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet; }
@@ -108,6 +109,8 @@ public:
     [[nodiscard]] double profile_plane_offset() const;
     void refresh_sketch_preview() { set_commit_required(true); notify_preview(); }
     [[nodiscard]] zima::document::HistoryContainer pending_value() const { return values(); }
+    bool set_feature_length_from_drag(std::size_t side,double coordinate,bool baseline_reversed);
+    bool set_feature_angle_from_drag(std::size_t side,double angle,bool baseline_reversed);
     [[nodiscard]] double forward_extent_length() const;
     [[nodiscard]] double reverse_extent_length() const;
     [[nodiscard]] zima::document::ProfileExtentMode profile_extent_mode() const;
@@ -218,6 +221,7 @@ private:
     void lock_sheet_attachment_fields();
     void show_thread_catalog_after_release();
     bool thread_catalog_pending_{};
+    bool opening_direction_initialized_{};
     zima::document::HistoryContainer initial_;
     std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts_;
     std::map<QDoubleSpinBox*, std::pair<double,double>> primitive_initial_values_;

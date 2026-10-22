@@ -12,7 +12,7 @@ bool ellipse_axes_reversed(const std::array<double,2>& center,
 }
 
 AssemblyWorkspaceWindow::SketchSegmentInference AssemblyWorkspaceWindow::inferred_sketch_slot_center(
-    const std::array<double,2>& position) const {
+    const std::array<double,2>& position,bool snapped) const {
     const auto* sketch=active_sketch();
     if(!sketch||!pending_segment_start_)return {position,std::nullopt,{}};
     if(automatic_constraint_enabled(zima::sketcher::ConstraintKind::Symmetric)) {
@@ -34,6 +34,7 @@ AssemblyWorkspaceWindow::SketchSegmentInference AssemblyWorkspaceWindow::inferre
             }
         }
     }
+    if(snapped)return {position,std::nullopt,{}};
     auto result=inferred_sketch_segment_end(position);
     if(result.kind && (*result.kind==zima::sketcher::ConstraintKind::Horizontal||*result.kind==zima::sketcher::ConstraintKind::Vertical))return result;
     // Segment-only inferences (for example midpoint-on-line) cannot constrain
@@ -60,16 +61,20 @@ bool AssemblyWorkspaceWindow::accept_sketch_slot_ray(
         pending_segment_start_=*position;
         pending_segment_start_snap_geometry_id_=std::exchange(pending_sketch_snap_geometry_id_,{});
         pending_segment_start_snap_kind_=std::exchange(pending_sketch_snap_kind_,std::nullopt);
+        viewer_->set_transient_points({sketch->world_point((*position)[0],(*position)[1])});
         state_->setText(tr("Drážka skici: určete střed druhého oblouku. Přichycení nabízí H/V mezi středy nebo symetrii vůči ose či konstrukční čáře."));
         return true;
     }
     if(!pending_slot_second_center_) {
-        const auto inferred=pending_sketch_snap_kind_?SketchSegmentInference{*position,std::nullopt,{}}:inferred_sketch_slot_center(*position);
+        const auto inferred=inferred_sketch_slot_center(*position,pending_sketch_snap_kind_.has_value());
         if(std::hypot(inferred.position[0]-(*pending_segment_start_)[0],inferred.position[1]-(*pending_segment_start_)[1])<=1e-9)return true;
         pending_slot_second_center_=inferred.position;pending_slot_symmetry_axis_id_=inferred.symmetry_axis_id;
         pending_slot_direction_kind_=inferred.kind;pending_slot_reference_point_id_=inferred.reference_point_id;
         pending_slot_second_snap_geometry_id_=std::exchange(pending_sketch_snap_geometry_id_,{});
         pending_slot_second_snap_kind_=std::exchange(pending_sketch_snap_kind_,std::nullopt);
+        if(!inferred.symmetry_axis_id.empty()) {
+            pending_slot_second_snap_geometry_id_.clear();pending_slot_second_snap_kind_.reset();
+        }
         state_->setText(tr("Drážka skici: určete poloměr bodem na boku drážky."));return true;
     }
     const auto first=*pending_segment_start_,second=*pending_slot_second_center_;
@@ -100,25 +105,32 @@ bool AssemblyWorkspaceWindow::accept_sketch_slot_ray(
     state_->setText(tr("Drážka vytvořena. Určete střed prvního oblouku další drážky."));return true;
 }
 
-void AssemblyWorkspaceWindow::preview_sketch_slot_ray(
-    const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction) {
-    if(!sketch_slot_active_||!pending_segment_start_)return;
-    const auto* sketch=active_sketch();if(!sketch)return;
-    const auto position=sketch->intersect_ray(origin,direction);if(!position)return;
+std::optional<AssemblyWorkspaceWindow::SketchSegmentInference> AssemblyWorkspaceWindow::preview_sketch_slot_ray(
+    const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction,bool snapped) {
+    if(!sketch_slot_active_||!pending_segment_start_)return std::nullopt;
+    const auto* sketch=active_sketch();if(!sketch)return std::nullopt;
+    const auto position=sketch->intersect_ray(origin,direction);if(!position)return std::nullopt;
     const auto first=*pending_segment_start_;
-    const auto inferred=pending_sketch_snap_kind_?SketchSegmentInference{*position,std::nullopt,{}}:inferred_sketch_slot_center(*position);
-    const auto second=pending_slot_second_center_.value_or(inferred.position);
+    const auto inferred=pending_slot_second_center_?SketchSegmentInference{*pending_slot_second_center_,std::nullopt,{}}
+        :inferred_sketch_slot_center(*position,snapped);
+    const auto second=inferred.position;
+    const auto markers=[&] {
+        viewer_->set_transient_points(pending_slot_second_center_
+            ?std::vector{sketch->world_point(first[0],first[1]),sketch->world_point(second[0],second[1])}
+            :std::vector{sketch->world_point(first[0],first[1])});
+    };
     const double dx=second[0]-first[0],dy=second[1]-first[1],length=std::hypot(dx,dy);
-    viewer_->set_transient_labels({});if(length<=1e-9){viewer_->set_transient_edges({});return;}
+    if(length<=1e-9){viewer_->set_transient_edges({});markers();return std::nullopt;}
     if(!pending_slot_second_center_) {
         viewer_->set_transient_edges({{{sketch->world_point(first[0],first[1]),sketch->world_point(second[0],second[1])},{}}});
+        markers();
         if(!inferred.symmetry_axis_id.empty())viewer_->set_transient_labels({{sketch->world_point((first[0]+second[0])*.5,(first[1]+second[1])*.5),"S"}});
         else if(inferred.kind)viewer_->set_transient_labels({{sketch->world_point((first[0]+second[0])*.5,(first[1]+second[1])*.5),
             *inferred.kind==zima::sketcher::ConstraintKind::Horizontal?"H":"V"}});
-        return;
+        return inferred;
     }
     const double radius=std::abs(((*position)[0]-first[0])*dy-((*position)[1]-first[1])*dx)/length;
-    if(radius<=1e-9){viewer_->set_transient_edges({});return;}
+    if(radius<=1e-9){viewer_->set_transient_edges({});markers();return std::nullopt;}
     const double angle=std::atan2(dy,dx),half_turn=3.141592653589793;
     std::vector<zima::kernel::ViewerEdge> edges(4);
     for(int cap=0;cap<2;++cap) {
@@ -131,6 +143,8 @@ void AssemblyWorkspaceWindow::preview_sketch_slot_ray(
     edges[1].points={edges[0].points.back(),edges[2].points.front()};
     edges[3].points={edges[2].points.back(),edges[0].points.front()};
     viewer_->set_transient_edges(std::move(edges));
+    markers();
+    return std::nullopt;
 }
 
 void AssemblyWorkspaceWindow::preview_sketch_segment_ray(

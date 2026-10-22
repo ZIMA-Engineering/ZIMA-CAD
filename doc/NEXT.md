@@ -23,6 +23,103 @@ user instructions and completed native features supersede older pending items.
 
 ## Restart handoff - 2026-10-22
 
+### Additional user steering before publication
+
+The user explicitly requested these additional corrections in the same batch:
+
+1. Explicit Symmetric constraint: first-point hover works, second-point hover
+   is hidden although clicking it and selecting the axis creates the relation.
+   Trace command-scoped confirmed selection; do not change solver equations.
+2. Slot: retain a visible first-centre marker while choosing the second centre.
+   Prefer an applicable Symmetric offer over C and H/V, using the existing
+   X/Y/construction-axis symmetry inference. Preview and confirmation must agree;
+   preserve the ordinary snaps where symmetry does not apply. Verify dimensions,
+   successive edits/drags, native reopen and Undo/Redo with the existing matrix.
+3. The user approved trying a true numeric Feature direction parameter (+1/-1)
+   visible with the Feature parameters and available to Relations. Crossing zero
+   with the purple handle and entering a negative extent should consume the same
+   existing independent side-reversal state. Preserve panel identities/values,
+   locks and references. Relation recomputation must set a deterministic direction,
+   never repeatedly toggle it. Trace existing bindings and dimensional units first;
+   reuse the persisted reversal flag without adding a native field if possible.
+   The subsequent explicit request includes Revolution: negative angle and drag
+   across zero reverse direction. Two numeric Revolution sides must not pass
+   each other while dragging; clamp the edited side rather than push the other
+   panel. Mixed Extrusion/Revolution does not need that angular restriction.
+4. Feature double-click dimension inspection: after a single click/unchanged
+   dimension edit, double-click no longer hides dimensions until Regenerate.
+   Reproduce both the click and unchanged-editor paths; retain no-op document and
+   calculation behavior. Do not use regeneration as a selection-state repair.
+5. New Feature defaults: Point and Text unchecked for every Feature type.
+   Preserve stored choices when opening existing definitions. The persisted
+   fields are already mandatory; changing construction defaults must not
+   reinterpret loaded models or require a format change.
+6. Hole direction after local-XY/camera changes: a newly face-attached Hole
+   appears to cut outward. Trace the actual selected normal/material side and
+   command-local defaults; protect persisted sides and existing hole geometry.
+7. Sketch Reference cannot consume a Feature axis, including Sweep. Check
+   picking and native axis-to-reference conversion, retaining source identity
+   and read-only ownership. Reuse existing external analytical line support.
+8. Last Drill Point in the user-owned `POKUS.prtz`: partial planar hole bottoms
+   cannot receive a drill tip. Work only on a copy and preserve the original
+   hash. Investigate a cone defined by the original bore axis/radius and clipped
+   by the real current Body, with explicit source identity and ambiguity checks.
+
+The user explicitly made this entire list a pre-publication gate on 2026-10-22.
+Do not release the earlier 63da743 binary before these requests are handled.
+
+The user subsequently requires testing the normal Windows build personally
+before publication. Do not publish automatically after the automated checks.
+The Opening defect is the **last Opening in `Projects/POKUS.prtz`**, placed by
+an axis and the opposite end face. Both axes have +Z direction; only one entry
+face is compatible with a fixed world -Z bore. See
+[the focused diagnosis](OPENING_AXIS_ENTRY_DIRECTION.md) and
+[the current verification report](PRE_RELEASE_CORRECTIONS_20261022.md).
+The user considered pointing the Opening Origin axis inward but did not require
+that change. Preserve the common Origin/placement contract; initialize the new
+Opening's existing direction from the entry side instead.
+
+At 12:18 on 2026-10-22 the focused corrections are built in the normal
+`build/cpp-windows-release` GUI/CLI. Slot 34-case GUI, Symmetry hover, Feature
+inspection/defaults, Feature/Sweep axis Reference, partial Drill Point, Opening
+axis entry and existing Opening/reference/whole-Origin checks pass. Localization
+coverage and all five language UI checks pass. Exact evidence and earlier probe
+failures are recorded in the verification report above. The user has been told
+these corrections can be tried through the normal `zima-cad.bat`.
+Current corrections and numeric-direction changes remain uncommitted on main;
+preserve private config/library/user artifacts when staging the final batch.
+
+Subsequent progress: numeric direction, Relations and negative linear extent
+entry pass native and actual mouse/View GUI checks in the normal build; see
+[the plan and exact evidence](FEATURE_DIRECTION_PARAMETER_PLAN.md). The user's
+subsequent Revolution extension passes, including stopping a dragged numeric
+angle at the opposite end without changing its panel, negative View angles,
+32 exact end contacts and 64 gaps at suitable requested precision. Isolated
+regeneration of all 1,046 Part-based factory assets passes; verified files are
+installed while preserving the user's two modified factory working definitions.
+Six templates are refreshed and template/new-document/FORM/library GUI checks
+pass. Normal Windows GUI/CLI and localization/unit checks pass. The user has
+been invited to test `zima-cad.bat`; publication still waits for that response.
+
+On 2026-10-22 the user explicitly requested direct changes in the normal version,
+without another experimental build, to save disk space. Use the existing main
+build for development. The required committed-source release staging is separate;
+do not publish 2026102201 until this current scope has been verified.
+
+The whole-Origin correction is complete and pushed as
+`63da7430d3749c9f4b2d8d9a87211b65f4dfb3cf`; its normal build/GUI smoke passes.
+The release tag is still local/unpublished. Candidate reuse failed before source
+replacement during its second temporary committed-source export (disk full);
+`C:/zcb/p2201/c` remains on its previous 28c74c0 source/build for verified reuse.
+The user approved cleanup. Old signed 2001/2002/2003 local ZIPs were retired after
+identity checks; latest verified signed 2004 is retained. Old generated JSON
+diagnostics were gzip-compressed with round-trip SHA-256 verification. Imports
+of 372 Release modules were checked before removing 160 unused Debug Qt copies
+from generated main/fastener runtime folders (original Qt SDK retained). C: then
+had approximately 13 GB free. Reports are under `build/disk-space-*20261022*`.
+No user projects, private library variants, source files or current Release
+dependencies were removed. Main runtime smoke after that cleanup remains due.
+
 The user plans a PC restart after the current work is completed. Confirm that
 the normal repository-root `zima-cad.bat` is ready before inviting testing. Keep
 that launcher stable. The current build identity is `2026102201`; release

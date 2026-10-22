@@ -2219,6 +2219,16 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_arc_direction_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_slot_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_opening_axis_direction_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_opening_copy_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_opening_copy_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OPENING_COPY=1"
+        TIMEOUT 90 RUN_SERIAL TRUE)
+    set_tests_properties(zima_cpp_opening_axis_direction_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OPENING_AXIS_DIRECTION=1"
+        TIMEOUT 150 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_capsule_dimension_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_capsule_dimension_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -2231,6 +2241,16 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 90)
     set_tests_properties(zima_cpp_sketch_slot_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_SLOT_ONLY=1"
+        TIMEOUT 240)
+    add_test(NAME zima_cpp_sketch_symmetry_hover_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_symmetry_hover_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_SYMMETRY_HOVER_ONLY=1"
+        TIMEOUT 90)
+    add_test(NAME zima_cpp_sketch_feature_axis_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_feature_axis_reference_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_FEATURE_AXIS_REFERENCE_ONLY=1"
         TIMEOUT 90)
     add_test(NAME zima_cpp_spline_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_spline_tangent_ui_contract PROPERTIES
@@ -2545,7 +2565,11 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_executable(zima_cpp_feature_parameters_tests tests/feature_parameters_tests.cpp)
     add_executable(zima_cpp_feature_side_reversal_tests tests/feature_side_reversal_tests.cpp)
-    target_link_libraries(zima_cpp_feature_side_reversal_tests PRIVATE zima_workspace zima_kernel_occt)
+    add_executable(zima_cpp_feature_direction_command_tests tests/feature_direction_command_tests.cpp)
+    target_link_libraries(zima_cpp_feature_direction_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_feature_direction_command_tests COMMAND zima_cpp_feature_direction_command_tests)
+    set_tests_properties(zima_cpp_feature_direction_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    target_link_libraries(zima_cpp_feature_side_reversal_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo)
     add_test(NAME zima_cpp_feature_side_reversal COMMAND zima_cpp_feature_side_reversal_tests)
     add_executable(zima_cpp_feature_draft_tests tests/feature_draft_tests.cpp)
     add_executable(zima_cpp_revolution_limit_tests tests/revolution_limit_tests.cpp)
@@ -2588,7 +2612,7 @@ endif()
 
 # These focused verification tools own an isolated runtime so native library and
 # presentation checks do not replace DLLs used by the running development app.
-foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests)
+foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests zima_cpp_feature_direction_command_tests)
     if(TARGET ${fastener_check_target})
         set_target_properties(${fastener_check_target} PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fastener-runtime")

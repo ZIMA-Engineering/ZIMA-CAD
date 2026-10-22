@@ -8,6 +8,7 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <zima/document/feature_parameters.hpp>
+#include <zima/document/feature_direction.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <QScopedValueRollback>
 #include "sketch_button_style.hpp"
@@ -121,6 +122,16 @@ public:
         centroid_axis_=new QCheckBox(tr("Osa těžiště"),this);centroid_axis_->setObjectName("featureCentroidAxis");
         origin_axis_->setChecked(initial_.origin_centerline);centroid_axis_->setChecked(initial_.centroid_centerline);
         options->addWidget(origin_axis_);options->addWidget(centroid_axis_);
+        options->addWidget(new QLabel(tr("Směr"),this));
+        direction_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Scalar,this);
+        direction_->setObjectName("featureDirection");direction_->setRange(-1,1);
+        direction_->setSingleStep(2);direction_->set_display_decimals(0);
+        direction_->setValue(document::feature_direction(initial_));options->addWidget(direction_);
+        connect(direction_,&QDoubleSpinBox::valueChanged,this,[this](double value){
+            if(!document::set_feature_direction(initial_,value)) {
+                const QSignalBlocker blocker(direction_);direction_->setValue(document::feature_direction(initial_));
+            }
+        });
         options->addStretch();
         swap_=new QPushButton(tr("Prohodit strany"),this);
         swap_->setObjectName("featureSwapSides");options->addWidget(swap_);
@@ -163,7 +174,7 @@ public:
             sides_[1].box->setEnabled(!on);sides_[1].box->setVisible(!on);
             sides_[0].box->setTitle(on?tr("Obě strany"):tr("Strana 1"));
             symmetric_=on;refresh_operations();refresh_type();
-            swap_->setEnabled(!on);
+            swap_->setEnabled(!on&&(!locks_||!locks_->contains("direction")));
         });
         symmetric->setChecked(initial_.symmetric);
         result->setCurrentIndex(initial_.result_type==document::ProfileResultType::Surface?1:
@@ -175,6 +186,20 @@ public:
         });
         refresh_type();
         for(int i=0;i<2;++i) {
+            connect(sides_[i].value,&QDoubleSpinBox::valueChanged,this,[this,i](double value){
+                auto& side=sides_[i];
+                if(refreshing_side_)return;
+                if(value>=0){
+                    if(value<.001){const QSignalBlocker blocker(side.value);side.value->setValue(.001);}
+                    side.last_value=side.value->value();return;
+                }
+                const QSignalBlocker blocker(side.value);
+                if(value<0&&
+                    (!locks_||!locks_->contains("direction"))) {
+                    set_direction(-document::feature_direction(initial_));
+                    side.value->setValue(std::max(.001,-value));side.last_value=side.value->value();
+                } else side.value->setValue(side.last_value);
+            });
             connect(sides_[i].mode,&QComboBox::currentIndexChanged,this,[this,i]{normalize_rotations(i);});
             connect(sides_[i].end,&QComboBox::currentIndexChanged,this,[this,i]{normalize_rotations(i);});
             connect(sides_[i].value,&QDoubleSpinBox::valueChanged,this,[this,i]{normalize_rotations(i);});
@@ -208,8 +233,38 @@ public:
     QPushButton* sketch_button() const { return sketch_; }
     void on_swap(std::function<void()> callback) { swap_requested_=std::move(callback); }
     void swap_sides() {
-        initial_.reversed_sides=!initial_.reversed_sides;
+        set_direction(-document::feature_direction(initial_));
     }
+    bool set_direction(double value) {
+        if(locks_&&locks_->contains("direction")&&value!=document::feature_direction(initial_))return false;
+        if(!document::set_feature_direction(initial_,value))return false;
+        const QSignalBlocker blocker(direction_);direction_->setValue(value);return true;
+    }
+    bool set_signed_length(std::size_t side,double value,std::optional<bool> baseline={}) {
+        auto& row=sides_.at(side);
+        if((!row.displayed_axis&&row.mode->currentIndex()==2)||!row.value->isEnabled()||row.value->isReadOnly()||!std::isfinite(value))return false;
+        const double magnitude=std::clamp(std::abs(value),.001,1000000.);
+        const bool reversed=baseline?(*baseline!=(value<0)):(initial_.reversed_sides!=(value<0));
+        const bool changed=reversed!=initial_.reversed_sides||row.value->value()!=magnitude;
+        if(!set_direction(reversed?-1.:1.))return false;
+        {const QSignalBlocker blocker(row.value);row.value->setValue(magnitude);row.last_value=row.value->value();}
+        if(changed&&change_requested_)change_requested_();return true;
+    }
+    bool set_signed_angle(std::size_t side,double value,std::optional<bool> baseline={}) {
+        auto& row=sides_.at(side);
+        if(row.mode->currentIndex()!=2||row.displayed_axis||!row.value->isEnabled()||
+            row.value->isReadOnly()||!std::isfinite(value))return false;
+        const double limit=baseline?document::feature_rotation_drag_limit(parameters(),side):360.;
+        if(limit<.001)return false;
+        const double magnitude=std::clamp(std::abs(value),.001,limit);
+        const bool reversed=baseline?(*baseline!=(value<0)):(initial_.reversed_sides!=(value<0));
+        const bool changed=reversed!=initial_.reversed_sides||row.value->value()!=magnitude;
+        if(!set_direction(reversed?-1.:1.))return false;
+        {const QSignalBlocker blocker(row.value);row.value->setValue(magnitude);row.last_value=row.value->value();}
+        normalize_rotations(side);
+        if(changed&&change_requested_)change_requested_();return true;
+    }
+    QDoubleSpinBox* direction_control() const { return direction_; }
     QLineEdit* target_control(std::size_t side) const { return sides_.at(side).target; }
     QHBoxLayout* target_layout(std::size_t side) const { return sides_.at(side).target_layout; }
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
@@ -231,10 +286,16 @@ public:
     }
     void bind_side_locks(std::set<std::string>& locks,std::function<void()> changed) {
         locks_=&locks;locks_changed_=std::move(changed);
+        ui::bind_numeric_value_lock(direction_,"direction",locks,[this]{
+            swap_->setEnabled(!symmetric_&&!locks_->contains("direction")&&sides_[0].mode->currentIndex()!=3);
+            locks_changed_();
+        });
+        swap_->setEnabled(!symmetric_&&!locks_->contains("direction")&&sides_[0].mode->currentIndex()!=3);
         for(int i=0;i<2;++i)refresh_side_lock(i);
     }
     void on_change(std::function<void()> changed) {
         const auto notify=[this,changed]{if(!changing_operation_&&!refreshing_side_&&!normalizing_rotations_)changed();};
+        change_requested_=notify;
         for(auto* box:findChildren<QComboBox*>())connect(box,&QComboBox::currentIndexChanged,this,notify);
         for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,notify);
         for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
@@ -249,7 +310,7 @@ private:
         QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
         document::FeatureSideParameters pending;
         int previous_mode{},displayed_end{};
-        double displayed_value{},authored_value{},displayed_draft{};
+        double displayed_value{},authored_value{},displayed_draft{},last_value{};
         ui::UnitDoubleSpinBox* twist_angle{};QComboBox* twist_direction{};QCheckBox* twist_smooth{};
         double displayed_twist_angle{};
     };
@@ -260,9 +321,11 @@ private:
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
     QComboBox* plane_{};
+    ui::UnitDoubleSpinBox* direction_{};
     QPushButton* sketch_{};
     QPushButton* swap_{};
     std::function<void()> swap_requested_;
+    std::function<void()> change_requested_;
     QButtonGroup* operation_group_{};
     int last_operation_{};
     bool changing_operation_{};
@@ -354,10 +417,12 @@ private:
         refresh_operations();
         s.label->setText(mode==2?tr("Úhel"):tr("Délka"));
         s.value->set_quantity(mode==2?ui::InputQuantity::Angle:ui::InputQuantity::Length);
+        s.value->setMinimum(mode==2?-360:-1000000);
         s.value->setMaximum(mode==2?360:1000000);
         s.authored_value=mode==2?s.pending.angle_degrees:s.pending.length;
         s.value->setValue(s.authored_value);
         s.displayed_value=s.value->value();
+        s.last_value=s.value->value();
         s.target->setEnabled(mode!=0 && s.end->currentIndex()==(mode==2?2:1));
         const bool twisting=mode==3;
         if(twisting) {
@@ -375,7 +440,7 @@ private:
         }
         const bool any_twist=sides_[0].mode&&sides_[0].mode->currentIndex()==3;
         if(sides_[1].box)sides_[1].box->setEnabled(!any_twist&&!symmetric_);
-        symmetric_control_->setEnabled(!any_twist);swap_->setEnabled(!any_twist&&!symmetric_);
+        symmetric_control_->setEnabled(!any_twist);swap_->setEnabled(!any_twist&&!symmetric_&&(!locks_||!locks_->contains("direction")));
         result_->setEnabled(!any_twist);
         refresh_side_lock(index);
     }

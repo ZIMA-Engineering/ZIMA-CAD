@@ -626,8 +626,17 @@ PrimitiveData make_drill_point_data(const DrillPointRequest& request,
         for (TopExp_Explorer explorer(bottom_face, TopAbs_EDGE);
              explorer.More(); explorer.Next()) {
             BRepAdaptor_Curve curve(TopoDS::Edge(explorer.Current()));
-            if (curve.GetType() == GeomAbs_Circle)
-                circles.push_back(curve.Circle());
+            if (curve.GetType() == GeomAbs_Circle) {
+                const auto circle=curve.Circle();
+                // Boolean clipping may split one rim into several arcs. Their
+                // analytical support still identifies the same bore; distinct
+                // circles remain ambiguous and must not be guessed.
+                if(std::ranges::none_of(circles,[&](const auto& previous) {
+                    return previous.Location().Distance(circle.Location())<=1e-7 &&
+                        std::abs(previous.Radius()-circle.Radius())<=1e-7 &&
+                        previous.Axis().Direction().IsParallel(circle.Axis().Direction(),1e-9);
+                }))circles.push_back(circle);
+            }
         }
         if (circles.size() != 1 || !(circles.front().Radius() > 1.0e-9))
             continue;
@@ -636,14 +645,28 @@ PrimitiveData make_drill_point_data(const DrillPointRequest& request,
         gp_Dir normal = surface.Plane().Axis().Direction();
         if (bottom_face.Orientation() == TopAbs_REVERSED) normal.Reverse();
         const double probe = std::max(1.0e-5, circle.Radius() * 1.0e-4);
-        BRepClass3d_SolidClassifier positive_classifier(
-            body, center.Translated(gp_Vec(normal) * probe), 1.0e-7);
-        BRepClass3d_SolidClassifier negative_classifier(
-            body, center.Translated(gp_Vec(normal) * -probe), 1.0e-7);
-        const bool positive_inside = positive_classifier.State() == TopAbs_IN;
-        const bool negative_inside = negative_classifier.State() == TopAbs_IN;
-        if (positive_inside == negative_inside) continue;
-        if (!positive_inside) normal.Reverse();
+        const auto material_side=[&](const gp_Pnt& point)->std::optional<bool> {
+            if(BRepClass_FaceClassifier(bottom_face,point,1e-7).State()!=TopAbs_IN)return std::nullopt;
+            BRepClass3d_SolidClassifier positive(body,point.Translated(gp_Vec(normal)*probe),1e-7);
+            BRepClass3d_SolidClassifier negative(body,point.Translated(gp_Vec(normal)*-probe),1e-7);
+            const bool a=positive.State()==TopAbs_IN,b=negative.State()==TopAbs_IN;
+            return a!=b?std::optional<bool>{a}:std::nullopt;
+        };
+        auto positive_inside=material_side(center);
+        if(!positive_inside) {
+            // A partial floor can exclude the bore axis altogether. Probe the
+            // actual retained face, using its existing tessellation only to
+            // find an interior location; exact face/solid classifiers decide.
+            TopLoc_Location location;
+            const auto triangles=BRep_Tool::Triangulation(bottom_face,location);
+            if(!triangles.IsNull())for(int i=1;i<=triangles->NbTriangles()&&!positive_inside;++i) {
+                int a,b,c;triangles->Triangle(i).Get(a,b,c);
+                const auto point=gp_Pnt((triangles->Node(a).XYZ()+triangles->Node(b).XYZ()+triangles->Node(c).XYZ())/3.);
+                positive_inside=material_side(point.Transformed(location.Transformation()));
+            }
+        }
+        if(!positive_inside)continue;
+        if(!*positive_inside)normal.Reverse();
         const double depth = circle.Radius() / std::tan(
             request.included_angle_degrees * std::numbers::pi / 360.0);
         const TopoDS_Shape cone = BRepPrimAPI_MakeCone(

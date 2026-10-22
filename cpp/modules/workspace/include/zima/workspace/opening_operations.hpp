@@ -15,6 +15,10 @@ enum class OpeningEditMode { Create, Replace };
 [[nodiscard]] bool commit_opening(Workspace&,const kernel::OcctKernel&,
     const std::string& document_id,document::HistoryContainer,OpeningEditMode);
 [[nodiscard]] std::vector<std::pair<std::string,double>> opening_dimensions(const document::HistoryContainer&);
+// Initial authoring advice for an axis plus planar entry face. Does not alter
+// placement, references or an already authored direction, and never calculates.
+[[nodiscard]] std::optional<document::ExtrusionDirection> opening_entry_direction(
+    const document::HistoryContainer&,const kernel::ViewerReferenceGeometry&);
 // Original end-target preparation shared by Opening and native Hole.
 [[nodiscard]] document::ExtrusionParameters::EndTarget prepare_opening_end_target(
     const document::PartDocument&,const std::vector<kernel::BodyResult>&,

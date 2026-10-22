@@ -7,6 +7,19 @@ inline void validate_feature_rotation_span(double first,double second) {
         throw std::runtime_error("Combined rotation angle must not exceed 360 degrees.");
 }
 
+// A grip changes only its own numeric angle. Do not push the opposite side
+// around the axis, disable it, or change its authored Full/UpTo definition.
+// UpTo angles still require the existing exact resolution and span validation.
+inline double feature_rotation_drag_limit(const FeatureParameters& p,std::size_t edited) {
+    if(p.type!=FeatureType::Modeling)return 360.;
+    if(p.symmetric)return 180.;
+    const auto& other=p.sides.at(1-edited);
+    if(other.operation!=FeatureSideOperation::Revolution)return 360.;
+    if(other.rotation_extent==FeatureRotationExtent::Full)return 0.;
+    if(other.rotation_extent==FeatureRotationExtent::Angle)return std::max(0.,360.-other.angle_degrees);
+    return 360.;
+}
+
 // The edited side wins. Retain inactive settings, source references and side
 // identities. Reference-limited angles are checked after exact resolution;
 // never shorten an UpTo operation before its selected target.

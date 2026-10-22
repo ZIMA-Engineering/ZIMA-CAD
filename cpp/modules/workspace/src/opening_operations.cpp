@@ -2,6 +2,8 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/placement_surface.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include <cmath>
 #include <algorithm>
 
@@ -27,6 +29,38 @@ void validate(const document::HistoryContainer& value) {
     if(value.thread.end_condition_forward!=document::EndCondition::Length && value.hole.drill_point_enabled)
         throw OpeningOperationError("invalid_arguments","A drill point requires a blind opening.");
 }
+}
+std::optional<document::ExtrusionDirection> opening_entry_direction(
+        const document::HistoryContainer& value,const kernel::ViewerReferenceGeometry& geometry) {
+    if(value.feature_kind!=document::FeatureKind::Thread||
+        document::placement_references_use_whole_origin(value.placement.references))return {};
+    const auto same=[](const auto& a,const auto& b){return a.owner_id==b.owner_id&&
+        a.semantic_key==b.semantic_key&&a.instance_path==b.instance_path;};
+    // An infinite axis alone has no material-entry side. Wait for its planar
+    // station reference, rather than guessing from the axis's arbitrary sign.
+    const bool axis=std::ranges::any_of(value.placement.references,[&](const auto& ref){
+        return !ref.orientation_only&&std::ranges::any_of(geometry.axes,[&](const auto& item){return same(ref,item.reference);});
+    });
+    if(!axis)return {};
+    auto placement=value.placement;
+    normalize_owned_profile_front_references(placement.references);
+    if(!document::resolve_placement(placement,geometry))return {};
+    const auto forward=document::construction_direction_from_local_axis("y",
+        {placement.rotation_x,placement.rotation_y,placement.rotation_z});
+    for(const auto& ref:placement.references) {
+        if(ref.orientation_only||!ref.supports_offset)continue;
+        const auto* surface=document::placement_surface(ref,geometry);
+        if(!surface||surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
+        const auto projected=document::project_placement_surface(*surface,{placement.x,placement.y,placement.z});
+        if(!projected)continue;
+        // Opening's referenced forward ray is local -Y. A negative dot
+        // product with the outward normal enters the selected material side.
+        const auto normal=projected->normal;
+        const double dot=-(forward.x*normal.x+forward.y*normal.y+forward.z*normal.z);
+        if(std::abs(dot)<1e-9)continue;
+        return dot<0?document::ExtrusionDirection::Forward:document::ExtrusionDirection::Reverse;
+    }
+    return {};
 }
 std::vector<std::pair<std::string,double>> opening_dimensions(const document::HistoryContainer& value) {
     require_opening(value);const auto& p=value.thread;

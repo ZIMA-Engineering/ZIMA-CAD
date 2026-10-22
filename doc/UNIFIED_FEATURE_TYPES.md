@@ -17,6 +17,8 @@ Plane selection and signed offset form a separate Plane section. The Sketch
 button has its own compact section to the right of Plane, on the same row,
 and is present only for Sketch and modeling results.
 All types use the existing OK/Cancel transaction and Sketcher-return lifecycle.
+New Features leave Point and Text unchecked; persisted reference points remain
+available to commands and existing Features retain their saved display choices.
 Confirming unchanged properties preserves the calculated geometry and Undo
 boundary. The comparison includes the owned Sketch, so actual Sketch edits
 still calculate and commit. Untouched precise dimensions retain their stored
@@ -78,6 +80,20 @@ retains the independent Side 2 definition. See the
 [direction verification](verification/20261022-feature-side-reversal.md) for the
 tested scope. OK calculates and commits; Cancel preserves the old
 geometry. An unchanged confirmation does not calculate or create an Undo step.
+
+Direction is also exposed as a unitless +1/-1 parameter with its own dimension
+identifier for Family and Relations. Entering a negative length or Revolution
+angle manually reverses the current direction once and stores its positive
+magnitude. Purple grips derive reversal from the gesture's starting direction,
+so repeated mouse updates across zero do not toggle it repeatedly. A locked
+Direction blocks reversal. Relations assign the direction identifier to +1 or
+-1 explicitly; their length and angle bindings retain positive magnitudes.
+When dragging one of two numeric Revolution ends, it stops at the opposite
+end's angular limit without moving the other panel. Symmetric rotation is
+limited to 180 degrees per side; mixed Extrusion/Revolution retains 360 degrees.
+This is not general collision avoidance between independently created solids.
+UpTo target geometry retains the existing exact validation on calculation.
+See [the numeric-direction matrix](FEATURE_DIRECTION_PARAMETER_PLAN.md).
 
 Profiles made of lines and circular arcs, including circles, are supported.
 Thin results may use an open profile; drafted surface results require a closed

@@ -4,6 +4,7 @@
 #include "sketch_button_style.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/document/hole_profiles.hpp>
+#include <zima/workspace/opening_operations.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
@@ -503,7 +504,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 hole_bore_length_, hole_thread_length_, hole_entrance_chamfer_,
                 thread_chamfer_angle_, hole_drill_angle_, thread_runout_factor_})
             connect(field, &QDoubleSpinBox::valueChanged, this, [this](double) { notify_preview(); });
-        connect(thread_direction_, &QComboBox::currentIndexChanged, this, [this](int) { notify_preview(); });
+        thread_direction_->setObjectName("openingDirection");
+        connect(thread_direction_, &QComboBox::currentIndexChanged, this, [this](int) {
+            opening_direction_initialized_=true;
+            notify_preview();
+        });
         refresh();
     } else if (initial.feature_kind == zima::document::FeatureKind::DrillPoint) {
         drill_point_angle_ = dimension(
@@ -2826,6 +2831,12 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         if (!error.isEmpty()) error_->setText(error);
         return false;
     }
+    if(!edit_mode_&&!entering_whole_origin()&&!opening_direction_initialized_&&thread_direction_) {
+        if(const auto direction=zima::workspace::opening_entry_direction(values(),sheet_reference_geometry_)) {
+            opening_direction_initialized_=true;
+            thread_direction_->setCurrentIndex(*direction==zima::document::ExtrusionDirection::Reverse?1:0);
+        }
+    }
     if (profile_plane_ && zima::document::placement_references_use_whole_origin(placement_->combined_references(3))) {
         update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
         notify_preview();
@@ -2964,6 +2975,17 @@ void PrimitivePropertiesDialog::show_thread_catalog_after_release() {
     thread_size_->showPopup();
 }
 
+bool PrimitivePropertiesDialog::set_feature_length_from_drag(std::size_t side,double coordinate,bool baseline_reversed) {
+    if(!feature_panel_||!std::isfinite(coordinate))return false;
+    const double value=std::copysign(std::max(.001,std::abs(coordinate)),coordinate);
+    return feature_panel_->set_signed_length(side,value,baseline_reversed);
+}
+bool PrimitivePropertiesDialog::set_feature_angle_from_drag(std::size_t side,double angle,bool baseline_reversed) {
+    if(!feature_panel_||!std::isfinite(angle))return false;
+    const double value=std::copysign(std::max(.001,std::abs(angle)),angle);
+    return feature_panel_->set_signed_angle(side,value,baseline_reversed);
+}
+
 bool PrimitivePropertiesDialog::set_inline_parameter_value(
     std::string_view key, double value) {
     const auto set_field = [value](QDoubleSpinBox* field) {
@@ -3014,10 +3036,18 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         return placement_->set_reference_offset(index, value);
     }
     if (feature_panel_) {
-        if(key=="side0_length")return set_field(feature_panel_->side_value(0));
-        if(key=="side1_length")return set_field(feature_panel_->side_value(1));
-        if(key=="side0_angle")return set_field(feature_panel_->side_angle(0));
-        if(key=="side1_angle")return set_field(feature_panel_->side_angle(1));
+        if(key=="direction") {
+            if(value!=1.&&value!=-1.)return false;
+            return set_field(feature_panel_->direction_control());
+        }
+        if(key=="side0_length")return feature_panel_->set_signed_length(0,value);
+        if(key=="side1_length")return feature_panel_->set_signed_length(1,value);
+        if(key=="side0_angle"||key=="side1_angle") {
+            const auto side=key=="side0_angle"?0:1;
+            if(feature_panel_->parameters().sides[side].operation==zima::document::FeatureSideOperation::Revolution)
+                return feature_panel_->set_signed_angle(side,value);
+            return set_field(feature_panel_->side_angle(side));
+        }
         if(key=="side0_draft_angle")return set_field(feature_panel_->side_draft(0));
         if(key=="side1_draft_angle")return set_field(feature_panel_->side_draft(1));
     }

@@ -1026,7 +1026,7 @@ private:
     };
     [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
         const std::array<double, 2>& position) const;
-    [[nodiscard]] SketchSegmentInference inferred_sketch_slot_center(const std::array<double,2>& position) const;
+    [[nodiscard]] SketchSegmentInference inferred_sketch_slot_center(const std::array<double,2>& position, bool snapped = false) const;
     void clear_completed_sketch_interaction();
     void clear_sketch_confirmed_selection();
     [[nodiscard]] std::optional<std::array<double, 2>>
@@ -1036,7 +1036,8 @@ private:
     bool accept_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_slot_ray(const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction);
-    void preview_sketch_slot_ray(const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction);
+    [[nodiscard]] std::optional<SketchSegmentInference> preview_sketch_slot_ray(
+        const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction,bool snapped);
     void preview_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     struct SketchRectangleMidpointSnap {

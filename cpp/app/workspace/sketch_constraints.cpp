@@ -240,6 +240,7 @@ void AssemblyWorkspaceWindow::accept_sketch_symmetric_selection(
         }
         pending_symmetric_point_ids_.push_back(point_id);
         if (pending_symmetric_point_ids_.size() == 1) {
+            clear_sketch_confirmed_selection();
             state_->setText(tr("Symetrická vazba: vyberte řízený bod."));
         } else {
             set_sketch_symmetric_axis_contract();

@@ -1875,11 +1875,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     dialog->set_inline_parameter_value("profile_offset",baseline->profile_plane_offset+
                         zima::sketcher::plane_offset_delta_for_normal_displacement(extent_drag_baseline->profile_plane,delta));
                 } else if(key=="side0_length"||key=="side1_length") {
-                    dialog->set_inline_parameter_value(key,std::max(.001,coordinate));
+                    dialog->set_feature_length_from_drag(key=="side0_length"?0:1,coordinate,baseline->reversed_sides);
                 } else if(key=="side0_angle"||key=="side1_angle") {
                     const auto side=key=="side0_angle"?0:1;
-                    dialog->set_inline_parameter_value(key,std::clamp(baseline->sides[side].angle_degrees+
-                        coordinate/25.*180./std::numbers::pi,.001,360.));
+                    dialog->set_feature_angle_from_drag(side,baseline->sides[side].angle_degrees+
+                        coordinate/25.*180./std::numbers::pi,baseline->reversed_sides);
                 }
             },[]{});
     } else if (feature_kind == zima::document::FeatureKind::Extrusion) {
@@ -1973,6 +1973,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         : extent_drag_baseline->reversed);
             }, [] {});
     }
+    if(opening_paste_seed_)dialog->preserve_opening_direction();
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
 

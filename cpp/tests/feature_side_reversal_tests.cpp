@@ -1,6 +1,8 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/feature_direction.hpp>
+#include <zima/document/feature_rotation_span.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
@@ -9,6 +11,12 @@
 #include <numbers>
 #include <set>
 #include <source_location>
+#include <BRepGProp.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <GProp_GProps.hxx>
+#include <sstream>
+#include <iomanip>
 
 using namespace zima;
 namespace {
@@ -237,12 +245,15 @@ void native_points_and_axes(const kernel::OcctKernel& engine) {
         part.set_body_history(graph);part.resolve_constructions();
         const auto immutable=part.constructions;
         if(axis) {
-            const auto mesh=part.feature_result_mesh(feature);std::size_t count{};
+            // set_body_history replaces the document and invalidates references
+            // to its earlier history elements. Inspect the resolved definition.
+            const auto& resolved=part.history.front();
+            const auto mesh=part.feature_result_mesh(resolved);std::size_t count{};
             for(const auto& point:mesh.original_references.points) {
                 if(!point.reference.semantic_key.starts_with("point:from:"))continue;
                 const auto parent=kernel::feature_side_parent(point.reference.semantic_key.substr(11));
                 if(!parent)continue;
-                near(point.position.z,p.side_direction_sign(0)*(parent->side==kernel::FeatureSide::End?12:-5));++count;
+                near(point.position.z,resolved.feature.side_direction_sign(0)*(parent->side==kernel::FeatureSide::End?12:-5));++count;
             }
             check(count==2,"Reversed datum Axis lost logical Start/End points");
         } else {
@@ -259,6 +270,38 @@ void native_points_and_axes(const kernel::OcctKernel& engine) {
     }
     std::cout<<"Native Point Up To, datum Axis logical endpoints and full Revolution passed\n";
 }
+void rotation_end_contacts(const kernel::OcctKernel& engine) {
+    for(bool reverse_axis:{false,true})for(bool reversed:{false,true})
+    for(std::size_t side:{0u,1u})for(double other_angle:{25.,120.,180.,350.}) {
+        auto part=fixture(true,reverse_axis);auto& p=part.history.front().feature;
+        p.reversed_sides=reversed;p.sides[1-side].angle_degrees=other_angle;
+        const auto other=p.sides[1-side];const auto locks=part.history.front().value_locks;
+        const double limit=document::feature_rotation_drag_limit(p,side);
+        check(document::set_feature_signed_angle(p,side,-limit),"Revolution contact angle rejected");
+        check(p.sides[1-side]==other&&part.history.front().value_locks==locks&&p.reversed_sides!=reversed,"Revolution end contact moved the opposite panel or locks");
+        const auto full=calculate(engine,part);near(full.volume,6*(49-16)*std::numbers::pi,1e-5);
+        for(double gap_angle:{.1,.001}) {
+            // A .001-degree gap at radius 4 is smaller than the default
+            // .001-mm Boolean tolerance. Request the precision needed by that
+            // fixture instead of changing product tolerance or weakening checks.
+            if(gap_angle==.001)part.document_precision["linear_tolerance"]="0.0000001";
+            p.sides[side].angle_degrees=limit-gap_angle;
+            const auto gap=calculate(engine,part);
+            const double expected=6*(49-16)*std::numbers::pi*(360-gap_angle)/360;
+            const auto integrated=[&](auto&& self,const kernel::BodyResult& source)->double {
+                if(source.kernel_shape==kernel::kernel_body_compound) {
+                    double volume{};for(const auto& id:source.kernel_compound_bodies)volume+=self(self,source.body_outputs.at(id).get());return volume;
+                }
+                TopoDS_Shape shape;BRep_Builder builder;std::istringstream input(source.kernel_shape);BRepTools::Read(shape,input,builder);
+                check(!shape.IsNull(),"Cannot independently read rotation BRep");
+                GProp_GProps adaptive;BRepGProp::VolumeProperties(shape,adaptive,1e-12);return adaptive.Mass();
+            };
+            near(integrated(integrated,gap),expected,1e-5);
+            near(gap.volume,expected,1e-5);
+        }
+    }
+    std::cout<<"32 double-Revolution end contacts and 64 gaps at requested precision: both sides, axis orientations and directions passed\n";
 }
-int main(){try{kernel::OcctKernel engine;matrix(engine);active_sides_and_draft(engine);external_plane_limits(engine);twist_and_mixed(engine);through_all_cut(engine);native_points_and_axes(engine);return 0;}
+}
+int main(){try{kernel::OcctKernel engine;matrix(engine);active_sides_and_draft(engine);external_plane_limits(engine);twist_and_mixed(engine);through_all_cut(engine);native_points_and_axes(engine);rotation_end_contacts(engine);return 0;}
 catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

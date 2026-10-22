@@ -8,6 +8,7 @@
 #include <zima/workspace/holes_operations.hpp>
 #include <zima/workspace/section_operations.hpp>
 #include "workspace_internal.hpp"
+#include <zima/document/feature_direction.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
@@ -600,12 +601,25 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 } else if (container->feature_kind == FeatureKind::HelicalSweep && key=="pitch") {
                     positive(container->helical.pitch);
                 } else if (container->feature_kind == FeatureKind::Feature) {
-                    if(key=="profile_offset") {container->feature.profile_plane_offset=next_value;changed=true;}
+                    if(key=="direction") {
+                        if(!document::set_feature_direction(container->feature,next_value))throw std::runtime_error(document::feature_direction_error);
+                        changed=true;
+                    } else if(key=="profile_offset") {container->feature.profile_plane_offset=next_value;changed=true;}
                     else if(key=="thin_thickness")positive(container->feature.thin_thickness);
-                    else if(key=="side0_length" || key=="side1_length")positive(container->feature.sides[key=="side0_length"?0:1].length);
+                    else if(key=="side0_length" || key=="side1_length") {
+                        if(next_value<0&&container->value_locks.contains("direction"))throw std::runtime_error(tr("Hodnota je zamčená. Nejprve ji odemkněte.").toStdString());
+                        if(std::abs(next_value)<1e-9||!document::set_feature_signed_length(container->feature,key=="side0_length"?0:1,next_value))
+                            throw std::runtime_error("Dimension must be positive");
+                        changed=true;
+                    }
                     else if(key=="side0_angle" || key=="side1_angle") {
-                        if(next_value<=0 || next_value>360)throw std::runtime_error("Revolution angle must be in (0, 360]");
-                        container->feature.sides[key=="side0_angle"?0:1].angle_degrees=next_value;changed=true;
+                        const auto side=key=="side0_angle"?0:1;
+                        if(container->feature.sides[side].operation!=document::FeatureSideOperation::Revolution&&next_value<=0)
+                            throw std::runtime_error("Revolution angle must be in (0, 360]");
+                        if(next_value<0&&container->value_locks.contains("direction"))throw std::runtime_error(tr("Hodnota je zamčená. Nejprve ji odemkněte.").toStdString());
+                        if(!document::set_feature_signed_angle(container->feature,side,next_value))
+                            throw std::runtime_error("Revolution angle must be in (0, 360]");
+                        changed=true;
                     } else if(key=="side0_draft_angle" || key=="side1_draft_angle") {
                         if(!std::isfinite(next_value)||std::abs(next_value)>=90)
                             throw std::runtime_error("Draft angle must be between -90 and 90 degrees.");

@@ -76,6 +76,20 @@ the initial Assembly fixture failure is superseded by
 
 ## Factory and platform boundary
 
+The subsequent numeric direction extension also passes: +1/-1 scalar Family/
+Relations binding, repeated deterministic Regenerate, negative manual lengths
+and Revolution angles, actual purple-handle crossing and return, locks and
+negative View dimension editing. Two numeric Revolution ends stop at their
+shared angular boundary without moving the opposite panel. Thirty-two exact
+contacts and 64 gaps pass analytical and independent BRep volume checks at
+appropriate requested precision. The default product tolerance is unchanged.
+See [the numeric implementation and finite evidence](../FEATURE_DIRECTION_PARAMETER_PLAN.md)
+for initial test-oracle corrections, timings, UpTo limits and platform gaps.
+
+The current normal build and refreshed factory/template GUI checks pass.
+The user has been invited to test the repository-root launcher. Release
+publication and acceptance of the final committed portable package remain due.
+
 Factory conversion uses explicit native Regenerate, including Relations and
 physical analysis, followed by save and exact native definition/cache readback.
 Authored history, sides, Body ownership and Sketch data are checked independently.

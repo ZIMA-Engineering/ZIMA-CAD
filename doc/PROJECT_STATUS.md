@@ -44,6 +44,13 @@ Origin and whole-Origin Tree entry inherit aligned Feature/Sketch axes without
 reinterpreting existing stored placements. Windows GUI, persistence, parent
 identity, five-language, FORM/library and template checks pass; final signed
 package acceptance/publication remains pending.
+It additionally contains verified numeric Feature Direction/Relations and
+negative extent/angle reversal, opposite-end Revolution grip limits, Symmetric
+hover and Slot entry corrections, default Point/Text display, inward axis-based
+Opening authoring and partial-bottom Drill Points. See the
+[correction matrix](PRE_RELEASE_CORRECTIONS_20261022.md). Factory definitions
+and start templates are refreshed; release publication awaits the user's test
+of the normal Windows build.
 
 Signed Windows [2026102004](releases/2026102004.md) is accepted and public from
 `b96503988b7ba8f98951e9ca2076cf211685c4e0`. It passed 42 finite packaged scenarios, all 1,185 native factory

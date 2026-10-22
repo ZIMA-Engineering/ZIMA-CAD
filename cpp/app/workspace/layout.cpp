@@ -1220,7 +1220,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         viewer_->set_sketch_relation_highlights({});
         preview_sketch_segment_ray(local_origin, local_direction);
         preview_sketch_rectangle_ray(local_origin, local_direction);
-        preview_sketch_slot_ray(local_origin, local_direction);
+        const auto slot_inference=preview_sketch_slot_ray(local_origin,local_direction,cursor_snap.has_value());
+        if(slot_inference&&!slot_inference->symmetry_axis_id.empty())cursor_snap.reset();
         preview_sketch_polygon_ray(local_origin, local_direction);
         preview_sketch_circle_ray(local_origin, local_direction);
         preview_sketch_arc_ray(local_origin, local_direction);
@@ -1312,14 +1313,11 @@ void AssemblyWorkspaceWindow::create_layout() {
             // parallel, equal-length or symmetry inference.
             else label.clear();
         }
-        if(cursor&&sketch_slot_active_&&pending_segment_start_&&!pending_slot_second_center_&&!cursor_snap) {
-            // Reuse the exact preview endpoint instead of calculating the
-            // complete inference a second time on every pointer movement.
-            const auto& preview=viewer_->transient_edges();
-            if(!preview.empty()&&preview.front().points.size()==2)
-                if(const auto endpoint=sketch->intersect_ray(preview.front().points.back(),local_direction))
-                    *cursor=*endpoint;
-            related=!viewer_->transient_labels().empty();
+        if(cursor&&slot_inference&&!cursor_snap) {
+            // The preview publishes its actual local endpoint; do not recover
+            // it from transformed display edges or calculate inference twice.
+            *cursor=slot_inference->position;
+            related=slot_inference->kind.has_value()||!slot_inference->symmetry_axis_id.empty();
             // The preview owns the H/V/S marker at its centre line.
             label.clear();
         }
@@ -1811,8 +1809,11 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (!component_drag_document_) set_selected_component_origin({});
             const auto selected_items = tree_->selectedItems();
             if (selected_items.empty()) {
-                if (!refreshing_scene_) {
-                    construction_dimension_object_id_.clear();
+                if (!refreshing_scene_ && !properties_dialog_ && active_sketch_id_.empty()) {
+                    // Retire the displayed inspection together with its owner.
+                    // Clearing only the owner left parameter strokes in the
+                    // scene which MMB could no longer finish after a no-op edit.
+                    if (finish_parameter_dimensions()) return;
                     assembly_dimension_path_.clear();update_assembly_dimension_visibility();
                 }
                 clear_selected_sketch_geometry();

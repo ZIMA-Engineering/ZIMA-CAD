@@ -2509,5 +2509,6 @@
   "Show command guidance in the upper-left corner of the View.": "Zobrazovat pokyny příkazů v levém horním rohu View.",
   "You can select an object or start a command.": "Můžete vybrat objekt nebo spustit příkaz.",
   "Edit Relations or select a dimension to insert its identifier.": "Upravte Relations nebo vyberte kótu pro vložení jejího identifikátoru.",
-  "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Zkontrolujte odkaz na kótu v Relations; dotčené výrazy se do obnovení odkazu přeskakují."
+  "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Zkontrolujte odkaz na kótu v Relations; dotčené výrazy se do obnovení odkazu přeskakují.",
+  "Feature direction must be +1 or -1.": "Směr prvku musí být +1 nebo -1."
 }

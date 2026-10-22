@@ -133,6 +133,8 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         auto* shortcut=window.findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i));
         check(shortcut&&shortcut->isEnabled()&&!shortcut->icon().isNull(),"Feature shortcut missing or disabled");
         shortcut->trigger();flush();check(dialog(),"Feature shortcut did not open shared dialog");
+        check(!dialog()->findChild<QCheckBox*>("featureShowPoint")->isChecked()&&
+            !dialog()->findChild<QCheckBox*>("featureShowText")->isChecked(),"New Feature did not start with Point/Text disabled");
         const auto check_collapsed=[&] {
             bool found=false;
             for(QTreeWidgetItemIterator row(window.findChild<QTreeWidget*>("documentTree"));*row;++row)

@@ -44,6 +44,7 @@
 #include <zima/workspace/sweep_operations.hpp>
 #include "../tests/sweep_test_support.hpp"
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "sheet_from_body_dialog.hpp"
 #include "sheet_transition_dialog.hpp"
@@ -4659,6 +4660,7 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
 #include "sheet_corner_ui_verification.inc"
 #include "bend_arc_ui_verification.inc"
 #include "opening_copy_ui_verification.inc"
+#include "opening_axis_direction_ui_verification.inc"
 
 int verify_application_tools_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -6073,6 +6075,8 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 
 #include "sketch_intersection_ui_verification.inc"
 #include "sketch_slot_ui_verification.inc"
+#include "sketch_symmetry_hover_ui_verification.inc"
+#include "sketch_feature_axis_reference_ui_verification.inc"
 #include "sketch_document_button_ui_verification.inc"
 #include "system_setup_ui_verification.inc"
 
@@ -9600,6 +9604,7 @@ int verify_startup_contract(
         }
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OPENING_COPY")) return verify_opening_copy_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OPENING_AXIS_DIRECTION")) return verify_opening_axis_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_ONLY_BEND")) return verify_arc_only_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
@@ -9732,6 +9737,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY")) return verify_sketch_dimension_entry_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY")) return verify_rectangle_external_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SLOT_ONLY")) return verify_sketch_slot_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SYMMETRY_HOVER_ONLY")) return verify_sketch_symmetry_hover_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_FEATURE_AXIS_REFERENCE_ONLY")) return verify_sketch_feature_axis_reference_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYSTEM_SETUP_ONLY")) return verify_system_setup_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_POINT_END_DOCUMENT")) return verify_form_point_end_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SOURCE_MOTION_DOCUMENT")) return verify_form_source_motion_ui(application,test_directory);

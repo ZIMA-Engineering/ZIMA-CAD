@@ -4,7 +4,7 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto original_palette=application.palette();
     try {
-        for(bool dark:{false,true})for(int orientation=0;orientation<14;++orientation) {
+        for(bool dark:{false,true})for(int orientation=0;orientation<17;++orientation) {
             auto palette=original_palette;
             if(dark){palette.setColor(QPalette::Window,QColor("#262b30"));palette.setColor(QPalette::WindowText,Qt::white);palette.setColor(QPalette::Text,Qt::white);palette.setColor(QPalette::Base,QColor("#171b21"));}
             application.setPalette(palette);
@@ -18,9 +18,10 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
                 first={25.,10.};second={10.,25.};
                 symmetry=sketch.add_segment(-20,-20,30,30);sketch.set_geometry_construction(symmetry,true);
             }
-            const bool directional=orientation>=3, manual=orientation>=7&&orientation<11;
+            const bool priority=orientation>=14;
+            const bool directional=orientation>=3&&!priority, manual=orientation>=7&&orientation<11;
             const bool vertical=directional&&(orientation%2==0);
-            const bool disabled=orientation>=12;
+            const bool disabled=orientation>=12&&orientation<14;
             if(directional) {
                 first={10.,20.};
                 const double sign=orientation==5||orientation==6?-1.:1.;
@@ -29,6 +30,10 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
             if(orientation==11) {
                 const auto line=sketch.add_segment(6,0,46,40);sketch.set_geometry_construction(line,true);
             }
+            std::string priority_point;
+            if(orientation==14) {priority_point=sketch.add_point(second[0],second[1]);sketch.find_point(priority_point)->fixed=true;}
+            if(orientation==15) {const auto support=sketch.add_segment(10,-40,10,40);sketch.set_geometry_construction(support,true);}
+            if(orientation==16) {priority_point=sketch.add_point(22,second[1]);sketch.find_point(priority_point)->fixed=true;}
             part.history={feature};part.sketches={sketch};
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Slot test");
             graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);
@@ -74,9 +79,17 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
                 }
                 app::apply_application_translations(application,original);slot->trigger();flush();click(first);
             }
+            check(view->transient_points().size()==1,"Slot first-centre confirmation supplied no marker");
+            const auto first_marker=view->transient_points().front();
             const auto base_revision=view->base_mesh_revision();QElapsedTimer preview_time;preview_time.start();
             for(int move=0;move<8;++move)mouse(screen({second[0]+.01*(move%2),second[1]+.01*(move%3)}),QEvent::MouseMove,Qt::NoButton);
             mouse(screen(second),QEvent::MouseMove,Qt::NoButton);
+            check(view->transient_points().size()==1,"Slot second-centre entry lost its first-centre marker");
+            check(std::hypot(view->transient_points().front().x-first_marker.x,
+                view->transient_points().front().y-first_marker.y,view->transient_points().front().z-first_marker.z)<1e-7,
+                "Slot first-centre marker moved with the pointer");
+            if(priority)check(std::ranges::any_of(view->transient_labels(),[](const auto& value){return value.second=="S";}),
+                "Slot symmetry did not take priority over an existing point/curve/HV snap");
             check(view->base_mesh_revision()==base_revision,"Slot preview republished the base scene");
             std::cout<<"Slot pointer preview: publications=0 moves=9 ms="<<preview_time.nsecsElapsed()/1e6<<std::endl;
             if(directional&&!manual) {
@@ -95,13 +108,20 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
             // already committed four-curve profile or creating a transaction.
             click({-22.,-17.});
             QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();
+            check(view->transient_points().empty()&&view->transient_labels().empty(),"Slot Escape retained unfinished centre markers");
+            const auto stored=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path).sketches.front();};
+            const auto created_slot=stored();
+            const auto* first_center=created_slot.find_point(created_slot.arcs.at(0).center_point_id);
+            check(first_center,"Slot first centre is missing");
+            const auto committed_marker=created_slot.world_point(first_center->x,first_center->y);
+            check(std::hypot(first_marker.x-committed_marker.x,first_marker.y-committed_marker.y,
+                first_marker.z-committed_marker.z)<1e-7,"Slot marker did not represent its accepted first centre");
             if(manual) {
                 auto* action=window.findChild<QAction*>(vertical?"sketchVerticalAction":"sketchHorizontalAction");
                 check(action&&action->isEnabled(),"Manual slot H/V unavailable");action->trigger();flush();
                 click(orientation>=9?second:first);click(orientation>=9?first:second);
                 QKeyEvent done(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&done);flush();
             }
-            const auto stored=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path).sketches.front();};
             const auto committed=stored();
             check(std::abs(committed.arcs[0].radius-5)<1e-5&&std::abs(committed.arcs[1].radius-5)<1e-5,"Slot cursor did not define its perpendicular radius");
             window.findChild<QAction*>("undoAction")->trigger();flush();
@@ -131,7 +151,11 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
             check(properties,"Slot did not return to Sketch Properties");properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             auto saved=document::PartDocument::load(path);auto& result=saved.sketches.front();
-            check(result.arcs.size()==2&&result.segments.size()==(orientation==2||orientation==11?3:2),"Slot did not commit exactly four profile curves");
+            check(result.arcs.size()==2&&result.segments.size()==(orientation==2||orientation==11||orientation==15?3:2),"Slot did not commit exactly four profile curves");
+            if(priority&&!priority_point.empty()) {
+                check(result.arcs[1].center_point_id!=priority_point,"Slot symmetry also merged the second centre with a competing snap point");
+                check(result.find_point(priority_point)&&result.find_point(priority_point)->fixed,"Slot priority modified its fixed source point");
+            }
             if(!directional) check(std::ranges::any_of(result.constraints,[&](const auto& value){return value.kind==sketcher::ConstraintKind::Symmetric&&value.geometry_id==symmetry;}),"Slot lost offered centre symmetry");
             else if(!disabled) {
                 const auto kind=vertical?sketcher::ConstraintKind::Vertical:sketcher::ConstraintKind::Horizontal;
@@ -179,6 +203,6 @@ int verify_sketch_slot_ui(QApplication& application,const std::filesystem::path&
             }
         }
         application.setPalette(original_palette);
-        std::cout<<"Slot GUI: 28 Light/Dark cases; manual H/V in both orders, automatic H/V both directions, construction-line interference, disabled inference, repeated center drags, Undo/Redo, symmetry, repeated R/D and center-distance inline edits, Escape and native save/reopen passed\n";return 0;
+        std::cout<<"Slot GUI: 34 Light/Dark cases; first-centre markers, symmetry priority over point/curve/HV snaps, manual H/V in both orders, automatic H/V both directions, construction-line interference, disabled inference, repeated center drags, Undo/Redo, symmetry, repeated R/D and center-distance inline edits, Escape and native save/reopen passed\n";return 0;
     }catch(const std::exception& error){application.setPalette(original_palette);std::cerr<<error.what()<<'\n';return 1;}
 }

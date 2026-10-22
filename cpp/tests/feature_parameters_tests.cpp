@@ -86,6 +86,8 @@ int main() { try {
         check(load_feature_parameters(serialize_feature_parameters(p))==p,"Rotation extent did not round-trip");
     }
     for(const auto type:{FeatureType::Point,FeatureType::Axis,FeatureType::Plane,FeatureType::Sketch,FeatureType::Modeling}) {
+        const FeatureParameters defaults;
+        check(!defaults.show_point&&!defaults.show_text,"New Features must default to hidden Point and Text annotations");
         auto p=fixture();const auto stored=p;p.type=type;
         const auto restored=load_feature_parameters(serialize_feature_parameters(p));
         check(restored==p,"Feature type or inactive settings did not round-trip");
@@ -108,7 +110,7 @@ int main() { try {
         check(!result.points.empty(),"Feature result lost its origin");
         const auto& origin=result.points.front();
         check(std::abs(origin.position.x-18)<1e-9&&std::abs(origin.position.y+3)<1e-9&&
-              std::abs(origin.position.z)<1e-9&&origin.label==feature.name,"Feature name/origin is not anchored on the offset plane");
+              std::abs(origin.position.z)<1e-9&&origin.label==(feature.feature.show_text?feature.name:std::string{}),"Feature name/origin is not anchored on the offset plane");
         auto follower=create_owned_point("downstream-sweep:path");
         check(follower.parent_construction_id=="downstream-sweep:path","Owned point lost its parent");
         follower.definition=ConstructionDefinition::PointReference;

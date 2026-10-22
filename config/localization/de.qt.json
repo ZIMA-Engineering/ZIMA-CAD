@@ -2509,5 +2509,6 @@
   "Show command guidance in the upper-left corner of the View.": "Befehlshinweise oben links in der Ansicht anzeigen.",
   "You can select an object or start a command.": "Sie können ein Objekt auswählen oder einen Befehl starten.",
   "Edit Relations or select a dimension to insert its identifier.": "Bearbeiten Sie die Beziehungen oder wählen Sie ein Maß, um dessen Kennung einzufügen.",
-  "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Prüfen Sie den Maßbezug in den Beziehungen; betroffene Ausdrücke werden bis zur Wiederherstellung übersprungen."
+  "Check the dimension reference in Relations; affected expressions are skipped until it is restored.": "Prüfen Sie den Maßbezug in den Beziehungen; betroffene Ausdrücke werden bis zur Wiederherstellung übersprungen.",
+  "Feature direction must be +1 or -1.": "Die Elementrichtung muss +1 oder -1 sein."
 }

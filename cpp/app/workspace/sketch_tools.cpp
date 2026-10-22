@@ -485,6 +485,12 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     pending_bspline_points_.clear();
     pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});
+    pending_slot_second_center_.reset();
+    pending_slot_second_snap_geometry_id_.clear();
+    pending_slot_second_snap_kind_.reset();
+    pending_slot_symmetry_axis_id_.clear();
+    pending_slot_direction_kind_.reset();
+    pending_slot_reference_point_id_.clear();
     state_->setText(tr("Aktuální rozpracovaná geometrie byla zrušena; nástroj zůstává aktivní."));
     return true;
 }

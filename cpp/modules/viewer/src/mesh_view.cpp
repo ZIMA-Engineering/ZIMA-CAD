@@ -2206,6 +2206,10 @@ const std::vector<zima::kernel::ViewerEdge>& MeshView::transient_edges() const {
     return impl_->transient_edges;
 }
 
+const std::vector<zima::kernel::Vec3>& MeshView::transient_points() const {
+    return impl_->transient_points;
+}
+
 void MeshView::set_transient_dimensions(
     std::vector<zima::kernel::ViewerDimension> dimensions) {
     ++impl_->picker_overlay_revision;

@@ -9,6 +9,7 @@
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/feature_direction.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/pattern_dimensions.hpp>
 #include <zima/document/document_copy_json.hpp>
@@ -90,6 +91,8 @@ template<class Doc> void add_feature_references(std::vector<FamilyReference>& ou
     };
     if(primitive_definition(f.feature_kind))for(const auto& [key,value]:primitive_dimensions(f))add(key,value);
     else for(const auto& [key,value]:feature_slots(f))add(key,*value);
+    if(f.feature_kind==FeatureKind::Feature&&(f.feature.type==document::FeatureType::Axis||f.feature.type==document::FeatureType::Modeling))
+        add("direction",document::feature_direction(f.feature));
     if(f.feature_kind==FeatureKind::Sketch || f.feature_kind==FeatureKind::Holes || f.feature_kind==FeatureKind::Bend)
         for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)add("profile_offset",sketch.plane_offset);
 }
@@ -108,6 +111,10 @@ template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out
 void assign_feature(document::HistoryContainer& f,const std::string& key,double value) {
     if(f.feature_kind==FeatureKind::DerivedCopy&&document::assign_pattern_dimension(f.derived_copy,key,value))return;
     if(f.value_locks.contains(key))throw std::invalid_argument("The family dimension is locked.");
+    if(f.feature_kind==FeatureKind::Feature&&key=="direction") {
+        if(!document::set_feature_direction(f.feature,value))throw std::invalid_argument(document::feature_direction_error);
+        return;
+    }
     if(primitive_definition(f.feature_kind)){assign_primitive_dimensions(f,{{key,value}});return;}
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
@@ -233,6 +240,8 @@ template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(con
         for(const auto& d:document::pattern_dimension_values(copy))add(owner,"parameter:"+d.key,d.value,d.angular,d.writable,d.count);
     };
     const auto feature=[&](document::HistoryContainer f) {
+        if(f.feature_kind==FeatureKind::Feature&&(f.feature.type==document::FeatureType::Axis||f.feature.type==document::FeatureType::Modeling))
+            add(f.id,"parameter:direction",document::feature_direction(f.feature),false,!f.value_locks.contains("direction"),true);
         if(f.feature_kind==FeatureKind::DerivedCopy)pattern(f.id,f.derived_copy);
         const auto slot=[&](const std::string& key,double value) {
             const bool angular=key.find("angle")!=std::string::npos||key=="end_rx"||key=="end_ry"||key=="end_rz"||(f.feature_kind==FeatureKind::Revolution&&key=="length_reverse");

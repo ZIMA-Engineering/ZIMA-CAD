@@ -3,6 +3,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drill_point_operations.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 #include <iostream>
 #include <set>
 using namespace zima;
@@ -89,6 +90,66 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(std::ranges::any_of(state->session.calculated_boundaries().back().mesh.triangle_references,
         [&](const auto& ref){return ref.owner_id==point&&kernel::drill_point_source(ref.semantic_key)==opening_bottom;}),
         "Drill point on the current Otvor lost its original bottom parent");
+
+    // A blind bore at the block edge has a partial circular floor. At x=20
+    // its axis is on the boundary; at x=22 the axis is outside the solid.
+    // Integrate the circular segment analytically, independently of OCCT.
+    const auto clipped_cone=[](double radius,double distance,double angle) {
+        if(distance<0)return std::numbers::pi*radius*radius*radius/(3*std::tan(angle*std::numbers::pi/360));
+        if(distance==0)return std::numbers::pi*radius*radius*radius/(6*std::tan(angle*std::numbers::pi/360));
+        const double root=std::sqrt(radius*radius-distance*distance);
+        return (radius*radius*radius*std::acos(distance/radius)-2*distance*radius*root+
+            distance*distance*distance*std::log((radius+root)/distance))/(3*std::tan(angle*std::numbers::pi/360));
+    };
+    for(bool reverse:{false,true})for(double x:{0.,20.,22.}) {
+        const auto name="partial-bottom-"+std::to_string(x)+(reverse?"-reverse":"-forward");
+        run(host,"new",{{"type","part"},{"name",name}});state=live.open_part(live.active_document_id());
+        auto part=state->session.document();auto block=test::rectangular_feature(part,{40,40,40});
+        auto bore=test::circular_feature(part,5,21);bore.combine_mode=document::CombineMode::Subtract;bore.placement.x=x;
+        bore.extrusion.direction=reverse?document::ExtrusionDirection::Reverse:document::ExtrusionDirection::Forward;
+        for(const auto& f:{block,bore}){part.insert_history_entry(document::PartHistoryKind::Feature,f.id);part.history.push_back(f);}
+        part.resolve_constructions();const auto key=test::profile_key(part,bore.id,reverse?"z_max":"z_min");
+        auto input=kernel.evaluate_history(part.kernel_operations());const auto input_volume=input.back().volume;
+        state->session.commit(std::move(part),std::move(input));
+        const auto id=run(host,"drill_point.create",{{"faces",Json::array({Json{{"owner",bore.id},{"key",key}}})}}).data.at("container").get<std::string>();
+        const auto verify_tip=[&](double angle) {
+            const auto& result=state->session.calculated_boundaries().back();
+            require(result.calculation_errors.empty(),"Partial floor drill point retained a calculation error");
+            near(input_volume-result.volume,clipped_cone(5,x==0?-1:x-20,angle));
+            bool found=false;
+            for(std::size_t i=0;i<result.mesh.triangle_references.size();++i) {
+                const auto& ref=result.mesh.triangle_references[i];if(ref.owner_id!=id)continue;
+                auto original=ref;
+                while(const auto parent=kernel::boolean_face_parent(original.semantic_key)) {
+                    original.owner_id=parent->first;original.semantic_key=parent->second;
+                }
+                // Boolean clipping also creates floor and bore fragments. They
+                // follow their own persisted ancestry, rather than the new
+                // cone's selected-bottom parent checked below.
+                if(!ref.surface||ref.surface->kind!=kernel::SurfaceGeometry::Kind::Cone)continue;
+                if(kernel::drill_point_source(original.semantic_key)!=std::optional<kernel::FaceReference>{{bore.id,key,{}}})
+                    throw std::runtime_error("Partial floor lost source identity at "+name+": "+ref.semantic_key+" expected "+key+
+                        " surface="+(ref.surface?std::to_string(static_cast<int>(ref.surface->kind)):"none")+
+                        " contour="+(ref.contour_surface?std::to_string(static_cast<int>(ref.contour_surface->kind)):"none"));
+                if(!original.semantic_key.starts_with("drill-point:side:"))continue;
+                found=true;
+                for(int corner=0;corner<3;++corner) {
+                    const auto p=result.mesh.vertices.at(result.mesh.triangles.at(i*3+corner));
+                    near(std::hypot(p.x-x,p.y),5+(reverse?-p.z:p.z)*std::tan(angle*std::numbers::pi/360));
+                    require(p.x<=20+1e-7,"Partial drill cone escaped the actual Body");
+                }
+            }
+            require(found,"Partial floor produced no conical face");
+        };
+        verify_tip(118);
+        for(double angle:{120.,110.,125.}){run(host,"drill_point.set",{{"container",id},{"angle_degrees",angle}});verify_tip(angle);}
+        run(host,"undo");verify_tip(110);run(host,"redo");verify_tip(125);
+        run(host,"save");std::vector<kernel::BodyResult> cached;
+        const auto reopened=document::PartDocument::load(directory/(name+".prtz"),&cached);
+        require(reopened.find_container(id)->drill_point.bottom_faces==state->session.document().find_container(id)->drill_point.bottom_faces,"Partial floor native reopen changed its source");
+        const auto cold=kernel.evaluate_history(reopened.kernel_operations());
+        require(cold.back().calculation_errors.empty(),"Partial floor cold regeneration failed");near(cold.back().volume,cached.back().volume);
+    }
 }
 }
 int main(){try {
