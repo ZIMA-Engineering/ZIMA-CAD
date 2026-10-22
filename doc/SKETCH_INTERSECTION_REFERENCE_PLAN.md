@@ -11,12 +11,15 @@ geometry. Rational quadratic reference storage does not turn that geometry into
 an approximate spline. The final Sketch in `1000.prtz` contains an R200 native
 arc, no native B-splines, a linked centre and an equal-radius source constraint.
 
-Ordinary face references project the source face's outline. An edge-on planar
+Previously stored face references project the source face's outline. An edge-on planar
 face supplies an infinite straight support. This is distinct from intersecting
 the face with the Sketch plane. The 2026-10-21 fix restores direct face candidates
 using the existing face-reference format. The separate trim
 fix consumes existing line/circle references as read-only cutters and retains
 endpoint incidence; it does not require a new document field.
+The subsequent ordinary Reference-entry correction restricts new entry to
+individual geometry. Preserve stored Face references; new whole-face selection
+belongs only to the separate intersection command.
 
 ## Requested new operation
 
@@ -28,7 +31,7 @@ labels, tooltips and validation messages in the same implementation change.
 These names describe the pending UI; they are not evidence of completed commands.
 
 Add an explicit Face x Sketch-plane intersection mode to external references.
-Keep ordinary projected face references and Reference to contour behavior.
+Preserve stored projected face references and Reference to contour behavior.
 The source remains read-only, and the owning Sketch's actual resolved plane is
 the second support. Consume the current calculated source at its allowed history
 boundary and exact Assembly occurrence; preserve one-way dependencies.
@@ -54,8 +57,10 @@ required information inside `.prtz`/`.asmz`; add no required sidecar. A branch
 is not an OCCT edge index, sampled point, UUID ordering or nearest screen curve.
 
 The current surface-intersection implementation rejects ambiguous native
-ancestry. In particular, two closed branches with identical parent faces both
-receive the same `:closed` role today. It cannot simply be connected to a new
+ancestry. The subsequent [radial-domain extension](verification/20261022-sketch-intersection-closed-domains.md)
+distinguishes two coaxial toroidal circles by their predefined inner/outer domains.
+Other closed branches with identical parent faces still share the `:closed` role.
+This cannot simply be connected to a new
 Sketch button and claimed to support several branches. Define branch ownership
 from the source's explicit topology and oriented support domain during explicit
 calculation. Where that cannot identify a branch unambiguously, report unresolved
@@ -81,10 +86,12 @@ service yet, and it does not change document serialization.
 The first native matrix covers single line/circle branches, two disconnected
 open branches with distinct native boundary ancestry, empty results, coincident
 area rejection and branch merging. Shared closed-branch ancestry remains
-ambiguous and is still rejected by the existing algorithm. This is not yet
+ambiguous outside the newly certified radial domains and is still rejected. This is not yet
 acceptance of arbitrary multiple-branch reference selection or persistence.
 See the [51-case native foundation matrix](verification/20261021-sketch-face-plane-foundation.md)
-for exact verified cases and remaining platform/integration gaps.
+and its [94-case extension](verification/20261022-sketch-intersection-closed-domains.md)
+for exact verified cases and remaining platform/integration gaps, including open
+sections from cold solid sources with incomplete boundary bindings.
 
 Before changing serialization, inventory committed native documents for the
 affected persisted definition. Existing authored references must retain their

@@ -5,6 +5,10 @@ Scope: calculation foundation for the user-approved
 [Sketch intersection reference scope](../SKETCH_INTERSECTION_REFERENCE_PLAN.md).
 This is not acceptance of the complete new Sketch command.
 
+The later [94-case closed-domain extension](20261022-sketch-intersection-closed-domains.md)
+adds certified toroidal inner/outer branch ownership and records cold-solid
+boundary-binding limits. The 51-case results below remain the historical baseline.
+
 ## Inputs, means and output
 
 The input is a previously calculated native Body boundary, an existing original

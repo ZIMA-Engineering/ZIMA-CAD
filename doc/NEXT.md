@@ -69,6 +69,13 @@ Regenerate to refresh old endpoint caches. The separate older standalone FORM
 test remains under audit; do not silently drop its failure or weaken tolerance.
 Continue with the approved Sketch intersection commands, then multi-face Up To,
 Sketch Projection Feature and view-relative H/V for quarter turns/flips.
+The next intersection increment now has a
+[94-case native matrix](verification/20261022-sketch-intersection-closed-domains.md):
+coaxial toroidal loops retain predefined inner/outer domain identities through
+source size/frame changes; unresolved loop domains remain explicit errors.
+Production Sketch command/persistence integration is still pending. The matrix
+also demonstrates that cold open-solid sections lack persisted boundary ancestry;
+resolve that source contract before claiming save/reopen command acceptance.
 Final publication cleanup left approximately 29 GB free before the
 subsequent development build; periodic verified cleanup remains requested.
 After the two post-release fixes, another 80 unused Debug Qt DLL copies were

@@ -97,6 +97,42 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
         TopExp::MapShapes(result.shape,TopAbs_EDGE,result_edges);TopExp::MapShapes(result.shape,TopAbs_VERTEX,result_vertices);
         for(int i=1;i<=result_edges.Extent();++i)TopExp::MapShapes(result_edges.FindKey(i),TopAbs_VERTEX,curve_vertices);
     }
+    const auto closed_edge=[&](const TopoDS_Edge& edge) {
+        const auto first=TopExp::FirstVertex(edge,true),last=TopExp::LastVertex(edge,true);
+        return first.IsSame(last)||(BRepAdaptor_Curve(edge).IsClosed()&&
+            BRep_Tool::Pnt(first).Distance(BRep_Tool::Pnt(last))<=request.tolerance);
+    };
+    int closed_branches=0;
+    for(int i=1;i<=result_edges.Extent();++i)
+        if(closed_edge(TopoDS::Edge(result_edges.FindKey(i))))++closed_branches;
+    std::optional<gp_Torus> axial_torus;
+    if(closed_branches>1)for(unsigned side=0;side<2;++side) {
+        const BRepAdaptor_Surface curved(selected[side]),planar(selected[1-side]);
+        if(curved.GetType()==GeomAbs_Torus&&planar.GetType()==GeomAbs_Plane&&
+            curved.Torus().Axis().Direction().IsParallel(planar.Plane().Axis().Direction(),1e-10))
+            axial_torus=curved.Torus();
+    }
+    const auto closed_role=[&](const TopoDS_Edge& edge) -> std::string {
+        if(!axial_torus)return ":closed";
+        // The analytic torus defines inner/outer radial domains before Section
+        // locates either curve. This is a semantic support role, not a branch
+        // number, geometric sorting or a nearest-curve match. Restrict it to
+        // certified coaxial circles; other equal-parent loops stay ambiguous.
+        const BRepAdaptor_Curve curve(edge);
+        if(curve.GetType()!=GeomAbs_Circle)
+            throw std::runtime_error("Intersection branch ancestry is ambiguous.");
+        const auto circle=curve.Circle();const auto& torus=*axial_torus;
+        const double height=gp_Vec(torus.Location(),circle.Location()).Dot(gp_Vec(torus.Axis().Direction()));
+        const double square=torus.MinorRadius()*torus.MinorRadius()-height*height;
+        const double delta=circle.Radius()-torus.MajorRadius();
+        if(square<=request.tolerance*request.tolerance||
+            std::abs(delta)<=request.tolerance||
+            !circle.Axis().Direction().IsParallel(torus.Axis().Direction(),1e-10)||
+            gp_Lin(torus.Axis()).Distance(circle.Location())>request.tolerance||
+            std::abs(std::abs(delta)-std::sqrt(square))>request.tolerance)
+            throw std::runtime_error("Intersection branch ancestry is ambiguous.");
+        return delta<0?":closed:domain:torus-inner":":closed:domain:torus-outer";
+    };
     std::map<std::string,TopoDS_Shape> named_vertices,named_edges;
     const auto name_vertex=[&](const TopoDS_Vertex& vertex,bool isolated) {
         const auto existing=std::ranges::find_if(result.vertices,[&](const auto& item){return item.shape.IsSame(vertex);});
@@ -111,10 +147,9 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
     for(int i=1;i<=result_edges.Extent();++i) {
         const auto edge=TopoDS::Edge(result_edges.FindKey(i));
         const auto first=TopExp::FirstVertex(edge,true),last=TopExp::LastVertex(edge,true);
-        const bool closed=first.IsSame(last)||(BRepAdaptor_Curve(edge).IsClosed()&&
-            BRep_Tool::Pnt(first).Distance(BRep_Tool::Pnt(last))<=request.tolerance);
+        const bool closed=closed_edge(edge);
         std::string role;
-        if(closed)role=":closed";
+        if(closed)role=closed_role(edge);
         else role=":at:"+ancestry({name_vertex(first,false),name_vertex(last,false)});
         const auto key="intersection:curve:from:"+parent_key+role;
         if(!named_edges.emplace(key,edge).second)throw std::runtime_error("Intersection branch ancestry is ambiguous.");

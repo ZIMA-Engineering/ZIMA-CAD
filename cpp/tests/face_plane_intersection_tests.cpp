@@ -12,6 +12,7 @@ namespace {
 void check(bool yes,const char* text){if(!yes)throw std::runtime_error(text);}
 struct Fixture {document::PartDocument part;std::vector<kernel::BodyResult> bodies;std::string owner;};
 Fixture make(kernel::OcctKernel& kernel,bool circular) {
+    kernel::FaceMeasurementScope measurements(false); // Ordinary native GUI calculation policy.
     Fixture result;result.part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
     if(circular)static_cast<void>(sketch.add_circle(0,0,5));else static_cast<void>(sketch.add_rectangle(-5,-4,5,4));
     auto feature=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
@@ -59,6 +60,20 @@ int main(){try {
         }
         const auto empty=kernel.intersect_face_plane(body,{source,"owning-sketch",{0,0,20},{0,0,1},1e-6});
         check(empty.edges.empty()&&empty.points.empty(),"Disjoint plane invented an intersection");++cases;
+        const auto stored=document::serialize_body_result(body);const auto cold_body=document::load_body_result(stored);
+        kernel::OcctKernel reopened_engine;
+        if(circular) {
+            const auto curve=reopened_engine.intersect_face_plane(cold_body,{source,"owning-sketch",{0,0,5},{0,0,1},1e-6});
+            check(curve.edges.size()==1&&identities(curve)==keys,"Cold solid circle lost its source identity");
+        } else {
+            // Ordinary solids currently save face-only bindings. Do not turn
+            // missing boundary ancestry into guessed endpoints or hidden replay.
+            bool missing_ancestry=false;
+            try{static_cast<void>(reopened_engine.intersect_face_plane(cold_body,{source,"owning-sketch",{0,0,5},{0,0,1},1e-6}));}
+            catch(const std::runtime_error& error){missing_ancestry=std::string(error.what())=="Intersection endpoint ancestry is ambiguous.";}
+            check(missing_ancestry,"Cold solid open section bypassed its missing persisted boundary ancestry");
+        }
+        check(document::serialize_body_result(cold_body)==stored,"Cold solid intersection changed the source packet");++cases;
         auto moved=fixture.part;auto owner=moved.body_history.bodies().front();
         owner.scope.placement.x=12;owner.scope.placement.y=-7;owner.scope.placement.z=20;
         owner.scope.placement.rotation_x=owner.scope.placement.absolute_rotation_x=90;
@@ -124,8 +139,69 @@ int main(){try {
     kernel::RevolutionRequest torus;torus.surface_result=true;torus.axis_direction={0,0,1};torus.profile_normal={0,1,0};torus.profile_region_id="torus-region";
     torus.outer_profile=kernel::ExtrusionRequest::CircleProfile{{30,0,0},5};torus.outer_edge_source_ids={"circle"};
     const auto toroidal=kernel.evaluate_history({{"torus",torus}}).back();check(toroidal.calculation_errors.empty(),"Torus ambiguity fixture failed");
+    const auto torus_packet=document::serialize_body_result(toroidal);
+    const auto torus_reopened=document::load_body_result(torus_packet);
+    std::set<std::string> torus_keys;
+    for(const auto* engine:{&kernel,&cold})for(double height:{0.,2.,-2.,4.,-4.})for(double side:{-1.,1.}) {
+        const auto curves=engine->intersect_face_plane(torus_reopened,{{"torus","generated:circle",{}},"torus-sketch",{0,0,height},{0,0,side},1e-6});
+        check(curves.edges.size()==2&&curves.points.empty(),"Coaxial torus section lost either closed branch");
+        const auto keys=identities(curves);if(torus_keys.empty())torus_keys=keys;else check(keys==torus_keys,"Torus height/normal changed semantic branch identity");
+        std::set<std::string> roles;
+        for(const auto& edge:curves.edges) {
+            const bool inner=edge.reference.semantic_key.ends_with(":closed:domain:torus-inner");
+            check(inner||edge.reference.semantic_key.ends_with(":closed:domain:torus-outer"),"Torus branch has no native domain role");
+            roles.insert(inner?"inner":"outer");check(edge.exact_spline.has_value(),"Closed torus section lost exact geometry");
+            const double radius=30+(inner?-1:1)*std::sqrt(25-height*height);
+            for(int i=0;i<=100;++i) {const auto p=kernel::bspline_value(*edge.exact_spline,i/100.);
+                check(std::abs(p.z-height)<1e-7&&std::abs(std::hypot(p.x,p.y)-radius)<1e-7,"Torus branch escaped its analytic radial domain");}
+        }
+        check(roles.size()==2,"Torus section duplicated a semantic branch");++cases;
+    }
+    for(double height:{-5.,5.}) {
+        const auto tangent=cold.intersect_face_plane(torus_reopened,{{"torus","generated:circle",{}},"torus-sketch",{0,0,height},{0,0,1},1e-6});
+        check(tangent.edges.size()==1&&!torus_keys.contains(tangent.edges.front().reference.semantic_key),"Merged torus branch inherited a disappearing radial domain");++cases;
+    }
+    const auto disjoint=cold.intersect_face_plane(torus_reopened,{{"torus","generated:circle",{}},"torus-sketch",{0,0,6},{0,0,1},1e-6});
+    check(disjoint.edges.empty()&&disjoint.points.empty(),"Disjoint torus section invented a branch");++cases;
+    check(document::serialize_body_result(torus_reopened)==torus_packet,"Torus branch classification changed its source");
+    // Change both source radii and its rigid frame; identity follows native
+    // radial domains, independently of world-space direction and coordinates.
+    for(const auto size:{std::pair{40.,7.},std::pair{25.,3.}}) {
+        auto changed=torus;changed.axis_point={12,-7,20};changed.axis_direction={0,-1,0};changed.profile_normal={0,0,1};
+        changed.outer_profile=kernel::ExtrusionRequest::CircleProfile{{12+size.first,-7,20},size.second};
+        const auto calculated=kernel.evaluate_history({{"torus",changed}}).back();check(calculated.calculation_errors.empty(),"Changed torus source failed");
+        const auto serialized=document::serialize_body_result(calculated);const auto reopened_source=document::load_body_result(serialized);
+        for(const auto* engine:{&kernel,&cold})for(double height:{0.,size.second*.6})for(double side:{-1.,1.}) {
+            const auto curves=engine->intersect_face_plane(reopened_source,{{"torus","generated:circle",{}},"torus-sketch",{12,-7-height,20},{0,side,0},1e-6});
+            check(curves.edges.size()==2&&identities(curves)==torus_keys,"Source size/frame change rebound a torus branch");
+            for(const auto& edge:curves.edges) {
+                const bool inner=edge.reference.semantic_key.ends_with(":closed:domain:torus-inner");
+                const double radius=size.first+(inner?-1:1)*std::sqrt(size.second*size.second-height*height);
+                check(edge.exact_spline.has_value(),"Placed torus section lost exact geometry");
+                for(int i=0;i<=100;++i) {const auto p=kernel::bspline_value(*edge.exact_spline,i/100.);
+                    check(std::abs(p.y+7+height)<1e-7&&std::abs(std::hypot(p.x-12,p.z-20)-radius)<1e-7,"Placed torus section used an unplaced support");}
+            }++cases;
+        }
+        check(document::serialize_body_result(reopened_source)==serialized,"Placed torus calculation changed the source");
+    }
+    // The same shared calculation also serves ordinary surface Intersection.
+    // Reversing its two reference fields must keep both curve identities.
+    kernel::ExtrusionRequest section;section.surface_result=true;section.direction={0,100,0};
+    section.outer_profile=kernel::ExtrusionRequest::CurvedProfile{{kernel::ExtrusionRequest::LineCurve{{-50,-50,0},{50,-50,0}}}};
+    section.profile_region_id="section-region";section.outer_edge_source_ids={"span"};section.outer_vertex_source_ids={"first"};section.open_profile_end_id="last";
+    kernel::SurfaceIntersectionRequest intersection{{kernel::FaceReference{"torus","generated:circle",{}},kernel::FaceReference{"plane","generated:span",{}}},1e-6};
+    std::set<std::string> ordinary_keys;
+    for(bool reverse:{false,true}) {
+        if(reverse)std::swap(intersection.faces[0],intersection.faces[1]);
+        const auto result=kernel.evaluate_history({{"torus",torus},{"plane",section},{"intersection",intersection}}).back();
+        check(result.calculation_errors.empty(),"Ordinary two-branch surface Intersection failed");
+        kernel::ViewerReferenceGeometry curves;
+        for(const auto& edge:result.mesh.original_references.edges)if(edge.reference.owner_id=="intersection")curves.edges.push_back(edge);
+        check(curves.edges.size()==2,"Ordinary Intersection lost a torus branch");
+        const auto keys=identities(curves);if(ordinary_keys.empty())ordinary_keys=keys;else check(keys==ordinary_keys,"Swapping source faces renamed closed branches");++cases;
+    }
     bool ambiguous_rejected=false;
-    try{static_cast<void>(cold.intersect_face_plane(toroidal,{{"torus","generated:circle",{}},"torus-sketch",{0,0,0},{0,0,1},1e-6}));}
+    try{static_cast<void>(cold.intersect_face_plane(torus_reopened,{{"torus","generated:circle",{}},"torus-sketch",{0,0,0},{1,0,0},1e-6}));}
     catch(const std::runtime_error& error){ambiguous_rejected=std::string(error.what())=="Intersection branch ancestry is ambiguous.";}
     check(ambiguous_rejected,"Two closed branches with identical ancestry silently acquired an arbitrary identity");++cases;
     std::cout<<cases<<" exact bounded face/Sketch-plane, both normal directions, source displacement and read-only cases passed\n";return 0;
