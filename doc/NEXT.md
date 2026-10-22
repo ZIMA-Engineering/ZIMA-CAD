@@ -21,6 +21,19 @@ These accumulated design notes include historical stages. Check current focused
 contracts and [ROADMAP.md](../ROADMAP.md) before selecting work; newer explicit
 user instructions and completed native features supersede older pending items.
 
+## Latest correction checkpoint - 2026-10-22
+
+The reported `0101.prtz` objects remain native circles. The
+[reference-circle picking correction](verification/20261022-coincident-reference-circle-picking.md)
+removes false crossings produced by coincident reference display chords. The
+392-case native matrix, three reported pairs, complete conic-center GUI matrix
+and five languages in both themes pass. Broader checks also found and corrected
+[preselected point to circular C input](verification/20261022-preselected-circle-coincidence.md).
+The user's file remains byte-identical; no native format or factory asset changed.
+Continue the already approved Sketch intersection editor/binding integration,
+then the recorded following queue. These small fixes do not implement those
+pending commands or change the published Windows archive.
+
 ## Restart handoff - 2026-10-22
 
 Windows 2026102201 is now [public and accepted](releases/2026102201.md#windows-publication-acceptance)

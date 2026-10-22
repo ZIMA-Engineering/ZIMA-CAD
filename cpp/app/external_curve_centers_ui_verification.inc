@@ -79,7 +79,26 @@ int verify_external_curve_centers_ui(QApplication& application,const std::filesy
                     check(result.points.size()==1,"Concentric equality created an unnecessary contact point");
                 }
             }
-            const auto completed=read();const unsigned transactions=mode==2?1:kind<2?2:1;
+            const auto completed=read();
+            if(kind<2&&mode!=2)for(const auto& native:completed.circles)
+                if(completed.coincident_circular_support(reference.id,native.id)) {
+                    const auto first="sketch_intersection:"+reference.id+"||"+native.id;
+                    const auto second="sketch_intersection:"+native.id+"||"+reference.id;
+                    const auto false_crossing=[&](const auto& candidate) {
+                        return candidate.semantic_key==first||candidate.semantic_key==second;
+                    };
+                    check(std::ranges::none_of(view->mesh().points,[&](const auto& point){return false_crossing(point.reference);}),
+                        "Concentric circle still publishes its reference's tessellation points as intersections");
+                    for(std::size_t i=1;i+1<reference.cached_points.size();i+=7) {
+                        const auto& p=reference.cached_points[i];const auto at=screen(p[0],p[1]);
+                        mouse(at,QEvent::MouseMove,Qt::NoButton);
+                        check(!view->hovered_candidate()||!false_crossing(*view->hovered_candidate()),
+                            "Circle hover offered an artificial tessellation intersection");
+                        check(std::ranges::none_of(view->selection_candidates_at(at),false_crossing),
+                            "Circle candidate cycling still exposes artificial tessellation points");
+                    }
+                }
+            const unsigned transactions=mode==2?1:kind<2?2:1;
             for(unsigned i=0;i<transactions;++i){window.findChild<QAction*>("undoAction")->trigger();flush();}
             const auto undone=read();check(undone.circles.size()==target.circles.size()&&undone.constraints==target.constraints,"Center GUI Undo did not restore original Sketch");
             for(unsigned i=0;i<transactions;++i){window.findChild<QAction*>("redoAction")->trigger();flush();}

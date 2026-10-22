@@ -241,20 +241,9 @@ std::vector<std::array<double, 2>> curve_intersections(
     const Sketch& sketch, const SampledCurve& first,
     const SampledCurve& second) {
     std::vector<std::array<double, 2>> result;
-    const auto coincident_reference_circle=[&](const SampledCurve& reference,const SampledCurve& native) {
-        const auto source=std::ranges::find(sketch.external_references,reference.geometry_id,&SketchExternalReference::id);
-        if(source==sketch.external_references.end())return false;
-        const auto circle=external_reference_circle(*source);if(!circle)return false;
-        std::string center_id;double radius{};
-        if(const auto c=std::ranges::find(sketch.circles,native.geometry_id,&SketchCircle::id);c!=sketch.circles.end()){center_id=c->center_point_id;radius=c->radius;}
-        else if(const auto a=std::ranges::find(sketch.arcs,native.geometry_id,&SketchArc::id);a!=sketch.arcs.end()){center_id=a->center_point_id;radius=a->radius;}
-        else return false;
-        const auto* center=sketch.find_point(center_id);const double tolerance=1e-10*std::max(1.,radius);
-        return std::hypot(center->x-(*circle)[0],center->y-(*circle)[1])<=tolerance&&std::abs(radius-(*circle)[2])<=tolerance;
-    };
     // Coincidence is a support, not hundreds of crossings between two
     // differently sampled copies of the same circle.
-    if(coincident_reference_circle(first,second)||coincident_reference_circle(second,first))return result;
+    if(sketch.coincident_circular_support(first.geometry_id,second.geometry_id))return result;
     for (std::size_t first_index = 0;
          first_index + 1 < first.points.size(); ++first_index) {
         for (std::size_t second_index = 0;

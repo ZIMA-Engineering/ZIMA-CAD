@@ -566,6 +566,10 @@ public:
         const std::array<double, 2>& line_origin,
         const std::array<double, 2>& line_direction,
         bool line_bounded) const;
+    // A common circular support is not a finite set of polyline crossings.
+    // Shared by read-only inference and trimming; never invokes the kernel.
+    [[nodiscard]] bool coincident_circular_support(
+        const std::string& first_geometry_id,const std::string& second_geometry_id) const;
     [[nodiscard]] std::string add_external_point_segment_constraint(
         const std::string& reference_id, const std::string& segment_id, bool midpoint);
     [[nodiscard]] std::string add_point_on_line_constraint(

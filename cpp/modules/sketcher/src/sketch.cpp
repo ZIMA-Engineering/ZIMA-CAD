@@ -5485,6 +5485,19 @@ std::string Sketch::add_common_tangent_segment(
     return segment_id;
 }
 
+bool Sketch::coincident_circular_support(const std::string& first_id,const std::string& second_id) const {
+    for(const auto& reference:external_references)
+        if((reference.id==first_id||reference.id==second_id) && reference.exact_spline &&
+            !detail::exact_external_circle(*reference.exact_spline))return false;
+    const auto first=tangent_curve_data(*this,first_id),second=tangent_curve_data(*this,second_id);
+    if(!first||!second||!first->circular_radius||!second->circular_radius)return false;
+    const auto a=tangent_curve_center(*this,*first),b=tangent_curve_center(*this,*second);
+    if(!a||!b)return false;
+    const double tolerance=1e-10*std::max({1.,*first->circular_radius,*second->circular_radius});
+    return std::hypot((*a)[0]-(*b)[0],(*a)[1]-(*b)[1])<=tolerance &&
+        std::abs(*first->circular_radius-*second->circular_radius)<=tolerance;
+}
+
 std::vector<std::array<double, 2>> Sketch::curve_line_intersections(
     const std::string& geometry_id,
     const std::array<double, 2>& line_origin,
@@ -14049,6 +14062,26 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 (first->y + second->y) * 0.5),
             {id, "sketch_midpoint:" + segment.id, {}}, {}, false});
     }
+    // Cache coincidence by actual circular supports, once per scene packet.
+    // Display chords of a reference must not become dozens of artificial
+    // intersections with a native circle/arc on that same support.
+    std::map<std::string,std::set<std::string>> coincident_curves;
+    const auto coincident_pair=[&](const auto& first,const auto& second) {
+        const auto found=coincident_curves.find(first);
+        return found!=coincident_curves.end()&&found->second.contains(second);
+    };
+    std::vector<std::string> circular_ids;
+    for(const auto& curve:circles)circular_ids.push_back(curve.id);
+    for(const auto& curve:arcs)circular_ids.push_back(curve.id);
+    for(const auto& reference:external_references) {
+        if(reference.broken||!external_reference_circle(reference))continue;
+        for(const auto& previous:circular_ids)
+            if(coincident_circular_support(reference.id,previous)) {
+                coincident_curves[reference.id].insert(previous);
+                coincident_curves[previous].insert(reference.id);
+            }
+        circular_ids.push_back(reference.id);
+    }
     struct PlacementLine {
         std::string id;
         std::array<double, 2> origin;
@@ -14094,7 +14127,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         for (std::size_t second_index = first_index + 1;
              second_index < placement_lines.size(); ++second_index) {
             const auto& second = placement_lines[second_index];
-            if (first.id == second.id) continue;
+            if (first.id == second.id || coincident_pair(first.id,second.id)) continue;
             const double denominator =
                 first.direction[0] * second.direction[1] -
                 first.direction[1] * second.direction[0];
@@ -14189,6 +14222,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for (const auto& curve : bsplines) placement_curve_ids.push_back(curve.id);
     for (const auto& line : placement_lines) {
         for (const auto& curve_id : placement_curve_ids) {
+            if(coincident_pair(line.id,curve_id))continue;
             for (const auto& point : curve_line_intersections(
                     curve_id, line.origin, line.direction, line.bounded)) {
                 result.points.push_back({world_point(point[0], point[1]),

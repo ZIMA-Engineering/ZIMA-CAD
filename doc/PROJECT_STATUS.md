@@ -74,6 +74,12 @@ rigid placement and derived copies. Its 108-case matrix, factory refresh and all
 1,185 read-only native loads pass. All 137 Drawings pass reference/regeneration
 comparison against the released runtime without rewriting their factory files.
 The new Sketch editor commands and branch definitions remain unfinished.
+The subsequent [coincident reference-circle picking correction](verification/20261022-coincident-reference-circle-picking.md)
+removes artificial display-chord crossings while retaining native circles/arcs.
+Its 392-case native matrix, reported `0101.prtz` pairs, mouse checks and all five
+languages in both themes pass. A separate [preselected circular C input fix](verification/20261022-preselected-circle-coincidence.md)
+passes the existing saved-equation GUI regression. Both are local post-release
+changes; the immutable 2201 archive is unchanged.
 
 ## Still unfinished or planned
 
