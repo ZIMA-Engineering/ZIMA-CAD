@@ -54,8 +54,8 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
         state_->setText(enabled
             ? sketch_external_profile_active_
                 ? tr("Reference → obrys: vyberte hranu tělesa.")
-                : tr("Reference: vyberte plochu tělesa, hranu, obrysovou křivku, "
-                     "vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.")
+                : tr("Reference: vyberte hranu, obrysovou křivku, vrchol, osu "
+                     "nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.")
             : tr("Režim referencí byl ukončen."));
     }
 }

@@ -1684,7 +1684,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Parallel line distance: select the driven segment.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Dimension: click LMB in empty space to position the dimension line.",
   "Reference → obrys: vyberte hranu tělesa.": "Reference → profile: select a body edge.",
-  "Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Reference: select a body face, edge, outline curve, vertex or axis. Right-click to cycle candidates.",
+  "Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.": "Reference: select an edge, outline curve, vertex, axis or plane. Right-click to cycle candidates.",
   "Režim referencí byl ukončen.": "Reference mode finished.",
   "Reference byla uložena. Vyberte další zdroj.": "Reference saved. Select another source.",
   "Referenci nelze vytvořit: %1": "Cannot create reference: %1",

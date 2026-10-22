@@ -1684,7 +1684,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Distance entre parallèles : sélectionnez le segment piloté.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Cote : cliquez LMB dans l’espace vide pour placer la ligne de cote.",
   "Reference → obrys: vyberte hranu tělesa.": "Référence → contour : sélectionnez une arête du corps.",
-  "Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Référence : sélectionnez une face du corps, une arête, une courbe de contour, un sommet ou un axe. Cliquez avec le bouton droit pour parcourir les candidats.",
+  "Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.": "Référence : sélectionnez une arête, une courbe de contour, un sommet, un axe ou un plan. Cliquez avec le bouton droit pour parcourir les candidats.",
   "Režim referencí byl ukončen.": "Mode de références terminé.",
   "Reference byla uložena. Vyberte další zdroj.": "Référence enregistrée. Sélectionnez une autre source.",
   "Referenci nelze vytvořit: %1": "Impossible de créer la référence : %1",

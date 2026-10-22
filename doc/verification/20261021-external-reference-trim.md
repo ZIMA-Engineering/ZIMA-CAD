@@ -1,5 +1,10 @@
 # External cap references and trim boundaries
 
+The later [individual Reference entry correction](20261022-individual-sketch-reference-entry.md)
+supersedes the whole-face mouse entry described here. New ordinary Reference
+entry selects individual geometry; existing stored Face supports and the native
+trim equations remain intact. The results below record the earlier contract.
+
 Platform: Windows, current native main checkout, pinned OCCT 8.0.0 and Qt 6.11.0.
 Scope: the 2026-10-21 `Projects/1000.prtz` report and its immediate dependencies.
 

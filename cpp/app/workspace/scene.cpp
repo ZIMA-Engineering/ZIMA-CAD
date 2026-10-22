@@ -1274,16 +1274,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             active_sketch_id_.empty() && !selection_action_->isChecked()
             ? std::vector<zima::viewer::CandidateKind>{}
             : sketch_external_reference_active_
-                ? sketch_external_profile_active_
-                    ? std::vector{zima::viewer::CandidateKind::Edge}
-                    : std::vector{zima::viewer::CandidateKind::Edge,
-                              zima::viewer::CandidateKind::Face,
-                              zima::viewer::CandidateKind::Plane,
-                              zima::viewer::CandidateKind::SketchSegment,
-                              zima::viewer::CandidateKind::SketchCurve,
-                              zima::viewer::CandidateKind::SketchPoint,
-                              zima::viewer::CandidateKind::Vertex,
-                              zima::viewer::CandidateKind::Axis}
+                ? sketch_external_reference_candidate_kinds(sketch_external_profile_active_)
             : sketch_rectangle_axis_selecting_
                 ? std::vector{zima::viewer::CandidateKind::SketchSegment}
             : sketch_trim_active_
@@ -2264,16 +2255,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
         : (active_part != nullptr || active_assembly_sketch) &&
                 sketch_external_reference_active_
-            ? sketch_external_profile_active_
-                ? std::vector{zima::viewer::CandidateKind::Edge}
-                : std::vector{zima::viewer::CandidateKind::Edge,
-                          zima::viewer::CandidateKind::Face,
-                          zima::viewer::CandidateKind::Plane,
-                          zima::viewer::CandidateKind::SketchSegment,
-                          zima::viewer::CandidateKind::SketchCurve,
-                          zima::viewer::CandidateKind::SketchPoint,
-                          zima::viewer::CandidateKind::Vertex,
-                          zima::viewer::CandidateKind::Axis}
+            ? sketch_external_reference_candidate_kinds(sketch_external_profile_active_)
         : sketch_placement_active
             ? std::vector{zima::viewer::CandidateKind::SketchAxis,
                           zima::viewer::CandidateKind::SketchSegment,

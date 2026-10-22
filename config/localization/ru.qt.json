@@ -1684,7 +1684,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Расстояние между параллельными прямыми: выберите управляемый отрезок.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Размер: нажмите LMB в свободном месте для задания положения размерной линии.",
   "Reference → obrys: vyberte hranu tělesa.": "Ссылка → контур: выберите ребро тела.",
-  "Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Ссылка: выберите грань тела, ребро, контурную кривую, вершину или ось. Правая кнопка мыши переключает варианты.",
+  "Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.": "Ссылка: выберите ребро, контурную кривую, вершину, ось или плоскость. Правая кнопка мыши переключает варианты.",
   "Režim referencí byl ukončen.": "Режим ссылок завершён.",
   "Reference byla uložena. Vyberte další zdroj.": "Ссылка сохранена. Выберите следующий источник.",
   "Referenci nelze vytvořit: %1": "Не удалось создать ссылку: %1",

@@ -5,12 +5,21 @@
 #include "construction_reference_candidate_policy.hpp"
 
 namespace zima::app {
+inline std::vector<viewer::CandidateKind> sketch_external_reference_candidate_kinds(bool profile) {
+    using Kind=viewer::CandidateKind;
+    if(profile)return {Kind::Edge};
+    return {Kind::Edge,Kind::Plane,Kind::SketchSegment,Kind::SketchCurve,
+        Kind::SketchPoint,Kind::Vertex,Kind::Axis};
+}
+
 inline bool sketch_external_reference_has_stable_geometry(
         const viewer::ViewerCandidate& candidate,bool profile) {
-    if(profile)return candidate.geometry==viewer::CandidateGeometry::Display;
-    return candidate.geometry==viewer::CandidateGeometry::OriginalReference||
-        (candidate.kind==viewer::CandidateKind::Face&&
-         placement_reference_candidate_has_stable_geometry(candidate));
+    // Ordinary Reference consumes one curve/point/axis/plane. Whole-face
+    // entry belongs to the separate intersection command, not this picker.
+    if(profile)return candidate.kind==viewer::CandidateKind::Edge&&
+        candidate.geometry==viewer::CandidateGeometry::Display;
+    return candidate.kind!=viewer::CandidateKind::Face&&
+        candidate.geometry==viewer::CandidateGeometry::OriginalReference;
 }
 
 // The caller retains the offered Display candidate for hover/confirmation.

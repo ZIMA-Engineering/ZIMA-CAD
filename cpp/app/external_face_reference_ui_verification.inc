@@ -5,28 +5,26 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
         const auto user=qEnvironmentVariable("ZIMA_VERIFY_EXTERNAL_FACE_SOURCE");
         for(bool thin:{false,true})for(bool end_cap:{false,true}) {
             document::PartDocument part;std::vector<kernel::BodyResult> calculated;
-            std::string source_id,sketch_id,body_id;
+            std::string source_id,sketch_id,body_id,curve_id;
             if(!user.isEmpty()) {
                 if(thin)break;
                 part=document::PartDocument::load(std::filesystem::u8path(user.toStdString()),&calculated);
-                source_id=part.history.back().id;body_id=part.body_owner_for_object(source_id)->scope.id;
-                // Test the reported final feature as a source. Its own Sketch
-                // cannot reference its future caps, so append a private later
-                // standalone Sketch without touching the user's document.
-                auto target=sketcher::Sketch::create_default();auto owner=document::PartDocument::create_sketch_container();
-                target.owner_container_id=owner.id;target.plane=sketcher::SketchPlane::XY;target.plane_auto=false;sketch_id=target.id;
-                part.history.push_back(owner);part.sketches.push_back(target);
-                auto graph=part.body_history;graph.activate(body_id);graph.set_history_cursor(body_id,graph.find(body_id)->entries.size());
-                graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
-                kernel::OcctKernel kernel;calculated=kernel.evaluate_history(part.kernel_operations());
-                check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Cannot calculate the private final-feature reference fixture");
+                check(part.history.size()>=2,"Reference fixture needs preceding source history");
+                source_id=part.history.front().id;body_id=part.body_owner_for_object(source_id)->scope.id;
+                sketch_id=part.history.back().feature.sketch_id;
+                const auto& source=*std::ranges::find(part.sketches,part.history.front().feature.sketch_id,&sketcher::Sketch::id);
+                curve_id=source.arcs.empty()?source.segments.front().id:source.arcs.front().id;
+                const auto& target=*std::ranges::find(part.sketches,sketch_id,&sketcher::Sketch::id);
+                for(const auto& reference:target.external_references)if(reference.source_owner_id==source_id)
+                    for(const auto& arc:source.arcs)if(reference.source_semantic_key.find(arc.id)!=std::string::npos)
+                        curve_id=arc.id;
             } else {
                 part=document::PartDocument::create_default();auto source=sketcher::Sketch::create_default();
                 static_cast<void>(source.add_rectangle(0,0,30,20));
                 auto feature=document::PartDocument::create_feature_container(source.id);source.owner_container_id=feature.id;
                 feature.feature.type=document::FeatureType::Modeling;feature.feature.sides[0].length=10;
                 feature.feature.result_type=thin?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
-                feature.feature.thin_thickness=2;source_id=feature.id;
+                feature.feature.thin_thickness=2;source_id=feature.id;curve_id=source.segments.front().id;
                 auto target=sketcher::Sketch::create_default();auto owner=document::PartDocument::create_sketch_container();
                 target.owner_container_id=owner.id;target.plane=sketcher::SketchPlane::XZ;target.plane_auto=false;sketch_id=target.id;
                 static_cast<void>(target.add_circle(10,5,3));part.history={feature,owner};part.sketches={source,target};
@@ -51,8 +49,8 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
             QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
             auto* action=window.findChild<QAction*>("sketchExternalReferenceAction");check(action&&action->isEnabled(),"External reference command unavailable");action->trigger();flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Cap reference View unavailable");
-            // Tilt the camera to offer the actual face interior. The Sketch
-            // plane and the selected face's side remain unchanged.
+            // View both rims obliquely; ordinary Reference must still offer
+            // only individual original edges, never a face interior.
             view->set_view_direction({1,-2,3},0);
             QEventLoop orbit;QTimer::singleShot(950,&orbit,&QEventLoop::quit);orbit.exec();
             view->fit_all();flush();
@@ -60,10 +58,13 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
             std::map<std::string,unsigned> offered;
             const auto is_cap=[&](const auto& candidate){
                 const auto source=app::sketch_external_reference_source_candidate(candidate);
-                return candidate.kind==viewer::CandidateKind::Face&&source.owner_id==source_id&&
-                    source.semantic_key.starts_with(end_cap?"end:":"start:");};
+                return candidate.kind==viewer::CandidateKind::Edge&&source.owner_id==source_id&&
+                    source.semantic_key.starts_with(end_cap?"end:":"start:")&&
+                    source.semantic_key.find(curve_id)!=std::string::npos;};
             for(int y=15;y<view->height()-15&&!hit;y+=3)for(int x=15;x<view->width()-15&&!hit;x+=3) {
-                const auto candidates=view->selection_candidates_at(QPointF(x,y));if(candidates.empty())continue;
+                const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                check(std::ranges::none_of(candidates,[](const auto& candidate){return candidate.kind==viewer::CandidateKind::Face;}),"Ordinary Reference hover offered a whole face");
+                if(candidates.empty())continue;
                 for(const auto& candidate:candidates)if(candidate.owner_id==source_id)++offered[std::to_string(int(candidate.kind))+":"+candidate.semantic_key.substr(0,60)];
                 if(std::ranges::any_of(candidates,is_cap))hit=QPointF(x,y);
             }
@@ -72,18 +73,18 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
                 for(const auto& [key,count]:offered)std::cerr<<key<<" "<<count<<std::endl;
                 window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"cap-failed.png")));
             }
-            check(hit.has_value(),"Original source cap has no selectable face candidate");
+            check(hit.has_value(),"Original source rim has no selectable individual edge");
             const auto mouse=[&](QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,*hit,QPointF(view->mapToGlobal(hit->toPoint())),button,
                 type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
             mouse(QEvent::MouseMove,Qt::NoButton);
             for(unsigned cycle=0;cycle<32;++cycle){const auto offered=view->offered_candidate();if(offered&&is_cap(*offered))break;
                 mouse(QEvent::MouseButtonPress,Qt::RightButton);mouse(QEvent::MouseButtonRelease,Qt::RightButton);}
-            const auto cap=view->offered_candidate();check(cap&&is_cap(*cap),"Right-click cannot offer the cap behind its thin rim edges");
-            check(cap->geometry==viewer::CandidateGeometry::Display,"External cap selection offered the untrimmed original instead of its visible Body face");
+            const auto cap=view->offered_candidate();check(cap&&is_cap(*cap),"Right-click cannot offer the individual original rim edge");
+            check(cap->geometry==viewer::CandidateGeometry::OriginalReference,"Ordinary Reference did not retain the original edge source");
             mouse(QEvent::MouseButtonPress,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton);
             const auto original_settings=app::ApplicationSettings::load(QString::fromStdString(document::path_to_utf8(directory)));
             QTemporaryDir languages;
-            const auto prompt=QString::fromUtf8("Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.");
+            const auto prompt=QString::fromUtf8("Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.");
             for(const auto* language:{"cs","en","de","fr","ru"}) {
                 QSettings config(languages.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);
                 config.setValue("Paths/Localization",original_settings.resolved_paths.value("Localization"));config.sync();
@@ -99,7 +100,7 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
                     settings.theme=theme;app::apply_application_appearance(application,settings);
                     action->trigger();flush();action->trigger();flush();
                     const auto* status=window.findChild<QLabel*>("workspaceState");
-                    check(status&&!settings.qt_translations.value(prompt).isEmpty()&&status->text()==settings.qt_translations.value(prompt),"Face reference guidance did not follow language/theme");
+                    check(status&&!settings.qt_translations.value(prompt).isEmpty()&&status->text()==settings.qt_translations.value(prompt),"Individual reference guidance did not follow language/theme");
                 }
             }
             app::apply_application_translations(application,original_settings);app::apply_application_appearance(application,original_settings);
@@ -112,18 +113,22 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
             const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
             const auto saved=snapshot();const auto& sketch=*std::ranges::find(saved.sketches,sketch_id,&sketcher::Sketch::id);
             const auto& original=*std::ranges::find(part.sketches,sketch_id,&sketcher::Sketch::id);
-            check(sketch.external_references.size()==original.external_references.size()+1,"Mouse selection did not insert cap reference");
-            const auto& ref=sketch.external_references.back();check(ref.kind==sketcher::ExternalReferenceKind::Face&&ref.infinite&&!ref.broken,"Side-on cap did not retain its infinite plane support");
+            check(sketch.external_references.size()==original.external_references.size()+1,"Mouse selection did not insert one edge reference");
+            const auto& ref=sketch.external_references.back();check(ref.kind==sketcher::ExternalReferenceKind::Edge&&!ref.infinite&&!ref.broken,
+                "Individual edge selection did not retain finite original support");
+            check(ref.cached_paths.empty()||ref.cached_paths.size()==1,"Individual edge selection projected multiple face contours");
+            check(std::equal(original.external_references.begin(),original.external_references.end(),sketch.external_references.begin()),
+                "Adding an edge rewrote a stored face reference");
             const auto source=app::sketch_external_reference_source_candidate(*cap);
-            check(ref.source_owner_id==source.owner_id&&ref.source_semantic_key==source.semantic_key,"Cap acceptance changed the original identity of the offered visible fragment");
-            check(saved.history==part.history,"Adding a cap reference changed feature parameters");
+            check(ref.source_owner_id==source.owner_id&&ref.source_semantic_key==source.semantic_key,"Edge acceptance changed the exact offered source identity");
+            check(saved.history==part.history,"Adding an edge reference changed feature parameters");
             window.findChild<QAction*>("undoAction")->trigger();flush();auto undone=snapshot();
-            check(std::ranges::find(undone.sketches,sketch_id,&sketcher::Sketch::id)->external_references==original.external_references,"Cap reference Undo failed");
+            check(std::ranges::find(undone.sketches,sketch_id,&sketcher::Sketch::id)->external_references==original.external_references,"Edge reference Undo failed");
             window.findChild<QAction*>("redoAction")->trigger();flush();auto redone=snapshot();
-            check(std::ranges::find(redone.sketches,sketch_id,&sketcher::Sketch::id)->external_references==sketch.external_references,"Cap reference Redo/reopen changed its identity");
+            check(std::ranges::find(redone.sketches,sketch_id,&sketcher::Sketch::id)->external_references==sketch.external_references,"Edge reference Redo/reopen changed its identity");
             window.grab().save(QString::fromStdString(document::path_to_utf8(directory/(fixture_name+".png"))));
             std::cout<<"Verified "<<fixture_name<<" source="<<source_id<<" cap="<<cap->semantic_key<<'\n';
         }
-        std::cout<<"External source cap mouse selection, infinite plane support, Undo/Redo and native reopen passed\n";return 0;
+        std::cout<<"Individual source edge mouse selection, stored face preservation, Undo/Redo and native reopen passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;return 1;}
 }

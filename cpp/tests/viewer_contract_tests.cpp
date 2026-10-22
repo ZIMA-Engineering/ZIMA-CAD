@@ -988,12 +988,30 @@ int main() {
                 "Placement did not offer the actual trimmed display fragment");
             const auto source=zima::app::placement_reference_source_candidate(offered[0]);
             const auto external_source=zima::app::sketch_external_reference_source_candidate(offered[0]);
-            require(zima::app::sketch_external_reference_has_stable_geometry(offered[0],false)&&
+            require(!zima::app::sketch_external_reference_has_stable_geometry(offered[0],false)&&
                 external_source.owner_id=="original-box"&&external_source.semantic_key=="z_max"&&
                 external_source.instance_path=="8:assembly4:part"&&
                 offered[0].owner_id=="latest-cut"&&offered[0].semantic_key==ancestry&&
                 external_source.geometry_index==offered[0].geometry_index,
-                "Sketch external reference lost the visible fragment or its persisted original parent");
+                "Ordinary Sketch Reference offered a whole face or lost stored face ancestry");
+            const auto reference_kinds=zima::app::sketch_external_reference_candidate_kinds(false);
+            require(std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Face)==reference_kinds.end()&&
+                std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Edge)!=reference_kinds.end()&&
+                std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Axis)!=reference_kinds.end()&&
+                std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Plane)!=reference_kinds.end(),
+                "Ordinary Reference command did not retain its individual source kinds");
+            require(zima::app::sketch_external_reference_candidate_kinds(true)==
+                std::vector{zima::viewer::CandidateKind::Edge},
+                "Reference to outline stopped selecting calculated body edges");
+            for(const auto kind:{zima::viewer::CandidateKind::Edge,zima::viewer::CandidateKind::Axis,
+                    zima::viewer::CandidateKind::Plane,zima::viewer::CandidateKind::Vertex,
+                    zima::viewer::CandidateKind::SketchSegment,zima::viewer::CandidateKind::SketchCurve,
+                    zima::viewer::CandidateKind::SketchPoint}) {
+                auto candidate=offered[0];candidate.kind=kind;
+                candidate.geometry=zima::viewer::CandidateGeometry::OriginalReference;
+                require(zima::app::sketch_external_reference_has_stable_geometry(candidate,false),
+                    "Ordinary Reference rejected persisted individual geometry");
+            }
             require(!zima::app::sketch_external_reference_has_stable_geometry(
                 {zima::viewer::CandidateKind::Edge,0,0,"anonymous-result","edge",{},zima::viewer::CandidateGeometry::Display},false),
                 "Ordinary Sketch references admitted an operational result edge");

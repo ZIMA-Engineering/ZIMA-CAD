@@ -1,5 +1,11 @@
 ﻿# ZIMA-CAD Sketcher
 
+Ordinary **Reference** selects one original edge/curve, vertex, axis or datum
+plane. It does not offer whole body faces; face selection belongs to the planned
+Face × Sketch-plane intersection command. Existing stored Face references retain
+their geometry and identity. **Reference to outline** keeps its separate actual
+body-edge contract. See the [entry correction and finite checks](verification/20261022-individual-sketch-reference-entry.md).
+
 The Drawing shortcut above the Tree is hidden while editing a Sketch. Finish
 the Sketch to restore ordinary document navigation. See the
 [visibility verification](verification/20261021-sketch-drawing-shortcut.md).

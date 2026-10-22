@@ -1684,7 +1684,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Vzdálenost rovnoběžek: vyberte řízenou úsečku.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.",
   "Reference → obrys: vyberte hranu tělesa.": "Reference → obrys: vyberte hranu tělesa.",
-  "Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.",
+  "Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.": "Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.",
   "Režim referencí byl ukončen.": "Režim referencí byl ukončen.",
   "Reference byla uložena. Vyberte další zdroj.": "Reference byla uložena. Vyberte další zdroj.",
   "Referenci nelze vytvořit: %1": "Referenci nelze vytvořit: %1",

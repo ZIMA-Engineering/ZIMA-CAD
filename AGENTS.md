@@ -618,8 +618,11 @@ anchored. The shared properties-window implementation owns this layout policy.
   edges created by Fillet/Chamfer. Preserve an inherited original identity
   where available; never substitute the untrimmed source geometry. Persist
   this source choice and follow the same body boundary on regeneration.
-  Ordinary Sketch external references still use original objects, including
-  original faces. This exception does not change container placement.
+  Ordinary Sketch references select individual original edges/curves, points,
+  axes and datum planes, not whole body faces. Whole-face selection belongs to
+  the separate Face × Sketch-plane intersection command. Preserve existing
+  stored face references and their geometry; restricting new entry does not
+  authorize rewriting them. This exception does not change container placement.
 - Highlight only the exact candidate geometry. Do not colour, tint, or add a
   coloured overlay for an entire body when offering a topology reference.
 - Reference-entry controls expose two independent visual states through one

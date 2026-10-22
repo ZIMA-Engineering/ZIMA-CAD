@@ -50,6 +50,16 @@ The user permits testing the original model, but this does not require modifying
 it unnecessarily. They explicitly deferred this investigation until after the
 Windows publication so it must not restart release preparation.
 
+The post-release [individual Reference entry correction](verification/20261022-individual-sketch-reference-entry.md)
+now restricts ordinary hover/confirmation to individual geometry. Eight native/
+GUI/localization suites pass, together with both rims of the exact reported
+right-hand source arc in an isolated `2000.prtz` copy; the original stored
+four-path Face reference remains unchanged. The Fillet failure is reproduced:
+two connected segments share each rejected key, and workspace validation rejects
+them before OCCT. Continue that diagnosis separately; the published archive is
+unchanged. Final publication cleanup left approximately 29 GB free before the
+subsequent development build; periodic verified cleanup remains requested.
+
 ### Up To multi-face editor proposal - 2026-10-22
 
 The user requested recording this proposal, not implementing multi-face Up To

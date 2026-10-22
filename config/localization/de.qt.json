@@ -1684,7 +1684,7 @@
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Abstand paralleler Geraden: Gesteuerte Strecke auswählen.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Bemaßung: LMB in freien Bereich klicken, um die Maßlinie zu positionieren.",
   "Reference → obrys: vyberte hranu tělesa.": "Referenz → Profil: Körperkante auswählen.",
-  "Reference: vyberte plochu tělesa, hranu, obrysovou křivku, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Referenz: Wählen Sie eine Körperfläche, Kante, Konturkurve, einen Scheitelpunkt oder eine Achse. Mit der rechten Maustaste wechseln Sie die Kandidaten.",
+  "Reference: vyberte hranu, obrysovou křivku, vrchol, osu nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.": "Referenz: Wählen Sie eine Kante, Konturkurve, einen Scheitelpunkt, eine Achse oder Ebene. Mit der rechten Maustaste wechseln Sie die Kandidaten.",
   "Režim referencí byl ukončen.": "Referenzmodus beendet.",
   "Reference byla uložena. Vyberte další zdroj.": "Referenz gespeichert. Wählen Sie eine weitere Quelle.",
   "Referenci nelze vytvořit: %1": "Referenz kann nicht erstellt werden: %1",
