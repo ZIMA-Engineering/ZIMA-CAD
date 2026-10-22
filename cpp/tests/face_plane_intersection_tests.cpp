@@ -62,17 +62,11 @@ int main(){try {
         check(empty.edges.empty()&&empty.points.empty(),"Disjoint plane invented an intersection");++cases;
         const auto stored=document::serialize_body_result(body);const auto cold_body=document::load_body_result(stored);
         kernel::OcctKernel reopened_engine;
-        if(circular) {
-            const auto curve=reopened_engine.intersect_face_plane(cold_body,{source,"owning-sketch",{0,0,5},{0,0,1},1e-6});
-            check(curve.edges.size()==1&&identities(curve)==keys,"Cold solid circle lost its source identity");
-        } else {
-            // Ordinary solids currently save face-only bindings. Do not turn
-            // missing boundary ancestry into guessed endpoints or hidden replay.
-            bool missing_ancestry=false;
-            try{static_cast<void>(reopened_engine.intersect_face_plane(cold_body,{source,"owning-sketch",{0,0,5},{0,0,1},1e-6}));}
-            catch(const std::runtime_error& error){missing_ancestry=std::string(error.what())=="Intersection endpoint ancestry is ambiguous.";}
-            check(missing_ancestry,"Cold solid open section bypassed its missing persisted boundary ancestry");
-        }
+        const auto curve=reopened_engine.intersect_face_plane(cold_body,{source,"owning-sketch",{0,0,5},{0,0,1},1e-6});
+        check(curve.edges.size()==1&&identities(curve)==keys,"Cold solid section lost its source identity");
+        for(int i=0;i<=100;++i) {const auto p=kernel::bspline_value(*curve.edges.front().exact_spline,i/100.);
+            check(std::abs(p.z-5)<1e-7&&(circular?std::abs(std::hypot(p.x,p.y)-5)<1e-7:std::abs(p.y+4)<1e-7),"Cold solid section escaped its exact supports");}
+        if(!circular)check(curve.points.size()==2&&curve.edges.front().edge_treatment_endpoint_references.size()==2,"Cold open section lost native boundary endpoints");
         check(document::serialize_body_result(cold_body)==stored,"Cold solid intersection changed the source packet");++cases;
         auto moved=fixture.part;auto owner=moved.body_history.bodies().front();
         owner.scope.placement.x=12;owner.scope.placement.y=-7;owner.scope.placement.z=20;
@@ -87,6 +81,53 @@ int main(){try {
                 check(std::abs(p.y+7+height)<1e-7,"Intersection used the unplaced Sketch plane");
                 check(circular?std::abs(std::hypot(p.x-12,p.z-20)-5)<1e-7:std::abs(p.z-16)<1e-7&&p.x>=7-1e-7&&p.x<=17+1e-7,"Intersection used an unplaced source face");}
             ++cases;
+        }
+        const auto placed_packet=document::serialize_body_result(placed.back());
+        const auto placed_cold=document::load_body_result(placed_packet);
+        const auto saved_curves=reopened_engine.intersect_face_plane(placed_cold,{source,"owning-sketch",{12,-12,20},{0,1,0},1e-6});
+        check(saved_curves.edges.size()==1&&identities(saved_curves)==keys,"Cold placed Body lost its original boundary bindings");
+        for(int i=0;i<=100;++i)check(std::abs(kernel::bspline_value(*saved_curves.edges.front().exact_spline,i/100.).y+12)<1e-7,"Cold placed section used an unplaced native archive");++cases;
+    }
+    {
+        kernel::OcctKernel copied_cold;
+        const auto fixture=make(kernel,false);const auto original_face=face(fixture,false);
+        const auto& local=fixture.bodies.back().body_boundaries.begin()->second.back();
+        const auto before=document::serialize_body_result(local);
+        for(int kind=0;kind<4;++kind) {
+            kernel::BodyResult copy;const auto owner="copied-source-"+std::to_string(kind);
+            const double scale=kind==0?2.:1.;
+            if(kind==0)copy=kernel.scale_body(local,2,{},owner);
+            else if(kind==1)copy=kernel.mirror_body(local,{{20,0,0},{1,0,0}},owner);
+            else {
+                kernel::PatternRequest pattern;
+                if(kind==2){pattern.linear[0].count=3;pattern.linear[0].spacing=20;}
+                else {pattern.circular=true;pattern.count=3;pattern.full_circle=false;pattern.angle_degrees=90;}
+                copy=kernel.pattern_body(local,pattern,owner);
+            }
+            const auto encoded=document::serialize_body_result(copy);const auto reopened=document::load_body_result(encoded);
+            using Key=std::tuple<std::string,std::string,std::string>;
+            const auto key=[](const auto& r){return Key{r.owner_id,r.semantic_key,r.instance_path};};
+            std::set<Key> visible_edges,stored_edges,visible_points,stored_points;
+            for(const auto& edge:copy.mesh.edges)if(edge.reference.valid())visible_edges.insert(key(edge.reference));
+            for(const auto& binding:copy.kernel_edges)stored_edges.insert(key(binding.reference));
+            for(const auto& point:copy.mesh.points)if(point.reference.valid())visible_points.insert(key(point.reference));
+            for(const auto& binding:copy.kernel_vertices)stored_points.insert(key(binding.reference));
+            check(visible_edges==stored_edges&&visible_points==stored_points&&!stored_edges.empty()&&!stored_points.empty(),"Copied native bindings disagree with existing viewer reference derivation");
+            std::map<Key,kernel::FaceReference> targets;
+            for(const auto& candidate:copy.mesh.triangle_references)
+                if(candidate.owner_id==owner&&candidate.semantic_key.ends_with(original_face.semantic_key))targets.emplace(key(candidate),candidate);
+            check(targets.size()==(kind<2?1:2),"Copied source lost a bounded original face");
+            for(const auto& [id,target]:targets)for(double normal:{-1.,1.}) {
+                const auto curves=copied_cold.intersect_face_plane(reopened,{target,"copied-sketch",{0,0,5*scale},{0,0,normal},1e-6});
+                check(curves.edges.size()==1&&curves.points.size()==2&&curves.edges.front().edge_treatment_endpoint_references.size()==2,"Cold copied source lost its open intersection endpoints");
+                check(curves.edges.front().measured_length&&std::abs(*curves.edges.front().measured_length-10*scale)<1e-7,"Copied section has incorrect analytical length");
+                check(target.surface&&target.surface->kind==kernel::SurfaceGeometry::Kind::Plane,"Copied source has no exact plane");
+                const auto& plane=*target.surface;
+                for(int i=0;i<=100;++i) {const auto p=kernel::bspline_value(*curves.edges.front().exact_spline,i/100.);
+                    check(std::abs(p.z-5*scale)<1e-7&&std::abs((p.x-plane.origin.x)*plane.axis.x+(p.y-plane.origin.y)*plane.axis.y+(p.z-plane.origin.z)*plane.axis.z)<1e-7,"Cold copied section escaped its transformed exact supports");}
+                ++cases;
+            }
+            check(document::serialize_body_result(reopened)==encoded&&document::serialize_body_result(local)==before,"Copy intersection mutated a source archive");
         }
     }
     // Reuse the established surface-intersection ancestry for two bounded

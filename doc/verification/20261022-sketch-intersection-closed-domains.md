@@ -66,6 +66,11 @@ Evidence: `build/sketch-face-plane-closed-domains-native.log` and
 `build/sketch-face-plane-closed-domains-final.log`, with the complete rerun in
 `build/sketch-face-plane-closed-domains-complete.log`. Timings are local observations.
 
+The separately approved [source-boundary follow-up](20261022-sketch-intersection-source-bindings.md)
+supersedes the cold open-solid rejection below: its expanded 108-case matrix now
+recovers saved native endpoint ancestry. The following limitation records the
+state of this earlier increment.
+
 ## Remaining production integration
 
 Ordinary solids intentionally retain face-only archive bindings under the normal

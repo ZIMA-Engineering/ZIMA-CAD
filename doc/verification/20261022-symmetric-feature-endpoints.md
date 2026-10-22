@@ -19,12 +19,17 @@ general reference index correctly rejects that ambiguous pair. Feature-group
 union omitted the vertex-completion step already used by ordinary Add, leaving
 every half-rail without its complete endpoint pair.
 
-Complete the group's operational vertices through `complete_boolean_vertices`
-after its existing Fuse. A shared junction receives the established
-`boolean:add:vertex` ancestry from its incident native faces and edges. Original
-child packets in `group_inputs`, side identities and all geometry remain intact.
-Do not select an arbitrary parent, join points by distance, or derive identity
-from enumeration. This runs only during an explicit body calculation.
+The initial correction completed operational vertices after the group's Fuse.
+The [source-binding follow-up](20261022-sketch-intersection-source-bindings.md)
+subsequently narrowed this: the shared `feature_endpoint_vertices` helper derives
+inspection endpoints through `complete_boolean_vertices`, while native propagated
+aliases stay unchanged for downstream source operations. A shared junction still
+receives the established `boolean:add:vertex` ancestry from incident native faces
+and edges. Packet endpoint inspection and variable Fillet use the same helper.
+Original side identities and geometry remain intact; the expanded native matrix
+checks 16 native parent bindings alongside 12 operational endpoints. No arbitrary
+parent, proximity or enumeration determines identity. This runs only during an
+explicit body calculation.
 
 The dependent variable-radius Fillet check found another defect: the indexed
 OCCT `SetRadius(R1,R2,contour,1)` assigns the law to the first constituent edge.

@@ -75,7 +75,11 @@ coaxial toroidal loops retain predefined inner/outer domain identities through
 source size/frame changes; unresolved loop domains remain explicit errors.
 Production Sketch command/persistence integration is still pending. The matrix
 also demonstrates that cold open-solid sections lack persisted boundary ancestry;
-resolve that source contract before claiming save/reopen command acceptance.
+the separately approved
+[source-binding follow-up](verification/20261022-sketch-intersection-source-bindings.md)
+now supplies native boundary ancestry and passes 108 cases. Continue editor and
+selected-branch integration after its factory acceptance; do not treat the
+foundation as completed Sketch commands.
 Final publication cleanup left approximately 29 GB free before the
 subsequent development build; periodic verified cleanup remains requested.
 After the two post-release fixes, another 80 unused Debug Qt DLL copies were

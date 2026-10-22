@@ -5123,6 +5123,40 @@ std::vector<OwnedVertex> complete_boolean_vertices(
     return result;
 }
 
+// Endpoint inspection needs one operational name at a joined Feature side.
+// Keep the propagated aliases in the native topology: downstream source
+// operations own those parents independently of this inspection name.
+std::vector<OwnedVertex> feature_endpoint_vertices(const TopoDS_Shape& shape,
+        const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges,
+        const std::vector<OwnedVertex>& vertices) {
+    const TopologyReferenceIndex<VertexReference,OwnedVertex> references(vertices);
+    TopTools_IndexedMapOfShape junctions;
+    std::vector<std::string> owners;
+    for(const auto& vertex:vertices) {
+        if(references.reference_for(vertex.shape).valid()||junctions.Contains(vertex.shape))continue;
+        std::string owner;bool feature_parents=true;
+        for(const auto& parent:vertices)if(parent.shape.IsSame(vertex.shape)) {
+            const auto& ref=parent.reference;
+            if(!ref.valid()||(!ref.semantic_key.starts_with("start:feature-side:")&&
+                !ref.semantic_key.starts_with("end:feature-side:"))||
+                (!owner.empty()&&owner!=ref.owner_id)) {feature_parents=false;break;}
+            owner=ref.owner_id;
+        }
+        if(feature_parents&&!owner.empty()) {junctions.Add(vertex.shape);owners.push_back(std::move(owner));}
+    }
+    if(junctions.IsEmpty())return vertices;
+    const auto completed=complete_boolean_vertices(shape,faces,edges,vertices,{},"add");
+    auto result=vertices;
+    for(const auto& point:completed) {
+        const int index=junctions.FindIndex(point.shape);
+        if(!index)continue;
+        std::erase_if(result,[&](const auto& item){return item.shape.IsSame(point.shape);});
+        auto endpoint=point;endpoint.reference.owner_id=owners.at(static_cast<std::size_t>(index-1));
+        result.push_back(std::move(endpoint));
+    }
+    return result;
+}
+
 std::set<std::string> selected_edge_parent_tokens(
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected) {
     std::set<std::string> result;
@@ -5980,9 +6014,12 @@ BodyResult make_result(
         imported_step,parallel_corner_volume||imported_step,profile);
     const bool pending_face_measurements=!eager_face_measurements&&!owned_faces.empty();
     if (persist_kernel_shape||pending_face_measurements) {
-        if(std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
+        // Native boundaries must retain the same exact source ancestry after
+        // reopening as in the live calculation cache. Face-only bindings cannot
+        // identify the endpoints of a bounded face/Sketch-plane intersection.
+        // Reuse one archive for all owned kinds; inspection never rebuilds it.
+        if(!owned_faces.empty())
             persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result);
-        else if(pending_face_measurements)persist_surface_topology(shape,owned_faces,{},{},result);
         else result.kernel_shape = serialize_kernel_shape(shape);
     }
     profile("BRep persistence");
@@ -5992,7 +6029,7 @@ BodyResult make_result(
         vertex_references;
     face_references.emplace(owned_faces);
     if (original_reference_geometry || collect_original_references) {
-        vertex_references.emplace(owned_vertices);
+        vertex_references.emplace(feature_endpoint_vertices(shape,owned_faces,owned_edges,owned_vertices));
     }
     // Display body edges remain non-reference geometry, but retain their
     // owning history container solely for cheap wire recolouring.
@@ -7254,13 +7291,36 @@ void append_body_viewer(ViewerMesh& destination, const ViewerMesh& source) {
     append_reference_geometry(destination.original_references, source.original_references);
 }
 
+// Use the same reference derivation as the visible packet for every archived
+// topology kind. A metadata-only packet keeps this bounded to owned identities;
+// do not copy the complete viewer tessellation for a native binding transform.
+template<class Transform,class Remap>
+PrimitiveData transformed_bound_topology(const PrimitiveData& source,Transform& transform,Remap remap) {
+    ViewerMesh metadata;
+    metadata.triangle_references.reserve(source.faces.size());
+    metadata.edges.reserve(source.edges.size());metadata.points.reserve(source.vertices.size());
+    for(const auto& face:source.faces)metadata.triangle_references.push_back(face.reference);
+    for(const auto& edge:source.edges){ViewerEdge value;value.reference=edge.reference;metadata.edges.push_back(std::move(value));}
+    for(const auto& vertex:source.vertices)metadata.points.push_back({{},vertex.reference});
+    const auto mapped=remap(std::move(metadata));
+    PrimitiveData result;result.shape=transform.Shape();
+    result.faces.reserve(source.faces.size());result.edges.reserve(source.edges.size());result.vertices.reserve(source.vertices.size());
+    for(std::size_t i=0;i<source.faces.size();++i)
+        result.faces.push_back({transform.ModifiedShape(source.faces[i].shape),mapped.triangle_references.at(i)});
+    for(std::size_t i=0;i<source.edges.size();++i)
+        result.edges.push_back({transform.ModifiedShape(source.edges[i].shape),mapped.edges.at(i).reference});
+    for(std::size_t i=0;i<source.vertices.size();++i)
+        result.vertices.push_back({transform.ModifiedShape(source.vertices[i].shape),mapped.points.at(i).reference});
+    return result;
+}
+
 } // namespace
 
 BodyResult OcctKernel::scale_body(const BodyResult& source,double factor,Vec3 center,const std::string& owner) const {
     validate_body_scale(factor,center);
     if(source.kernel_shape.empty())throw std::invalid_argument("The scale source has no calculated Body.");
     gp_Trsf scaling;scaling.SetScale(gp_Pnt(center.x,center.y,center.z),factor);
-    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source);
+    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source,true);
     BRepBuilderAPI_Transform transform(bindings?bindings->shape:read_kernel_shape(source),scaling,true);transform.Build();
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())
         throw std::runtime_error("Body scale did not produce valid geometry.");
@@ -7268,13 +7328,8 @@ BodyResult OcctKernel::scale_body(const BodyResult& source,double factor,Vec3 ce
     result.physical_properties_current=source.physical_properties_current;result.solid_present=source.has_solid();
     result.mesh=scaled_body_mesh(source.mesh,factor,center,owner);
     if(bindings) {
-        std::vector<OwnedFace> faces;
-        for(const auto& face:bindings->faces) {
-            ViewerMesh metadata;metadata.triangle_references.push_back(face.reference);
-            const auto changed=scaled_body_mesh(std::move(metadata),factor,center,owner);
-            faces.push_back({TopoDS::Face(transform.ModifiedShape(face.shape)),changed.triangle_references.front()});
-        }
-        persist_surface_topology(transform.Shape(),faces,{},{},result);
+        const auto changed=transformed_bound_topology(*bindings,transform,[&](auto mesh){return scaled_body_mesh(std::move(mesh),factor,center,owner);});
+        persist_surface_topology(changed.shape,changed.faces,changed.edges,changed.vertices,result);
     }
     if(!source.measurement_sources.empty()) {
         std::vector<BodySnapshot> references;
@@ -7302,20 +7357,15 @@ BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,co
     const auto placement=primitive_transform(translation,rotation);
     place_body_result(result,placement);
     gp_Trsf reflection;reflection.SetMirror(gp_Ax2(gp_Pnt(plane.point.x,plane.point.y,plane.point.z),gp_Dir(plane.normal.x,plane.normal.y,plane.normal.z)));
-    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source);
+    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source,true);
     BRepBuilderAPI_Transform transform(bindings?bindings->shape:read_kernel_shape(source),reflection*placement,true);transform.Build();
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Zrcadlo nevytvořilo platné těleso.");
     result.kernel_shape=serialize_kernel_shape(transform.Shape());
     result.kernel_placements.clear();result.kernel_compound_bodies.clear();
     result.mesh=mirrored_viewer_mesh(std::move(result.mesh),plane,owner_id);
     if(bindings) {
-        std::vector<OwnedFace> faces;
-        for(const auto& face:bindings->faces) {
-            ViewerMesh metadata;metadata.triangle_references.push_back(face.reference);
-            const auto changed=mirrored_viewer_mesh(std::move(metadata),plane,owner_id);
-            faces.push_back({TopoDS::Face(transform.ModifiedShape(face.shape)),changed.triangle_references.front()});
-        }
-        persist_surface_topology(transform.Shape(),faces,{},{},result);
+        const auto changed=transformed_bound_topology(*bindings,transform,[&](auto mesh){return mirrored_viewer_mesh(std::move(mesh),plane,owner_id);});
+        persist_surface_topology(changed.shape,changed.faces,changed.edges,changed.vertices,result);
     }
     if(!source.measurement_sources.empty()) {
         std::vector<BodySnapshot> references;
@@ -7347,9 +7397,9 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
     const auto placement=primitive_transform(translation,rotation);auto input=source;place_body_result(input,placement);
     BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);BodyResult result;
     result.physical_properties_current=source.physical_properties_current;result.solid_present=source.has_solid();
-    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source);
+    const auto bindings=source.kernel_faces.empty()?std::optional<PrimitiveData>{}:placed_bound_face_geometry(source,true);
     const auto shape=bindings?bindings->shape:read_kernel_shape(source);
-    std::vector<OwnedFace> copy_faces;
+    std::vector<OwnedFace> copy_faces;std::vector<OwnedEdge> copy_edges;std::vector<OwnedVertex> copy_vertices;
     for(unsigned index=1;index<p.count;++index) {
         gp_Trsf copy;
         if(p.circular)copy.SetRotation(gp_Ax1(gp_Pnt(p.origin.x,p.origin.y,p.origin.z),gp_Dir(p.axis.x,p.axis.y,p.axis.z)),p.angle_degrees*index*std::numbers::pi/180.0);
@@ -7358,10 +7408,11 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
         if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Pole nevytvořilo platné těleso.");
         builder.Add(compound,transform.Shape());
         append_body_viewer(result.mesh,pattern_copy_mesh(input.mesh,p,index,owner,occurrences));
-        if(bindings)for(const auto& face:bindings->faces) {
-            ViewerMesh metadata;metadata.triangle_references.push_back(face.reference);
-            const auto changed=pattern_copy_mesh(std::move(metadata),p,index,owner,occurrences);
-            copy_faces.push_back({TopoDS::Face(transform.ModifiedShape(face.shape)),changed.triangle_references.front()});
+        if(bindings) {
+            auto changed=transformed_bound_topology(*bindings,transform,[&](auto mesh){return pattern_copy_mesh(std::move(mesh),p,index,owner,occurrences);});
+            copy_faces.insert(copy_faces.end(),std::make_move_iterator(changed.faces.begin()),std::make_move_iterator(changed.faces.end()));
+            copy_edges.insert(copy_edges.end(),std::make_move_iterator(changed.edges.begin()),std::make_move_iterator(changed.edges.end()));
+            copy_vertices.insert(copy_vertices.end(),std::make_move_iterator(changed.vertices.begin()),std::make_move_iterator(changed.vertices.end()));
         }
         if(input.surface_centroid) {
             const auto c=*input.surface_centroid;
@@ -7372,7 +7423,7 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
         }
     }
     result.kernel_shape=serialize_kernel_shape(compound);result.volume=source.volume*(p.count-1);result.surface_area=source.surface_area*(p.count-1);
-    if(bindings)persist_surface_topology(compound,copy_faces,{},{},result);
+    if(bindings)persist_surface_topology(compound,copy_faces,copy_edges,copy_vertices,result);
     if(!source.measurement_sources.empty()) {
         std::vector<BodySnapshot> references;
         for(const auto& snapshot:source.measurement_sources)references.emplace_back(pattern_body(snapshot,p,owner,translation,rotation,occurrences));
@@ -7693,20 +7744,27 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             // rather than publish an empty compound with visible geometry.
             if(placed.kernel_shape.empty()&&(placed.has_solid()||!placed.mesh.triangles.empty())) {
                 const auto native=live_cache_->boundaries.find(local.back().source_fingerprint);
-                if(native!=live_cache_->boundaries.end()&&!native->second.shape.IsNull())
-                    placed.kernel_shape=serialize_kernel_shape(native->second.shape);
+                if(native!=live_cache_->boundaries.end()&&!native->second.shape.IsNull()) {
+                    if(native->second.topology&&!native->second.topology->faces.empty())
+                        persist_surface_topology(native->second.shape,native->second.topology->faces,
+                            native->second.topology->edges,native->second.topology->vertices,placed);
+                    else placed.kernel_shape=serialize_kernel_shape(native->second.shape);
+                }
             }
             if (!(branch.scope.translation == Vec3{}) || !(branch.scope.rotation_degrees == Vec3{})) {
                 const auto placement = primitive_transform(branch.scope.translation, branch.scope.rotation_degrees);
                 if (!placed.kernel_shape.empty()) {
                     placed.kernel_placements.push_back({branch.scope.translation, branch.scope.rotation_degrees});
                 }
-                const auto measurement_bindings=placed.kernel_faces;
+                const auto face_bindings=placed.kernel_faces;
+                const auto edge_bindings=placed.kernel_edges;
+                const auto vertex_bindings=placed.kernel_vertices;
                 place_body_result(placed, placement);
                 // This path appends a rigid placement and leaves the archived
-                // BRep unchanged. Keep its exact face addresses for on-demand
-                // scalar measurements; no binding is used to solve placement.
-                if(!eager_face_measurements)placed.kernel_faces=measurement_bindings;
+                // BRep unchanged. Keep every exact local topology address for
+                // cold source queries; no binding is used to solve placement.
+                placed.kernel_faces=face_bindings;placed.kernel_edges=edge_bindings;
+                placed.kernel_vertices=vertex_bindings;
             }
             placed.source_fingerprint = input_key;
             input_snapshot = BodySnapshot(std::move(placed));
@@ -8404,7 +8462,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     algorithm.SetParams(1.0e-2, fillet_tolerance, 1.0e-5,
                         fillet_tolerance, 1.0e-5, 1.0e-3);
                     const TopologyReferenceIndex<VertexReference, OwnedVertex>
-                        vertex_references(owned_topology->vertices);
+                        vertex_references(feature_endpoint_vertices(result_shape,
+                            owned_topology->faces,owned_topology->edges,owned_topology->vertices));
                     for (std::size_t selected_index = 0;
                          selected_index < selected.size(); ++selected_index) {
                         const auto& [edge, reference] = selected[selected_index];
@@ -10834,13 +10893,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         append_reference_geometry(grouped->profile_references,
                             std::move(child_data.profile_references));
                         grouped->shape = fuse.Shape();
-                        // Joined child vertices can have two original parents
-                        // at the profile plane. Resolve the operational junction
-                        // through the same Boolean ancestry as an ordinary Add;
-                        // group_inputs retain both original side references.
-                        grouped->vertices = complete_boolean_vertices(
-                            grouped->shape, grouped->faces, grouped->edges,
-                            grouped->vertices, operation.owner_id, "add");
+
                     }
                     if(!grouped)grouped.emplace();
                     grouped->profile_references.points.insert(grouped->profile_references.points.end(),

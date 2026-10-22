@@ -68,13 +68,20 @@ Focused native, real mouse/GUI, FORM GUI and localization checks pass. An older
 standalone FORM test has separate archive-reader/fixture assumptions under audit;
 the verification record preserves that failure and release-baseline comparison.
 
+The approved [native source-binding extension](verification/20261022-sketch-intersection-source-bindings.md)
+now supplies cold open-solid intersection ancestry and preserves bindings through
+rigid placement and derived copies. Its 108-case matrix, factory refresh and all
+1,185 read-only native loads pass. All 137 Drawings pass reference/regeneration
+comparison against the released runtime without rewriting their factory files.
+The new Sketch editor commands and branch definitions remain unfinished.
+
 ## Still unfinished or planned
 
 | Work | Current boundary / next step |
 | --- | --- |
 | Current correction/release batch | Completed in Windows 2026102201 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
-| Sketch intersection references | Approved Face × Sketch-plane scope and 94-case native matrix, including certified toroidal radial branches; editor commands, persistent selected branches, cold open-solid ancestry and the full manipulation matrix remain pending. See [plan](SKETCH_INTERSECTION_REFERENCE_PLAN.md). |
+| Sketch intersection references | Approved Face × Sketch-plane scope and 108-case native matrix, including certified toroidal radial branches and cold open-solid/transformed sources; source binding and factory verification are recorded in the linked plan. Editor commands, persistent selected branches and the full manipulation matrix remain pending. See [plan](SKETCH_INTERSECTION_REFERENCE_PLAN.md). |
 | View-relative H/V | Requested display/input mapping for 90-degree turns and view flips; retain the internal geometric constraints and persisted meanings. |
 | Multiple Up To faces and correction | [Scoped design and factory-conversion plan](FEATURE_ORDERED_UP_TO_PLAN.md) prepared; an isolated 32-case planar OCCT feasibility probe passed. Native-contract approval and production implementation remain pending. Preserve ordered consecutive intersections, explicit reordering and geometry-side identity. Each side uses the shared table with at least three visible rows and its correction below. |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |

@@ -90,8 +90,11 @@ ambiguous outside the newly certified radial domains and is still rejected. This
 acceptance of arbitrary multiple-branch reference selection or persistence.
 See the [51-case native foundation matrix](verification/20261021-sketch-face-plane-foundation.md)
 and its [94-case extension](verification/20261022-sketch-intersection-closed-domains.md)
-for exact verified cases and remaining platform/integration gaps, including open
-sections from cold solid sources with incomplete boundary bindings.
+for their historical cases and gaps. The separately approved
+[source-boundary extension](verification/20261022-sketch-intersection-source-bindings.md)
+now passes 108 cases, including cold open-solid sources and transformed copies.
+It strengthens existing native binding completeness; editor/selected-branch
+integration and its full Sketch manipulation matrix remain pending.
 
 Before changing serialization, inventory committed native documents for the
 affected persisted definition. Existing authored references must retain their

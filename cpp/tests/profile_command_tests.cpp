@@ -652,6 +652,10 @@ void symmetric_endpoint_references(const kernel::OcctKernel& kernel,const fs::pa
         }
         require(edges.size()==16&&ends.size()==12&&central.size()==4,"Shared profile junctions did not resolve uniquely");
         for(const auto& r:central)require(std::get<1>(r).starts_with("boolean:add:vertex"),"Shared junction bypassed existing Boolean ancestry");
+        require(body.kernel_vertices.size()==16,"Endpoint inspection replaced original native side bindings");
+        for(const auto& binding:body.kernel_vertices)
+            require(!binding.reference.semantic_key.starts_with("boolean:add:vertex"),
+                "Operational endpoint inspection leaked into source topology ancestry");
         return std::pair{edges,ends};
     };
     const auto baseline=verify(f.part().session.calculated_boundaries().back(),5);
