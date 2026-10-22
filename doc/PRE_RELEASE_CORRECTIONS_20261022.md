@@ -69,8 +69,11 @@ All 1,046 Part-based factory definitions pass isolated regeneration and are
 installed with private working definitions preserved. Six start templates are
 refreshed, and new-document activation, FORM/library preview, template editing
 and Part/Assembly creation GUI checks pass. The user
-must test the normal Windows build before publication. Do not describe this
-correction set as a completed release.
+tested the normal Windows build positively, then accepted automated verification
+of the arithmetic follow-up and authorized release before further feature work.
+All four arithmetic/localization/selection GUI contracts pass. Final immutable
+portable package acceptance and publication remain; do not describe this
+correction set as a completed release yet.
 
 The broader native Sketcher matrix already passed in
 `pre-release-corrections-native-local-temp.log` (15.29 s). The external-reference

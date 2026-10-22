@@ -2434,6 +2434,8 @@ bool PrimitivePropertiesDialog::submit() {
         name_->setFocus();
         return false;
     }
+    try {if(feature_panel_)feature_panel_->finish_side_expressions();}
+    catch(const std::exception&) {error_->setText(tr("Invalid numeric expression."));return false;}
     auto result = values();
     if (result.feature_kind == zima::document::FeatureKind::Hole) {
         result.combine_mode = zima::document::CombineMode::Subtract;

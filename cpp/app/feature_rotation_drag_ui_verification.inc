@@ -64,7 +64,8 @@ static void verify_feature_rotation_drag(QApplication& application,AssemblyWorks
         }
         mouse((20-p.sides[side].angle_degrees)*25*std::numbers::pi/180,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
         auto* field=dialog->findChild<QDoubleSpinBox*>(QString("featureSideValue%1").arg(side));check(field,"Rotation angle field missing");
-        field->setValue(-35);flush();verify(-35);
+        field->findChild<QLineEdit*>()->setText("70-105");
+        {QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);}flush();verify(-35);
         auto* direction=dialog->findChild<QDoubleSpinBox*>("featureDirection");
         auto* lock=direction?direction->findChild<QAction*>("valueLock:direction"):nullptr;check(lock,"Rotation direction lock missing");
         lock->setChecked(true);flush();field->setValue(-45);flush();verify(-35,true);

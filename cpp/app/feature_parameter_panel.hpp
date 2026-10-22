@@ -10,6 +10,7 @@
 #include <zima/document/feature_parameters.hpp>
 #include <zima/document/feature_direction.hpp>
 #include <zima/document/feature_rotation_span.hpp>
+#include "numeric_expression_edit.hpp"
 #include <QScopedValueRollback>
 #include "sketch_button_style.hpp"
 #include "resource_icon.hpp"
@@ -149,7 +150,7 @@ public:
             s.draft->setRange(-89.999,89.999);s.draft->setValue(s.pending.draft_angle_degrees);
             s.displayed_draft=s.draft->value();rows->addRow(tr("Úhel úkosu"),s.draft);
             s.end=new QComboBox(s.box);s.end->setObjectName(QString("featureSideEnd%1").arg(i));rows->addRow(tr("Ukončení"),s.end);
-            s.value=number(i==0?"featureSideValue0":"featureSideValue1",false);s.value->setMinimum(.001);s.value->setValue(50);
+            s.value=number(i==0?"featureSideValue0":"featureSideValue1",false,true);s.value->setMinimum(.001);s.value->setValue(50);
             s.label=new QLabel(tr("Délka"),s.box);rows->addRow(s.label,s.value);
             auto* target_row=new QWidget(s.box);s.target_row=target_row;s.target_layout=new QHBoxLayout(target_row);s.target_layout->setContentsMargins(0,0,0,0);
             s.target=new QLineEdit(target_row);s.target->setPlaceholderText(tr("Reference"));s.target->setReadOnly(true);
@@ -265,6 +266,17 @@ public:
         if(changed&&change_requested_)change_requested_();return true;
     }
     QDoubleSpinBox* direction_control() const { return direction_; }
+    void finish_side_expressions() {
+        if(selected_type()!=document::FeatureType::Modeling&&selected_type()!=document::FeatureType::Axis)return;
+        std::vector<UnitExpressionDoubleSpinBox*> fields;
+        for(auto& row:sides_)if(row.value->isVisible()&&row.value->isEnabled()&&!row.value->isReadOnly()) {
+            auto* field=static_cast<UnitExpressionDoubleSpinBox*>(row.value);
+            static_cast<void>(field->expression_value());fields.push_back(field);
+        }
+        // Validate every field before interpreting any. Middle-button OK can
+        // arrive while the text editor retains focus, without a focus-out event.
+        for(auto* field:fields)field->interpretText();
+    }
     QLineEdit* target_control(std::size_t side) const { return sides_.at(side).target; }
     QHBoxLayout* target_layout(std::size_t side) const { return sides_.at(side).target_layout; }
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
@@ -394,8 +406,9 @@ private:
         for(int i=0;i<2;++i)
             operation_group_->button(i)->setChecked(active&&i==last_operation_);
     }
-    ui::UnitDoubleSpinBox* number(const char* name,bool angle) {
-        auto* value=new ui::UnitDoubleSpinBox(angle?ui::InputQuantity::Angle:ui::InputQuantity::Length,this);
+    ui::UnitDoubleSpinBox* number(const char* name,bool angle,bool arithmetic=false) {
+        const auto quantity=angle?ui::InputQuantity::Angle:ui::InputQuantity::Length;
+        ui::UnitDoubleSpinBox* value=arithmetic?new UnitExpressionDoubleSpinBox(quantity,this):new ui::UnitDoubleSpinBox(quantity,this);
         value->setObjectName(name);
         value->setRange(-1000000,1000000);return value;
     }

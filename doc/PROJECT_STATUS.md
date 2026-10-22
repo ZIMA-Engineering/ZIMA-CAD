@@ -49,8 +49,9 @@ negative extent/angle reversal, opposite-end Revolution grip limits, Symmetric
 hover and Slot entry corrections, default Point/Text display, inward axis-based
 Opening authoring and partial-bottom Drill Points. See the
 [correction matrix](PRE_RELEASE_CORRECTIONS_20261022.md). Factory definitions
-and start templates are refreshed; release publication awaits the user's test
-of the normal Windows build.
+and start templates are refreshed. The user's normal-build test was positive;
+the arithmetic follow-up is verified and release is authorized. Final immutable
+package acceptance and publication remain pending.
 
 Signed Windows [2026102004](releases/2026102004.md) is accepted and public from
 `b96503988b7ba8f98951e9ca2076cf211685c4e0`. It passed 42 finite packaged scenarios, all 1,185 native factory

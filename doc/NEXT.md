@@ -86,8 +86,10 @@ axis entry and existing Opening/reference/whole-Origin checks pass. Localization
 coverage and all five language UI checks pass. Exact evidence and earlier probe
 failures are recorded in the verification report above. The user has been told
 these corrections can be tried through the normal `zima-cad.bat`.
-Current corrections and numeric-direction changes remain uncommitted on main;
-preserve private config/library/user artifacts when staging the final batch.
+The correction/direction batch is committed and pushed on main as `89c5d3d4d`.
+The user's subsequent `70-100` arithmetic-input correction passes all four
+focused contracts (`feature-negative-expression-final-tests.log`, 77.84 s).
+Preserve private config/library/user artifacts when staging that small follow-up.
 
 Subsequent progress: numeric direction, Relations and negative linear extent
 entry pass native and actual mouse/View GUI checks in the normal build; see
@@ -100,6 +102,23 @@ installed while preserving the user's two modified factory working definitions.
 Six templates are refreshed and template/new-document/FORM/library GUI checks
 pass. Normal Windows GUI/CLI and localization/unit checks pass. The user has
 been invited to test `zima-cad.bat`; publication still waits for that response.
+The user subsequently found that direct negative values work but arithmetic
+does not. The shared expression-enabled unit control is now used only for the
+Feature side values; confirmation validates pending expressions. See the
+arithmetic follow-up in the direction record. No native field, factory geometry
+or general placement contract changes are needed for that correction.
+Latest user steering: normal-build testing was positive, the user accepted the
+automated arithmetic verification, explicitly authorized documentation/commit/
+push and requested release before further work. The personal-test gate is
+satisfied. Complete committed-source package acceptance and publish Windows,
+then continue the approved Sketch intersection commands. Do not repeat the
+already granted approval request.
+
+Factory staging independently checked all 1,048 native index blobs, including
+the two private-path factory versions. After committing, 2,096 generated source/
+output copies (3,065,205,231 logical bytes) were removed only after proof against
+their retained Git blobs. Reports and private working files remain. The cleanup
+receipt is `build/feature-direction-factory-cleanup-receipt.json`.
 
 On 2026-10-22 the user explicitly requested direct changes in the normal version,
 without another experimental build, to save disk space. Use the existing main

@@ -84,7 +84,10 @@ geometry. An unchanged confirmation does not calculate or create an Undo step.
 Direction is also exposed as a unitless +1/-1 parameter with its own dimension
 identifier for Family and Relations. Entering a negative length or Revolution
 angle manually reverses the current direction once and stores its positive
-magnitude. Purple grips derive reversal from the gesture's starting direction,
+magnitude. Arithmetic uses the same rule: `70-100` gives -30, reverses direction and stores
+30 in the entered unit. Parentheses and explicit trailing units are supported.
+Invalid expressions remain available for correction and cannot commit the Feature.
+Purple grips derive reversal from the gesture's starting direction,
 so repeated mouse updates across zero do not toggle it repeatedly. A locked
 Direction blocks reversal. Relations assign the direction identifier to +1 or
 -1 explicitly; their length and angle bindings retain positive magnitudes.

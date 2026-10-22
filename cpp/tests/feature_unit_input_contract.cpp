@@ -45,6 +45,45 @@ void enter(QDoubleSpinBox* field,const QString& text) {
     check(field,"Feature numeric field is missing");
     field->findChild<QLineEdit*>()->setText(text);field->interpretText();
 }
+void feature_side_expression_inputs(QApplication& application,QWidget& parent,double scale) {
+    using namespace zima;
+    for(bool rotation:{false,true})for(std::size_t side:{0u,1u}) {
+        auto initial=document::PartDocument::create_feature_container("expression-profile");
+        for(auto& row:initial.feature.sides)row.operation=rotation?document::FeatureSideOperation::Revolution:document::FeatureSideOperation::Extrusion;
+        initial.feature.sides[0].angle_degrees=65;initial.feature.sides[1].angle_degrees=25;
+        int commits{};document::HistoryContainer stored;
+        auto* dialog=new app::PrimitivePropertiesDialog(initial,true,false,[&](auto value){stored=value;++commits;},&parent);
+        dialog->setLocale(QLocale::c());dialog->show();application.processEvents();
+        auto* field=dialog->findChild<QDoubleSpinBox*>(QString("featureSideValue%1").arg(side));
+        check(field&&field->property("zimaExpressionInput").toBool(),"Feature extent does not use shared expression input");
+        const auto verify=[&](double magnitude,bool reversed) {
+            const auto p=dialog->pending_value().feature;
+            near(rotation?p.sides[side].angle_degrees:p.sides[side].length,magnitude);
+            check(p.reversed_sides==reversed&&p.sides[1-side]==initial.feature.sides[1-side],"Expression changed direction twice or modified the other panel");
+        };
+        enter(field,rotation?"70-100deg":"70-100");verify(rotation?30:30*scale,true);
+        enter(field,field->text());enter(field,field->text());verify(rotation?30:30*scale,true);
+        enter(field,rotation?"(20+10)deg":"(20+10)");verify(rotation?30:30*scale,true);
+        enter(field,rotation?"0,7-1rad":"(1/2-1)mm");verify(rotation?.3*180/std::numbers::pi:.5,false);
+        auto* text=field->findChild<QLineEdit*>();text->setText("1/0");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(commits==0&&dialog->isVisible()&&field->cleanText()=="1/0","Invalid expression committed or was silently replaced");
+        verify(rotation?.3*180/std::numbers::pi:.5,false);
+        // OK must also parse valid pending text when no focus-out occurred.
+        text->setText(rotation?"(2-5)deg":"(70-100)mm");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(commits==1&&stored.feature.reversed_sides,"Pending negative expression did not reverse on OK");
+        near(rotation?stored.feature.sides[side].angle_degrees:stored.feature.sides[side].length,rotation?3:30);
+        check(stored.feature.sides[1-side]==initial.feature.sides[1-side],"Expression OK changed the other panel");
+        initial.value_locks={"direction"};commits=0;
+        dialog=new app::PrimitivePropertiesDialog(initial,true,false,[&](auto){++commits;},&parent);
+        dialog->setLocale(QLocale::c());dialog->show();application.processEvents();
+        field=dialog->findChild<QDoubleSpinBox*>(QString("featureSideValue%1").arg(side));
+        enter(field,rotation?"70-100deg":"70-100mm");
+        check(dialog->pending_value().feature==initial.feature,"Negative arithmetic ignored the direction lock");
+        dialog->reject();application.processEvents();check(commits==0,"Expression Cancel committed changes");
+    }
+}
 void family_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
     using namespace zima;
     const auto unit=ui::document_unit(&parent,"Length","mm").toStdString();
@@ -465,6 +504,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
             stored.feature.profile_plane_offset==initial.feature.profile_plane_offset&&
             stored.feature.sides[0].draft_angle_degrees==initial.feature.sides[0].draft_angle_degrees,
             "Editing one length changed another native value");
+        feature_side_expression_inputs(app,parent,scale);
 
         auto sweep2d=document::PartDocument::create_sweep2d_container();
         sweep2d.sweep2d.result_type=document::ProfileResultType::Thin;

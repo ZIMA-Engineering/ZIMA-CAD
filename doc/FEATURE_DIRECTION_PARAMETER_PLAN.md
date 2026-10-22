@@ -72,7 +72,7 @@ are deferred to the separate template refresh. Reports are in
 `build/feature-direction-factory/verification.json`; working user files were not
 overwritten. Verified outputs are installed, preserving the user's modified
 pressed M10 wing-nut and ZE-TEXT working definitions byte-for-byte; their factory
-versions are staged separately in the Git index. Six start
+versions are committed separately in `89c5d3d4d`; private working bytes are retained. Six start
 templates were rewritten and reopened with the current native implementation.
 New-document GUI checks pass (45.29 s), as do the four FORM and nose-washer
 preview checks, template editing (12.84 s) and template-based Part/Assembly
@@ -98,4 +98,35 @@ working files, including locally modified files in factory library paths; use
 isolated committed-source copies where necessary. Do not reuse old conversion
 reports or the obsolete reference-next executable as evidence for this change.
 
-Publication still waits for the complete verification batch and the user's test.
+The user tested the normal build positively and subsequently accepted automated
+verification of the arithmetic correction, authorizing release before further
+feature work. Final committed-source portable acceptance remains required.
+
+## Arithmetic input follow-up
+
+The user's normal-build test exposed that the original unit spin box accepted
+negative numbers but not arithmetic such as `70-100`. Feature side length and
+Revolution-angle fields now consume the existing `UnitExpressionDoubleSpinBox`;
+the general unit control and native parser are unchanged. The result follows
+the same one-time reversal path as a directly entered negative number.
+
+OK validates all editable side expressions before interpreting any of them.
+This also handles middle-button confirmation while a text field retains focus.
+Invalid expressions keep their authored text, do not commit and use the existing
+five-language Invalid numeric expression message. Qt may append the field's
+unit suffix; preserving the expression does not require dropping that suffix.
+
+The follow-up matrix covers both panels, Extrusion/Revolution, implicit and
+explicit units, comma decimals, parentheses, positive results, repeated no-op
+interpretation, direction locks, invalid division and pending-expression OK.
+Its requested combinations are mm/cm/m/in by degrees/radians (32 cases plus
+locked cases). Actual workspace mouse/keyboard checks use `70-100` for length
+and `70-105` for angle alongside the existing drag, persistence and Undo/Redo
+matrix. All four final contracts pass in `feature-negative-expression-final-tests.log`:
+translations 12.87 s, unit/expression matrix 30.43 s, selection 4.58 s and actual
+Feature mouse/keyboard/Undo/Redo/persistence 29.95 s (77.84 s total). The initial
+invalid-expression assertion compared raw text without Qt's retained unit suffix;
+the corrected check verifies `cleanText()` while preserving rejection and no
+commit. Native data, calculation precision and the general unit control are
+unchanged. No new translation keys are needed; the existing validation message
+is available in all five catalogs.

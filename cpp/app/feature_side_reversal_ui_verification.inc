@@ -51,6 +51,10 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
         if(sign<0)extent(-12,5);else extent(-5,12);
     }
     direction->setValue(0);flush();check(direction->value()==1,"Invalid scalar direction was retained");
+    second->findChild<QLineEdit*>()->setText("70-100");
+    {QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(second,&enter);}flush();extent(-12,30);
+    check(second->value()==30&&dialog->pending_value().feature.reversed_sides,"Negative length arithmetic failed to reverse");
+    second->setValue(-5);flush();extent(-5,12);
     second->setValue(-7);flush();extent(-12,7);
     check(second->value()==7&&dialog->pending_value().feature.sides[0]==before.feature.sides[0],"Negative extent changed its opposite panel");
     second->setValue(-5);flush();extent(-5,12);
