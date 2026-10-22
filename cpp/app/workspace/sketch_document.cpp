@@ -54,9 +54,9 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
         state_->setText(enabled
             ? sketch_external_profile_active_
                 ? tr("Reference → obrys: vyberte hranu tělesa.")
-                : tr("Externí reference: vyberte původní hranu, obrysovou křivku, "
+                : tr("Reference: vyberte plochu tělesa, hranu, obrysovou křivku, "
                      "vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.")
-            : tr("Režim externích referencí byl ukončen."));
+            : tr("Režim referencí byl ukončen."));
     }
 }
 
@@ -66,12 +66,12 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
          candidate.kind != zima::viewer::CandidateKind::Edge) ||
-        candidate.geometry != (sketch_external_profile_active_ ? zima::viewer::CandidateGeometry::Display :
-            zima::viewer::CandidateGeometry::OriginalReference) ||
+        !sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_) ||
         !kind) return;
     try {
         const auto* active=active_sketch();if(!active)return;
         const auto owner=workspace_.active_document_id();auto pending=*active;
+        const auto source=sketch_external_reference_source_candidate(candidate);
         auto path=candidate.instance_path;
         if(workspace_.open_assembly(owner)&&owner!=workspace_.displayed_document_id()) {
             const auto& prefix=workspace_.active_occurrence_path();
@@ -80,16 +80,16 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             path.erase(0,prefix.size());
         }
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
-            candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_);
+            source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_);
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit
         // publishes the derived Assembly dependency together with the Sketch.
         if(!mutate_active_sketch([&](auto& target){target=std::move(pending);}))return;
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
-        state_->setText(tr("Externí reference byla uložena bez volání OCCT. Vyberte další zdroj."));
+        state_->setText(tr("Reference byla uložena. Vyberte další zdroj."));
     }catch(const std::exception& error) {
-        state_->setText(tr("Externí referenci nelze vytvořit: %1").arg(QObject::tr(error.what())));
+        state_->setText(tr("Referenci nelze vytvořit: %1").arg(QObject::tr(error.what())));
     }
 }
 
@@ -119,12 +119,13 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     // The model frame already contains placement FRONT/BACK, in-plane
     // ROTATE and angular corrections.  Use its resolved X axis to derive the
     // camera roll instead of replaying those Placement flags a second time.
-    // This makes entry into Sketcher show the exact owning-container frame,
-    // including the intended side of a supporting solid face.
+    // Keep the resolved modeling frame; the viewing side is camera-only.
     zima::kernel::Vec3 screen_x = sketch->resolved_x_axis;
-    // A library definition uses conventional local XY, unlike the normal
-    // Sketcher's front-side entry and the right-anchored title-block editor.
-    if(symbol_document_sketch())direction={-direction.x,-direction.y,-direction.z};
+    // Look toward the plane along -normal so resolved +X appears right and
+    // resolved +Y up. Drawing templates retain their right-anchored view;
+    // symbols already use this conventional local XY presentation.
+    if(!sketch->drawing_template||symbol_document_sketch())
+        direction={-direction.x,-direction.y,-direction.z};
     if (sketch_view_state_id_ != active_sketch_id_) {
         sketch_view_state_id_ = active_sketch_id_;
         // Sketcher controls are relative camera overrides. The initial view
@@ -354,46 +355,52 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
         }
         return place_sketch_mesh(preview, std::move(mesh));
     }
-    if (sketch.id == active_sketch_id_ &&
-        !universal_corner_radius_dimension_id_.empty() &&
-        universal_dimension_cursor_) {
-        auto preview = sketch;
-        const auto radius = std::ranges::find_if(preview.corner_radii,
-            [&](const auto& value) {
-                return value.id == universal_corner_radius_dimension_id_;
-            });
-        if (radius != preview.corner_radii.end()) {
-            radius->dimension_visible = true;
-            radius->dimension_placement = *universal_dimension_cursor_;
-        }
-        return place_sketch_mesh(sketch, pending_presentation(preview.viewer_mesh(),"corner_dimension:"+universal_corner_radius_dimension_id_));
-    }
-    if (sketch.id == active_sketch_id_ && universal_pending_dimension_ &&
-        universal_dimension_cursor_) {
-        auto preview = sketch;
-        auto dimension = *universal_pending_dimension_;
-        if (universal_dimension_references_.size() >= 2 &&
-            universal_dimension_references_[0].kind ==
-                UniversalDimensionReferenceKind::Point &&
-            universal_dimension_references_[1].kind ==
-                UniversalDimensionReferenceKind::Point &&
-            dimension.kind == zima::sketcher::DimensionKind::Distance) {
-            const auto first = sketch_point_reference_position(sketch,
-                universal_dimension_references_[0].id);
-            const auto second = sketch_point_reference_position(sketch,
-                universal_dimension_references_[1].id);
-            if (first && second) {
-                const auto kind = zima::sketcher::classify_linear_dimension(
-                    *first, *second, *universal_dimension_cursor_);
-                dimension = sketch.create_point_dimension(
-                    universal_dimension_references_[0].id,
-                    universal_dimension_references_[1].id, kind);
+    try {
+        if (sketch.id == active_sketch_id_ &&
+            !universal_corner_radius_dimension_id_.empty() &&
+            universal_dimension_cursor_) {
+            auto preview = sketch;
+            const auto radius = std::ranges::find_if(preview.corner_radii,
+                [&](const auto& value) {
+                    return value.id == universal_corner_radius_dimension_id_;
+                });
+            if (radius != preview.corner_radii.end()) {
+                radius->dimension_visible = true;
+                radius->dimension_placement = *universal_dimension_cursor_;
             }
+            return place_sketch_mesh(sketch, pending_presentation(preview.viewer_mesh(),"corner_dimension:"+universal_corner_radius_dimension_id_));
         }
-        dimension.placement = *universal_dimension_cursor_;
-        const auto key="dimension:"+dimension.id;
-        preview.dimensions.push_back(std::move(dimension));
-        return place_sketch_mesh(sketch, pending_presentation(preview.viewer_mesh(),key));
+        if (sketch.id == active_sketch_id_ && universal_pending_dimension_ &&
+            universal_dimension_cursor_) {
+            auto preview = sketch;
+            auto dimension = *universal_pending_dimension_;
+            if (universal_dimension_references_.size() >= 2 &&
+                universal_dimension_references_[0].kind ==
+                    UniversalDimensionReferenceKind::Point &&
+                universal_dimension_references_[1].kind ==
+                    UniversalDimensionReferenceKind::Point &&
+                dimension.kind == zima::sketcher::DimensionKind::Distance) {
+                const auto first = sketch_point_reference_position(sketch,
+                    universal_dimension_references_[0].id);
+                const auto second = sketch_point_reference_position(sketch,
+                    universal_dimension_references_[1].id);
+                if (first && second) {
+                    const auto kind = zima::sketcher::classify_linear_dimension(
+                        *first, *second, *universal_dimension_cursor_);
+                    dimension = sketch.create_point_dimension(
+                        universal_dimension_references_[0].id,
+                        universal_dimension_references_[1].id, kind);
+                }
+            }
+            dimension.placement = *universal_dimension_cursor_;
+            const auto key="dimension:"+dimension.id;
+            preview.dimensions.push_back(std::move(dimension));
+            return place_sketch_mesh(sketch, pending_presentation(preview.viewer_mesh(),key));
+        }
+    } catch (const std::exception&) {
+        // A rejected transient dimension must leave the valid authored
+        // Sketch visible, rather than escape from a mouse-move callback.
+        return place_sketch_mesh(sketch,sketch.viewer_mesh());
     }
     if (sketch.id != active_sketch_id_ || !pending_point_dimension_cursor_) {
         if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
@@ -435,21 +442,21 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
             dimension.placement = *pending_point_dimension_cursor_;
             preview.dimensions.push_back(std::move(dimension));
         }
-    } catch (const std::exception&) {
-        // A transient cursor must never make the persisted Sketch disappear.
-        return place_sketch_mesh(sketch, sketch.viewer_mesh());
-    }
-    auto mesh=preview.viewer_mesh();
-    for(auto& d:mesh.dimensions) {
-        const bool pending_corner=d.reference.semantic_key=="corner_dimension:"+pending_corner_radius_dimension_id_;
-        const bool pending_new=d.reference.semantic_key.starts_with("dimension:") &&
-            std::ranges::none_of(sketch.dimensions,[&](const auto& old){return "dimension:"+old.id==d.reference.semantic_key;});
-        if(pending_corner||pending_new) {
-            d.arrows_reversed=universal_dimension_layout_.arrows_reversed;
-            d.radius_center_line_hidden=universal_dimension_layout_.radius_center_line_hidden;
+        auto mesh=preview.viewer_mesh();
+        for(auto& d:mesh.dimensions) {
+            const bool pending_corner=d.reference.semantic_key=="corner_dimension:"+pending_corner_radius_dimension_id_;
+            const bool pending_new=d.reference.semantic_key.starts_with("dimension:") &&
+                std::ranges::none_of(sketch.dimensions,[&](const auto& old){return "dimension:"+old.id==d.reference.semantic_key;});
+            if(pending_corner||pending_new) {
+                d.arrows_reversed=universal_dimension_layout_.arrows_reversed;
+                d.radius_center_line_hidden=universal_dimension_layout_.radius_center_line_hidden;
+            }
         }
+        return place_sketch_mesh(sketch,std::move(mesh));
+    } catch (const std::exception&) {
+        // Publication belongs to the same transient transaction as creation.
+        return place_sketch_mesh(sketch,sketch.viewer_mesh());
     }
-    return place_sketch_mesh(sketch,std::move(mesh));
 }
 
 bool AssemblyWorkspaceWindow::mutate_active_sketch(

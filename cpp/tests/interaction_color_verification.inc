@@ -203,6 +203,7 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
     mesh.edges.push_back({{{-1,0,0},{1,0,0}},{"feature","rim",{}}});
     mesh.edges.push_back({{{-1,.6,0},{1,.6,0}},{"reference-a","edge",{}}});
     mesh.edges.push_back({{{-1,-.6,0},{1,-.6,0}},{"reference-b","edge",{}}});
+    for(auto& edge:mesh.edges)edge.display_owner_id=edge.reference.owner_id;
     mesh.original_references.edges=mesh.edges;
     mesh.original_references.vertices=mesh.vertices;
     mesh.original_references.triangles=mesh.triangles;
@@ -222,6 +223,8 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),center,QColor("#00D1FF"),4),
             "Feature hover does not use azure");
         const auto hover_frame=view.grabFramebuffer();
+        const auto interior=center+QPointF(0,-20);
+        const auto pixel_at=[&](const QImage& image,QPointF at){return image.pixelColor(qRound(at.x()*image.width()/view.width()),qRound(at.y()*image.height()/view.height()));};
         const auto wire_pixels=[&](const QImage& image) {
             int count=0;const double ratio=image.width()/double(view.width());
             for(int y=int((center.y()-5)*ratio);y<int((center.y()+5)*ratio);++y)
@@ -233,17 +236,25 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
         view.confirm_container("feature");application.processEvents();
         require(view.confirmed_candidate().has_value(),"Selection colour fixture cannot confirm feature");
         auto frame=view.grabFramebuffer();
-        if(wire_pixels(frame)<=wire_pixels(hover_frame)*1.2) {
+        if(wire_pixels(frame)>wire_pixels(hover_frame)*1.1) {
             hover_frame.save("interaction-wire-hover-failure.png");frame.save("interaction-wire-confirmed-failure.png");
             std::cerr<<"Wire pixels: hover="<<wire_pixels(hover_frame)<<", confirmed="<<wire_pixels(frame)
                 <<", device ratio="<<view.devicePixelRatioF()<<'\n';
         }
-        require(wire_pixels(frame)>wire_pixels(hover_frame)*1.2,"Confirmed wire is not visibly thicker than hover");
-        require(framebuffer_contains_color_near(frame,view.size(),center,color,4),"Confirmed feature has the wrong selection colour");
+        require(wire_pixels(frame)<=wire_pixels(hover_frame)*1.1,"Confirmation thickened the shared preview wire");
+        require(view.property("selectedFeatureFaceTriangleCount").toULongLong()==0&&view.property("gpuSourceWireVertexCount").toInt()>0,
+            "Single selection filled solid faces or omitted the shared preview");
+        const auto before_fill=pixel_at(hover_frame,interior),after_fill=pixel_at(frame,interior);
+        require(before_fill==after_fill,"Whole-solid selection recolored a face interior");
+        require(framebuffer_contains_color_near(frame,view.size(),center,color,4),
+            "Single selection did not retain its authored preview wire");
         QApplication::sendEvent(&view,&move);application.processEvents();
-        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),center,color,4),
-            "Hover replaced a confirmed feature colour");
+        require(pixel_at(view.grabFramebuffer(),interior)==after_fill,"Hover filled a selected solid face");
         frame.save(QString("interaction-selected-%1.png").arg(color.name().mid(1)));
+        view.set_container_inspection("feature");application.processEvents();frame=view.grabFramebuffer();
+        require(view.property("selectedFeatureFaceTriangleCount").toULongLong()==0&&view.property("gpuSourceWireVertexCount").toInt()>0&&
+            framebuffer_contains_color_near(frame,view.size(),center,color,4),"Explicit inspection did not expose the source wire");
+        require(wire_pixels(frame)<=wire_pixels(hover_frame)*1.1,"Inspection thickened the source wire");
         view.set_feature_selected_edges({{"reference-a","edge",{}}});
         view.set_constraint_reference_highlights({},{{"reference-b","edge",{}}});
         application.processEvents();
@@ -276,8 +287,8 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
         view.set_constraint_reference_highlights({},{});
         kernel::ViewerPoint construction{{0,0,0},{"surface-sketch","point:construction",{}}};construction.construction=true;
         view.set_transient_model_points({construction});application.processEvents();frame=view.grabFramebuffer();
-        require(framebuffer_contains_color_near(frame,view.size(),center,QColor("#AD6E2E"),3),
-            "Surface construction point lost its ordinary axis color");
+        require(framebuffer_contains_color_near(frame,view.size(),center,viewer::view_theme(palette).foreground,3),
+            "Native Surface point changed foreground color merely from its construction flag");
     }
     view.setPalette(point_palette);view.set_transient_model_points({});
 

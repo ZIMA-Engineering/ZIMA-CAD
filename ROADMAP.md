@@ -701,8 +701,10 @@ completion of the agreed features.
 - property-panel workflow with return to the originating editor context
 - sketch and main container-origin selection from feature properties
 - one-sided, two-sided and symmetric extrusion
-- stable direction-defined Start and End faces; Flip swaps their meaning and
-  their independent dimensions without relying on transient topology order
+- stable logical Start and End faces; Swap sides reverses physical travel while
+  retaining the original panels, dimensions, references and locks, independently
+  of transient topology order; see the
+  [2026-10-22 direction matrix](doc/verification/20261022-feature-side-reversal.md)
 - additive and subtractive operations
 - extrusion up to a selected face or plane
 - profile validation

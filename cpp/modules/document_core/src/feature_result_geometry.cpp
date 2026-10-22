@@ -28,7 +28,8 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
             if(!settings.axis_enabled)return 0.;
             if(settings.extrusion_extent==EndCondition::Length)return settings.length;
             if(!feature.placement.reference_valid)return std::nullopt;
-            const Vec3 direction=side?Vec3{-normal.x,-normal.y,-normal.z}:normal;
+            const double sign=feature.feature.side_direction_sign(side);
+            const Vec3 direction{sign*normal.x,sign*normal.y,sign*normal.z};
             std::optional<double> distance;
             for(const auto& target:settings.targets) {
                 const auto hit=axis_target_distance(origin,direction,target);
@@ -40,14 +41,16 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
         if(!end||!start)return mesh; // An incomplete draft has no valid Axis preview.
         const double forward=*end,reverse=*start;
         if(forward==0&&reverse==0)return mesh;
-        const auto first=along(-reverse),last=along(forward);
+        const double sign=feature.feature.side_direction_sign(0);
+        const auto first=along(-sign*reverse),last=along(sign*forward);
+        const Vec3 direction{sign*normal.x,sign*normal.y,sign*normal.z};
         ViewerEdge edge;edge.points={first,last};edge.reference={feature.id,"axis",{}};
         edge.display_owner_id=feature.id;edge.construction=edge.overlay=edge.dash_dot=true;
         edge.measured_length=forward+reverse;
         mesh.edges.push_back(edge);mesh.original_references.edges.push_back(std::move(edge));
-        mesh.axes.push_back({along((forward-reverse)*.5),normal,
+        mesh.axes.push_back({along(sign*(forward-reverse)*.5),direction,
             forward+reverse,{feature.id,"axis",{}}});
-        mesh.original_references.axes.push_back({along((forward-reverse)*.5),normal,
+        mesh.original_references.axes.push_back({along(sign*(forward-reverse)*.5),direction,
             forward+reverse,{feature.id,"axis",{}}});
         for(const auto side:{FeatureSide::Start,FeatureSide::End}) {
             const auto parent=feature_side_parent_key({feature.feature_id,side,feature.container_origin.id});

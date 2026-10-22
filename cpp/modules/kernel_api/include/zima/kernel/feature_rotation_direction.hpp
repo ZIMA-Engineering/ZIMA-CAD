@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/kernel/profile_centerlines.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 
 namespace zima::kernel {
 // A Feature side is measured from the Sketch normal, independently of the
@@ -36,5 +37,13 @@ inline bool feature_rotation_reversed(zima::kernel::RevolutionRequest& request) 
         },request.outer_profile);
     }
     return feature_rotation_reversed(request.axis_direction,dimension_sub(point,request.axis_point),request.profile_normal);
+}
+inline RevolutionRequest oriented_feature_revolution(RevolutionRequest request) {
+    if(const auto side=feature_side_parent(request.profile_region_id)) {
+        const bool reverse=(side->side==FeatureSide::Start)!=request.feature_direction_reversed;
+        if(feature_rotation_reversed(request)!=reverse)
+            request.axis_direction=dimension_scale(request.axis_direction,-1);
+    }
+    return request;
 }
 } // namespace zima::kernel

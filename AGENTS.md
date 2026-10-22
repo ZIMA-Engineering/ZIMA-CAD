@@ -190,6 +190,24 @@
 
 ## Ordinary selection and double-click inspection (mandatory)
 
+- Whole solids and features must never be highlighted by filling or recoloring
+  their faces. Ordinary hover and click show the complete original/authored
+  feature preview wire, including hidden/occluded edges at ordinary width.
+  This means the command's actual creation/Properties preview strokes, not
+  edges extracted from the calculated original/reference geometry. Do not add
+  calculated result edges to that preview. Reuse its established generator
+  and cache the presentation; do not calculate a solid for selection.
+  Use the same preview source as double-click inspection; do not assemble a
+  second highlight from later Boolean result fragments. Double-click additionally
+  exposes parameter dimensions through the established inspection path.
+  Individual faces selected for container placement/reference entry also use
+  only their exact current boundary wire, including holes and view silhouettes,
+  visible through model occlusion at ordinary width. Never fill those faces as
+  selection feedback or switch to an untrimmed original face. This wire-only
+  presentation is permanent and applies to hover, confirmation and inspection.
+  Wire-only feedback was confirmed on 2026-10-21; the shared original preview
+  for ordinary feature hover/click was agreed on 2026-10-22.
+
 - Use one consistent ordinary left-click contract in the model View and Tree,
   across Part and Assembly features. A single click selects the object and
   synchronizes its owning feature's Tree selection. Selecting a Fillet's rounded

@@ -541,7 +541,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_rotate_view_action_->setObjectName("sketchRotateViewAction");
     sketch_rotate_view_action_->setEnabled(false);
     sketch_external_reference_action_ = make_action(
-        tr("Externí reference"), "sketch-reference");
+        tr("Reference"), "sketch-reference");
     sketch_external_reference_action_->setObjectName(
         "sketchExternalReferenceAction");
     sketch_external_reference_action_->setCheckable(true);

@@ -14,6 +14,7 @@ namespace zima::viewer {
 struct SmoothSilhouetteTriangle {
     std::array<QVector3D,3> points;
     std::array<QVector3D,3> normals;
+    std::size_t source_triangle{};
     bool operator==(const SmoothSilhouetteTriangle&)const=default;
 };
 
@@ -30,6 +31,7 @@ inline std::vector<SmoothSilhouetteTriangle> smooth_silhouette_triangles(
         if(offset+18>shaded.size())break;
         if(triangle<mesh.triangle_references.size()&&mesh.triangle_references[triangle].valid()) {
             SmoothSilhouetteTriangle value;
+            value.source_triangle=triangle;
             for(std::size_t corner=0;corner<3;++corner) {
                 const auto i=offset+corner*6;
                 value.points[corner]={shaded[i],shaded[i+1],shaded[i+2]};

@@ -572,10 +572,12 @@ nested holes. Opening or selecting it consumes stored data without reconstructin
 font or body geometry. The specified ISO text height in millimeters is capital
 letter height, consistent in Sketcher and Drawing.
 
-### External references
+### References
 
-**External Reference** offers original persisted faces, edges, vertices and axes
-from valid source objects. The source must exist before the consuming feature's
+**Reference** offers the current visible Body faces and persisted source edges,
+vertices and axes from valid source objects. A selected face fragment retains
+its visible geometry while its stored ancestry identifies the original source.
+The source must exist before the consuming feature's
 history boundary; a Sketch cannot depend on its own result. Construction geometry
 is also available subject to the same dependency checks.
 

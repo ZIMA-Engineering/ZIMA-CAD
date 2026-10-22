@@ -5,6 +5,7 @@
 #include <cmath>
 #include <type_traits>
 #include <stdexcept>
+#include <algorithm>
 
 namespace {
 using namespace zima;
@@ -40,6 +41,27 @@ void verify(){
     kernel::OcctKernel kernel;const auto original=kernel.evaluate_history(part.kernel_operations());
     require(std::abs(original.back().volume-1000)<1e-7,"Fixture must have independently known volume 1000 mm3");
     document::DocumentSession session(part,original);
+    {
+        auto packets=original;
+        const kernel::ViewerEdge axis{{{1,2,3},{4,5,6}},
+            {box.id,"centerline:from:rollback-test",{}}};
+        packets.back().mesh.original_references.edges.push_back(axis);
+        document::DocumentSession inspection(part,std::move(packets));
+        const Snapshot before(inspection);
+        for(unsigned repeat=0;repeat<3;++repeat) {
+            const auto input=inspection.calculated_boundary(1);
+            require(input.has_value(),"Calculated inspection boundary missing");
+            const auto& edges=input->mesh.edges;
+            require(std::ranges::count_if(edges,[&](const auto& e){return e.reference==axis.reference;})==1,
+                "Rollback omitted or duplicated the persisted Sweep axis stroke");
+            const auto found=std::ranges::find_if(edges,[&](const auto& e){return e.reference==axis.reference;});
+            require(found->points.size()==2&&found->points.front().x==1&&found->points.back().z==6,
+                "Rollback reconstructed rather than retained the authored axis stroke");
+            require(std::ranges::none_of(inspection.calculated_boundaries().back().mesh.edges,
+                [&](const auto& e){return e.reference==axis.reference;}),"Inspection mutated the cached body");
+            before.unchanged(inspection);
+        }
+    }
     auto renamed=session.document();renamed.name="Edited Part";session.commit(renamed,original);
     require(session.undo() && session.can_redo(),"Fixture has no Redo state");session.mark_saved();
     auto enlarged=part;test::resize_rectangular_feature(enlarged,enlarged.history.front(),{20,10,10});

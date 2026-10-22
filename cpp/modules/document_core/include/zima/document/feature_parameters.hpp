@@ -42,6 +42,8 @@ struct FeatureParameters {
     double thin_thickness{1};
     ThinMode thin_mode{ThinMode::OneSide};
     bool symmetric{};
+    // Reverse physical directions without moving either logical side definition.
+    bool reversed_sides{};
     bool origin_centerline{};
     bool centroid_centerline{};
     bool show_point{true};
@@ -49,6 +51,13 @@ struct FeatureParameters {
     // UI Side 1 is End; Side 2 is Start. Order never changes with geometry.
     std::array<FeatureSideParameters,2> sides{{
         {FeatureSideOperation::Extrusion}, {FeatureSideOperation::None}}};
+    [[nodiscard]] bool side_direction_reversed(std::size_t side) const {
+        if(side>=sides.size())throw std::out_of_range("Invalid Feature side");
+        return reversed_sides!=(side==1);
+    }
+    [[nodiscard]] double side_direction_sign(std::size_t side) const {
+        return side_direction_reversed(side)?-1.:1.;
+    }
     [[nodiscard]] FeatureSideParameters effective_side(std::size_t side) const {
         if(side>=sides.size())throw std::out_of_range("Invalid Feature side");
         auto value=sides[symmetric?0:side];

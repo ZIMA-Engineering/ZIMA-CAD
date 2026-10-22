@@ -158,6 +158,8 @@ public:
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label);
+    [[nodiscard]] zima::document::ConstructionReference prepare_reference_candidate(
+        std::size_t index, zima::document::ConstructionReference reference) const override;
     [[nodiscard]] const std::string& container_id() const;
     [[nodiscard]] zima::document::FeatureKind feature_kind() const;
     [[nodiscard]] bool owns_reference_owner(const std::string& owner_id) const;

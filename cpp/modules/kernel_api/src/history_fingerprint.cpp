@@ -371,6 +371,7 @@ std::string encode_history_fingerprint(
                     u64(key.size());for(const unsigned char value:key)byte(value);
                 }
             } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
+                if(primitive.feature_direction_reversed)for(unsigned char c:std::string_view("reversed-feature-side"))byte(c);
                 if(primitive.end_limit) {
                     for(unsigned char c:std::string_view("revolution-exact-end-v1"))byte(c);
                     const auto& limit=*primitive.end_limit;byte(limit.planar);byte(limit.datum);byte(primitive.mirror_end_limit);

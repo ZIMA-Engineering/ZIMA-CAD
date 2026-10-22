@@ -26,6 +26,7 @@ struct SampledCurve {
     bool closed{};
     bool trimmable{};
     bool creates_trim_points{true};
+    std::optional<zima::kernel::BSplineGeometry> exact_reference;
 };
 
 Point2 exact_geometry_point(
@@ -185,6 +186,37 @@ std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
         const auto exact=sketch_curve_geometry(sketch,curve.geometry_id);curve.kind=SampledKind::BSpline;curve.points.clear();curve.parameters.clear();
         for(unsigned i=0;i<=256;++i){const double t=i/256.;const auto p=kernel::bspline_value(exact,t);curve.points.push_back({p.x,p.y});curve.parameters.push_back(t);}
     }
+    // References are read-only cutters, never editable trim pieces. Use their
+    // exact curve for intersection refinement rather than display chords.
+    for(const auto& curve:result)for(const auto& point:curve.points)
+        model_extent=std::max(model_extent,2*std::max(std::abs(point[0]),std::abs(point[1])));
+    for(const auto& reference:sketch.external_references) {
+        if(reference.broken)continue;
+        const auto line=external_reference_line(reference);
+        const auto circle=external_reference_circle(reference);
+        if(!line&&!circle)continue;
+        SampledCurve curve{reference.id,SampledKind::Auxiliary};
+        if(line&&reference.infinite) {
+            const auto& [origin,direction]=*line;
+            const double length=std::hypot(direction[0],direction[1]);
+            const double extent=model_extent+2*std::hypot(origin[0],origin[1]);
+            curve.points={{origin[0]-extent*direction[0]/length,origin[1]-extent*direction[1]/length},
+                          {origin[0]+extent*direction[0]/length,origin[1]+extent*direction[1]/length}};
+            curve.parameters={0.,1.};
+        } else if(reference.exact_spline) {
+            curve.exact_reference=reference.exact_spline;
+            for(unsigned i=0;i<=128;++i) {
+                const double t=i/128.;const auto p=kernel::bspline_value(*curve.exact_reference,t);
+                curve.points.push_back({p.x,p.y});curve.parameters.push_back(t);
+            }
+            curve.closed=std::hypot(curve.points.front()[0]-curve.points.back()[0],
+                curve.points.front()[1]-curve.points.back()[1])<1e-10*std::max(1.,circle?(*circle)[2]:1.);
+        } else if(line) {
+            const auto& points=reference.cached_points.empty()?reference.cached_paths.front():reference.cached_points;
+            curve.points={points.front(),points.back()};curve.parameters={0.,1.};
+        } else continue;
+        result.push_back(std::move(curve));
+    }
     return result;
 }
 
@@ -209,6 +241,20 @@ std::vector<std::array<double, 2>> curve_intersections(
     const Sketch& sketch, const SampledCurve& first,
     const SampledCurve& second) {
     std::vector<std::array<double, 2>> result;
+    const auto coincident_reference_circle=[&](const SampledCurve& reference,const SampledCurve& native) {
+        const auto source=std::ranges::find(sketch.external_references,reference.geometry_id,&SketchExternalReference::id);
+        if(source==sketch.external_references.end())return false;
+        const auto circle=external_reference_circle(*source);if(!circle)return false;
+        std::string center_id;double radius{};
+        if(const auto c=std::ranges::find(sketch.circles,native.geometry_id,&SketchCircle::id);c!=sketch.circles.end()){center_id=c->center_point_id;radius=c->radius;}
+        else if(const auto a=std::ranges::find(sketch.arcs,native.geometry_id,&SketchArc::id);a!=sketch.arcs.end()){center_id=a->center_point_id;radius=a->radius;}
+        else return false;
+        const auto* center=sketch.find_point(center_id);const double tolerance=1e-10*std::max(1.,radius);
+        return std::hypot(center->x-(*circle)[0],center->y-(*circle)[1])<=tolerance&&std::abs(radius-(*circle)[2])<=tolerance;
+    };
+    // Coincidence is a support, not hundreds of crossings between two
+    // differently sampled copies of the same circle.
+    if(coincident_reference_circle(first,second)||coincident_reference_circle(second,first))return result;
     for (std::size_t first_index = 0;
          first_index + 1 < first.points.size(); ++first_index) {
         for (std::size_t second_index = 0;
@@ -487,6 +533,10 @@ Point2 exact_geometry_point(
         parameter -= std::floor(parameter);
     }
     parameter = std::clamp(parameter, 0.0, 1.0);
+    if(sampled.exact_reference) {
+        const auto p=kernel::bspline_value(*sampled.exact_reference,parameter);
+        return {p.x,p.y};
+    }
     if (sampled.kind == SampledKind::Segment) {
         return curve_point(sampled, parameter);
     }
@@ -1215,7 +1265,7 @@ SketchTrimResult apply_sketch_trim(
     // Base axes participate in trim topology. A newly cut endpoint at an
     // axis intersection must retain that incidence after reconstruction.
     for(const auto& [source,survivors]:result.geometry_mapping)for(const auto& id:survivors) {
-        if(std::ranges::none_of(removed,[&](const auto& piece){return piece.geometry_id==source&&piece.includes_base_axes;}))continue;
+        const bool includes_axes=std::ranges::any_of(removed,[&](const auto& piece){return piece.geometry_id==source&&piece.includes_base_axes;});
         std::vector<std::string> endpoints;
         if(const auto s=std::ranges::find(next.segments,id,&SketchSegment::id);s!=next.segments.end())
             endpoints={s->first_point_id,s->second_point_id};
@@ -1223,6 +1273,30 @@ SketchTrimResult apply_sketch_trim(
             endpoints={a->start_point_id,a->end_point_id};
         for(const auto& point:endpoints) {
             if(geometry_owns_point(sketch,source,point))continue;
+            const auto* position=next.find_point(point);
+            for(const auto& reference:next.external_references) {
+                if(reference.broken)continue;
+                const auto line=external_reference_line(reference);
+                const auto circle=external_reference_circle(reference);
+                if(!line&&!circle)continue;
+                const auto boundary=curve_by_id.find(reference.id);
+                if(boundary==curve_by_id.end())continue;
+                // Test against the exact finite domain used for the cut;
+                // another branch of a supporting circle is not a contact.
+                bool on_boundary=false;
+                for(const auto& hit:curve_intersections(sketch,*curve_by_id.at(source),*boundary->second)) {
+                    const auto p=exact_geometry_point(sketch,*boundary->second,hit[1]);
+                    if(std::hypot(position->x-p[0],position->y-p[1])<=snap_tolerance){on_boundary=true;break;}
+                }
+                if(!on_boundary)continue;
+                const auto kind=line?ConstraintKind::PointOnLine:ConstraintKind::PointOnCircle;
+                if(std::ranges::any_of(next.constraints,[&](const auto& c){return !c.suppressed&&
+                    c.kind==kind&&c.first_point_id==point&&c.geometry_id==reference.id;}))continue;
+                SketchConstraint incidence;incidence.id=kernel::make_stable_id();
+                incidence.kind=kind;incidence.first_point_id=point;incidence.geometry_id=reference.id;
+                next.constraints.push_back(std::move(incidence));
+            }
+            if(!includes_axes)continue;
             for(const std::string axis:{"sketch_axis:x","sketch_axis:y"}) {
                 const auto* p=next.find_point(point);
                 if(std::abs(axis=="sketch_axis:x"?p->y:p->x)>snap_tolerance)continue;

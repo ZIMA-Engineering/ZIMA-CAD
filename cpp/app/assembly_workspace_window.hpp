@@ -785,10 +785,7 @@ private:
     void start_edge_treatment(zima::document::FeatureKind kind);
     [[nodiscard]] bool is_edge_treatment_feature(
         const std::string& owner_id) const;
-    [[nodiscard]] std::set<std::size_t>
-        edge_treatment_feature_edges(
-            const std::string& owner_id,
-            std::string instance_path = {}) const;
+
     void accept_edge_treatment(const zima::viewer::ViewerCandidate& candidate);
     void refresh_edge_treatment_selection_ui();
     void refresh_edge_treatment_preview();
@@ -1025,6 +1022,7 @@ private:
         std::string external_point_reference_id;
         bool external_point_midpoint{};
         std::size_t variant_count{1};
+        std::optional<zima::sketcher::ConstraintKind> segment_direction;
     };
     [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
         const std::array<double, 2>& position) const;

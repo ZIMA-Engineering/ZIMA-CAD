@@ -20,6 +20,7 @@
 #include <zima/kernel/surface_results.hpp>
 #include <zima/viewer/embedded_image.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/feature_ownership.hpp>
 #include <zima/viewer/shading.hpp>
 #include <zima/viewer/silhouette.hpp>
 
@@ -179,12 +180,14 @@ struct MeshView::Impl {
     std::vector<std::size_t> sketch_constraint_indices;
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
-    QOpenGLBuffer face_fill{QOpenGLBuffer::VertexBuffer};
-    using FaceFillKey=std::tuple<CandidateGeometry,std::string,std::string,std::string>;
-    std::vector<FaceFillKey> face_fill_keys;
-    std::vector<std::pair<int,int>> face_fill_ranges;
     QOpenGLBuffer transparent_triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
+    QOpenGLBuffer selected_source_lines{QOpenGLBuffer::VertexBuffer};
+    using SourceWireKey=std::tuple<std::string,std::string,std::size_t>;
+    std::optional<SourceWireKey> selected_source_key;
+    std::size_t inspection_wire_revision{};
+    GLsizei selected_source_vertex_count{};
+    std::vector<float> selected_source_data;
     QOpenGLBuffer silhouette{QOpenGLBuffer::VertexBuffer};
     QOpenGLVertexArrayObject vertex_array;
     std::vector<std::pair<GLint, GLsizei>> line_ranges;
@@ -208,6 +211,7 @@ struct MeshView::Impl {
         QVector3D normal_a;
         QVector3D normal_b;
         bool smooth_face{};
+        std::size_t source_triangle{};
         bool operator==(const SilhouetteCandidate&)const=default;
     };
     std::vector<SilhouetteCandidate> silhouette_candidates;
@@ -229,6 +233,9 @@ struct MeshView::Impl {
     std::map<std::pair<std::string,std::string>,std::pair<ReferenceVisibility,EdgeKey>> marker_parents;
     std::optional<std::array<float, 3>> silhouette_view_direction;
     GLsizei silhouette_vertex_count{};
+    std::vector<std::size_t> silhouette_source_triangles;
+    std::optional<EdgeKey> silhouette_color_key;
+    std::vector<std::pair<GLint,GLsizei>> silhouette_highlight_ranges;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     SelectionFilter selection_filter{SelectionFilter::All};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
@@ -321,6 +328,12 @@ struct MeshView::Impl {
     std::set<EdgeKey> feature_hover_edges;
     std::set<EdgeKey> feature_selected_edges;
     std::vector<zima::kernel::ViewerEdge> container_inspection_wire;
+    std::function<std::vector<kernel::ViewerEdge>(const std::string&,const std::string&)> container_preview_provider;
+    std::optional<ViewerCandidate> inspected_container;
+    std::optional<EdgeKey> container_color_key;
+    std::vector<bool> container_color_edges;
+    std::vector<std::pair<GLint,GLsizei>> container_selected_ranges,container_other_ranges;
+    bool wire_has_individual_colors{};
     std::set<std::size_t> feature_hover_edge_indices;
     std::set<std::size_t> feature_selected_edge_indices;
     std::set<std::string> feature_preview_owner_ids;
@@ -568,6 +581,38 @@ struct MeshView::Impl {
             sketch_interaction_mesh.constraint_markers.push_back(
                 mesh.constraint_markers[index]);
         }
+    }
+
+    [[nodiscard]] bool has_authored_container_wire(const ViewerCandidate& candidate) const {
+        const auto key=std::make_pair(candidate.owner_id,candidate.instance_path);
+        return original_container_edge_indices.contains(key)||edge_treatment_boundary_edge_indices.contains(key);
+    }
+
+    [[nodiscard]] std::vector<kernel::ViewerEdge> container_preview_wire(
+            const std::string& owner,const std::string& path) const {
+        std::vector<kernel::ViewerEdge> wire;
+        if(owner.empty())return wire;
+        if(container_preview_provider) {
+            wire=container_preview_provider(owner,path);
+            if(!wire.empty())return wire;
+        }
+        const auto key=std::make_pair(owner,path);
+        const auto treatment=edge_treatment_boundary_edge_indices.find(key);
+        const auto original=original_container_edge_indices.find(key);
+        const bool transformed_display=std::any_of(mesh.edges.begin(),mesh.edges.end(),[&](const auto& edge) {
+            return !edge.construction&&!edge.overlay&&edge.display_owner_id==owner&&
+                edge.reference.instance_path==path&&edge.reference.owner_id!=owner;
+        });
+        if(treatment!=edge_treatment_boundary_edge_indices.end()) {
+            for(const auto index:treatment->second)if(index<mesh.edges.size())wire.push_back(mesh.edges[index]);
+        } else if(!transformed_display&&original!=original_container_edge_indices.end()) {
+            for(const auto index:original->second)if(index<mesh.original_references.edges.size())
+                wire.push_back(mesh.original_references.edges[index]);
+        } else {
+            const ViewerCandidate candidate{CandidateKind::Container,0,0,owner,{},path,CandidateGeometry::Display};
+            for(const auto& edge:mesh.edges)if(candidate_recolors_wire_edge(candidate,edge))wire.push_back(edge);
+        }
+        return wire;
     }
 
     void rebuild_persisted_reference_mesh() {
@@ -823,9 +868,9 @@ MeshView::~MeshView() {
         makeCurrent();
         impl_->vertex_array.destroy();
         impl_->vertices.destroy();
-        impl_->face_fill.destroy();
         impl_->transparent_triangles.destroy();
         impl_->lines.destroy();
+        impl_->selected_source_lines.destroy();
         impl_->silhouette.destroy();
         doneCurrent();
     }
@@ -857,6 +902,9 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     else impl_->surface_source_mesh.reset();
     if(!impl_->show_surfaces)zima::kernel::hide_surface_results(mesh);
     impl_->container_inspection_wire.clear();
+    impl_->inspected_container.reset();
+    impl_->selected_source_key.reset();
+    impl_->container_color_key.reset();
     const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->dimension_bounds=kernel::model_envelope(mesh);
     impl_->object_bounds=kernel::object_envelopes(mesh,impl_->object_frame_provider?impl_->object_frame_provider(mesh):std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>{});
@@ -953,8 +1001,6 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
             impl_->reference_view_scale_initialized=true;
         }
     }
-    impl_->face_fill_keys.clear();
-    impl_->face_fill_ranges.clear();
     impl_->surface_batches_dirty = true;
     impl_->reference_faces_dirty = true;
     impl_->candidates.clear();
@@ -1734,36 +1780,19 @@ std::vector<zima::kernel::ViewerEdge> MeshView::confirmed_component_wire() const
         ? impl_->component_wire : std::vector<zima::kernel::ViewerEdge>{};
 }
 
+void MeshView::set_container_preview_provider(std::function<std::vector<kernel::ViewerEdge>(
+        const std::string&,const std::string&)> provider) {
+    impl_->container_preview_provider=std::move(provider);
+    impl_->selected_source_key.reset();
+    update();
+}
+
 void MeshView::set_container_inspection(const std::string& owner_id,
         const std::string& instance_path) {
-    auto& wire = impl_->container_inspection_wire;
-    wire.clear();
-    if (!owner_id.empty()) {
-        const auto key = std::make_pair(owner_id, instance_path);
-        const auto treatment = impl_->edge_treatment_boundary_edge_indices.find(key);
-        const auto original = impl_->original_container_edge_indices.find(key);
-        const bool transformed_display = std::any_of(
-            impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
-            [&](const auto& edge) {
-                return !edge.construction && !edge.overlay &&
-                    edge.display_owner_id == owner_id &&
-                    edge.reference.instance_path == instance_path &&
-                    edge.reference.owner_id != owner_id;
-            });
-        if (treatment != impl_->edge_treatment_boundary_edge_indices.end()) {
-            for (const auto index : treatment->second)
-                if (index < impl_->mesh.edges.size()) wire.push_back(impl_->mesh.edges[index]);
-        } else if (!transformed_display && original != impl_->original_container_edge_indices.end()) {
-            for (const auto index : original->second)
-                if (index < impl_->mesh.original_references.edges.size())
-                    wire.push_back(impl_->mesh.original_references.edges[index]);
-        } else {
-            const ViewerCandidate candidate{CandidateKind::Container, 0.0, 0,
-                owner_id, {}, instance_path, CandidateGeometry::Display};
-            for (const auto& edge : impl_->mesh.edges)
-                if (candidate_recolors_wire_edge(candidate, edge)) wire.push_back(edge);
-        }
-    }
+    ++impl_->inspection_wire_revision;
+    impl_->inspected_container=owner_id.empty()?std::nullopt:std::optional<ViewerCandidate>{
+        ViewerCandidate{CandidateKind::Container,0,0,owner_id,{},instance_path,CandidateGeometry::Display}};
+    impl_->container_inspection_wire=impl_->container_preview_wire(owner_id,instance_path);
     update();
 }
 
@@ -1773,11 +1802,14 @@ const std::vector<zima::kernel::ViewerEdge>& MeshView::container_inspection_wire
 
 void MeshView::set_container_inspection_wire(std::vector<zima::kernel::ViewerEdge> wire) {
     impl_->container_inspection_wire=std::move(wire);
+    ++impl_->inspection_wire_revision;
+    if(impl_->container_inspection_wire.empty())impl_->inspected_container.reset();
     update();
 }
 
 void MeshView::confirm_container(const std::string& owner_id) {
     impl_->container_inspection_wire.clear();
+    impl_->inspected_container.reset();
     auto candidate = container_candidate(impl_->mesh, owner_id);
     if (!candidate) {
         clear_selection();
@@ -1798,6 +1830,7 @@ void MeshView::confirm_container(const std::string& owner_id) {
 
 void MeshView::confirm_occurrence(const std::string& instance_path) {
     impl_->container_inspection_wire.clear();
+    impl_->inspected_container.reset();
     auto candidate = occurrence_candidate(impl_->mesh, instance_path);
     if (!candidate) {
         clear_selection();
@@ -1963,6 +1996,7 @@ void MeshView::confirm_reference(const std::string& owner_id,
 
 void MeshView::clear_selection() {
     impl_->container_inspection_wire.clear();
+    impl_->inspected_container.reset();
     impl_->confirmed_candidate.reset();
     impl_->selected_container_origin_id.clear();
     impl_->candidates.clear();
@@ -3108,9 +3142,10 @@ void main(){
     impl_->vertex_array.create();
     impl_->vertex_array.bind();
     impl_->vertices.create();
-    impl_->face_fill.create();
     impl_->transparent_triangles.create();
     impl_->lines.create();
+    impl_->selected_source_lines.create();
+    impl_->selected_source_key.reset();impl_->selected_source_data.clear();
     impl_->silhouette.create();
     impl_->silhouette_view_direction.reset();
     impl_->silhouette_vertex_count = 0;
@@ -3146,6 +3181,7 @@ void MeshView::upload_mesh() {
     const auto previous_vertex_count=impl_->silhouette_vertex_count;
     const auto vertex_data = shaded_triangle_vertices(impl_->mesh);
     impl_->smooth_silhouette_triangles=zima::viewer::smooth_silhouette_triangles(impl_->mesh,vertex_data);
+    impl_->silhouette_color_key.reset();impl_->silhouette_highlight_ranges.clear();
     impl_->vertices.bind();
     impl_->vertices.allocate(vertex_data.data(),
         static_cast<int>(vertex_data.size() * sizeof(float)));
@@ -3153,6 +3189,7 @@ void MeshView::upload_mesh() {
     upload_phase("triangles");
     std::vector<float> line_data;
     impl_->line_ranges.clear();
+    impl_->container_color_key.reset();impl_->wire_has_individual_colors=false;
     impl_->line_edges.clear();
     impl_->line_mesh_edge_indices.clear();
     for (std::size_t mesh_edge_index = 0;
@@ -3170,6 +3207,9 @@ void MeshView::upload_mesh() {
             (edge.points.size() - 1) * 2);
         impl_->line_ranges.emplace_back(first, count);
         impl_->line_edges.push_back(edge);
+        const auto& key=edge.reference.semantic_key;
+        impl_->wire_has_individual_colors|=!edge.color.empty()||edge.construction||edge.dash_dot||edge.annotation.has_value()||key.starts_with("hole:cosmetic-thread:")||
+            key.starts_with("thread:wire:")||key.starts_with("thread:boundary:");
         impl_->line_mesh_edge_indices.push_back(mesh_edge_index);
         // GL_LINES permits the complete ordinary wire to be rendered in one
         // draw call.  GL_LINE_STRIP required one call per persisted edge,
@@ -3326,7 +3366,7 @@ void MeshView::upload_mesh() {
                 const auto second=triangle_points(source->second_triangle);
                 impl_->silhouette_candidates.push_back({first[source->first_side],first[(source->first_side+1)%3],
                     triangle_normal(first),triangle_normal(second),
-                    impl_->mesh.triangle_references[source->first_triangle].valid()});
+                    impl_->mesh.triangle_references[source->first_triangle].valid(),source->first_triangle});
             }
             setProperty("gpuAdjacencyReuseCount",property("gpuAdjacencyReuseCount").toULongLong()+1);
         } else {
@@ -3422,7 +3462,7 @@ void MeshView::upload_mesh() {
             const auto& records=entry->second;
             impl_->silhouette_candidates.push_back({records.first.first,
                 records.first.second,records.first.normal,records.second_normal,
-                impl_->mesh.triangle_references[records.first_triangle].valid()});
+                impl_->mesh.triangle_references[records.first_triangle].valid(),records.first_triangle});
             connectivity.sources.push_back({records.first_triangle,records.second_triangle,records.first_side,
                 entry->first.second.first,entry->first.second.second,
                 face_addresses.at(entry->first.first)});
@@ -3793,27 +3833,54 @@ if (impl_->show_origins) {
         return found == impl_->edge_treatment_boundary_edge_indices.end()
             ? nullptr : &found->second;
     };
-    const auto original_container_wire = [&](const auto& highlighted)
-            -> const std::vector<std::size_t>* {
-        if (!highlighted || highlighted->kind != CandidateKind::Container ||
-            (!highlighted->semantic_key.empty() &&
-             highlighted->semantic_key != "solid")) return nullptr;
-        if (exact_edge_treatment_wire(highlighted) != nullptr) return nullptr;
-        // Unbend/Bend Back keep the authored feature as the ordinary View
-        // identity through display_owner_id, while the visible wire belongs
-        // to the derived sheet-state topology.  Prefer that current display
-        // geometry over the authored feature's historical original wire.
-        if (std::any_of(impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
-                [&](const auto& edge) {
-                    return !edge.construction && !edge.overlay &&
-                        edge.display_owner_id == highlighted->owner_id &&
-                        edge.reference.instance_path == highlighted->instance_path &&
-                        edge.reference.owner_id != highlighted->owner_id;
-                })) return nullptr;
-        const auto found = impl_->original_container_edge_indices.find(
-            {highlighted->owner_id, highlighted->instance_path});
-        return found == impl_->original_container_edge_indices.end()
-            ? nullptr : &found->second;
+    const auto ordinary_preview_candidate=[&]()->std::optional<ViewerCandidate> {
+        if(impl_->geometry_editing_presentation)return {};
+        auto candidate=impl_->confirmed_candidate;
+        if(!candidate&&!impl_->candidates.empty())candidate=impl_->candidates[impl_->active_candidate];
+        if(candidate&&candidate->kind==CandidateKind::Container&&
+            (candidate->semantic_key.empty()||candidate->semantic_key=="solid")&&
+            impl_->has_authored_container_wire(*candidate))return candidate;
+        return {};
+    }();
+    const bool authored_preview=!impl_->geometry_editing_presentation&&
+        (ordinary_preview_candidate||impl_->inspected_container||!impl_->container_inspection_wire.empty());
+    // Source-less imported wire and explicit editing still use their existing
+    // result-edge batches. Authored feature hover/selection uses one preview.
+    const auto feature_edge_state=[&] {
+        return !impl_->feature_selected_edges.empty()||!impl_->feature_hover_edges.empty()||
+            !impl_->feature_selected_edge_indices.empty()||!impl_->feature_hover_edge_indices.empty();
+    };
+    const auto line_candidate=[&] {
+        auto candidate=impl_->confirmed_candidate;
+        if((!candidate||candidate->kind==CandidateKind::Dimension)&&impl_->inspected_container)
+            candidate=impl_->inspected_container;
+        if(!candidate&&!impl_->candidates.empty())candidate=impl_->candidates[impl_->active_candidate];
+        if(authored_preview)candidate.reset();
+        return candidate;
+    }();
+    const std::optional<EdgeKey> color_key=line_candidate&&line_candidate->kind==CandidateKind::Container&&
+        (line_candidate->semantic_key.empty()||line_candidate->semantic_key=="solid")
+        ?std::optional<EdgeKey>{{line_candidate->owner_id,{},line_candidate->instance_path}}:std::nullopt;
+    if(color_key&&color_key!=impl_->container_color_key) {
+        impl_->container_color_edges.clear();impl_->container_color_edges.reserve(impl_->mesh.edges.size());
+        for(const auto& edge:impl_->mesh.edges)
+            impl_->container_color_edges.push_back(candidate_recolors_wire_edge(*line_candidate,edge));
+        impl_->container_selected_ranges.clear();impl_->container_other_ranges.clear();
+        for(std::size_t i=0;i<impl_->line_ranges.size();++i) {
+            auto& ranges=impl_->container_color_edges.at(impl_->line_mesh_edge_indices.at(i))
+                ?impl_->container_selected_ranges:impl_->container_other_ranges;
+            const auto [first,count]=impl_->line_ranges[i];
+            if(!ranges.empty()&&ranges.back().first+ranges.back().second==first)ranges.back().second+=count;
+            else ranges.emplace_back(first,count);
+        }
+        impl_->container_color_key=color_key;
+        setProperty("containerColorBuildCount",property("containerColorBuildCount").toULongLong()+1);
+    }
+    const auto candidate_colors_edge=[&](const ViewerCandidate& candidate,const kernel::ViewerEdge& edge,std::size_t index) {
+        if(color_key&&candidate.kind==CandidateKind::Container&&(candidate.semantic_key.empty()||candidate.semantic_key=="solid")&&
+           candidate.owner_id==color_key->owner_id&&candidate.instance_path==color_key->instance_path&&
+           index<impl_->container_color_edges.size())return bool(impl_->container_color_edges[index]);
+        return candidate_recolors_wire_edge(candidate,edge);
     };
     const auto component_edges=confirmed_component_edge_indices();
     const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
@@ -3826,14 +3893,12 @@ if (impl_->show_origins) {
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
         const bool candidate_match = highlighted && !separate_candidate_wire &&
-            candidate_recolors_wire_edge(*highlighted, edge);
+            candidate_colors_edge(*highlighted,edge,mesh_edge_index);
         return candidate_match ||
             impl_->edge_treatment_selection_edges.contains(key) ||
-            impl_->feature_selected_edges.contains(key) ||
-            impl_->feature_hover_edges.contains(key) ||
-            impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
+            impl_->feature_selected_edges.contains(key)||impl_->feature_hover_edges.contains(key)||
+            impl_->feature_selected_edge_indices.contains(mesh_edge_index)||impl_->feature_hover_edge_indices.contains(mesh_edge_index) ||
             component_edges.contains(mesh_edge_index) ||
-            impl_->feature_hover_edge_indices.contains(mesh_edge_index) ||
             impl_->constraint_reference_edges.contains(key) ||
             impl_->assembly_reference_edges.contains(key) ||
             impl_->object_overlay_main_edge_keys.contains(key) ||
@@ -3847,11 +3912,10 @@ if (impl_->show_origins) {
             bool candidate_is_confirmed, bool separate_candidate_wire) {
         const auto key = edge_key(edge.reference);
         const bool candidate_match = highlighted && !separate_candidate_wire &&
-            candidate_recolors_wire_edge(*highlighted, edge);
+            candidate_colors_edge(*highlighted,edge,mesh_edge_index);
         const bool reference_selected =
             impl_->edge_treatment_selection_edges.contains(key) ||
-            impl_->feature_selected_edges.contains(key) ||
-            impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
+            impl_->feature_selected_edges.contains(key)||impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
             component_edges.contains(mesh_edge_index) ||
             impl_->constraint_reference_edges.contains(key) ||
             impl_->assembly_reference_edges.contains(key) ||
@@ -3865,8 +3929,7 @@ if (impl_->show_origins) {
         }
         const bool hovered =
             (candidate_match && !candidate_is_confirmed) ||
-            impl_->feature_hover_edges.contains(key) ||
-            impl_->feature_hover_edge_indices.contains(mesh_edge_index);
+            impl_->feature_hover_edges.contains(key)||impl_->feature_hover_edge_indices.contains(mesh_edge_index);
         if (hovered) return interaction::rgba(interaction::hover);
         const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
             (impl_->display_mode == DisplayMode::Wire ||
@@ -3892,20 +3955,41 @@ if (impl_->show_origins) {
                                 bool highlighted_only = false) {
         impl_->program.setUniformValue("unlit", 1);
         bind_attributes(impl_->lines);
-        std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;
-        const bool confirmed = highlighted.has_value();
-        if (!highlighted && !impl_->candidates.empty()) {
-            highlighted = impl_->candidates[impl_->active_candidate];
+        const auto& highlighted=line_candidate;
+        const bool confirmed=impl_->confirmed_candidate.has_value()||impl_->inspected_container.has_value();
+        // Current result edges retain their normal GL pass and width. The
+        // confirmed source wire has its own cached, single GPU batch below.
+        const bool separate_candidate_wire = impl_->geometry_editing_presentation&&exact_edge_treatment_wire(highlighted) != nullptr;
+        const bool simple_container=color_key&&!separate_candidate_wire&&!impl_->wire_has_individual_colors&&
+            impl_->edge_treatment_selection_edges.empty()&&impl_->feature_selected_edges.empty()&&
+            impl_->feature_hover_edges.empty()&&impl_->feature_selected_edge_indices.empty()&&
+            component_edges.empty()&&impl_->feature_hover_edge_indices.empty()&&
+            impl_->constraint_reference_edges.empty()&&impl_->assembly_reference_edges.empty()&&
+            impl_->object_overlay_main_edge_keys.empty()&&impl_->constraint_reference_owner_ids.empty()&&
+            impl_->selected_container_content_ids.empty()&&impl_->feature_preview_owner_ids.empty();
+        if(simple_container) {
+            const auto draw_cached=[&](const auto& ranges) {
+                for(const auto& [first,count]:ranges)glDrawArrays(GL_LINES,first,count);
+            };
+            if(force_black_if_not_highlighted) {
+                impl_->program.setUniformValue("color",QVector4D(0,0,0,1));
+                draw_cached(impl_->container_other_ranges);
+            } else {
+                if(!highlighted_only) {
+                    const auto base=impl_->edge_color_override
+                        ?QVector4D(impl_->edge_color_override->redF(),impl_->edge_color_override->greenF(),impl_->edge_color_override->blueF(),1.F)
+                        :interaction::rgba(theme.foreground);
+                    impl_->program.setUniformValue("color",base);
+                    glDrawArrays(GL_LINES,0,impl_->line_vertex_count);
+                }
+                impl_->program.setUniformValue("color",interaction::rgba(confirmed?interaction::selected:interaction::hover));
+                draw_cached(impl_->container_selected_ranges);
+            }
+            return;
         }
-        // Candidate and mesh are constant throughout this pass. In particular,
-        // original_container_wire may scan all display edges for derived sheet
-        // ownership; do that once, rather than once for every rendered edge.
-        const bool separate_candidate_wire = exact_edge_treatment_wire(highlighted) != nullptr ||
-            original_container_wire(highlighted) != nullptr;
         const bool has_highlight_state = (highlighted && !separate_candidate_wire) ||
-            !impl_->edge_treatment_selection_edges.empty() || !impl_->feature_selected_edges.empty() ||
-            !impl_->feature_hover_edges.empty() || !impl_->feature_selected_edge_indices.empty() ||
-            !component_edges.empty() || !impl_->feature_hover_edge_indices.empty() ||
+            !impl_->edge_treatment_selection_edges.empty() ||
+            feature_edge_state() || !component_edges.empty() ||
             !impl_->constraint_reference_edges.empty() || !impl_->assembly_reference_edges.empty() ||
             !impl_->object_overlay_main_edge_keys.empty() || !impl_->constraint_reference_owner_ids.empty() ||
             !impl_->selected_container_content_ids.empty() || !impl_->feature_preview_owner_ids.empty();
@@ -4069,6 +4153,16 @@ if (impl_->show_origins) {
             glDepthFunc(GL_LESS);
             break;
     }
+    // Whole-object and individual-face selection are wire-only.
+    setProperty("selectedFeatureFaceTriangleCount",QVariant::fromValue<qulonglong>(0));
+    if(color_key&&!impl_->geometry_editing_presentation&&impl_->display_mode!=DisplayMode::Wire) {
+        // The same cached result-edge ranges show the offered/confirmed wire
+        // through occluders. Reuse its VBO at ordinary width, without a model
+        // calculation, source-wire upload or screen-space reprojection.
+        glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glLineWidth(1.F);
+        draw_lines(/*force_black_if_not_highlighted=*/false,/*highlighted_only=*/true);
+        glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+    }
 
     // Cosmetic thread lines and unreferenced coloured display helpers (Section
     // hatching) remain visible in Shaded, obeying the body's depth buffer. LEQUAL keeps the portion lying on an
@@ -4076,12 +4170,8 @@ if (impl_->show_origins) {
     // the part running inside material. Hidden Edges and Wire still reveal
     // the complete symbol through their normal display-mode passes.
     {
-        std::optional<ViewerCandidate> thread_highlight =
-            impl_->confirmed_candidate;
-        const bool thread_confirmed = thread_highlight.has_value();
-        if (!thread_highlight && !impl_->candidates.empty()) {
-            thread_highlight = impl_->candidates[impl_->active_candidate];
-        }
+        const auto& thread_highlight=line_candidate;
+        const bool thread_confirmed=impl_->confirmed_candidate.has_value();
         glDepthFunc(GL_LEQUAL);
         bind_attributes(impl_->lines);
         for (std::size_t index = 0; index < impl_->line_ranges.size(); ++index) {
@@ -4113,7 +4203,9 @@ if (impl_->show_origins) {
     // that have no real sharp topology edge there. Gated the same way as
     // Python's _draw_gpu_silhouette_edges() in zima_cad/viewer.py: only in
     // the line-drawing display modes, never in plain Shaded.
-    if (impl_->display_mode != DisplayMode::Shaded &&
+    const auto silhouette_hover_key=!impl_->geometry_editing_presentation&&!impl_->inspected_container
+        ?color_key:std::nullopt;
+    if ((impl_->display_mode != DisplayMode::Shaded||silhouette_hover_key) &&
         (!impl_->silhouette_candidates.empty()||!impl_->smooth_silhouette_triangles.empty())) {
         const QVector3D view_direction =
             impl_->orientation.inverted().rotatedVector(QVector3D(0.0F, 0.0F, 1.0F));
@@ -4124,14 +4216,16 @@ if (impl_->show_origins) {
         if (impl_->silhouette_view_direction != direction_key) {
             std::vector<float> silhouette_data;
             silhouette_data.reserve(impl_->silhouette_candidates.size() * 12);
-            const auto append_segment=[&](const QVector3D& a,const QVector3D& b) {
+            impl_->silhouette_source_triangles.clear();impl_->silhouette_color_key.reset();
+            const auto append_segment=[&](const QVector3D& a,const QVector3D& b,std::size_t triangle) {
                 silhouette_data.insert(silhouette_data.end(),{
                     a.x(),a.y(),a.z(),0.0F,0.0F,1.0F,
                     b.x(),b.y(),b.z(),0.0F,0.0F,1.0F});
+                impl_->silhouette_source_triangles.push_back(triangle);
             };
             for(const auto& triangle:impl_->smooth_silhouette_triangles)
                 if(const auto segment=smooth_silhouette_segment(triangle,view_direction))
-                    append_segment((*segment)[0],(*segment)[1]);
+                    append_segment((*segment)[0],(*segment)[1],triangle.source_triangle);
             for (const auto& candidate : impl_->silhouette_candidates) {
                 // Unreferenced faceted meshes retain their established outline.
                 // Native faces follow the actual smooth shading field instead.
@@ -4140,7 +4234,7 @@ if (impl_->show_origins) {
                 const float side_b = QVector3D::dotProduct(candidate.normal_b, view_direction);
                 constexpr float epsilon = 1.0e-4F;
                 if ((side_a >= -epsilon) == (side_b >= -epsilon)) continue;
-                append_segment(candidate.first,candidate.second);
+                append_segment(candidate.first,candidate.second,candidate.source_triangle);
             }
             impl_->silhouette_vertex_count = static_cast<GLsizei>(silhouette_data.size() / 6);
             if(qEnvironmentVariableIsSet("ZIMA_CPP_VERIFY_GPU_UPLOAD")) {
@@ -4151,9 +4245,24 @@ if (impl_->show_origins) {
                 impl_->silhouette.bind();
                 impl_->silhouette.allocate(silhouette_data.data(),
                     static_cast<int>(silhouette_data.size() * sizeof(float)));
+                setProperty("gpuSilhouetteUploadCount",property("gpuSilhouetteUploadCount").toULongLong()+1);
             }
             // Cache the empty result too; the next rotation may make it visible.
             impl_->silhouette_view_direction = direction_key;
+        }
+        if(impl_->silhouette_color_key!=silhouette_hover_key) {
+            impl_->silhouette_highlight_ranges.clear();
+            if(silhouette_hover_key)for(std::size_t i=0;i<impl_->silhouette_source_triangles.size();++i) {
+                const auto triangle=impl_->silhouette_source_triangles[i];
+                if(triangle>=impl_->mesh.triangle_references.size())continue;
+                const auto& face=impl_->mesh.triangle_references[triangle];
+                if(face.instance_path!=silhouette_hover_key->instance_path||visible_face_owner(face)!=silhouette_hover_key->owner_id)continue;
+                auto& ranges=impl_->silhouette_highlight_ranges;const auto first=static_cast<GLint>(i*2);
+                if(!ranges.empty()&&ranges.back().first+ranges.back().second==first)ranges.back().second+=2;
+                else ranges.emplace_back(first,2);
+            }
+            impl_->silhouette_color_key=silhouette_hover_key;
+            setProperty("silhouetteColorBuildCount",property("silhouetteColorBuildCount").toULongLong()+1);
         }
         if (impl_->silhouette_vertex_count != 0) {
             impl_->silhouette.bind();
@@ -4169,18 +4278,65 @@ if (impl_->show_origins) {
             impl_->program.setUniformValue(
                 "color", interaction::rgba(theme.foreground));
             glDepthFunc(GL_LEQUAL);
-            glDrawArrays(GL_LINES, 0,
-                impl_->silhouette_vertex_count);
+            if(impl_->display_mode!=DisplayMode::Shaded)
+                glDrawArrays(GL_LINES, 0,impl_->silhouette_vertex_count);
+            if(silhouette_hover_key) {
+                glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glLineWidth(1.F);
+                impl_->program.setUniformValue("color",interaction::rgba(impl_->confirmed_candidate?interaction::selected:interaction::hover));
+                for(const auto& [first,count]:impl_->silhouette_highlight_ranges)glDrawArrays(GL_LINES,first,count);
+                glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+            }
             glDepthFunc(GL_LESS);
         }
     }
 
+    // Hover, click and inspection share the same authored preview wire.
+    // Keep one packet in a GPU buffer; pan,
+    // zoom, rotation, repaint and reselecting it never project/rebuild its
+    // segments. set_mesh invalidates this cache with its actual source data.
+    std::optional<Impl::SourceWireKey> source_wire_key;
+    const bool inspecting_source=!impl_->container_inspection_wire.empty();
+    if(inspecting_source)source_wire_key=Impl::SourceWireKey{"@inspection",{},impl_->inspection_wire_revision};
+    else if(impl_->inspected_container)
+        source_wire_key=Impl::SourceWireKey{impl_->inspected_container->owner_id,impl_->inspected_container->instance_path,0};
+    else if(ordinary_preview_candidate)
+        source_wire_key=Impl::SourceWireKey{ordinary_preview_candidate->owner_id,ordinary_preview_candidate->instance_path,0};
+    if(source_wire_key&&source_wire_key!=impl_->selected_source_key) {
+        std::vector<float> data;
+        const auto append=[&](const kernel::ViewerEdge& edge) {
+            if(edge.construction||edge.parameter_seam)return;
+            for(std::size_t i=1;i<edge.points.size();++i)for(const auto& p:{edge.points[i-1],edge.points[i]})
+                data.insert(data.end(),{float(p.x),float(p.y),float(p.z),0.F,0.F,1.F});
+        };
+        if(inspecting_source)for(const auto& edge:impl_->container_inspection_wire)append(edge);
+        else {
+            const auto& candidate=impl_->inspected_container?impl_->inspected_container:ordinary_preview_candidate;
+            for(const auto& edge:impl_->container_preview_wire(candidate->owner_id,candidate->instance_path))append(edge);
+        }
+        impl_->selected_source_vertex_count=static_cast<GLsizei>(data.size()/6);
+        if(!data.empty()&&data!=impl_->selected_source_data) {
+            impl_->selected_source_lines.bind();
+            impl_->selected_source_lines.allocate(data.data(),static_cast<int>(data.size()*sizeof(float)));
+            setProperty("gpuSourceWireUploadCount",property("gpuSourceWireUploadCount").toULongLong()+1);
+        }
+        impl_->selected_source_data=std::move(data);
+        impl_->selected_source_key=std::move(source_wire_key);
+    }
+    const bool source_wire_visible=source_wire_key.has_value()&&impl_->selected_source_vertex_count>0;
+    setProperty("gpuSourceWireVertexCount",source_wire_visible?impl_->selected_source_vertex_count:0);
+    if(source_wire_visible) {
+        impl_->program.setUniformValue("unlit",1);
+        impl_->program.setUniformValue("color",interaction::rgba(interaction::selected));
+        bind_attributes(impl_->selected_source_lines);
+        glDisable(GL_DEPTH_TEST);glLineWidth(1.F);
+        glDrawArrays(GL_LINES,0,impl_->selected_source_vertex_count);
+        glEnable(GL_DEPTH_TEST);
+    }
     std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;
-    QVector4D highlight_color=interaction::rgba(interaction::selected);
     if (!highlighted && !impl_->candidates.empty()) {
         highlighted = impl_->candidates[impl_->active_candidate];
-        highlight_color = interaction::rgba(interaction::hover);
     }
+    if(authored_preview&&highlighted&&highlighted->kind==CandidateKind::Container)highlighted.reset();
     impl_->prepare_reference_faces();
     auto inspected_faces=impl_->inspected_faces;
     for(const auto& reference:impl_->reference_faces)
@@ -4189,51 +4345,6 @@ if (impl_->show_origins) {
         }))inspected_faces.push_back(reference);
     if (!highlighted && !inspected_faces.empty()) {
         highlighted=inspected_faces.front();
-        highlight_color=interaction::rgba(interaction::selected);
-    }
-    // Exact solid faces reuse their calculated picking triangles. Datum planes
-    // retain their screen-constant wire presentation. Cache the GPU upload by
-    // face identity and invalidate it whenever the displayed mesh changes.
-    std::vector<ViewerCandidate> filled_faces;
-    std::vector<QVector4D> filled_colors;
-    std::vector<Impl::FaceFillKey> fill_keys;
-    const auto add_face=[&](const ViewerCandidate& candidate,QVector4D color) {
-        if(candidate.kind!=CandidateKind::Face || candidate.semantic_key=="plane" ||
-           candidate.semantic_key.starts_with("origin:plane:"))return;
-        // A confirmed/inspected face may use Display triangles while hover
-        // names the same persisted face through OriginalReference triangles.
-        // Its selection color wins; never blend green over that same face.
-        if(std::ranges::any_of(filled_faces,[&](const auto& face) {
-            return face.owner_id==candidate.owner_id && face.semantic_key==candidate.semantic_key &&
-                face.instance_path==candidate.instance_path;
-        }))return;
-        const Impl::FaceFillKey key{candidate.geometry,candidate.owner_id,candidate.semantic_key,candidate.instance_path};
-        fill_keys.push_back(key);filled_faces.push_back(candidate);color.setW(.28f);filled_colors.push_back(color);
-    };
-    for(const auto& face:inspected_faces)add_face(face,interaction::rgba(interaction::selected));
-    if(impl_->confirmed_candidate)add_face(*impl_->confirmed_candidate,interaction::rgba(interaction::selected));
-    if(!impl_->candidates.empty())add_face(impl_->candidates[impl_->active_candidate],interaction::rgba(interaction::hover));
-    if(fill_keys!=impl_->face_fill_keys) {
-        std::vector<float> vertices;impl_->face_fill_ranges.clear();
-        for(const auto& face:filled_faces) {
-            const auto first=static_cast<int>(vertices.size()/6);
-            for(const auto& p:candidate_face_triangles(face))
-                vertices.insert(vertices.end(),{static_cast<float>(p.x),static_cast<float>(p.y),static_cast<float>(p.z),0,0,1});
-            impl_->face_fill_ranges.emplace_back(first,static_cast<int>(vertices.size()/6)-first);
-        }
-        impl_->face_fill.bind();impl_->face_fill.allocate(vertices.data(),static_cast<int>(vertices.size()*sizeof(float)));
-        impl_->face_fill_keys=std::move(fill_keys);
-    }
-    if(!filled_faces.empty()) {
-        bind_attributes(impl_->face_fill);impl_->program.setUniformValue("unlit",1);
-        glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_FALSE);
-        glEnable(GL_BLEND);glBlendFuncSeparate(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE);
-        glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(-1.f,-1.f);
-        for(std::size_t i=0;i<impl_->face_fill_ranges.size();++i) {
-            impl_->program.setUniformValue("color",filled_colors[i]);
-            glDrawArrays(GL_TRIANGLES,impl_->face_fill_ranges[i].first,impl_->face_fill_ranges[i].second);
-        }
-        glDisable(GL_POLYGON_OFFSET_FILL);glDisable(GL_BLEND);glDepthMask(GL_TRUE);glDepthFunc(GL_LESS);
     }
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
@@ -5385,13 +5496,12 @@ if (impl_->show_origins) {
             }
         };
         paint_phase("base annotation layer");
-        for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
         // Display-mesh selection is already recolored by draw_lines(). Do not
         // project and repaint it as a second, thicker screen-space wire.
         // Edge-treatment boundaries have a separate semantic wire, so retain
         // that presentation just as for hover and original-reference inspection.
-        if (treatment_wire) {
+        if (treatment_wire&&!source_wire_visible&&impl_->geometry_editing_presentation) {
             for (const auto index : *treatment_wire)
                 if (index < impl_->mesh.edges.size())
                     draw_selected_wire(impl_->mesh.edges[index]);
@@ -5502,24 +5612,6 @@ if (impl_->show_origins) {
                     }
                 }
             }
-            if (const auto* edge_indices = original_container_wire(highlighted)) {
-                // This is the persisted source object itself. Draw its wire
-                // once in screen space, with no thicker duplicate result-body
-                // overlay and no OCCT work on hover.
-                painter.setPen(QPen(color, wire_width, Qt::SolidLine, Qt::RoundCap));
-                painter.setBrush(Qt::NoBrush);
-                for (const auto edge_index : *edge_indices) {
-                    if (edge_index >=
-                        impl_->mesh.original_references.edges.size()) continue;
-                    const auto& edge =
-                        impl_->mesh.original_references.edges[edge_index];
-                    for (std::size_t index = 1;
-                         index < edge.points.size(); ++index) {
-                        painter.drawLine(project(edge.points[index - 1]),
-                                         project(edge.points[index]));
-                    }
-                }
-            }
             if (highlighted->kind == CandidateKind::Container) {
                 for (const auto& point : impl_->mesh.points) {
                 if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
@@ -5542,7 +5634,7 @@ if (impl_->show_origins) {
                 const auto highlighted=std::optional<ViewerCandidate>(face_overlay);
                 const bool inspected=std::any_of(inspected_faces.begin(),inspected_faces.end(),[&](const auto& face){
                     return face.owner_id==face_overlay.owner_id && face.semantic_key==face_overlay.semantic_key && face.instance_path==face_overlay.instance_path;});
-                painter.setPen(QPen(inspected?interaction::selected:color, inspected?interaction::selected_wire_width:wire_width));
+                painter.setPen(QPen(inspected?interaction::selected:color,1.0));
                 painter.setBrush(Qt::NoBrush);
                 const bool original = highlighted->geometry ==
                     CandidateGeometry::OriginalReference;
@@ -6159,7 +6251,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         const ViewerCandidate pressed_candidate =
             impl_->candidates[impl_->active_candidate];
         if (pressed_candidate.kind != CandidateKind::Dimension)
-            impl_->container_inspection_wire.clear();
+            {impl_->container_inspection_wire.clear();impl_->inspected_container.reset();}
         impl_->confirmed_candidate = pressed_candidate;
         impl_->selected_container_origin_id =
             impl_->confirmed_candidate->kind == CandidateKind::Container &&

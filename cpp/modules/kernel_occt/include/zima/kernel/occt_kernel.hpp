@@ -8,6 +8,7 @@ namespace zima::kernel {
 
 struct SolidStraighteningPlan;
 class StepSourceDocument;
+struct FacePlaneIntersectionRequest;
 
 enum class AggregatePropertyDemand { All, Final, Deferred };
 // Explicit calculation policy only; no viewer/selection callbacks install it.
@@ -50,6 +51,10 @@ public:
     void ensure_body_properties(BodyResult& body) const;
     [[nodiscard]] std::vector<std::optional<double>> measure_face_areas(
         const BodyResult& body, std::span<const FaceReference> references) const;
+    // Explicit reference calculation, never an ordinary picking/hover query.
+    // Returns exact curves/points with native ancestry; source stays read-only.
+    [[nodiscard]] ViewerReferenceGeometry intersect_face_plane(
+        const BodyResult&,const FacePlaneIntersectionRequest&) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(

@@ -153,20 +153,5 @@ bool AssemblyWorkspaceWindow::is_edge_treatment_feature(
          container->feature_kind == zima::document::FeatureKind::Chamfer);
 }
 
-std::set<std::size_t>
-AssemblyWorkspaceWindow::edge_treatment_feature_edges(
-    const std::string& owner_id,
-    std::string instance_path) const {
-    if (!is_edge_treatment_feature(owner_id) || viewer_ == nullptr) return {};
-    const auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr ||
-        part->session.document().find_container(owner_id) == nullptr) return {};
-    if (instance_path.empty()) {
-        instance_path = resolve_active_occurrence(
-            part->session.document().document_id).value_or(std::string{});
-    }
-    return viewer_->edge_treatment_boundary_edge_indices(
-        owner_id, instance_path);
-}
 
 } // namespace zima::app

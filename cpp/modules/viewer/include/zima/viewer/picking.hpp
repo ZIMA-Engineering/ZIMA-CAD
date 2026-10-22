@@ -126,11 +126,9 @@ struct EdgeKey {
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge);
 
-// Ordinary Part history hover/selection presents a native container through
-// its complete persisted source wire, not through the few result-body edges
-// that survived later operations. Imported STEP containers deliberately stay
-// on the cheap result-wire path because replaying their complete source wire
-// would make hover proportional to the full import size.
+// Explicit container inspection presents the complete persisted source wire.
+// Ordinary hover uses current result edges; single selection uses result faces.
+// Imported STEP containers retain their inexpensive result-wire path.
 [[nodiscard]] bool candidate_uses_original_container_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge);

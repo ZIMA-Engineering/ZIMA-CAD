@@ -218,6 +218,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 }
 #include "feature_ui_verification.inc"
 #include "feature_selection_ui_verification.inc"
+#include "feature_side_reversal_ui_verification.inc"
 #include "boundary_surface_ui_verification.inc"
 #include "sheet_cut_skin_ui_verification.inc"
 #include "surface_wire_visibility_ui_verification.inc"
@@ -572,6 +573,9 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_SELECTION_ONLY")) {
         verify_feature_selection(application,window,directory);return 0;
+    }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_SIDE_REVERSAL_ONLY")) {
+        verify_feature_side_reversal(application,window,directory);return 0;
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_MODELING_ONLY")) {
         try {verify_feature_modeling(application,window,directory);std::cout<<"Feature modeling and pending profile wire passed\n";return 0;}

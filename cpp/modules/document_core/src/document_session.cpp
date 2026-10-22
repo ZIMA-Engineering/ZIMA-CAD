@@ -34,6 +34,17 @@ void publish_profile_axes(zima::kernel::ViewerMesh& mesh) {
             return visible.reference==axis.reference;
         })) mesh.axes.push_back(axis);
     }
+    // Sweep axes can be stored as exact reference strokes rather than ViewerAxis
+    // records. Rollback must expose those same strokes from its input boundary.
+    // Never resurrect the creation frame of a later material-state result.
+    for(const auto& edge:mesh.original_references.edges) {
+        const auto& key=edge.reference.semantic_key;
+        if(key!="axis:primary"&&!key.starts_with("axis:profile:")&&
+            !key.starts_with("centerline:from:"))continue;
+        if(replaced(edge.reference))continue;
+        if(std::ranges::none_of(mesh.edges,[&](const auto& visible){return visible.reference==edge.reference;}))
+            mesh.edges.push_back(edge);
+    }
     for(const auto& point:mesh.original_references.points) {
         if(!point.reference.semantic_key.starts_with("profile:path-point:")||replaced(point.reference))continue;
         if(std::ranges::none_of(mesh.points,[&](const auto& visible){return visible.reference==point.reference;}))

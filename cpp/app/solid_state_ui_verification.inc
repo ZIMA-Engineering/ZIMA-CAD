@@ -391,7 +391,11 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 "GUI save lost its state history");
             if(authored_fillet)check(reopened.find_container(authored_fillet->id)&&
                 *reopened.find_container(authored_fillet->id)==*authored_fillet,"GUI state changed authored Fillet intent");
-            check(!reopened_geometry.empty()&&std::abs(reopened_geometry.back().volume-state->session.calculated_boundaries().back().volume)<1e-5,
+            auto expected_properties=state->session.calculated_boundaries().back();
+            // Save completes deferred physical analysis. Compare real native
+            // volumes, not a pending pre-analysis scalar from the live scene.
+            kernel.ensure_body_properties(expected_properties);
+            check(!reopened_geometry.empty()&&std::abs(reopened_geometry.back().volume-expected_properties.volume)<1e-5,
                 "GUI restored volume did not survive native save/reopen");
             check(std::ranges::none_of(reopened_geometry.back().mesh.axes,[&](const auto& axis){return axis.reference.owner_id==source.id;}),
                 "Native save/reopen restored an obsolete displayed source axis");

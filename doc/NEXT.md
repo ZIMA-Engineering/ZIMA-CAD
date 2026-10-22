@@ -1,6 +1,6 @@
 # Development follow-ups and historical design notes
 
-## Current work index - 2026-10-20
+## Current work index - 2026-10-22
 
 Use [current project status](PROJECT_STATUS.md) for implemented capabilities,
 development changes awaiting release and the actual remaining queue. Family Table,
@@ -10,8 +10,9 @@ and document Undo/Redo already exist. Their former foundation requests are not
 new TODOs. Detailed dated notes below preserve design context and verification
 ideas; they do not override the current contracts or newer user instructions.
 
-Finish current corrections and verified Windows release first, then the agreed
-ordered Up To surface chain and signed correction. Surface projection, File
+Finish current corrections and verified Windows release first. The user's
+2026-10-22 next-session order is recorded below and takes precedence over older
+queue notes. The ordered Up To surface chain and signed correction, surface projection, File
 Manager prototypes, remaining library studies, FEM, direct meshes and voice/pointer
 context retain the scope and order in the [current queue](FASTENER_REMAINING_WORK.md).
 Two-part locking nuts and STEP-derived Sketch offsets are outside that scope.
@@ -19,6 +20,53 @@ Two-part locking nuts and STEP-derived Sketch offsets are outside that scope.
 These accumulated design notes include historical stages. Check current focused
 contracts and [ROADMAP.md](../ROADMAP.md) before selecting work; newer explicit
 user instructions and completed native features supersede older pending items.
+
+## Restart handoff - 2026-10-22
+
+The user plans a PC restart after the current work is completed. Confirm that
+the normal repository-root `zima-cad.bat` is ready before inviting testing. Keep
+that launcher stable. The current build identity is `2026102201`; release
+acceptance/publication status is in [its record](releases/2026102201.md) and the
+[Feature direction verification](verification/20261022-feature-side-reversal.md).
+Check those records and Git status after restart rather than assuming a running
+build or process survived.
+
+The accepted selection contract is the actual analytical creation/Properties
+preview wire, at normal width and visible through the model. Whole-solid hover,
+click and inspection never fill faces. Individual placement/reference selection
+retains its exact offered current Face fragment and wire boundary. Resolve the
+original ancestry only for reference storage. Do not restore old result-edge
+selection heuristics or extra thick azure strokes.
+
+Next, continue the approved [Sketch intersection plan](SKETCH_INTERSECTION_REFERENCE_PLAN.md):
+Face × Sketch plane, multiple disconnected branches with stable selected-branch
+identity, and Reference/Intersection-to-outline integration with native analytic
+circle/arc preservation. The native 51-case calculation foundation exists;
+the editor commands, complete persisted branch definition and their five-language
+UI are unfinished. The user approved that native-format scope on 2026-10-21;
+do not request the same approval again. Required start-template and affected
+factory-asset regeneration still apply when implementing the final definition.
+
+Then finish the H/V view adapter for quarter-turns and flipped Sketch views,
+preserving internal constraint semantics, and the remaining simultaneous H/V
+offers while entering the second segment endpoint. Endpoint equality and rounded
+corner annotation corrections already have finite native/GUI regression
+evidence; do not restart them as new features. Follow the point-junction and
+dimension/edit/drag matrix rules in AGENTS.md.
+
+The user data in `1000.prtz` and `L30X30X3` must be re-identified from current
+files before further reproduction; use private test copies. Preserve the user's
+modified `PWN-CSN021665-M10.0.prtz`, its artwork, `ZE-TEXT.symz`, metadata and
+other uncommitted work. The release factory verification uses the accepted Git
+definitions separately. Interoperability bookmarks are in
+[external resources](EXTERNAL_RESOURCES.md).
+
+Disk space is limited. The 2026-10-22 cleanup removed only two superseded unsigned
+candidate ZIPs after verifying retained signed archives, and losslessly compressed
+old large diagnostic JSONL files with SHA-256 readback. It reclaimed about 3 GB.
+Do not delete current Qt/OCCT SDKs, user projects or retained signed releases.
+Avoid accumulating candidate extractions and bulk fixture copies. Linux execution
+is still unverified; its completion requires the Linux host.
 
 ## Performance and Scaling
 

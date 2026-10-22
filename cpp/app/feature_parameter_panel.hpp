@@ -208,22 +208,7 @@ public:
     QPushButton* sketch_button() const { return sketch_; }
     void on_swap(std::function<void()> callback) { swap_requested_=std::move(callback); }
     void swap_sides() {
-        const auto values=parameters();
-        // No intermediate widget signal may publish a partially swapped definition.
-        std::vector<std::unique_ptr<QSignalBlocker>> blocked;
-        for(auto& side:sides_) {
-            blocked.push_back(std::make_unique<QSignalBlocker>(side.mode));
-            blocked.push_back(std::make_unique<QSignalBlocker>(side.end));
-            blocked.push_back(std::make_unique<QSignalBlocker>(side.value));
-            blocked.push_back(std::make_unique<QSignalBlocker>(side.draft));
-        }
-        for(int i=0;i<2;++i) {
-            auto& side=sides_[i];side.pending=values.sides[1-i];
-            side.draft->setValue(side.pending.draft_angle_degrees);side.displayed_draft=side.draft->value();
-            side.previous_mode=0;side.displayed_axis=false; // Loading must not capture the old displayed number.
-            side.mode->setCurrentIndex(static_cast<int>(side.pending.operation));
-            refresh_side(i);
-        }
+        initial_.reversed_sides=!initial_.reversed_sides;
     }
     QLineEdit* target_control(std::size_t side) const { return sides_.at(side).target; }
     QHBoxLayout* target_layout(std::size_t side) const { return sides_.at(side).target_layout; }

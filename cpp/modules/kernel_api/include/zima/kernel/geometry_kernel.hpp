@@ -631,6 +631,8 @@ struct RevolutionRequest {
     // This is transient calculation input; the native Feature owns the target.
     std::optional<ExtrusionLimit> end_limit;
     bool mirror_end_limit{};
+    // Feature physical direction is independent of its logical Start/End parent.
+    bool feature_direction_reversed{};
     bool surface_result{};
     std::string open_profile_end_id;
 };

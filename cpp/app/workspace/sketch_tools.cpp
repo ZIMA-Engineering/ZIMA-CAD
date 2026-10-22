@@ -275,7 +275,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     }
     if (!right_click_behavior && sketch_external_reference_active_) {
         set_sketch_external_reference_mode(false);
-        state_->setText(tr("Výběr externích referencí byl ukončen."));
+        state_->setText(tr("Výběr referencí byl ukončen."));
         return true;
     }
     if (sketch_trim_active_) {

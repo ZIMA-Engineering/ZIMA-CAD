@@ -67,8 +67,8 @@ int main() { try {
     for(const auto second:{FeatureSideOperation::None,FeatureSideOperation::Extrusion,FeatureSideOperation::Revolution})
     for(const auto result:{ProfileResultType::Solid,ProfileResultType::Thin,ProfileResultType::Surface})
     for(const auto extent:{EndCondition::Length,EndCondition::UpTo,EndCondition::ThroughAll})
-    for(const bool symmetric:{false,true}) {
-        auto p=fixture();p.result_type=result;p.symmetric=symmetric;
+    for(const bool symmetric:{false,true})for(const bool reversed:{false,true}) {
+        auto p=fixture();p.result_type=result;p.symmetric=symmetric;p.reversed_sides=reversed;
         p.sides[0].operation=first;p.sides[1].operation=second;
         p.sides[1].extrusion_extent=extent;
         const auto saved=serialize_feature_parameters(p);
@@ -77,6 +77,9 @@ int main() { try {
         check(std::signbit(restored.profile_plane_offset),"Feature serialization normalized signed zero");
         check(std::signbit(restored.sides[1].targets[0].fallback_origin.x),"Reference serialization normalized signed zero");
         check(restored.effective_side(1)==restored.sides[symmetric?0:1],"Stored symmetry changed side ownership");
+        check(restored.side_direction_reversed(0)==reversed&&restored.side_direction_reversed(1)!=reversed,
+            "Direction reversal changed logical side indices");
+        check(saved.contains("reversed_sides")==reversed,"Neutral Feature definitions must retain their existing serialized identity");
     }
     for(const auto extent:{FeatureRotationExtent::Angle,FeatureRotationExtent::Full,FeatureRotationExtent::UpTo}) {
         auto p=fixture();p.sides[0].rotation_extent=extent;

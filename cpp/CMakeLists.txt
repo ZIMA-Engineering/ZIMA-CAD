@@ -1070,6 +1070,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_point_marker_colors_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_POINT_MARKERS_ONLY=1")
     add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
+    add_executable(zima_cpp_source_wire_gpu_tests tests/source_wire_gpu_tests.cpp)
+    target_link_libraries(zima_cpp_source_wire_gpu_tests PRIVATE zima_viewer zima_document_core Qt6::Widgets)
+    add_test(NAME zima_cpp_source_wire_gpu_tests COMMAND zima_cpp_source_wire_gpu_tests)
+    set_tests_properties(zima_cpp_source_wire_gpu_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_unit_input_tests tests/unit_input_tests.cpp)
     target_link_libraries(zima_cpp_unit_input_tests PRIVATE zima_ui)
     add_test(NAME zima_cpp_unit_input_tests COMMAND zima_cpp_unit_input_tests)
@@ -1083,7 +1087,7 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_face_inspection_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_face_inspection_contract PROPERTIES
-        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_FILL_ONLY=1")
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_WIRE_ONLY=1")
     add_test(NAME zima_cpp_feature_axis_highlight_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_feature_axis_highlight_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY=1")
@@ -1156,6 +1160,11 @@ if(ZIMA_BUILD_TESTS)
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_executable(zima_cpp_rounded_tangent_wing_tests tests/rounded_tangent_wing_tests.cpp)
+    add_executable(zima_cpp_rolled_l_profile_tests tests/rolled_l_profile_tests.cpp)
+    target_link_libraries(zima_cpp_rolled_l_profile_tests PRIVATE zima_sketcher)
+    target_compile_options(zima_cpp_rolled_l_profile_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_rolled_l_profile_tests COMMAND zima_cpp_rolled_l_profile_tests)
+    set_tests_properties(zima_cpp_rolled_l_profile_tests PROPERTIES TIMEOUT 180)
     target_link_libraries(zima_cpp_rounded_tangent_wing_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_rounded_tangent_wing_tests COMMAND zima_cpp_rounded_tangent_wing_tests)
     set_tests_properties(zima_cpp_rounded_tangent_wing_tests PROPERTIES TIMEOUT 300)
@@ -1831,6 +1840,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_feature_modeling_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_feature_selection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_feature_side_reversal_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_side_reversal_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SIDE_REVERSAL_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_assembly_history_cursor_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_assembly_history_cursor_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -1839,6 +1852,16 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_selection_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SELECTION_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    foreach(form_name IN ITEMS BridgeLance CornerGusset90 DimpledHole VentilationWindow)
+        add_test(NAME "zima_cpp_factory_${form_name}_preview_ui_contract" COMMAND zima-cad-cpp --verify-startup)
+        set_tests_properties("zima_cpp_factory_${form_name}_preview_ui_contract" PROPERTIES
+            ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SELECTION_ONLY=1;ZIMA_VERIFY_SELECTION_FILE=${CMAKE_SOURCE_DIR}/../config/lib/01-SHEETMETAL/01-FORM/${form_name}.prtz"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
+    endforeach()
+    add_test(NAME zima_cpp_factory_nose_washer_preview_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_factory_nose_washer_preview_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SELECTION_ONLY=1;ZIMA_VERIFY_SELECTION_FILE=${CMAKE_SOURCE_DIR}/../config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M04.0.prtz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_feature_modeling_wire_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_MODELING_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
@@ -2002,6 +2025,18 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_external_circular_profiles_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_external_face_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_external_trim_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_external_circle_trim_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_external_circle_trim_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_TRIM_ONLY=1;ZIMA_VERIFY_EXTERNAL_TRIM_CIRCLE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    set_tests_properties(zima_cpp_external_trim_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_TRIM_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    set_tests_properties(zima_cpp_external_face_reference_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_FACE_REFERENCE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_external_curve_centers_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_external_curve_centers_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CURVE_CENTERS_ONLY=1"
@@ -2163,6 +2198,16 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_endpoint_priority_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_corner_chain_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_equal_endpoint_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_entry_view_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_entry_view_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ENTRY_VIEW_ONLY=1"
+        TIMEOUT 120 RUN_SERIAL TRUE)
+    set_tests_properties(zima_cpp_sketch_equal_endpoint_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_four_equal_corners_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_four_equal_corners_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -2262,6 +2307,8 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_form_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_sheet_form_geometry_tests PRIVATE zima_workspace TKOffset TKTopAlgo)
     add_test(NAME zima_cpp_sheet_form_geometry_tests COMMAND zima_cpp_sheet_form_geometry_tests)
+    add_test(NAME zima_cpp_factory_preview_context_tests COMMAND zima_cpp_sheet_form_geometry_tests --verify-factory-preview-context)
+    set_tests_properties(zima_cpp_factory_preview_context_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_sheet_form_copy_tests COMMAND zima_cpp_sheet_form_geometry_tests --copy-matrix)
     add_test(NAME zima_cpp_sheet_form_copy_after_unbend_tests COMMAND zima_cpp_sheet_form_geometry_tests --copy-after-unbend)
     set_tests_properties(zima_cpp_sheet_form_copy_tests zima_cpp_sheet_form_copy_after_unbend_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -2448,6 +2495,12 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_offset_geometry_tests COMMAND zima_cpp_sketch_offset_geometry_tests)
     add_executable(zima_cpp_exact_spline_contract_tests tests/exact_spline_contract_tests.cpp)
     add_executable(zima_cpp_external_circular_profiles_tests tests/external_circular_profiles_tests.cpp)
+    add_executable(zima_cpp_external_trim_boundary_tests tests/external_trim_boundary_tests.cpp)
+    add_executable(zima_cpp_face_plane_intersection_tests tests/face_plane_intersection_tests.cpp)
+    target_link_libraries(zima_cpp_face_plane_intersection_tests PRIVATE zima_workspace zima_kernel_occt)
+    add_test(NAME zima_cpp_face_plane_intersection_tests COMMAND zima_cpp_face_plane_intersection_tests)
+    target_link_libraries(zima_cpp_external_trim_boundary_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_external_trim_boundary_tests COMMAND zima_cpp_external_trim_boundary_tests)
     target_link_libraries(zima_cpp_external_circular_profiles_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_external_circular_profiles_tests COMMAND zima_cpp_external_circular_profiles_tests)
     add_executable(zima_cpp_external_curve_centers_tests tests/external_curve_centers_tests.cpp)
@@ -2491,6 +2544,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_type_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_executable(zima_cpp_feature_parameters_tests tests/feature_parameters_tests.cpp)
+    add_executable(zima_cpp_feature_side_reversal_tests tests/feature_side_reversal_tests.cpp)
+    target_link_libraries(zima_cpp_feature_side_reversal_tests PRIVATE zima_workspace zima_kernel_occt)
+    add_test(NAME zima_cpp_feature_side_reversal COMMAND zima_cpp_feature_side_reversal_tests)
     add_executable(zima_cpp_feature_draft_tests tests/feature_draft_tests.cpp)
     add_executable(zima_cpp_revolution_limit_tests tests/revolution_limit_tests.cpp)
     target_link_libraries(zima_cpp_revolution_limit_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt Qt6::Core TKTopAlgo TKGeomAlgo)

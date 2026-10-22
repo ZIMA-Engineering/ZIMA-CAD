@@ -170,8 +170,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const auto source = feature ? value.feature.profile_source : extrusion ? value.extrusion.profile_source : value.revolution.profile_source;
     if (source == document::ProfileSource::Internal) {
         profile->owner_container_id = value.id;
-        if (profile->plane_auto && document::sketch_placement_uses_front_plane(value.placement.references))
-            profile->plane = sketcher::SketchPlane::XZ;
+        document::apply_automatic_sketch_work_plane(*profile,value.placement.references);
         profile->plane_offset = feature ? value.feature.profile_plane_offset : extrusion ? value.extrusion.profile_plane_offset : value.revolution.profile_plane_offset;
     }
     // Confirming an unchanged definition must keep its current calculation and

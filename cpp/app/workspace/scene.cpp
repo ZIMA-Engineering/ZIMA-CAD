@@ -11,7 +11,6 @@
 #include "../document_numeric_display.hpp"
 #include "ordinary_selection.hpp"
 #include "../feature_view_cues.hpp"
-#include "../authored_feature_wire.hpp"
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/general_surface.hpp>
 #include <zima/document/sheet_form_definition.hpp>
@@ -160,17 +159,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     }
     setProperty("zimaDocumentDecimalPlaces",decimal_places);
     update_viewer_numeric_context(*viewer_,*this);
-    const auto publish_parameter_inspection=[this](const zima::workspace::PartState* part,const std::string& path) {
+    const auto publish_parameter_inspection=[this](const std::string& path) {
         viewer_->set_container_inspection(properties_dialog_==nullptr
             ?construction_dimension_object_id_:std::string{},path);
-        if(properties_dialog_||!active_sketch_id_.empty()||!part||construction_dimension_object_id_.empty())return;
-        auto wire=authored_feature_wire(part->session,construction_dimension_object_id_);
-        if(!path.empty()) {
-            const auto occurrence=zima::assembly::InstancePath::decode(path);
-            for(auto& edge:wire)for(auto& point:edge.points)
-                point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),occurrence,point);
-        }
-        if(!wire.empty())viewer_->set_container_inspection_wire(std::move(wire));
     };
     const auto hidden_surface_packet_owners = [this](const zima::document::PartDocument& document) {
         const auto limit=part_rollback_&&part_rollback_->part_document_id==document.document_id
@@ -1286,6 +1277,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 ? sketch_external_profile_active_
                     ? std::vector{zima::viewer::CandidateKind::Edge}
                     : std::vector{zima::viewer::CandidateKind::Edge,
+                              zima::viewer::CandidateKind::Face,
+                              zima::viewer::CandidateKind::Plane,
                               zima::viewer::CandidateKind::SketchSegment,
                               zima::viewer::CandidateKind::SketchCurve,
                               zima::viewer::CandidateKind::SketchPoint,
@@ -1455,10 +1448,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 document, active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
             viewer_->set_candidate_filter(
                 [source_owners,profile=sketch_external_profile_active_](const auto& candidate) {
-                    const bool stable_geometry = candidate.geometry ==
-                        (profile ? zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference);
+                    const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile);
+                    const auto source=sketch_external_reference_source_candidate(candidate);
                     return stable_geometry && candidate.instance_path.empty() &&
-                        source_owners.contains(candidate.owner_id) &&
+                        source_owners.contains(source.owner_id) &&
                         sketch_external_reference_kind(candidate).has_value();
                 });
         } else if (sketch_coincident_active_) {
@@ -2104,7 +2097,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         if (extrusion_target_dialog_ != nullptr) {
             apply_extrusion_target_selection_contract();
         }
-        publish_parameter_inspection(part,{});
+        publish_parameter_inspection({});
         update_section_ui();
         phase("Part sections");
         update_measurement_ui();
@@ -2274,6 +2267,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             ? sketch_external_profile_active_
                 ? std::vector{zima::viewer::CandidateKind::Edge}
                 : std::vector{zima::viewer::CandidateKind::Edge,
+                          zima::viewer::CandidateKind::Face,
+                          zima::viewer::CandidateKind::Plane,
                           zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchPoint,
@@ -2310,8 +2305,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             const auto& prefix = workspace_.active_occurrence_path();
             if (!prefix.empty() && (!candidate.instance_path.starts_with(prefix) ||
                 candidate.instance_path == prefix)) return false;
-            if (candidate.geometry != (sketch_external_profile_active_ ?
-                    zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference) ||
+            if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_) ||
                 candidate.instance_path.empty()) return false;
             try {
                 return workspace_.resolve_occurrence(top_assembly_id,
@@ -2331,11 +2325,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         viewer_->set_candidate_filter(
             [this, allowed_local_owners, active_document_id,
              top_assembly_id, dependent_path](const auto& candidate) {
-                if (candidate.geometry != (sketch_external_profile_active_ ?
-                        zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference) ||
+                if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_) ||
                     candidate.instance_path.empty()) return false;
                 if (candidate.instance_path == dependent_path) {
-                    return allowed_local_owners.contains(candidate.owner_id);
+                    return allowed_local_owners.contains(sketch_external_reference_source_candidate(candidate).owner_id);
                 }
                 try {
                     const auto address = workspace_.resolve_occurrence(
@@ -2638,7 +2631,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     }
     // Keep inspection visual only: confirming the container here would
     // suppress subsequent dimension hover and inline editing.
-    publish_parameter_inspection(active_part,
+    publish_parameter_inspection(
         active_part != nullptr ? resolve_active_occurrence(
             active_part->session.document().document_id).value_or(std::string{}) : std::string{});
     configure_sketch_box_selection(has_active_part_sketch);

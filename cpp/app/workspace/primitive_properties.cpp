@@ -646,9 +646,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             sketch = std::prev(preview_document.sketches.end());
         }
         sketch->owner_container_id = preview.id;
-        if (sketch->plane_auto && zima::document::sketch_placement_uses_front_plane(preview.placement.references)) {
-            sketch->plane = zima::sketcher::SketchPlane::XZ;
-        }
+        zima::document::apply_automatic_sketch_work_plane(*sketch,preview.placement.references);
         const double next_offset = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_plane_offset : extrusion
             ? preview.extrusion.profile_plane_offset
             : preview.revolution.profile_plane_offset;
@@ -1504,11 +1502,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     input=&**assembly_input;
                 }
                 try {
-                    auto wire=input?document.feature_preview_edges(preview,*input):document.feature_preview_edges(preview);
+                    // Keep native end targets in their containing Part reference universe;
+                    // the command carrier holds only this Body and its pending Sketch.
+                    const auto* references=owner?&owner->session.document():nullptr;
+                    const zima::kernel::ViewerMesh empty_input;
+                    auto wire=document.feature_preview_edges(preview,input?*input:empty_input,references);
                     viewer_->set_transient_edges(std::move(wire));
                 } catch(const std::exception& error) {
                     // An empty or unfinished profile cannot supply a body wire,
                     // but its resolved work plane is valid editing context.
+                    if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
+                        std::fprintf(stderr,"Feature wire failed: %s\n",error.what());
                     viewer_->set_transient_edges({});
                     state_->setText(tr(error.what()));
                 }
@@ -1649,11 +1653,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     if (extrusion_needs_input_bounds(resolved_preview)) {
                         profile_wire=input_mesh == nullptr
                             ? preview_document.extrusion_preview_edges(
-                                resolved_preview)
+                                resolved_preview,1000,0,0,&owner->session.document())
                             : preview_document.extrusion_preview_edges(
-                                resolved_preview, *input_mesh);
+                                resolved_preview, *input_mesh,0,&owner->session.document());
                     } else {
-                        profile_wire=preview_document.extrusion_preview_edges(resolved_preview);
+                        profile_wire=preview_document.extrusion_preview_edges(resolved_preview,1000,0,0,&owner->session.document());
                     }
                     const auto profile=std::ranges::find(preview_document.sketches,resolved_preview.extrusion.sketch_id,
                         &zima::sketcher::Sketch::id);
@@ -1772,10 +1776,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     draft_container = pending_feature;
                 auto draft_sketch = *property_owned_sketch_draft_;
                 draft_sketch.owner_container_id = draft_container.id;
-                if (draft_sketch.plane_auto && zima::document::sketch_placement_uses_front_plane(
-                        pending_feature.placement.references)) {
-                    draft_sketch.plane = zima::sketcher::SketchPlane::XZ;
-                }
+                zima::document::apply_automatic_sketch_work_plane(draft_sketch,pending_feature.placement.references);
                 draft_sketch.plane_offset = pending_feature.feature_kind == zima::document::FeatureKind::Feature ? pending_feature.feature.profile_plane_offset : extrusion
                     ? pending_feature.extrusion.profile_plane_offset
                     : pending_feature.revolution.profile_plane_offset;
@@ -1870,7 +1871,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if(key.starts_with("feature_profile_start")) {
                     // Each side's handle points outward; recover the same
                     // authored offset through the resolved Sketch normal.
-                    const double delta=key.ends_with("1")?-coordinate:coordinate;
+                    const double delta=coordinate*baseline->side_direction_sign(key.ends_with("1")?1:0);
                     dialog->set_inline_parameter_value("profile_offset",baseline->profile_plane_offset+
                         zima::sketcher::plane_offset_delta_for_normal_displacement(extent_drag_baseline->profile_plane,delta));
                 } else if(key=="side0_length"||key=="side1_length") {

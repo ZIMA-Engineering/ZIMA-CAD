@@ -475,8 +475,7 @@ SketchPropertiesDialog::current_values() const {
     if (sketch.plane_auto && bend_radius_ &&
             zima::document::bend_attachment_profile_direction(placement.references, reference_geometry_))
         sketch.plane = zima::sketcher::SketchPlane::XY;
-    else if (sketch.plane_auto && zima::document::sketch_placement_uses_front_plane(placement.references))
-        sketch.plane = zima::sketcher::SketchPlane::XZ;
+    else zima::document::apply_automatic_sketch_work_plane(sketch,placement.references);
     if((bend_pending_&&bend_pending_->sheet_attachment)||(flat_pending_&&flat_pending_->sheet_attachment)) {
         placement.rotation_offset_x=placement.rotation_offset_y=placement.rotation_offset_z=0;
         placement.orientation_back=false;placement.orientation_quarter_turns=0;
@@ -606,8 +605,8 @@ void SketchPropertiesDialog::refresh_resolved_placement() {
     zima::document::normalize_container_front_references(value.references);
     const auto automatic_plane = bend_radius_ &&
         zima::document::bend_attachment_profile_direction(value.references, reference_geometry_)
-        ? zima::sketcher::SketchPlane::XY : zima::sketcher::SketchPlane::XZ;
-    if (zima::document::sketch_placement_uses_front_plane(value.references) &&
+        ? zima::sketcher::SketchPlane::XY : zima::document::automatic_sketch_work_plane(value.references).value_or(initial_.plane);
+    if (zima::document::automatic_sketch_work_plane(value.references).has_value() &&
         plane_->itemData(plane_->findData(QStringLiteral("auto")), Qt::UserRole + 1).toInt() !=
             static_cast<int>(automatic_plane))
         update_automatic_work_plane(plane_, static_cast<int>(automatic_plane));
@@ -649,6 +648,13 @@ bool SketchPropertiesDialog::owns_reference_owner(
     return owner_id == initial_.owner_container_id;
 }
 
+zima::document::ConstructionReference SketchPropertiesDialog::prepare_reference_candidate(
+        std::size_t index,zima::document::ConstructionReference reference) const {
+    if(automatic_work_plane(plane_))
+        zima::document::prepare_profile_plane_reference(index,reference,placement_->combined_references(3));
+    return reference;
+}
+
 bool SketchPropertiesDialog::set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) {
@@ -682,6 +688,7 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
             refresh_resolved_placement();notify_preview();return true;
         }
     }
+    reference=prepare_reference_candidate(index,std::move(reference));
     const bool first_plane_reference = index == 0 && reference.supports_offset;
     // Shared normalization keeps later positional planes from replacing
     // FRONT. Preserve explicit direction rows: after an anchor point, the
@@ -694,12 +701,8 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
         update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
         notify_preview();
     } else if (accepted && first_plane_reference) {
-        // The first planar placement reference is mirrored into FRONT, which
-        // maps its normal onto the container's local Y axis. Therefore local
-        // XZ — not the default XY — is the actual sketch plane parallel to
-        // the picked reference. This keeps placement, preview and the frame
-        // later opened in Sketcher on one and the same plane.
-        update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ), label);
+        update_automatic_work_plane(plane_, static_cast<int>(zima::document::automatic_sketch_work_plane(
+            placement_->combined_references(3)).value_or(zima::sketcher::SketchPlane::XY)), label);
         notify_preview();
     }
     if (accepted) {

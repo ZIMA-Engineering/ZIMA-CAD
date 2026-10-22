@@ -2,6 +2,11 @@
 
 Status: Windows native and targeted GUI verification completed, 2026-10-18.
 
+UI naming update, 2026-10-21: the Sketch command is **Reference** (Czech:
+**Reference**), using the shared translation key in cs/en/de/fr/ru. Its selection,
+completion and validation prompts use that name. Internal external-reference
+identifiers, read-only ownership and serialized definitions are unchanged.
+
 Sketch face references represent orthographic projected boundaries and apparent
 contours in the Sketch frame, not the intersection between a source surface and
 the Sketch plane. Moving the plane along its normal must not destroy an existing
@@ -30,8 +35,19 @@ to an unrelated face or a stale intersection.
 
 ## Individual curve selection (2026-10-18)
 
-The ordinary Sketch reference command now offers real edges, vertices, axes and
-individual apparent-outline curves. Whole Face picking is disabled in this UI.
+The 2026-10-21 correction offers the current visible Body face fragment in
+Sketch reference entry. Hover, confirmation and inspection retain that exact
+display candidate. Only reference validation/storage translates its explicit
+persisted ancestry to the original source face. This consumes the existing
+reference candidate policy without changing container placement or rebuilding
+topology during picking. Both planar cap sides of Solid and Thin fixtures are
+checked through real GUI selection; the untrimmed original face is no longer
+substituted for the offered fragment.
+
+The ordinary Sketch reference command offers real edges, vertices, axes and
+individual apparent-outline curves. Whole Face picking was disabled in the
+2026-10-18 UI change; the direct face/plane selection correction below supersedes
+that restriction following the user's 2026-10-21 report.
 A complete side-on cylindrical or conical band exposes both generators as two
 independent finite curves. Their source Face identity and occurrence path remain
 explicit; the `sketch-outline:negative:` / `sketch-outline:positive:` semantic
@@ -50,9 +66,38 @@ oblique, spherical, toroidal or NURBS surfaces.
 The native `sketch.reference.replace` command changes a reference's source while
 preserving its ID and attached contacts. It uses the existing transaction and
 source-validation paths, including atomic failure, Undo/Redo and persistence.
-Existing authored whole-Face references remain readable; disabling their UI
-creation does not delete them. Fitted factory profiles are explicitly reauthored
+Existing authored whole-Face references remain readable. Fitted factory profiles are explicitly reauthored
 to individual shaft/root outlines and the exact runout-end Edge.
+
+## Direct face selection and external trim boundaries (2026-10-21)
+
+The user could not add cap planes while editing the last Feature in
+`Projects/1000.prtz`. Native creation accepted all 38 eligible preceding faces,
+including the Thin Feature's cap planes. All seven references to the last
+Feature's own faces were correctly rejected as forward/self dependencies.
+The GUI's reference-kind mapping and both Part/Assembly selection contracts
+omitted Face/Plane candidates, and original face picking was disabled. Direct
+Face/Plane selection is restored only in ordinary external-reference entry;
+Reference to contour still accepts body edges. Individual apparent-outline
+curves retain their existing identities and behavior.
+
+The actual mouse-selection check passes on a private copy of `1000.prtz`,
+including creation of an infinite cap-plane support, Undo/Redo and native
+reopen. The user's original file remains byte-for-byte unchanged. Synthetic
+Solid and Thin fixtures pass as well. Thin cap faces can lie behind their nearby
+rim-edge candidates; the check uses ordinary right-click cycling before left
+click confirmation. Language/theme checks exercise the updated guidance in all
+five languages and both themes. Projection remains distinct from the approved,
+not-yet-implemented [Sketch-plane intersection mode](SKETCH_INTERSECTION_REFERENCE_PLAN.md).
+
+Standalone external line and certified exact circular references now participate
+as read-only trim boundaries. Refinement uses their exact geometry, not display
+chords. New native segment/arc endpoints retain C to the selected external
+support. An overlapping circular reference is a support rather than a set of
+sample intersections. Finite arc domains do not cut on an absent opposite branch.
+See the [finite verification matrix](verification/20261021-external-reference-trim.md)
+for results and unverified variants. No native serialized field, source identity
+or shared container-placement behavior changes in these two fixes.
 
 The expanded matrix passes 240 surface/contour-only, whole/individual, plane,
 offset and side configurations with repeated source edits, dimensions and drags.

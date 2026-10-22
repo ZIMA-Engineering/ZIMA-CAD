@@ -5,6 +5,7 @@
 #include <zima/viewer/silhouette.hpp>
 #include "../app/construction_reference_candidate_policy.hpp"
 #include "../app/sketch_point_pick_priority.hpp"
+#include "../app/sketch_external_reference_kind.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -537,6 +538,9 @@ int main() {
                         face_overlay, native_original_wire),
                 "Native history Container did not choose its complete original "
                 "wire independently of Face references and large STEP hover");
+        auto native_seam=native_original_wire;native_seam.parameter_seam=true;
+        require(!zima::viewer::candidate_uses_original_container_wire_edge(native_container,native_seam),
+            "A parameter seam was treated as an authored preview stroke");
         require(!zima::viewer::candidate_uses_face_boundary_overlay(
                     imported_step_container) &&
                     zima::viewer::candidate_uses_face_boundary_overlay(face_overlay),
@@ -573,18 +577,17 @@ int main() {
         const zima::viewer::ViewerCandidate unrelated_treatment_container{
             zima::viewer::CandidateKind::Container, 0.0, 0,
             "fillet-other", {}, {}, zima::viewer::CandidateGeometry::Display};
-        require(!zima::viewer::candidate_recolors_wire_edge(
+        require(zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, fillet_boundary) &&
-                    !zima::viewer::candidate_recolors_wire_edge(
+                    zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, shared_treatment_boundary) &&
-                    !zima::viewer::candidate_recolors_wire_edge(
+                    zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, terminal_treatment_edge) &&
                     !zima::viewer::candidate_recolors_wire_edge(
                         fillet_container, unrelated_boundary) &&
-                    !zima::viewer::candidate_recolors_wire_edge(
+                    zima::viewer::candidate_recolors_wire_edge(
                         unrelated_treatment_container, unrelated_boundary),
-                "Fillet/Chamfer Container fell through to ambiguous stable-key "
-                "wire recolouring instead of exact display-edge indices");
+                "Ordinary treatment hover omitted its displayed boundaries or claimed another feature's edges");
         zima::kernel::ViewerMesh infinite_line_mesh;
         infinite_line_mesh.edges.push_back({
             {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
@@ -984,6 +987,16 @@ int main() {
                 offered[0].owner_id=="latest-cut"&&offered[0].semantic_key==ancestry,
                 "Placement did not offer the actual trimmed display fragment");
             const auto source=zima::app::placement_reference_source_candidate(offered[0]);
+            const auto external_source=zima::app::sketch_external_reference_source_candidate(offered[0]);
+            require(zima::app::sketch_external_reference_has_stable_geometry(offered[0],false)&&
+                external_source.owner_id=="original-box"&&external_source.semantic_key=="z_max"&&
+                external_source.instance_path=="8:assembly4:part"&&
+                offered[0].owner_id=="latest-cut"&&offered[0].semantic_key==ancestry&&
+                external_source.geometry_index==offered[0].geometry_index,
+                "Sketch external reference lost the visible fragment or its persisted original parent");
+            require(!zima::app::sketch_external_reference_has_stable_geometry(
+                {zima::viewer::CandidateKind::Edge,0,0,"anonymous-result","edge",{},zima::viewer::CandidateGeometry::Display},false),
+                "Ordinary Sketch references admitted an operational result edge");
             const auto containers=zima::viewer::filter_candidates(
                 zima::viewer::ordered_viewer_candidates(fragment,{0,0,0},{0,0,1},.01),
                 {zima::viewer::CandidateKind::Container});
@@ -1025,6 +1038,20 @@ int main() {
                 "Cut Fillet hover highlighted the cutter instead of the Fillet");
             zima::kernel::ViewerEdge boundary;
             const zima::viewer::ViewerCandidate cutter{zima::viewer::CandidateKind::Container,0,0,"latest-cut",{},source.instance_path};
+            boundary.reference.instance_path=source.instance_path;boundary.display_owner_id="original-box";
+            boundary.edge_treatment_side_references={fragment.triangle_references[0],{"original-box","y_min",source.instance_path}};
+            require(!zima::viewer::candidate_recolors_wire_edge(cutter,boundary),
+                "Cut selection claimed an old face merely because a later Boolean trimmed it");
+            boundary.edge_treatment_side_references[0]={"latest-cut","generated:profile",source.instance_path};
+            require(!zima::viewer::candidate_recolors_wire_edge(cutter,boundary),
+                "An adjacent new cutting face transferred an older edge's ownership");
+            boundary.reference={"latest-cut","generated:intersection:from:profile",source.instance_path};
+            boundary.display_owner_id="latest-cut";
+            require(zima::viewer::candidate_recolors_wire_edge(cutter,boundary),
+                "Cut hover omitted its own generated result boundary");
+            auto other_cut=cutter;other_cut.instance_path="8:assembly5:other";
+            require(!zima::viewer::candidate_recolors_wire_edge(other_cut,boundary),
+                "Cut highlighting crossed repeated occurrence identities");
             auto cutter_wire=boundary;cutter_wire.reference={"latest-cut","start:feature-side:circle",source.instance_path};
             require(zima::viewer::candidate_uses_original_container_wire_edge(cutter,cutter_wire),
                 "Cutter highlight lost its own authored tool wire");

@@ -160,6 +160,9 @@ public:
     void set_candidate_priority(
         std::function<int(const ViewerCandidate&)> candidate_priority);
     // Visual inspection does not latch the picker; dimensions remain editable.
+    // Read an already calculated authored contribution, without changing picking.
+    void set_container_preview_provider(std::function<std::vector<zima::kernel::ViewerEdge>(
+        const std::string&, const std::string&)> provider);
     void set_container_inspection(const std::string& owner_id,
         const std::string& instance_path = {});
     void set_container_inspection_wire(std::vector<zima::kernel::ViewerEdge> wire);

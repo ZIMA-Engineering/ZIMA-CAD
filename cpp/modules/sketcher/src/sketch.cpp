@@ -4340,6 +4340,8 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     try {
         next.refresh_curve_dependencies();
         next.validate();
+        if(std::ranges::any_of(next.corner_radii,[](const auto& corner){return !corner.suppressed&&corner.radius>1e-9;}))
+            static_cast<void>(next.evaluated_profile_sketch());
     } catch (const std::exception&) {
         return false;
     }
@@ -7272,10 +7274,17 @@ static CornerFilletResult materialize_corner_fillet(
     std::erase_if(next.dimensions, [&](auto& dimension) {
         if (dimension.geometry_id == first_segment_id ||
             dimension.geometry_id == second_segment_id) {
-            const auto& segment = dimension.geometry_id == first_segment_id
-                ? *first_segment : *second_segment;
-            dimension.first_point_id = segment.first_point_id;
-            dimension.second_point_id = segment.second_point_id;
+            // Only an owned segment-length dimension stores that segment's
+            // endpoints. A point-to-line or line-pair dimension retains its
+            // own point/line roles when the displayed support is trimmed.
+            if (dimension.kind == DimensionKind::Distance ||
+                dimension.kind == DimensionKind::DistanceX ||
+                dimension.kind == DimensionKind::DistanceY) {
+                const auto& segment = dimension.geometry_id == first_segment_id
+                    ? *first_segment : *second_segment;
+                dimension.first_point_id = segment.first_point_id;
+                dimension.second_point_id = segment.second_point_id;
+            }
             return false;
         }
         return dimension.first_point_id == corner_id ||
@@ -7414,16 +7423,11 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
         throw std::runtime_error("Externí bod osy není platný. Obnovte kolmost osy k rovině skici nebo opravte referenci.");
     auto result = *this;
     const auto records = result.corner_radii;
-    // Corner dimensions retain their identity when their derived arcs are
-    // materialized, but those arcs do not exist during intermediate validation.
-    std::vector<SketchDimension> corner_dimensions;
-    std::erase_if(result.dimensions,[&](const auto& dimension) {
-        const bool derived=std::ranges::any_of(records,[&](const auto& corner) {
-            return !corner.suppressed&&corner.radius>1e-9&&corner.id==dimension.geometry_id;
-        });
-        if(derived)corner_dimensions.push_back(dimension);
-        return derived;
-    });
+    // Drivers describe the already solved design graph or the final visible
+    // leg. Neither is a dimension of a partially materialized corner chain.
+    // Restore their annotation/identity only after all tangent trims exist.
+    auto authored_dimensions=std::move(result.dimensions);
+    result.dimensions.clear();
     std::vector<SketchConstraint> corner_relations;
     std::erase_if(result.constraints,[&](const auto& relation) {
         if (relation.kind != ConstraintKind::EqualRadius) return false;
@@ -7484,7 +7488,17 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
         }
     }
     result.constraints.insert(result.constraints.end(),corner_relations.begin(),corner_relations.end());
-    result.dimensions.insert(result.dimensions.end(),corner_dimensions.begin(),corner_dimensions.end());
+    for(auto dimension:authored_dimensions) {
+        if(dimension.kind==DimensionKind::Distance||dimension.kind==DimensionKind::DistanceX||
+            dimension.kind==DimensionKind::DistanceY) {
+            const auto segment=std::ranges::find(result.segments,dimension.geometry_id,&SketchSegment::id);
+            if(segment!=result.segments.end()) {
+                dimension.first_point_id=segment->first_point_id;
+                dimension.second_point_id=segment->second_point_id;
+            }
+        }
+        result.dimensions.push_back(std::move(dimension));
+    }
     result.validate();
     return result;
 }
@@ -9919,8 +9933,7 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             *this, result, "Sketch dimension is redundant");
     }
     next.refresh_curve_dependencies();
-    if((dimension_kind==DimensionKind::Radius||dimension_kind==DimensionKind::Diameter)&&
-        std::ranges::any_of(next.corner_radii,[&](const auto& corner){return corner.id==dimension_geometry_id;}))
+    if(std::ranges::any_of(next.corner_radii,[](const auto& corner){return !corner.suppressed&&corner.radius>1e-9;}))
         static_cast<void>(next.evaluated_profile_sketch());
     *this = std::move(next);
 }
@@ -13857,11 +13870,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             display.placement = radius.dimension_placement;
             evaluated.dimensions.push_back(std::move(display));
         }
-        // Retain source midpoint annotation/selection after geometric
-        // evaluation; these relations must not solve the trimmed profile.
+        // Retain source constraint annotation/selection after geometric
+        // evaluation. Corner-point contacts and equal design lengths still
+        // belong to the authored graph; they must not solve the trimmed copy.
+        std::unordered_set<std::string> displayed_constraints;
+        displayed_constraints.reserve(evaluated.constraints.size()+constraints.size());
+        for(const auto& constraint:evaluated.constraints)displayed_constraints.insert(constraint.id);
         for(const auto& constraint:constraints) {
-            if(constraint.kind!=ConstraintKind::Midpoint&&constraint.kind!=ConstraintKind::MidpointOnLine)continue;
-            if(std::ranges::none_of(evaluated.constraints,[&](const auto& value){return value.id==constraint.id;}))
+            if(displayed_constraints.insert(constraint.id).second)
                 evaluated.constraints.push_back(constraint);
         }
         auto result = evaluated.viewer_mesh();

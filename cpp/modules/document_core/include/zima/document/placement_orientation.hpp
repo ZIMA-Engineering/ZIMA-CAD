@@ -53,6 +53,21 @@ inline void normalize_container_front_references(
             continue;
         }
         if (!ref.supports_offset && !ref.orientation_drives_rotation) continue;
+        // An authored TOP/BOTTOM/FRONT/BACK is already a real orientation
+        // equation. Normalization must not reinterpret it as another axis.
+        if(ref.orientation_drives_rotation && ref.orientation_role!="none") {
+            if(ref.orientation_role=="front"||ref.orientation_role=="back"||ref.orientation_role=="direction")front=true;
+            continue;
+        }
+        const auto twin=std::ranges::find_if(references,[&](const auto& candidate){
+            return candidate.orientation_only&&candidate.orientation_drives_rotation&&candidate.orientation_role!="none"&&
+                candidate.owner_id==ref.owner_id&&candidate.semantic_key==ref.semantic_key&&candidate.instance_path==ref.instance_path;
+        });
+        if(twin!=references.end()) {
+            ref.orientation_drives_rotation=true;ref.orientation_role=twin->orientation_role;
+            if(ref.orientation_role=="front"||ref.orientation_role=="back"||ref.orientation_role=="direction")front=true;
+            continue;
+        }
         ref.orientation_drives_rotation = true;
         ref.orientation_role = front ? "top" : "front";
         front = true;

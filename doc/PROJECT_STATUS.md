@@ -74,6 +74,36 @@ STEP-derived offsets are outside the requested scope.
 
 ## Maintaining this index
 
+User-selected interoperability bookmarks are retained in
+[External resources](EXTERNAL_RESOURCES.md). The approved next Sketch reference
+extension is scoped in [Sketch-plane intersection references](SKETCH_INTERSECTION_REFERENCE_PLAN.md).
+The [external trim and cap-reference corrections](verification/20261021-external-reference-trim.md)
+pass their Windows native and Solid/Thin fixture mouse matrices. After changing
+face picking to current visible fragments, the actual `1000.prtz` final-feature
+start cap passes; its end cap has no matching offered Face candidate and remains
+unresolved. The former original-geometry cap test is not acceptance of this
+changed visible-face behavior. The new intersection calculation has a
+[51-case native foundation matrix](verification/20261021-sketch-face-plane-foundation.md);
+the new Sketch command and persisted branch definition remain in progress.
+The current [command-preview selection correction](verification/20261022-command-preview-selection.md)
+uses the actual analytical creation/Properties wire for Modeling Features,
+Extrusions and Revolutions, shared by hover, click and inspection. Exact current
+Face boundaries for placement are retained. Direct GUI segment comparisons pass
+for the synthetic and both L30X30X3 snapshots, along with Sheet/Solid state
+inspection. The user accepted the L30X30X3 experiment. The broader
+[factory origin/preview audit](verification/20261022-factory-origin-preview-audit.md)
+passes all 1,185 native factory loads, existing frames/native Sketch data in
+1,034 Parts, 21 finite preview GUI cases and fifteen dependent contracts.
+The separately approved [Feature side reversal](verification/20261022-feature-side-reversal.md)
+retains the original panels, locks, references and logical Start/End while
+reversing physical direction; its focused native and actual GUI matrices pass.
+Final factory integration and Windows publication are in progress. Linux
+execution remains unverified. The preceding
+[GPU-wire investigation](verification/20261021-feature-selection-gpu-wire.md)
+retains historical `1000.prtz` feature 003 measurements. The
+[endpoint equality and rounded-corner annotation correction](verification/20261021-sketch-equal-endpoint-corner-markers.md)
+records the native dimension/drag matrix and actual mouse interaction cases.
+
 Update this page, the root README and the corresponding active roadmap entry
 when a capability changes status. Link implementation/verification evidence and
 state release/platform limits. Preserve historical release records as history;

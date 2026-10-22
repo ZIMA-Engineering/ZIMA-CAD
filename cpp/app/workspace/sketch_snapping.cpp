@@ -538,6 +538,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         return true;
     }
     auto inferred_end = inferred_sketch_segment_end(*position);
+    const auto offered_equal_reference = inferred_end.equal_length_reference_id;
     const auto offered_start_tangent=inferred_end.tangent_at_start ? inferred_end.tangent_reference_id : std::string{};
     auto confirmed_position = inferred_end.position;
     auto direction_inference = inferred_end.kind;
@@ -550,6 +551,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         confirmed_position = *position;
         direction_inference.reset();
         inferred_end.reference_point_id.clear();
+        inferred_end.segment_direction.reset();
         inferred_end.equal_length_reference_id.clear();
         inferred_end.symmetry_axis_id.clear();
         inferred_end.tangent_reference_id.clear();
@@ -714,6 +716,15 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             }
         }
     }
+    if (end_snap_kind == zima::sketcher::ConstraintKind::PointOnLine &&
+        !(sketch_polyline_active_ && sketch_polyline_arc_mode_)) {
+        if (const auto equal_end = equal_length_axis_endpoint(*sketch,
+                *pending_segment_start_, confirmed_position,
+                end_snap_geometry_id, offered_equal_reference)) {
+            confirmed_position = *equal_end;
+            inferred_end.equal_length_reference_id = offered_equal_reference;
+        }
+    }
     const bool polyline_arc = sketch_polyline_active_ && sketch_polyline_arc_mode_;
     const bool snapped_start_tangent=!polyline_arc && end_snap_kind &&
         automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) &&
@@ -723,7 +734,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         if(inferred_end.tangent_reference_id.empty()) {
             inferred_end.tangent_reference_id=offered_start_tangent;inferred_end.tangent_at_start=true;
         }
-        direction_inference.reset();inferred_end.perpendicular_reference_id.clear();
+        direction_inference.reset();inferred_end.segment_direction.reset();inferred_end.perpendicular_reference_id.clear();
     }
     const bool polyline_arc_endpoint_snap = polyline_arc && end_snap_kind.has_value();
     const bool polyline_arc_point_alignment = polyline_arc &&
@@ -963,6 +974,15 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         // the interactive inference.
                     }
                 }
+                if (inferred_end.segment_direction) {
+                    try {
+                        static_cast<void>(target.add_point_pair_constraint(
+                            effective_first_point_id,effective_second_point_id,
+                            *inferred_end.segment_direction));
+                    } catch (const zima::sketcher::RedundantConstraint&) {
+                        // A picked/shared start may already imply this direction.
+                    }
+                }
             }
             })) return true;
     } catch (const std::exception& error) {
@@ -1137,39 +1157,39 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                 }
             }
         }
-        const zima::sketcher::SketchPoint* horizontal_reference = nullptr;
-        const zima::sketcher::SketchPoint* vertical_reference = nullptr;
+        std::optional<SketchPointAlignment> horizontal_reference;
+        std::optional<SketchPointAlignment> vertical_reference;
         double horizontal_distance = direction_tolerance;
         double vertical_distance = direction_tolerance;
-        for (const auto& point : sketch->points) {
-            if (std::hypot(point.x - (*pending_segment_start_)[0],
-                           point.y - (*pending_segment_start_)[1]) <= 1.0e-9) {
-                continue;
+        const auto offer_alignment=[&](const std::string& id,double x,double y) {
+            if (std::hypot(x - (*pending_segment_start_)[0],
+                           y - (*pending_segment_start_)[1]) <= 1.0e-9) {
+                return;
             }
-            const double h_distance = std::abs(position[1] - point.y);
-            const double v_distance = std::abs(position[0] - point.x);
+            const double h_distance = std::abs(position[1] - y);
+            const double v_distance = std::abs(position[0] - x);
             if (h_distance <= horizontal_distance) {
                 horizontal_distance = h_distance;
-                horizontal_reference = &point;
+                horizontal_reference = SketchPointAlignment{{position[0],y},id,zima::sketcher::ConstraintKind::Horizontal};
             }
             if (v_distance <= vertical_distance) {
                 vertical_distance = v_distance;
-                vertical_reference = &point;
+                vertical_reference = SketchPointAlignment{{x,position[1]},id,zima::sketcher::ConstraintKind::Vertical};
             }
-        }
-        if (horizontal_reference != nullptr) {
-            auto aligned = position;
-            aligned[1] = horizontal_reference->y;
+        };
+        for (const auto& point : sketch->points)offer_alignment(point.id,point.x,point.y);
+        for (const auto& reference:sketch->external_references)
+            if(!reference.broken&&zima::sketcher::is_external_point_kind(reference.kind)&&reference.cached_points.size()==1)
+                offer_alignment(reference.id,reference.cached_points.front()[0],reference.cached_points.front()[1]);
+        if (horizontal_reference) {
             point_alignments.push_back({horizontal_distance,
-                {aligned, zima::sketcher::ConstraintKind::Horizontal,
-                 horizontal_reference->id}});
+                {horizontal_reference->position, zima::sketcher::ConstraintKind::Horizontal,
+                 horizontal_reference->point_id}});
         }
-        if (vertical_reference != nullptr) {
-            auto aligned = position;
-            aligned[0] = vertical_reference->x;
+        if (vertical_reference) {
             point_alignments.push_back({vertical_distance,
-                {aligned, zima::sketcher::ConstraintKind::Vertical,
-                 vertical_reference->id}});
+                {vertical_reference->position, zima::sketcher::ConstraintKind::Vertical,
+                 vertical_reference->point_id}});
         }
         for (const auto& axis : sketch->segments) {
             if (!axis.construction) continue;
@@ -1350,6 +1370,25 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         variants.push_back(std::move(candidate.second));
     }
     for (auto& candidate : point_alignments) {
+        if (!sketch_polyline_arc_mode_ && candidate.second.kind) {
+            if (const auto cross=infer_segment_cross_alignment(*pending_segment_start_,
+                    candidate.second.position,*candidate.second.kind,direction_tolerance,
+                    sketch_inference_settings_)) {
+                auto combined=candidate.second;
+                combined.position=cross->position;
+                combined.segment_direction=cross->direction;
+                variants.push_back(std::move(combined));
+            }
+        }
+        for (const auto& equal : equal_candidates_for(candidate.second.position)) {
+            auto combined = exact_equal(candidate.second, equal);
+            const auto coordinate = candidate.second.kind ==
+                zima::sketcher::ConstraintKind::Horizontal ? 1U : 0U;
+            // Preserve the point-alignment equation as well as the length.
+            if (std::abs(combined.position[coordinate] -
+                    candidate.second.position[coordinate]) <= 1.0e-9)
+                variants.push_back(std::move(combined));
+        }
         variants.push_back(std::move(candidate.second));
     }
     for (auto& candidate : symmetries) {
@@ -1375,6 +1414,7 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     std::erase_if(variants,[&](const auto& value) {
         using K=zima::sketcher::ConstraintKind;
         return (value.kind && !automatic_constraint_enabled(*value.kind)) ||
+            (value.segment_direction && !automatic_constraint_enabled(*value.segment_direction)) ||
             (!value.equal_length_reference_id.empty() && !automatic_constraint_enabled(K::EqualLength)) ||
             (!value.tangent_reference_id.empty() && !automatic_constraint_enabled(K::Tangent)) ||
             (!value.perpendicular_reference_id.empty() && !automatic_constraint_enabled(K::Perpendicular)) ||

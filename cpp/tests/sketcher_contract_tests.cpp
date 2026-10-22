@@ -21,6 +21,7 @@
 #include "native_tangent_contact_study.hpp"
 #include "native_arc_axis_study.hpp"
 #include "trimmed_rectangle_arc_study.hpp"
+#include "sketch_corner_annotation_study.hpp"
 #include "sketch_coordinate_incidence_study.hpp"
 
 namespace {
@@ -31,6 +32,7 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        run_sketch_corner_annotation_study();
         if(const auto* path=std::getenv("ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC"))return run_trimmed_rectangle_arc_study(path);
         if(std::getenv("ZIMA_CPP_VERIFY_ARC_AXIS_ONLY"))return run_native_arc_axis_study();
         if(std::getenv("ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT"))return run_native_tangent_contact_study();

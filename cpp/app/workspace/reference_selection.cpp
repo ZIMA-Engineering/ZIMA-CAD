@@ -12,6 +12,7 @@ document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog*
         const kernel::ViewerReferenceGeometry& geometry,const kernel::Vec3& origin,
         const std::optional<double>* cached_measurement=nullptr) {
     if(const auto* form=dynamic_cast<const PrimitivePropertiesDialog*>(dialog);form&&form->is_sheet_form())return ref;
+    ref=dialog->prepare_reference_candidate(index,std::move(ref));
     const auto measured=cached_measurement?*cached_measurement:
         document::measure_placement_reference_offset(ref,geometry,origin);
     ref.measured_offset=measured;

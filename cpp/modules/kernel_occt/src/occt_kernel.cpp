@@ -43,6 +43,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Section.hxx>
+#include <zima/kernel/face_plane_intersection.hpp>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Curve2d.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -2706,12 +2707,12 @@ PrimitiveData make_extrusion_data(
             const double start=reverse_boundary?-distance_to(*reverse_boundary,reverse_exact,seed,{-unit.x,-unit.y,-unit.z}):bounded_start;
             const double end=forward_boundary?distance_to(*forward_boundary,exact_target,seed,unit):bounded_end;
             const auto first=dimension_add(seed,dimension_scale(unit,start)),last=dimension_add(seed,dimension_scale(unit,end));
-            profile_centerlines::line(result.profile_references,owner_id,key,request.first_cap_is_start?first:last,request.first_cap_is_start?last:first);
+            profile_centerlines::line(result.profile_references,owner_id,key,first_semantic_cap_is_start(request)?first:last,first_semantic_cap_is_start(request)?last:first);
         }
     }
 
-    const std::string first_role = request.first_cap_is_start ? "start" : "end";
-    const std::string last_role = request.first_cap_is_start ? "end" : "start";
+    const std::string first_role = first_semantic_cap_is_start(request) ? "start" : "end";
+    const std::string last_role = first_semantic_cap_is_start(request) ? "end" : "start";
     const FaceReference first_cap_reference{owner_id,
         profile_cap_semantic_key(first_role, request.profile_region_id), {}};
     const FaceReference last_cap_reference{owner_id,
@@ -3344,8 +3345,8 @@ PrimitiveData make_revolution_data(
     }
     PrimitiveData result{revolution.Shape(), {}, {}, {}};
     result.profile_references=profile_centerlines::revolution(request,owner_id);
-    const std::string first_role = request.first_cap_is_start ? "start" : "end";
-    const std::string last_role = request.first_cap_is_start ? "end" : "start";
+    const std::string first_role = first_semantic_cap_is_start(request) ? "start" : "end";
+    const std::string last_role = first_semantic_cap_is_start(request) ? "end" : "start";
     if (!request.surface_result && request.angle_degrees < 360.0 - 1.0e-9) {
         result.faces.push_back(
             {revolution.FirstShape(), {owner_id,
@@ -5381,34 +5382,46 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
     std::ostringstream stream;archive.Write(stream);archive.Write(shape,stream);result.kernel_shape=stream.str();
 }
 
-PrimitiveData bound_face_geometry(const BodyResult& body) {
+PrimitiveData bound_face_geometry(const BodyResult& body,bool curve_ancestry=false) {
     PrimitiveData result;BRep_Builder builder;BRepTools_ShapeSet archive(builder);
     std::istringstream stream(body.kernel_shape.get());archive.Read(stream);archive.Read(result.shape,stream);
     if(result.shape.IsNull())throw std::runtime_error("Regenerate the model before measuring body properties.");
-    TopTools_IndexedMapOfShape members;TopExp::MapShapes(result.shape,TopAbs_FACE,members);
-    for(const auto& binding:body.kernel_faces) {
+    TopTools_IndexedMapOfShape members;
+    if(curve_ancestry)TopExp::MapShapes(result.shape,members);
+    else TopExp::MapShapes(result.shape,TopAbs_FACE,members);
+    const auto locate=[&](const auto& binding,TopAbs_ShapeEnum kind) {
         char orientation{};int object{},location{};std::istringstream fields(binding.locator);
         if(!(fields>>orientation>>object>>location)||std::string_view("+-ie").find(orientation)==std::string_view::npos||
             object<1||object>archive.NbShapes()||location<0||!binding.reference.valid())
             throw std::runtime_error("Invalid native topology binding");
         fields>>std::ws;if(!fields.eof())throw std::runtime_error("Invalid native topology binding");
-        TopoDS_Shape face;std::istringstream address(binding.locator);archive.Read(face,address);
-        if(face.IsNull()||face.ShapeType()!=TopAbs_FACE||!members.Contains(face))
+        TopoDS_Shape shape;std::istringstream address(binding.locator);archive.Read(shape,address);
+        if(shape.IsNull()||shape.ShapeType()!=kind||!members.Contains(shape))
             throw std::runtime_error("Invalid native topology binding");
-        result.faces.push_back({TopoDS::Face(face),binding.reference});
+        return shape;
+    };
+    for(const auto& binding:body.kernel_faces)result.faces.push_back({TopoDS::Face(locate(binding,TopAbs_FACE)),binding.reference});
+    if(curve_ancestry) {
+        for(const auto& binding:body.kernel_edges)result.edges.push_back({TopoDS::Edge(locate(binding,TopAbs_EDGE)),binding.reference});
+        for(const auto& binding:body.kernel_vertices)result.vertices.push_back({TopoDS::Vertex(locate(binding,TopAbs_VERTEX)),binding.reference});
     }
     return result;
 }
 
-PrimitiveData placed_bound_face_geometry(const BodyResult& body) {
-    auto result=bound_face_geometry(body);
+PrimitiveData place_bound_geometry(PrimitiveData result,const BodyResult& body) {
     for(const auto& placement:body.kernel_placements) {
         BRepBuilderAPI_Transform transform(result.shape,primitive_transform(placement.translation,placement.rotation_degrees),true);
         transform.Build();
         for(auto& face:result.faces)face.shape=TopoDS::Face(transform.ModifiedShape(face.shape));
+        for(auto& edge:result.edges)edge.shape=TopoDS::Edge(transform.ModifiedShape(edge.shape));
+        for(auto& point:result.vertices)point.shape=TopoDS::Vertex(transform.ModifiedShape(point.shape));
         result.shape=transform.Shape();
     }
     return result;
+}
+
+PrimitiveData placed_bound_face_geometry(const BodyResult& body,bool curve_ancestry=false) {
+    return place_bound_geometry(bound_face_geometry(body,curve_ancestry),body);
 }
 
 std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
@@ -6622,12 +6635,7 @@ SolidStraighteningPlan OcctKernel::prepare_straightening(
             }
         },child);
         if(const auto* revolution=std::get_if<RevolutionRequest>(&child)) {
-            auto resolved=*revolution;
-            // Match the existing Feature calculation: its side follows the
-            // Sketch normal, independently of the authored axis direction.
-            if(const auto side=feature_side_parent(resolved.profile_region_id))
-                if(feature_rotation_reversed(resolved)!=(side->side==FeatureSide::Start))
-                    resolved.axis_direction=dimension_scale(resolved.axis_direction,-1);
+            auto resolved=oriented_feature_revolution(*revolution);
             const auto plan=prepare_straightening(resolved,coefficient);
             if(!result)result=plan;
             child=std::get<ExtrusionRequest>(plan.primitive);
@@ -6770,6 +6778,70 @@ std::vector<std::optional<double>> OcctKernel::measure_face_areas(
     from_sources();return result;
 }
 
+
+ViewerReferenceGeometry OcctKernel::intersect_face_plane(
+        const BodyResult& body,const FacePlaneIntersectionRequest& request) const {
+    const auto finite=[](Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);};
+    if(!request.face.valid()||!request.face.instance_path.empty()||request.plane_owner_id.empty()||
+        !finite(request.origin)||!finite(request.normal)||std::hypot(request.normal.x,request.normal.y,request.normal.z)<=1e-12||
+        !std::isfinite(request.tolerance)||request.tolerance<=0.)
+        throw std::invalid_argument("Intersection face reference is invalid.");
+    const BodyResult* source=nullptr;
+    const BodyResult* placed_source=nullptr;
+    const auto find=[&](auto&& self,const BodyResult& candidate,const BodyResult* placed)->void {
+        if(candidate.kernel_shape==kernel_body_compound) {
+            for(const auto& id:candidate.kernel_compound_bodies) {
+                const auto& output=candidate.body_outputs.at(id).get();
+                const auto local=candidate.body_boundaries.find(id);
+                // Body publication changes its fingerprint to include its
+                // placement. The exact calculated local boundary retains the
+                // cache key and native ancestry; apply the published placement.
+                if(local!=candidate.body_boundaries.end()&&!local->second.empty()) {
+                    const auto input=candidate.body_inputs.find(id);
+                    self(self,local->second.back(),input==candidate.body_inputs.end()?&output:&input->second.get());
+                }
+                else self(self,output,nullptr);
+            }
+            return;
+        }
+        const auto native=live_cache_->boundaries.find(candidate.source_fingerprint);
+        const bool stored=std::ranges::any_of(candidate.kernel_faces,[&](const auto& binding){return same_face_identity(binding.reference,request.face);});
+        const bool live=native!=live_cache_->boundaries.end()&&native->second.topology&&
+            std::ranges::any_of(native->second.topology->faces,[&](const auto& face){return same_face_identity(face.reference,request.face);});
+        if(stored||live) {
+            if(source&&source!=&candidate)throw std::runtime_error("Intersection face reference is ambiguous.");
+            source=&candidate;placed_source=placed;
+        }
+    };
+    find(find,body,nullptr);
+    if(!source)throw std::runtime_error("Intersection source face is missing at its input boundary.");
+    // Consume authored native identities from the current calculated boundary,
+    // or decode their persisted bindings after reopen. Ordinary solid results
+    // need not have serialized edge bindings while their live topology exists.
+    // Neither path replays history or reconstructs identities from the mesh.
+    auto input=[&] {
+        const auto native=live_cache_->boundaries.find(source->source_fingerprint);
+        if(native!=live_cache_->boundaries.end()&&native->second.topology) {
+            PrimitiveData geometry;geometry.shape=native->second.shape;
+            geometry.faces=native->second.topology->faces;
+            geometry.edges=native->second.topology->edges;
+            geometry.vertices=native->second.topology->vertices;
+            return place_bound_geometry(std::move(geometry),placed_source?*placed_source:*source);
+        }
+        return place_bound_geometry(bound_face_geometry(*source,true),placed_source?*placed_source:*source);
+    }();
+    const FaceReference plane{request.plane_owner_id,"sketch-plane",{}};
+    const auto support=BRepBuilderAPI_MakeFace(gp_Pln(
+        gp_Pnt(request.origin.x,request.origin.y,request.origin.z),
+        gp_Dir(request.normal.x,request.normal.y,request.normal.z))).Face();
+    input.faces.push_back({support,plane});
+    SurfaceIntersectionRequest intersection{{request.face,plane},request.tolerance};
+    const auto curves=make_surface_intersection_data(intersection,request.plane_owner_id,input.faces,input.edges,input.vertices);
+    if(curves.edges.empty()&&curves.vertices.empty())return {};
+    auto result=make_result(curves.shape,{},curves.edges,curves.vertices,true,false,true,{},0.,false);
+    std::erase_if(result.mesh.original_references.points,[](const auto& point){return !point.reference.valid();});
+    return std::move(result.mesh.original_references);
+}
 
 BodyResult OcctKernel::import_iges(const std::string& path,
         const std::string& owner_id, double mesh_deflection) const {
@@ -9381,9 +9453,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         } else {
                         validate_revolution(value);
                         if(const auto side=feature_side_parent(value.profile_region_id)) {
-                            auto resolved=value;
-                            if(feature_rotation_reversed(resolved)!=(side->side==FeatureSide::Start))
-                                resolved.axis_direction=dimension_scale(resolved.axis_direction,-1);
+                            auto resolved=oriented_feature_revolution(value);
                             double span{};
                             auto result=make_revolution_data(resolved,operation.owner_id,
                                 resolved.end_limit?original_target(limit_view(*resolved.end_limit)):std::nullopt,

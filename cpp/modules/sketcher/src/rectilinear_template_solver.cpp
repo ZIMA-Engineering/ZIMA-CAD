@@ -11,7 +11,7 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     if((!allow_constraint_only&&!sketch.external_references.empty()) || sketch.points.empty() ||
        !sketch.arcs.empty() || !sketch.ellipses.empty() ||
        !sketch.elliptical_arcs.empty() || !sketch.bsplines.empty() ||
-       !sketch.corner_radii.empty() || !sketch.curve_trims.empty() ||
+       !sketch.curve_trims.empty() ||
        !sketch.offsets.empty())return false;
     // Circle centres are ordinary point coordinates and their radii are not
     // altered by this linear seed. A circle alone must not disable simultaneous
@@ -36,6 +36,23 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
             const auto a=coordinate(c.first_point_id,axis),b=coordinate(c.second_point_id,axis);if(!a||!b)return false;
             groups[root(*a)]=root(*b);
         }
+    }
+    // Origin contacts and contacts to its axes imply the same exact zero
+    // coordinate as an H/V relation. Use their explicit equations, never
+    // current coincident coordinates, to recognize an axis-aligned leg.
+    std::array<std::optional<std::size_t>,2> zero_coordinate;
+    const auto join_origin_coordinate=[&](const std::string& id,int axis) {
+        if(const auto p=coordinate(id,axis)) {
+            if(zero_coordinate[axis])groups[root(*p)]=root(*zero_coordinate[axis]);
+            else zero_coordinate[axis]=*p;
+        }
+    };
+    for(const auto& c:sketch.constraints)if(!c.suppressed) {
+        if(c.kind==ConstraintKind::PointReference&&c.second_point_id=="sketch_origin")
+            for(int axis=0;axis<2;++axis)join_origin_coordinate(c.first_point_id,axis);
+        else if(c.kind==ConstraintKind::PointOnLine&&
+            (c.geometry_id=="sketch_axis:x"||c.geometry_id=="sketch_axis:y"))
+            join_origin_coordinate(c.first_point_id,c.geometry_id=="sketch_axis:x"?1:0);
     }
     using Row=std::vector<double>;
     std::vector<Row> rows;std::vector<double> targets;
@@ -92,6 +109,13 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
         } else if(c.kind==ConstraintKind::EqualLength) {
             auto a=segment_row(c.geometry_id),b=segment_row(c.second_geometry_id);if(!a||!b)return false;
             for(std::size_t i=0;i<count;++i)(*a)[i]-=(*b)[i];add(std::move(*a),0);
+        } else if(c.kind==ConstraintKind::EqualRadius) {
+            // Non-destructive corner parameters do not constrain design-point
+            // coordinates. The ordinary solver still owns their radius solve.
+            const auto a=std::ranges::find(sketch.corner_radii,c.geometry_id,&SketchCornerRadius::id);
+            const auto b=std::ranges::find(sketch.corner_radii,c.second_geometry_id,&SketchCornerRadius::id);
+            if(a==sketch.corner_radii.end()||b==sketch.corner_radii.end()||
+                std::abs(a->radius-b->radius)>1e-8)return false;
         } else if(c.kind==ConstraintKind::Midpoint) {
             const auto segment=std::ranges::find(sketch.segments,c.geometry_id,&SketchSegment::id);
             if(segment==sketch.segments.end())return false;
@@ -106,6 +130,12 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     std::vector<Distance> nonlinear_distances;
     std::vector<Row> positive_distances;
     for(const auto& d:sketch.dimensions)if(!d.suppressed&&d.driving) {
+        // Trimmed owned lengths measure the final visible leg; this seed
+        // fits authored coordinates. Keep those on the ordinary solver path.
+        if(!d.geometry_id.empty()&&
+            (d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY)&&
+            std::ranges::any_of(sketch.corner_radii,[&](const auto& c){return !c.suppressed&&c.radius>1e-9&&
+                (c.first_segment_id==d.geometry_id||c.second_segment_id==d.geometry_id);}))return false;
         if(d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
             const int axis=d.kind==DimensionKind::DistanceX?0:1;
             if(!d.second_point_id.empty()){if(!pair(d.first_point_id,d.second_point_id,axis,d.value))return false;}
@@ -133,6 +163,10 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
                    !pair("sketch_origin",line->first_point_id,axis,target) ||
                    !pair("sketch_origin",line->second_point_id,axis,target))return false;
             }
+        } else if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
+            const auto corner=std::ranges::find(sketch.corner_radii,d.geometry_id,&SketchCornerRadius::id);
+            if(corner==sketch.corner_radii.end()||std::abs(corner->radius-
+                d.value*(d.kind==DimensionKind::Diameter?.5:1.))>1e-8)return false;
         } else return false;
     }
     for(const auto& p:sketch.points)if(p.fixed||std::ranges::find(anchors,p.id)!=anchors.end())

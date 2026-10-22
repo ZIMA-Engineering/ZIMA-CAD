@@ -93,14 +93,14 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
                 std::optional<QPointF> hit;
                 if(mode==4) {
                     view->set_selection_filter(viewer::SelectionFilter::Faces);
-                    const auto& geometry=view->mesh().original_references;
-                    std::cout<<"Original face triangles: "<<geometry.triangle_references.size()<<std::endl;
+                    const auto& geometry=view->mesh();
+                    std::cout<<"Visible face triangles: "<<geometry.triangle_references.size()<<std::endl;
                     for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
                         if(geometry.triangle_references[i].owner_id!=source_feature.id)continue;
                         const auto a=geometry.vertices[geometry.triangles[3*i]],b=geometry.vertices[geometry.triangles[3*i+1]],c=geometry.vertices[geometry.triangles[3*i+2]];
                         const auto p=screen((a.x+b.x+c.x)/3,(a.y+b.y+c.y)/3);const auto candidates=view->selection_candidates_at(p);
                         if(candidates.empty())continue;
-                        for(const auto& candidate:candidates)check(candidate.geometry==viewer::CandidateGeometry::OriginalReference,"External Face command offered a result-body face");
+                        for(const auto& candidate:candidates)check(candidate.kind==viewer::CandidateKind::Face&&candidate.geometry==viewer::CandidateGeometry::Display,"External Face command did not retain the visible body face");
                         hit=p;
                     }
                 } else if(mode==6) {

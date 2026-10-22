@@ -1,6 +1,7 @@
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/feature_ownership.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
 
 #include <algorithm>
@@ -45,12 +46,7 @@ double length(const Vec3& value) {
 }
 
 std::string source_face_owner(const kernel::FaceReference& face) {
-    auto owner=face.owner_id;
-    auto key=face.semantic_key;
-    while(const auto parent=kernel::boolean_face_parent(key)) {
-        owner=parent->first;key=parent->second;
-    }
-    return owner;
+    return original_face_owner(face);
 }
 
 }  // namespace
@@ -287,17 +283,7 @@ bool candidate_recolors_wire_edge(
              edge.reference.instance_path.starts_with(candidate.instance_path));
     }
     if (candidate.kind == CandidateKind::Container &&
-        candidate.semantic_key.empty()) {
-        // A Fillet/Chamfer Container owns the selected operational edge at
-        // its real input boundary, not every edge later generated around the
-        // treatment face. The application presents that persisted input
-        // geometry separately; never let these OCCT-created result edges
-        // fall through to display_owner_id and join the Container highlight.
-        const auto treatment_owners=edge_treatment_boundary_owners(edge);
-        if (edge.reference.instance_path == candidate.instance_path &&
-            std::find(treatment_owners.begin(),treatment_owners.end(),candidate.owner_id)!=treatment_owners.end()) {
-            return false;
-        }
+        (candidate.semantic_key.empty() || candidate.semantic_key == "solid")) {
         const bool screen_curve = edge.overlay &&
             (is_curve3d_edge(edge.reference.semantic_key)||edge.reference.semantic_key.starts_with("intersection:curve:from:"));
         const auto& key = edge.reference.semantic_key;
@@ -307,9 +293,10 @@ bool candidate_recolors_wire_edge(
              key.starts_with("ellipse:") ||
              key.starts_with("elliptical_arc:") ||
              key.starts_with("bspline:") || key.starts_with("text:"));
+        const bool owns_boundary=feature_owns_display_edge(edge,candidate.owner_id,candidate.instance_path);
         return (!edge.construction || (inactive_sketch_profile && edge.dash_dot)) &&
             (!edge.overlay || screen_curve || inactive_sketch_profile) &&
-            edge.display_owner_id == candidate.owner_id &&
+            owns_boundary &&
             edge.reference.instance_path == candidate.instance_path;
     }
     if (candidate.kind == CandidateKind::Container &&
@@ -356,7 +343,7 @@ bool candidate_uses_original_container_wire_edge(
     if(kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("boolean:"))return false;
     return candidate.kind == CandidateKind::Container &&
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
-        !edge.construction && !edge.overlay && edge.reference.valid() &&
+        !edge.construction && !edge.overlay && !edge.parameter_seam && edge.reference.valid() &&
         !edge.reference.semantic_key.starts_with("step:edge:") &&
         !edge.reference.semantic_key.starts_with("iges:edge:") &&
         edge.reference.owner_id == candidate.owner_id &&

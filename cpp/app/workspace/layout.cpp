@@ -8,6 +8,7 @@
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/document/general_surface.hpp>
 #include "../tree_visibility.hpp"
+#include "../authored_feature_wire.hpp"
 #include <zima/ui/operation_activity.hpp>
 #include <QShortcut>
 #include <zima/sketcher/external_curve_center.hpp>
@@ -161,6 +162,23 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { navigate_document_kind(); });
     tree_->setMouseTracking(true);
     viewer_ = new zima::viewer::MeshView;
+    viewer_->set_container_preview_provider([this](const std::string& owner,const std::string& path) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        if(!part)return std::vector<zima::kernel::ViewerEdge>{};
+        std::vector<zima::kernel::ViewerEdge> wire;
+        try {wire=authored_feature_wire(part->session,owner);}
+        catch(const std::exception& error) {
+            if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
+                std::fprintf(stderr,"Selection preview failed: %s\n",error.what());
+            return wire;
+        }
+        if(!path.empty()) {
+            const auto occurrence=zima::assembly::InstancePath::decode(path);
+            for(auto& edge:wire)for(auto& point:edge.points)
+                point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),occurrence,point);
+        }
+        return wire;
+    });
     viewer_->set_preserve_screen_position_on_resize(true);
     initialize_symbol_handles();
     viewer_->setObjectName("modelViewer");
@@ -465,8 +483,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
             }
             select_container(owner_id);
-            viewer_->set_feature_selected_edge_indices(
-                edge_treatment_feature_edges(owner_id,candidate.instance_path));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
                    candidate.owner_id == active_sketch_id_ &&
                    candidate.semantic_key.starts_with("segment:")) {
@@ -1137,14 +1153,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             edge_treatment_hover_seed_ = std::move(hover_seed);
         } else {
             edge_treatment_hover_seed_.reset();
-            std::set<std::size_t> hovered_feature;
-            if (const auto candidate = viewer_->offered_candidate();
-                candidate &&
-                candidate->kind == zima::viewer::CandidateKind::Container) {
-                hovered_feature = edge_treatment_feature_edges(
-                    candidate->owner_id, candidate->instance_path);
-            }
-            viewer_->set_feature_hover_edge_indices(std::move(hovered_feature));
+
         }
         if (!sketch_inference_cycle_refresh_) {
             sketch_segment_inference_cycle_ = 0;
@@ -2187,8 +2196,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                 for(auto* row=item;row&&path.empty();row=row->parent())path=row->data(0,Qt::UserRole+1).toString().toStdString();
                 if(path.empty())viewer_->confirm_container(owner_id);
                 else viewer_->confirm_reference(owner_id,{},path,zima::viewer::CandidateKind::Container);
-                viewer_->set_feature_selected_edge_indices(
-                    edge_treatment_feature_edges(owner_id,path));
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-body" ||
                        item->data(0, Qt::UserRole + 3).toString() == "part-body-boolean") {
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();

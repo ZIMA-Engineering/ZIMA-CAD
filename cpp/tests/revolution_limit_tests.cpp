@@ -34,18 +34,27 @@ kernel::RevolutionRequest request() {
     r.end_limit=kernel::ExtrusionLimit{true,{"datum","plane",{}},true,{0,5,0},{0,1,0},{}};
     return r;
 }
-void valid(const kernel::BodyResult& body) {
+double valid(kernel::BodyResult body) {
+    kernel::OcctKernel{}.ensure_body_properties(body);
     std::cout<<"Limited body volume="<<body.volume<<" errors="<<body.calculation_errors.size()<<'\n';
     for(const auto& [owner,error]:body.calculation_errors)std::cout<<owner<<": "<<error<<'\n';
-    BRep_Builder builder;TopoDS_Shape shape;std::istringstream input(body.kernel_shape);BRepTools::Read(shape,input,builder);
     double independent_volume{};
-    for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next()) {
-        GProp_GProps properties;const auto error=BRepGProp::VolumeProperties(it.Current(),properties,1e-10);
-        check(error>=0,"Independent volume integration failed");independent_volume+=properties.Mass();
-    }
+    const auto integrate=[&](auto&& self,const kernel::BodyResult& source)->void {
+        if(source.kernel_shape==kernel::kernel_body_compound) {
+            for(const auto& id:source.kernel_compound_bodies)self(self,source.body_outputs.at(id).get());
+            return;
+        }
+        BRep_Builder builder;TopoDS_Shape shape;std::istringstream input(source.kernel_shape);BRepTools::Read(shape,input,builder);
+        check(!shape.IsNull()&&BRepCheck_Analyzer(shape,true,false,true).IsValid(),"Limited rotation fails exact BRep check");
+        for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next()) {
+            GProp_GProps properties;const auto error=BRepGProp::VolumeProperties(it.Current(),properties,1e-10);
+            check(error>=0,"Independent volume integration failed");independent_volume+=properties.Mass();
+        }
+    };
+    integrate(integrate,body);
     check(std::abs(independent_volume-body.volume)<1e-5,"Persisted volume disagrees with independent integration");
     check(body.calculation_errors.empty()&&body.volume>0,"Limited rotation has no solid");
-    check(BRepCheck_Analyzer(shape,true,false,true).IsValid(),"Limited rotation fails exact BRep check");
+    return body.volume;
 }
 void native_surface(const std::filesystem::path& file) {
     auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
@@ -104,20 +113,20 @@ void native_surface(const std::filesystem::path& file) {
     kernel::OcctKernel cold;workspace::Workspace reopened_live;reopened_live.add_part(reopened,cache,file);reopened_live.activate(reopened.document_id);
     static_cast<void>(workspace::regenerate_part(reopened_live,cold,reopened.document_id));
     state=reopened_live.open_part(reopened.document_id);valid(state->session.calculated_boundaries().back());check_cap(*state,patch);
-    auto changed=*state->session.document().find_container(patch.id);const auto volume=state->session.calculated_boundaries().back().volume;
+    auto changed=*state->session.document().find_container(patch.id);const auto volume=valid(state->session.calculated_boundaries().back());
     for(auto& boundary:changed.general_surface.boundaries)for(auto& point:boundary.curve->curve_points)
         if(point.origin.x==30&&point.origin.z==10)point.origin.y=9;
     check(workspace::commit_general_surface(reopened_live,cold,reopened.document_id,changed),"Curved target edit failed");
-    state=reopened_live.open_part(reopened.document_id);check(state->session.calculated_boundaries().back().volume>volume+.01,"Target edit did not update rotation");
+    state=reopened_live.open_part(reopened.document_id);check(valid(state->session.calculated_boundaries().back())>volume+.01,"Target edit did not update rotation");
     check(state->session.document().find_container(feature.id)->feature.sides[0].targets.front().reference==requested.reference,"Target edit changed original reference identity");
     check_cap(*state,changed);
     const auto preview=state->session.document().feature_preview_edges(*state->session.document().find_container(feature.id),{});
     check(!preview.empty(),"Limited rotation has no persisted-data wire preview");
-    const auto one_side_volume=state->session.calculated_boundaries().back().volume;
+    const auto one_side_volume=valid(state->session.calculated_boundaries().back());
     auto symmetric=*state->session.document().find_container(feature.id);symmetric.feature.symmetric=true;
     workspace::commit_profile(reopened_live,cold,reopened.document_id,symmetric,workspace::ProfileEditMode::Replace);
-    const auto& both=state->session.calculated_boundaries().back();valid(both);
-    check(std::abs(both.volume-2*one_side_volume)<.001,"Symmetric curved rotation did not reflect its target");
+    const auto& both=state->session.calculated_boundaries().back();
+    check(std::abs(valid(both)-2*one_side_volume)<.001,"Symmetric curved rotation did not reflect its target");
     const auto symmetric_preview=state->session.document().feature_preview_edges(symmetric,{});
     check(symmetric_preview.size()==2*preview.size(),"Symmetric Up To preview lost a side");
 }
@@ -135,7 +144,8 @@ void drafted_surface_target() {
             for(auto p:{corners[i],corners[(i+1)%4]}){auto point=document::create_owned_point(curve.id);point.origin=p;curve.curve_points.push_back(point);}
         }
         check(workspace::commit_general_surface(live,kernel,part.document_id,patch),"Draft target creation failed");
-        auto* state=live.open_part(part.document_id);const auto target_body=state->session.calculated_boundaries().back();
+        auto* state=live.open_part(part.document_id);
+        const auto& target_body=state->session.calculated_boundaries().back().body_outputs.at(graph.active_body_id()).get();
         BRep_Builder builder;TopoDS_Shape target;std::istringstream input(target_body.kernel_shape);BRepTools::Read(target,input,builder);
         Handle(Geom_Surface) support;for(TopExp_Explorer it(target,TopAbs_FACE);it.More();it.Next())support=BRep_Tool::Surface(TopoDS::Face(it.Current()));
         auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(-10,-10,10,10));
@@ -145,7 +155,8 @@ void drafted_surface_target() {
         document::ExtrusionParameters::EndTarget requested;requested.reference={patch.id,"surface:from:"+patch.feature_id,{}};
         side.targets={workspace::resolve_profile_end_target(state->session.document(),state->session.calculated_boundaries(),graph.active_body_id(),requested)};
         workspace::commit_profile(live,kernel,part.document_id,feature,workspace::ProfileEditMode::Create,sketch);
-        const auto& body=live.open_part(part.document_id)->session.calculated_boundaries().back();
+        auto body=live.open_part(part.document_id)->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(body);
         check(body.calculation_errors.empty()&&(surface?std::abs(body.volume)<1e-9:body.volume>5000),"Drafted Up To General Surface failed");
         std::size_t ends{};const auto& packet=body.mesh.original_references;
         for(const auto& edge:packet.edges)if(edge.reference.owner_id==feature.id&&

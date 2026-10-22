@@ -24,6 +24,47 @@ struct ExternalPointContact {
     std::string reference_id;
     bool midpoint{};
 };
+struct SketchCrossAlignment {
+    std::array<double,2> position;
+    sketcher::ConstraintKind direction;
+};
+// The point alignment fixes one endpoint coordinate; an independent segment
+// direction can fix the other without replacing that existing alignment.
+inline std::optional<SketchCrossAlignment> infer_segment_cross_alignment(
+        std::array<double,2> start, std::array<double,2> aligned_end,
+        sketcher::ConstraintKind alignment, double tolerance,
+        const SketchInferenceSettings& settings) {
+    using K=sketcher::ConstraintKind;
+    if((alignment!=K::Horizontal&&alignment!=K::Vertical)||!settings.enabled(alignment))return std::nullopt;
+    const auto direction=alignment==K::Horizontal?K::Vertical:K::Horizontal;
+    const auto coordinate=alignment==K::Horizontal?0U:1U;
+    if(!settings.enabled(direction)||std::abs(aligned_end[coordinate]-start[coordinate])>tolerance)return std::nullopt;
+    aligned_end[coordinate]=start[coordinate];
+    if(std::hypot(aligned_end[0]-start[0],aligned_end[1]-start[1])<=1e-9)return std::nullopt;
+    return SketchCrossAlignment{aligned_end,direction};
+}
+// A radial length snap remains on an axis only when the accepted start is
+// already on that axis. Other picked supports keep their exact endpoint.
+inline std::optional<std::array<double,2>> equal_length_axis_endpoint(
+        const sketcher::Sketch& sketch, std::array<double,2> start,
+        std::array<double,2> end, const std::string& axis,
+        const std::string& reference_id) {
+    if(reference_id.empty() || (axis!="sketch_axis:x" && axis!="sketch_axis:y"))return std::nullopt;
+    const auto fixed=axis=="sketch_axis:x"?1U:0U;
+    if(std::abs(start[fixed])>1e-9 || std::abs(end[fixed])>1e-9)return std::nullopt;
+    for(const auto& segment:sketch.segments)if(segment.id==reference_id) {
+        const auto* a=sketch.find_point(segment.first_point_id);
+        const auto* b=sketch.find_point(segment.second_point_id);
+        if(!a||!b)return std::nullopt;
+        const auto varying=1U-fixed;
+        const double delta=end[varying]-start[varying];
+        const double length=std::hypot(b->x-a->x,b->y-a->y);
+        if(std::abs(delta)<=1e-12 || length<=1e-12)return std::nullopt;
+        end[varying]=start[varying]+std::copysign(length,delta);
+        return end;
+    }
+    return std::nullopt;
+}
 // Endpoint snapping owns the end position, but does not cancel an already
 // offered tangent at the other end. Preview and confirmation share this check.
 inline bool start_tangent_matches_endpoint(const sketcher::Sketch& sketch,

@@ -817,26 +817,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             });
         }
         feature_panel_->on_swap([this]{
-            const bool picking=forward_end_target_pick_active_||reverse_end_target_pick_active_;
-            forward_end_target_pick_active_=reverse_end_target_pick_active_=false;
-            forward_end_target_highlighted_=reverse_end_target_highlighted_=false;
-            if(picking&&extrusion_target_cancel_)extrusion_target_cancel_();
-            std::swap(initial_.feature.sides[0].targets,initial_.feature.sides[1].targets);
-            for(const auto* suffix:{"_length","_angle","_draft_angle"}) {
-                const auto first=std::string("side0")+suffix,second=std::string("side1")+suffix;
-                const bool a=initial_.value_locks.contains(first),b=initial_.value_locks.contains(second);
-                initial_.value_locks.erase(first);initial_.value_locks.erase(second);
-                if(a)initial_.value_locks.insert(second);
-                if(b)initial_.value_locks.insert(first);
-            }
             feature_panel_->swap_sides();
-            for(std::size_t side=0;side<2;++side) {
-                const auto& targets=initial_.feature.sides[side].targets;
-                feature_panel_->target_control(side)->setText(targets.empty()?QString{}:QString::fromStdString(targets.front().label));
-                (side==0?forward_end_target_clear_action_:reverse_end_target_clear_action_)->setEnabled(!targets.empty());
-            }
-            refresh_extrusion_target_styles();
-            if(reference_highlights_changed_)reference_highlights_changed_();
             notify_preview();
         });
         connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,[this] {
@@ -2705,6 +2686,13 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
         return std::ranges::any_of(e.edge_treatment_endpoint_references,[&](const auto& p){return p.owner_id==reference.owner_id&&p.semantic_key==reference.semantic_key&&p.instance_path==reference.instance_path;});
     return false;
 }
+zima::document::ConstructionReference PrimitivePropertiesDialog::prepare_reference_candidate(
+        std::size_t index,zima::document::ConstructionReference reference) const {
+    if(profile_plane_&&automatic_work_plane(profile_plane_))
+        zima::document::prepare_profile_plane_reference(index,reference,placement_->combined_references(3));
+    return reference;
+}
+
 bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
@@ -2831,6 +2819,7 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
             }
         }
     }
+    reference=prepare_reference_candidate(index,std::move(reference));
     const bool first_plane = index == 0 && reference.supports_offset;
     QString error;
     if (!placement_->set_reference(index, std::move(reference), label, &error)) {
@@ -2841,7 +2830,8 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
         notify_preview();
     } else if (first_plane && profile_plane_) {
-        update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ), label);
+        update_automatic_work_plane(profile_plane_, static_cast<int>(zima::document::automatic_sketch_work_plane(
+            placement_->combined_references(3)).value_or(zima::sketcher::SketchPlane::XY)), label);
         notify_preview();
     }
     error_->clear();

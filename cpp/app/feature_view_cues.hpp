@@ -66,7 +66,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
     for(std::size_t side=0;side<2;++side) {
         const auto& settings=p.effective_side(side);
         if(p.type==document::FeatureType::Axis&&!settings.axis_enabled)continue;
-        const double sign=side==0?1.:-1.;
+        const double sign=p.side_direction_sign(side);
         const auto prefix=std::string("side")+(p.symmetric?"0":std::to_string(side));
         if(settings.operation==document::FeatureSideOperation::Extrusion) {
             const auto direction=scale(normal,sign);

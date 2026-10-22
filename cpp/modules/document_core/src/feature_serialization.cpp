@@ -120,13 +120,16 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
             sides.back()["twist_smooth"]=side.twist_smooth;
         }
     }
-    return {{"automatic_name",p.automatic_name},{"type",name(p.type,feature_types)},{"sketch_id",p.sketch_id},{"axis_segment_id",p.axis_segment_id},
+    nlohmann::json result={{"automatic_name",p.automatic_name},{"type",name(p.type,feature_types)},{"sketch_id",p.sketch_id},{"axis_segment_id",p.axis_segment_id},
         {"profile_source",name(p.profile_source,sources)},{"profile_plane_offset",p.profile_plane_offset},
         {"result_type",name(p.result_type,results)},{"thin_thickness",p.thin_thickness},
         {"thin_mode",name(p.thin_mode,thin_modes)},{"symmetric",p.symmetric},
         {"origin_centerline",p.origin_centerline},{"centroid_centerline",p.centroid_centerline},
         {"show_point",p.show_point},{"show_text",p.show_text},
         {"sides",std::move(sides)}};
+    // Neutral defaults need no stored override, just like axis_enabled above.
+    if(p.reversed_sides)result["reversed_sides"]=true;
+    return result;
 }
 
 FeatureParameters load_feature_parameters(const nlohmann::json& source) {
@@ -142,6 +145,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         p.thin_thickness=source.at("thin_thickness").get<double>();
         p.thin_mode=parse(source.at("thin_mode"),thin_modes);
         p.symmetric=source.at("symmetric").get<bool>();
+        p.reversed_sides=source.value("reversed_sides",false);
         p.origin_centerline=source.at("origin_centerline").get<bool>();
         p.centroid_centerline=source.at("centroid_centerline").get<bool>();
         p.show_point=source.at("show_point").get<bool>();

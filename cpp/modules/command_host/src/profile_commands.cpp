@@ -19,7 +19,7 @@ void validate_feature_patch(const Json& patch,const Json& definition){
         if(!value.is_object())throw Error("invalid_arguments","Unknown profile parameter option.");
         for(const auto& [key,item]:value.items())if(!allowed(key))throw Error("invalid_arguments","Unknown profile parameter option.");
     };
-    keys(patch,[&](const auto& key){return definition.contains(key);});
+    keys(patch,[&](const auto& key){return definition.contains(key)||key=="reversed_sides";});
     if(!patch.contains("sides")||!patch.at("sides").is_array())return;
     for(const auto& side:patch.at("sides")){
         keys(side,[&](const auto& key){return definition.at("sides")[0].contains(key)||key=="axis_enabled"||key=="twist_reverse"||key=="twist_smooth";});

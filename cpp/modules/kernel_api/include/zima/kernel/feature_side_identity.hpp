@@ -83,4 +83,11 @@ template<class Request> inline Request feature_side_request(
     return request;
 }
 
+// Profile winding follows physical sweep direction. Semantic cap ownership
+// follows the authored Feature side, including after a direction reversal.
+template<class Request> inline bool first_semantic_cap_is_start(const Request& request) {
+    if(const auto side=feature_side_parent(request.profile_region_id))return side->side==FeatureSide::End;
+    return request.first_cap_is_start;
+}
+
 } // namespace zima::kernel

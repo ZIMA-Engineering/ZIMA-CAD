@@ -93,6 +93,8 @@ public:
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) override;
+    [[nodiscard]] zima::document::ConstructionReference prepare_reference_candidate(
+        std::size_t index, zima::document::ConstructionReference reference) const override;
     [[nodiscard]] std::size_t first_empty_position_index() const override;
     void set_active_reference_index(
         std::optional<std::size_t> index) override;

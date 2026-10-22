@@ -6,7 +6,11 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
     auto model=document::PartDocument::create_default();
     auto path=directory/"feature-selection.prtz";
     if(const auto source=qEnvironmentVariable("ZIMA_VERIFY_SELECTION_FILE");!source.isEmpty()) {
-        path=std::filesystem::u8path(source.toStdString());model=document::PartDocument::load(path);
+        const auto source_path=std::filesystem::u8path(source.toStdString());
+        path=directory/source_path.filename();
+        if(std::filesystem::absolute(source_path)!=std::filesystem::absolute(path))
+            std::filesystem::copy_file(source_path,path,std::filesystem::copy_options::overwrite_existing);
+        model=document::PartDocument::load(path);
     } else {
         auto first=sketcher::Sketch::create_default();static_cast<void>(first.add_rectangle(0,0,30,30));
         auto add=document::PartDocument::create_feature_container(first.id);
@@ -29,7 +33,7 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     check(tree&&view,"Selection workspace missing");
-    const auto state=window.execute_console_command("documents").data;
+    auto active_body=model.body_history.active_body_id();
     const auto project=[&](kernel::Vec3 point) {
         const auto center=view->ray_at({view->width()*.5,view->height()*.5});check(center.has_value(),"Selection camera ray missing");
         const auto normal=center->second;
@@ -54,7 +58,19 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
     };
     bool all=true;std::size_t targets=0;
     for(const auto& feature:model.history) {
-        if(feature.feature_kind!=document::FeatureKind::Feature||feature.feature.type!=document::FeatureType::Modeling)continue;
+        const bool modeling=feature.feature_kind==document::FeatureKind::Feature&&
+            feature.feature.type==document::FeatureType::Modeling&&!feature.feature.sketch_only();
+        const bool flat=feature.feature_kind==document::FeatureKind::Flat;
+        const bool bend=feature.feature_kind==document::FeatureKind::Bend;
+        if(!modeling&&!flat&&!bend)continue; // Empty operation previews belong to the separate Sketch-role matrix.
+        const auto* dialog_name=flat?"flatPropertiesDialog":bend?"bendPropertiesDialog":"featurePropertiesDialog";
+        if(const auto* body=model.body_owner_for_object(feature.id);body&&body->scope.id!=active_body) {
+            check(window.execute_console_command(QString::fromStdString(commands::Json{
+                {"command","body.activate"},{"arguments",{{"body",body->scope.id}}}}.dump())).ok,
+                "Library preview feature Body cannot activate");
+            active_body=body->scope.id;flush();
+        }
+        const auto state=window.execute_console_command("documents").data;
         tree->clearSelection();view->clear_selection();flush();
         const auto revision=view->base_mesh_revision();
         ++targets;QTreeWidgetItem* row{};
@@ -95,21 +111,43 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
                     const auto& a=edge.points[i-1];const auto& b=edge.points[i];
                     const auto p=project({(a.x+b.x)*.5,(a.y+b.y)*.5,(a.z+b.z)*.5});
                     const auto candidates=view->selection_candidates_at(p);
-                    if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Container&&
-                        (candidates.front().owner_id==feature.id||candidates.front().owner_id==feature.feature.sketch_id))position=p;
+                    if(std::ranges::any_of(candidates,[&](const auto& candidate) {
+                        return candidate.kind==viewer::CandidateKind::Container&&
+                            (candidate.owner_id==feature.id||candidate.owner_id==feature.feature.sketch_id);
+                    }))position=p;
                 }
             }
         };
         find_hit(view->mesh().edges);find_hit(view->mesh().original_references.edges);
         check(position.has_value(),"Selection Feature absent from ordinary common picker");
+        QMouseEvent offer(QEvent::MouseMove,*position,QPointF(view->mapToGlobal(position->toPoint())),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&offer);flush();
+        const auto wanted=[&] {
+            const auto candidate=view->offered_candidate();
+            return candidate&&candidate->kind==viewer::CandidateKind::Container&&
+                (candidate->owner_id==feature.id||candidate->owner_id==feature.feature.sketch_id);
+        };
+        for(unsigned cycle=0;cycle<64&&!wanted();++cycle) {
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,*position,QPointF(view->mapToGlobal(position->toPoint())),Qt::RightButton,
+                    type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            }
+        }
+        check(wanted(),"RMB cycling cannot offer the library feature behind another object");
         mouse(view,*position);
+        static_cast<void>(view->grabFramebuffer());
+        const auto preview_vertices=view->property("gpuSourceWireVertexCount").toInt();
+        const auto preview_uploads=view->property("gpuSourceWireUploadCount").toULongLong();
+        check(preview_vertices>0&&view->property("selectedFeatureFaceTriangleCount").toULongLong()==0,
+            "Ordinary feature selection omitted the authored preview or filled faces");
         const auto selected=view->confirmed_candidate();auto* current=tree->currentItem();
         std::cout<<"Feature selection View expected="<<feature.id<<" picked="<<(selected?selected->owner_id:"")
             <<" tree="<<(current?current->data(0,Qt::UserRole).toString().toStdString():"")
             <<" role="<<(current?current->data(0,Qt::UserRole+3).toString().toStdString():"")
             <<" expanded="<<row->isExpanded()<<std::endl;
         all&=selected&&selected->owner_id==feature.id&&current==row&&tree->selectedItems().size()==1&&!row->isExpanded();
-        check(!window.findChild<QWidget*>("featurePropertiesDialog"),"Ordinary selection opened Properties");
+        check(!window.findChild<QWidget*>(dialog_name),"Ordinary selection opened Properties");
         check(window.execute_console_command("documents").data==state&&view->base_mesh_revision()==revision,
             "Ordinary selection changed the document or republished geometry");
         QMouseEvent double_click(QEvent::MouseButtonDblClick,*position,QPointF(view->mapToGlobal(position->toPoint())),
@@ -118,6 +156,70 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         check(inspected&&inspected->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
             inspected->data(0,Qt::UserRole+3)=="part-container","Double-click inspection lost the owning Feature");
         check(window.execute_console_command("documents").data==state,"Double-click inspection changed the document");
+        static_cast<void>(view->grabFramebuffer());
+        check(view->property("gpuSourceWireVertexCount").toInt()==preview_vertices&&
+            view->property("gpuSourceWireUploadCount").toULongLong()==preview_uploads,
+            "Double-click changed or reuploaded the ordinary authored preview");
+        const auto selection_preview=view->container_inspection_wire();
+        check(!selection_preview.empty()&&std::ranges::all_of(selection_preview,[](const auto& edge) {
+            return edge.reference.semantic_key.starts_with("preview:");
+        }),"Feature selection used calculated topology instead of the command preview");
+        QTreeWidgetItem* properties_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole+3)=="part-container"&&
+               (*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){properties_row=*it;break;}
+        check(properties_row,"Preview comparison lost the owning feature");
+        window.show_tree_item_properties(properties_row);flush();
+        auto* properties=dynamic_cast<QDialog*>(window.findChild<QWidget*>(dialog_name));
+        if(!properties||view->transient_edges().empty()) {
+            const auto* status=window.findChild<QLabel*>("workspaceState");
+            std::cerr<<"Preview comparison owner="<<feature.id<<" name="<<feature.name
+                <<" status="<<(status?status->text().toStdString():"")<<std::endl;
+        }
+        check(properties&&!view->transient_edges().empty(),"Properties supplied no command preview for comparison");
+        // MeshView applies the Body/occurrence mapping on submission. Both
+        // exposed packets are already in scene coordinates.
+        kernel::ViewerMesh command_preview;command_preview.edges=view->transient_edges();
+        const auto segments=[](const auto& edges) {
+            std::vector<std::array<double,6>> result;
+            for(const auto& edge:edges)if(!edge.construction&&!edge.parameter_seam)
+                for(std::size_t i=1;i<edge.points.size();++i) {
+                    auto a=edge.points[i-1],b=edge.points[i];
+                    result.push_back({a.x,a.y,a.z,b.x,b.y,b.z});
+                }
+            return result;
+        };
+        const auto actual=segments(selection_preview),expected=segments(command_preview.edges);
+        check(actual.size()==expected.size(),"Selection contains extra or missing command-preview segments");
+        // These are undirected strokes. Exact lexicographic sorting is unstable
+        // when an equivalent rotated frame differs by a few ulps at zero.
+        // Consume each expected stroke once, checking both endpoints at the
+        // original coordinate tolerance; retain the exact count requirement.
+        std::vector<bool> matched(expected.size());
+        for(std::size_t i=0;i<actual.size();++i) {
+            std::optional<std::size_t> match;
+            for(std::size_t j=0;j<expected.size()&&!match;++j)if(!matched[j]) {
+                bool same=true,reversed=true;
+                for(std::size_t k=0;k<6;++k) {
+                    same&=std::abs(actual[i][k]-expected[j][k])<1e-7;
+                    reversed&=std::abs(actual[i][k]-expected[j][(k+3)%6])<1e-7;
+                }
+                if(same||reversed)match=j;
+            }
+            if(!match) {
+                commands::Json details={{"selection",actual},{"properties",expected}};
+                if(const auto* primitive=dynamic_cast<app::PrimitivePropertiesDialog*>(properties)) {
+                    details["initial_parameters"]=document::serialize_feature_parameters(feature.feature);
+                    details["pending_parameters"]=document::serialize_feature_parameters(primitive->pending_value().feature);
+                }
+                std::cerr<<"Unmatched preview stroke owner="<<feature.id<<" name="<<feature.name<<" segment="<<i
+                    <<" details="<<details.dump()<<std::endl;
+            }
+            check(match.has_value(),"Selection differs from the actual Properties preview wire");
+            matched[*match]=true;
+        }
+        properties->reject();flush();
+        check(window.execute_console_command("documents").data==state,"Command preview comparison or Cancel changed the document");
     }
     check(targets>0&&all,"Feature selection expanded descendants, selected Sketch or changed its icon");
 }

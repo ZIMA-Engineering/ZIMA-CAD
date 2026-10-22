@@ -13,6 +13,28 @@ using commands::Json;
 namespace fs = std::filesystem;
 namespace {
 using namespace assembly_profile_test;
+void side_reversal(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    Fixture f(kernel,directory,"assembly-side-reversal");const auto source_before=f.live.open_part(f.source)->session.document().serialized();
+    const auto sketch=f.rectangle(1,2,3,2);document::FeatureParameters p;
+    p.sides[0].length=4;p.sides[1].operation=document::FeatureSideOperation::Extrusion;p.sides[1].length=1;
+    const std::string id=f.create_feature(sketch,p,{{"targets",{f.first}}}).at("container");
+    f.run("value_lock.set",{{"object",id},{"key","side0_length"},{"locked",true}});
+    const auto before=f.doc().find_cut(id)->definition;
+    const auto verify=[&](bool reversed) {
+        near(f.volume(f.first),970);near(f.volume(f.second),1000);
+        const auto& result=f.doc().find_occurrence(f.first)->calculated_source.get();
+        require(result.volume_integrals.has_value(),"Assembly reversal has no current physical analysis");
+        near(result.volume_integrals->centroid.z,(reversed?45.:-45.)/970.);
+        const auto& current=f.doc().find_cut(id)->definition;
+        require(current.feature.reversed_sides==reversed&&current.feature.sides==before.feature.sides&&current.value_locks==before.value_locks,
+            "Assembly reversal moved definitions or locks between panels");
+    };
+    verify(false);f.set_feature(id,[](auto& parameters){parameters["reversed_sides"]=true;});verify(true);
+    f.run("save");const auto reopened=assembly::AssemblyDocument::load(directory/"assembly-side-reversal.asmz");
+    require(reopened.find_cut(id)->definition==f.doc().find_cut(id)->definition,"Assembly native persistence lost direction or side definitions");
+    f.run("undo");verify(false);f.run("redo");verify(true);f.run("regenerate");verify(true);
+    require(f.live.open_part(f.source)->session.document().serialized()==source_before,"Assembly reversal modified source Part");
+}
 void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-shared-feature");
     const auto sketch=f.rectangle(1,2,3,2);
@@ -32,7 +54,7 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
         feature.feature.sides[0].length=7;feature.feature.sides[1].axis_enabled=false;
         f.run("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(feature.feature)}});
         near(f.volume(f.first),1000);near(f.volume(f.second),1000);
-        const auto& stored=f.doc().find_cut(id)->definition;
+        const auto stored=f.doc().find_cut(id)->definition;
         require(stored.feature_id==feature.feature_id&&stored.feature.sketch_id==sketch,"Assembly Feature type replaced native identity");
         require(f.doc().find_cut(id)->input_component_bodies.size()==f.doc().components.size(),"Datum Feature lost its Properties input boundary");
         require(!f.doc().owns_component_result(f.first),"Datum Feature pinned historical Part geometry");
@@ -253,7 +275,7 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
 }
 int main(){try{
     const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-assembly-profile-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);shared_feature(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);shared_feature(kernel,directory);side_reversal(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Assembly profiles: exact cuts, source ownership, shared draft edits, original end targets, native files and history passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

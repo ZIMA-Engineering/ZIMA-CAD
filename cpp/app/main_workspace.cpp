@@ -1,5 +1,6 @@
 ﻿#include "sketch_tangent_test_equations.hpp"
 #include "../tests/preview_refresh_probe.hpp"
+#include "sketch_external_reference_kind.hpp"
 #include "../tests/rounded_tangent_wing_study.hpp"
 #include "../tests/midpoint_profile_study.hpp"
 #include "surface_wire_visibility.hpp"
@@ -24,6 +25,7 @@
 #include "updateservice.h"
 #include "updates_ui_verification.hpp"
 #include <zima/document/file_path.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/document/component_source.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/material_library.hpp>
@@ -6077,6 +6079,9 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "form_sweep_sketch_ui_verification.inc"
 #include "placed_sketch_reference_ui_verification.inc"
 #include "sketch_corner_chain_ui_verification.inc"
+#include "rolled_l_dimension_ui_verification.inc"
+#include "sketch_entry_view_ui_verification.inc"
+#include "sketch_equal_endpoint_ui_verification.inc"
 #include "sketch_external_constraints_ui_verification.inc"
 
 #include "sketch_polyline_tangent_ui_verification.inc"
@@ -6089,6 +6094,7 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
         if(verify_polyline_snapped_tangent_ui(application,directory)!=0)return 1;
         // The final case removes endpoint contact while retaining that M offer.
         for(int kind:{0,1,2,3,4,5,6,7}) {
+            std::cout<<"Endpoint priority case "<<kind<<std::endl;
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             const auto support=kind==1?sketch.add_circle(15,4,20):sketch.add_segment(kind==3?-27:-40,kind==2?35:20,kind==3?53:40,kind==2?35:20);
@@ -6123,6 +6129,10 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
                 QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&window,&escape);flush();
                 const auto middle=screen(vertical?0:12,vertical?12:0);
                 mouse(middle,QEvent::MouseMove,Qt::NoButton);
+                if(!view->hovered_candidate()||view->hovered_candidate()->kind!=viewer::CandidateKind::SketchSegment) {
+                    view->grabFramebuffer().save(QString::fromStdString((directory/("axis-overlap-failure-"+std::to_string(kind)+".png")).string()));
+                    for(const auto& candidate:view->selection_candidates_at(middle))std::cerr<<"Axis overlap candidate "<<int(candidate.kind)<<' '<<candidate.semantic_key<<'\n';
+                }
                 check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchSegment,
                     "Axis hides the newly drawn segment");
                 const auto saved_palette=application.palette();
@@ -6420,17 +6430,31 @@ int verify_sketch_offset_ui(QApplication& application,const std::filesystem::pat
     std::cout<<"Sketch Offset View selection, preview, short/double MMB, properties, delete/Undo isolation, Cancel and persistence passed\n";return 0;
 }
 
+#include "external_face_reference_ui_verification.inc"
+
 int verify_standalone_trim_preview(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document=PartDocument::create_default();
     auto feature=PartDocument::create_sketch_container();
     auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
-    static_cast<void>(sketch.add_segment(2,2,20,2));
-    static_cast<void>(sketch.add_segment(2,5,20,5));
+    const bool external=qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_TRIM_ONLY");
+    const bool circular=external&&qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_TRIM_CIRCLE");
+    if(circular)static_cast<void>(sketch.add_circle(10,10,5));
+    else static_cast<void>(sketch.add_segment(2,2,20,2));
+    if(!external)static_cast<void>(sketch.add_segment(2,5,20,5));
     document.history={feature};document.sketches={sketch};
-    BodyHistoryGraph graph;const auto body_id=graph.create_body("Test body");graph.insert({PartHistoryKind::Feature,feature.id});
+    BodyHistoryGraph graph;const auto body_id=graph.create_body("Test body");
+    if(external) {
+        auto source=zima::sketcher::Sketch::create_default();auto owner=PartDocument::create_sketch_container();source.owner_container_id=owner.id;
+        const double x=circular?10.:5.;const auto line=source.add_segment(x,-10,x,30);
+        auto reference=zima::sketcher::Sketch::create_external_reference(zima::sketcher::ExternalReferenceKind::Edge);
+        reference.source_document_id=document.document_id;reference.source_owner_id=source.id;reference.source_semantic_key="segment:"+line;
+        reference.cached_points={{x,-10},{x,30}};sketch.add_external_reference(reference);
+        document.history.insert(document.history.begin(),owner);document.sketches={source,sketch};graph.insert({PartHistoryKind::Feature,owner.id});
+    }
+    graph.insert({PartHistoryKind::Feature,feature.id});
     document.set_body_history(graph);document.resolve_constructions();
-    const auto path=directory/"standalone-trim-preview.prtz";document.save(path);
+    const auto path=directory/(circular?"external-circle-trim-preview.prtz":external?"external-trim-preview.prtz":"standalone-trim-preview.prtz");document.save(path);
     zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
     window.resize(1200,900);window.show();
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -6461,12 +6485,18 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
     trim->trigger();flush();if(!verify(count()==2,"Standalone trim preview has duplicate or missing pieces") || !cut() || !verify(count()==1,"First trim gesture was not immediately visible"))return 1;
     QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(&window,&escape);flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-    if(!verify(PartDocument::load(path).sketches.front().segments.size()==2,"Cancel saved a pending trim"))return 1;
+    const auto target=[&]{const auto p=PartDocument::load(path);return *std::ranges::find(p.sketches,sketch.id,&zima::sketcher::Sketch::id);};
+    if(!verify(circular?target().circles.size()==1&&target().arcs.empty():target().segments.size()==(external?1u:2u),"Cancel saved a pending trim"))return 1;
     trim->trigger();flush();if(!cut())return 1;
     trim->trigger();flush();if(!verify(count()==1,"Restarting Trim lost or doubled the previous gesture") || !cut() || !verify(count()==0,"Second trim gesture was not immediately visible"))return 1;
     window.findChild<QAction*>("finishSketchAction")->trigger();flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-    if(!verify(PartDocument::load(path).sketches.front().segments.empty(),"Finishing Sketch missed its pending trim"))return 1;
+    if(!verify(target().segments.empty()&&target().circles.empty()&&target().arcs.empty(),"Finishing Sketch missed its pending trim"))return 1;
+    if(external) {
+        const auto saved=PartDocument::load(path);
+        if(!verify(saved.sketches.front().serialized()==document.sketches.front().serialized()&&target().external_references==sketch.external_references,
+            "Mouse trim changed its external source or reference identity"))return 1;
+    }
     std::cout << "Standalone trim preview contracts passed\n";return 0;
 }
 
@@ -7149,6 +7179,11 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
                     view->set_selection_filter(viewer::SelectionFilter::All);
                     break;
                 }
+                // Match the ordinary picker: subsequent automatic planes
+                // consume the remaining orientation equation, rather than
+                // assuming that the first plane always occupied FRONT.
+                if(!bend_attachment&&i<3&&refs[i].supports_offset)
+                    document::assign_container_orientation_role(refs[i],dialog()->references_without(i));
                 check(dialog()->set_reference(i,refs[i],QString::fromStdString(refs[i].semantic_key)),"Cannot set return-test reference");flush();
             }
             if(origin_pick) {
@@ -7215,6 +7250,7 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
                         near(axis->direction,x?expected_sketch.resolved_x_axis:expected_sketch.resolved_y_axis),
                         "Sketcher entry rotated or moved the pending work plane");
                 }
+                check_sketch_entry_camera(application,*view,pending.first.id);
                 window.findChild<QAction*>("finishSketchAction")->trigger();flush();
                 check(dialog(),"Sketcher did not return to Sketch feature Properties");
                 const auto returned=dialog()->pending_value();
@@ -7417,9 +7453,10 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
             std::vector<std::string> planes{first};
             for(const std::string plane:{"xy","xz","yz"})if(plane!=first)planes.push_back(plane);
             for(std::size_t row=0;row<planes.size();++row) {
-                check(dialog()->set_reference(row,{{},part.document_id+":origin","origin:plane:"+planes[row],
-                    0,true,row==0?"front":row==1?"top":"none",row<2},
-                    QString::fromStdString(planes[row])),"Cannot set profile plane reference");
+                document::ConstructionReference reference{{},part.document_id+":origin","origin:plane:"+planes[row],0,true};
+                document::assign_container_orientation_role(reference,dialog()->references_without(row));
+                check(dialog()->set_reference(row,reference,QString::fromStdString(planes[row])),
+                    "Cannot set profile plane reference");
                 flush();
             }
             dialog()->set_profile_offset_and_forward_length(3,10);flush();
@@ -7489,6 +7526,7 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                         throw std::runtime_error("Sketcher did not inherit the live FIRST plane / Front-Back / rotation / offset");
                     }
                 }
+                check_sketch_entry_camera(application,*view,expected_sketch.id);
                 window.findChild<QAction*>("finishSketchAction")->trigger();flush();
                 check(dialog(),"Sketcher did not return to profile Properties");
                 const auto returned=dialog()->pending_value();
@@ -9565,6 +9603,9 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_ONLY_BEND")) return verify_arc_only_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROLLED_L_FILE")) return verify_rolled_l_dimension_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENTRY_VIEW_ONLY")) return verify_sketch_entry_view_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_CHAIN_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_CHAIN_ONLY")) return verify_sketch_corner_chain_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CONSTRAINTS_ONLY")) return verify_sketch_external_constraints_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
@@ -9717,6 +9758,10 @@ int verify_startup_contract(
         return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))
         return verify_standalone_trim_preview(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_TRIM_ONLY"))
+        return verify_standalone_trim_preview(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_FACE_REFERENCE_ONLY"))
+        return verify_external_face_reference_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROPERTY_SKETCH_ONLY"))
         return verify_property_sketch_dimensions(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NESTED_BODY_ONLY"))

@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <numbers>
 #include <functional>
 
@@ -163,7 +164,8 @@ inline ViewerReferenceGeometry revolution(const RevolutionRequest& request,const
             const double knot=double(i+1)/pieces;spline.knots.push_back(knot);spline.knots.push_back(knot);
         }
         spline.knots.push_back(1);spline.validate();edge.exact_spline=std::move(spline);out.edges.push_back(std::move(edge));
-        if(!closed)endpoints(out,owner,key,value(request.first_cap_is_start?begin:end),value(request.first_cap_is_start?end:begin));
+        const bool first_start=first_semantic_cap_is_start(request);
+        if(!closed)endpoints(out,owner,key,value(first_start?begin:end),value(first_start?end:begin));
     }
     return out;
 }

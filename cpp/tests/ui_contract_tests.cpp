@@ -1025,7 +1025,7 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
 #include "interaction_color_verification.inc"
 
 #include "origin_display_ui_contract.inc"
-#include "face_fill_ui_contract.inc"
+#include "face_wire_ui_contract.inc"
 static void verify_curve_presentation(QApplication& application,QWidget& parent) {
         // A rounding edge is an overlay, so it must be painted even when no
         // straight route segment is present and the solid edge pass skips it.
@@ -1348,7 +1348,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_FIELD_HEIGHTS_ONLY")) return verify_part_dialog_layout(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_FILL_ONLY")) {verify_face_fill(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_WIRE_ONLY")) {verify_face_wire(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}
         {
             QToolButton command(&parent);
@@ -1457,7 +1457,7 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "Treatment Origin policy passed for creation and editing" << std::endl;
         verify_origin_display_and_pick_seed(parent);
-        verify_face_fill(application,parent);
+        verify_face_wire(application,parent);
         verify_feature_axis_highlight(application,parent);
         verify_sketch_line_styles(application,parent);
         verify_end_plane_picker(application,parent);

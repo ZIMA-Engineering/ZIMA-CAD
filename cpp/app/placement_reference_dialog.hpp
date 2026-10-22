@@ -31,6 +31,10 @@ public:
     virtual bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) = 0;
+    // Command authoring policy must be identical for hover validation and
+    // confirmation; the shared placement solver consumes the prepared role.
+    [[nodiscard]] virtual zima::document::ConstructionReference prepare_reference_candidate(
+        std::size_t, zima::document::ConstructionReference reference) const { return reference; }
     [[nodiscard]] virtual std::size_t first_empty_position_index() const = 0;
     virtual void set_active_reference_index(
         std::optional<std::size_t> index) = 0;

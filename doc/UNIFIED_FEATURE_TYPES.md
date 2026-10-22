@@ -70,8 +70,13 @@ than a common profile scale factor. For example, a 100 x 50 mm rectangle,
 
 The two sides have independent angles, and symmetry uses Side 1 on both sides.
 Changing a side to Revolution hides the angle and preserves its value for a
-later switch back. Rotation geometry is unaffected. Swap sides transfers both
-the angle and its lock. OK calculates and commits; Cancel preserves the old
+later switch back. Rotation geometry is unaffected. Swap sides reverses physical
+directions while each panel retains its own operation, dimensions, draft,
+references and locks. Logical End remains attached to Side 1 and Start to Side 2.
+A second reversal restores the original directions. Symmetry uses Side 1 and
+retains the independent Side 2 definition. See the
+[direction verification](verification/20261022-feature-side-reversal.md) for the
+tested scope. OK calculates and commits; Cancel preserves the old
 geometry. An unchanged confirmation does not calculate or create an Undo step.
 
 Profiles made of lines and circular arcs, including circles, are supported.

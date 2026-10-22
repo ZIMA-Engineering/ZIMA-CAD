@@ -18,6 +18,9 @@ this list does not claim every future extension or solver case is complete.
 See [current project status](doc/PROJECT_STATUS.md) for the maintained distinction
 between implemented tools, development changes awaiting release, and planned work.
 [ROADMAP.md](ROADMAP.md) records the current order and dated design decisions.
+The current [Feature direction verification](doc/verification/20261022-feature-side-reversal.md)
+documents physical side reversal with stable parameter panels and logical
+Start/End, together with the factory and release acceptance boundary.
 
 ## Build and run
 

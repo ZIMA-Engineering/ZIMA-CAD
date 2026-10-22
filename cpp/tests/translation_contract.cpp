@@ -679,10 +679,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
             const auto before=properties.pending_value();
             swap->click();
             auto swapped=properties.pending_value();
-            check(swapped.id==before.id&&swapped.feature.sides[0]==before.feature.sides[1]&&
-                swapped.feature.sides[1]==before.feature.sides[0],"Feature swap lost settings, reference or precision");
-            check(swapped.value_locks.contains("side1_length")&&!swapped.value_locks.contains("side0_length"),"Feature swap did not transfer dimension locks");
-            check(swapped.value_locks.contains("side1_draft_angle")&&!swapped.value_locks.contains("side0_draft_angle"),"Feature swap did not transfer draft locks");
+            check(swapped.id==before.id&&swapped.feature.sides==before.feature.sides&&
+                swapped.feature.reversed_sides!=before.feature.reversed_sides,"Feature reversal moved settings, reference or precision between panels");
+            check(swapped.value_locks==before.value_locks&&value->isReadOnly()&&draft->isReadOnly(),"Feature reversal moved dimension locks between panels");
             swap->click();
             check(properties.pending_value().feature==before.feature&&properties.pending_value().value_locks==before.value_locks,"Double swap did not restore the authored definition");
             auto* symmetric=properties.findChild<QCheckBox*>("featureSymmetric");

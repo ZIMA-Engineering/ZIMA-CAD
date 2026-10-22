@@ -212,6 +212,29 @@ void verify_corner_axis(const document::PartDocument& part,const document::Histo
 #include "corner_outward_form_experiment.inc"
 #include "dimpled_hole_form_verification.inc"
 int main(int argc,char** argv){try {
+    if(argc==2&&std::string_view(argv[1])=="--verify-factory-preview-context") {
+        for(const auto* name:{"BridgeLance","CornerGusset90","DimpledHole","VentilationWindow"}) {
+            const auto part=document::PartDocument::load(std::filesystem::path("config/lib/01-SHEETMETAL/01-FORM")/(std::string(name)+".prtz"));
+            for(const auto& feature:part.history) {
+                if(feature.feature_kind!=document::FeatureKind::Feature||feature.feature.type!=document::FeatureType::Modeling||feature.feature.sketch_only())continue;
+                const auto* body=part.body_owner_for_object(feature.id);check(body,"Factory preview owner has no Body");
+                const auto local=part.body_document(body->scope.id);
+                const auto expected=part.feature_preview_edges(feature);
+                const auto actual=local.feature_preview_edges(feature,{},&part);
+                check(!expected.empty()&&actual.size()==expected.size(),"Body-local FORM preview lost native end-reference context");
+                for(std::size_t i=0;i<actual.size();++i) {
+                    check(actual[i].reference==expected[i].reference&&actual[i].points.size()==expected[i].points.size(),"FORM preview reference identity changed");
+                    for(std::size_t j=0;j<actual[i].points.size();++j) {
+                        near(actual[i].points[j].x,expected[i].points[j].x,1e-9);
+                        near(actual[i].points[j].y,expected[i].points[j].y,1e-9);
+                        near(actual[i].points[j].z,expected[i].points[j].z,1e-9);
+                    }
+                }
+            }
+            std::cout<<"Factory preview reference context passed: "<<name<<std::endl;
+        }
+        return 0;
+    }
     if(argc==5&&std::string_view(argv[1])=="--replace-form-definition") {
         std::vector<kernel::BodyResult> cache;auto part=document::PartDocument::load(argv[2],&cache);
         const auto found=std::ranges::find(part.history,document::FeatureKind::SheetForm,&document::HistoryContainer::feature_kind);
