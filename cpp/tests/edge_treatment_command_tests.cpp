@@ -29,7 +29,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto measured_volume=[&]{auto body=state->session.calculated_boundaries().back();kernel.ensure_body_properties(body);return body.volume;};
     const auto body=state->session.document().body_history.active_body_id();
     require(host.execute({{"command","fillet.create"},{"arguments",{{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner","missing"},{"key","edge"}}})}}})}}}}).code=="missing_input","Fillet accepted an empty input body");
-    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"one_sided",true},{"height_mm","50"}}).data.at("container").get<std::string>();
     const std::string edge_key=test::profile_key(state->session.document(),box,"edge:x_max:y_min:z_max--x_max:y_min:z_min");
     const Json edge={{"owner",box},{"key",edge_key}};
     const auto route=run(host,"edge_treatment.route",{{"seed",edge}}).data;
@@ -83,7 +83,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto saved_analysis=saved.back();kernel.ensure_body_properties(saved_analysis);
     near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,saved_analysis.volume,1e-5);
     zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","110"}});require(state->session.document().find_container(id)->edge_treatment.route_start_vertices==locked.edge_treatment.route_start_vertices,"Source change replaced R1 ancestry");
-    const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body");zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body");zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"one_sided",true},{"height_mm","10"}});
     require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{"reverse",false}}}}).code=="inactive_body","Fillet edited inactive Body");
     require(host.execute({{"command","fillet.create"},{"arguments",{{"routes",routes()}}}}).code=="invalid_reference","Fillet accepted another Body edge");
     run(host,"body.activate",{{"body",body}});run(host,"body.cursor",{{"body",body},{"index",1}});
@@ -91,7 +91,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(run(host,"edge_treatment.edges",{{"container",id}}).data.at("total")==12,"Fillet edit lost consumed input edge");
     // Three independent Chamfer modes; FLIP swaps the two support faces.
     run(host,"new",{{"type","part"},{"name","chamfer-command"}});
-    const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container");state=live.open_part(live.active_document_id());
+    const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"one_sided",true},{"height_mm","50"}}).data.at("container");state=live.open_part(live.active_document_id());
     const auto chamfer_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}}})}}});
     const auto chamfer=run(host,"chamfer.create",{{"routes",chamfer_routes},{"distance_a_mm",2}}).data.at("container").get<std::string>();
     near(measured_volume(),399900);
@@ -115,7 +115,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // Four independent contours use alternating explicit R1 ends. The runtime
     // topology may contain repeated shape uses for one persisted input edge.
     run(host,"new",{{"type","part"},{"name","four-linear-routes"}});
-    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}});state=live.open_part(live.active_document_id());
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"one_sided",true},{"height_mm","50"}});state=live.open_part(live.active_document_id());
     auto four_routes=Json::array();std::vector<std::pair<kernel::Vec3,kernel::Vec3>> corners;
     const auto many_input=run(host,"edge_treatment.edges").data;
     for(const auto& item:many_input.at("items")) {
@@ -162,7 +162,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const bool fillet:{true,false}) {
         const std::string prefix=fillet?"fillet":"chamfer",name=prefix+"-remove";
         run(host,"new",{{"type","part"},{"name",name}});
-        const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+        const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"one_sided",true},{"height_mm","10"}}).data.at("container").get<std::string>();
         state=live.open_part(live.active_document_id());const auto owning_body=state->session.document().body_history.active_body_id();
         const Json a={{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}},b={{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_min:y_max:z_max--x_min:y_max:z_min")}},
             c={{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_min:y_min:z_max--x_min:y_min:z_min")}};
@@ -201,7 +201,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // The last route follows history deletion: retain a dependent feature with
     // its error, expose changed=true, and allow one Undo to restore both bodies.
     run(host,"new",{{"type","part"},{"name","dependent-route-removal"}});
-    const auto source=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container");
+    const auto source=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"one_sided",true},{"height_mm","10"}}).data.at("container");
     state=live.open_part(live.active_document_id());
     const auto parent=run(host,"fillet.create",{{"radius_mm",2},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",source},{"key",test::profile_key(state->session.document(),source,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}}})}}})}}).data.at("container").get<std::string>();
     const auto& parent_body=state->session.calculated_boundaries().back();

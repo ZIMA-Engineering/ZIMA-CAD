@@ -24,9 +24,12 @@ empty `instance_path`, `ambiguous`, and `segments`. Each segment reports display
 count, saved `length_mm` (or `null`), parametric-seam flag and endpoints with their
 own identities and `position_mm`. This reads saved data without geometry calculation.
 
-Multiple geometric segments sharing one identity are marked ambiguous, never named
-by order. Listing describes input geometry; explicit operation calculation checks
-whether a particular treatment is geometrically feasible.
+Several segments sharing one identity form one selectable curve only when saved
+vertex references prove one connected, unbranched chain. Disconnected, branching,
+incomplete or inconsistent groups remain ambiguous; proximity never joins IDs.
+Segments are never named by runtime order. Listing describes input geometry;
+explicit operation calculation checks whether a treatment is geometrically feasible.
+See the [connected-curve correction and finite checks](verification/20261022-connected-fillet-curves.md).
 
 ## Tangent routes
 

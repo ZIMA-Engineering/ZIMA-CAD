@@ -100,6 +100,52 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         const auto finish=[&](bool commit) {
             dialog()->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         };
+        if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_CONNECTED_FILLET_SOURCE");!model.isEmpty()) {
+            const auto file=directory/"connected-fillet-input.prtz";
+            std::filesystem::copy_file(std::filesystem::u8path(model.toStdString()),file);
+            const auto original=document::PartDocument::load(file);
+            run("open",{{"path",document::path_to_utf8(file)}});
+            view->set_standard_view(viewer::StandardView::Isometric);
+            for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+            view->fit_all();flush();
+            const auto available=run("edge_treatment.edges").at("items");
+            const auto seed=std::ranges::find_if(available,[](const auto& row){return row.at("segments").size()>1&&!row.at("ambiguous").template get<bool>();});
+            check(seed!=available.end(),"Connected-curve fixture has no proven split input edge");
+            const auto revision=run("documents").at(0).at("revision");
+            window.findChild<QAction*>("filletAction")->trigger();flush();
+            static_cast<void>(pick(viewer::CandidateKind::Edge,seed->at("owner"),seed->at("key")));
+            auto* pending=dialog();const auto owner=pending->container_id();
+            const auto routes=pending->pending_value().edge_treatment.routes;
+            check(!routes.empty(),"Mouse did not retain the connected curve");
+            for(const auto& route:routes)for(std::size_t i=0;i<route.size();++i)
+                check(std::find(route.begin(),route.begin()+i,route[i])==route.begin()+i,"Mouse duplicated a persisted curve in its route");
+            pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);flush();
+            check(run("documents").at(0).at("revision")==revision,"Hover/reference draft committed a model transaction");
+            finish(true);run("save");
+            const auto volume=[&] {
+                std::vector<kernel::BodyResult> bodies;const auto saved=document::PartDocument::load(file,&bodies);
+                check(!bodies.empty(),"Saved connected Fillet has no calculated body");
+                check(saved.history.size()==original.history.size()+1&&
+                    std::equal(original.history.begin(),original.history.end(),saved.history.begin()),"Fillet changed its source definitions");
+                auto result=bodies.back();kernel::OcctKernel exact;exact.ensure_body_properties(result);return std::abs(result.volume);
+            };
+            const double first_volume=volume();
+            const auto created=run("fillet.get",{{"container",owner}});
+            check(created.at("radius_mm")==1,"GUI Fillet did not commit its radius");
+            auto before=run("documents").at(0).at("revision");
+            pending=edit(owner);pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1.5);flush();finish(false);
+            check(run("documents").at(0).at("revision")==before,"Cancel changed the connected-curve model");
+            pending=edit(owner);pending->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1.5);flush();finish(true);run("save");
+            const double second_volume=volume();check(std::abs(first_volume-second_volume)>1e-6,"Radius edit did not change actual solid volume");
+            run("undo");check(run("fillet.get",{{"container",owner}}).at("radius_mm")==1,"Connected Fillet edit Undo failed");
+            run("redo");check(run("fillet.get",{{"container",owner}}).at("radius_mm")==1.5,"Connected Fillet edit Redo failed");
+            check(run("fillet.get",{{"container",owner}}).at("routes")==created.at("routes"),"GUI edits changed original route identities");
+            before=run("documents").at(0).at("revision");edit(owner);finish(true);
+            check(run("documents").at(0).at("revision")==before,"Unchanged connected Fillet OK created a transaction");
+            window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"connected-fillet-result.png")));
+            std::cout<<"Connected Fillet: actual hover/LMB, deduplicated route, OK/Cancel, real volume change, Undo/Redo and unchanged OK passed\n";
+            return 0;
+        }
         if(const auto model=qEnvironmentVariable("ZIMA_VERIFY_EDGE_TREATMENT_MODEL");!model.isEmpty()) {
             const auto opened=run("open",{{"path",model.toStdString()}});view->set_projection_mode(viewer::ProjectionMode::Orthographic);view->fit_all();flush();
             const auto revision=opened.at(0).at("revision");
@@ -295,7 +341,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const std::string prefix=fillet?"fillet":"chamfer";
             const auto name=stem+"-"+std::to_string(mode);
             run("new",{{"type","part"},{"name",name}});
-            const auto box=zima::test::gui_rectangular_profile(window,20,20,20).data.at("container").get<std::string>();
+            const auto box=zima::test::gui_rectangular_profile(window,20,20,20,true).data.at("container").get<std::string>();
             // Horizontal as well as vertical edges expose an incorrect default
             // XY annotation plane on Chamfer distance dimensions.
             const auto file=directory/(name+".prtz");run("save");
@@ -309,6 +355,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 const auto edges=run("edge_treatment.edges",{{"owner",box}}).at("items");
                 const auto found=std::ranges::find_if(edges,[&](const auto& item){return item.at("key")==edge;});
                 check(found!=edges.end(),"Missing input edge for explicit R1");
+                check(found->at("segments")[0].at("endpoints").size()==2,"Variable Fillet fixture has no two persisted R1 endpoints");
                 auto start=found->at("segments")[0].at("endpoints")[0];start.erase("position_mm");
                 args["routes"][0]["start"]=start;
             }
@@ -402,7 +449,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         for(const bool fillet:{true,false})for(const bool commit:{false,true}) {
             const auto name=stem+"-create-"+std::to_string(fillet)+"-"+std::to_string(commit);
             run("new",{{"type","part"},{"name",name}});
-            const auto box=zima::test::gui_rectangular_profile(window,20,20,20).data.at("container").get<std::string>();
+            const auto box=zima::test::gui_rectangular_profile(window,20,20,20,true).data.at("container").get<std::string>();
             window.findChild<QAction*>(fillet?"filletAction":"chamferAction")->trigger();flush();
             auto* pending=dialog();const auto owner=pending->container_id();
             pick(viewer::CandidateKind::Edge,box,{});

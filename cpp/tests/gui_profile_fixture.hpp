@@ -13,9 +13,9 @@ inline document::HistoryContainer rectangular_default(document::PartDocument& pa
     return feature;
 }
 template<class Window>
-commands::Result gui_rectangular_profile(Window& window,double x,double y,double z) {
+commands::Result gui_rectangular_profile(Window& window,double x,double y,double z,bool one_sided=false) {
     return create_rectangular_profile([&](const commands::Json& request) {
         return window.execute_console_command(QString::fromStdString(request.dump()));
-    },x,y,z);
+    },x,y,z,one_sided);
 }
 }

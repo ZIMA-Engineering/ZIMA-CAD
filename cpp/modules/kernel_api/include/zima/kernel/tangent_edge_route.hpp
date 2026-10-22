@@ -1,11 +1,13 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/edge_treatment_chain.hpp>
 #include <algorithm>
 #include <cmath>
 #include <map>
 #include <numbers>
 #include <optional>
 #include <set>
+#include <string_view>
 namespace zima::kernel {
 // Shared traversal over persisted viewer edges. Geometry indices select
 // an offered runtime edge, never define a persisted topology identity.
@@ -32,6 +34,8 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
     };
     std::map<VertexKey, std::vector<Endpoint>> endpoints;
     std::optional<std::size_t> seed_index;
+    std::vector<const ViewerEdge*> seed_segments;
+    std::vector<std::size_t> seed_indices;
     for (std::size_t index = 0; index < edges.size(); ++index) {
         const auto& edge = edges[index];
         // A geometrically continuous result edge can cross the persisted
@@ -53,22 +57,17 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
             edge.reference.semantic_key == seed.semantic_key) {
             seed_index = index;
         }
+        if(edge.reference==seed) {
+            seed_segments.push_back(&edge);seed_indices.push_back(index);
+        }
     }
     // Programmatic route restoration has no picked geometry index. Resolve
-    // it only when the persisted edge identity is unique in the displayed
-    // body. A live hover/click always takes the exact offered mesh edge above.
+    // it only when the persisted identity names one connected curve. A live
+    // hover/click retains the exact offered runtime edge above.
+    const bool seed_chain=seed_segments.size()==1||edge_treatment_chain(seed_segments).has_value();
     if (!seed_index) {
-        for (std::size_t index = 0; index < edges.size(); ++index) {
-            const auto& edge = edges[index];
-            if (edge.points.size() < 2 || !edge.reference.valid() ||
-                edge.reference.owner_id != seed.owner_id ||
-                edge.reference.semantic_key != seed.semantic_key ||
-                edge.reference.instance_path != seed.instance_path) {
-                continue;
-            }
-            if (seed_index) return {};
-            seed_index = index;
-        }
+        if(!seed_chain)return {};
+        seed_index=seed_indices.front();
     }
     if (!seed_index) return {};
     const auto direction = [&](std::size_t index, int end)
@@ -90,6 +89,7 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
         std::numbers::pi / 180.0);
     std::set<std::size_t> selected{*seed_index};
     std::vector<std::size_t> pending{*seed_index};
+    if(seed_chain)for(const auto index:seed_indices)if(selected.insert(index).second)pending.push_back(index);
     std::set<VertexKey> visited_vertices;
     while (!pending.empty()) {
         const auto current = pending.back(); pending.pop_back();
@@ -127,7 +127,12 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
     }
     std::vector<zima::kernel::EdgeReference> result;
     result.reserve(selected.size());
-    for (const auto index : selected) result.push_back(edges[index].reference);
+    std::set<std::tuple<std::string_view,std::string_view,std::string_view>> identities;
+    for (const auto index : selected) {
+        const auto& reference=edges[index].reference;
+        if(identities.emplace(reference.owner_id,reference.semantic_key,reference.instance_path).second)
+            result.push_back(reference);
+    }
     return result;
 }
 } // namespace zima::kernel

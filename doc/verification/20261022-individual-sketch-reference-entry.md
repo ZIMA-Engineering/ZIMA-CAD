@@ -58,6 +58,9 @@ surface-intersection command.
 
 ## Separate Fillet diagnosis
 
+The subsequent [connected-curve correction](20261022-connected-fillet-curves.md)
+addresses the cause below. This section preserves the initial diagnosis.
+
 Native queries find 43 input edge identities. Two curved keys created by
 `Vytažení 003` each describe two connected segments, with saved endpoint degrees
 1, 1, 2. Workspace validation rejects every multiple-segment key before OCCT.

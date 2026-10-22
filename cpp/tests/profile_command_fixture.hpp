@@ -26,8 +26,10 @@ inline commands::Json feature_profile_parameters(double length,bool symmetric=fa
 }
 // Build a real editable rectangular profile through public commands. The
 // convenience fixture is not registered as an application command.
+// The optional one-sided form keeps centered bounds without a logical-side
+// seam for analytical edge-treatment fixtures. Other tests retain symmetry.
 template<class Execute>
-commands::Result create_rectangular_profile(Execute execute,double x,double y,double z) {
+commands::Result create_rectangular_profile(Execute execute,double x,double y,double z,bool one_sided=false) {
     using commands::Json;
     const auto run=[&](const char* name,Json args){return execute(Json{{"command",name},{"arguments",std::move(args)}});};
     auto created=run("sketch.create",{{"name","Fixture profile"},{"plane","XY"}});
@@ -39,7 +41,9 @@ commands::Result create_rectangular_profile(Execute execute,double x,double y,do
             {"second",points[(i+1)%4]},{"snap_mm",.000001}});
         if(!result.ok)return result;
     }
-    return run("feature.create",{{"sketch",sketch},{"parameters",feature_profile_parameters(z/2,true)}});
+    auto parameters=feature_profile_parameters(z/2,true);
+    if(one_sided) {parameters["symmetric"]=false;parameters["sides"][0]["length"]=z;parameters["profile_plane_offset"]=-z/2;}
+    return run("feature.create",{{"sketch",sketch},{"parameters",parameters}});
 }
 // Compose public commands for tests whose subject is a downstream operation.
 // The callback keeps each test's normal error handling and return type.
@@ -59,6 +63,10 @@ auto rectangular_commands(Run run,commands::Json dimensions) {
     for(std::size_t i=0;i<4;++i)run("sketch.segment.create",{{"sketch",sketch},{"first",points[i]},
         {"second",points[(i+1)%4]},{"snap_mm",.000001}});
     Json args={{"sketch",sketch},{"parameters",feature_profile_parameters(z/2,true)}};
+    if(dimensions.value("one_sided",false)) {
+        args["parameters"]["symmetric"]=false;args["parameters"]["sides"][0]["length"]=z;
+        args["parameters"]["profile_plane_offset"]=-z/2;
+    }
     for(const auto* key:{"name","combine","placement"})if(dimensions.contains(key))args[key]=dimensions[key];
     return run("feature.create",args);
 }

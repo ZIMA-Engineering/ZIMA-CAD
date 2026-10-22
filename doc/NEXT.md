@@ -54,11 +54,18 @@ The post-release [individual Reference entry correction](verification/20261022-i
 now restricts ordinary hover/confirmation to individual geometry. Eight native/
 GUI/localization suites pass, together with both rims of the exact reported
 right-hand source arc in an isolated `2000.prtz` copy; the original stored
-four-path Face reference remains unchanged. The Fillet failure is reproduced:
-two connected segments share each rejected key, and workspace validation rejects
-them before OCCT. Continue that diagnosis separately; the published archive is
-unchanged. Final publication cleanup left approximately 29 GB free before the
+four-path Face reference remains unchanged. The [connected-curve Fillet correction](verification/20261022-connected-fillet-curves.md)
+then passed native repeated edits/persistence and actual mouse creation/editing
+on the reported curves. It preserves the original keys and adds no hover OCCT.
+The published archive is unchanged. The regression investigation separately found
+missing longitudinal endpoint caches on symmetric two-side extrusions, reproduced
+in the immutable release. Keep that native ancestry issue visible; correcting
+one-sided analytical test fixtures does not fix it. Final publication cleanup left approximately 29 GB free before the
 subsequent development build; periodic verified cleanup remains requested.
+After the two post-release fixes, another 80 unused Debug Qt DLL copies were
+verified against the pinned SDK and Release dependency closure, then removed
+(1,110,372,224 logical bytes). Approximately 26.5 GB remained free. The signed
+2004/2201 archives, current Release build, SDKs and private files are retained.
 
 ### Up To multi-face editor proposal - 2026-10-22
 

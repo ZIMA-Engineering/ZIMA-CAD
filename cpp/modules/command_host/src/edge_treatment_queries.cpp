@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/tangent_edge_route.hpp>
+#include <zima/kernel/edge_treatment_chain.hpp>
 #include <algorithm>
 #include <map>
 #include <cmath>
@@ -49,7 +50,7 @@ std::size_t page(const Json& args,const char* key,std::size_t fallback,std::size
     return args.at(key).get<std::size_t>();
 }
 Json describe(const std::vector<const kernel::ViewerEdge*>& segments) {
-    auto item=identity(segments.front()->reference);item["ambiguous"]=segments.size()!=1;auto values=Json::array();
+    auto item=identity(segments.front()->reference);item["ambiguous"]=segments.size()!=1&&!kernel::edge_treatment_chain(segments);auto values=Json::array();
     for(const auto* edge:segments) {
         auto endpoints=Json::array();
         if(edge->edge_treatment_endpoint_references.size()==2&&!edge->points.empty())for(std::size_t i=0;i<2;++i) {
@@ -93,20 +94,20 @@ void Host::register_edge_treatment_queries() {
                 auto members=Json::array();std::map<Key,std::pair<Json,std::size_t>> vertices;bool complete_endpoints=true;
                 for(const auto& reference:route) {
                     const auto found=edges.find({reference.owner_id,reference.semantic_key});
-                    if(found==edges.end()||found->second.size()!=1)throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
-                    const auto& edge=*found->second.front();
+                    if(found==edges.end())throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
+                    const auto chain=kernel::edge_treatment_chain(found->second);
+                    if(!chain)throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
                     members.push_back(identity(reference));
                     // A closed circle has no two distinct persisted endpoints
                     // in the current viewer packet. Retain its exact edge;
                     // do not invent a vertex or infer connectivity by distance.
-                    if(edge.edge_treatment_endpoint_references.size()!=2||edge.points.empty()||
-                        std::ranges::any_of(edge.edge_treatment_endpoint_references,[](const auto& ref){return !ref.valid();})) {
+                    if(!chain->endpoints_complete) {
                         complete_endpoints=false;continue;
                     }
-                    for(std::size_t i=0;i<2;++i) {
-                        const auto& ref=edge.edge_treatment_endpoint_references[i];
+                    for(const auto& endpoint:chain->endpoints) {
+                        const auto& ref=endpoint.reference;
                         auto& vertex=vertices[{ref.owner_id,ref.semantic_key}];vertex.first=identity(ref);
-                        vertex.first["position_mm"]=point(i==0?edge.points.front():edge.points.back());++vertex.second;
+                        vertex.first["position_mm"]=point(endpoint.position);++vertex.second;
                     }
                 }
                 auto endpoints=Json::array();if(complete_endpoints)for(const auto& [key,vertex]:vertices)if(vertex.second==1)endpoints.push_back(vertex.first);

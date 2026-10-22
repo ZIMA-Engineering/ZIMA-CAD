@@ -57,6 +57,13 @@ The preceding [2026102004](releases/2026102004.md) release remains immutable;
 its accepted library/mass and other historical verification are preserved in
 that release record. Newer verification does not erase earlier rejected probes.
 
+Post-release development restricts [ordinary Sketch Reference entry](verification/20261022-individual-sketch-reference-entry.md)
+to individual geometry and repairs [Fillet on connected segments of one original curve](verification/20261022-connected-fillet-curves.md),
+verified on isolated copies of `2000.prtz`. These corrections are in the current
+local build and source, not retroactively in the immutable 2201 archive.
+The separate pre-existing symmetric-extrusion longitudinal endpoint-cache issue
+found by those checks remains open; see the linked verification limits.
+
 ## Still unfinished or planned
 
 | Work | Current boundary / next step |

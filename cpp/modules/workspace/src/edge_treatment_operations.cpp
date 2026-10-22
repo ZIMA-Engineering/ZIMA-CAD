@@ -2,6 +2,7 @@
 #include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
+#include <zima/kernel/edge_treatment_chain.hpp>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -20,11 +21,12 @@ std::vector<kernel::VertexReference> endpoints(const Groups& available,const std
     std::vector<std::vector<Key>> connections;std::set<Key> unique;
     for(const auto& ref:route) {
         const auto found=available.find(key(ref));
-        if(!ref.valid()||!ref.instance_path.empty()||!unique.insert(key(ref)).second||found==available.end()||found->second.size()!=1)return {};
-        const auto& ends=found->second.front()->edge_treatment_endpoint_references;
-        if(ends.size()!=2)return {};
+        if(!ref.valid()||!ref.instance_path.empty()||!unique.insert(key(ref)).second||found==available.end())return {};
+        const auto chain=kernel::edge_treatment_chain(found->second);
+        if(!chain||!chain->endpoints_complete||chain->endpoints.size()!=2)return {};
         connections.emplace_back();
-        for(const auto& end:ends) {
+        for(const auto& endpoint:chain->endpoints) {
+            const auto& end=endpoint.reference;
             if(!end.valid()||!end.instance_path.empty())return {};
             auto& vertex=vertices[key(end)];vertex.first=end;vertex.second.push_back(connections.size()-1);
             if(vertex.second.size()>2)return {};
@@ -92,7 +94,8 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
         if(route.empty())throw Error("invalid_reference","Select at least one input edge route.");
         for(const auto& ref:route) {
             const auto found=available.find(key(ref));
-            if(!ref.valid()||!ref.instance_path.empty()||found==available.end()||found->second.size()!=1)
+            if(!ref.valid()||!ref.instance_path.empty()||found==available.end()||
+                (found->second.size()!=1&&!kernel::edge_treatment_chain(found->second)))
                 throw Error("invalid_reference","Select an unambiguous edge of the calculated input body.");
             if(!unique.insert(key(ref)).second)throw Error("invalid_reference","An input edge may belong to only one selected route.");
         }
