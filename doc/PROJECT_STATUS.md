@@ -5,6 +5,21 @@ guides, verification records and public GitHub release. This is the current
 capability index. Dated design proposals in the roadmap and development notes
 must not be read as a list of features still missing today.
 
+Signed Windows [2026102301](releases/2026102301.md#windows-publication-acceptance)
+was published at `2026-10-23T18:24:39Z` from immutable source `bb15d2ba5211ae5d2f58f848d3d4f7985ff31017`.
+It includes exact associative Sketch intersections, ordered multi-face Up To
+limits and corrections, complete Thin Feature wires, rounded Sketch Mirror,
+removable radius annotations, centered-rectangle dragging and exact native
+Sketch selection with consistent azure 3D Curve strokes and native points.
+Candidate and signed native smoke each load all 1,185
+factory documents. All 15 candidate and 11
+fresh signed GUI scenarios pass, with 7,353
+exact factory resource comparisons and 17,292
+immutable checksums. Production trust, authenticated draft downloads, anonymous
+public downloads and trusted 2201 update discovery pass. No update installation
+is claimed. User data and the development BAT are preserved; native Linux
+verification remains separate host work. Linked finite coverage limits apply.
+
 ## Available implementation
 
 "Implemented" means the documented command and native workflow exist. It does
@@ -32,21 +47,20 @@ Linux verification. The linked guides give supported cases and finite checks.
 
 Family Table is therefore an existing feature, not a future implementation task.
 
-The current development build also provides **Intersection → reference** and
+Windows 2026102301 also provides **Intersection → reference** and
 **Intersection → contour** in Sketcher. They select bounded native face/Sketch-plane
 branches and persist their exact source/branch definitions. Certified circles and
 arcs remain native conics. See the [finite editor matrix and limits](verification/20261022-sketch-intersection-editor.md).
 The approved curve/Sketch-plane extension adds isolated associative points from
 native Sketch and authored 3D curves, with conservative branch validation and
 authoritative unsaved Assembly sources. Rounded Sketch Mirror and intrinsic
-radius annotation deletion are also under final verification; see the
+radius annotation deletion are included in signed Windows 2026102301; see the
 [point/mirror record](verification/20261023-curve-plane-points-and-rounded-mirror.md).
-This development status does not replace the immutable released build identified
-below or claim completion of portable release acceptance, Projection or view-relative
-H/V.
+Windows portable acceptance is recorded above. Sketch Projection and
+view-relative H/V remain separate queued work.
 The [2000.prtz follow-up](verification/20261023-2000-reference-and-up-to-corrections.md)
-records correction-wire, tangent-chain and intersection-reference fixes prepared
-for developer review before portable publication.
+records correction-wire, tangent-chain and intersection-reference fixes
+included in signed Windows 2026102301 after native and GUI verification.
 Its linked editing and single-parent-file workflow were already included in
 [Windows 2026091508](releases/2026091508.md); later work extends and verifies it.
 Six old standalone primitives are removed; current modeling uses the Feature
@@ -89,7 +103,7 @@ now supplies cold open-solid intersection ancestry and preserves bindings throug
 rigid placement and derived copies. Its 108-case matrix, factory refresh and all
 1,185 read-only native loads pass. All 137 Drawings pass reference/regeneration
 comparison against the released runtime without rewriting their factory files.
-The subsequent editor commands, native branch association and manipulation checks are implemented; see the [finite editor matrix](verification/20261022-sketch-intersection-editor.md). Portable publication remains separate.
+The subsequent editor commands, native branch association and manipulation checks are implemented; see the [finite editor matrix](verification/20261022-sketch-intersection-editor.md). Windows portable publication is accepted in 2026102301.
 The subsequent [coincident reference-circle picking correction](verification/20261022-coincident-reference-circle-picking.md)
 removes artificial display-chord crossings while retaining native circles/arcs.
 Its 392-case native matrix, reported `0101.prtz` pairs, mouse checks and all five
@@ -101,11 +115,11 @@ changes; the immutable 2201 archive is unchanged.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Completed in Windows 2026102201 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
+| Current correction/release batch | Completed in Windows 2026102301 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
-| Sketch intersection references | Native source/branch association and both editor commands are implemented and verified in the documented finite matrix, including repeated edits, native persistence and GUI entry. Portable publication is pending; arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
+| Sketch intersection references | Native source/branch association and both editor commands are implemented and verified in the documented finite matrix, including repeated edits, native persistence and GUI entry. Windows portable publication is accepted in 2026102301; arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
 | View-relative H/V | Requested display/input mapping for 90-degree turns and view flips; retain the internal geometric constraints and persisted meanings. |
-| Multiple Up To faces and correction | Approved native extension and shared Feature tables are implemented. Convex/concave limits, directed retained patches, signed length/angle corrections, native Part/Assembly cuts, Relations/locks and GUI entry pass focused regressions. Factory refresh and portable acceptance are in progress. See [scope and checkpoint](FEATURE_ORDERED_UP_TO_PLAN.md). |
+| Multiple Up To faces and correction | Approved native extension and shared Feature tables are implemented. Convex/concave limits, directed retained patches, signed length/angle corrections, native Part/Assembly cuts, Relations/locks and GUI entry pass focused regressions. Factory refresh and signed Windows portable acceptance are complete in 2026102301. See [scope and checkpoint](FEATURE_ORDERED_UP_TO_PLAN.md). |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |
 | File Manager directory prototypes | Discuss ordinary/linked metadata types and configurable prototype `0000-index` folders before implementation. |
 | Direct mesh/Surface editing | Design ideas: independent meshes, point groups, primitives, subdivision, deformation, optional explicit point-to-model bindings and conversion to suitable shells/solids. No implemented Blender-style mesh editor is claimed. |

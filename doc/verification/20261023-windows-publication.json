@@ -1,0 +1,221 @@
+{
+  "version": "2026102301",
+  "commit": "bb15d2ba5211ae5d2f58f848d3d4f7985ff31017",
+  "published_at": "2026-10-23T18:24:39Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102301",
+  "archive": {
+    "fileCount": 17293,
+    "name": "ZIMA-CAD-2026102301.zip",
+    "sha256": "eac3d6eb6d3d8476ea2cc3a925d938c13cf214474dcde63f64a48592d52d0124",
+    "size": 1070270477,
+    "unpackedSize": 5960139241
+  },
+  "factory_count": 1185,
+  "exact_factory_resources": 7353,
+  "immutable_checksums": 17292,
+  "candidate_gui": [
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 9.656
+    },
+    {
+      "name": "sketch-face-plane",
+      "exit": 0,
+      "seconds": 28.641
+    },
+    {
+      "name": "sketch-spline",
+      "exit": 0,
+      "seconds": 4.593
+    },
+    {
+      "name": "sketch-trimmed",
+      "exit": 0,
+      "seconds": 4.688
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 25.562
+    },
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 35.829
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 35.593
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 4.953
+    },
+    {
+      "name": "CornerGusset90",
+      "exit": 0,
+      "seconds": 3.829
+    },
+    {
+      "name": "DimpledHole",
+      "exit": 0,
+      "seconds": 6.093
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 6.516
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 2.703
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 109.391
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 21.297
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 9.562
+    }
+  ],
+  "signed_gui": [
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 10.36
+    },
+    {
+      "name": "sketch-face-plane",
+      "exit": 0,
+      "seconds": 28.531
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 25.891
+    },
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 35.937
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 35.875
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 4.953
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 6.719
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 2.781
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 112.875
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 21.672
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 9.734
+    }
+  ],
+  "production_trusted": true,
+  "public_assets": [
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "a6f3a2c1fc3d32be81767dd312b3cdb16410b2a5e0e4f77faef225e85f40caf6",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102301/update-manifest.json"
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "9ec3d8d006d8ad3c3db0ddfaf467d6d1395de03ae7572a24b1b321e3a87c95f9",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102301/update-manifest.sig"
+    },
+    {
+      "name": "ZIMA-CAD-2026102301.zip",
+      "size": 1070270477,
+      "sha256": "eac3d6eb6d3d8476ea2cc3a925d938c13cf214474dcde63f64a48592d52d0124",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102301/ZIMA-CAD-2026102301.zip"
+    }
+  ],
+  "previous_installation_preserved": true,
+  "git_archive_text_materialization": {
+    "native_forms": [
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/BridgeLance.prtz",
+        "canonical_sha256": "549846ef2653b79563e425d63b70bfe2fffe959861b4fd4dd841e31aa9689b39",
+        "archive_sha256": "59345cb20832b3a4eebf50404066cc9cad520970c6f629fa18c9dc3dbf901abb"
+      },
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz",
+        "canonical_sha256": "3be0c6038f206927f1cb964f246bb67e4a867e60ee736d389d57d5ea7c6fed24",
+        "archive_sha256": "129b15dc11defdcbf528351e42ae6fba038b192e5a20f22b1351c1ec5e229d55"
+      },
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/DimpledHole.prtz",
+        "canonical_sha256": "08de7da5c3a30a5972fc87b072ea20569e9a1299b74a154f0a20ce22ef75a9c3",
+        "archive_sha256": "0e14f143d223c7f09ebb6aad2611a495109d3e25fc6cbc82e9d9a3f5a67eb57f"
+      },
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz",
+        "canonical_sha256": "67c765287f9040d5ea77bf04727263ee1a920eb1ca53ec1659da3d2d4619ef9f",
+        "archive_sha256": "2e224fcad1ba08e5006a52ef427aaca0bc6442f16a597d292529020d1b4a101a"
+      }
+    ],
+    "cpp_files": 1368,
+    "policy": "Only CRLF/LF text materialization; exact Git blob content otherwise"
+  },
+  "linux_execution": "not verified on Windows host",
+  "cleanup": {
+    "removed": [
+      {
+        "target": "owned release stage C:/zcb/p2301",
+        "bytes": 14719193748.0
+      },
+      {
+        "target": ".dist-output/windows-2301-candidate/ZIMA-CAD-2026102301.zip",
+        "bytes": 1069463849,
+        "sha256": "1e42888f1261ffecc0af8ccd76d295bb3334eb9877c9a8ceffc5a39571fe284a"
+      },
+      {
+        "target": ".dist-output/windows-2301-candidate-final/ZIMA-CAD-2026102301.zip",
+        "bytes": 1069464783,
+        "sha256": "6172c6feec3661cf5051c782d5df006de67a907868d4e2c7ba41b1730c5fc8ed"
+      }
+    ],
+    "removed_bytes": 16858122380.0,
+    "free_before": 26403659776,
+    "free_after": 44602675200,
+    "retained": "Current and previous signed packages/installations, developer build, Qt/OCCT SDKs, source checkout, user projects/settings, validation evidence and logs"
+  }
+}

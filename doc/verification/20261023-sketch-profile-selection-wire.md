@@ -154,5 +154,8 @@ not required to populate a solid GPU line batch. Profiles with no visible
 native point marker do not invent one; dedicated native fixtures still require
 real markers. DimpledHole takes 6.437 s, VentilationWindow 6.714 s and
 CornerGusset90 3.963 s. The protected user spline and synthetic spline also pass
-again. Evidence: `build/sketch-inspection-color-gui.log`; the rejected candidate
-and `build/release-2301-rejected-b1-extra.log` retain the earlier failure.
+again. Evidence: `build/sketch-inspection-color-gui.log` and
+`build/release-2301-rejected-b1-extra.log` retain the earlier failure. After
+signed publication and public acceptance, the rejected and accepted unsigned
+candidate archives and disposable staging tree were removed to reclaim disk
+space. Validation records and the final signed package remain available.

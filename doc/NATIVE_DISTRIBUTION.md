@@ -1,5 +1,20 @@
 # Native versioned distribution
 
+Signed Windows [2026102301](releases/2026102301.md#windows-publication-acceptance)
+was published at `2026-10-23T18:24:39Z` from immutable source `bb15d2ba5211ae5d2f58f848d3d4f7985ff31017`.
+It includes exact associative Sketch intersections, ordered multi-face Up To
+limits and corrections, complete Thin Feature wires, rounded Sketch Mirror,
+removable radius annotations, centered-rectangle dragging and exact native
+Sketch selection with consistent azure 3D Curve strokes and native points.
+Candidate and signed native smoke each load all 1,185
+factory documents. All 15 candidate and 11
+fresh signed GUI scenarios pass, with 7,353
+exact factory resource comparisons and 17,292
+immutable checksums. Production trust, authenticated draft downloads, anonymous
+public downloads and trusted 2201 update discovery pass. No update installation
+is claimed. User data and the development BAT are preserved; native Linux
+verification remains separate host work. Linked finite coverage limits apply.
+
 Signed Windows [2026102201](releases/2026102201.md#windows-publication-acceptance)
 was published at `2026-10-22T13:49:48Z` from immutable source
 `a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. It includes original preview-wire selection, aligned profile/Origin
