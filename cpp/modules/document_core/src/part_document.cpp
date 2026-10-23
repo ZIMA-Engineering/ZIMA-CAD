@@ -35,6 +35,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <zima/document/solid_state_calculation.hpp>
 #include <zima/document/relation_program.hpp>
 #include <zima/document/placement_json.hpp>
@@ -7539,6 +7540,20 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
     std::array<double,2> rotation_angles{};
     const auto sketch=std::ranges::find(sketches,definition.sketch_id,&zima::sketcher::Sketch::id);
     if(sketch==sketches.end())return {};
+    if(feature_uses_extended_up_to(definition)) {
+        // The draft is explicitly labelled as a profile preview. Building a
+        // joined exact support here would put OCCT on row/field interaction.
+        auto profile=profile_preview_source_edges(sketch->evaluated_profile_sketch());
+        const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,
+            container.placement.rotation_y,container.placement.rotation_z});
+        const zima::kernel::Vec3 origin{container.placement.x,container.placement.y,container.placement.z};
+        for(auto& edge:profile) {
+            edge.reference={container.id,"preview:profile:"+edge.reference.semantic_key,{}};
+            if(sketch->owner_container_id!=container.id)for(auto& point:edge.points)
+                point=placement_transform_point(rotation,origin,point);
+        }
+        return profile;
+    }
     std::vector<zima::kernel::ViewerEdge> wire;
     for(std::size_t side=0;side<(definition.symmetric?1u:2u);++side) {
         const auto& settings=definition.effective_side(side);
@@ -9895,6 +9910,30 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 return zima::kernel::feature_side_request(std::move(request),container.feature_id,
                     side==0?zima::kernel::FeatureSide::End:zima::kernel::FeatureSide::Start);
             };
+            const auto ordered_limit=[&](const FeatureSideParameters& settings,bool angular,zima::kernel::Vec3 direction) {
+                zima::kernel::OrderedUpToLimit limit;
+                limit.path_correction=angular?settings.up_to.angle_correction_degrees:settings.up_to.length_correction;
+                limit.primary_cap_source=settings.up_to.primary_cap_source;
+                for(std::size_t row=0;row<settings.targets.size();++row) {
+                    const auto& source=settings.targets[row];
+                    if(settings.targets.size()>1&&source.kind==EndTargetKind::Point)
+                        throw std::runtime_error("Invalid Feature definition.");
+                    const auto target=resolved_extrusion_end_target(*this,container,source,allow_persisted_external_target,!angular);
+                    zima::kernel::OrderedUpToPatch patch;patch.source_reference=source.reference;
+                    patch.target={target.kind!=EndTargetKind::Face,target.reference,
+                        target.kind==EndTargetKind::Point||(target.kind==EndTargetKind::Plane&&(profile_target_is_datum(target.reference)||
+                            (allow_persisted_external_target&&!target.reference.instance_path.empty()))),
+                        target.fallback_origin,target.kind==EndTargetKind::Point?direction:target.fallback_normal,target.fallback_triangles};
+                    if(allow_persisted_external_target)patch.target.reference.instance_path.clear();
+                    if(!patch.target.datum&&!allow_persisted_external_target&&
+                            std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==target.reference.owner_id;}))
+                        throw std::runtime_error("Extrusion target must belong to prior history or a datum plane");
+                    if(row)patch.keep_previous_positive=settings.up_to.retained_side(source.reference,settings.targets[row-1].reference);
+                    if(row+1<settings.targets.size())patch.keep_next_positive=settings.up_to.retained_side(source.reference,settings.targets[row+1].reference);
+                    limit.patches.push_back(std::move(patch));
+                }
+                return limit;
+            };
             if(p.type==FeatureType::Modeling || p.type==FeatureType::Sketch)
             for(std::size_t side=0;side<2;++side) {
                 const auto& settings=p.effective_side(side);
@@ -9957,13 +9996,17 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     }
                     auto prepared=prepare(std::move(request),side);
                     if(settings.rotation_extent==FeatureRotationExtent::UpTo) {
-                        if(settings.targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
+                        if(settings.targets.empty())throw std::runtime_error("Select at least one Feature end reference.");
                         const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),allow_persisted_external_target);
                         auto axis=prepared.axis_direction;
                         if(zima::kernel::feature_rotation_reversed(prepared)!=p.side_direction_reversed(side))axis={-axis.x,-axis.y,-axis.z};
                         if(p.symmetric&&side==1)axis={-axis.x,-axis.y,-axis.z};
-                        if(feature_rotation_has_uniform_end(prepared.axis_point,axis,target))
-                            prepared.angle_degrees=feature_rotation_limit_angle(prepared.axis_point,axis,prepared.profile_normal,target);
+                        if(settings.targets.size()==1&&feature_rotation_has_uniform_end(prepared.axis_point,axis,target))
+                            prepared.angle_degrees=feature_rotation_limit_angle(prepared.axis_point,axis,prepared.profile_normal,target)+settings.up_to.angle_correction_degrees;
+                        else if(settings.targets.size()>1||settings.up_to.angle_correction_degrees!=0) {
+                            prepared.ordered_end_limit=ordered_limit(settings,true,{});
+                            prepared.mirror_end_limit=p.symmetric&&side==1;prepared.angle_degrees=360.;
+                        }
                         else {
                             prepared.end_limit=zima::kernel::ExtrusionLimit{target.kind==EndTargetKind::Plane,target.reference,
                                 target.kind==EndTargetKind::Plane&&profile_target_is_datum(target.reference),
@@ -9973,7 +10016,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                             prepared.angle_degrees=360.; // Exact calculation resolves the per-point end.
                         }
                     }
-                    rotation_angles[side]=prepared.end_limit?0.:prepared.angle_degrees;
+                    rotation_angles[side]=(prepared.end_limit||prepared.ordered_end_limit)?0.:prepared.angle_degrees;
                     validate_feature_rotation_span(rotation_angles[0],rotation_angles[1]);
                     group.children.push_back(std::move(prepared));
                 } else {
@@ -9997,7 +10040,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         request.through_all_forward=true;
                     } else if(!inactive&&settings.extrusion_extent==EndCondition::UpTo) {
                         request.mirror_forward_limit=p.symmetric&&side==1;
-                        if(settings.targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
+                        if(settings.targets.empty())throw std::runtime_error("Select at least one Feature end reference.");
+                        if(settings.targets.size()>1||settings.up_to.length_correction!=0)
+                            request.ordered_end_limit=ordered_limit(settings,false,request.direction);
+                        else {
                         const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),allow_persisted_external_target,true);
                         request.extent=target.kind!=EndTargetKind::Face?zima::kernel::ExtrusionRequest::Extent::UpToPlane:zima::kernel::ExtrusionRequest::Extent::UpToSurface;
                         request.target_face=target.reference;
@@ -10009,6 +10055,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                             throw std::runtime_error("Extrusion target must belong to prior history or a datum plane");
                         request.target_plane_origin=target.fallback_origin;request.target_plane_normal=target.kind==EndTargetKind::Point?request.direction:target.fallback_normal;
                         request.target_surface_triangles=target.fallback_triangles;
+                        }
                     }
                     auto prepared=prepare(std::move(request),side);
                     if(group.allow_empty&&status==ProfileStatus::Open)prepared.centerlines.centroid_enabled=false;

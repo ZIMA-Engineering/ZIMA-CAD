@@ -16,6 +16,7 @@
 #include <zima/document/solid_state_calculation.hpp>
 #include <zima/document/profile_targets.hpp>
 #include "group_solid_state_calculation.hpp"
+#include "ordered_up_to_assembly_sources.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>
@@ -55,8 +56,13 @@ static void validate_part_calculation(const document::PartDocument& document,
             // Editing validates this operation and its real input. Later errors
             // remain attached to later containers, outside this transaction.
             const auto& owner = document.history[*policy.edited_history_limit].id;
-            if (const auto issue = errors.find(owner); issue != errors.end())
+            if (const auto issue = errors.find(owner); issue != errors.end()) {
+                if(const auto ordered=calculated.back().ordered_up_to_failures.find(owner);
+                        ordered!=calculated.back().ordered_up_to_failures.end()) {
+                    const auto& d=ordered->second;throw kernel::OrderedUpToError(d.failure,d.row,d.other_row);
+                }
                 throw std::runtime_error(issue->second);
+            }
         } else if (!errors.empty()) {
             throw std::runtime_error(errors.begin()->second);
         }
@@ -180,6 +186,9 @@ calculate_part_reference_state(
         calculation_policy.refresh_physical_properties=policy.refresh_physical_properties;
         calculated = calculate_part(kernel, document, incremental_source, calculation_policy);
         phase("calculation");
+        for(const auto& boundary:calculated)if(!boundary.resolved_up_to_limits.empty())for(auto& feature:document.history)
+            if(feature.feature_kind==document::FeatureKind::Feature&&!boundary.calculation_errors.contains(feature.id))
+                static_cast<void>(document::resolve_feature_up_to_choices(feature.feature,feature.id,feature.feature_id,boundary.resolved_up_to_limits));
         const auto history_before = document.history;
         const auto constructions_before = document.constructions;
         const auto bodies_before = document.body_history.bodies();
@@ -327,10 +336,14 @@ void calculate_resolved_assembly_cuts(
                     (value.operation==document::FeatureSideOperation::Revolution&&value.rotation_extent==document::FeatureRotationExtent::UpTo);
                 if(!up_to || (definition.type==document::FeatureType::Axis&&!value.axis_enabled))continue;
                 auto& targets=definition.sides[side].targets;
-                if(targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
-                const auto target=document::resolve_profile_target(targets.front(),reference_geometry);
-                if(!target)throw std::runtime_error("The original extrusion target is unavailable.");
-                targets.front()=*target;
+                if(targets.empty())throw std::runtime_error("Select at least one Feature end reference.");
+                if(definition.type==document::FeatureType::Axis&&targets.size()!=1)
+                    throw std::runtime_error("Select exactly one extrusion end reference.");
+                for(auto& target:targets) {
+                    const auto resolved=document::resolve_profile_target(target,reference_geometry);
+                    if(!resolved)throw std::runtime_error("The original extrusion target is unavailable.");
+                    target=*resolved;
+                }
             }
         }
         cutter_document.history = {cut.definition};
@@ -363,10 +376,16 @@ void calculate_resolved_assembly_cuts(
         }
         cutter_operations.front().operation =
             zima::kernel::BooleanOperation::Add;
+        if(cut.definition.feature_kind==document::FeatureKind::Feature)
+            detail::attach_ordered_up_to_sources(document,cutter_operations);
         const auto cutter_boundaries = kernel.evaluate_history(cutter_operations);
         if (cutter_boundaries.empty()) {
             throw std::runtime_error("Assembly cut body is empty");
         }
+        if(cut.definition.feature_kind==document::FeatureKind::Feature)
+            for(const auto& boundary:cutter_boundaries)
+                static_cast<void>(document::resolve_feature_up_to_choices(cut.definition.feature,cut.definition.id,
+                    cut.definition.feature_id,boundary.resolved_up_to_limits));
         for (const auto& target_id : cut.target_occurrence_ids) {
             auto* target = document.find_occurrence(target_id);
             if (target == nullptr) {

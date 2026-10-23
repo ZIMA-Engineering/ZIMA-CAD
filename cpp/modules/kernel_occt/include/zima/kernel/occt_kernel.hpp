@@ -101,6 +101,8 @@ public:
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
 
 private:
+    struct NativeFaceSource;
+    [[nodiscard]] NativeFaceSource native_face_source(const BodyResult&,const FaceReference&) const;
     struct HistoryContext;
     [[nodiscard]] std::vector<BodyResult> evaluate_flat_history(
         const std::vector<HistoryOperation>& operations,

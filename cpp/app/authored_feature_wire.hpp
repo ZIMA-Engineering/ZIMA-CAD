@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/document/document_session.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/holes.hpp>
@@ -27,6 +28,9 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     switch(feature->feature_kind) {
     case FeatureKind::Feature:
         if(feature->feature.type!=document::FeatureType::Modeling)break;
+        // Ordered clipping is calculated only on OK. Reuse its own first
+        // stored operand wire below, before later body Booleans can add edges.
+        if(document::feature_uses_extended_up_to(feature->feature))break;
         wire.edges=doc.feature_preview_edges(*feature,input_mesh);return place(std::move(wire));
     case FeatureKind::Extrusion:
         wire.edges=doc.extrusion_preview_edges(*feature,input_mesh);return place(std::move(wire));

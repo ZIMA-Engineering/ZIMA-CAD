@@ -254,6 +254,7 @@ add_library(zima_document_core
     modules/document_core/src/sheet_transition.cpp
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/feature_serialization.cpp
+    modules/document_core/src/feature_up_to.cpp
     modules/document_core/src/feature_result_geometry.cpp
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
@@ -476,6 +477,7 @@ target_sources(zima_command_host PRIVATE modules/command_host/src/browser_comman
 target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 add_library(zima_kernel_occt
+    modules/kernel_occt/src/ordered_up_to.cpp
     modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/step_source_document.cpp
     modules/kernel_occt/src/occt_kernel.cpp)
@@ -1860,6 +1862,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_feature_modeling_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_feature_ordered_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_ordered_up_to_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ORDERED_UP_TO_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_feature_selection_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_feature_side_reversal_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_feature_side_reversal_ui_contract PROPERTIES
@@ -2355,6 +2361,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sheet_form_command_tests COMMAND zima_cpp_sheet_form_command_tests)
     set_tests_properties(zima_cpp_sheet_form_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_sheet_form_geometry_tests PRIVATE zima_workspace TKOffset TKTopAlgo)
+    if(MSVC)
+        # Nested native FORM readback shares the application's stack budget.
+        target_link_options(zima_cpp_sheet_form_geometry_tests PRIVATE /STACK:8388608)
+    endif()
     add_test(NAME zima_cpp_sheet_form_geometry_tests COMMAND zima_cpp_sheet_form_geometry_tests)
     add_test(NAME zima_cpp_factory_preview_context_tests COMMAND zima_cpp_sheet_form_geometry_tests --verify-factory-preview-context)
     set_tests_properties(zima_cpp_factory_preview_context_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -2548,6 +2558,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_face_plane_intersection_tests tests/face_plane_intersection_tests.cpp)
     target_link_libraries(zima_cpp_face_plane_intersection_tests PRIVATE zima_workspace zima_kernel_occt)
     add_test(NAME zima_cpp_face_plane_intersection_tests COMMAND zima_cpp_face_plane_intersection_tests)
+    add_executable(zima_cpp_ordered_up_to_kernel_tests tests/ordered_up_to_kernel_tests.cpp)
+    target_link_libraries(zima_cpp_ordered_up_to_kernel_tests PRIVATE zima_kernel_occt TKBO TKPrim TKBRep)
+    add_test(NAME zima_cpp_ordered_up_to_kernel_tests COMMAND zima_cpp_ordered_up_to_kernel_tests)
     target_link_libraries(zima_cpp_external_trim_boundary_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_external_trim_boundary_tests COMMAND zima_cpp_external_trim_boundary_tests)
     target_link_libraries(zima_cpp_external_circular_profiles_tests PRIVATE zima_workspace)
@@ -2593,6 +2606,12 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_type_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_executable(zima_cpp_feature_parameters_tests tests/feature_parameters_tests.cpp)
+    add_executable(zima_cpp_feature_up_to_parameters_tests tests/feature_up_to_parameters_tests.cpp)
+    target_link_libraries(zima_cpp_feature_up_to_parameters_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_feature_up_to_parameters_tests COMMAND zima_cpp_feature_up_to_parameters_tests)
+    add_executable(zima_cpp_feature_ordered_up_to_native_tests tests/feature_ordered_up_to_native_tests.cpp)
+    target_link_libraries(zima_cpp_feature_ordered_up_to_native_tests PRIVATE zima_workspace zima_kernel_occt Qt6::Core TKTopAlgo)
+    add_test(NAME zima_cpp_feature_ordered_up_to_native_tests COMMAND zima_cpp_feature_ordered_up_to_native_tests)
     add_executable(zima_cpp_feature_side_reversal_tests tests/feature_side_reversal_tests.cpp)
     add_executable(zima_cpp_feature_direction_command_tests tests/feature_direction_command_tests.cpp)
     target_link_libraries(zima_cpp_feature_direction_command_tests PRIVATE zima_command_host)

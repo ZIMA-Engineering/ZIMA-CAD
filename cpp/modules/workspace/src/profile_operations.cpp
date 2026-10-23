@@ -1,5 +1,6 @@
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/feature_serialization.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
@@ -58,13 +59,15 @@ void validate_profile_definition(const document::HistoryContainer& value) {
             if(value.feature.type==document::FeatureType::Axis&&!side.axis_enabled)continue;
             if (side.operation==document::FeatureSideOperation::Revolution &&
                 side.rotation_extent==document::FeatureRotationExtent::UpTo &&
-                (side.targets.size()!=1 || !side.targets.front().reference.valid()))
-                throw ProfileOperationError("missing_reference", "Select exactly one extrusion end reference.");
+                (side.targets.empty() || std::ranges::any_of(side.targets,[](const auto& t){return !t.reference.valid();})))
+                throw ProfileOperationError("missing_reference", "Select at least one Feature end reference.");
             if (side.operation!=document::FeatureSideOperation::Extrusion) continue;
             if (side.extrusion_extent==document::EndCondition::ThroughAll && value.combine_mode!=document::CombineMode::Subtract)
                 throw ProfileOperationError("invalid_arguments", "Through all is available only for a cut.");
             if (side.extrusion_extent==document::EndCondition::UpTo) {
-                if (side.targets.size()!=1 || !side.targets.front().reference.valid())
+                if (side.targets.empty() || std::ranges::any_of(side.targets,[](const auto& t){return !t.reference.valid();}))
+                    throw ProfileOperationError("missing_reference", "Select at least one Feature end reference.");
+                if(value.feature.type==document::FeatureType::Axis&&side.targets.size()!=1)
                     throw ProfileOperationError("missing_reference", "Select exactly one extrusion end reference.");
             }
         }
@@ -184,6 +187,18 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const auto container_id = value.id;
     if (existing) *next.find_container(container_id) = std::move(value);
     else {next.insert_history_entry(document::PartHistoryKind::Feature, container_id); next.history.push_back(std::move(value));}
+    if(feature)for(std::size_t side=0;side<2;++side) {
+        auto& current=next.find_container(container_id)->feature.sides[side];
+        if(current.targets.size()>1&&existing&&existing->feature_kind==document::FeatureKind::Feature) {
+            const auto& old=existing->feature.sides[side];
+            const auto primary=old.targets.size()==1?std::optional<kernel::FaceReference>{old.targets.front().reference}:old.up_to.primary_cap_source;
+            if(primary) {
+                if(current.up_to.primary_cap_source&&current.up_to.primary_cap_source!=primary)
+                    throw ProfileOperationError("identity_changed","Editing must preserve the container identity.");
+                current.up_to.primary_cap_source=primary;
+            }
+        }
+    }
     const auto& previous = state->session.calculated_boundaries();
     if (feature) {
         auto& container=*next.find_container(container_id);
@@ -194,7 +209,13 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
                 (side.operation==document::FeatureSideOperation::Revolution && side.rotation_extent==document::FeatureRotationExtent::UpTo);
             if(!limit)continue;
             if (container.feature.symmetric && &side==&container.feature.sides[1]) continue;
-            side.targets.front()=prepare_profile_end_target(next,previous,container,side.targets.front());
+            for(std::size_t row=0;row<side.targets.size();++row)try {
+                side.targets[row]=prepare_profile_end_target(next,previous,container,side.targets[row]);
+            }catch(const std::runtime_error&) {
+                if(document::feature_uses_extended_up_to(container.feature))
+                    throw kernel::OrderedUpToError(kernel::OrderedUpToFailure::InvalidInput,row,row);
+                throw;
+            }
         }
     }
     if(extrusion) {
@@ -215,6 +236,19 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         throw ProfileOperationError("invalid_reference", "The proposed feature placement references cannot be resolved.");
     auto policy = feature_definition_calculation_policy(before, previous, container_id);
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
+    if(feature&&next.find_container(container_id)->feature.type==document::FeatureType::Modeling) {
+        const auto& parameters=next.find_container(container_id)->feature;
+        for(std::size_t i=0;i<(parameters.symmetric?1u:2u);++i) {
+            const auto side=parameters.effective_side(i);
+            const bool extended=(side.operation==document::FeatureSideOperation::Extrusion&&side.extrusion_extent==document::EndCondition::UpTo&&
+                (side.targets.size()>1||side.up_to.length_correction!=0))||
+                (side.operation==document::FeatureSideOperation::Revolution&&side.rotation_extent==document::FeatureRotationExtent::UpTo&&
+                (side.targets.size()>1||side.up_to.angle_correction_degrees!=0));
+            if(extended) {
+                policy.reject_errors=true;policy.edited_document_id=id;policy.edited_history_limit=next.history_index(container_id);break;
+            }
+        }
+    }
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));
     commit_part_document(live,id,std::move(next), std::move(calculated));

@@ -62,7 +62,7 @@ public:
         if (index.data(missing_reference_role).toBool()) {
             clean.backgroundBrush = QColor(164, 45, 45);
         } else if (inspected) {
-            clean.backgroundBrush = QColor(QStringLiteral("#4DD811"));
+            clean.backgroundBrush = QColor(QStringLiteral("#00D1FF"));
         }
         if (populated) {
             // Use the table text palette on its ordinary background; fixed
@@ -92,7 +92,7 @@ public:
         table_->style()->drawControl(QStyle::CE_ItemViewItem, &clean, painter, table_);
         if (!active) return;
         painter->save();
-        QPen pen(QColor(QStringLiteral("#00D1FF")), 2.0);
+        QPen pen(QColor(QStringLiteral("#4DD811")), 2.0);
         pen.setJoinStyle(Qt::MiterJoin);
         painter->setPen(pen);
         painter->setBrush(Qt::NoBrush);
@@ -124,7 +124,7 @@ QIcon reference_arrow_icon(Qt::ArrowType direction) {
     painter.translate(10,10);
     painter.rotate(direction==Qt::UpArrow?-90:direction==Qt::DownArrow?90:direction==Qt::LeftArrow?180:0);
     QFont font; font.setPixelSize(16);font.setWeight(QFont::Bold);
-    painter.setFont(font);painter.setPen(QColor("#00D1FF"));
+    painter.setFont(font);painter.setPen(QColor("#4DD811"));
     painter.drawText(QRect(-10,-10,20,20),Qt::AlignCenter,QStringLiteral("\u2192"));
     painter.end();
     return QIcon(image);
@@ -141,7 +141,7 @@ QWidget* build_reference_row_indicator(std::function<void()> remove_callback) {
     arrow_label->setAlignment(Qt::AlignCenter);
     arrow_label->setToolTip(QObject::tr("Zadejte referenci"));
     arrow_label->setStyleSheet(
-        "QLabel{color:#00D1FF;font-size:16px;font-weight:700}");
+        "QLabel{color:#4DD811;font-size:16px;font-weight:700}");
     arrow_label->setFixedSize(30, 30);
 
     auto* remove_button = new CloseButton(container);

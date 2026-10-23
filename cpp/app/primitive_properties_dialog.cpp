@@ -8,6 +8,7 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
+#include "feature_limit_diagnostic.hpp"
 #include <zima/document/profile_status.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/bend.hpp>
@@ -731,6 +732,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         lock_sheet_attachment_fields();
     } else if (initial.feature_kind == zima::document::FeatureKind::Feature) {
         setObjectName("featurePropertiesDialog");
+        setProperty("expandBottomTable",true);
         name_->setObjectName("featureName");
         feature_automatic_name_=initial.feature.automatic_name;
         feature_panel_=new FeatureParameterPanel(this,initial.feature);
@@ -741,7 +743,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         feature_scroll->setObjectName("featureParametersScroll");
         feature_scroll->setFrameShape(QFrame::NoFrame);
         feature_scroll->setWidgetResizable(true);
-        feature_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        feature_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         feature_scroll->setWidget(feature_panel_);
         form->addRow(feature_scroll);
         const auto fit_feature_controls=[this,feature_scroll] {
@@ -760,8 +762,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             feature_panel_->layout()->invalidate();
             const int natural=feature_panel_->layout()->sizeHint().height();
             feature_panel_->setMinimumHeight(natural);
+            feature_panel_->setMinimumWidth(0);
+            const int natural_width=feature_panel_->layout()->minimumSize().width();
+            feature_panel_->setMinimumWidth(natural_width);
+            const int available_width=parentWidget()?parentWidget()->width()-20:1400;
+            feature_scroll->setMinimumWidth(visible?std::min(natural_width+style()->pixelMetric(QStyle::PM_ScrollBarExtent),
+                std::max(180,available_width-60)):0);
             feature_scroll->setMinimumHeight(visible?std::min(180,natural+4):0);
-            feature_scroll->setMaximumHeight(visible?natural+4:0);
+            feature_scroll->setMaximumHeight(visible?(feature_panel_->active_limit_tables()?QWIDGETSIZE_MAX:natural+4):0);
             if(layout())layout()->activate();
             if(isVisible()) {
                 const int available=parentWidget()?parentWidget()->height()-20:1000;
@@ -779,7 +787,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                     content_layout()->invalidate();content_layout()->activate();
                     if(layout()){layout()->invalidate();layout()->activate();}
                 }
-                resize(std::max(width(),minimumSizeHint().width()),std::min(available,sizeHint().height()));
+                const auto margins=layout()->contentsMargins();
+                const int desired_width=content_layout()->minimumSize().width()+margins.left()+margins.right()+
+                    style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+                resize(std::min(available_width,std::max({width(),minimumSizeHint().width(),desired_width})),
+                    std::min(available,sizeHint().height()));
             }
         };
         connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,
@@ -787,13 +799,18 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         // Side operation changes add/remove rows (notably Extrusion draft).
         // Refit the same natural-height layout used by Feature type changes;
         // otherwise its cached viewport height can clip the Up To eye.
-        for(std::size_t side=0;side<2;++side)
+        for(std::size_t side=0;side<2;++side) {
             connect(feature_panel_->findChild<QComboBox*>(QString("featureSideMode%1").arg(side)),
                 &QComboBox::currentIndexChanged,this,
                 [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
+            connect(feature_panel_->findChild<QComboBox*>(QString("featureSideEnd%1").arg(side)),
+                &QComboBox::currentIndexChanged,this,
+                [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
+        }
         connect(feature_panel_->findChild<QCheckBox*>("featureSymmetric"),&QCheckBox::toggled,this,
             [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         QTimer::singleShot(0,this,fit_feature_controls);
+        feature_panel_->on_preview_notice_changed([this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         profile_plane_=feature_panel_->plane_control();
         profile_plane_offset_=feature_panel_->offset_control();
         thin_thickness_=feature_panel_->thickness_control();
@@ -819,12 +836,23 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 [this,key](bool){toggle_extrusion_target_highlight(key);});
             (side==0?forward_end_targets_button_:reverse_end_targets_button_)=eye;
             feature_panel_->target_layout(side)->addWidget(eye);
+            auto* limits=feature_panel_->limit_table(side);
+            limits->on_pick([this,side,key] {
+                feature_panel_->limit_table(1-side)->finish_entry();
+                request_extrusion_target(key);
+            });
+            limits->on_inspection([this] {
+                if(reference_highlights_changed_)reference_highlights_changed_();
+            });
             auto* end=feature_panel_->findChild<QComboBox*>(QString("featureSideEnd%1").arg(side));
             connect(end,&QComboBox::currentIndexChanged,this,[this,side,key](int) {
                 const auto value=feature_panel_->parameters();const auto& ending=value.sides[side];
                 const bool up_to=(ending.operation==zima::document::FeatureSideOperation::Extrusion&&ending.extrusion_extent==zima::document::EndCondition::UpTo)||
                     (ending.operation==zima::document::FeatureSideOperation::Revolution&&ending.rotation_extent==zima::document::FeatureRotationExtent::UpTo);
-                if(up_to&&feature_panel_->target_control(side)->isEnabled())request_extrusion_target(key);
+                if(up_to&&feature_panel_->target_control(side)->isEnabled()) {
+                    if(feature_panel_->modeling_limits())feature_panel_->limit_table(side)->begin_entry(0);
+                    else request_extrusion_target(key);
+                }
                 else if((side==0&&forward_end_target_pick_active_)||(side==1&&reverse_end_target_pick_active_)) {
                     finish_extrusion_target_entry();if(extrusion_target_cancel_)extrusion_target_cancel_();
                 }
@@ -846,6 +874,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             if(picking&&extrusion_target_cancel_)extrusion_target_cancel_();
             refresh_extrusion_target_styles();
             if(reference_highlights_changed_)reference_highlights_changed_();
+        });
+        connect(feature_panel_->findChild<QCheckBox*>("featureSymmetric"),&QCheckBox::toggled,this,[this](bool symmetric) {
+            if(symmetric&&reverse_end_target_pick_active_) {
+                finish_extrusion_target_entry();if(extrusion_target_cancel_)extrusion_target_cancel_();
+            }
         });
         feature_panel_->on_change([this]{notify_preview();});
         placement_->set_axis_extent_callback([this](double length) {
@@ -1687,7 +1720,6 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.feature=feature_panel_->parameters();
         result.feature.automatic_name=result.name==feature_automatic_name_
             ? feature_automatic_name_ : std::string{};
-        for(std::size_t side=0;side<2;++side)result.feature.sides[side].targets=initial_.feature.sides[side].targets;
         result.combine_mode=feature_panel_->subtract()?zima::document::CombineMode::Subtract:zima::document::CombineMode::Add;
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.origin_centerline=origin_centerline_->isChecked();
@@ -1909,12 +1941,12 @@ bool PrimitivePropertiesDialog::requires_planar_end_target() const {
 
 std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) {
     return initial_.feature_kind==zima::document::FeatureKind::Feature
-        ? initial_.feature.sides[reverse?1:0].targets
+        ? feature_panel_->targets(reverse?1:0)
         : reverse?initial_.extrusion.end_targets_reverse:initial_.extrusion.end_targets_forward;
 }
 const std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) const {
     return initial_.feature_kind==zima::document::FeatureKind::Feature
-        ? initial_.feature.sides[reverse?1:0].targets
+        ? feature_panel_->targets(reverse?1:0)
         : reverse?initial_.extrusion.end_targets_reverse:initial_.extrusion.end_targets_forward;
 }
 
@@ -1929,30 +1961,7 @@ void PrimitivePropertiesDialog::set_extrusion_target(
         : std::move(label);
     target.fallback_origin = origin;
     target.fallback_normal = normal;
-    auto& targets = initial_.feature_kind == zima::document::FeatureKind::Hole
-        ? initial_.hole.bore_end_targets
-        : initial_.feature_kind == zima::document::FeatureKind::Thread
-            ? active_end_target_side_ == "reverse"
-                ? initial_.thread.length_end_targets
-                : initial_.thread.end_targets_forward
-        : active_end_target_side_ == "reverse"
-            ? profile_end_targets(true)
-            : profile_end_targets(false);
-    targets = {target};
-    auto* edit = active_end_target_side_ == "reverse"
-        ? reverse_end_target_ : forward_end_target_;
-    if (edit != nullptr) edit->setText(QString::fromStdString(target.label));
-    if (active_end_target_side_ == "reverse") {
-        reverse_end_target_pick_active_ = false;
-        if (reverse_end_target_clear_action_)
-            reverse_end_target_clear_action_->setEnabled(true);
-    } else {
-        forward_end_target_pick_active_ = false;
-        if (forward_end_target_clear_action_)
-            forward_end_target_clear_action_->setEnabled(true);
-    }
-    refresh_extrusion_target_styles();
-    notify_preview();
+    store_extrusion_target(std::move(target));
 }
 
 void PrimitivePropertiesDialog::set_edge_route_start_vertices(
@@ -1970,6 +1979,12 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
         ? target.reference.owner_id + " / " + target.reference.semantic_key
         : std::move(label);
     target.fallback_triangles = std::move(triangles);
+    store_extrusion_target(std::move(target));
+}
+
+void PrimitivePropertiesDialog::store_extrusion_target(
+    zima::document::ExtrusionParameters::EndTarget target) {
+    const auto label=QString::fromStdString(target.label);
     auto& targets = initial_.feature_kind == zima::document::FeatureKind::Hole
         ? initial_.hole.bore_end_targets
         : initial_.feature_kind == zima::document::FeatureKind::Thread
@@ -1979,10 +1994,16 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
         : active_end_target_side_ == "reverse"
             ? profile_end_targets(true)
             : profile_end_targets(false);
-    targets = {target};
+    const auto side=active_end_target_side_=="reverse"?1:0;
+    if(feature_panel_&&feature_panel_->modeling_limits())
+        feature_panel_->limit_table(side)->assign(std::move(target),false);
+    else if(feature_panel_)feature_panel_->set_single_target(side,std::move(target));
+    else {
+        targets.clear();targets.push_back(std::move(target));
+    }
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
-    if (edit != nullptr) edit->setText(QString::fromStdString(target.label));
+    if (edit != nullptr) edit->setText(label);
     if (active_end_target_side_ == "reverse") {
         reverse_end_target_pick_active_ = false;
         if (reverse_end_target_clear_action_)
@@ -2050,7 +2071,9 @@ void PrimitivePropertiesDialog::request_extrusion_target(
     if (extrusion_target_request_) extrusion_target_request_();
 }
 
-void PrimitivePropertiesDialog::finish_extrusion_target_entry() {
+void PrimitivePropertiesDialog::finish_extrusion_target_entry(bool clear_inspection) {
+    if(feature_panel_)for(std::size_t side=0;side<2;++side)
+        feature_panel_->limit_table(side)->finish_entry(clear_inspection);
     forward_end_target_pick_active_ = false;
     reverse_end_target_pick_active_ = false;
     refresh_extrusion_target_styles();
@@ -2067,7 +2090,8 @@ void PrimitivePropertiesDialog::clear_extrusion_target(
                                 : initial_.thread.end_targets_forward
         : side == "reverse" ? profile_end_targets(true)
                             : profile_end_targets(false);
-    targets.clear();
+    if(feature_panel_)feature_panel_->set_single_target(side=="reverse"?1:0,std::nullopt);
+    else targets.clear();
     auto* edit = side == "reverse" ? reverse_end_target_ : forward_end_target_;
     if (edit != nullptr) edit->clear();
     if (side == "reverse") {
@@ -2099,6 +2123,13 @@ void PrimitivePropertiesDialog::toggle_extrusion_target_highlight(
 }
 
 void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
+    if(feature_panel_&&!feature_panel_->modeling_limits())for(std::size_t side=0;side<2;++side) {
+        auto* edit=side?reverse_end_target_:forward_end_target_;if(!edit)continue;
+        const auto& targets=feature_panel_->targets(side);
+        edit->setText(targets.size()==1?QString::fromStdString(targets.front().label.empty()?
+            targets.front().reference.owner_id+" / "+targets.front().reference.semantic_key:targets.front().label):QString{});
+        edit->setPlaceholderText(targets.size()>1?tr("Select exactly one extrusion end reference."):tr("Reference"));
+    }
     const auto apply = [](QLineEdit* edit, QToolButton* inspection,
                           bool active, bool highlighted, bool populated) {
         if (edit == nullptr) return;
@@ -2122,12 +2153,12 @@ void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
             ? !initial_.hole.bore_end_targets.empty()
             : initial_.feature_kind == zima::document::FeatureKind::Thread
                 ? !initial_.thread.end_targets_forward.empty()
-            : !profile_end_targets(false).empty());
+            : feature_panel_&&!feature_panel_->modeling_limits()?profile_end_targets(false).size()==1:!profile_end_targets(false).empty());
     apply(reverse_end_target_, reverse_end_targets_button_,
         reverse_end_target_pick_active_, reverse_end_target_highlighted_,
         initial_.feature_kind == zima::document::FeatureKind::Thread
             ? !initial_.thread.length_end_targets.empty()
-            : !profile_end_targets(true).empty());
+            : feature_panel_&&!feature_panel_->modeling_limits()?profile_end_targets(true).size()==1:!profile_end_targets(true).empty());
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target_request(
@@ -2138,8 +2169,11 @@ void PrimitivePropertiesDialog::set_extrusion_target_request(
 bool PrimitivePropertiesDialog::allows_point_end_target() const {
     const auto pending=values();
     if(pending.feature_kind==zima::document::FeatureKind::Extrusion)return true;
-    return pending.feature_kind==zima::document::FeatureKind::Feature&&pending.feature.type==zima::document::FeatureType::Modeling&&
-        pending.feature.sides[active_end_target_side_=="reverse"?1:0].operation==zima::document::FeatureSideOperation::Extrusion;
+    if(!feature_panel_||pending.feature.type!=zima::document::FeatureType::Modeling)return false;
+    const auto side=active_end_target_side_=="reverse"?1:0;
+    const auto& ending=pending.feature.sides[side];
+    return ending.operation==zima::document::FeatureSideOperation::Extrusion&&ending.targets.size()<=1&&
+        feature_panel_->limit_table(side)->active_row().value_or(0)==0;
 }
 
 void PrimitivePropertiesDialog::set_profile_pick_request(
@@ -2287,6 +2321,7 @@ void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
 }
 
 void PrimitivePropertiesDialog::notify_preview() {
+    if(feature_panel_)feature_panel_->update_draft_notice();
     if(placement_ && feature_panel_)
         placement_->set_point_circle_plane_policy(feature_panel_->parameters().type==zima::document::FeatureType::Point);
     if (profile_plane_ && profile_plane_changed_)
@@ -2531,6 +2566,9 @@ bool PrimitivePropertiesDialog::submit() {
     }
     try {
         commit_(std::move(result), std::move(selected_targets));
+    } catch(const zima::kernel::OrderedUpToError& failure) {
+        error_->setText(feature_limit_diagnostic(failure));
+        return false;
     } catch (const std::exception& failure) {
         error_->setText(QString::fromUtf8(failure.what()));
         return false;
@@ -2575,6 +2613,8 @@ PrimitivePropertiesDialog::highlighted_reference_owner_ids() const {
         initial_.feature_kind == zima::document::FeatureKind::Thread
             ? initial_.thread.length_end_targets
             : profile_end_targets(true));
+    if(feature_panel_)for(std::size_t side=0;side<2;++side)
+        for(const auto& ref:feature_panel_->limit_table(side)->inspected())result.insert(ref.owner_id);
     return result;
 }
 
@@ -2600,6 +2640,9 @@ PrimitivePropertiesDialog::highlighted_reference_entries() const {
         initial_.feature_kind == zima::document::FeatureKind::Thread
             ? initial_.thread.length_end_targets
             : profile_end_targets(true));
+    if(feature_panel_)for(std::size_t side=0;side<2;++side)
+        for(const auto& ref:feature_panel_->limit_table(side)->inspected())
+            result.push_back({ref.instance_path,ref.owner_id,ref.semantic_key});
     return result;
 }
 
@@ -2912,6 +2955,8 @@ void PrimitivePropertiesDialog::set_reference_inspected(
 void PrimitivePropertiesDialog::clear_reference_highlights() {
     if(sheet_form_placement_)sheet_form_placement_->clear_highlights();
     if (placement_) placement_->clear_reference_highlights();
+    if(feature_panel_)for(std::size_t side=0;side<2;++side)
+        feature_panel_->limit_table(side)->finish_entry(true);
     const bool had_target_highlights = forward_end_target_highlighted_ ||
         reverse_end_target_highlighted_;
     forward_end_target_highlighted_ = false;
@@ -3061,6 +3106,14 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         }
         if(key=="side0_draft_angle")return set_field(feature_panel_->side_draft(0));
         if(key=="side1_draft_angle")return set_field(feature_panel_->side_draft(1));
+        const auto pending=feature_panel_->parameters();
+        for(std::size_t side=0;side<2;++side) {
+            const auto& ending=pending.sides[side];
+            const auto prefix=side==0?"side0_up_to_":"side1_up_to_";
+            const auto expected=std::string(prefix)+(ending.operation==zima::document::FeatureSideOperation::Revolution?
+                "angle_correction":"length_correction");
+            if(key==expected)return set_field(feature_panel_->side_correction(side));
+        }
     }
     if (key == "length") return set_field(length_);
     if (key == "width") return set_field(width_);

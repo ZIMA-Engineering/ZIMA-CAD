@@ -121,7 +121,7 @@ bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
     if (!handled) return false;
 
     if (extrusion_target_dialog_ != nullptr)
-        extrusion_target_dialog_->finish_extrusion_target_entry();
+        extrusion_target_dialog_->finish_extrusion_target_entry(true);
     extrusion_target_dialog_ = nullptr;
     extrusion_target_assembly_cut_ = false;
 
@@ -957,7 +957,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     if (primitive_reference_dialog_ == nullptr) return;
     end_placement_branch_selection();
     if (extrusion_target_dialog_ != nullptr)
-        finish_extrusion_target_selection();
+        finish_extrusion_target_selection(false);
     primitive_reference_auto_advance_ = auto_advance;
     primitive_reference_dialog_->set_active_reference_index(index);
     const bool orientation_reference = index >= 3;

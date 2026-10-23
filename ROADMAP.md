@@ -12,7 +12,7 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
-## Current status and work order (2026-10-20)
+## Current status and work order (2026-10-23)
 
 Use the [current capability and backlog index](doc/PROJECT_STATUS.md) for what
 exists today, what is awaiting release acceptance and what remains planned.
@@ -26,12 +26,14 @@ Unbend/Bend Back, import/export and document Undo/Redo also exist. Their focused
 guides define supported scope and remaining cases. Older requests below are
 retained as dated design context, not repeated implementation assignments.
 
-The current correction batch is accepted in signed Windows
-[2026102004](doc/releases/2026102004.md), including documentation and all five UI
-languages. Further newly reported program defects retain priority. Preserve the
+The last published correction batch is signed Windows
+[2026102201](doc/releases/2026102201.md). Subsequent associative Sketch
+intersection commands and ordered Feature Up To limits are implemented locally;
+factory and portable release acceptance are separate gates, recorded in the
+[current status](doc/PROJECT_STATUS.md). Further newly reported program defects retain priority. Preserve the
 unfinished cast-wing/toothed-washer studies and the exclusion of two-part locking
-nuts. The next agreed Feature work is ordered multiple Up To faces with signed
-correction, followed by scoped surface projection. File Manager directory
+nuts. Ordered multiple Up To faces with signed correction are in final
+verification, followed by scoped Sketch projection. File Manager directory
 prototypes still require discussion. FEM, voice/pointer context and direct mesh
 editing are queued design work. See [the detailed queue](doc/FASTENER_REMAINING_WORK.md).
 New native persisted or protected placement contracts require the agreed review.

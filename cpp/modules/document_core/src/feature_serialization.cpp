@@ -4,6 +4,9 @@
 #include <cmath>
 #include <array>
 #include <string_view>
+#include <algorithm>
+#include <set>
+#include <tuple>
 
 namespace zima::document {
 namespace {
@@ -61,6 +64,12 @@ kernel::Vec3 vector(const nlohmann::json& p) {
     if(!p.is_array()||p.size()!=3)invalid();
     return {p.at(0).get<double>(),p.at(1).get<double>(),p.at(2).get<double>()};
 }
+nlohmann::json reference(const kernel::FaceReference& ref) {
+    return {{"owner",ref.owner_id},{"key",ref.semantic_key},{"instance_path",ref.instance_path}};
+}
+kernel::FaceReference reference(const nlohmann::json& value) {
+    return {value.at("owner").get<std::string>(),value.at("key").get<std::string>(),value.at("instance_path").get<std::string>()};
+}
 }
 
 void validate_feature_parameters(const FeatureParameters& p) {
@@ -86,11 +95,27 @@ void validate_feature_parameters(const FeatureParameters& p) {
             &side!=&p.sides[0]||side.draft_angle_degrees!=0||!side.targets.empty()))invalid();
         if(!std::isfinite(side.draft_angle_degrees)||std::abs(side.draft_angle_degrees)>=90)
             throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
+        if(!std::isfinite(side.up_to.length_correction)||!std::isfinite(side.up_to.angle_correction_degrees)||
+                std::abs(side.up_to.angle_correction_degrees)>=360)invalid();
+        if(side.up_to.primary_cap_source&&!side.up_to.primary_cap_source->valid())invalid();
+        std::set<std::tuple<std::string,std::string,std::string>> target_ids;
         for(const auto& target:side.targets) {
             static_cast<void>(name(target.kind,target_kinds));
             if(!target.reference.valid()||!finite(target.fallback_origin)||!finite(target.fallback_normal)||
                target.fallback_triangles.size()%3!=0)invalid();
+            if(!target_ids.emplace(target.reference.owner_id,target.reference.semantic_key,target.reference.instance_path).second||
+                (p.type==FeatureType::Modeling&&side.targets.size()>1&&target.kind==EndTargetKind::Point))invalid();
             for(const auto& point:target.fallback_triangles)if(!finite(point))invalid();
+        }
+        if(!side.up_to.retained_patches.empty()) {
+            std::set<std::tuple<std::string,std::string,std::string,std::string,std::string,std::string>> seen;
+            for(const auto& choice:side.up_to.retained_patches) {
+                const auto source=std::ranges::find_if(side.targets,[&](const auto& t){return t.reference==choice.source;});
+                const auto adjacent=std::ranges::find_if(side.targets,[&](const auto& t){return t.reference==choice.adjacent;});
+                if(source==side.targets.end()||adjacent==side.targets.end()||
+                    std::abs(source-adjacent)!=1||!seen.emplace(choice.source.owner_id,choice.source.semantic_key,
+                        choice.source.instance_path,choice.adjacent.owner_id,choice.adjacent.semantic_key,choice.adjacent.instance_path).second)invalid();
+            }
         }
     }
 }
@@ -115,6 +140,14 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
             {"draft_angle_degrees",side.draft_angle_degrees},
             {"targets",std::move(targets)}});
         if(!side.axis_enabled)sides.back()["axis_enabled"]=false;
+        if(!side.up_to.neutral()) {
+            nlohmann::json choices=nlohmann::json::array();
+            for(const auto& choice:side.up_to.retained_patches)
+                choices.push_back({{"source",reference(choice.source)},{"adjacent",reference(choice.adjacent)},{"positive",choice.positive}});
+            sides.back()["up_to"]={{"length_correction",side.up_to.length_correction},
+                {"angle_correction_degrees",side.up_to.angle_correction_degrees},{"retained_patches",std::move(choices)}};
+            if(side.up_to.primary_cap_source)sides.back()["up_to"]["primary_cap_source"]=reference(*side.up_to.primary_cap_source);
+        }
         if(side.operation==FeatureSideOperation::Twist) {
             sides.back()["twist_reverse"]=side.twist_reverse;
             sides.back()["twist_smooth"]=side.twist_smooth;
@@ -175,6 +208,15 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
                 const auto& triangles=t.at("triangles");if(!triangles.is_array())invalid();
                 for(const auto& point:triangles)target.fallback_triangles.push_back(vector(point));
                 side.targets.push_back(std::move(target));
+            }
+            if(value.contains("up_to")) {
+                const auto& up_to=value.at("up_to");
+                side.up_to.length_correction=up_to.at("length_correction").get<double>();
+                side.up_to.angle_correction_degrees=up_to.at("angle_correction_degrees").get<double>();
+                if(up_to.contains("primary_cap_source"))side.up_to.primary_cap_source=reference(up_to.at("primary_cap_source"));
+                const auto& choices=up_to.at("retained_patches");if(!choices.is_array())invalid();
+                for(const auto& choice:choices)side.up_to.retained_patches.push_back({reference(choice.at("source")),
+                    reference(choice.at("adjacent")),choice.at("positive").get<bool>()});
             }
         }
         validate_feature_parameters(p);

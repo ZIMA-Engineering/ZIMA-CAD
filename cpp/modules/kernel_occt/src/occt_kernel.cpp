@@ -1,4 +1,6 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
+#include "ordered_up_to.hpp"
+#include <zima/kernel/ordered_up_to_resolution.hpp>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepLib_CheckCurveOnSurface.hxx>
 #include <BRepCheck_Result.hxx>
@@ -275,15 +277,23 @@ bool same_face_identity(const FaceReference& a,const FaceReference& b) {
 }
 std::vector<FaceReference> extrusion_references(const std::vector<HistoryOperation>& operations) {
     std::vector<FaceReference> result;
+    const auto collect_ordered=[&](const std::optional<OrderedUpToLimit>& limit) {
+        if(limit)for(const auto& patch:limit->patches)if(!patch.target.datum)result.push_back(patch.target.reference);
+    };
     const auto collect=[&](const ExtrusionRequest& value) {
+        collect_ordered(value.ordered_end_limit);
         if((value.extent==ExtrusionRequest::Extent::UpToPlane || value.extent==ExtrusionRequest::Extent::UpToSurface) && !value.target_is_datum)result.push_back(value.target_face);
         if(value.reverse_limit && !value.reverse_limit->datum)result.push_back(value.reverse_limit->reference);
     };
     for(const auto& operation:operations) {
         if(operation.suppressed)continue;
         if(const auto* value=std::get_if<ExtrusionRequest>(&operation.primitive))collect(*value);
+        else if(const auto* value=std::get_if<RevolutionRequest>(&operation.primitive))collect_ordered(value->ordered_end_limit);
         else if(const auto* group=std::get_if<FeatureGroupRequest>(&operation.primitive)) {
-            for(const auto& child:group->children)if(const auto* value=std::get_if<ExtrusionRequest>(&child))collect(*value);
+            for(const auto& child:group->children) {
+                if(const auto* value=std::get_if<ExtrusionRequest>(&child))collect(*value);
+                else if(const auto* value=std::get_if<RevolutionRequest>(&child))collect_ordered(value->ordered_end_limit);
+            }
         } else if(const auto* thread=std::get_if<ThreadSurfaceRequest>(&operation.primitive)) {
             if(thread->enabled && thread->end_plane_reference)result.push_back(*thread->end_plane_reference);
             for(const auto& group:{thread->cuts_before,thread->cuts_after})if(group)
@@ -1008,8 +1018,11 @@ void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile
     }
     if(request.symmetric_limit && (!has_forward_limit(request)||request.reverse_limit||request.through_all_reverse))
         throw std::invalid_argument("A symmetric extrusion end requires one forward target.");
-    if(request.mirror_forward_limit && (!has_forward_limit(request)||request.symmetric_limit))
+    if(request.mirror_forward_limit && ((!has_forward_limit(request)&&!request.ordered_end_limit)||request.symmetric_limit))
         throw std::invalid_argument("A symmetric extrusion end requires one forward target.");
+    if(request.ordered_end_limit&&(request.extent!=ExtrusionRequest::Extent::Blind||
+            request.reverse_limit||request.symmetric_limit||request.through_all_reverse||request.sheet_cut))
+        throw detail::OrderedLimitError(detail::OrderedLimitFailure::InvalidInput,0,0);
     if(has_forward_limit(request))validate_extrusion_limit(forward_limit(request),request.direction);
     if(request.reverse_limit) {
         validate_extrusion_limit(limit_view(*request.reverse_limit),request.direction);
@@ -2588,7 +2601,7 @@ ExtrusionLimitView resolved_extrusion_limit(ExtrusionLimitView limit,const std::
 // End rims and points keep their authored Sketch parents when a limiting face
 // replaces an overrun cap. This also applies to open surface prisms/revolutions,
 // where there is no cap face in the result to supply adjacency.
-void locate_clipped_profile_end(BRepAlgoAPI_Common& clip,PrimitiveData& data,
+void locate_clipped_profile_end(BRepAlgoAPI_BooleanOperation& clip,PrimitiveData& data,
         const std::string& owner,const std::string& role) {
     TopTools_IndexedMapOfShape actual;TopExp::MapShapes(clip.Shape(),actual);
     const auto append=[&](auto& items,const TopoDS_Shape& shape,const std::string& key) {
@@ -2607,6 +2620,8 @@ void locate_clipped_profile_end(BRepAlgoAPI_Common& clip,PrimitiveData& data,
                 append(data.vertices,it.Value(),role+":"+edge.reference.semantic_key.substr(10));
 }
 
+#include "ordered_up_to_profile.inc"
+
 PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id,
     const std::optional<TopoDS_Face>& original_exact_target = std::nullopt,
@@ -2614,7 +2629,9 @@ PrimitiveData make_extrusion_data(
     double through_all_reverse_span = 2'000'000.0,
     const std::optional<Vec3>& circle_radial_direction = std::nullopt,
     double linear_tolerance = 0.001,
-    const std::optional<TopoDS_Face>& exact_reverse_target = std::nullopt) {
+    const std::optional<TopoDS_Face>& exact_reverse_target = std::nullopt,
+    const std::vector<std::optional<TopoDS_Face>>& exact_ordered_targets = {},
+    std::vector<ResolvedOrderedUpToLimit>* resolved_up_to=nullptr) {
     if(!std::isfinite(request.draft_angle_degrees)||std::abs(request.draft_angle_degrees)>=90)
         throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
     if(request.draft_angle_degrees!=0&&request.surface_result&&!request.open_profile_end_id.empty())
@@ -2640,10 +2657,22 @@ PrimitiveData make_extrusion_data(
     const auto reference_vertex=TopExp_Explorer(face,TopAbs_VERTEX);
     if(!reference_vertex.More())throw std::runtime_error("Extrusion profile has no reference point");
     const auto profile_keep_point=BRep_Tool::Pnt(TopoDS::Vertex(reference_vertex.Current()));
+    std::optional<detail::OrderedLimitResult> ordered;
+    if(request.ordered_end_limit) {
+        ordered=prepare_ordered_up_to(*request.ordered_end_limit,exact_ordered_targets,face,linear_tolerance);
+        if(request.mirror_forward_limit) {
+            gp_Trsf mirror;mirror.SetMirror(gp_Ax2(profile_keep_point,gp_Dir(unit.x,unit.y,unit.z)));
+            ordered=detail::transform_ordered_up_to(*ordered,mirror);
+        }
+        if(request.ordered_end_limit->path_correction!=0) {
+            gp_Trsf advance;advance.SetTranslation(gp_Vec(unit.x,unit.y,unit.z)*request.ordered_end_limit->path_correction);
+            ordered=detail::transform_ordered_up_to(*ordered,advance);
+        }
+    }
     std::optional<ExtrusionLimitView> forward_boundary,reverse_boundary;
     if(has_forward_limit(request))forward_boundary.emplace(resolved_extrusion_limit(forward_limit(request),exact_target));
     std::optional<ExtrusionLimit> mirrored_forward_limit;
-    if(request.mirror_forward_limit) {
+    if(request.mirror_forward_limit&&forward_boundary) {
         const auto reflect_point=[&](Vec3 p) {
             const double distance=(p.x-profile_keep_point.X())*unit.x+(p.y-profile_keep_point.Y())*unit.y+(p.z-profile_keep_point.Z())*unit.z;
             return Vec3{p.x-2*distance*unit.x,p.y-2*distance*unit.y,p.z-2*distance*unit.z};
@@ -2691,6 +2720,9 @@ PrimitiveData make_extrusion_data(
         if(reverse_boundary&&reverse_boundary->planar)static_cast<void>(extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},source,source_wires));
     }
     if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires,request.wall.has_value());
+    if(ordered) {
+        bounded_end=ordered_up_to_linear_span(*ordered,face,profile_keep_point,gp_Dir(unit.x,unit.y,unit.z));
+    }
     if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires,request.wall.has_value());
     if(bounded_end<=bounded_start+1e-12)throw std::runtime_error("OCCT Extrusion interval is empty");
     if(std::abs(bounded_start)>1e-12) {
@@ -2707,6 +2739,7 @@ PrimitiveData make_extrusion_data(
         throw std::runtime_error("OCCT extrusion failed or produced an invalid solid");
     }
     PrimitiveData result{prism.Shape(), {}, {}, {}};
+    TopoDS_Shape first_boundary=prism.FirstShape(),last_boundary=prism.LastShape();
     if(request.centerlines.origin_enabled||request.centerlines.centroid_enabled) {
         const auto distance_to=[&](const ExtrusionLimitView& limit,const std::optional<TopoDS_Face>& exact,Vec3 seed,Vec3 direction)->double {
             using namespace profile_centerlines;
@@ -2729,7 +2762,14 @@ PrimitiveData make_extrusion_data(
         };
         for(const auto& [key,seed]:profile_centerlines::seeds(request)) {
             const double start=reverse_boundary?-distance_to(*reverse_boundary,reverse_exact,seed,{-unit.x,-unit.y,-unit.z}):bounded_start;
-            const double end=forward_boundary?distance_to(*forward_boundary,exact_target,seed,unit):bounded_end;
+            double end=forward_boundary?distance_to(*forward_boundary,exact_target,seed,unit):bounded_end;
+            if(ordered) {
+                IntCurvesFace_ShapeIntersector hit;hit.Load(ordered->shell,linear_tolerance);
+                hit.Perform(gp_Lin(gp_Pnt(seed.x,seed.y,seed.z),gp_Dir(unit.x,unit.y,unit.z)),0,bounded_end);
+                end=std::numeric_limits<double>::infinity();
+                if(hit.IsDone())for(int i=1;i<=hit.NbPnt();++i)end=std::min(end,hit.WParameter(i));
+                if(!std::isfinite(end))throw std::runtime_error("Profile centerline does not intersect its end reference.");
+            }
             const auto first=dimension_add(seed,dimension_scale(unit,start)),last=dimension_add(seed,dimension_scale(unit,end));
             profile_centerlines::line(result.profile_references,owner_id,key,first_semantic_cap_is_start(request)?first:last,first_semantic_cap_is_start(request)?last:first);
         }
@@ -2883,10 +2923,14 @@ PrimitiveData make_extrusion_data(
     // shell. Draft its overrun prism first, then create the exact curved rim.
     const bool draft_before_clip=request.surface_result&&request.draft_angle_degrees!=0&&
         ((forward_boundary&&!forward_boundary->planar)||(reverse_boundary&&!reverse_boundary->planar));
+    const bool ordered_draft_before_clip=ordered&&request.surface_result&&request.draft_angle_degrees!=0;
     if(!draft_before_clip) {
         if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
         if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},reverse_exact,first_cap_reference);
     }
+    if(ordered&&!ordered_draft_before_clip)
+        clip_ordered_up_to_profile(result,*ordered,*request.ordered_end_limit,first_boundary,last_boundary,
+            profile_keep_point,last_cap_reference,last_role,request.surface_result,linear_tolerance);
     if(request.draft_angle_degrees!=0) {
         BRepOffsetAPI_DraftAngle draft(result.shape);
         const gp_Dir pull(unit.x,unit.y,unit.z);
@@ -2917,6 +2961,17 @@ PrimitiveData make_extrusion_data(
             return updated;
         };
         result.faces=preserve(result.faces);result.edges=preserve(result.edges);result.vertices=preserve(result.vertices);
+        if(ordered_draft_before_clip) {
+            // Open surface boundaries are wires, not Draft-owned cap faces.
+            // Assemble their already named descendants rather than asking
+            // ModifiedShape for a wire that Draft need not map as a whole.
+            BRep_Builder builder;TopoDS_Compound first,last;builder.MakeCompound(first);builder.MakeCompound(last);
+            for(const auto& edge:result.edges) {
+                if(edge.reference.semantic_key.starts_with(first_role+":"))builder.Add(first,edge.shape);
+                if(edge.reference.semantic_key.starts_with(last_role+":"))builder.Add(last,edge.shape);
+            }
+            first_boundary=first;last_boundary=last;
+        }
         BOPAlgo_ArgumentAnalyzer check;check.SetShape1(draft.Shape());check.SelfInterMode()=true;check.Perform();
         if(check.HasFaulty())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
         result.shape=draft.Shape();
@@ -2925,6 +2980,8 @@ PrimitiveData make_extrusion_data(
         if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
         if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},reverse_exact,first_cap_reference);
     }
+    if(ordered_draft_before_clip)clip_ordered_up_to_profile(result,*ordered,*request.ordered_end_limit,first_boundary,last_boundary,
+        profile_keep_point,last_cap_reference,last_role,request.surface_result,linear_tolerance);
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
         BRep_Builder builder;
@@ -2955,7 +3012,7 @@ PrimitiveData make_extrusion_data(
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target,
-                through_all_forward_span, through_all_reverse_span, circle_radial_direction, linear_tolerance, exact_reverse_target);
+                through_all_forward_span, through_all_reverse_span, circle_radial_direction, linear_tolerance, exact_reverse_target,exact_ordered_targets,resolved_up_to);
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -2973,6 +3030,7 @@ PrimitiveData make_extrusion_data(
             if(check.HasFaulty())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
         }
     }
+    if(ordered)record_ordered_up_to_resolution(resolved_up_to,*request.ordered_end_limit,*ordered,owner_id,request.profile_region_id);
     return result;
 }
 
@@ -3334,7 +3392,9 @@ void validate_revolution(const RevolutionRequest& request) {
 PrimitiveData make_revolution_data(
     const RevolutionRequest& original_request, const std::string& owner_id,
     const std::optional<TopoDS_Face>& exact_target=std::nullopt,double tolerance=.001,
-    double* angular_span=nullptr) {
+    double* angular_span=nullptr,
+    const std::vector<std::optional<TopoDS_Face>>& exact_ordered_targets={},
+    std::vector<ResolvedOrderedUpToLimit>* resolved_up_to=nullptr) {
     auto request=original_request;
     auto profiles=make_body_profiles(request,request.profile_normal);
     std::vector<TopoDS_Wire> wires;
@@ -3354,8 +3414,8 @@ PrimitiveData make_revolution_data(
         face=profile_base(wires,request.surface_result);
     }
     std::optional<RevolutionContacts> contact;
-    if(request.end_limit) {
-        contact=revolution_contacts(request,exact_target,tolerance);
+    if(request.end_limit||request.ordered_end_limit) {
+        contact=revolution_contacts(request,exact_target,tolerance,exact_ordered_targets,face);
         request.angle_degrees=revolution_limit_span(wires,*contact,angular_span);
     }
     else if(angular_span)*angular_span=request.angle_degrees;
@@ -3507,7 +3567,7 @@ PrimitiveData make_revolution_data(
                 request.additional_profile_regions[index].inner_vertex_source_ids;
             additional_request.additional_profile_regions.clear();
             double additional_span{};
-            auto additional = make_revolution_data(additional_request, owner_id,exact_target,tolerance,&additional_span);
+            auto additional = make_revolution_data(additional_request, owner_id,exact_target,tolerance,&additional_span,exact_ordered_targets,resolved_up_to);
             if(angular_span)*angular_span=std::max(*angular_span,additional_span);
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
@@ -3522,6 +3582,7 @@ PrimitiveData make_revolution_data(
         }
         result.shape = compound;
     }
+    if(contact&&contact->ordered)record_ordered_up_to_resolution(resolved_up_to,*request.ordered_end_limit,*contact->ordered,owner_id,request.profile_region_id);
     return result;
 }
 
@@ -6840,21 +6901,10 @@ std::vector<std::optional<double>> OcctKernel::measure_face_areas(
 }
 
 
-ViewerReferenceGeometry OcctKernel::intersect_face_plane(
-        const BodyResult& body,const FacePlaneIntersectionRequest& request) const {
-    struct QueryTiming {
-        bool enabled{std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr};
-        std::chrono::steady_clock::time_point start{enabled?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{}};
-        ~QueryTiming() {
-            if(enabled)std::fprintf(stderr,"Sketch face-plane query: %.3f ms\n",
-                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
-        }
-    } timing;
-    const auto finite=[](Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);};
-    if(!request.face.valid()||request.plane_owner_id.empty()||
-        !finite(request.origin)||!finite(request.normal)||std::hypot(request.normal.x,request.normal.y,request.normal.z)<=1e-12||
-        !std::isfinite(request.tolerance)||request.tolerance<=0.)
-        throw std::invalid_argument("Intersection face reference is invalid.");
+struct OcctKernel::NativeFaceSource { PrimitiveData geometry; };
+
+OcctKernel::NativeFaceSource OcctKernel::native_face_source(
+        const BodyResult& body,const FaceReference& reference) const {
     const BodyResult* source=nullptr;
     const BodyResult* placed_source=nullptr;
     const auto find=[&](auto&& self,const BodyResult& candidate,const BodyResult* placed)->void {
@@ -6874,9 +6924,9 @@ ViewerReferenceGeometry OcctKernel::intersect_face_plane(
             return;
         }
         const auto native=live_cache_->boundaries.find(candidate.source_fingerprint);
-        const bool stored=std::ranges::any_of(candidate.kernel_faces,[&](const auto& binding){return same_face_identity(binding.reference,request.face);});
+        const bool stored=std::ranges::any_of(candidate.kernel_faces,[&](const auto& binding){return same_face_identity(binding.reference,reference);});
         const bool live=native!=live_cache_->boundaries.end()&&native->second.topology&&
-            std::ranges::any_of(native->second.topology->faces,[&](const auto& face){return same_face_identity(face.reference,request.face);});
+            std::ranges::any_of(native->second.topology->faces,[&](const auto& face){return same_face_identity(face.reference,reference);});
         if(stored||live) {
             if(source&&source!=&candidate)throw std::runtime_error("Intersection face reference is ambiguous.");
             source=&candidate;placed_source=placed;
@@ -6899,6 +6949,25 @@ ViewerReferenceGeometry OcctKernel::intersect_face_plane(
         }
         return place_bound_geometry(bound_face_geometry(*source,true),placed_source?*placed_source:*source);
     }();
+    return {std::move(input)};
+}
+
+ViewerReferenceGeometry OcctKernel::intersect_face_plane(
+        const BodyResult& body,const FacePlaneIntersectionRequest& request) const {
+    struct QueryTiming {
+        bool enabled{std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr};
+        std::chrono::steady_clock::time_point start{enabled?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{}};
+        ~QueryTiming() {
+            if(enabled)std::fprintf(stderr,"Sketch face-plane query: %.3f ms\n",
+                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+        }
+    } timing;
+    const auto finite=[](Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);};
+    if(!request.face.valid()||request.plane_owner_id.empty()||
+        !finite(request.origin)||!finite(request.normal)||std::hypot(request.normal.x,request.normal.y,request.normal.z)<=1e-12||
+        !std::isfinite(request.tolerance)||request.tolerance<=0.)
+        throw std::invalid_argument("Intersection face reference is invalid.");
+    auto input=native_face_source(body,request.face).geometry;
     auto selected_face=request.face;
     if(!selected_face.instance_path.empty()) {
         // A calculated copy already owns its exact transformed native shapes.
@@ -7516,6 +7585,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
         } catch (const std::exception& error) {
             context.original_faces=valid_originals;
             auto input = valid.empty() ? BodyResult{} : valid.back();
+            if(const auto* ordered=dynamic_cast<const OrderedUpToError*>(&error))
+                input.ordered_up_to_failures[operations[index].owner_id]={ordered->failure,ordered->row,ordered->other_row};
             for (std::size_t blocked = index; blocked < operations.size(); ++blocked) {
                 input.source_fingerprint = history_fingerprint(operations, blocked + 1)+context.dependency_key;
                 input.calculation_errors[operations[blocked].owner_id] = blocked == index
@@ -7901,10 +7972,13 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             auto analyzed=output.get();ensure_body_properties(analyzed);output=std::move(analyzed);
         }
         document.calculation_errors.insert(output->calculation_errors.begin(), output->calculation_errors.end());
+        document.ordered_up_to_failures.insert(output->ordered_up_to_failures.begin(),output->ordered_up_to_failures.end());
         if (!branch.scope.source_id.empty()) local = {output.get()};
         document.body_outputs.emplace(branch.scope.id, std::move(output));
         profile("branch output");
         for (const auto& boundary : local) {
+            document.resolved_up_to_limits.insert(document.resolved_up_to_limits.end(),
+                boundary.resolved_up_to_limits.begin(),boundary.resolved_up_to_limits.end());
             // The final slot is replaced by the complete document packet below.
             // Do not copy an unused complete import into that temporary slot.
             if(boundaries.size()+1==operations.size())boundaries.emplace_back();
@@ -7929,7 +8003,14 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     document.kernel_shape = kernel_body_compound;
     profile("viewer aggregate");
     aggregate_body_properties(document,available);
-    document.source_fingerprint = history_fingerprint(operations, operations.size());
+    if(document.resolved_up_to_limits.empty())document.source_fingerprint = history_fingerprint(operations, operations.size());
+    else {
+        auto canonical=operations;
+        for(auto& operation:canonical)resolve_ordered_up_to_operation(operation,document.resolved_up_to_limits);
+        const auto keys=history_fingerprints(canonical);
+        for(std::size_t i=0;i+1<boundaries.size();++i)boundaries[i].source_fingerprint=keys[i+1];
+        document.source_fingerprint=keys.back();
+    }
     boundaries.back() = std::move(document);
     compact_history_reference_geometry(boundaries);
     return boundaries;
@@ -7970,8 +8051,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         const auto* surface=std::get_if<BoundarySurfaceRequest>(&operation.primitive);
         return !operation.suppressed&&surface&&std::ranges::any_of(surface->constraints,[](const auto& c){return c.edge.has_value();});
     });
+    std::optional<std::vector<HistoryOperation>> canonical_operations;
     const auto fingerprint=[&](const std::vector<HistoryOperation>& values,std::size_t count) {
-        return history_fingerprint(values,count)+context.dependency_key;
+        return history_fingerprint(&values==&operations&&canonical_operations?*canonical_operations:values,count)+context.dependency_key;
     };
     try {
         TopoDS_Shape result_shape;
@@ -8305,6 +8387,27 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             for(const auto& face:context.external_faces)if(same_face_identity(face.reference,limit.reference))matches.push_back(face);
             return exact_extrusion_limit(limit,matches);
         };
+        const auto original_ordered_targets=[&](const std::optional<OrderedUpToLimit>& limit) {
+            std::vector<std::optional<TopoDS_Face>> result;
+            if(limit)for(std::size_t row=0;row<limit->patches.size();++row)try {
+                const auto& patch=limit->patches[row];
+                if(!patch.native_source) {result.push_back(original_target(limit_view(patch.target)));continue;}
+                const auto& source=*patch.native_source;
+                auto geometry=native_face_source(source.body.get(),source.reference).geometry;
+                std::vector<OwnedFace> selected;
+                for(auto face:geometry.faces)if(same_face_identity(face.reference,source.reference)) {
+                    for(const auto& placement:source.placements)
+                        face.shape=TopoDS::Face(BRepBuilderAPI_Transform(face.shape,
+                            primitive_transform(placement.translation,placement.rotation_degrees),true).Shape());
+                    face.reference=patch.target.reference;selected.push_back(std::move(face));
+                }
+                result.push_back(exact_extrusion_limit(limit_view(patch.target),selected));
+            }catch(const OrderedUpToError&) {throw;}
+            catch(const std::runtime_error&) {
+                throw OrderedUpToError(OrderedUpToFailure::InvalidInput,row,row);
+            }
+            return result;
+        };
         const auto retain_originals=[&](const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges=std::vector<OwnedEdge>{},
                 const std::vector<OwnedVertex>& vertices=std::vector<OwnedVertex>{}) {
             if(!faces.empty()||(retain_original_edges&&!edges.empty()))context.original_faces=std::make_shared<OriginalFaces>(OriginalFaces{
@@ -8315,6 +8418,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            std::vector<ResolvedOrderedUpToLimit> resolved_up_to;
             struct OperationProfile {
                 const HistoryOperation& operation;
                 std::size_t count,index;
@@ -9554,7 +9658,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         return make_extrusion_data(value,
                             operation.owner_id, exact_target,
                             forward_span, reverse_span, opening
-                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt, operation.boolean_tolerance, exact_reverse);
+                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt, operation.boolean_tolerance, exact_reverse,
+                            original_ordered_targets(value.ordered_end_limit),&resolved_up_to);
                     } else {
                         if constexpr(std::is_same_v<Child,Sweep3DRequest>) {
                             validate_sweep3d(value);
@@ -9566,13 +9671,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             double span{};
                             auto result=make_revolution_data(resolved,operation.owner_id,
                                 resolved.end_limit?original_target(limit_view(*resolved.end_limit)):std::nullopt,
-                                operation.boolean_tolerance,&span);
+                                operation.boolean_tolerance,&span,original_ordered_targets(resolved.ordered_end_limit),&resolved_up_to);
                             group_rotation_span+=span;
                             if(group_rotation_span>360.+1e-9)throw std::runtime_error("Combined rotation angle must not exceed 360 degrees.");
                             return result;
                         }
                         return make_revolution_data(value,operation.owner_id,
-                            value.end_limit?original_target(limit_view(*value.end_limit)):std::nullopt,operation.boolean_tolerance);
+                            value.end_limit?original_target(limit_view(*value.end_limit)):std::nullopt,operation.boolean_tolerance,nullptr,
+                            original_ordered_targets(value.ordered_end_limit),&resolved_up_to);
                         }
                     }
                 }, child);
@@ -10831,7 +10937,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                     auto extrusion_data = make_extrusion_data(
                         primitive, operation.owner_id, exact_target,
-                        through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance, exact_reverse);
+                        through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance, exact_reverse,
+                        original_ordered_targets(primitive.ordered_end_limit),&resolved_up_to);
                     if(primitive.sheet_cut) {
                         if(operation.operation!=BooleanOperation::Subtract||primitive.surface_result)
                             throw std::runtime_error("Sheet Cut must remove material from an existing sheet.");
@@ -10936,7 +11043,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
                     validate_revolution(primitive);
                     return make_revolution_data(primitive,operation.owner_id,
-                        primitive.end_limit?original_target(limit_view(*primitive.end_limit)):std::nullopt,operation.boolean_tolerance);
+                        primitive.end_limit?original_target(limit_view(*primitive.end_limit)):std::nullopt,operation.boolean_tolerance,nullptr,
+                        original_ordered_targets(primitive.ordered_end_limit),&resolved_up_to);
                 } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
                     validate_sweep3d(primitive);
                     auto swept=make_sweep3d_data(primitive, operation.owner_id);
@@ -11014,6 +11122,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
                 retain_originals(source_faces,edges,vertices);
             } else retain_originals(source_faces);
+            if(!resolved_up_to.empty()) {
+                if(!canonical_operations)canonical_operations=operations;
+                resolve_ordered_up_to_operation((*canonical_operations)[operation_index],resolved_up_to);
+            }
             const std::string reference_cache_key = fingerprint(
                 std::vector<HistoryOperation>{operation}, 1);
             const auto* extrusion_request =
@@ -11025,7 +11137,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 !referenced_boundary && !operation.feature_copy && !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
                 (extrusion_request == nullptr || (!extrusion_request->sheet_cut &&
                  (extrusion_request->extent == ExtrusionRequest::Extent::Blind &&
-                  !extrusion_request->reverse_limit && !extrusion_request->through_all_reverse)));
+                  !extrusion_request->reverse_limit && !extrusion_request->ordered_end_limit && !extrusion_request->through_all_reverse)));
             const bool standalone_import = imported_step && result_shape.IsNull();
             std::optional<BodyResult> standalone_import_result;
             ViewerMesh operand_mesh;
@@ -11201,10 +11313,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto* angular_group=std::get_if<FeatureGroupRequest>(&operation.primitive);
                 const auto exact_angular_child=[](const auto& child) {
                     const auto* rotation=std::get_if<RevolutionRequest>(&child);
-                    return rotation&&rotation->end_limit.has_value();
+                    return rotation&&(rotation->end_limit.has_value()||rotation->ordered_end_limit.has_value());
                 };
                 const auto* angular_request=std::get_if<RevolutionRequest>(&operation.primitive);
-                const bool exact_angular_end=(angular_request&&angular_request->end_limit)||
+                const bool exact_angular_end=(angular_request&&(angular_request->end_limit||angular_request->ordered_end_limit))||
                     (angular_group&&std::ranges::any_of(angular_group->children,exact_angular_child));
                 // OCCT same-domain unification can turn joined clipped angular
                 // sectors into the complementary cylinder across its seam.
@@ -11312,6 +11424,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
             boundaries.back().source_fingerprint =
                 fingerprint(operations, boundaries.size());
+            boundaries.back().resolved_up_to_limits=std::move(resolved_up_to);
             if (!cold_reference_tail)
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology);

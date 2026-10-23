@@ -624,6 +624,12 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         if(!std::isfinite(next_value)||std::abs(next_value)>=90)
                             throw std::runtime_error("Draft angle must be between -90 and 90 degrees.");
                         container->feature.sides[key=="side0_draft_angle"?0:1].draft_angle_degrees=next_value;changed=true;
+                    } else if(key=="side0_up_to_length_correction"||key=="side1_up_to_length_correction") {
+                        if(!std::isfinite(next_value))throw std::runtime_error("Invalid Feature definition.");
+                        container->feature.sides[key=="side0_up_to_length_correction"?0:1].up_to.length_correction=next_value;changed=true;
+                    } else if(key=="side0_up_to_angle_correction"||key=="side1_up_to_angle_correction") {
+                        if(!std::isfinite(next_value)||std::abs(next_value)>=360)throw std::runtime_error("Invalid Feature definition.");
+                        container->feature.sides[key=="side0_up_to_angle_correction"?0:1].up_to.angle_correction_degrees=next_value;changed=true;
                     }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
                     if (key == "length_forward") positive(

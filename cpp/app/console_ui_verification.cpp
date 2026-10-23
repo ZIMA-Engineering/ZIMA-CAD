@@ -16,9 +16,13 @@
 #include <QTemporaryDir>
 #include <limits>
 #include <QGroupBox>
+#include <QScrollArea>
 #include "primitive_properties_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "feature_view_cues.hpp"
+#include "authored_feature_wire.hpp"
+#include <zima/document/general_surface.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include "orientation_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include "surface_sewing_dialog.hpp"
@@ -109,6 +113,7 @@
 #include "confirmed_face_hit.hpp"
 
 namespace zima::app {
+#include "ordered_up_to_ui_verification.inc"
 #include "sheet_form_ui_verification.inc"
 // Specialized GUI suites must not inherit the large general console suite's
 // local document snapshots on the Windows main-thread stack.
@@ -565,6 +570,7 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORDERED_UP_TO_ONLY"))return verify_ordered_up_to_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_LOCKING_HOLE_ONLY"))return verify_locking_hole_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_DIALOG_ONLY"))return verify_shaft_thread_dialog(window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BOLT_SKETCH_ONLY"))return verify_bolt_sketch_ui(application,window,directory);

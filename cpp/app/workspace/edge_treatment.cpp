@@ -751,7 +751,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
                 if(extrusion_target_dialog_->requires_planar_end_target())throw std::runtime_error("Pro zakončení závitu vyberte rovinu nebo rovinnou plochu.");
                 extrusion_target_dialog_->set_extrusion_surface_target(target.reference,target.fallback_triangles,target.label);
             }
-            finish_extrusion_target_selection();state_->setText(tr("Cíl vytažení byl nastaven."));
+            finish_extrusion_target_selection(false);state_->setText(tr("Cíl vytažení byl nastaven."));
         }catch(const std::exception& error){state_->setText(tr(error.what()));}
         return;
     }
@@ -775,14 +775,14 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             if(extrusion_target_dialog_->requires_planar_end_target())throw std::runtime_error("Pro zakončení závitu vyberte rovinu nebo rovinnou plochu.");
             extrusion_target_dialog_->set_extrusion_surface_target(target->reference,target->fallback_triangles,target->label);
         }
-        finish_extrusion_target_selection();state_->setText(tr("Cílová plocha vytažení byla nastavena."));
+        finish_extrusion_target_selection(false);state_->setText(tr("Cílová plocha vytažení byla nastavena."));
     }catch(const std::exception& error){state_->setText(tr(error.what()));}
 
 }
 
-void AssemblyWorkspaceWindow::finish_extrusion_target_selection() {
+void AssemblyWorkspaceWindow::finish_extrusion_target_selection(bool clear_inspection) {
     if (extrusion_target_dialog_ != nullptr)
-        extrusion_target_dialog_->finish_extrusion_target_entry();
+        extrusion_target_dialog_->finish_extrusion_target_entry(clear_inspection);
     extrusion_target_dialog_ = nullptr;
     extrusion_target_assembly_cut_ = false;
     viewer_->clear_selection();

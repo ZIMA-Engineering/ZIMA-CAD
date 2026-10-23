@@ -77,6 +77,20 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
         if(p.type==document::FeatureType::Axis&&!settings.axis_enabled)continue;
         const double sign=p.side_direction_sign(side);
         const auto prefix=std::string("side")+(p.symmetric?"0":std::to_string(side));
+        const bool up_to=p.type==document::FeatureType::Modeling&&
+            ((settings.operation==document::FeatureSideOperation::Extrusion&&settings.extrusion_extent==document::EndCondition::UpTo)||
+             (settings.operation==document::FeatureSideOperation::Revolution&&settings.rotation_extent==document::FeatureRotationExtent::UpTo));
+        if(up_to&&(!p.symmetric||side==0)) {
+            const bool angular=settings.operation==document::FeatureSideOperation::Revolution;
+            kernel::ViewerDimension correction;
+            correction.reference={feature.id,"parameter:"+prefix+(angular?"_up_to_angle_correction":"_up_to_length_correction"),{}};
+            correction.value=angular?settings.up_to.angle_correction_degrees:settings.up_to.length_correction;
+            correction.label_only=true;correction.label_prefix="Δ ";correction.unit_suffix=angular?"°":"mm";
+            correction.kind=angular?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear;
+            correction.witness_first=correction.witness_second=correction.line_first=correction.line_second=start;
+            correction.label_position=add(start,add(scale(sketch.resolved_x_axis,12),scale(sketch.resolved_y_axis,side==0?8:-8)));
+            out.dimensions.dimensions.push_back(std::move(correction));
+        }
         if(settings.operation==document::FeatureSideOperation::Extrusion) {
             const auto direction=scale(normal,sign);
             if(settings.extrusion_extent==document::EndCondition::Length) {

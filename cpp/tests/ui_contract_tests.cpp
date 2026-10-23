@@ -1290,6 +1290,10 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
+        // These scoped suites exercise their own widgets and synthetic events;
+        // unrelated physical desktop cursor ownership belongs to the full suite.
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY"))return verify_numeric_value_locks(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY"))return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_AXIS_VISIBILITY_ONLY")) {verify_sketch_axis_visibility(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
@@ -1378,6 +1382,14 @@ int main(int argc, char* argv[]) {
             const auto background = [](const QImage& image) {
                 return image.pixelColor(qRound(160*image.devicePixelRatio()),qRound(20*image.devicePixelRatio()));
             };
+            if(background(hovered)!=native_background(QStyle::State_MouseOver)) {
+                const auto* hit=QApplication::widgetAt(QCursor::pos());
+                std::cerr<<"Command hover actual="<<background(hovered).name().toStdString()
+                    <<" expected="<<native_background(QStyle::State_MouseOver).name().toStdString()
+                    <<" hit="<<(hit?hit->metaObject()->className():"none")
+                    <<" command="<<(hit==&command)<<" cursor="<<QCursor::pos().x()<<','<<QCursor::pos().y()<<'\n';
+                hovered.save(QDir::tempPath()+"/zima-command-hover-failure.png");
+            }
             require(background(hovered)==native_background(QStyle::State_MouseOver),
                 "Command hover differs from the native Qt style");
             QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));
@@ -1432,8 +1444,6 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PART_DIALOG_LAYOUT_ONLY")) return verify_part_dialog_layout(application,parent);
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
         for (const auto kind : {zima::document::FeatureKind::Fillet,
                 zima::document::FeatureKind::Chamfer, zima::document::FeatureKind::Shell,

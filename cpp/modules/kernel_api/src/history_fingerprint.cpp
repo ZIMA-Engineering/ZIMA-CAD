@@ -123,6 +123,42 @@ std::string encode_history_fingerprint(
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;
+            if constexpr(std::is_same_v<Request,ExtrusionRequest>||std::is_same_v<Request,RevolutionRequest>) {
+                if(primitive.ordered_end_limit) {
+                    for(unsigned char c:std::string_view("ordered-feature-up-to-v1"))byte(c);
+                    if constexpr(std::is_same_v<Request,RevolutionRequest>)byte(primitive.mirror_end_limit);
+                    const auto& ordered=*primitive.ordered_end_limit;
+                    byte(ordered.primary_cap_source.has_value());
+                    if(ordered.primary_cap_source)for(const auto& text:{ordered.primary_cap_source->owner_id,
+                            ordered.primary_cap_source->semantic_key,ordered.primary_cap_source->instance_path}) {
+                        u64(text.size());for(unsigned char c:text)byte(c);
+                    }
+                    u64(std::bit_cast<std::uint64_t>(ordered.path_correction));u64(ordered.patches.size());
+                    for(const auto& patch:ordered.patches) {
+                        for(const auto& text:{patch.source_reference.owner_id,patch.source_reference.semantic_key,patch.source_reference.instance_path}) {
+                            u64(text.size());for(unsigned char c:text)byte(c);
+                        }
+                        const auto& target=patch.target;byte(target.planar);byte(target.datum);
+                        for(const auto& text:{target.reference.owner_id,target.reference.semantic_key,target.reference.instance_path}) {
+                            u64(text.size());for(unsigned char c:text)byte(c);
+                        }
+                        for(auto p:{target.origin,target.normal})for(double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
+                        u64(target.triangles.size());for(auto p:target.triangles)for(double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
+                        for(auto side:{patch.keep_previous_positive,patch.keep_next_positive})byte(side?(*side?2:1):0);
+                        if(patch.native_source) {
+                            byte(0xf9);const auto& source=*patch.native_source;
+                            for(const auto& text:{source.body->source_fingerprint,source.reference.owner_id,
+                                    source.reference.semantic_key,source.reference.instance_path}) {
+                                u64(text.size());for(unsigned char c:text)byte(c);
+                            }
+                            u64(source.placements.size());
+                            for(const auto& placement:source.placements)
+                                for(double v:{placement.translation.x,placement.translation.y,placement.translation.z,
+                                        placement.rotation_degrees.x,placement.rotation_degrees.y,placement.rotation_degrees.z})u64(number_bits(v));
+                        }
+                    }
+                }
+            }
             if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                 if(primitive.draft_angle_degrees!=0) {
                     for(unsigned char c:std::string_view("extrusion-draft-v1"))byte(c);

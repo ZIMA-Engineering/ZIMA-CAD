@@ -816,7 +816,7 @@ private:
     [[nodiscard]] bool finish_drill_point_face_selection();
     void apply_extrusion_target_selection_contract();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
-    void finish_extrusion_target_selection();
+    void finish_extrusion_target_selection(bool clear_inspection=true);
     QPointer<zima::ui::ContainerPlacementSection> placement_branch_section_;
     std::vector<zima::document::Placement> placement_branch_choices_;
     bool placement_branch_picking_{};

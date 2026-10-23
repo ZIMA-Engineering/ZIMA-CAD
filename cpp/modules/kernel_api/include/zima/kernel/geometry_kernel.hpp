@@ -2,6 +2,7 @@
 
 #include <zima/kernel/kernel_shape_archive.hpp>
 #include <zima/kernel/immutable_vector.hpp>
+#include <zima/kernel/ordered_up_to_diagnostic.hpp>
 
 #include <cstdint>
 #include <cmath>
@@ -493,6 +494,38 @@ struct ExtrusionLimit {
     std::vector<Vec3> triangles;
 };
 
+// Feature-local ordered limits. Shared Hole/Thread/Opening targets continue to
+// use ExtrusionLimit. Order is authored order, never kernel enumeration.
+struct OrderedUpToSource;
+struct OrderedUpToPatch {
+    // Authored source identity, including its occurrence. Numerical target
+    // resolution may use an operation-local face identity in a different frame.
+    FaceReference source_reference;
+    ExtrusionLimit target;
+    std::optional<bool> keep_previous_positive;
+    std::optional<bool> keep_next_positive;
+    // Explicit-calculation input borrowed from an Assembly's current native
+    // occurrence snapshot. Never serialized separately from that native source.
+    std::shared_ptr<const OrderedUpToSource> native_source;
+};
+struct OrderedUpToLimit {
+    std::vector<OrderedUpToPatch> patches;
+    // Along the directed operation path: mm for Extrusion, degrees for Revolution.
+    double path_correction{};
+    std::optional<FaceReference> primary_cap_source;
+};
+struct OrderedUpToRetainedPatch {
+    FaceReference source;
+    FaceReference adjacent;
+    bool positive{};
+};
+struct ResolvedOrderedUpToLimit {
+    std::string owner_id;
+    std::string profile_region_id;
+    std::vector<OrderedUpToRetainedPatch> retained_patches;
+    std::optional<FaceReference> primary_cap_source;
+};
+
 struct ProfileCenterlines {
     bool origin_enabled{}, centroid_enabled{};
     Vec3 origin, normal{0,0,1};
@@ -596,6 +629,7 @@ struct ExtrusionRequest {
     Vec3 target_plane_normal{0.0, 0.0, 1.0};
     std::vector<Vec3> target_surface_triangles;
     std::optional<ExtrusionLimit> reverse_limit;
+    std::optional<OrderedUpToLimit> ordered_end_limit;
     bool symmetric_limit{};
     // One independently identified side may use the reflection of the authored
     // forward target across its source profile (unified Feature symmetry).
@@ -630,6 +664,7 @@ struct RevolutionRequest {
     // A nonuniform angular end is calculated against the exact original face.
     // This is transient calculation input; the native Feature owns the target.
     std::optional<ExtrusionLimit> end_limit;
+    std::optional<OrderedUpToLimit> ordered_end_limit;
     bool mirror_end_limit{};
     // Feature physical direction is independent of its logical Start/End parent.
     bool feature_direction_reversed{};
@@ -1072,6 +1107,12 @@ struct KernelRigidPlacement {
 inline constexpr const char* kernel_body_compound = "ZIMA-BODY-COMPOUND-V1";
 
 struct BodyResult {
+    // Ephemeral result of accepted automatic patch-side seeding. The owning
+    // Feature persists these choices, so this is never required native storage.
+    std::vector<ResolvedOrderedUpToLimit> resolved_up_to_limits;
+    // Row diagnostics for a newly calculated rejected draft. Native intent is
+    // unchanged; persisted failed-history messages retain the ordinary contract.
+    std::map<std::string,OrderedUpToDiagnostic> ordered_up_to_failures;
     // Ephemeral proof of calculation by a live kernel instance. Never serialized.
     // A loaded native snapshot intentionally has no proof.
     std::shared_ptr<const void> calculation_provenance;
@@ -1135,6 +1176,13 @@ inline BodySnapshot::BodySnapshot() {
 inline BodySnapshot::BodySnapshot(BodyResult value)
     : value_(std::make_shared<const BodyResult>(std::move(value))) {}
 
+struct OrderedUpToSource {
+    BodySnapshot body;
+    FaceReference reference;
+    // Source frame to the operation frame, applied in the listed order.
+    std::vector<KernelRigidPlacement> placements;
+};
+
 // A product definition and its positioned occurrences for explicit STEP export.
 // Repeated definition IDs share one STEP product; geometry stays in local mm.
 struct StepProduct {
@@ -1176,6 +1224,8 @@ public:
         const std::string& ={},Vec3 ={},Vec3 ={},bool =false) const {
         throw std::runtime_error("Kernel does not support body patterns");
     }
+
+
     [[nodiscard]] virtual BodyResult mirror_body(const BodyResult&,MirrorPlane,
         const std::string& ={},Vec3 ={},Vec3 ={}) const {
         throw std::runtime_error("Kernel does not support body reflection");

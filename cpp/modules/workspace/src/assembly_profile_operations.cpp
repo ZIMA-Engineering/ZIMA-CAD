@@ -1,6 +1,7 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/document/profile_targets.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <algorithm>
 #include <set>
 
@@ -71,6 +72,16 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     }
     const bool extrusion = value.feature_kind == document::FeatureKind::Extrusion;
     const bool feature=value.feature_kind==document::FeatureKind::Feature;
+    if(feature&&existing)for(std::size_t side=0;side<2;++side) {
+        auto& current=value.feature.sides[side];const auto& old=existing->definition.feature.sides[side];
+        if(current.targets.size()<2)continue;
+        const auto primary=old.targets.size()==1?std::optional<kernel::FaceReference>{old.targets.front().reference}:old.up_to.primary_cap_source;
+        if(primary) {
+            if(current.up_to.primary_cap_source&&current.up_to.primary_cap_source!=primary)
+                throw ProfileOperationError("identity_changed","Editing must preserve the container identity.");
+            current.up_to.primary_cap_source=primary;
+        }
+    }
     const auto sketch_id = feature?value.feature.sketch_id:extrusion ? value.extrusion.sketch_id : value.revolution.sketch_id;
     auto sketches = before.sketches;
     if (owned_sketch) {
@@ -118,11 +129,19 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
                 (effective.operation==document::FeatureSideOperation::Revolution&&effective.rotation_extent==document::FeatureRotationExtent::UpTo);
             if(!up_to ||
                 (value.feature.type==document::FeatureType::Axis&&!side.axis_enabled))continue;
-            if(side.targets.size()!=1)
+            if(side.targets.empty())throw ProfileOperationError("missing_reference","Select at least one Feature end reference.");
+            if(value.feature.type==document::FeatureType::Axis&&side.targets.size()!=1)
                 throw ProfileOperationError("missing_reference","Select exactly one extrusion end reference.");
-            const auto resolved=document::resolve_profile_target(side.targets.front(),geometry);
-            if(!resolved)throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
-            side.targets.front()=*resolved;
+            for(std::size_t row=0;row<side.targets.size();++row) {
+                auto& target=side.targets[row];
+                const auto resolved=document::resolve_profile_target(target,geometry);
+                if(!resolved) {
+                    if(document::feature_uses_extended_up_to(value.feature))
+                        throw kernel::OrderedUpToError(kernel::OrderedUpToFailure::InvalidInput,row,row);
+                    throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
+                }
+                target=*resolved;
+            }
         }
     }
     if (extrusion) {

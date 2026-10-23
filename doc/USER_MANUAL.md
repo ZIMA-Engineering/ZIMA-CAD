@@ -436,6 +436,36 @@ a target outside their reach or tangent to them is rejected. The exact surface
 defines the calculated end; the cyan preview uses stored reference geometry.
 Planes through the axis retain their ordinary uniform-angle behavior.
 
+Feature **Up To** also accepts an ordered list of target faces on each side.
+Use the blank reference row to append a target; click an existing reference to
+replace it. The independent eye inspects that exact source. Select one ordering
+checkbox and use **Up/Down** to reorder it. At least three rows remain visible.
+Each target intersects its immediate neighbour; their retained patches form the
+limiting surface. This supports both convex and concave chains, including finite
+faces whose underlying supports extend to an unambiguous intersection. It does
+not interpret the list as first-hit priority. A Point remains a single target;
+the datum Axis operation still requires exactly one reference.
+
+The previous/next choice columns select the retained side at each adjacent seam.
+**A** asks the calculation to infer a unique side from the selected authored face;
+**+** and **−** select its oriented support sides explicitly. The accepted choices
+follow source identities through reordering and native save/reopen. Ambiguous or
+disconnected chains are rejected with the affected row numbers.
+
+Each side's **Correction** advances or retreats along the operation path. For
+Extrusion it is a length; for Revolution it is an angle about the directed axis.
+It is independent of surface-normal thickness. Length and angle corrections
+retain their own values when switching operations, and use the ordinary unit,
+arithmetic, locking and Relations controls. Parameter inspection displays their
+signed Δ annotation. A corrected circular contact must stay within the same
+positive revolution; crossing zero or a complete turn is rejected.
+
+For multiple targets or a nonzero correction the draft wire shows the authored
+profile, with a notice that **OK** calculates the exact result. Use the eyes to
+inspect the target faces during entry. Reference clicks, reordering, inspection
+and numeric drafts do not calculate a solid. Cancel preserves the document;
+unchanged OK does not calculate geometry or add an Undo step.
+
 A closed profile can create a solid or **Thin** walls. An open profile uses Thin.
 Choose first side, second side or symmetric thickness. The supported Thin input
 is one continuous unbranched chain or one closed loop of segments, arcs, ellipses,

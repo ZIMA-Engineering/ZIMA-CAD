@@ -3,6 +3,7 @@
 #include <zima/document/profile_parameters.hpp>
 #include <stdexcept>
 #include <array>
+#include <optional>
 
 namespace zima::document {
 
@@ -10,6 +11,30 @@ enum class FeatureType { Point, Axis, Plane, Sketch, Modeling };
 
 enum class FeatureSideOperation { None, Extrusion, Revolution, Twist };
 enum class FeatureRotationExtent { Angle, Full, UpTo };
+
+struct FeatureUpToPatchChoice {
+    kernel::FaceReference source;
+    kernel::FaceReference adjacent;
+    bool positive{};
+    bool operator==(const FeatureUpToPatchChoice&) const = default;
+};
+struct FeatureUpToParameters {
+    double length_correction{};
+    double angle_correction_degrees{};
+    // The pre-existing end-cap identity stays attached to this authored target
+    // when a single limit becomes a chain or the chain's rows are reordered.
+    std::optional<kernel::FaceReference> primary_cap_source;
+    // Directed adjacency relationships, keyed by authored references rather
+    // than volatile row numbers. Reordering never transfers a retained side
+    // to another source/adjacent pair.
+    std::vector<FeatureUpToPatchChoice> retained_patches;
+    [[nodiscard]] bool neutral() const;
+    [[nodiscard]] std::optional<bool> retained_side(const kernel::FaceReference& source,
+        const kernel::FaceReference& adjacent) const;
+    void set_retained_side(const kernel::FaceReference& source,
+        const kernel::FaceReference& adjacent,bool positive);
+    bool operator==(const FeatureUpToParameters&) const = default;
+};
 
 struct FeatureSideParameters {
     FeatureSideOperation operation{FeatureSideOperation::None};
@@ -19,6 +44,7 @@ struct FeatureSideParameters {
     double angle_degrees{90};
     FeatureRotationExtent rotation_extent{FeatureRotationExtent::Angle};
     std::vector<ExtrusionParameters::EndTarget> targets;
+    FeatureUpToParameters up_to;
     // Positive removes material away from the neutral Sketch plane.
     double draft_angle_degrees{};
     bool axis_enabled{true};
@@ -26,6 +52,13 @@ struct FeatureSideParameters {
     bool twist_smooth{true};
     bool operator==(const FeatureSideParameters&) const = default;
 };
+
+// Drop only relationships whose sources are no longer immediate neighbours.
+// Existing pairs retain their authored choice even if their display order flips.
+void prune_feature_up_to_patch_choices(FeatureSideParameters& side);
+struct FeatureParameters;
+bool resolve_feature_up_to_choices(FeatureParameters& parameters,const std::string& container_id,
+    const std::string& feature_id,const std::vector<kernel::ResolvedOrderedUpToLimit>& resolutions);
 
 // The editing definition is independent of calculated OCCT operands. Start/End
 // ancestry uses the owning container/feature and Sketch IDs, not operation kind.

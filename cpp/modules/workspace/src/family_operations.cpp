@@ -37,6 +37,12 @@ Slots feature_slots(document::HistoryContainer& f) {
             if(side.operation==document::FeatureSideOperation::Extrusion&&side.extrusion_extent==document::EndCondition::Length)result.emplace(prefix+"_length",&f.feature.sides[i].length);
             if(side.operation==document::FeatureSideOperation::Revolution&&side.rotation_extent==document::FeatureRotationExtent::Angle)result.emplace(prefix+"_angle",&f.feature.sides[i].angle_degrees);
             if(side.operation==document::FeatureSideOperation::Extrusion&&f.feature.type==document::FeatureType::Modeling)result.emplace(prefix+"_draft_angle",&f.feature.sides[i].draft_angle_degrees);
+            if(f.feature.type==document::FeatureType::Modeling) {
+                if(side.operation==document::FeatureSideOperation::Extrusion&&side.extrusion_extent==document::EndCondition::UpTo)
+                    result.emplace(prefix+"_up_to_length_correction",&f.feature.sides[i].up_to.length_correction);
+                if(side.operation==document::FeatureSideOperation::Revolution&&side.rotation_extent==document::FeatureRotationExtent::UpTo)
+                    result.emplace(prefix+"_up_to_angle_correction",&f.feature.sides[i].up_to.angle_correction_degrees);
+            }
         }
         return result;
     }
@@ -119,9 +125,12 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
     const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&(key=="angle"||key=="radius")&&value==0;
-    const bool signed_value=key=="profile_offset"||key.ends_with("draft_angle")||(f.feature_kind==FeatureKind::SheetTransition&&key.starts_with("end_"));
+    const bool up_to_correction=f.feature_kind==FeatureKind::Feature&&(key.ends_with("_up_to_length_correction")||key.ends_with("_up_to_angle_correction"));
+    const bool signed_value=key=="profile_offset"||key.ends_with("draft_angle")||up_to_correction||(f.feature_kind==FeatureKind::SheetTransition&&key.starts_with("end_"));
     if(!signed_value && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
     if(key.ends_with("draft_angle")&&std::abs(value)>=90)throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
+    if(up_to_correction&&key.ends_with("_angle_correction")&&std::abs(value)>=360)
+        throw std::invalid_argument("The family angle is outside its allowed range.");
     if(f.feature_kind==FeatureKind::Feature&&(key=="side0_angle"||key=="side1_angle")) {
         const auto side=key=="side0_angle"?0:1;
         const bool twist=f.feature.sides[side].operation==document::FeatureSideOperation::Twist;

@@ -129,6 +129,7 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
             const std::string_view name=key;
             const bool angular=name=="angle"||name=="side0_angle"||name=="side1_angle"||
                 name=="side0_draft_angle"||name=="side1_draft_angle"||name=="treatment_angle"||
+                name=="side0_up_to_angle_correction"||name=="side1_up_to_angle_correction"||
                 name=="drill_point_angle"||name=="chamfer_angle"||name=="end_rx"||name=="end_ry"||name=="end_rz"||
                 (feature.feature_kind==FeatureKind::Revolution&&name=="length_reverse");
             const auto quantity=name=="runout_pitch_factor"||name=="direction"?DimensionQuantity::Scalar:
@@ -144,7 +145,8 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     case FeatureKind::Sketch:
         add({"profile_offset"}); break;
     case FeatureKind::Feature:
-        add({"profile_offset", "side0_length", "side1_length", "side0_angle", "side1_angle", "thin_thickness", "side0_draft_angle", "side1_draft_angle", "direction"}); break;
+        add({"profile_offset", "side0_length", "side1_length", "side0_angle", "side1_angle", "thin_thickness", "side0_draft_angle", "side1_draft_angle", "direction",
+            "side0_up_to_length_correction","side1_up_to_length_correction","side0_up_to_angle_correction","side1_up_to_angle_correction"}); break;
     case FeatureKind::Extrusion:
         add({"profile_offset", "length_forward", "length_reverse", "thin_thickness"}); break;
     case FeatureKind::Revolution:

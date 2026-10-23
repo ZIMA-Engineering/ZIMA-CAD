@@ -93,7 +93,7 @@ public:
     void set_extrusion_target_request(std::function<void()> callback);
     void set_extrusion_target_cancel(std::function<void()> callback);
     [[nodiscard]] bool requires_planar_end_target() const;
-    void finish_extrusion_target_entry();
+    void finish_extrusion_target_entry(bool clear_inspection=false);
     void set_profile_pick_request(std::function<void(bool)> callback);
     void set_profile_sketch_status(const zima::sketcher::Sketch&);
     void set_edit_sketch_callback(
@@ -212,6 +212,7 @@ private:
     std::function<void()> sheet_form_definition_request_;
     void lock_sheet_form_fields();
     FeatureParameterPanel* feature_panel_{};
+    void store_extrusion_target(zima::document::ExtrusionParameters::EndTarget target);
     std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse);
     const std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse) const;
     zima::kernel::ViewerReferenceGeometry sheet_reference_geometry_;

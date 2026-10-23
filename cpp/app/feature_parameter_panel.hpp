@@ -8,9 +8,11 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <zima/document/feature_parameters.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <zima/document/feature_direction.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include "numeric_expression_edit.hpp"
+#include "feature_limit_table.hpp"
 #include <QScopedValueRollback>
 #include "sketch_button_style.hpp"
 #include "resource_icon.hpp"
@@ -138,6 +140,9 @@ public:
         swap_->setObjectName("featureSwapSides");options->addWidget(swap_);
         connect(swap_,&QPushButton::clicked,this,[this]{if(swap_requested_)swap_requested_();});
         content_->addWidget(options_row_);
+        draft_notice_=new QLabel(tr("Draft preview: profile. Inspect target faces with the eyes; OK calculates the result."),this);
+        draft_notice_->setObjectName("featureUpToDraftNotice");draft_notice_->setWordWrap(true);draft_notice_->hide();
+        content_->addWidget(draft_notice_);
         auto* sides=new QHBoxLayout;
         for(int i=0;i<2;++i) {
             auto& s=sides_[i];s.box=new QGroupBox(i==0?tr("Strana 1"):tr("Strana 2"),this);
@@ -155,6 +160,13 @@ public:
             auto* target_row=new QWidget(s.box);s.target_row=target_row;s.target_layout=new QHBoxLayout(target_row);s.target_layout->setContentsMargins(0,0,0,0);
             s.target=new QLineEdit(target_row);s.target->setPlaceholderText(tr("Reference"));s.target->setReadOnly(true);
             s.target_layout->addWidget(s.target,1);rows->addRow(tr("Až k"),target_row);
+            s.limits=new FeatureLimitTable(s.pending,s.box);s.limits->setObjectName(QString("featureSideLimits%1").arg(i));
+            s.limits->table()->setObjectName(QString("featureSideTargets%1").arg(i));rows->addRow(s.limits);
+            s.limits->on_change([this]{if(change_requested_)change_requested_();});
+            s.correction=number(i==0?"featureSideCorrection0":"featureSideCorrection1",false,true);
+            s.authored_correction=s.pending.up_to.length_correction;s.correction->setValue(s.authored_correction);
+            s.displayed_correction=s.correction->value();
+            rows->addRow(tr("Korekce"),s.correction);
             s.twist_angle=number(i==0?"featureTwistAngle0":"featureTwistAngle1",true);
             s.twist_angle->setRange(.001,36000);s.twist_angle->setValue(s.pending.angle_degrees);
             s.displayed_twist_angle=s.twist_angle->value();rows->addRow(tr("Úhel kroucení"),s.twist_angle);
@@ -166,10 +178,11 @@ public:
             rows->addRow(s.twist_smooth);
             connect(s.mode,&QComboBox::currentIndexChanged,this,[this,i]{refresh_side(i);});
             connect(s.end,&QComboBox::currentIndexChanged,this,[this,i]{auto& a=sides_[i];const int mode=a.displayed_axis?1:a.mode->currentIndex();a.value->setEnabled(mode!=0&&a.end->currentIndex()==0);a.target->setEnabled(mode!=0&&a.end->currentIndex()==(mode==2?2:1));
+                refresh_limit_controls(i);
                 if(!refreshing_side_&&a.displayed_axis){a.pending=capture_side(a,a.previous_mode);a.displayed_end=a.end->currentIndex();}});
             sides->addWidget(s.box);refresh_side(i);
         }
-        content_->addLayout(sides);
+        content_->addLayout(sides,1);
         for(int i=0;i<2;++i)sides_[i].mode->setCurrentIndex(static_cast<int>(initial_.sides[i].operation));
         connect(symmetric,&QCheckBox::toggled,this,[this](bool on){
             sides_[1].box->setEnabled(!on);sides_[1].box->setVisible(!on);
@@ -207,6 +220,7 @@ public:
         }
         connect(symmetric,&QCheckBox::toggled,this,[this]{normalize_rotations(0);});
         connect(type_,&QComboBox::currentIndexChanged,this,[this]{normalize_rotations(0);});
+        update_draft_notice();
     }
     [[nodiscard]] document::FeatureParameters parameters() const {
         auto value=initial_;value.type=selected_type();
@@ -273,12 +287,35 @@ public:
             auto* field=static_cast<UnitExpressionDoubleSpinBox*>(row.value);
             static_cast<void>(field->expression_value());fields.push_back(field);
         }
+        for(auto& row:sides_)if(row.correction->isVisible()&&row.correction->isEnabled()&&!row.correction->isReadOnly()) {
+            auto* field=static_cast<UnitExpressionDoubleSpinBox*>(row.correction);
+            static_cast<void>(field->expression_value());fields.push_back(field);
+        }
         // Validate every field before interpreting any. Middle-button OK can
         // arrive while the text editor retains focus, without a focus-out event.
         for(auto* field:fields)field->interpretText();
     }
     QLineEdit* target_control(std::size_t side) const { return sides_.at(side).target; }
     QHBoxLayout* target_layout(std::size_t side) const { return sides_.at(side).target_layout; }
+    FeatureLimitTable* limit_table(std::size_t side) const {return sides_.at(side).limits;}
+    std::vector<document::ExtrusionParameters::EndTarget>& targets(std::size_t side){return sides_.at(side).pending.targets;}
+    const std::vector<document::ExtrusionParameters::EndTarget>& targets(std::size_t side)const{return sides_.at(side).pending.targets;}
+    void set_single_target(std::size_t side,std::optional<document::ExtrusionParameters::EndTarget> target) {
+        auto& value=sides_.at(side).pending;value.targets.clear();
+        if(target)value.targets.push_back(std::move(*target));
+        document::prune_feature_up_to_patch_choices(value);sides_.at(side).limits->refresh();
+    }
+    QDoubleSpinBox* side_correction(std::size_t side) const {return sides_.at(side).correction;}
+    bool modeling_limits() const {return selected_type()==document::FeatureType::Modeling;}
+    void on_preview_notice_changed(std::function<void()> callback){notice_changed_=std::move(callback);}
+    void update_draft_notice() {
+        const bool visible=document::feature_uses_extended_up_to(parameters());
+        if(draft_notice_->isHidden()==!visible)return;
+        draft_notice_->setVisible(visible);if(notice_changed_)notice_changed_();
+    }
+    bool active_limit_tables() const {
+        return modeling_limits()&&std::ranges::any_of(sides_,[](const auto& side){return !side.box->isHidden()&&!side.limits->isHidden();});
+    }
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
     QDoubleSpinBox* side_angle(std::size_t side) const {
         const auto& value=sides_.at(side);return value.mode->currentIndex()==3?value.twist_angle:value.value;
@@ -308,7 +345,7 @@ public:
     void on_change(std::function<void()> changed) {
         const auto notify=[this,changed]{if(!changing_operation_&&!refreshing_side_&&!normalizing_rotations_)changed();};
         change_requested_=notify;
-        for(auto* box:findChildren<QComboBox*>())connect(box,&QComboBox::currentIndexChanged,this,notify);
+        for(auto* box:findChildren<QComboBox*>())if(!box->property("featureLimitChoice").toBool())connect(box,&QComboBox::currentIndexChanged,this,notify);
         for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,notify);
         for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
@@ -316,10 +353,22 @@ public:
         if(!isAncestorOf(show_point_))connect(show_point_,&QCheckBox::toggled,this,notify);
         if(!isAncestorOf(show_text_))connect(show_text_,&QCheckBox::toggled,this,notify);
     }
+protected:
+    void changeEvent(QEvent* event) override {
+        QWidget::changeEvent(event);
+        if(event->type()==QEvent::LanguageChange&&draft_notice_) {
+            draft_notice_->setText(tr("Draft preview: profile. Inspect target faces with the eyes; OK calculates the result."));
+            for(auto& side:sides_)if(side.rows&&side.correction)
+                if(auto* label=qobject_cast<QLabel*>(side.rows->labelForField(side.correction)))label->setText(tr("Korekce"));
+            if(notice_changed_)notice_changed_();
+        }
+    }
 private:
     struct Side {
         QGroupBox* box{};QComboBox* mode{};QComboBox* end{};ui::UnitDoubleSpinBox* value{};ui::UnitDoubleSpinBox* draft{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
         QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
+        FeatureLimitTable* limits{};ui::UnitDoubleSpinBox* correction{};
+        bool correction_angular{};double displayed_correction{},authored_correction{};
         document::FeatureSideParameters pending;
         int previous_mode{},displayed_end{};
         double displayed_value{},authored_value{},displayed_draft{},last_value{};
@@ -332,6 +381,7 @@ private:
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
+    QLabel* draft_notice_{};std::function<void()> notice_changed_;
     QComboBox* plane_{};
     ui::UnitDoubleSpinBox* direction_{};
     QPushButton* sketch_{};
@@ -357,6 +407,10 @@ private:
     static document::FeatureSideParameters capture_side(const Side& side,int mode) {
         auto value=side.pending;value.operation=static_cast<document::FeatureSideOperation>(mode);
         if(side.draft&&side.draft->value()!=side.displayed_draft)value.draft_angle_degrees=side.draft->value();
+        if(side.correction&&!side.displayed_axis) {
+            const double correction=side.correction->value()==side.displayed_correction?side.authored_correction:side.correction->value();
+            if(side.correction_angular)value.up_to.angle_correction_degrees=correction;else value.up_to.length_correction=correction;
+        }
         const double number=side.value->value()==side.displayed_value?side.authored_value:side.value->value();
         if(side.displayed_axis) {
             value.length=number;
@@ -370,6 +424,7 @@ private:
             if(mode==3) {
                 value.length=number;value.extrusion_extent=document::EndCondition::Length;
                 value.draft_angle_degrees=0;value.targets.clear();
+                document::prune_feature_up_to_patch_choices(value);
                 if(side.twist_angle->value()!=side.displayed_twist_angle)value.angle_degrees=side.twist_angle->value();
                 value.twist_reverse=side.twist_direction->currentIndex()==1;value.twist_smooth=side.twist_smooth->isChecked();
             }
@@ -396,6 +451,7 @@ private:
             s.rows->setRowVisible(s.draft,modeling&&s.mode->currentIndex()==1);
             s.rows->setRowVisible(s.end,lengths&&(type==document::FeatureType::Axis||s.mode->currentIndex()!=3));
             s.rows->setRowVisible(s.target_row,lengths&&(type==document::FeatureType::Axis||s.mode->currentIndex()!=3));
+            refresh_limit_controls(i);
         }
     }
     void refresh_operations() {
@@ -446,6 +502,7 @@ private:
         s.rows->setRowVisible(s.twist_angle,twisting);s.rows->setRowVisible(s.twist_direction,twisting);
         s.rows->setRowVisible(s.twist_smooth,twisting);s.rows->setRowVisible(s.end,!twisting);
         s.rows->setRowVisible(s.target_row,!twisting);
+        refresh_limit_controls(index);s.limits->refresh();
         if(twisting) {
             s.end->setCurrentIndex(0);
             sides_[1].mode->setCurrentIndex(0);symmetric_control_->setChecked(false);
@@ -464,6 +521,26 @@ private:
             "side"+std::to_string(index)+(!sides_[index].displayed_axis&&sides_[index].mode->currentIndex()==2?"_angle":"_length"),*locks_,locks_changed_);
         if(locks_&&sides_[index].mode->currentIndex()==3)ui::bind_numeric_value_lock(sides_[index].twist_angle,
             "side"+std::to_string(index)+"_angle",*locks_,locks_changed_);
+        if(locks_)ui::bind_numeric_value_lock(sides_[index].correction,
+            "side"+std::to_string(index)+(sides_[index].correction_angular?"_up_to_angle_correction":"_up_to_length_correction"),*locks_,locks_changed_);
+    }
+    void refresh_limit_controls(int index) {
+        auto& side=sides_[index];if(!side.limits||!side.correction)return;
+        const bool modeling=selected_type()==document::FeatureType::Modeling;
+        const int mode=side.mode->currentIndex();const bool up_to=mode==1?side.end->currentIndex()==1:mode==2&&side.end->currentIndex()==2;
+        const bool visible=modeling&&up_to&&(!symmetric_||index==0);
+        side.rows->setRowVisible(side.target_row,selected_type()==document::FeatureType::Axis);
+        side.rows->setRowVisible(side.limits,visible);side.rows->setRowVisible(side.correction,visible);
+        side.limits->setEnabled(visible);side.correction->setEnabled(visible);if(!visible)side.limits->finish_entry(true);
+        side.box->setSizePolicy(QSizePolicy::Preferred,visible?QSizePolicy::Expanding:QSizePolicy::Preferred);
+        const double value=side.correction->value()==side.displayed_correction?side.authored_correction:side.correction->value();
+        if(side.correction_angular)side.pending.up_to.angle_correction_degrees=value;else side.pending.up_to.length_correction=value;
+        side.correction_angular=mode==2;
+        const QSignalBlocker blocked(side.correction);side.correction->set_quantity(mode==2?ui::InputQuantity::Angle:ui::InputQuantity::Length);
+        side.correction->setRange(mode==2?-359.999999:-1000000,mode==2?359.999999:1000000);
+        side.authored_correction=mode==2?side.pending.up_to.angle_correction_degrees:side.pending.up_to.length_correction;
+        side.correction->setValue(side.authored_correction);side.displayed_correction=side.correction->value();
+        if(!refreshing_side_)refresh_side_lock(index);
     }
     void normalize_rotations(std::size_t edited) {
         if(refreshing_side_||normalizing_rotations_||changing_operation_)return;

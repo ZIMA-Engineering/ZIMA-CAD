@@ -1,6 +1,15 @@
 #include "primitive_properties_dialog.hpp"
 #include "application_settings.hpp"
 #include "feature_naming.hpp"
+#include "feature_limit_table.hpp"
+#include "feature_limit_diagnostic.hpp"
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPainter>
+#include <QStyleOptionViewItem>
+#include <QFormLayout>
+#include <filesystem>
 #include <QPushButton>
 #include <QLineEdit>
 #include <QMouseEvent>
@@ -23,6 +32,165 @@
 #include <QThread>
 #include <QToolButton>
 #include <iostream>
+static void verify_limit_localization(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    auto authored=document::PartDocument::create_feature_container("localized-limits");
+    authored.feature.sides[0].extrusion_extent=document::EndCondition::UpTo;
+    for(const auto* owner:{"source-a","source-b"}) {
+        document::ExtrusionParameters::EndTarget target;target.reference={owner,"plane",{}};target.label=owner;
+        authored.feature.sides[0].targets.push_back(target);
+    }
+    auto failure=kernel::OrderedUpToFailure::AmbiguousAdjacency;
+    app::PrimitivePropertiesDialog dialog(authored,false,true,[&](auto){throw kernel::OrderedUpToError(failure,0,1);},&parent);
+    dialog.show();application.processEvents();
+    auto* limits=static_cast<app::FeatureLimitTable*>(dialog.findChild<QWidget*>("featureSideLimits0"));
+    limits->begin_entry(1);
+    auto* eye=limits->table()->cellWidget(0,6)->findChild<QToolButton*>();eye->click();
+    const auto before=dialog.pending_value();int previews=0;dialog.set_preview_callback([&](const auto&){++previews;});
+    previews=0;
+    const auto palette=application.palette();
+    const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
+    for(const auto* language:{"cs","en","de","fr","ru"}) {
+        QFile file(QString::fromStdString((root/(std::string(language)+".qt.json")).generic_string()));
+        check(file.open(QIODevice::ReadOnly),"Cannot read the ordered-limit translation catalog");
+        app::ApplicationSettings settings;settings.language=language;
+        const auto messages=QJsonDocument::fromJson(file.readAll()).object();
+        for(auto item=messages.begin();item!=messages.end();++item)settings.qt_translations[item.key()]=item.value().toString();
+        app::apply_application_translations(application,settings);application.processEvents();
+        for(const auto* theme:{"light","dark"}) {
+            settings.theme=theme;app::apply_application_appearance(application,settings);application.processEvents();
+            check(limits->findChild<QPushButton*>("featureLimitDown")->text()==QObject::tr("Dolů"),"Live language change missed the target ordering controls");
+            check(limits->active_row()==1&&dialog.highlighted_reference_entries().size()==1,"Language/theme change lost entry or inspection identity");
+            check(dialog.findChild<QLabel*>("featureUpToDraftNotice")->text()==QObject::tr(
+                "Draft preview: profile. Inspect target faces with the eyes; OK calculates the result."),"Draft preview notice did not follow the live language");
+            auto* correction=dialog.findChild<QDoubleSpinBox*>("featureSideCorrection0");
+            auto* form=qobject_cast<QFormLayout*>(correction->parentWidget()->layout());
+            check(form&&qobject_cast<QLabel*>(form->labelForField(correction))->text()==QObject::tr("Korekce"),
+                "Correction label did not follow the live language");
+            for(int row:{0,1}) {
+                QImage cell(240,36,QImage::Format_ARGB32_Premultiplied);cell.fill(application.palette().color(QPalette::Base));
+                QPainter painter(&cell);QStyleOptionViewItem option;option.rect=cell.rect();
+                option.palette=application.palette();option.font=limits->table()->font();option.state=QStyle::State_Enabled;
+                option.widget=limits->table();limits->table()->itemDelegate()->paint(&painter,option,limits->table()->model()->index(row,3));painter.end();
+                check(row==0?cell.pixelColor(230,18)==QColor("#00D1FF"):cell.pixelColor(1,18)==QColor("#4DD811"),
+                    "Reference inspection/input colors violate the shared azure/green contract");
+            }
+            for(const auto code:{kernel::OrderedUpToFailure::InvalidInput,kernel::OrderedUpToFailure::AmbiguousAdjacency,
+                    kernel::OrderedUpToFailure::AmbiguousRetainedPatch,kernel::OrderedUpToFailure::EmptyPatch,
+                    kernel::OrderedUpToFailure::DisconnectedChain,kernel::OrderedUpToFailure::SelfIntersection}) {
+                failure=code;dialog.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+                const auto expected=app::feature_limit_diagnostic(kernel::OrderedUpToError(code,0,1));
+                const auto actual=dialog.findChild<QLabel*>("featureValidationError")->text();
+                check(actual==expected&&actual.contains('1')&&actual.contains('2')&&!actual.contains("%1"),
+                    "Rejected limit did not show localized affected rows and reason");
+            }
+            for(auto* ancestor=limits->parentWidget();ancestor;ancestor=ancestor->parentWidget())
+                if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(limits);
+            application.processEvents();application.processEvents();
+            check(dialog.findChild<QScrollArea*>("featureParametersScroll")->horizontalScrollBar()->maximum()==0,
+                "Feature target columns overflow a sufficiently wide parent View");
+            dialog.grab().save(QDir::tempPath()+"/zima-ordered-limits-"+language+"-"+theme+".png");
+        }
+    }
+    check(previews==0&&dialog.pending_value().feature==before.feature,"Language/theme changes calculated or altered a Feature draft");
+    dialog.reject();app::apply_application_translations(application,app::ApplicationSettings{});application.setPalette(palette);
+    std::cout<<"Ordered Up To: five languages, two themes, live state preservation and six localized row diagnostics passed"<<std::endl;
+}
+static void verify_ordered_limits(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{QElapsedTimer timer;timer.start();while(timer.elapsed()<50){application.processEvents();QThread::msleep(2);}};
+    auto authored=document::PartDocument::create_feature_container("ordered-ui-sketch");
+    authored.feature.sides[0].extrusion_extent=document::EndCondition::UpTo;
+    authored.feature.sides[0].up_to.length_correction=-0.;
+    authored.feature.sides[0].up_to.angle_correction_degrees=7.123456789;
+    int commits=0,picks=0,inspections=0,previews=0;
+    app::PrimitivePropertiesDialog dialog(authored,true,true,[&](auto){++commits;},&parent);
+    dialog.set_extrusion_target_request([&]{++picks;});
+    dialog.set_reference_highlights_changed_callback([&]{++inspections;});
+    dialog.set_preview_callback([&](const auto&){++previews;});
+    dialog.show();flush();
+    auto* limits=static_cast<app::FeatureLimitTable*>(dialog.findChild<QWidget*>("featureSideLimits0"));
+    auto* table=limits->table();
+    const auto click=[&](QWidget* widget,QPoint point){
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,QPointF(point),QPointF(widget->mapToGlobal(point)),Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(widget,&event);
+        }
+        flush();
+    };
+    const auto field=[&](int row){
+        table->scrollToItem(table->item(row,3));
+        for(auto* ancestor=table->parentWidget();ancestor;ancestor=ancestor->parentWidget())
+            if(auto* area=qobject_cast<QScrollArea*>(ancestor))area->ensureWidgetVisible(table);
+        flush();click(table->viewport(),table->visualItemRect(table->item(row,3)).center());
+        if(limits->active_row()!=static_cast<std::size_t>(row)) {
+            dialog.grab().save(QDir::tempPath()+"/zima-ordered-entry-failure.png");
+            const auto box=table->visualItemRect(table->item(row,3));
+            std::cerr<<"Entry row="<<row<<" rect="<<box.x()<<','<<box.y()<<','<<box.width()<<','<<box.height()
+                <<" viewport="<<table->viewport()->width()<<'x'<<table->viewport()->height()<<" active="
+                <<(limits->active_row()?int(*limits->active_row()):-1)<<'\n';
+        }
+    };
+    const auto assign=[&](const char* owner){dialog.set_extrusion_target({owner,"plane",{}},{0,0,12},{0,0,1},owner);flush();};
+    check(table->isVisible()&&table->rowCount()>=3,"Ordered Up To table is absent or shorter than three rows");
+    check(std::signbit(dialog.pending_value().feature.sides[0].up_to.length_correction),"Opening the table lost signed zero");
+    for(int row=0;row<3;++row) {
+        field(row);check(limits->active_row()==row,"Reference field did not arm the selected row");
+        check(dialog.allows_point_end_target()==(row==0),"Point picking was offered for a multi-face chain");
+        assign(row==0?"source-a":row==1?"source-b":"source-c");
+    }
+    check(picks==3&&dialog.pending_value().feature.sides[0].targets.size()==3,"Appending references replaced an earlier row");
+    auto* eye=table->cellWidget(0,6)->findChild<QToolButton*>();
+    click(eye,eye->rect().center());
+    check(dialog.highlighted_reference_entries().size()==1,"Eye did not inspect the exact reference");
+    const auto before_entry=previews;
+    field(1);check(dialog.highlighted_reference_entries().size()==1,"Arming another row cleared independent inspection");
+    check(previews==before_entry,"Reference entry calculated a new preview");
+    const auto before_rejected=dialog.pending_value();bool rejected=false;
+    try {assign("source-a");}catch(const std::invalid_argument&){rejected=true;}
+    check(rejected&&dialog.pending_value().feature==before_rejected.feature&&limits->active_row()==1,
+        "Duplicate reference rejection changed the draft or ended input");
+    assign("source-d");check(dialog.pending_value().feature.sides[0].targets[1].reference.owner_id=="source-d",
+        "Replacing a middle row changed another reference");
+    // Ordering owns one checkbox, independently of field input and inspection.
+    table->item(0,0)->setCheckState(Qt::Checked);flush();
+    auto* down=limits->findChild<QPushButton*>("featureLimitDown");
+    check(down->isEnabled(),"Selected row cannot move down");click(down,down->rect().center());
+    check(dialog.pending_value().feature.sides[0].targets[1].reference.owner_id=="source-a"&&
+        table->item(1,0)->checkState()==Qt::Checked&&dialog.highlighted_reference_entries().size()==1,
+        "Reordering lost the selected or inspected reference identity");
+    auto* choose=table->cellWidget(1,4)->findChild<QComboBox*>();choose->setCurrentIndex(2);flush();
+    const auto graph=dialog.pending_value().feature.sides[0];
+    check(graph.up_to.retained_side(graph.targets[1].reference,graph.targets[0].reference)==false,
+        "Retained patch selection is not attached to its directed source pair");
+    dialog.finish_extrusion_target_entry(true);check(dialog.highlighted_reference_entries().empty(),"Ending input retained temporary inspection");
+    for(const double correction:{-2.5,0.,3.25}) {
+        check(dialog.set_inline_parameter_value("side0_up_to_length_correction",correction),"Length correction is not editable");
+        check(dialog.pending_value().feature.sides[0].up_to.length_correction==correction,"Length correction was altered");
+    }
+    auto* mode=dialog.findChild<QComboBox*>("featureSideMode0");mode->setCurrentIndex(2);flush();
+    dialog.findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(2);flush();
+    check(dialog.pending_value().feature.sides[0].up_to.angle_correction_degrees==7.123456789,
+        "Switching operation rounded the authored angular correction");
+    check(dialog.set_inline_parameter_value("side0_up_to_angle_correction",-4.5),"Angular correction is not editable");
+    mode->setCurrentIndex(1);flush();
+    check(dialog.pending_value().feature.sides[0].up_to.length_correction==3.25&&
+        dialog.pending_value().feature.sides[0].up_to.angle_correction_degrees==-4.5,"Switching operations lost independent corrections");
+    auto* type=dialog.findChild<QComboBox*>("featureType");type->setCurrentIndex(1);flush();
+    dialog.set_extrusion_target({"axis-source","plane",{}},{0,0,20},{0,0,1},"axis-source");
+    const auto single=dialog.pending_value().feature.sides[0];
+    check(single.targets.size()==1&&single.up_to.retained_patches.empty()&&!single.up_to.primary_cap_source,
+        "Replacing an Axis's single limit retained obsolete multi-face adjacency");
+    type->setCurrentIndex(4);flush();
+    check(dialog.pending_value().feature.sides[0].up_to.length_correction==3.25&&
+        dialog.pending_value().feature.sides[0].up_to.angle_correction_degrees==-4.5,"Axis transition lost inactive Modeling corrections");
+    check(commits==0&&inspections>0,"Draft interaction committed a document transaction");
+    dialog.reject();check(commits==0&&authored.feature.sides[0].targets.empty(),"Cancel changed the source definition");
+    std::cout<<"Ordered Up To: append/replace/reorder/retained sides/inspection/corrections/Cancel passed"<<std::endl;
+}
 static void verify_rendering(QApplication& application,QWidget& parent) {
     using namespace zima;
     viewer::MeshView view(&parent);view.setGeometry(0,0,800,600);view.show();
@@ -281,7 +449,7 @@ int main(int argc,char** argv) {
         if(zima::app::next_feature_name(part,zima::document::FeatureType::Axis,"")!=
             zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 002")
             throw std::runtime_error("Automatic name collides with an existing object");
-    dialog.hide();verify_rendering(application,parent);
+    dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_rendering(application,parent);
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}
     return 0;
 }

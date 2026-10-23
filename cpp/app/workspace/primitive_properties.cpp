@@ -460,6 +460,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         std::move(committed), std::move(target_occurrences),
                         mode,
                         property_owned_sketch_draft_);
+                } catch(const zima::kernel::OrderedUpToError&) {
+                    throw;
                 } catch (const std::exception& error) {
                     throw std::runtime_error(tr(error.what()).toStdString());
                 }
@@ -498,6 +500,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 try {
                     zima::workspace::commit_profile(workspace_, kernel_, owner_id, std::move(committed), mode,
                         property_owned_sketch_draft_);
+                } catch(const zima::kernel::OrderedUpToError&) {
+                    throw;
                 } catch (const std::exception& error) {
                     throw std::runtime_error(tr(error.what()).toStdString());
                 }
@@ -1430,7 +1434,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             pending_primitive_reference_index_.reset();
             primitive_reference_auto_advance_ = false;
             dialog->set_active_reference_index(std::nullopt);
-            dialog->clear_reference_highlights();
             extrusion_target_dialog_ = dialog;
             extrusion_target_assembly_cut_ = assembly_cut;
             tree_->setProperty("commandSelectionActive", true);

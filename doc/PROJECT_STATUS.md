@@ -1,6 +1,6 @@
 # Current project status
 
-Reviewed on 2026-10-22 against the current C++ implementation, focused feature
+Reviewed on 2026-10-23 against the current C++ implementation, focused feature
 guides, verification records and public GitHub release. This is the current
 capability index. Dated design proposals in the roadmap and development notes
 must not be read as a list of features still missing today.
@@ -37,7 +37,7 @@ The current development build also provides **Intersection reference** and
 branches and persist their exact source/branch definitions. Certified circles and
 arcs remain native conics. See the [finite editor matrix and limits](verification/20261022-sketch-intersection-editor.md).
 This development status does not replace the immutable released build identified
-below or claim completion of ordered multi-face Up To, Projection or view-relative
+below or claim completion of portable release acceptance, Projection or view-relative
 H/V.
 Its linked editing and single-parent-file workflow were already included in
 [Windows 2026091508](releases/2026091508.md); later work extends and verifies it.
@@ -81,7 +81,7 @@ now supplies cold open-solid intersection ancestry and preserves bindings throug
 rigid placement and derived copies. Its 108-case matrix, factory refresh and all
 1,185 read-only native loads pass. All 137 Drawings pass reference/regeneration
 comparison against the released runtime without rewriting their factory files.
-The new Sketch editor commands and branch definitions remain unfinished.
+The subsequent editor commands, native branch association and manipulation checks are implemented; see the [finite editor matrix](verification/20261022-sketch-intersection-editor.md). Portable publication remains separate.
 The subsequent [coincident reference-circle picking correction](verification/20261022-coincident-reference-circle-picking.md)
 removes artificial display-chord crossings while retaining native circles/arcs.
 Its 392-case native matrix, reported `0101.prtz` pairs, mouse checks and all five
@@ -95,9 +95,9 @@ changes; the immutable 2201 archive is unchanged.
 | --- | --- |
 | Current correction/release batch | Completed in Windows 2026102201 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
-| Sketch intersection references | Approved Face × Sketch-plane scope and 108-case native matrix, including certified toroidal radial branches and cold open-solid/transformed sources; source binding and factory verification are recorded in the linked plan. Editor commands, persistent selected branches and the full manipulation matrix remain pending. See [plan](SKETCH_INTERSECTION_REFERENCE_PLAN.md). |
+| Sketch intersection references | Native source/branch association and both editor commands are implemented and verified in the documented finite matrix, including repeated edits, native persistence and GUI entry. Portable publication is pending; arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
 | View-relative H/V | Requested display/input mapping for 90-degree turns and view flips; retain the internal geometric constraints and persisted meanings. |
-| Multiple Up To faces and correction | [Scoped design and factory-conversion plan](FEATURE_ORDERED_UP_TO_PLAN.md) prepared; an isolated 32-case planar OCCT feasibility probe passed. Native-contract approval and production implementation remain pending. Preserve ordered consecutive intersections, explicit reordering and geometry-side identity. Each side uses the shared table with at least three visible rows and its correction below. |
+| Multiple Up To faces and correction | Approved native extension and shared Feature tables are implemented. Convex/concave limits, directed retained patches, signed length/angle corrections, native Part/Assembly cuts, Relations/locks and GUI entry pass focused regressions. Factory refresh and portable acceptance are in progress. See [scope and checkpoint](FEATURE_ORDERED_UP_TO_PLAN.md). |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |
 | File Manager directory prototypes | Discuss ordinary/linked metadata types and configurable prototype `0000-index` folders before implementation. |
 | Direct mesh/Surface editing | Design ideas: independent meshes, point groups, primitives, subdivision, deformation, optional explicit point-to-model bindings and conversion to suitable shells/solids. No implemented Blender-style mesh editor is claimed. |

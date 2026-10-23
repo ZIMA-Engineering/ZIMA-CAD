@@ -150,6 +150,7 @@ int prepare_bridge_lance(const std::filesystem::path& input,const std::filesyste
 }
 
 int verify_library_form(const std::filesystem::path& file,bool dimple) {
+    const auto trace=[](const char* stage) {if(std::getenv("ZIMA_CPP_FORM_VERIFY_TRACE"))std::cerr<<"FORM verification: "<<stage<<std::endl;};
     const auto source=document::read_sheet_form_definition(file);const auto immutable=source.part.serialized(*source.calculated);
     const auto flat=std::ranges::find(source.part.sketches,source.flat_sketch,&sketcher::Sketch::id);check(!dimple||flat!=source.part.sketches.end(),"Missing flat precut");
     const auto symbol=std::ranges::find(source.part.sketches,source.symbol_sketch,&sketcher::Sketch::id);
@@ -176,6 +177,7 @@ int verify_library_form(const std::filesystem::path& file,bool dimple) {
     const double radius=dimple?flat->circles.front().radius:0.;
     kernel::OcctKernel kernel;
     for(double thickness:{.8,1.,1.2})for(bool bottom:{false,true}) {
+        trace("create stock");
         auto part=document::PartDocument::create_default();static_cast<void>(document::create_origin_bound_body(part.body_history,part.document_id,"Sheet"));
         auto stock=document::PartDocument::create_sketch_container();stock.feature_kind=document::FeatureKind::Flat;stock.flat.direction=document::ExtrusionDirection::Reverse;stock.flat.thickness_override=true;stock.flat.thickness=thickness;
         auto outline=sketcher::Sketch::create_default();outline.owner_container_id=stock.id;static_cast<void>(outline.add_rectangle(-50,-50,50,50));stock.flat.sketch_id=outline.id;
@@ -188,7 +190,9 @@ int verify_library_form(const std::filesystem::path& file,bool dimple) {
         auto feature=document::create_sheet_form();feature.sheet_form=document::copy_sheet_form_definition(source);feature.sheet_form.support=*face;
         const auto geometry=part.construction_reference_geometry_for(stock.id,refs);
         feature.placement=document::sheet_form_attachment(*face,part.body_history.bodies().front().origin().id,geometry,{},{});
+        trace("commit insertion");
         check(workspace::commit_sheet_form(live,kernel,part.document_id,feature),"Dimple insertion did not commit");auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
+        trace("inspect insertion");
         // A valid connected result alone can hide a missing extrusion half:
         // the surviving half is still connected to the original stock.
         const auto& inserted=state->session.calculated_boundaries().back();
@@ -212,6 +216,7 @@ int verify_library_form(const std::filesystem::path& file,bool dimple) {
             check(std::ranges::none_of(mesh.points,[&](const auto& point){return point.reference.owner_id==feature.id&&point.reference.semantic_key.starts_with("axis:point:");}),"Planar FORM axis has unexpected endpoint handles");
         };
         verify_axis(state->session.document());
+        trace("check attachment and source dimensions");
         const auto outward=kernel::sheet_material::mul(face->surface->axis,face->surface->reversed?-1.:1.);
         check(kernel::sheet_material::dot(normal,outward)>1.-1e-8,"FORM attachment normal disagrees with the selected stock side");
         attachment.SetDisplacement(
@@ -229,6 +234,7 @@ int verify_library_form(const std::filesystem::path& file,bool dimple) {
             }
         }
         const auto target=kernel::read_calculated_body_shape(inserted);
+        trace("check material and bridge symmetry");
         const auto sample=[&](double x,double y,double height) {
             const auto tangent=kernel::sheet_material::cross(normal,along);
             const auto point=kernel::sheet_material::add({p.x,p.y,p.z},kernel::sheet_material::add(kernel::sheet_material::mul(along,x),kernel::sheet_material::add(kernel::sheet_material::mul(tangent,y),kernel::sheet_material::mul(normal,height))));
@@ -251,6 +257,7 @@ int verify_library_form(const std::filesystem::path& file,bool dimple) {
             check(original.Mass()>1.,"Raised bridge is empty");near(both.Mass(),original.Mass(),1e-4);
         }
         const auto skin_mesh=source.part.place_body_mesh(source.calculated->back().body_outputs.at(source.bodies[1])->mesh,source.bodies[1]);
+        trace("check authored skin");
         for(const auto& vertex:skin_mesh.vertices) {
             check(kernel::sheet_material::dot(kernel::sheet_material::sub(vertex,skin.source_origin),skin.source_normal)<=1e-6,"Factory FORM skin does not point into the selected sheet face");
             auto point=vertex;
@@ -259,19 +266,31 @@ int verify_library_form(const std::filesystem::path& file,bool dimple) {
             check(distance.IsDone()&&distance.Value()<=1e-5,"Inserted FORM moved or lost its authored starting skin");
         }
         const auto spatial=document::serialize_body_result(inserted);
+        trace("Undo/Redo and Unbend");
         check(state->session.undo()&&state->session.redo(),"Dimple insertion Undo/Redo failed");check(document::serialize_body_result(state->session.calculated_boundaries().back())==spatial,"Dimple Redo changed native geometry");
+        trace("commit Unbend");
         auto flatten=document::PartDocument::create_sketch_container();flatten.feature_kind=document::FeatureKind::Unbend;flatten.sheet_state.all=false;flatten.sheet_state.owners={feature.id};
         check(workspace::commit_sheet_state(live,kernel,part.document_id,flatten),"Dimple Unbend did not commit");valid(state->session.calculated_boundaries().back());
+        trace("measure Unbend");
         auto measured=state->session.calculated_boundaries().back();kernel.ensure_body_properties(measured);near(measured.volume,(10000.-std::numbers::pi*radius*radius)*thickness,1e-5);
         auto restore=document::PartDocument::create_sketch_container();restore.feature_kind=document::FeatureKind::BendBack;restore.sheet_state.all=false;restore.sheet_state.owners={feature.id};
+        trace("commit Bend Back");
         check(workspace::commit_sheet_state(live,kernel,part.document_id,restore),"Dimple Bend Back did not commit");valid(state->session.calculated_boundaries().back());
+        trace("save and cold reopen");
         const auto path=std::filesystem::absolute("build/form-diagnostic")/(source.part.name+"-"+std::to_string(thickness)+"-"+std::to_string(bottom)+".prtz");
-        state->session.document().save(path,state->session.calculated_boundaries());std::vector<kernel::BodyResult> reopened;const auto saved=document::PartDocument::load(path,&reopened);valid(reopened.back());check(saved.find_container(feature.id)->sheet_form.bodies==state->session.document().find_container(feature.id)->sheet_form.bodies,"Dimple role identities changed on reopen");
+        state->session.document().save(path,state->session.calculated_boundaries());
+        trace("load saved insertion");
+        std::vector<kernel::BodyResult> reopened;const auto saved=document::PartDocument::load(path,&reopened);
+        trace("validate reopened insertion");
+        valid(reopened.back());check(saved.find_container(feature.id)->sheet_form.bodies==state->session.document().find_container(feature.id)->sheet_form.bodies,"Dimple role identities changed on reopen");
+        trace("regenerate cold insertion");
         kernel::OcctKernel cold;auto cold_part=saved;const auto regenerated=workspace::calculate_part_with_resolved_references(cold,cold_part);valid(regenerated.back());near(measured_volume(cold,regenerated.back()),measured_volume(kernel,reopened.back()),1e-5);
+        trace("inspect drawing symbol and restored axis");
         const auto packets=workspace::drawing_annotation_sources(&live,part.document_id,{});check(packets.size()==1&&packets.front().symbols.size()==1,"Form manufacturing symbol was lost");
         verify_axis(saved);verify_axis(cold_part);verify_axis(state->session.document());
         const auto rendered=symbols::instance_mesh(packets.front().symbols.front().symbol);check(rendered.edges.size()==(dimple?2u:4u)&&std::ranges::all_of(rendered.edges,[](const auto& e){return e.construction&&e.dash_dot;}),"Drawing symbol lost its construction strokes");
         const auto before_dimension=state->session.document().serialized();
+        trace("edit inserted FORM dimension");
         const auto placed_before=*state->session.document().find_container(feature.id);bool dimension_edited=false;
         for(const auto& dimension:inspect)if(dimension.value!=0&&document::sheet_form_internal_dimension_editable(placed_before,dimension.reference.semantic_key)) {
             try {dimension_edited=workspace::set_sheet_form_dimension(live,kernel,part.document_id,feature.id,dimension.reference.semantic_key,dimension.value*1.01);}
