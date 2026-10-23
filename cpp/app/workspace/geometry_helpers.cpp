@@ -2,6 +2,7 @@
 #include <zima/workspace/placement_edit.hpp>
 #include "workspace_internal.hpp"
 #include "new_document_options.hpp"
+#include "../sketch_profile_wire.hpp"
 
 namespace zima::app::workspace_detail {
 
@@ -310,16 +311,7 @@ void keep_only_inactive_sketch_profile(
     const std::string& display_owner_id) {
     // Ordinary Part/Assembly view presents a Sketch as its clean result
     // profile. Editing aids belong exclusively to active Sketcher.
-    std::erase_if(mesh.edges, [](const auto& edge) {
-        const auto& key = edge.reference.semantic_key;
-        const bool native_profile = key.starts_with("segment:") ||
-            key.starts_with("circle:") || key.starts_with("arc:") ||
-            key.starts_with("corner_radius:") ||
-            key.starts_with("ellipse:") ||
-            key.starts_with("elliptical_arc:") ||
-            key.starts_with("bspline:") || key.starts_with("text:");
-        return (edge.construction && !edge.dash_dot) || !native_profile;
-    });
+    std::erase_if(mesh.edges, [](const auto& edge) {return !native_sketch_profile_edge(edge);});
     // In ordinary Part/Assembly interaction the history Container is the
     // selectable object. Keep the persisted Sketch identity on each edge for
     // Sketcher and direct child-row interaction, while assigning the visible

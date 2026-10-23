@@ -186,6 +186,11 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         return wire;
     },[this](const std::string& owner,const std::string&) {
+        if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
+            if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
+            if(const auto* feature=part->session.document().find_container(owner))
+                if(authored_sketch_profile(*feature))return true;
+        }
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))
                 return true;
@@ -488,7 +493,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                     const auto& document=part->session.document();
                     const auto sketch=std::ranges::find(document.sketches,owner_id,&sketcher::Sketch::id);
                     if(sketch!=document.sketches.end())if(const auto* owner=document.find_container(sketch->owner_container_id);
-                        owner&&owner->feature_kind==document::FeatureKind::Feature&&owner->feature.type==document::FeatureType::Modeling)
+                        owner&&(owner->feature_kind==document::FeatureKind::Sketch||
+                            (owner->feature_kind==document::FeatureKind::Feature&&owner->feature.uses_sketch())))
                         owner_id=owner->id;
                 } else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
                     const auto& document=assembly->session.document();

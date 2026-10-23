@@ -4,6 +4,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/sketcher/curve_geometry.hpp>
 #include <QCoreApplication>
 #include <iostream>
 #include <set>
@@ -12,6 +13,69 @@
 using namespace zima;
 namespace {
 void require(bool ok,const char* text){if(!ok)throw std::runtime_error(text);}
+void sketch_wire_matrix() {
+    unsigned cases{};
+    for(int kind=0;kind<3;++kind)for(bool closed:{false,true})for(bool interpolating:{false,true})
+    for(bool placed:{false,true})for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ}) {
+        auto doc=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+        sketch.plane=plane;sketch.plane_auto=false;sketch.refresh_default_frame();
+        static_cast<void>(sketch.add_bspline({{-15,-12},{-5,-4},{1,7},{9,22},{25,25}},3,closed,false,1e-6,interpolating));
+        auto feature=kind==0?document::PartDocument::create_sketch_container():document::PartDocument::create_feature_container(sketch.id);
+        if(kind==1)feature.feature.type=document::FeatureType::Sketch;
+        if(kind==2)for(auto& side:feature.feature.sides)side.operation=document::FeatureSideOperation::None;
+        sketch.owner_container_id=feature.id;doc.history={feature};doc.sketches={sketch};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Native Sketch wire");graph.insert({document::PartHistoryKind::Feature,feature.id});
+        if(placed){auto positioned=*graph.find(body);positioned.scope.placement={11,7,-3,20,30,40};graph.update_body(std::move(positioned));}
+        doc.set_body_history(graph);doc.resolve_constructions();
+        kernel::BodyResult stale;stale.mesh.original_references.edges={{{{-999,0,0},{999,0,0}},{feature.id,"stale-support",{}}}};
+        document::DocumentSession session(doc,{stale});
+        const auto verify=[&] {
+            const auto before=session.document().serialized();const auto& native=session.document().sketches.front();
+            auto expected=native.viewer_mesh();native.filter_hidden_3d_geometry(expected);expected=session.document().place_body_mesh(std::move(expected),body);
+            const auto wire=app::authored_feature_wire(session,feature.id);
+            require(wire.size()==1&&wire.front().points==expected.edges.front().points,"Pure Sketch wire differs from native interpolation or includes stale datum geometry");
+            const auto child=app::authored_feature_wire(session,native.id);
+            require(child.size()==wire.size()&&child.front().points==wire.front().points,"Explicit Sketch child used a different profile wire");
+            require(session.document().serialized()==before,"Sketch wire preparation changed the document");
+        };
+        verify();
+        for(int edit=0;edit<3;++edit) {
+            auto changed=session.document();auto& source=changed.sketches.front();const auto p=source.points.front();
+            require(source.move_point(p.id,p.x+.3,p.y+.2),"Free spline point did not move in selection-wire matrix");
+            source=sketcher::Sketch::from_serialized(source.serialized());session.commit(changed,session.calculated_boundaries());verify();
+            require(session.undo(),"Sketch wire edit Undo failed");verify();require(session.redo(),"Sketch wire edit Redo failed");verify();
+        }
+        ++cases;
+    }
+    std::cout<<cases<<" pure Sketch wire cases: legacy/current/empty Modeling roles, open/closed control/interpolating splines, XY/XZ and placed Body frames, repeated edits/native readback/Undo/Redo passed"<<std::endl;
+}
+void actual_sketch_wire(const std::filesystem::path& path) {
+    std::vector<kernel::BodyResult> bodies;const auto doc=document::PartDocument::load(path,&bodies);
+    const auto before=doc.serialized();document::DocumentSession session(doc,bodies);unsigned checked{};
+    for(const auto& feature:doc.history)if(app::authored_sketch_profile(feature)) {
+        const auto found=std::ranges::find(doc.sketches,feature.id,&sketcher::Sketch::owner_container_id);
+        if(found==doc.sketches.end()||found->bsplines.empty())continue;
+        auto expected=found->viewer_mesh();found->filter_hidden_3d_geometry(expected);
+        std::erase_if(expected.edges,[&](const auto& edge){return edge.reference.semantic_key!="bspline:"+found->bsplines.front().id;});
+        if(const auto* body=doc.body_owner_for_object(feature.id))expected=doc.place_body_mesh(std::move(expected),body->scope.id);
+        const auto actual=app::authored_feature_wire(session,feature.id);
+        std::cout<<"Sketch wire "<<feature.name<<": native="<<expected.edges.front().points.size()<<" samples, selected="
+            <<(actual.empty()?0:actual.front().points.size())<<" samples"<<std::endl;
+        require(actual.size()==expected.edges.size(),"Sketch selection includes a foreign or duplicate curve");
+        require(actual.front().points==expected.edges.front().points,"Sketch selection wire differs from the actual native Sketch curve");
+        const auto child=app::authored_feature_wire(session,found->id);
+        require(child.size()==actual.size()&&child.front().points==actual.front().points,"Actual native Sketch child used a different selection curve");
+        const auto exact=sketcher::sketch_curve_geometry(*found,found->bsplines.front().id);
+        const auto native=found->viewer_mesh();const auto edge=std::ranges::find_if(native.edges,[&](const auto& value){return value.reference.semantic_key=="bspline:"+found->bsplines.front().id;});
+        for(std::size_t i=0;i<edge->points.size();++i) {
+            const auto p=kernel::bspline_value(exact,double(i)/(edge->points.size()-1));const auto world=found->world_point(p.x,p.y),shown=edge->points[i];
+            require(std::hypot(world.x-shown.x,world.y-shown.y,world.z-shown.z)<1e-7,"Exact intersection source differs from the native Sketch interpolation");
+        }
+        ++checked;
+    }
+    require(checked>0,"No standalone spline Sketch found in the actual review input");
+    require(session.document().serialized()==before,"Sketch selection changed the native document");
+}
 bool longitudinal(const kernel::ViewerEdge& e,kernel::Vec3 normal) {
     if(e.points.size()!=2)return false;
     const auto a=e.points.front(),b=e.points.back();
@@ -243,7 +307,9 @@ void rounded_profile_matrix(const kernel::OcctKernel& engine) {
 }
 int main(int argc,char** argv) {
     QCoreApplication application(argc,argv);
-    try{kernel::OcctKernel engine;rectangular_matrix(engine);revolution_matrix(engine);rounded_profile_matrix(engine);
+    try{if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();return 0;}
+        if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
+        kernel::OcctKernel engine;rectangular_matrix(engine);revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));
         return 0;}
     catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

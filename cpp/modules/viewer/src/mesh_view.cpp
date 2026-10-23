@@ -3857,7 +3857,9 @@ if (impl_->show_origins) {
         auto candidate=impl_->confirmed_candidate;
         if(!candidate&&!impl_->candidates.empty())candidate=impl_->candidates[impl_->active_candidate];
         if(candidate&&candidate->kind==CandidateKind::Container&&
-            (candidate->semantic_key.empty()||candidate->semantic_key=="solid")&&
+            (candidate->semantic_key.empty()||candidate->semantic_key=="solid"||
+                (candidate->semantic_key=="sketch"&&impl_->container_preview_authoritative&&
+                    impl_->container_preview_authoritative(candidate->owner_id,candidate->instance_path)))&&
             impl_->has_authored_container_wire(*candidate))return candidate;
         return {};
     }();
@@ -4864,6 +4866,11 @@ if (impl_->show_origins) {
                 const bool external_face = edge.reference.semantic_key.starts_with(
                     "external_face:");
                 if ((external || external_face) != reference_pass) continue;
+                // Ordinary whole-Sketch selection has one cached native wire.
+                // Do not paint its base stroke or a second thick highlight over
+                // that batch. Active Sketcher/reference entry retain this path.
+                if(ordinary_preview_candidate&&!external&&!external_face&&
+                        candidate_recolors_wire_edge(*ordinary_preview_candidate,edge))continue;
                 const QColor text_color = edge.reference.semantic_key.ends_with(":red") ? QColor(255,0,0)
                     : edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)
@@ -5600,7 +5607,7 @@ if (impl_->show_origins) {
                 // SketchSegment/SketchCurve candidates.
                 painter.setPen(QPen(color, wire_width, Qt::SolidLine, Qt::RoundCap));
                 painter.setBrush(color);
-                for (const auto& edge : impl_->mesh.edges) {
+                if(!authored_preview)for (const auto& edge : impl_->mesh.edges) {
                     if (!selected_sketch_owners.contains(edge.reference.owner_id) ||
                         edge.reference.instance_path !=
                             highlighted->instance_path || edge.construction) continue;

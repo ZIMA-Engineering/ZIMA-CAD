@@ -1655,6 +1655,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_thin_feature_wire_tests PRIVATE zima_workspace Qt6::Core)
     add_test(NAME zima_cpp_thin_feature_wire_tests COMMAND zima_cpp_thin_feature_wire_tests)
     set_tests_properties(zima_cpp_thin_feature_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_sketch_profile_wire_tests COMMAND zima_cpp_thin_feature_wire_tests --sketch-profile-wire)
+    set_tests_properties(zima_cpp_sketch_profile_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_edge_treatment_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_edge_treatment_command_tests COMMAND zima_cpp_edge_treatment_command_tests)
     set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1893,6 +1895,12 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ORDERED_UP_TO_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_feature_selection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sketch-profile-wire-fixtures")
+    add_test(NAME zima_cpp_sketch_profile_wire_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/sketch-profile-wire-fixtures")
+    set_tests_properties(zima_cpp_sketch_profile_wire_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SELECTION_ONLY=1;ZIMA_VERIFY_SELECTION_SKETCH_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_feature_side_reversal_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_feature_side_reversal_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_SIDE_REVERSAL_ONLY=1"

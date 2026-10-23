@@ -11,6 +11,15 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         if(std::filesystem::absolute(source_path)!=std::filesystem::absolute(path))
             std::filesystem::copy_file(source_path,path,std::filesystem::copy_options::overwrite_existing);
         model=document::PartDocument::load(path);
+    } else if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_SKETCH_ONLY")) {
+        auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_bspline({{-30,-40},{-10,-20},{-10,5},{10,25},{30,40}},3,false,false,1e-6,true));
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.feature.type=document::FeatureType::Sketch;feature.name="Native spline Sketch";sketch.owner_container_id=feature.id;
+        model.history={feature};model.sketches={sketch};document::BodyHistoryGraph graph;
+        static_cast<void>(graph.create_body("Native Sketch selection"));graph.insert({document::PartHistoryKind::Feature,feature.id});
+        model.set_body_history(graph);model.resolve_constructions();
+        model.save(path,kernel::OcctKernel{}.evaluate_history(model.kernel_operations()));
     } else {
         auto first=sketcher::Sketch::create_default();static_cast<void>(first.add_rectangle(0,0,30,30));
         auto add=document::PartDocument::create_feature_container(first.id);
@@ -58,11 +67,13 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
     };
     bool all=true;std::size_t targets=0;
     for(const auto& feature:model.history) {
+        const bool sketch_profile=authored_sketch_profile(feature);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_SKETCH_ONLY")&&!sketch_profile)continue;
         const bool modeling=feature.feature_kind==document::FeatureKind::Feature&&
             feature.feature.type==document::FeatureType::Modeling&&!feature.feature.sketch_only();
         const bool flat=feature.feature_kind==document::FeatureKind::Flat;
         const bool bend=feature.feature_kind==document::FeatureKind::Bend;
-        if(!modeling&&!flat&&!bend)continue; // Empty operation previews belong to the separate Sketch-role matrix.
+        if(!modeling&&!flat&&!bend&&!sketch_profile)continue;
         const auto* dialog_name=flat?"flatPropertiesDialog":bend?"bendPropertiesDialog":"featurePropertiesDialog";
         if(const auto* body=model.body_owner_for_object(feature.id);body&&body->scope.id!=active_body) {
             check(window.execute_console_command(QString::fromStdString(commands::Json{
@@ -99,7 +110,12 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         for(int child=0;child<row->childCount();++child)if(row->child(child)->data(0,Qt::UserRole+3)=="part-sketch") {
             row->setExpanded(true);auto* sketch=row->child(child);tree->scrollToItem(sketch);flush();
             mouse(tree->viewport(),tree->visualItemRect(sketch).center());
-            check(tree->currentItem()==sketch,"Explicit Sketch child selection changed its owner");break;
+            check(tree->currentItem()==sketch,"Explicit Sketch child selection changed its owner");
+            if(sketch_profile) {
+                static_cast<void>(view->grabFramebuffer());
+                check(view->property("gpuSourceWireVertexCount").toInt()>0,"Explicit Sketch child bypassed its native cached wire");
+            }
+            break;
         }
         tree->clearSelection();view->clear_selection();row->setExpanded(false);flush();
         std::optional<QPointF> position;
@@ -138,10 +154,43 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             check(wanted(),"RMB cycling cannot offer the library feature behind another object");
         };
         offer_feature();
+        const auto profile_color_visible=[&](QColor color) {
+            const auto image=view->grabFramebuffer();
+            const double scale=double(image.width())/view->width();
+            const auto pixel=(*position*scale).toPoint();
+            image.save(QString::fromStdWString((directory/"sketch-profile-color-probe.png").wstring()));
+            // The first offered segment can be under an endpoint marker.
+            // Include its adjacent stroke, beyond that marker's fixed radius.
+            const int radius=static_cast<int>(std::ceil(12*scale));
+            for(int y=std::max(0,pixel.y()-radius);y<std::min(image.height(),pixel.y()+radius+1);++y)
+                for(int x=std::max(0,pixel.x()-radius);x<std::min(image.width(),pixel.x()+radius+1);++x) {
+                    const auto actual=image.pixelColor(x,y);
+                    if(std::abs(actual.red()-color.red())<40&&std::abs(actual.green()-color.green())<40&&
+                            std::abs(actual.blue()-color.blue())<40)return true;
+                }
+            return false;
+        };
+        if(sketch_profile)check(profile_color_visible(interaction::hover),
+            "Native Sketch hover wire is absent or covered by the base Sketch color");
         mouse(view,*position);
+        if(sketch_profile) {
+            QMouseEvent leave(QEvent::MouseMove,QPointF(2,2),QPointF(view->mapToGlobal(QPoint(2,2))),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&leave);flush();
+            check(profile_color_visible(interaction::selected),
+                "Native Sketch confirmed color disappears after the pointer leaves");
+        }
         static_cast<void>(view->grabFramebuffer());
         const auto preview_vertices=view->property("gpuSourceWireVertexCount").toInt();
         const auto preview_uploads=view->property("gpuSourceWireUploadCount").toULongLong();
+        if(sketch_profile) {
+            const auto picked=view->confirmed_candidate();
+            std::cout<<"Sketch selected owner="<<(picked?picked->owner_id:"")<<" key="<<(picked?picked->semantic_key:"")
+                <<" GPU vertices="<<preview_vertices<<" geometry="<<(picked?int(picked->geometry):-1)<<std::endl;
+            for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==feature.feature.sketch_id)
+                std::cout<<"Sketch displayed edge "<<edge.reference.semantic_key<<" display_owner="<<edge.display_owner_id
+                    <<" samples="<<edge.points.size()<<" overlay="<<edge.overlay<<std::endl;
+            window.grab().save(QString::fromStdWString((directory/"sketch-profile-picked.png").wstring()));
+        }
         check(preview_vertices>0&&view->property("selectedFeatureFaceTriangleCount").toULongLong()==0,
             "Ordinary feature selection omitted the authored preview or filled faces");
         const auto selected=view->confirmed_candidate();auto* current=tree->currentItem();
@@ -164,6 +213,22 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             view->property("gpuSourceWireUploadCount").toULongLong()==preview_uploads,
             "Double-click changed or reuploaded the ordinary authored preview");
         const auto selection_preview=view->container_inspection_wire();
+        if(sketch_profile) {
+            const auto sketch=std::ranges::find(model.sketches,feature.id,&sketcher::Sketch::owner_container_id);
+            check(sketch!=model.sketches.end(),"Selected Sketch has no native geometry");
+            auto expected=sketch->viewer_mesh();sketch->filter_hidden_3d_geometry(expected);
+            std::erase_if(expected.edges,[](const auto& edge){return !native_sketch_profile_edge(edge);});
+            if(const auto* body=model.body_owner_for_object(feature.id))expected=model.place_body_mesh(std::move(expected),body->scope.id);
+            check(selection_preview.size()==expected.edges.size(),"Sketch inspection contains duplicate or foreign profile curves");
+            for(std::size_t i=0;i<expected.edges.size();++i)
+                check(selection_preview[i].points==expected.edges[i].points,"Sketch selection/inspection differs from its visible native curve");
+            for(int repeat=0;repeat<4;++repeat){flush();static_cast<void>(view->grabFramebuffer());}
+            check(view->property("gpuSourceWireUploadCount").toULongLong()==preview_uploads,
+                "Sketch repaint rebuilt or uploaded the unchanged native wire");
+            view->grabFramebuffer().save(QString::fromStdWString((directory/"sketch-profile-selection.png").wstring()));
+            std::cout<<"Pure Sketch hover/LMB/Tree/double-click: exact native profile points, no duplicate calculated curve, no mutation or repeated upload passed"<<std::endl;
+            continue;
+        }
         check(!selection_preview.empty()&&std::ranges::all_of(selection_preview,[](const auto& edge) {
             return edge.reference.semantic_key.starts_with("preview:");
         }),"Feature selection used calculated topology instead of the command preview");

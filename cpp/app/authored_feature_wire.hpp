@@ -1,4 +1,5 @@
 #pragma once
+#include "sketch_profile_wire.hpp"
 #include <zima/document/feature_material_wire.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/feature_up_to.hpp>
@@ -9,19 +10,35 @@
 #include <zima/workspace/operation_input.hpp>
 
 namespace zima::app {
+inline bool authored_sketch_profile(const document::HistoryContainer& feature) {
+    return feature.feature_kind==document::FeatureKind::Sketch||
+        (feature.feature_kind==document::FeatureKind::Feature&&feature.feature.shows_sketch());
+}
 // Use the command's analytical preview, rather than its calculated topology.
 // The viewer prepares this only when its source changes and caches one GPU batch.
 inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         const document::DocumentSession& session,const std::string& owner) {
     const auto& doc=session.document();
-    const auto* feature=doc.find_container(owner);
+    const auto selected_sketch=std::ranges::find(doc.sketches,owner,&sketcher::Sketch::id);
+    const auto* feature=doc.find_container(selected_sketch==doc.sketches.end()?owner:selected_sketch->owner_container_id);
     if(!feature||feature->suppressed)return {};
     kernel::ViewerMesh wire;
-    const auto* body=doc.body_owner_for_object(owner);
+    const auto* body=doc.body_owner_for_object(feature->id);
     const auto place=[&](kernel::ViewerMesh mesh) {
         if(body)mesh=doc.place_body_mesh(std::move(mesh),body->scope.id);
         return std::move(mesh.edges);
     };
+    if(selected_sketch!=doc.sketches.end()||authored_sketch_profile(*feature)) {
+        const auto sketch=selected_sketch!=doc.sketches.end()?selected_sketch:
+            std::ranges::find(doc.sketches,feature->id,&sketcher::Sketch::owner_container_id);
+        if(sketch==doc.sketches.end()||sketch->suppressed)return {};
+        wire=sketch->viewer_mesh();sketch->filter_hidden_3d_geometry(wire);
+        std::erase_if(wire.edges,[](const auto& edge){return !native_sketch_profile_edge(edge);});
+        // A pure Sketch has no material operand. Its calculated datum packet
+        // may contain interpolated profile supports; selection must use the
+        // actual Sketch curves, exactly like its ordinary visible profile.
+        return place(std::move(wire));
+    }
     const auto* input=workspace::calculated_operation_input(session,owner);
     const kernel::ViewerMesh empty;
     const auto& input_mesh=input?input->mesh:empty;

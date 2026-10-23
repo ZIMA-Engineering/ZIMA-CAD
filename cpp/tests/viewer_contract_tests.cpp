@@ -995,7 +995,9 @@ int main() {
                 external_source.geometry_index==offered[0].geometry_index,
                 "Ordinary Sketch Reference offered a whole face or lost stored face ancestry");
             const auto reference_kinds=zima::app::sketch_external_reference_candidate_kinds(false);
-            require(std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Face)==reference_kinds.end()&&
+            // Certified planar faces supply an individual infinite support;
+            // the stable-geometry predicate above rejects uncertified faces.
+            require(std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Face)!=reference_kinds.end()&&
                 std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Edge)!=reference_kinds.end()&&
                 std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Axis)!=reference_kinds.end()&&
                 std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Plane)!=reference_kinds.end(),
