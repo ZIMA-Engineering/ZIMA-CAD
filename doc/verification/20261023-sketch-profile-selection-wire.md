@@ -102,3 +102,30 @@ cases skipped; all 16 signing-input/publisher tests pass. Logs are
 `build/release-2301-package-tests.log` and
 `build/release-2301-publisher-tests.log`. Portable acceptance remains a separate
 gate on the exact committed candidate and signed archive.
+
+## Final 3D Curve consistency and point selection
+
+The user subsequently requested the same stronger highlight as an authored 3D
+Curve, superseding the earlier one-pixel Sketch-highlight preference. Both now
+consume `interaction::curve_highlight_wire_width` (1.8 logical pixels), azure
+`#00D1FF`, antialiased QPainter paths and round caps/joins. Idle Sketch width is
+unchanged. The native Sketch painter colors its existing exact native path;
+the cached one-pixel GPU stroke is not drawn beneath that highlighted path.
+The existing cached source and upload lifecycle remain intact.
+
+Visible persisted native points belonging to that exact Sketch and occurrence
+receive the same hover/confirmed azure state. External point references,
+construction aids and unrelated objects retain their existing rules. Active
+Sketcher interaction, point identity, dimensions and solver behavior are
+unchanged; the new ownership lookup applies only to ordinary container preview.
+
+Framebuffer tests check every visible native point for hover, LMB confirmation
+after moving away, collapsed/expanded parent Tree rows, explicit Sketch-child
+selection and double-click inspection. An empty click clears their azure state
+without changing the document or scene revision. The synthetic spline and real
+user copy pass in both themes; light takes 3.478 s and dark 3.323 s. Exact native
+curve arrays, Tree ownership and unchanged upload counts still pass. The final
+full-window dark capture was visually reviewed: one correctly shaped azure
+curve and its five native point markers, without a duplicate foreground wire.
+Evidence: `build/sketch-point-color-gui.log`. No user-visible text or catalog key
+is added or changed.

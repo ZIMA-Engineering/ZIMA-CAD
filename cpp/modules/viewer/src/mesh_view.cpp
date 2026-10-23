@@ -3865,6 +3865,11 @@ if (impl_->show_origins) {
     }();
     const bool authored_preview=!impl_->geometry_editing_presentation&&
         (ordinary_preview_candidate||impl_->inspected_container||!impl_->container_inspection_wire.empty());
+    std::set<std::string> ordinary_sketch_point_owners;
+    if(ordinary_preview_candidate)for(const auto& edge:impl_->mesh.edges) {
+        if(is_sketch_wire_edge(edge)&&candidate_recolors_wire_edge(*ordinary_preview_candidate,edge))
+            ordinary_sketch_point_owners.insert(edge.reference.owner_id);
+    }
     // Source-less imported wire and explicit editing still use their existing
     // result-edge batches. Authored feature hover/selection uses one preview.
     const auto feature_edge_state=[&] {
@@ -4345,7 +4350,9 @@ if (impl_->show_origins) {
     }
     const bool source_wire_visible=source_wire_key.has_value()&&impl_->selected_source_vertex_count>0;
     setProperty("gpuSourceWireVertexCount",source_wire_visible?impl_->selected_source_vertex_count:0);
-    if(source_wire_visible) {
+    // Native Sketch and 3D Curve wires use the same antialiased QPainter
+    // stroke below. Do not add the ordinary one-pixel GPU stroke beneath it.
+    if(source_wire_visible&&ordinary_sketch_point_owners.empty()) {
         impl_->program.setUniformValue("unlit",1);
         impl_->program.setUniformValue("color",interaction::rgba(interaction::selected));
         bind_attributes(impl_->selected_source_lines);
@@ -4866,11 +4873,8 @@ if (impl_->show_origins) {
                 const bool external_face = edge.reference.semantic_key.starts_with(
                     "external_face:");
                 if ((external || external_face) != reference_pass) continue;
-                // Ordinary whole-Sketch selection has one cached native wire.
-                // Do not paint its base stroke or a second thick highlight over
-                // that batch. Active Sketcher/reference entry retain this path.
-                if(ordinary_preview_candidate&&!external&&!external_face&&
-                        candidate_recolors_wire_edge(*ordinary_preview_candidate,edge))continue;
+                const bool ordinary_sketch_highlight=ordinary_preview_candidate&&!external&&!external_face&&
+                    candidate_recolors_wire_edge(*ordinary_preview_candidate,edge);
                 const QColor text_color = edge.reference.semantic_key.ends_with(":red") ? QColor(255,0,0)
                     : edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)
@@ -4910,7 +4914,10 @@ if (impl_->show_origins) {
                 const bool preview =
                     impl_->feature_preview_owner_ids.contains(
                         edge.reference.owner_id);
-                if (selected) {
+                if (ordinary_sketch_highlight) {
+                    edge_pen=QPen(interaction::selected,interaction::curve_highlight_wire_width,
+                        Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
+                } else if (selected) {
                     edge_pen.setColor(interaction::selected);
                     if (!edge.construction && !external && !external_face) edge_pen.setWidthF(interaction::selected_wire_width);
                 } else if (hovered) {
@@ -4988,7 +4995,7 @@ if (impl_->show_origins) {
                     : (referenced || preview)
                         ? interaction::selected
                         : centerline ? interaction::axis : theme.foreground;
-                QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||editing_curve?1.8:1.0,
+                QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||editing_curve?interaction::curve_highlight_wire_width:1.0,
                     Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
                 if (centerline) {
                     // Match the ordinary axes: 20 px dash, 10 px gaps, 3 px dot.
@@ -5326,7 +5333,11 @@ if (impl_->show_origins) {
                             candidate->owner_id==point.reference.owner_id&&candidate->semantic_key==parent_axis&&
                             candidate->instance_path==point.reference.instance_path;
                     };
-                    const bool selected = point.reference.owner_id ==
+                    const bool ordinary_sketch_point=ordinary_preview_candidate&&
+                        ordinary_sketch_point_owners.contains(point.reference.owner_id)&&
+                        ordinary_preview_candidate->instance_path==point.reference.instance_path&&
+                        point.reference.semantic_key.starts_with("point:");
+                    const bool selected = (ordinary_sketch_point&&impl_->confirmed_candidate) || point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
                         axis_candidate(impl_->confirmed_candidate) ||
                         (!point.display_owner_id.empty() && impl_->confirmed_candidate &&
@@ -5345,7 +5356,7 @@ if (impl_->show_origins) {
                             point.reference.semantic_key &&
                          impl_->confirmed_candidate->instance_path ==
                             point.reference.instance_path);
-                    const bool hovered = !impl_->confirmed_candidate && highlighted &&
+                    const bool hovered = (ordinary_sketch_point&&!impl_->confirmed_candidate) || (!impl_->confirmed_candidate && highlighted &&
                         (axis_candidate(highlighted) || (!point.display_owner_id.empty() &&
                           highlighted->kind == CandidateKind::Container &&
                           highlighted->owner_id == point.display_owner_id) ||
@@ -5361,7 +5372,7 @@ if (impl_->show_origins) {
                                CandidateKind::SketchExternalReference) &&
                           highlighted->semantic_key == point.reference.semantic_key &&
                           highlighted->owner_id == point.reference.owner_id)) &&
-                        point.reference.instance_path == highlighted->instance_path;
+                        point.reference.instance_path == highlighted->instance_path);
                     // Match ONLY the precise per-entity key -- see the
                     // identical comment on the plane block above.
                     const bool referenced = !selected && !hovered &&
@@ -5387,8 +5398,8 @@ if (impl_->show_origins) {
                     // and Revolution properties. The old purple exception
                     // made the point look unrelated to its plane.
                     // Sketcher points use the same interaction language as
-                    // the rest of the Viewer: white while idle, green while
-                    // offered and cyan once confirmed (including a drag).
+                    // the rest of the Viewer: white while idle and azure
+                    // while offered or confirmed (including a drag).
                     // Purple remains reserved for the separate feature and
                     // plane manipulators drawn elsewhere.
                     // State-owned datums keep the presentation of their

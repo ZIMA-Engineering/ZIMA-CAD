@@ -65,6 +65,26 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             QApplication::sendEvent(widget,&event);flush();
         }
     };
+    const auto check_sketch_point_color=[&](const document::HistoryContainer& feature,bool azure=true) {
+        if(!authored_sketch_profile(feature))return;
+        const auto sketch=std::ranges::find(model.sketches,feature.id,&sketcher::Sketch::owner_container_id);
+        check(sketch!=model.sketches.end(),"Sketch point color source missing");
+        const auto image=view->grabFramebuffer();
+        const double scale=double(image.width())/view->width();
+        std::size_t checked{};
+        for(const auto& point:view->mesh().points) {
+            if(point.reference.owner_id!=sketch->id||!point.reference.semantic_key.starts_with("point:"))continue;
+            const auto pixel=(project(point.position)*scale).toPoint();
+            if(!image.rect().adjusted(2,2,-2,-2).contains(pixel))continue;
+            const auto color=image.pixelColor(pixel);
+            const bool matches=std::abs(color.red()-interaction::selected.red())<40&&
+                std::abs(color.green()-interaction::selected.green())<40&&
+                std::abs(color.blue()-interaction::selected.blue())<40;
+            check(matches==azure,"Whole-Sketch native points have the wrong selection color");
+            ++checked;
+        }
+        check(checked>0,"Sketch point framebuffer check found no visible native points");
+    };
     bool all=true;std::size_t targets=0;
     for(const auto& feature:model.history) {
         const bool sketch_profile=authored_sketch_profile(feature);
@@ -95,6 +115,7 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             std::cout<<"Feature selection Tree owner="<<feature.id<<" expected_expanded="<<expanded
                 <<" actual_expanded="<<row->isExpanded()<<" role="<<tree->currentItem()->data(0,Qt::UserRole+3).toString().toStdString()<<std::endl;
             all&=correct;
+            check_sketch_point_color(feature);
         }
         const auto saved_palette=application.palette();
         for(bool dark:{false,true,false}) {
@@ -114,6 +135,7 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             if(sketch_profile) {
                 static_cast<void>(view->grabFramebuffer());
                 check(view->property("gpuSourceWireVertexCount").toInt()>0,"Explicit Sketch child bypassed its native cached wire");
+                check_sketch_point_color(feature);
             }
             break;
         }
@@ -172,12 +194,14 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         };
         if(sketch_profile)check(profile_color_visible(interaction::hover),
             "Native Sketch hover wire is absent or covered by the base Sketch color");
+        check_sketch_point_color(feature);
         mouse(view,*position);
         if(sketch_profile) {
             QMouseEvent leave(QEvent::MouseMove,QPointF(2,2),QPointF(view->mapToGlobal(QPoint(2,2))),
                 Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&leave);flush();
             check(profile_color_visible(interaction::selected),
                 "Native Sketch confirmed color disappears after the pointer leaves");
+            check_sketch_point_color(feature);
         }
         static_cast<void>(view->grabFramebuffer());
         const auto preview_vertices=view->property("gpuSourceWireVertexCount").toInt();
@@ -226,6 +250,11 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             check(view->property("gpuSourceWireUploadCount").toULongLong()==preview_uploads,
                 "Sketch repaint rebuilt or uploaded the unchanged native wire");
             view->grabFramebuffer().save(QString::fromStdWString((directory/"sketch-profile-selection.png").wstring()));
+            check_sketch_point_color(feature);
+            mouse(view,QPointF(2,2));
+            check_sketch_point_color(feature,false);
+            check(window.execute_console_command("documents").data==state&&view->base_mesh_revision()==revision,
+                "Clearing whole-Sketch selection changed document geometry");
             std::cout<<"Pure Sketch hover/LMB/Tree/double-click: exact native profile points, no duplicate calculated curve, no mutation or repeated upload passed"<<std::endl;
             continue;
         }
