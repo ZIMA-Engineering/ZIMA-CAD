@@ -170,7 +170,7 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     next.synchronize_history();
     validate_assembly_history_order(next);
     next.validate_sketch_containers();
-    calculate_resolved_assembly_cuts(kernel, next);
+    calculate_resolved_assembly_cuts(kernel, next,false,&live);
     state->session.commit(std::move(next));
 }
 } // namespace zima::workspace

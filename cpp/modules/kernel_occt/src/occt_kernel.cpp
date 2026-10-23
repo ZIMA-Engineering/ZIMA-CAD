@@ -11,6 +11,7 @@
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
+#include <zima/kernel/curve_plane_intersection.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
@@ -327,6 +328,7 @@ struct PrimitiveData {
     std::vector<SheetCutRegion> sheet_cuts;
     ViewerReferenceGeometry profile_references;
     bool empty_material_operand{};
+    bool reference_only{}; // Stationary endpoint datums are not a material wire.
 };
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees) {
@@ -1172,33 +1174,19 @@ TopoDS_Wire make_profile_wire(
                             }
                             return edge.Edge();
                         }
+                        if (!exact_curve.knots.empty()) {
+                            BSplineGeometry data{exact_curve.degree, exact_curve.control_points,
+                                exact_curve.knots, exact_curve.weights};
+                            const auto exact=restore_bspline_geometry(data);
+                            BRepBuilderAPI_MakeEdge edge(exact);
+                            if (!edge.IsDone()) throw std::runtime_error("Exact rational profile failed");
+                            return edge.Edge();
+                        }
                         TColgp_Array1OfPnt poles(1, pole_count);
                         for (Standard_Integer index = 1; index <= pole_count; ++index) {
                             const auto& point = exact_curve.control_points[
                                 static_cast<std::size_t>(index - 1)];
                             poles.SetValue(index, gp_Pnt(point.x, point.y, point.z));
-                        }
-                        if (!exact_curve.knots.empty()) {
-                            BSplineGeometry data{exact_curve.degree, exact_curve.control_points,
-                                exact_curve.knots, exact_curve.weights};
-                            data.validate();
-                            std::vector<double> unique; std::vector<int> counts;
-                            for (double k : data.knots) {
-                                if (unique.empty() || unique.back()!=k) { unique.push_back(k); counts.push_back(1); }
-                                else ++counts.back();
-                            }
-                            TColStd_Array1OfReal knots(1, static_cast<int>(unique.size()));
-                            TColStd_Array1OfInteger mults(1, static_cast<int>(unique.size()));
-                            TColStd_Array1OfReal weights(1, pole_count);
-                            for (int i=1; i<=pole_count; ++i) weights.SetValue(i, data.weights[i-1]);
-                            for (int i=1; i<=static_cast<int>(unique.size()); ++i) {
-                                knots.SetValue(i,unique[i-1]); mults.SetValue(i,counts[i-1]);
-                            }
-                            Handle(Geom_BSplineCurve) exact = new Geom_BSplineCurve(
-                                poles,weights,knots,mults,static_cast<int>(data.degree),false);
-                            BRepBuilderAPI_MakeEdge edge(exact);
-                            if (!edge.IsDone()) throw std::runtime_error("Exact rational profile failed");
-                            return edge.Edge();
                         }
                         const Standard_Integer knot_count = exact_curve.periodic
                             ? pole_count + 1 : pole_count -
@@ -1499,6 +1487,7 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
     std::vector<TopoDS_Edge> original_edges;
     auto original=make_profile_wire(section.profile.outer_profile,section.profile_normal,std::nullopt,&original_edges);
     if(original_edges.size()!=section.profile.outer_edge_source_ids.size())throw std::runtime_error("Chybí zdrojové křivky Thin profilu");
+    const bool closed=BRep_Tool::IsClosed(original);
     const auto offset=[&](double amount,const std::string& role){
         SweepProfileWire result;
         if (const auto* circle=std::get_if<ExtrusionRequest::CircleProfile>(&section.profile.outer_profile)) {
@@ -1597,7 +1586,9 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
         const auto n=section.profile_normal;
         const gp_Pln plane(p,gp_Dir(n.x,n.y,n.z));
         BRepBuilderAPI_MakeFace support(plane);support.Add(original);
-        BRepOffsetAPI_MakeOffset builder(support.Face(),GeomAbs_Intersection,true);
+        // Closed contours need their first/last offset edges joined as well.
+        // Open-result mode leaves that corner untrimmed on mixed line/arc wires.
+        BRepOffsetAPI_MakeOffset builder(support.Face(),GeomAbs_Intersection,!closed);
         if(std::abs(amount)>1e-10){builder.Perform(-amount);if(!builder.IsDone())throw std::runtime_error("Nelze odsadit Thin profil");}
         BRepBuilderAPI_MakeWire wire;
         for(std::size_t i=0;i<original_edges.size();++i){
@@ -1605,13 +1596,13 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
             if(std::abs(amount)<=1e-10)generated.push_back(original_edges[i]);
             else{const auto& shapes=builder.Generated(original_edges[i]);for(TopTools_ListIteratorOfListOfShape it(shapes);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE)generated.push_back(TopoDS::Edge(it.Value()));}
             if(generated.size()!=1)throw std::runtime_error("Odsazení změnilo topologii profilu; upravte tloušťku");
-            wire.Add(generated.front());result.edges.push_back(generated.front());
+            wire.Add(generated.front());if(!wire.IsDone())throw std::runtime_error("Nesouvislé odsazení Thin profilu");
+            result.edges.push_back(generated.front());
             result.curve_ids.push_back("thin:"+role+":from:"+section.profile.outer_edge_source_ids[i]);
             if(!section.profile.outer_vertex_source_ids.empty())result.point_ids.push_back("thin:"+role+":from:"+section.profile.outer_vertex_source_ids.at(i));
         }
-        if(!wire.IsDone())throw std::runtime_error("Nesouvislé odsazení Thin profilu");result.wire=wire.Wire();return result;
+        result.wire=wire.Wire();return result;
     };
-    const bool closed=BRep_Tool::IsClosed(original);
     auto first=offset(request.thin_first,"first"),second=offset(request.thin_second,"second");
     if(closed){
         const auto area=[](const TopoDS_Wire& w){BRepBuilderAPI_MakeFace face(w,true);if(!face.IsDone()||!BRepCheck_Analyzer(face.Face()).IsValid())throw std::runtime_error("Neplatný odsazený průřez");GProp_GProps props;BRepGProp::SurfaceProperties(face.Face(),props);return props.Mass();};
@@ -2466,7 +2457,7 @@ std::vector<PrimitiveData> stationary_profile_data(const Request& request,
     const auto base=profile_base(wires,request.surface_result);
     std::vector<PrimitiveData> result;
     for(const auto* role:{"start","end"}) {
-        PrimitiveData datum;datum.shape=base;
+        PrimitiveData datum;datum.shape=base;datum.reference_only=true;
         if(!request.surface_result) {
             auto cap=base;
             if(std::string_view(role)=="start")cap.Reverse();
@@ -2620,6 +2611,13 @@ void locate_clipped_profile_end(BRepAlgoAPI_BooleanOperation& clip,PrimitiveData
                 append(data.vertices,it.Value(),role+":"+edge.reference.semantic_key.substr(10));
 }
 
+std::vector<OwnedEdge> complete_boolean_edges(const TopoDS_Shape&,
+    const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
+    const std::string&,std::string_view,const std::vector<OwnedFace>&,
+    const std::vector<OwnedVertex>&);
+std::vector<OwnedVertex> complete_boolean_vertices(const TopoDS_Shape&,
+    const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
+    const std::vector<OwnedVertex>&,const std::string&,std::string_view);
 #include "ordered_up_to_profile.inc"
 
 PrimitiveData make_extrusion_data(
@@ -6662,6 +6660,14 @@ void compact_history_reference_geometry(std::vector<BodyResult>& boundaries) {
 
 }  // namespace
 
+BSplineGeometry exact_path_segment_geometry(const Sweep3DRequest::PathSegment& segment) {
+    const auto curve=sweep_spine_curve(segment);
+    if(curve.IsNull())return {1,{segment.start,segment.end},{0,0,1,1},{1,1}};
+    const auto exact=capture_bspline_geometry(curve);
+    if(!exact)throw std::runtime_error("Curve-plane intersection calculation failed.");
+    return *exact;
+}
+
 struct OcctKernel::LiveCache {
     const std::shared_ptr<const void> provenance=std::make_shared<const int>(0);
     std::vector<BodyResult> mark_current(std::vector<BodyResult> result,bool proven) const {
@@ -6714,6 +6720,8 @@ struct OcctKernel::HistoryContext {
     bool require_original_faces{};
     std::set<std::string> requested_solids;
     std::map<std::string,BodyResult> source_solids;
+    bool preview_wire{};
+    TopoDS_Shape preview_input;
 };
 
 OcctKernel::OcctKernel() : live_cache_(std::make_unique<LiveCache>()) {}
@@ -6901,7 +6909,21 @@ std::vector<std::optional<double>> OcctKernel::measure_face_areas(
 }
 
 
-struct OcctKernel::NativeFaceSource { PrimitiveData geometry; };
+struct OcctKernel::NativeFaceSource {
+    const BodyResult* source{};
+    const BodyResult* placed_source{};
+    PrimitiveData geometry(const OcctKernel& owner) const {
+        const auto native=owner.live_cache_->boundaries.find(source->source_fingerprint);
+        if(native!=owner.live_cache_->boundaries.end()&&native->second.topology) {
+            PrimitiveData geometry;geometry.shape=native->second.shape;
+            geometry.faces=native->second.topology->faces;
+            geometry.edges=native->second.topology->edges;
+            geometry.vertices=native->second.topology->vertices;
+            return place_bound_geometry(std::move(geometry),placed_source?*placed_source:*source);
+        }
+        return place_bound_geometry(bound_face_geometry(*source,true),placed_source?*placed_source:*source);
+    }
+};
 
 OcctKernel::NativeFaceSource OcctKernel::native_face_source(
         const BodyResult& body,const FaceReference& reference) const {
@@ -6934,22 +6956,84 @@ OcctKernel::NativeFaceSource OcctKernel::native_face_source(
     };
     find(find,body,nullptr);
     if(!source)throw std::runtime_error("Intersection source face is missing at its input boundary.");
-    // Consume authored native identities from the current calculated boundary,
-    // or decode their persisted bindings after reopen. Ordinary solid results
-    // need not have serialized edge bindings while their live topology exists.
-    // Neither path replays history or reconstructs identities from the mesh.
-    auto input=[&] {
-        const auto native=live_cache_->boundaries.find(source->source_fingerprint);
-        if(native!=live_cache_->boundaries.end()&&native->second.topology) {
-            PrimitiveData geometry;geometry.shape=native->second.shape;
-            geometry.faces=native->second.topology->faces;
-            geometry.edges=native->second.topology->edges;
-            geometry.vertices=native->second.topology->vertices;
-            return place_bound_geometry(std::move(geometry),placed_source?*placed_source:*source);
+    // Resolution still checks the entire source universe for ambiguity. The
+    // caller may then decode this exact immutable source once for several faces.
+    return {source,placed_source};
+}
+
+std::vector<ViewerEdge> OcctKernel::calculate_feature_preview(HistoryOperation operation,
+        const BodyResult& references,KernelRigidPlacement frame_to_document,const BodyResult& local_input,
+        const std::vector<OrderedUpToPatch>& external_sources) const {
+    return calculate_feature_geometry(std::move(operation),references,frame_to_document,local_input,external_sources,true).mesh.edges;
+}
+
+BodyResult OcctKernel::calculate_feature_tool(HistoryOperation operation,const BodyResult& references,
+        KernelRigidPlacement frame,const BodyResult& input,const std::vector<OrderedUpToPatch>& sources) const {
+    return calculate_feature_geometry(std::move(operation),references,frame,input,sources,false);
+}
+
+BodyResult OcctKernel::calculate_feature_geometry(HistoryOperation operation,
+        const BodyResult& references,KernelRigidPlacement frame_to_document,const BodyResult& local_input,
+        const std::vector<OrderedUpToPatch>& external_sources,bool wire_only) const {
+    if(!std::holds_alternative<FeatureGroupRequest>(operation.primitive))
+        throw std::invalid_argument("Invalid Feature definition.");
+    try {
+        HistoryContext context;context.preview_wire=wire_only;
+        const auto& group=std::get<FeatureGroupRequest>(operation.primitive);
+        const bool through_all=std::ranges::any_of(group.children,[](const auto& child) {
+            const auto* extrusion=std::get_if<ExtrusionRequest>(&child);
+            return extrusion&&(extrusion->extent==ExtrusionRequest::Extent::ThroughAll||extrusion->through_all_reverse);
+        });
+        if(through_all&&!local_input.kernel_shape.empty())context.preview_input=read_kernel_shape(local_input);
+        auto selected=extrusion_references({operation});
+        for(const auto& child:group.children)if(const auto* rotation=std::get_if<RevolutionRequest>(&child))
+            if(rotation->end_limit&&!rotation->end_limit->datum)selected.push_back(rotation->end_limit->reference);
+        const auto inverse=primitive_transform(frame_to_document.translation,frame_to_document.rotation_degrees).Inverted();
+        std::vector<FaceReference> consumed;
+        struct PreparedSource {NativeFaceSource source;PrimitiveData geometry;};
+        std::vector<PreparedSource> prepared;
+        for(const auto& reference:selected) {
+            if(std::ranges::any_of(consumed,[&](const auto& item){return same_face_identity(item,reference);}))continue;
+            consumed.push_back(reference);
+            const auto supplied=std::ranges::find_if(external_sources,[&](const auto& patch){
+                return patch.native_source&&same_face_identity(patch.target.reference,reference);
+            });
+            const auto native=supplied==external_sources.end()?native_face_source(references,reference):
+                native_face_source(supplied->native_source->body.get(),supplied->native_source->reference);
+            auto cached=std::ranges::find_if(prepared,[&](const auto& entry){
+                return entry.source.source==native.source&&entry.source.placed_source==native.placed_source;
+            });
+            if(cached==prepared.end()) {prepared.push_back({native,native.geometry(*this)});cached=std::prev(prepared.end());}
+            const auto& geometry=cached->geometry;
+            const auto& source_reference=supplied==external_sources.end()?reference:supplied->native_source->reference;
+            for(const auto& face:geometry.faces)if(same_face_identity(face.reference,source_reference)) {
+                auto shape=face.shape;
+                if(supplied!=external_sources.end())for(const auto& placement:supplied->native_source->placements)
+                    shape=TopoDS::Face(BRepBuilderAPI_Transform(shape,primitive_transform(placement.translation,placement.rotation_degrees),true).Shape());
+                shape=TopoDS::Face(BRepBuilderAPI_Transform(shape,inverse,true).Shape());
+                context.external_faces.push_back({shape,reference});
+            }
         }
-        return place_bound_geometry(bound_face_geometry(*source,true),placed_source?*placed_source:*source);
-    }();
-    return {std::move(input)};
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Feature native sources: %zu preparations for %zu distinct targets\n",prepared.size(),consumed.size());
+        // This private operation now owns the prepared, placed targets above.
+        // Let ordered clipping consume those targets instead of decoding the
+        // same Assembly source again through its borrowed native_source path.
+        for(auto& child:std::get<FeatureGroupRequest>(operation.primitive).children)
+            if(auto* extrusion=std::get_if<ExtrusionRequest>(&child);extrusion&&extrusion->ordered_end_limit)
+                for(auto& patch:extrusion->ordered_end_limit->patches)
+                    if(patch.native_source&&std::ranges::any_of(context.external_faces,[&](const auto& face){
+                            return same_face_identity(face.reference,patch.target.reference);}))patch.native_source.reset();
+        operation.body={};operation.operation=BooleanOperation::Add;
+        operation.suppressed=false;operation.feature_copy.reset();
+        ExtrusionRequest source_key;source_key.ordered_end_limit.emplace();source_key.ordered_end_limit->patches=external_sources;
+        HistoryOperation frame_key{"feature-frame",std::move(source_key)};frame_key.body.id="feature-frame";frame_key.body.translation=frame_to_document.translation;
+        frame_key.body.rotation_degrees=frame_to_document.rotation_degrees;
+        context.dependency_key=std::string(wire_only?":preview:":":feature-tool:")+references.source_fingerprint+":"+
+            local_input.source_fingerprint+":"+history_fingerprint({frame_key},1);
+        auto result=evaluate_flat_history({operation},{},context);
+        if(result.size()!=1)throw std::runtime_error("Invalid Feature definition.");
+        return std::move(result.front());
+    }catch(const Standard_Failure& error){throw std::runtime_error(error.GetMessageString());}
 }
 
 ViewerReferenceGeometry OcctKernel::intersect_face_plane(
@@ -6967,7 +7051,7 @@ ViewerReferenceGeometry OcctKernel::intersect_face_plane(
         !finite(request.origin)||!finite(request.normal)||std::hypot(request.normal.x,request.normal.y,request.normal.z)<=1e-12||
         !std::isfinite(request.tolerance)||request.tolerance<=0.)
         throw std::invalid_argument("Intersection face reference is invalid.");
-    auto input=native_face_source(body,request.face).geometry;
+    auto input=native_face_source(body,request.face).geometry(*this);
     auto selected_face=request.face;
     if(!selected_face.instance_path.empty()) {
         // A calculated copy already owns its exact transformed native shapes.
@@ -6986,7 +7070,7 @@ ViewerReferenceGeometry OcctKernel::intersect_face_plane(
         gp_Dir(request.normal.x,request.normal.y,request.normal.z))).Face();
     input.faces.push_back({support,plane});
     SurfaceIntersectionRequest intersection{{selected_face,plane},request.tolerance};
-    const auto curves=make_surface_intersection_data(intersection,request.plane_owner_id,input.faces,input.edges,input.vertices,true);
+    const auto curves=make_surface_intersection_data(intersection,request.plane_owner_id,input.faces,input.edges,input.vertices,true,request.reference_branches);
     if(curves.edges.empty()&&curves.vertices.empty())return {};
     auto result=make_result(curves.shape,{},curves.edges,curves.vertices,true,false,true,{},0.,false);
     std::erase_if(result.mesh.original_references.points,[](const auto& point){return !point.reference.valid();});
@@ -8393,7 +8477,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto& patch=limit->patches[row];
                 if(!patch.native_source) {result.push_back(original_target(limit_view(patch.target)));continue;}
                 const auto& source=*patch.native_source;
-                auto geometry=native_face_source(source.body.get(),source.reference).geometry;
+                auto geometry=native_face_source(source.body.get(),source.reference).geometry(*this);
                 std::vector<OwnedFace> selected;
                 for(auto face:geometry.faces)if(same_face_identity(face.reference,source.reference)) {
                     for(const auto& placement:source.placements)
@@ -9598,9 +9682,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         const auto exact_reverse=value.reverse_limit?original_target(limit_view(*value.reverse_limit)):std::nullopt;
                         double forward_span = 2'000'000.0;
                         double reverse_span = 2'000'000.0;
+                        const auto& extent_input=context.preview_wire||result_shape.IsNull()?context.preview_input:result_shape;
                         if ((value.extent ==
                                 ExtrusionRequest::Extent::ThroughAll || value.through_all_reverse) &&
-                            !result_shape.IsNull()) {
+                            !extent_input.IsNull()) {
                             const Vec3 profile_origin = std::visit(
                                 [](const auto& profile) {
                                     using Profile = std::decay_t<
@@ -9628,7 +9713,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 value.direction.y / direction_length,
                                 value.direction.z / direction_length};
                             Bnd_Box bounds;
-                            BRepBndLib::Add(result_shape, bounds);
+                            BRepBndLib::Add(extent_input, bounds);
                             Standard_Real xmin{}, ymin{}, zmin{},
                                 xmax{}, ymax{}, zmax{};
                             bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
@@ -10996,6 +11081,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             grouped = std::move(child_data);
                             continue;
                         }
+                        if(context.preview_wire)continue; // Authored children are displayed separately.
                         BRepAlgoAPI_Fuse fuse;
                         set_boolean_inputs(fuse, grouped->shape, child_data.shape);
                         fuse.SetToFillHistory(true);
@@ -11099,6 +11185,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 for(auto& child:group_inputs) {
                     assign(child.faces);assign(child.source_caps);
                 }
+            }
+            if(context.preview_wire) {
+                BodyResult preview;
+                const auto append=[&](const PrimitiveData& data) {
+                    if(data.reference_only)return;
+                    auto sampled=make_result(data.shape,data.faces,data.edges,data.vertices,true,false,false,{},operation.mesh_deflection,false);
+                    for(auto& edge:sampled.mesh.edges)if(!edge.parameter_seam)
+                        preview.mesh.edges.push_back(std::move(edge));
+                };
+                if(group_inputs.empty())append(operand);else for(const auto& child:group_inputs)append(child);
+                boundaries.push_back(std::move(preview));return boundaries;
             }
             auto source_faces=operand.faces;
             if(!group_inputs.empty()) {

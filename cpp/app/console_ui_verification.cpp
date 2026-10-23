@@ -1,4 +1,6 @@
 #include "../tests/native_property_fixture.hpp"
+#include "../tests/broken_reference_fixture.hpp"
+#include "../tests/thin_wire_verification.hpp"
 #include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/document/feature_serialization.hpp>
 #include "feature_parameter_panel.hpp"
@@ -114,6 +116,9 @@
 
 namespace zima::app {
 #include "ordered_up_to_ui_verification.inc"
+#include "assembly_preview_wire_ui_verification.inc"
+#include "broken_reference_ui_verification.inc"
+#include "partial_generator_ui_verification.inc"
 #include "sheet_form_ui_verification.inc"
 // Specialized GUI suites must not inherit the large general console suite's
 // local document snapshots on the Windows main-thread stack.
@@ -570,6 +575,9 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BROKEN_REFERENCE_ONLY"))return verify_broken_reference_ui(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PARTIAL_GENERATOR_SOURCE"))return verify_partial_generator_ui(application,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_PREVIEW_WIRE"))return verify_assembly_preview_wire_ui(application,window);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORDERED_UP_TO_ONLY"))return verify_ordered_up_to_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_LOCKING_HOLE_ONLY"))return verify_locking_hole_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHAFT_THREAD_DIALOG_ONLY"))return verify_shaft_thread_dialog(window,directory);

@@ -13,6 +13,7 @@
 #include "tool_button_style.hpp"
 
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/background_task.hpp>
 
 #include <QAction>
 #include <QApplication>
@@ -1403,25 +1404,134 @@ void FileManagerTab::restore_column_layout(){
 }
 
 void FileManagerTab::clean_directory(const QString& directory){
-    const int source=source_index_for(directory);if(source<0||sources_.at(source).source.read_only||!ancestor_removal_lock(directory).isEmpty())return;
-    // Parts' zima-clean rule: every numeric suffix is an archive, including
-    // orphaned archives and suffixes larger than uint64. Never touch current files.
-    const QRegularExpression archive("^.+\\.(?:prtz|asmz|drwz|frmz|tblz|symz)\\.[0-9]+$",QRegularExpression::CaseInsensitiveOption);
+    const int source=source_index_for(directory);
+    if(source<0||sources_.at(source).source.read_only||!ancestor_removal_lock(directory).isEmpty())return;
     const QString canonical_root=QFileInfo(directory).canonicalFilePath();if(canonical_root.isEmpty())return;
-    const auto fingerprint=[](const QString& path){QFile file(path);if(!file.open(QIODevice::ReadOnly))return QByteArray{};QCryptographicHash hash(QCryptographicHash::Sha256);if(!hash.addData(&file))return QByteArray{};return hash.result();};
-    QStringList candidates;QMap<QString,QByteArray> fingerprints;QDirIterator iterator(directory,QDir::Files|QDir::NoDotAndDotDot,QDirIterator::Subdirectories);
-    while(iterator.hasNext()){const QString path=iterator.next();const QFileInfo info(path);const int owner=source_index_for(path);if(info.isSymLink()||info.isJunction()||owner<0||sources_[owner].source.read_only||!path_belongs_to(info.canonicalFilePath(),canonical_root)||!archive.match(info.fileName()).hasMatch()||!removal_lock(info).isEmpty())continue;const auto hash=fingerprint(path);if(hash.isEmpty())continue;candidates<<path;fingerprints[path]=hash;}
+    // Capture plain source policy, never QFileSystemModel or QWidget state.
+    const auto policies=[this] {
+        QVector<QPair<QString,bool>> result;
+        for(const auto& page:sources_)result.push_back({page.source.resolved_path,page.source.read_only});
+        return result;
+    };
+    const auto writable=[](const auto& sources,const QString& path) {
+        qsizetype longest=-1;bool allowed=false;
+        for(const auto& entry:sources)if(entry.first.size()>longest&&path_belongs_to(path,entry.first)) {
+            longest=entry.first.size();allowed=!entry.second;
+        }
+        return allowed;
+    };
+    const auto fingerprint=[](const QString& path) {
+        QFile file(path);if(!file.open(QIODevice::ReadOnly))return QByteArray{};
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        if(!hash.addData(&file))return QByteArray{};return hash.result();
+    };
+    // The common indicator is anchored to this visible utility surface; the
+    // model View can be hidden while the File Manager is active.
+    ui::OperationActivity activity(window(),this);
+    QMap<QString,QByteArray> fingerprints;
+    {
+        ui::OperationActivity::Scope busy(&activity,tr("Looking for archived document versions…"));
+        fingerprints=ui::run_background_task([directory,canonical_root,sources=policies(),writable,fingerprint] {
+            // Every numeric suffix is an archive, including orphaned versions
+            // and suffixes larger than uint64. Current documents are excluded.
+            const QRegularExpression archive("^.+\\.(?:prtz|asmz|drwz|frmz|tblz|symz)\\.[0-9]+$",QRegularExpression::CaseInsensitiveOption);
+            QMap<QString,QByteArray> result;
+            QDirIterator iterator(directory,QDir::Files|QDir::NoDotAndDotDot,QDirIterator::Subdirectories);
+            while(iterator.hasNext()) {
+                const QString path=iterator.next();const QFileInfo info(path);
+                if(info.isSymLink()||info.isJunction()||!writable(sources,path)||
+                        !path_belongs_to(info.canonicalFilePath(),canonical_root)||!archive.match(info.fileName()).hasMatch()||
+                        !removal_lock(info).isEmpty())continue;
+                const auto hash=fingerprint(path);if(!hash.isEmpty())result.insert(path,hash);
+            }
+            return result;
+        });
+    }
+    const auto candidates=fingerprints.keys();
     if(candidates.isEmpty()){QMessageBox::information(this,tr("Vyčistit"),tr("Žádné archivní verze k vyčištění."));return;}
-    QMessageBox confirmation(QMessageBox::Question,tr("Vyčistit"),tr("Přesunout %1 archivních verzí do koše? Aktuální dokumenty zůstanou zachovány.").arg(candidates.size()),QMessageBox::Yes|QMessageBox::No,this);confirmation.setDefaultButton(QMessageBox::No);confirmation.setDetailedText(candidates.join('\n'));if(confirmation.exec()!=QMessageBox::Yes)return;
-    for(const auto& path:candidates){const QFileInfo info(path);if(!removal_lock(info).isEmpty()||info.isSymLink()||!path_belongs_to(info.canonicalFilePath(),canonical_root)||fingerprint(path)!=fingerprints.value(path)||!QFile::moveToTrash(path)){QMessageBox::warning(this,tr("Operace se nezdařila"),tr("Archivní verzi nelze přesunout do koše: %1").arg(path));break;}}
+    QMessageBox confirmation(QMessageBox::Question,tr("Vyčistit"),tr("Přesunout %1 archivních verzí do koše? Aktuální dokumenty zůstanou zachovány.").arg(candidates.size()),QMessageBox::Yes|QMessageBox::No,this);
+    confirmation.setDefaultButton(QMessageBox::No);confirmation.setDetailedText(candidates.join('\n'));
+    if(confirmation.exec()!=QMessageBox::Yes)return;
+    QString failure;
+    {
+        ui::OperationActivity::Scope busy(&activity,tr("Moving archived versions to the Recycle Bin…"));
+        failure=ui::run_background_task([fingerprints,canonical_root,sources=policies(),writable,fingerprint] {
+            for(auto entry=fingerprints.cbegin();entry!=fingerprints.cend();++entry) {
+                const auto& path=entry.key();const QFileInfo info(path);
+                // Revalidate after confirmation, including content and all
+                // original protection/containment checks, before recycling.
+                if(info.isSymLink()||info.isJunction()||!writable(sources,path)||!removal_lock(info).isEmpty()||
+                        !path_belongs_to(info.canonicalFilePath(),canonical_root)||fingerprint(path)!=entry.value()||
+                        !QFile::moveToTrash(path))return path;
+            }
+            return QString{};
+        });
+    }
+    if(!failure.isEmpty())QMessageBox::warning(this,tr("Operace se nezdařila"),tr("Archivní verzi nelze přesunout do koše: %1").arg(failure));
     refresh_directory();
 }
 
 QStringList FileManagerTab::selected_paths()const{QStringList paths;for(int i=0;i<files_->topLevelItemCount();++i){auto* item=files_->topLevelItem(i);if(item->checkState(0)==Qt::Checked)paths<<item->data(0,Qt::UserRole).toString();}return paths;}
 
-void FileManagerTab::copy_selected(bool move){const auto paths=selected_paths();if(paths.isEmpty()){QMessageBox::information(this,tr("Správce souborů"),tr("Nejprve zaškrtněte soubory nebo adresáře."));return;}if(move)for(const auto& path:paths){const QString locked=removal_lock(QFileInfo(path));if(!locked.isEmpty()){QMessageBox::warning(this,tr("Operace se nezdařila"),tr("Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.").arg(QDir::toNativeSeparators(locked)));return;}}const QString destination=choose_directory(this,move?tr("Přesunout do"):tr("Kopírovat do"),working_directory_,settings_.translations);if(destination.isEmpty())return;for(const auto& path:paths){QString error;if(!copy_path(path,destination,&error)){QMessageBox::critical(this,tr("Operace se nezdařila"),error);return;}if(move){const QFileInfo info(path);bool removed=info.isDir()?QDir(path).removeRecursively():QFile::remove(path);if(!removed){QMessageBox::critical(this,tr("Operace se nezdařila"),tr("Kopie vznikla, ale původní položku nelze odstranit: %1").arg(path));return;}}}refresh_directory();}
+void FileManagerTab::copy_selected(bool move){
+    const auto paths=selected_paths();
+    if(paths.isEmpty()){QMessageBox::information(this,tr("Správce souborů"),tr("Nejprve zaškrtněte soubory nebo adresáře."));return;}
+    const QString destination=choose_directory(this,move?tr("Přesunout do"):tr("Kopírovat do"),working_directory_,settings_.translations);
+    if(destination.isEmpty())return;
+    QString error;
+    {
+        ui::OperationActivity activity(window(),this);
+        ui::OperationActivity::Scope busy(&activity,move?tr("Moving files…"):tr("Copying files…"));
+        error=ui::run_background_task([paths,destination,move] {
+            if(move)for(const auto& path:paths)if(const auto locked=removal_lock(QFileInfo(path));!locked.isEmpty())
+                return QObject::tr("Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.").arg(QDir::toNativeSeparators(locked));
+            for(const auto& path:paths) {
+                QString failure;if(!copy_path(path,destination,&failure))return failure;
+                if(move) {
+                    const QFileInfo info(path);
+                    // Do not remove an original whose directory became protected
+                    // while its copy was being written.
+                    const bool removed=removal_lock(info).isEmpty()&&(info.isDir()?QDir(path).removeRecursively():QFile::remove(path));
+                    if(!removed)return QObject::tr("Kopie vznikla, ale původní položku nelze odstranit: %1").arg(path);
+                }
+            }
+            return QString{};
+        });
+    }
+    if(!error.isEmpty())QMessageBox::critical(this,tr("Operace se nezdařila"),error);
+    refresh_directory();
+}
 
-void FileManagerTab::delete_selected(){const auto paths=selected_paths();if(paths.isEmpty()){QMessageBox::information(this,tr("Správce souborů"),tr("Nejprve zaškrtněte soubory nebo adresáře."));return;}for(const auto& path:paths){const QString locked=removal_lock(QFileInfo(path));if(!locked.isEmpty()){QMessageBox::warning(this,tr("Odstranění selhalo"),tr("Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.").arg(QDir::toNativeSeparators(locked)));return;}}if(QMessageBox::warning(this,tr("Smazat vybrané položky"),tr("Opravdu chcete přesunout %1 vybraných položek do koše?").arg(paths.size()),QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes)return;for(const auto& path:paths){if(!QFile::moveToTrash(path)){QMessageBox::critical(this,tr("Odstranění selhalo"),tr("Položku nelze přesunout do koše: %1").arg(path));break;}}refresh_directory();}
+void FileManagerTab::delete_selected(){
+    const auto paths=selected_paths();
+    if(paths.isEmpty()){QMessageBox::information(this,tr("Správce souborů"),tr("Nejprve zaškrtněte soubory nebo adresáře."));return;}
+    QString error;
+    {
+        ui::OperationActivity activity(window(),this);
+        ui::OperationActivity::Scope busy(&activity,tr("Checking selected items…"));
+        error=ui::run_background_task([paths] {
+            for(const auto& path:paths)if(const auto locked=removal_lock(QFileInfo(path));!locked.isEmpty())
+                return QObject::tr("Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.").arg(QDir::toNativeSeparators(locked));
+            return QString{};
+        });
+    }
+    if(!error.isEmpty()){QMessageBox::warning(this,tr("Odstranění selhalo"),error);return;}
+    if(QMessageBox::warning(this,tr("Smazat vybrané položky"),tr("Opravdu chcete přesunout %1 vybraných položek do koše?").arg(paths.size()),QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes)return;
+    {
+        ui::OperationActivity activity(window(),this);
+        ui::OperationActivity::Scope busy(&activity,tr("Moving selected items to the Recycle Bin…"));
+        error=ui::run_background_task([paths] {
+            for(const auto& path:paths) {
+                if(const auto locked=removal_lock(QFileInfo(path));!locked.isEmpty())
+                    return QObject::tr("Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.").arg(QDir::toNativeSeparators(locked));
+                if(!QFile::moveToTrash(path))return QObject::tr("Položku nelze přesunout do koše: %1").arg(path);
+            }
+            return QString{};
+        });
+    }
+    if(!error.isEmpty())QMessageBox::critical(this,tr("Odstranění selhalo"),error);
+    refresh_directory();
+}
 
 void FileManagerTab::set_working_directory_action(QAction* action){choose_working_directory_->setDefaultAction(action);choose_working_directory_->setToolButtonStyle(Qt::ToolButtonIconOnly);}
 

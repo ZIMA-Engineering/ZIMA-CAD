@@ -1,0 +1,207 @@
+{
+  "status": "Windows developer review accepted; portable publication pending",
+  "version": "2026102301",
+  "baseline_commit": "5c05c66db3fc2a72415a7318e956cdeb849c0e01",
+  "verified_implementation_blobs": {
+    "config/localization/cs.qt.json": "b3281803c097a89b205a8ec3da59d3a47ea0086d",
+    "config/localization/de.qt.json": "febc0dff954e505814d86600d952e7ba4bb63d37",
+    "config/localization/en.qt.json": "b970b94e1a13d86d79cdf06a9dbd5736232de566",
+    "config/localization/fr.qt.json": "8292bbe901cc5f189cf7a477c0d876fa42e4939b",
+    "config/localization/ru.qt.json": "945408201b301f938a515e88ce2d23fcce003d54",
+    "cpp/CMakeLists.txt": "dfc66bddc5d07a23334b6436e8c0e39eb7f6ce10",
+    "cpp/app/feature_parameter_panel.hpp": "fb318b730159e073c83f037d037b31f4e75e70ac",
+    "cpp/app/ordered_up_to_ui_verification.inc": "aab1a7a504b7b753a88aed345a16dabc63d949a9",
+    "cpp/app/sketch_face_plane_ui_verification.inc": "6338cd8e16123327d3c562a7ad67604f2bfd39cd",
+    "cpp/app/workspace/actions.cpp": "c1bcb6c56e1cfb96c8084b8f454a2bb9d83ced84",
+    "cpp/app/workspace/primitive_properties.cpp": "d0499a47d01b3e2265c5d723b9b1c21f8ace7d37",
+    "cpp/app/workspace/tree.cpp": "4392905f0c0cf9cde828df49bdcddf5cd611fb37",
+    "cpp/modules/command_host/src/profile_commands.cpp": "425d94de2e31c477c427608448cc89052206e090",
+    "cpp/modules/document_core/include/zima/document/feature_up_to.hpp": "5be00fd47252dba46843f0f2b10c1f2e11afc192",
+    "cpp/modules/document_core/include/zima/document/part_document.hpp": "99dbac2fe1d28aa5a6744b38a42befe9a3f83d95",
+    "cpp/modules/document_core/src/part_document.cpp": "55289d66365fee6e84d93d2d72f52091c2e04d5e",
+    "cpp/modules/kernel_api/include/zima/kernel/face_plane_intersection.hpp": "a268c806d26ebe7c93c372234b05b2e7560b0e34",
+    "cpp/modules/kernel_occt/src/occt_kernel.cpp": "8d71b61470e06b97471af7b3825c08bf7b86f91d",
+    "cpp/modules/kernel_occt/src/ordered_up_to.cpp": "4b115e480cef707d1ceb03a11c3a4b58e4baa846",
+    "cpp/modules/kernel_occt/src/ordered_up_to_profile.inc": "f871dc6ba1ff4e5c87ab06883a3b04bbc60d281e",
+    "cpp/modules/kernel_occt/src/surface_intersection_geometry.inc": "a2c61cee4dcc1c48b5bcefc90cc33463b01ce818",
+    "cpp/modules/workspace/include/zima/workspace/profile_operations.hpp": "e63b57cb895b698e6c53ad30be0e551baaa0de30",
+    "cpp/modules/workspace/src/profile_operations.cpp": "573a496b48c32b45feb9b305cb3843777f0e026a",
+    "cpp/modules/workspace/src/sketch_intersection_operations.cpp": "2b2a5514bfb81b7aed3ee636a0c49bd51404f602",
+    "cpp/tests/feature_ordered_up_to_native_tests.cpp": "9f6557855b0b3ca739624ba7d85d1f957d2f163b",
+    "cpp/tests/feature_type_ui_tests.cpp": "ef6162ef60926335d549378420391f617f83bf0a",
+    "cpp/tests/feature_up_to_parameters_tests.cpp": "cda26571396bdbf39805a38b99f43ee1b4a02613",
+    "cpp/tests/ordered_up_to_kernel_tests.cpp": "3ae83060f49a39921a4065765162b7840f93531b",
+    "cpp/tests/sketch_intersection_reference_tests.cpp": "2eee30903783775dcd45c0fdca21c1505b2c3ba0"
+  },
+  "native_suites": 8,
+  "native_seconds": 112.56,
+  "finite_cases": {
+    "ordered_kernel": 872,
+    "feature_definition": 31,
+    "corrected_wire": 60,
+    "uncut_wire_follow_up": 310,
+    "workspace": 75,
+    "sketch_intersection": 541,
+    "bounded_face_plane": 108
+  },
+  "follow_up": {
+    "suites": 5,
+    "seconds": 44.07,
+    "actual_multi_target_gui": "passed",
+    "scope": "Complete untrimmed operation wire during multi-target/corrected-rotation editing; exact calculation unchanged"
+  },
+  "gui": [
+    {
+      "name": "face-plane",
+      "exit": 0,
+      "seconds": 29.61
+    },
+    {
+      "name": "axial-conic",
+      "exit": 0,
+      "seconds": 16.629
+    },
+    {
+      "name": "spline",
+      "exit": 0,
+      "seconds": 5.073
+    },
+    {
+      "name": "trimmed",
+      "exit": 0,
+      "seconds": 4.849
+    },
+    {
+      "name": "actual-005-edges",
+      "exit": 0,
+      "seconds": 15.567
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 32.736
+    },
+    {
+      "name": "ordered",
+      "exit": 0,
+      "seconds": 11.381
+    }
+  ],
+  "locales": [
+    {
+      "language": "cs",
+      "theme": "light",
+      "returncode": 0,
+      "seconds": 5.006
+    },
+    {
+      "language": "cs",
+      "theme": "dark",
+      "returncode": 0,
+      "seconds": 6.639
+    },
+    {
+      "language": "en",
+      "theme": "light",
+      "returncode": 0,
+      "seconds": 6.786
+    },
+    {
+      "language": "en",
+      "theme": "dark",
+      "returncode": 0,
+      "seconds": 5.013
+    },
+    {
+      "language": "de",
+      "theme": "light",
+      "returncode": 0,
+      "seconds": 4.905
+    },
+    {
+      "language": "de",
+      "theme": "dark",
+      "returncode": 0,
+      "seconds": 5.518
+    },
+    {
+      "language": "fr",
+      "theme": "light",
+      "returncode": 0,
+      "seconds": 4.874
+    },
+    {
+      "language": "fr",
+      "theme": "dark",
+      "returncode": 0,
+      "seconds": 4.931
+    },
+    {
+      "language": "ru",
+      "theme": "light",
+      "returncode": 0,
+      "seconds": 4.862
+    },
+    {
+      "language": "ru",
+      "theme": "dark",
+      "returncode": 0,
+      "seconds": 4.874
+    }
+  ],
+  "catalog_contract": "passed",
+  "user_model": {
+    "original_sha256": "95e9c7d8b4de1a3ae6818ef22cbb563d6d67e82cb36b486f82fddba772bba662",
+    "review_at_first_delivery_sha256": "dd31d70b5a09ebe7ce85be3255ce3edce7a155dd8a9ec860c7b0791dec98f27d",
+    "review_current_sha256": "4f414c6aba647dd666306445a15108d57c300d2c8f023aed2cf906801e840465",
+    "original_unchanged": true,
+    "review_note": "The user subsequently saved the successful multi-target case into this review copy; its edits are preserved."
+  },
+  "binaries": {
+    "zima-cad-cpp.exe": "eb61eaadbabf1bb882c3214487836360e8f51b49f13b01eca8d6cd490312bca3",
+    "zima-cad-cli.exe": "6e475d9f87f427172000b81222a2d22ffed4649cf948a1655aecdeda0c97ca92"
+  },
+  "factory_impact": {
+    "source_commit": "5c05c66db3fc2a72415a7318e956cdeb849c0e01",
+    "assets": 1185,
+    "active_up_to": [
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/BridgeLance.prtz",
+        "owner": "01a141f3850f7eb1a4cd934290b2deca",
+        "side": 0,
+        "kinds": [
+          "point"
+        ],
+        "count": 1,
+        "correction": null
+      },
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz",
+        "owner": "01a11b571c3a77749984aa865d0a898f",
+        "side": 0,
+        "kinds": [
+          "plane"
+        ],
+        "count": 1,
+        "correction": null
+      },
+      {
+        "path": "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz",
+        "owner": "01a11b571c3a77749984aa865d0a898f",
+        "side": 1,
+        "kinds": [
+          "plane"
+        ],
+        "count": 1,
+        "correction": null
+      }
+    ],
+    "intersection_sketches": [],
+    "seconds": 21.141
+  },
+  "limits": [
+    "Native Linux execution unverified",
+    "Portable signed-runtime acceptance pending",
+    "Arbitrary free-surface tangencies and disconnected limiting regions are not universally supported"
+  ]
+}

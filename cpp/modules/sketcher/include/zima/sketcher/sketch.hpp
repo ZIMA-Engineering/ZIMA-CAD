@@ -3,6 +3,7 @@
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/sketcher/template_image.hpp>
 #include <zima/sketcher/symbol_instance.hpp>
+#include <zima/sketcher/curve_intersection_binding.hpp>
 
 #include <nlohmann/json_fwd.hpp>
 #include <filesystem>
@@ -276,8 +277,13 @@ struct SketchExternalReference {
     bool broken{};
     std::optional<zima::kernel::BSplineGeometry> exact_spline; // Sketch coordinates, z=0.
     std::optional<SketchIntersectionBinding> intersection;
+    std::optional<SketchCurveIntersectionBinding> curve_intersection;
     bool operator==(const SketchExternalReference&) const = default;
 };
+
+inline bool is_intersection_reference(const SketchExternalReference& reference) {
+    return reference.intersection.has_value()||reference.curve_intersection.has_value();
+}
 
 // A unique circular reference (circle or arc) in Sketch coordinates: center X/Y, radius.
 [[nodiscard]] std::optional<std::array<double, 3>> external_reference_circle(

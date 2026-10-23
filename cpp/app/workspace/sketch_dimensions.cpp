@@ -1319,6 +1319,16 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         }
     }
     if (sketch == nullptr) return;
+    if (const auto corner = std::ranges::find(sketch->corner_radii, dimension_id,
+            &zima::sketcher::SketchCornerRadius::id);
+        corner != sketch->corner_radii.end() && corner->dimension_visible) {
+        zima::viewer::ViewerCandidate candidate;
+        candidate.kind = zima::viewer::CandidateKind::Dimension;
+        candidate.owner_id = sketch_id;
+        candidate.semantic_key = "corner_dimension:" + dimension_id;
+        edit_dimension_inline(candidate);
+        return;
+    }
     const auto existing = std::find_if(sketch->dimensions.begin(), sketch->dimensions.end(),
         [&](const auto& value) { return value.id == dimension_id; });
     const bool edit_mode = existing != sketch->dimensions.end();

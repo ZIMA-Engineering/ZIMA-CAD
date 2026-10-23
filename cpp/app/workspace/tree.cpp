@@ -4,6 +4,7 @@
 #include "../surface_intersection_dialog.hpp"
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
+#include "../sketch_external_reference_selection.hpp"
 #include "../symbol_labels.hpp"
 #include <zima/workspace/symbol_operations.hpp>
 #include "../sheet_state_dialog.hpp"
@@ -49,7 +50,7 @@ void AssemblyWorkspaceWindow::configure_sketch_box_selection(
                 if (candidate.kind ==
                         zima::viewer::CandidateKind::SketchExternalReference) {
                     if (const auto reference_id =
-                            sketch_external_reference_id_from_key(
+                            sketch_external_reference_selection_id_from_key(
                                 candidate.semantic_key)) {
                         selected_id = std::string(zima::sketcher::external_center_source(*reference_id).value_or(*reference_id));
                     }
@@ -180,7 +181,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
                 : tr("%1 — %2").arg(document_name, owner_name);
         };
         for (const auto& reference : sketch.external_references) {
-            const QString kind = reference.intersection
+            const QString kind = reference.curve_intersection?tr("intersection point"):reference.intersection
                 ? sketcher::is_external_point_kind(reference.kind)?tr("bod průsečnice"):tr("průsečnice")
                 : reference.kind ==
                     zima::sketcher::ExternalReferenceKind::Face ? tr("plocha")
@@ -313,6 +314,19 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
                 .arg(++dimension_index, 3, 10, QLatin1Char('0'))});
         item->setIcon(0, resource_icon("sketch-dimensions"));
         item->setData(0, Qt::UserRole, QString::fromStdString(dimension.id));
+        item->setData(0, Qt::UserRole + 3, "part-sketch-dimension");
+        item->setData(0, Qt::UserRole + 4, QString::fromStdString(sketch.id));
+    }
+    for (const auto& corner : sketch.corner_radii) {
+        if (corner.suppressed || corner.radius <= 1.0e-9 || !corner.dimension_visible) continue;
+        sketcher::SketchDimension display;
+        display.kind = sketcher::DimensionKind::Radius;
+        display.value = corner.radius;
+        auto* item = new QTreeWidgetItem(dimensions, {
+            sketch_dimension_label(display) + QStringLiteral(" · %1")
+                .arg(++dimension_index, 3, 10, QLatin1Char('0'))});
+        item->setIcon(0, resource_icon("sketch-dimensions"));
+        item->setData(0, Qt::UserRole, QString::fromStdString(corner.id));
         item->setData(0, Qt::UserRole + 3, "part-sketch-dimension");
         item->setData(0, Qt::UserRole + 4, QString::fromStdString(sketch.id));
     }
@@ -557,7 +571,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             const auto& errors = part->session.calculated_boundaries().back().calculation_errors;
             if (const auto failure = errors.find(container.id); failure != errors.end()) {
                 item->setText(0, item->text(0) + tr(" [nevypočítáno]"));
-                item->setToolTip(0, QString::fromStdString(failure->second));
+                item->setToolTip(0, tr(failure->second.c_str()));
                 item->setForeground(0, QBrush(QColor(210, 75, 65)));
             }
         }

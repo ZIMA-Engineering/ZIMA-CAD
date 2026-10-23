@@ -367,6 +367,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/sketch_intersection_operations.cpp
+    modules/workspace/src/sketch_curve_intersection_operations.cpp
     modules/workspace/src/native_documents.cpp
     modules/workspace/src/part_references.cpp
     modules/workspace/src/model_calculation.cpp
@@ -477,6 +478,7 @@ target_sources(zima_command_host PRIVATE modules/command_host/src/browser_comman
 target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 add_library(zima_kernel_occt
+    modules/kernel_occt/src/curve_plane_intersection.cpp
     modules/kernel_occt/src/ordered_up_to.cpp
     modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/step_source_document.cpp
@@ -531,6 +533,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg Qt6::WebEngineWidgets)
     target_compile_options(zima_file_manager_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_file_manager_ui COMMAND zima_file_manager_ui_tests)
+    add_test(NAME zima_file_manager_background_operations_ui COMMAND zima_file_manager_ui_tests --file-operations)
+    set_tests_properties(zima_file_manager_background_operations_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 180)
     add_test(NAME zima_file_manager_portable_sources_ui COMMAND zima_file_manager_ui_tests --portable-factory-sources)
     set_tests_properties(zima_file_manager_ui zima_file_manager_portable_sources_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox")
     set_tests_properties(zima_file_manager_ui PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/..")
@@ -1500,6 +1504,16 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sketch_face_plane_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/curve-plane-interaction-fixtures")
+    add_test(NAME zima_cpp_sketch_curve_plane_ui_contract COMMAND zima-cad-cpp
+        --working-directory=${CMAKE_BINARY_DIR}/curve-plane-interaction-fixtures --verify-startup)
+    set_tests_properties(zima_cpp_sketch_curve_plane_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1;ZIMA_VERIFY_CURVE_PLANE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME zima_cpp_sketch_axial_conic_intersection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_axial_conic_intersection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1;ZIMA_VERIFY_FACE_PLANE_AXIAL_CONIC=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_spline_intersection_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_spline_intersection_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_PLANE_ONLY=1;ZIMA_VERIFY_FACE_PLANE_SINGLE=1;ZIMA_VERIFY_FACE_PLANE_SPLINE=1"
@@ -1530,6 +1544,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sketch_relation_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_sketch_curve_command_tests tests/sketch_curve_command_tests.cpp)
     add_executable(zima_cpp_sketch_mirror_tangent_tests tests/sketch_mirror_tangent_tests.cpp)
+    add_executable(zima_cpp_sketch_rounded_mirror_tests tests/sketch_rounded_mirror_tests.cpp)
+    add_executable(zima_cpp_sketch_curve_plane_reference_tests tests/sketch_curve_plane_reference_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_curve_plane_reference_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_sketch_curve_plane_reference_tests COMMAND zima_cpp_sketch_curve_plane_reference_tests)
+    set_tests_properties(zima_cpp_sketch_curve_plane_reference_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    target_link_libraries(zima_cpp_sketch_rounded_mirror_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_sketch_rounded_mirror_tests COMMAND zima_cpp_sketch_rounded_mirror_tests)
+    set_tests_properties(zima_cpp_sketch_rounded_mirror_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_sketch_mirror_tangent_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_sketch_mirror_tangent_tests COMMAND zima_cpp_sketch_mirror_tangent_tests)
     set_tests_properties(zima_cpp_sketch_mirror_tangent_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1629,6 +1651,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_value_lock_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_edge_treatment_command_tests tests/edge_treatment_command_tests.cpp)
+    add_executable(zima_cpp_thin_feature_wire_tests tests/thin_feature_wire_tests.cpp)
+    target_link_libraries(zima_cpp_thin_feature_wire_tests PRIVATE zima_workspace Qt6::Core)
+    add_test(NAME zima_cpp_thin_feature_wire_tests COMMAND zima_cpp_thin_feature_wire_tests)
+    set_tests_properties(zima_cpp_thin_feature_wire_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_edge_treatment_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_edge_treatment_command_tests COMMAND zima_cpp_edge_treatment_command_tests)
     set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -2205,6 +2231,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sketch-interaction-fixtures")
     add_test(NAME zima_cpp_sketch_mirror_ui_contract COMMAND zima-cad-cpp --working-directory=${CMAKE_BINARY_DIR}/sketch-interaction-fixtures --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sketch-rectangle-fixtures")
+    add_test(NAME zima_cpp_sketch_symmetric_rectangle_ui_contract COMMAND zima-cad-cpp --working-directory=${CMAKE_BINARY_DIR}/sketch-rectangle-fixtures --verify-startup)
+    set_tests_properties(zima_cpp_sketch_symmetric_rectangle_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_MIRROR_ONLY=1;ZIMA_VERIFY_SYMMETRIC_RECTANGLE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_sketch_common_tangent_ui_contract COMMAND zima-cad-cpp --working-directory=${CMAKE_BINARY_DIR}/sketch-interaction-fixtures --verify-startup)
     add_test(NAME zima_cpp_form_edge_edit_hover_ui_contract COMMAND zima-cad-cpp --working-directory=${CMAKE_BINARY_DIR}/sketch-interaction-fixtures --verify-startup)
     set_tests_properties(zima_cpp_form_edge_edit_hover_ui_contract PROPERTIES
@@ -2556,6 +2587,9 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_external_circular_profiles_tests tests/external_circular_profiles_tests.cpp)
     add_executable(zima_cpp_external_trim_boundary_tests tests/external_trim_boundary_tests.cpp)
     add_executable(zima_cpp_face_plane_intersection_tests tests/face_plane_intersection_tests.cpp)
+    add_executable(zima_cpp_curve_plane_intersection_tests tests/curve_plane_intersection_tests.cpp)
+    target_link_libraries(zima_cpp_curve_plane_intersection_tests PRIVATE zima_kernel_occt)
+    add_test(NAME zima_cpp_curve_plane_intersection_tests COMMAND zima_cpp_curve_plane_intersection_tests)
     target_link_libraries(zima_cpp_face_plane_intersection_tests PRIVATE zima_workspace zima_kernel_occt)
     add_test(NAME zima_cpp_face_plane_intersection_tests COMMAND zima_cpp_face_plane_intersection_tests)
     add_executable(zima_cpp_ordered_up_to_kernel_tests tests/ordered_up_to_kernel_tests.cpp)

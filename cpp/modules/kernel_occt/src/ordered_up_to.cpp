@@ -13,6 +13,7 @@
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepLib.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
@@ -25,6 +26,7 @@
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -32,6 +34,7 @@
 #include <TopTools_ListOfShape.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopoDS.hxx>
+#include <gp_Lin.hxx>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -52,7 +55,7 @@ TopoDS_Face only_face(const TopoDS_Shape& shape,std::size_t row,std::size_t othe
 }
 
 TopoDS_Face extend_support(const TopoDS_Face& authored,const Bnd_Box& box,
-        double tolerance,std::size_t row,bool retain_curved_domain=false) {
+        double tolerance,std::size_t row) {
     // Plane bounds come from the actual operation envelope, not a global
     // million-unit rectangle. Other bounded surfaces retain their exact basis.
     auto surface=BRep_Tool::Surface(authored);
@@ -85,7 +88,10 @@ TopoDS_Face extend_support(const TopoDS_Face& authored,const Bnd_Box& box,
             surface=new Geom_Plane(plane);planar=true;
         }
     }
-    if(retain_curved_domain&&!planar)return authored;
+    const auto type=adaptor.GetType();
+    // Analytic supports have a defined continuation. A general free surface
+    // retains its real trimmed domain, including holes, rather than its UV box.
+    if(!planar&&type!=GeomAbs_Cylinder&&type!=GeomAbs_Cone&&type!=GeomAbs_Sphere&&type!=GeomAbs_Torus)return authored;
     double u0{},u1{},v0{},v1{};surface->Bounds(u0,u1,v0,v1);
     if(planar||adaptor.GetType()==GeomAbs_Cylinder||
             adaptor.GetType()==GeomAbs_Cone) {
@@ -183,10 +189,18 @@ TopoDS_Face retain(const TopoDS_Face& patch,const TopoDS_Face& authored,
         retained=cut.Shape();
     }
     if(area(retained)<=tolerance*tolerance*100)fail(OrderedLimitFailure::EmptyPatch,row,other);
+    TopTools_IndexedMapOfShape pieces;TopExp::MapShapes(retained,TopAbs_FACE,pieces);
+    if(pieces.Extent()>1) {
+        // A cut can split one periodic support at its parameter seam. Merge
+        // connected exact same-domain descendants of this one source only.
+        ShapeUpgrade_UnifySameDomain unify(retained,false,true,false);
+        unify.SetSafeInputMode(true);unify.SetLinearTolerance(tolerance);unify.Build();retained=unify.Shape();
+    }
     return only_face(retained,row,other);
 }
 
-void check_adjacency(const TopoDS_Face& a,const TopoDS_Face& b,
+struct Adjacency {bool tangent{};std::optional<gp_Lin> line;};
+Adjacency check_adjacency(const TopoDS_Face& a,const TopoDS_Face& b,
         double tolerance,std::size_t row,std::size_t other) {
     BRepAlgoAPI_Section section(a,b,false);section.SetFuzzyValue(tolerance);
     section.Approximation(false);section.Build();
@@ -197,7 +211,8 @@ void check_adjacency(const TopoDS_Face& a,const TopoDS_Face& b,
     occ::handle<TopTools_HSequenceOfShape> connected=new TopTools_HSequenceOfShape;
     ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges,tolerance,false,connected);
     if(connected->Length()!=1)fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
-    // Tangential contact is not a split and cannot seed a retained patch.
+    // Tangency does not split either support into positive/negative patches.
+    // Its authored seam must be verified separately instead of inventing a side.
     TopExp_Explorer edge(section.Shape(),TopAbs_EDGE);BRepAdaptor_Curve curve(TopoDS::Edge(edge.Current()));
     const auto point=curve.Value((curve.FirstParameter()+curve.LastParameter())*.5);
     gp_Vec normals[2];unsigned index=0;
@@ -208,8 +223,75 @@ void check_adjacency(const TopoDS_Face& a,const TopoDS_Face& b,
         if(!props.IsNormalDefined())fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
         normals[index++]=gp_Vec(props.Normal());
     }
-    if(normals[0].Crossed(normals[1]).Magnitude()<1e-8)
+    const bool tangent=normals[0].Crossed(normals[1]).Magnitude()<1e-8;
+    return {tangent,tangent&&curve.GetType()==GeomAbs_Line?std::optional<gp_Lin>{curve.Line()}:std::nullopt};
+}
+
+bool extend_analytic_tangent_line(TopoDS_Face& a,TopoDS_Face& b,const TopoDS_Face& authored_a,
+        const TopoDS_Face& authored_b,const gp_Lin& seam,const Bnd_Box& envelope,
+        double tolerance,std::size_t row,std::size_t other) {
+    const std::array<TopoDS_Face,2> original{{a,b}};std::array<std::optional<gp_Cylinder>,2> cylinders;
+    std::array<gp_Vec,2> normals;bool curved=false;
+    for(unsigned side=0;side<2;++side) {
+        const BRepAdaptor_Surface surface(original[side],false);
+        if(surface.GetType()==GeomAbs_Plane) {
+            const auto plane=surface.Plane();
+            if(plane.Distance(seam.Location())>tolerance||std::abs(plane.Axis().Direction().Dot(seam.Direction()))>1e-10)return false;
+            normals[side]=gp_Vec(plane.Axis().Direction());
+        } else if(surface.GetType()==GeomAbs_Cylinder) {
+            const auto cylinder=surface.Cylinder();
+            if(!cylinder.Axis().Direction().IsParallel(seam.Direction(),1e-10))return false;
+            const gp_Vec delta(cylinder.Location(),seam.Location()),axis(cylinder.Axis().Direction());
+            const auto radial=delta-axis*delta.Dot(axis);
+            if(std::abs(radial.Magnitude()-cylinder.Radius())>tolerance)return false;
+            normals[side]=radial.Normalized();cylinders[side]=cylinder;curved=true;
+        } else return false;
+    }
+    if(!curved||normals[0].Crossed(normals[1]).Magnitude()>1e-8)return false;
+    // Parallel analytic generators certify the complete tangent seam. A
+    // transverse curtain extends the selected authored branch along that seam;
+    // the tangent radial hemisphere prevents continuation around the opposite
+    // side of a periodic cylinder. Neither derived choice is a normal-side
+    // choice against the adjacent tangent support, so neither is persisted as one.
+    const auto curtain=extend_support(BRepBuilderAPI_MakeFace(gp_Pln(seam.Location(),
+        gp_Dir(normals[0].Crossed(gp_Vec(seam.Direction())))),-1.,1.,-1.,1.).Face(),envelope,tolerance,row);
+    const auto positive=positive_half(curtain,envelope,tolerance,row);
+    const std::array<TopoDS_Face,2> authored{{authored_a,authored_b}};std::array<TopoDS_Face,2> result;
+    for(unsigned side=0;side<2;++side) {
+        std::optional<bool> selected;
+        result[side]=retain(original[side],authored[side],positive,selected,tolerance,side?other:row,side?row:other);
+        if(cylinders[side]) {
+            const auto branch=extend_support(BRepBuilderAPI_MakeFace(gp_Pln(cylinders[side]->Location(),
+                gp_Dir(normals[side])),-1.,1.,-1.,1.).Face(),envelope,tolerance,side?other:row);
+            const auto hemisphere=positive_half(branch,envelope,tolerance,side?other:row);
+            std::optional<bool> near_seam=true;
+            result[side]=retain(result[side],authored[side],hemisphere,near_seam,tolerance,side?other:row,side?row:other);
+        }
+    }
+    a=result[0];b=result[1];return true;
+}
+
+void certify_authored_tangent_seam(const TopoDS_Face& a,const TopoDS_Face& b,
+        double tolerance,std::size_t row,std::size_t other) {
+    BRepBuilderAPI_Sewing sewing(tolerance);sewing.Add(a);sewing.Add(b);sewing.Perform();
+    const auto joined=sewing.SewedShape();
+    if(joined.IsNull()||joined.ShapeType()!=TopAbs_SHELL||sewing.NbMultipleEdges()!=0||!BRepCheck_Analyzer(joined).IsValid())
         fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
+    const auto first=only_face(sewing.IsModified(a)?sewing.Modified(a):a,row,other);
+    const auto second=only_face(sewing.IsModified(b)?sewing.Modified(b):b,row,other);
+    BRepLib::EncodeRegularity(joined,1e-8);
+    TopTools_IndexedMapOfShape edges;TopExp::MapShapes(first,TopAbs_EDGE,edges);
+    occ::handle<TopTools_HSequenceOfShape> shared=new TopTools_HSequenceOfShape;
+    for(TopExp_Explorer it(second,TopAbs_EDGE);it.More();it.Next())if(edges.Contains(it.Current())) {
+        const auto edge=TopoDS::Edge(it.Current());
+        if(BRep_Tool::Continuity(edge,first,second)<GeomAbs_G1)
+            fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
+        shared->Append(edge);
+    }
+    if(shared->IsEmpty())fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
+    occ::handle<TopTools_HSequenceOfShape> wires=new TopTools_HSequenceOfShape;
+    ShapeAnalysis_FreeBounds::ConnectEdgesToWires(shared,tolerance,false,wires);
+    if(wires->Length()!=1)fail(OrderedLimitFailure::AmbiguousAdjacency,row,other);
 }
 } // namespace
 
@@ -224,7 +306,7 @@ OrderedLimitResult build_ordered_up_to(const std::vector<OrderedLimitInput>& inp
     if(inputs.size()==1) {
         if(inputs[0].authored_face.IsNull())fail(OrderedLimitFailure::InvalidInput,0,0);
         auto face=TopoDS::Face(BRepBuilderAPI_Copy(inputs[0].authored_face,true,false).Shape());
-        face=extend_support(face,envelope,tolerance,0,true);
+        face=extend_support(face,envelope,tolerance,0);
         OrderedLimitResult result;result.patches.push_back({face,{},{}});
         BRep_Builder builder;builder.MakeShell(result.shell);builder.Add(result.shell,face);return result;
     }
@@ -236,19 +318,37 @@ OrderedLimitResult build_ordered_up_to(const std::vector<OrderedLimitInput>& inp
         authored.push_back(TopoDS::Face(BRepBuilderAPI_Copy(inputs[row].authored_face,true,false).Shape()));
         supports.push_back(extend_support(authored.back(),envelope,tolerance,row));
     }
+    std::vector<Adjacency> adjacency(inputs.size()-1);
+    for(std::size_t row=1;row<inputs.size();++row) {
+        adjacency[row-1]=check_adjacency(supports[row-1],supports[row],tolerance,row-1,row);
+    }
+    for(std::size_t row=1;row<inputs.size();++row) {
+        if(adjacency[row-1].tangent) {
+            // Normal-side choices from a transverse intersection cannot be
+            // reinterpreted as a tangent seam's parameter-domain choice.
+            if(inputs[row-1].keep_next_positive||inputs[row].keep_previous_positive)
+                fail(OrderedLimitFailure::AmbiguousAdjacency,row-1,row);
+            if(adjacency[row-1].line&&extend_analytic_tangent_line(supports[row-1],supports[row],authored[row-1],authored[row],
+                    *adjacency[row-1].line,envelope,tolerance,row-1,row))continue;
+            certify_authored_tangent_seam(authored[row-1],authored[row],tolerance,row-1,row);
+            for(const auto index:{row-1,row}) {
+                BRepAlgoAPI_Common domain(supports[index],authored[index]);domain.SetNonDestructive(true);domain.Build();
+                if(!domain.IsDone())fail(OrderedLimitFailure::EmptyPatch,index,index);
+                supports[index]=only_face(domain.Shape(),index,index);
+            }
+        }
+    }
     Bnd_Box all_supports;
     for(const auto& support:supports)BRepBndLib::AddOptimal(support,all_supports,false,false);
     all_supports.Enlarge(10*tolerance);
     for(std::size_t row=0;row<supports.size();++row)
         positives.push_back(positive_half(supports[row],all_supports,tolerance,row));
-    for(std::size_t row=1;row<inputs.size();++row)
-        check_adjacency(supports[row-1],supports[row],tolerance,row-1,row);
     OrderedLimitResult result;
     for(std::size_t row=0;row<inputs.size();++row) {
         OrderedLimitPatch patch{supports[row],inputs[row].keep_previous_positive,inputs[row].keep_next_positive};
-        if(row)patch.face=retain(patch.face,authored[row],positives[row-1],
+        if(row&&!adjacency[row-1].tangent)patch.face=retain(patch.face,authored[row],positives[row-1],
             patch.keep_previous_positive,tolerance,row,row-1);
-        if(row+1<inputs.size())patch.face=retain(patch.face,authored[row],positives[row+1],
+        if(row+1<inputs.size()&&!adjacency[row].tangent)patch.face=retain(patch.face,authored[row],positives[row+1],
             patch.keep_next_positive,tolerance,row,row+1);
         result.patches.push_back(std::move(patch));
     }

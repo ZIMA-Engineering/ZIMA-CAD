@@ -44,6 +44,20 @@ calculation from live model mutation and GUI work. Synchronous export preparatio
 or other uncovered work requires its own ownership audit before worker dispatch.
 Do not wrap arbitrary GUI command bodies in a worker to obtain animation.
 
+The 2026-10-23 integration covers File Manager archive discovery/hashing, Copy,
+Move and recycling. It uses the common wait in `zima/ui/background_task.hpp`,
+extracted without changing the existing Workspace wait/input-gate behavior.
+Worker inputs contain paths and captured source policies, not widgets or
+`QFileSystemModel` objects. Confirmation and errors remain on the owner thread;
+the indicator is anchored to the visible utility tab when the model View is hidden.
+
+Inline dimension changes enter the same activity scope after unchanged-value
+rejection. Native Part/Assembly candidate calculations use the existing scoped
+runner. A Sketch dimension or corner-radius solve owns a private Sketch copy on
+the worker; its result is adopted by the existing owner-thread transaction.
+Rejected solves leave the live Sketch unchanged. The GUI interaction matrix is a
+separate acceptance gate from the shared activity regression.
+
 ## Verification status
 
 The focused regression covers delayed appearance, the panel's center and stacking

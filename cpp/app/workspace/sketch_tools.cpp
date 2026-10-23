@@ -282,7 +282,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
         if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty()) {
             sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();
             preserve_view_on_refresh_=true;refresh_scene();
-            state_->setText(tr("Průsečnice: vyberte zdrojovou plochu."));return true;
+            state_->setText(tr("Intersection: select a source face or curve."));return true;
         }
         set_sketch_external_reference_mode(false);
         state_->setText(tr("Výběr referencí byl ukončen."));
@@ -926,6 +926,7 @@ void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
     } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
         for (const std::string_view prefix : {
                 std::string_view{"circle:"}, std::string_view{"arc:"},
+                std::string_view{"corner_radius:"},
                 std::string_view{"ellipse:"}, std::string_view{"elliptical_arc:"},
                 std::string_view{"bspline:"}}) {
             if (candidate.semantic_key.starts_with(prefix)) {

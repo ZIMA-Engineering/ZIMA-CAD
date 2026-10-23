@@ -50,7 +50,7 @@ struct PartCalculationPolicy {
 // Workspace's dependency refresh continues using its existing cached-cut path.
 void calculate_resolved_assembly_cuts(
     const kernel::OcctKernel& kernel, assembly::AssemblyDocument& document,
-    bool refresh_physical_properties=false);
+    bool refresh_physical_properties=false,const Workspace* authoritative_sources=nullptr);
 
 struct PartRegenerationResult { bool references_changed{}; };
 // Synchronous operations on the Workspace owner thread. No activation or View work.

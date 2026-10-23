@@ -4,6 +4,139 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
     try {
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        const auto exact=[&](PrimitivePropertiesDialog* dialog,bool valid=true) {
+            QElapsedTimer wait;wait.start();
+            while(dialog->property("featureExactPreviewState").toString()=="pending"&&wait.elapsed()<30000) {
+                application.processEvents();QThread::msleep(5);
+            }
+            if(dialog->property("featureExactPreviewState").toString()!=(valid?"ready":"failed")) {
+                std::cerr<<"Exact preview state="<<dialog->property("featureExactPreviewState").toString().toStdString()
+                    <<" calculations="<<dialog->property("featureExactPreviewCalculations").toInt()
+                    <<" notice="<<dialog->findChild<QLabel*>("featureUpToDraftNotice")->text().toStdString()<<std::endl;
+                throw std::runtime_error("Exact preview did not reach its expected state");
+            }
+        };
+        const auto opening_is_read_only=[&](PrimitivePropertiesDialog* dialog) {
+            QEventLoop wait;QTimer::singleShot(220,&wait,&QEventLoop::quit);wait.exec();
+            check(dialog->property("featureExactPreviewCalculations").toInt()==0,"Opening Properties calculated an exact preview");
+        };
+        if(const auto source=qEnvironmentVariable("ZIMA_VERIFY_ORDERED_UP_TO_SOURCE");!source.isEmpty()) {
+            std::vector<kernel::BodyResult> geometry;
+            const auto model=document::PartDocument::load(std::filesystem::u8path(source.toStdString()),&geometry);
+            check(model.history.size()>1,"Correction review requires the preceding Feature");
+            const auto selected=std::ranges::find_if(model.history,[](const auto& value){return value.name=="Vytažení 004";});
+            check(selected!=model.history.end(),"Actual correction Feature 004 is missing");
+            const auto& target=*selected;
+            const bool native=document::feature_up_to_requires_exact_preview(target.feature);
+            const auto file=directory/"single-face-correction-review.prtz";model.save(file,geometry);
+            check(window.open_document_path(QString::fromStdString(file.string())),"Correction review copy did not open");
+            window.showMaximized();flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==target.id){row=*it;break;}
+            check(row,"Correction review Feature is absent from Tree");
+            auto* opening_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            check(opening_view,"Correction review View is missing before opening");
+            const auto scenes_before=opening_view->base_mesh_revision();
+            window.show_tree_item_properties(row);flush();
+            auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            check(dialog&&view,"Correction review Properties or View is missing");
+            opening_is_read_only(dialog);
+            const auto material_wire=[&] {
+                const auto pending=dialog->pending_value();
+                if(pending.feature.result_type==document::ProfileResultType::Thin)
+                    tests::verify_rectangular_thin_start(model,pending,view->transient_edges());
+            };
+            material_wire();
+            check(view->base_mesh_revision()==scenes_before+1,"Opening Feature published more than its one rollback scene");
+            if(target.feature.result_type==document::ProfileResultType::Thin)
+                check(std::ranges::none_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==target.feature.sketch_id;}),
+                    "Thin Feature Properties show an extra source-profile contour");
+            const auto opening_scenes=view->base_mesh_revision();
+            for(double value:{0.,-2.,1.25,0.}) {
+                dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(value);flush();
+                if(native)exact(dialog);
+                material_wire();
+                check(!view->transient_edges().empty()&&
+                    dialog->findChild<QLabel*>("featureUpToDraftNotice")->isVisible()==native,
+                    "Actual model correction discarded its exact transient wire or status");
+                check(view->base_mesh_revision()==opening_scenes,"Numeric correction republished the base scene");
+            }
+            if(native&&target.feature.result_type==document::ProfileResultType::Thin) {
+                auto* mode=dialog->findChild<QComboBox*>("featureThinSide");check(mode,"Thin side control missing");
+                const auto initial=mode->currentIndex();
+                for(int choice:{0,1,2,initial}) {
+                    mode->setCurrentIndex(choice);flush();exact(dialog);
+                    material_wire();
+                    check(!view->transient_edges().empty(),"A Thin side choice lost its operation wire");
+                    check(std::ranges::none_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==target.feature.sketch_id;}),
+                        "A Thin side choice added a third source-profile contour");
+                }
+            }
+            if(target.feature.sides[0].targets.size()>1) {
+                auto* limits=static_cast<FeatureLimitTable*>(dialog->findChild<QWidget*>("featureSideLimits0"));
+                auto* table=limits->table();
+                // Remove the second target through the actual clear control,
+                // then reinsert it with the same real View picker as the user.
+                const auto wanted=target.feature.sides[0].targets[1].reference;
+                auto* clear=table->cellWidget(1,2)->findChild<QPushButton*>();
+                check(clear,"Actual target clear control missing");clear->click();flush();
+                if(dialog->property("featureExactPreviewState")=="pending")exact(dialog);
+                material_wire();
+                const auto send=[&](QWidget* widget,QPointF p) {
+                    for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,p,widget->mapToGlobal(p.toPoint()),Qt::LeftButton,
+                            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(widget,&event);flush();
+                    }
+                };
+                send(table->viewport(),table->visualItemRect(table->item(1,3)).center());
+                view->set_view_direction({1,-2,3},0);QEventLoop orbit;QTimer::singleShot(950,&orbit,&QEventLoop::quit);orbit.exec();view->fit_all();flush();
+                std::optional<QPointF> hit;
+                for(int y=10;y<view->height()-10&&!hit;y+=3)for(int x=10;x<view->width()-10&&!hit;x+=3) {
+                    const auto candidates=view->selection_candidates_at({double(x),double(y)});
+                    if(!candidates.empty()&&candidates.front().owner_id==wanted.owner_id&&candidates.front().semantic_key==wanted.semantic_key)hit=QPointF(x,y);
+                }
+                check(hit.has_value(),"Actual second target face cannot be offered on rollback input");send(view,*hit);
+                check(dialog->pending_value().feature.sides[0].targets.size()==2,"Actual second target was not reinserted");
+                exact(dialog);check(!view->transient_edges().empty(),"Actual second target has no exact draft wire before OK");
+                material_wire();
+            }
+            window.grab().save(QString::fromStdString((directory/"single-face-correction-review.png").string()));
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            if(target.feature.result_type==document::ProfileResultType::Thin) {
+                const auto run=[&](const char* command,commands::Json arguments=commands::Json::object()) {
+                    const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));
+                    check(result.ok,"Actual Thin review console action failed");flush();return result.data;
+                };
+                const auto revision=run("feature.get",{{"container",target.id}}).at("revision");
+                const auto scenes=view->base_mesh_revision();
+                document::DocumentSession snapshot(model,geometry);const auto authored=authored_feature_wire(snapshot,target.id);
+                tests::verify_rectangular_thin_start(model,target,authored);
+                std::optional<QPointF> hit;
+                for(int y=10;y<view->height()-10&&!hit;y+=4)for(int x=10;x<view->width()-10&&!hit;x+=4) {
+                    const auto offered=view->selection_candidates_at({double(x),double(y)});
+                    if(!offered.empty()&&offered.front().kind==viewer::CandidateKind::Container&&offered.front().owner_id==target.id)hit=QPointF(x,y);
+                }
+                check(hit.has_value(),"Actual Thin Feature is not offered by ordinary hover");
+                QMouseEvent move(QEvent::MouseMove,*hit,view->mapToGlobal(hit->toPoint()),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&move);flush();static_cast<void>(view->grabFramebuffer());
+                std::size_t vertices{};for(const auto& edge:authored)if(edge.points.size()>1)vertices+=2*(edge.points.size()-1);
+                check(view->property("gpuSourceWireVertexCount").toULongLong()==vertices,"Actual Thin hover omitted or duplicated authored wire strokes");
+                check(view->base_mesh_revision()==scenes,"Thin hover republished the base scene");
+                window.show_parameter_dimensions(target.id);flush();
+                tests::verify_rectangular_thin_start(model,target,view->container_inspection_wire());
+                // The existing dimension inspector publishes one scene carrying
+                // its annotations. Hover itself must remain overlay-only.
+                check(view->base_mesh_revision()==scenes+1&&run("feature.get",{{"container",target.id}}).at("revision")==revision,
+                    "Thin inspection published duplicate annotation scenes or changed the document");
+                run("save");
+                std::vector<kernel::BodyResult> reopened_geometry;const auto reopened=document::PartDocument::load(file,&reopened_geometry);
+                document::DocumentSession reopened_session(reopened,reopened_geometry);
+                tests::verify_rectangular_thin_start(reopened,*reopened.find_container(target.id),authored_feature_wire(reopened_session,target.id));
+            }
+            std::cout<<"Actual saved Feature: complete "<<(native?"exact multi-target":"single-face corrected")<<" wire passed\n";
+        }
         auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
         static_cast<void>(graph.create_body("Ordered GUI"));std::vector<std::string> sources;
         const std::array<double,3> slopes{{1,0,-.5}},heights{{10,12,15}},first{{-2,2.3,6.3}},last{{1.7,5.7,10}};
@@ -68,9 +201,23 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
                 const auto pending=dialog->pending_value();
                 check(pending.feature.sides[0].targets.size()==row+1&&pending.feature.sides[0].targets[row].reference.owner_id==sources[row],
                     "View target click replaced another row or reached placement input");
+                if(row>0){exact(dialog);check(!view->transient_edges().empty(),"Adding another target discarded the exact operation wire");}
             }
             check(dialog->findChild<QLabel*>("featureUpToDraftNotice")->isVisible()&&!view->transient_edges().empty(),
-                "Ordered draft did not expose its labelled profile preview");
+                "Ordered draft did not expose its exact wire and status");
+            for(double value:{-100.,1.5,0.}) {
+                dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(value);flush();
+                exact(dialog,value!=-100.);
+                if(value==-100.){check(view->transient_edges().empty(),"Impossible correction displayed stale valid geometry");continue;}
+                check(!view->transient_edges().empty(),"An ordered correction discarded its exact operation wire");
+                bool contact=false;
+                for(const auto& edge:view->transient_edges())for(const auto p:edge.points) {
+                    const double height=(p.x<2?p.x+10:p.x<6?12:15-.5*p.x)+value;
+                    check(p.z>=-1e-5&&p.z<=height+1e-5,"Exact GUI wire exceeded its independent piecewise planar bound");
+                    contact|=std::abs(p.z-height)<1e-5;
+                }
+                check(contact,"Ordered GUI wire retained the nominal length instead of its targets/correction");
+            }
             const auto draft=dialog->pending_value();
             auto* eye=table->cellWidget(0,6)->findChild<QToolButton*>();mouse(eye,eye->rect().center(),Qt::LeftButton);
             mouse(table->viewport(),table->visualItemRect(table->item(1,3)).center(),Qt::LeftButton);
@@ -93,7 +240,9 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
         for(const auto& edge:wire)for(const auto p:edge.points)
             check(edge.reference.owner_id==feature.id&&p.x>=-2-1e-6&&p.x<=10+1e-6&&p.y>=-1e-6&&p.y<=3+1e-6,
                 "Accepted original wire contains a target's or another body's edges");
-        const auto accepted=get();dialog=edit();dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto accepted=get();dialog=edit();opening_is_read_only(dialog);
+        check(dialog->property("featureExactPreviewState")=="ready"&&!view->transient_edges().empty(),"Unchanged Properties did not reuse the accepted wire");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(get().at("revision")==accepted.at("revision"),"Unchanged ordered GUI OK created an Undo transaction");
         window.show_parameter_dimensions(feature.id);flush();check(get().at("revision")==accepted.at("revision"),"Correction inspection changed the document");
         bool correction=false;
@@ -107,8 +256,26 @@ Q_NEVER_INLINE static int verify_ordered_up_to_ui(QApplication& application,
         check(correction,"Ordered correction is absent from ordinary parameter inspection");
         run("undo");check(get().at("parameters")==original.at("parameters"),"Ordered GUI Undo lost its original definition");
         run("redo");check(get().at("parameters")==accepted.at("parameters"),"Ordered GUI Redo lost retained sides or correction");
+        dialog=edit();dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(-100.);
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QWidget*>("featurePropertiesDialog"),"Failed calculation kept structurally valid Properties open");
+        const auto failed=get();run("save");
+        std::vector<kernel::BodyResult> failed_geometry;static_cast<void>(document::PartDocument::load(file,&failed_geometry));
+        check(failed.at("parameters")!=accepted.at("parameters")&&!failed_geometry.back().calculation_errors.empty(),
+            "Failed GUI definition or its calculated error was not saved");
+        dialog=edit();opening_is_read_only(dialog);
+        check(dialog->property("featureExactPreviewState")=="unavailable"&&view->transient_edges().empty(),"Failed Properties offered a successful stored wire");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(get().at("revision")==failed.at("revision"),"Unchanged failed GUI OK created an Undo transaction");
+        dialog=edit();dialog->findChild<QDoubleSpinBox*>("featureSideCorrection0")->setValue(1.5);
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+        std::vector<kernel::BodyResult> repaired_geometry;static_cast<void>(document::PartDocument::load(file,&repaired_geometry));
+        check(get().at("parameters")==accepted.at("parameters")&&repaired_geometry.back().calculation_errors.empty(),
+            "Failed GUI definition could not be reopened and repaired");
+        run("undo");check(get().at("parameters")==failed.at("parameters"),"GUI repair Undo lost the failed definition");
+        run("redo");check(get().at("parameters")==accepted.at("parameters"),"GUI repair Redo lost the valid definition");
         view->grabFramebuffer().save(QString::fromStdString((directory/"ordered-feature-ui-result.png").string()));
-        std::cout<<"Ordered Feature GUI: View row picking, independent eyes, short MMB, Cancel, exact OK, original operand wire, unchanged OK, correction inspection and Undo/Redo passed\n";
+        std::cout<<"Ordered Feature GUI: View row picking, single-face correction wire, independent eyes, short MMB, Cancel, exact OK, original operand wire, unchanged OK, correction inspection, failed-definition persistence/repair and Undo/Redo passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

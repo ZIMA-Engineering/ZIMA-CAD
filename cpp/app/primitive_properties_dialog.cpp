@@ -1498,6 +1498,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         auto* target_label=new QLabel(tr("Cílové komponenty sestavy"),this);
         content_layout()->addWidget(target_label);
         content_layout()->addWidget(assembly_targets_);
+        connect(assembly_targets_,&QListWidget::itemChanged,this,[this]{notify_preview();});
         if(feature_panel_) {
             const auto show_targets=[this,target_label] {
                 const bool active=!feature_panel_->parameters().sketch_only();
@@ -2320,6 +2321,15 @@ void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
     notify_preview();
 }
 
+std::vector<std::string> PrimitivePropertiesDialog::selected_assembly_targets() const {
+    std::vector<std::string> result;
+    if(assembly_targets_)for(int row=0;row<assembly_targets_->count();++row) {
+        const auto* item=assembly_targets_->item(row);
+        if(item->checkState()==Qt::Checked)result.push_back(item->data(Qt::UserRole).toString().toStdString());
+    }
+    return result;
+}
+
 void PrimitivePropertiesDialog::notify_preview() {
     if(feature_panel_)feature_panel_->update_draft_notice();
     if(placement_ && feature_panel_)
@@ -2518,15 +2528,8 @@ bool PrimitivePropertiesDialog::submit() {
         error_->setText(tr("Vyberte alespoň jedno kruhové dno otvoru."));
         return false;
     }
-    std::vector<std::string> selected_targets;
+    auto selected_targets=selected_assembly_targets();
     if (assembly_targets_ != nullptr) {
-        for (int row = 0; row < assembly_targets_->count(); ++row) {
-            const auto* item = assembly_targets_->item(row);
-            if (item->checkState() == Qt::Checked) {
-                selected_targets.push_back(
-                    item->data(Qt::UserRole).toString().toStdString());
-            }
-        }
         if (selected_targets.empty()&&(!feature_panel_||!result.feature.sketch_only())) {
             error_->setText(tr("Vyberte alespoň jednu cílovou komponentu sestavy."));
             return false;

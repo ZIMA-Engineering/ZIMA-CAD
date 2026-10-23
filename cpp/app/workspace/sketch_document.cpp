@@ -63,9 +63,9 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
         refresh_scene();
         state_->setText(enabled
             ? sketch_external_intersection_active_
-                ? tr("Průsečnice: vyberte zdrojovou plochu.")
+                ? tr("Intersection: select a source face or curve.")
                 : sketch_external_profile_active_
-                ? tr("Reference → obrys: vyberte hranu tělesa.")
+                ? tr("Reference → obrys: vyberte hranu nebo obrysovou křivku.")
                 : tr("Reference: vyberte hranu, obrysovou křivku, vrchol, osu "
                      "nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.")
             : tr("Režim referencí byl ukončen."));
@@ -79,7 +79,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
          candidate.kind != zima::viewer::CandidateKind::Edge) ||
-        !sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_) ||
+        !sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,false,&viewer_->mesh()) ||
         !kind) return;
     try {
         const auto* active=active_sketch();if(!active)return;
@@ -93,7 +93,9 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             path.erase(0,prefix.size());
         }
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
-            source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_);
+            source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_&&!sketcher::is_face_curve_key(source.semantic_key));
+        if(candidate.kind==viewer::CandidateKind::Face&&!reference.infinite)
+            throw std::runtime_error("Source face cannot be projected into the Sketch plane");
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit
@@ -152,7 +154,7 @@ void AssemblyWorkspaceWindow::accept_sketch_intersection_reference(const viewer:
         if(!sketch_intersection_choices_.empty()) {
             if(!sketch_intersection_inputs_||*sketch_intersection_inputs_!=sketch_intersection_inputs()) {
                 sketch_intersection_choices_.clear();sketch_intersection_inputs_.reset();preserve_view_on_refresh_=true;refresh_scene();
-                state_->setText(tr("Zdroj průsečnice se změnil. Vyberte plochu znovu."));return;
+                state_->setText(tr("The intersection source changed. Select it again."));return;
             }
             if(!sketch_intersection_branch_candidate(candidate))return;
             const auto found=std::ranges::find_if(sketch_intersection_choices_,[&](const auto& branch) {
@@ -161,27 +163,31 @@ void AssemblyWorkspaceWindow::accept_sketch_intersection_reference(const viewer:
             auto pending=*active;const auto branch=*found;pending.add_external_reference(branch);
             if(sketch_external_profile_active_) {
                 if(sketcher::is_external_point_kind(branch.kind)) {
-                    const auto& p=branch.cached_points.front();const auto point=pending.add_point(p[0],p[1]);
-                    static_cast<void>(pending.add_point_reference_constraint(point,branch.id));
+                    const auto& p=branch.cached_points.front();auto point=sketcher::Sketch::create_point(p[0],p[1]);
+                    const auto id=point.id;pending.points.push_back(std::move(point));
+                    static_cast<void>(pending.add_point_reference_constraint(id,branch.id));
                 } else static_cast<void>(pending.add_external_profile_geometry(branch.id));
             }
             if(!mutate_active_sketch([&](auto& target){target=std::move(pending);}))return;
             std::erase_if(sketch_intersection_choices_,[&](const auto& value){return value.id==branch.id;});sketch_intersection_inputs_=sketch_intersection_inputs();
             preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
-            state_->setText(sketch_intersection_choices_.empty()?tr("Průsečnice byla uložena. Vyberte další plochu."):
-                tr("Vyberte další větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy."));return;
+            state_->setText(sketch_intersection_choices_.empty()?tr("Intersection reference saved. Select another face or curve."):
+                tr("Select another intersection branch. Short middle click returns to source selection."));return;
         }
         if(!sketch_external_reference_has_stable_geometry(candidate,false,true))return;
-        auto source=sketch_external_reference_source_candidate(candidate);auto path=candidate.instance_path;
+        const auto source=candidate.kind==viewer::CandidateKind::Face?sketch_external_reference_source_candidate(candidate):candidate;
+        auto path=candidate.instance_path;
         const auto owner=workspace_.active_document_id();
         if(workspace_.open_assembly(owner)&&owner!=workspace_.displayed_document_id()) {
             const auto& prefix=workspace_.active_occurrence_path();
             if(prefix.empty()||!path.starts_with(prefix))return;path.erase(0,prefix.size());
         }
-        sketch_intersection_choices_=workspace::prepare_sketch_intersection_branches(workspace_,kernel_,owner,*active,
+        if(candidate.kind==viewer::CandidateKind::Face)sketch_intersection_choices_=workspace::prepare_sketch_intersection_branches(workspace_,kernel_,owner,*active,
             {candidate.owner_id,candidate.semantic_key,path},{source.owner_id,source.semantic_key,path},
             sketch_reference_draft_body_id(),section_dialog_!=nullptr);
-        if(sketch_intersection_choices_.empty()){state_->setText(tr("Plocha nemá průsečnici s rovinou skici."));return;}
+        else sketch_intersection_choices_=workspace::prepare_sketch_curve_intersection_branches(workspace_,owner,*active,
+            {candidate.owner_id,candidate.semantic_key,path},sketch_reference_draft_body_id(),section_dialog_!=nullptr);
+        if(sketch_intersection_choices_.empty()){state_->setText(tr("The selected source does not intersect the Sketch plane."));return;}
         sketch_intersection_inputs_=sketch_intersection_inputs();
         if(sketch_intersection_choices_.size()==1) {
             const auto& branch=sketch_intersection_choices_.front();auto pick=candidate;
@@ -190,10 +196,14 @@ void AssemblyWorkspaceWindow::accept_sketch_intersection_reference(const viewer:
             accept_sketch_intersection_reference(pick);return;
         }
         preserve_view_on_refresh_=true;refresh_scene();
-        state_->setText(tr("Vyberte větev průsečnice. Krátké prostřední kliknutí vrátí výběr plochy."));
+        state_->setText(tr("Select an intersection branch. Short middle click returns to source selection."));
+    }catch(const workspace::SketchOperationError& error) {
+        std::fprintf(stderr,"Sketch intersection reference: %s\n",error.what());
+        state_->setText(std::string_view(error.code)=="non_unique_intersection"?tr(error.what()):
+            tr("Cannot create the intersection reference. Its source or branch is unavailable."));
     }catch(const std::exception& error) {
         std::fprintf(stderr,"Sketch intersection reference: %s\n",error.what());
-        state_->setText(tr("Průsečnici nelze vytvořit. Zdroj nebo větev není k dispozici."));
+        state_->setText(tr("Cannot create the intersection reference. Its source or branch is unavailable."));
     }
 }
 

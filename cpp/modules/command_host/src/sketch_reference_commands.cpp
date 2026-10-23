@@ -1,5 +1,6 @@
 #include "sketch_command_support.hpp"
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/sketcher/face_curve_reference.hpp>
 
 namespace zima::command_host {
 using namespace sketch_commands;
@@ -19,9 +20,10 @@ void Host::register_sketch_reference_commands() {
     add_sketch_command({"sketch.reference.create",tr("Project an original reference or a body edge into a Sketch using its exact persisted identity."),
         {{"kind",true},{"owner",true},{"key",true},{"instance_path",false},{"profile",false,Type::Boolean}}},[this](Sketch& s,const Json& a) {
         const bool profile=a.value("profile",false);const auto source_kind=kind(a["kind"].get<std::string>());
-        if(profile&&source_kind!=Kind::Edge)invalid("Profile geometry requires a body edge reference.");
+        const bool outline=source_kind==Kind::Face&&sketcher::is_face_curve_key(a["key"].get<std::string>());
+        if(profile&&source_kind!=Kind::Edge&&!outline)invalid("Profile geometry requires an edge or an outline curve reference.");
         auto value=workspace::prepare_sketch_external_reference(workspace_,workspace_.active_document_id(),s,source_kind,
-            a["owner"].get<std::string>(),a["key"].get<std::string>(),a.value("instance_path",std::string{}),{},false,profile);
+            a["owner"].get<std::string>(),a["key"].get<std::string>(),a.value("instance_path",std::string{}),{},false,profile&&!outline);
         const auto id=value.id;const auto source=value.source_document_id;s.add_external_reference(std::move(value));
         Json data={{"reference",id},{"source_document",source}};
         if(profile)data["geometry"]=s.add_external_profile_geometry(id);return data;

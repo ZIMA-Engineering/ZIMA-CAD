@@ -9,6 +9,7 @@ public:
     const char* code;
 };
 enum class ProfileEditMode { Create, Replace, TransformSketch };
+enum class ProfileFailurePolicy { Reject, KeepDefinition };
 void validate_profile_definition(const document::HistoryContainer&);
 // Assembly cutters affect immediate Part occurrences, never their source files.
 void commit_assembly_profile(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
@@ -32,8 +33,20 @@ void normalize_owned_profile_front_references(std::vector<document::Construction
 // last useful target geometry and the original identity needed for repair.
 bool refresh_profile_end_targets(document::PartDocument&,const std::vector<kernel::BodyResult>&);
 
+// Pure request preparation from an already resolved command carrier. No live
+// document mutation, placement solving, kernel calculation or Undo transaction.
+[[nodiscard]] kernel::HistoryOperation feature_preview_operation(document::PartDocument,
+    const document::HistoryContainer&);
+[[nodiscard]] kernel::BodySnapshot feature_preview_part_sources(
+    const document::DocumentSession&,const std::string& container_id);
+[[nodiscard]] std::vector<kernel::OrderedUpToPatch> feature_preview_external_sources(
+    const assembly::AssemblyDocument&,const document::HistoryContainer&);
+[[nodiscard]] kernel::BodySnapshot feature_preview_assembly_input(
+    const assembly::AssemblyDocument&,const std::vector<std::string>& targets);
+
 // Same explicit OK transaction for GUI and CLI. A profile owns its Sketch;
 // numerical equality alone cannot prove that its geometry is unchanged.
 void commit_profile(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
-    document::HistoryContainer, ProfileEditMode, const std::optional<sketcher::Sketch>& owned_sketch = {});
+    document::HistoryContainer, ProfileEditMode, const std::optional<sketcher::Sketch>& owned_sketch = {},
+    ProfileFailurePolicy = ProfileFailurePolicy::Reject);
 } // namespace zima::workspace

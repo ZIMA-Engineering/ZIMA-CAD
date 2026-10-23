@@ -28,7 +28,7 @@ bool set_assembly_cut_suppressed(Workspace& live, const kernel::OcctKernel& kern
     if (state.session.document().find_cut(cut)->definition.suppressed == suppressed) return false;
     auto next = live.prepare_assembly_calculation(id);
     next.find_cut(cut)->definition.suppressed = suppressed;
-    calculate_resolved_assembly_cuts(kernel, next);
+    calculate_resolved_assembly_cuts(kernel, next,false,&live);
     state.session.commit(std::move(next));
     return true;
 }
@@ -45,7 +45,7 @@ void remove_assembly_cut(Workspace& live, const kernel::OcctKernel& kernel,
     for (auto& sketch : next.sketches) for (auto& reference : sketch.external_references)
         if (removed.contains(reference.source_owner_id) && reference.source_instance_path.empty() &&
             (reference.source_document_id.empty() || reference.source_document_id == id)) reference.broken = true;
-    calculate_resolved_assembly_cuts(kernel, next);
+    calculate_resolved_assembly_cuts(kernel, next,false,&live);
     state.session.commit(std::move(next));
 }
 bool move_assembly_cut(Workspace& live, const kernel::OcctKernel& kernel,
@@ -67,7 +67,7 @@ bool move_assembly_cut(Workspace& live, const kernel::OcctKernel& kernel,
     auto next = live.prepare_assembly_calculation(id);
     sort_history_records(next.cuts, reordered, [](const auto& value) { return value.definition.id; });
     next.history_order=history;
-    calculate_resolved_assembly_cuts(kernel, next);
+    calculate_resolved_assembly_cuts(kernel, next,false,&live);
     for (const auto& value : original.cuts) {
         const auto* changed = next.find_cut(value.definition.id);
         if (!changed || (value.definition.placement.reference_valid && !changed->definition.placement.reference_valid))

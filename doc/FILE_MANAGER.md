@@ -146,6 +146,17 @@ files. Cancel changes nothing. Before moving each file to the OS recycle bin,
 its path, inherited protection and SHA-256 are checked again. No permanent-delete
 fallback is used when the recycle operation fails.
 
+Archive discovery and hashing, Copy, Move and recycling run on private worker
+inputs. The common activity indicator is centered over the visible File Manager
+after the ordinary 250 ms delay; scanning and recycling have distinct messages.
+The window continues painting and processing timers while competing input is
+blocked. Destination selection, confirmation and error reporting stay on the UI
+thread. No file is recycled before confirmation. The worker rechecks cleanup
+content fingerprints and protection before each move to the recycle bin.
+
+The finite Windows checks, including a 6,500-archive fixture, are recorded in
+[responsive file operations](verification/20261023-responsive-file-operations.md).
+
 ### Foreign-model inspection
 
 One STEP/IGES/DXF path owns one preview main tab; repeated requests select it.

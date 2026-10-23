@@ -51,7 +51,19 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 edge.reference.instance_path==workspace_.active_occurrence_path()&&
                 !edge.reference.semantic_key.starts_with("external_"))edge.color=zima::interaction::sketch_construction.name().toStdString();
         }
-        if(sketch_external_reference_active_&&!sketch_external_profile_active_&&!sketch_external_intersection_active_)if(const auto* sketch=active_sketch()) {
+        if(sketch_external_reference_active_&&!sketch_external_intersection_active_)if(const auto* sketch=active_sketch()) {
+            // Display triangles persist identity; analytic support data belongs
+            // to the original-reference packet. Join that existing data once
+            // per scene, never by reconstructing a surface while picking.
+            using FaceKey=std::tuple<std::string,std::string,std::string>;
+            std::map<FaceKey,std::shared_ptr<const zima::kernel::SurfaceGeometry>> surfaces;
+            for(const auto& face:mesh.original_references.triangle_references)
+                if(face.surface)surfaces.try_emplace(FaceKey{face.owner_id,face.semantic_key,face.instance_path},face.surface);
+            for(auto& face:mesh.triangle_references)if(!face.surface) {
+                auto owner=face.owner_id,key=face.semantic_key;
+                while(const auto parent=zima::kernel::boolean_face_parent(key)){owner=parent->first;key=parent->second;}
+                if(const auto source=surfaces.find({owner,key,face.instance_path});source!=surfaces.end())face.surface=source->second;
+            }
             zima::kernel::ViewerMesh basis;
             zima::kernel::ViewerEdge axes;axes.points={sketch->world_point(0,0),sketch->world_point(1,0),sketch->world_point(0,1)};
             basis.edges.push_back(std::move(axes));basis=place_sketch_mesh(*sketch,std::move(basis));
@@ -1453,7 +1465,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             viewer_->set_candidate_filter(
                 [this,source_owners,profile=sketch_external_profile_active_](const auto& candidate) {
                     if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty())return sketch_intersection_branch_candidate(candidate);
-                    const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile,sketch_external_intersection_active_);
+                    const bool stable_geometry = sketch_external_reference_has_stable_geometry(candidate,profile,sketch_external_intersection_active_,&viewer_->mesh());
                     const auto source=sketch_external_reference_source_candidate(candidate);
                     return stable_geometry && candidate.instance_path.empty() &&
                         source_owners.contains(source.owner_id) &&
@@ -2304,7 +2316,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             const auto& prefix = workspace_.active_occurrence_path();
             if (!prefix.empty() && (!candidate.instance_path.starts_with(prefix) ||
                 candidate.instance_path == prefix)) return false;
-            if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_) ||
+            if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_,&viewer_->mesh()) ||
                 candidate.instance_path.empty()) return false;
             try {
                 return workspace_.resolve_occurrence(top_assembly_id,
@@ -2325,7 +2337,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             [this, allowed_local_owners, active_document_id,
              top_assembly_id, dependent_path](const auto& candidate) {
                 if(sketch_external_intersection_active_&&!sketch_intersection_choices_.empty())return sketch_intersection_branch_candidate(candidate);
-                if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_) ||
+                if (!sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,sketch_external_intersection_active_,&viewer_->mesh()) ||
                     candidate.instance_path.empty()) return false;
                 if (candidate.instance_path == dependent_path) {
                     return allowed_local_owners.contains(sketch_external_reference_source_candidate(candidate).owner_id);

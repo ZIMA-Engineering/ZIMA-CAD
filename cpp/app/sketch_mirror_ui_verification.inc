@@ -1,19 +1,25 @@
+#include "sketch_rectangle_drag_ui_verification.inc"
 int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_RECTANGLE_ONLY"))return verify_sketch_rectangle_drag_ui(application,directory);
     using namespace zima;
     try {
         const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        for(int axis_kind=0;axis_kind<4;++axis_kind) {
+        for(int case_id=0;case_id<8;++case_id) {
+            const int axis_kind=case_id%4;const bool rounded=case_id>=4;
+            QSettings preferences(QString::fromStdString((directory/"config.ini").string()),QSettings::IniFormat);
+            preferences.setValue("Application/Theme",axis_kind%2?"dark":"light");preferences.sync();
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             const auto first=sketch.add_segment(12,10,28,10),second=sketch.add_segment(28,10,28,24);
+            if(rounded){static_cast<void>(sketch.add_corner_fillet(first,second,2));sketch.corner_radii.front().dimension_visible=true;sketch.corner_radii.front().dimension_placement=std::array{20.,6.};}
             const auto source_point=sketch.segments.front().first_point_id;
             auto dimension=sketch.create_segment_dimension(first);dimension.locked=false;sketch.apply_dimension(dimension);
             const auto axis=axis_kind<2?std::string(axis_kind==0?"sketch_axis:x":"sketch_axis:y"):
                 sketch.add_segment(axis_kind==2?3:-20,-30,axis_kind==2?3:20,30,1e-6,true);
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Mirror interaction");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
-            const auto path=directory/("sketch-mirror-"+std::to_string(axis_kind)+".prtz");part.save(path);
+            const auto path=directory/("sketch-mirror-"+std::to_string(case_id)+".prtz");part.save(path);
             app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
             check(window.open_document_path(QString::fromStdString(path.string())),"Mirror fixture cannot open");flush();
             check(activate_test_body(application,window,body),"Mirror fixture Body cannot activate");flush();
@@ -51,6 +57,45 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             check(geometry_keys().size()==(axis_kind<2?4u:5u),"Mirror axis confirmation did not create both copied segments");
             window.findChild<QAction*>("undoAction")->trigger();flush();check(geometry_keys().size()==(axis_kind<2?2u:3u),"Mirror Undo did not remove exactly the copied pair");
             window.findChild<QAction*>("redoAction")->trigger();flush();check(geometry_keys().size()==(axis_kind<2?4u:5u),"Mirror Redo did not restore the copied pair");
+            if(rounded) {
+                const auto id=sketch.corner_radii.front().id;
+                const auto dimension_row=[&]()->QTreeWidgetItem* {
+                    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                        (*i)->data(0,Qt::UserRole+3)=="part-sketch-dimension")return *i;
+                    return nullptr;
+                };
+                check(dimension_row(),"Intrinsic rounded radius is missing in the Sketch Tree");
+                viewer::ViewerCandidate dimension;dimension.kind=viewer::CandidateKind::Dimension;dimension.owner_id=sketch.id;dimension.semantic_key="corner_dimension:"+id;
+                for(std::size_t i=0;i<view->mesh().dimensions.size();++i)if(view->mesh().dimensions[i].reference.semantic_key==dimension.semantic_key)dimension.geometry_index=i;
+                if(axis_kind%2==0) {
+                    const auto label=view->candidate_dimension_label_position(dimension);check(label.has_value(),"Rounded radius has no pickable label");
+                    std::optional<QPointF> hit;
+                    for(int radius=0;radius<=24&&!hit;++radius)for(int dy=-radius;dy<=radius&&!hit;++dy)
+                        for(int dx=-radius;dx<=radius&&!hit;++dx)if(std::max(std::abs(dx),std::abs(dy))==radius) {
+                            const QPointF p=*label+QPoint(dx,dy);const auto candidates=view->selection_candidates_at(p);
+                            if(!candidates.empty()&&candidates.front().semantic_key==dimension.semantic_key)hit=p;
+                        }
+                    check(hit.has_value(),"Rounded radius label has no unobstructed pickable text");click(*hit);
+                    if(!view->confirmed_candidate()||view->confirmed_candidate()->semantic_key!=dimension.semantic_key) {
+                        if(view->confirmed_candidate())std::cerr<<"Confirmed instead "<<view->confirmed_candidate()->semantic_key<<'\n';
+                        window.grab().save(QString::fromStdString((directory/"rounded-radius-selection-failure.png").string()));
+                    }
+                    check(view->confirmed_candidate()&&view->confirmed_candidate()->semantic_key==dimension.semantic_key,"Rounded radius View click lost exact identity");
+                    check(tree->currentItem()==dimension_row(),"Rounded radius View click did not synchronize Tree");
+                } else {
+                    auto* item=dimension_row();tree->scrollToItem(item);flush();const auto p=tree->visualItemRect(item).center();
+                    QMouseEvent press(QEvent::MouseButtonPress,p,tree->viewport()->mapToGlobal(p),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                    QMouseEvent release(QEvent::MouseButtonRelease,p,tree->viewport()->mapToGlobal(p),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(tree->viewport(),&press);QApplication::sendEvent(tree->viewport(),&release);flush();
+                    check(view->confirmed_candidate()&&view->confirmed_candidate()->semantic_key==dimension.semantic_key,"Rounded radius Tree click lost exact View identity");
+                }
+                QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(&window,&remove);flush();
+                check(!dimension_row()&&!view->candidate_dimension_label_position(dimension),"Intrinsic rounded radius survived Delete");
+                check(geometry_keys().size()==(axis_kind<2?4u:5u),"Radius Delete removed supporting geometry");
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(dimension_row(),"Radius Delete Undo did not restore Tree annotation");
+                window.findChild<QAction*>("redoAction")->trigger();flush();check(!dimension_row(),"Radius Delete Redo did not remove annotation");
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+            }
             // Real point drag after leaving the command; verify its reflection
             // independently from persisted Symmetric equations after saving.
             click(screen(-18,35));const auto from=screen(12,10),to=screen(15,13);
@@ -60,6 +105,9 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto reopened=document::PartDocument::load(path);const auto& result=reopened.sketches.front();
             check(result.segments.size()==(axis_kind<2?4u:5u),"Mirror native save/reopen lost geometry");
+            check(result.corner_radii.size()==(rounded?2u:0u),"Mirror GUI lost a selected rounded corner");
+            if(rounded)check(std::abs(result.corner_radii[0].radius-result.corner_radii[1].radius)<1e-8,
+                "Mirror GUI lost linked corner radii after dragging and reopen");
             check(std::hypot(result.find_point(source_point)->x-12,result.find_point(source_point)->y-10)>1,"Mirror source could not be dragged after completion");
             const auto origin=axis_kind==0?std::array{0.,0.}:axis_kind==1?std::array{0.,0.}:axis_kind==2?std::array{3.,-30.}:std::array{-20.,-30.};
             const auto direction=axis_kind==0?std::array{1.,0.}:axis_kind==1?std::array{0.,1.}:axis_kind==2?std::array{0.,60.}:std::array{40.,60.};
@@ -71,7 +119,7 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             }
             check(relations==3&&result.dimensions.size()==1&&result.dimensions.front().id==dimension.id,"Mirror lost shared corner topology or duplicated source dimensions");
             if(axis_kind==3)view->grabFramebuffer().save(QString::fromStdString((directory/"sketch-mirror.png").string()));
-            std::cout<<"Sketch Mirror GUI axis "<<axis_kind<<": source/axis picking, Cancel, Undo/Redo, point drag and native reopen passed\n";
+            std::cout<<"Sketch Mirror GUI axis "<<axis_kind<<" rounded="<<rounded<<": source/axis picking, Cancel, Undo/Redo, point drag and native reopen passed\n";
         }
         return 0;
     }catch(const std::exception& error){std::cerr<<"Sketch Mirror GUI: "<<error.what()<<'\n';return 1;}

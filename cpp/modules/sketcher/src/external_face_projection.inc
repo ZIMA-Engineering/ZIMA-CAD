@@ -1,3 +1,70 @@
+// Exact side-on generators of a full or angularly bounded analytic band.
+// Boundary certification uses persisted triangles; no kernel call or new IDs.
+static std::array<std::optional<std::array<kernel::Vec3,2>>,2>
+analytic_band_generators(const kernel::ViewerReferenceGeometry& source,
+        const kernel::FaceReference& face,kernel::Vec3 normal) {
+    using V=kernel::Vec3;
+    std::array<std::optional<std::array<V,2>>,2> result;
+    const auto dot=[](V a,V b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const auto sub=[](V a,V b){return V{a.x-b.x,a.y-b.y,a.z-b.z};};
+    const auto cross=[](V a,V b){return V{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
+    const auto unit=[&](V v)->std::optional<V>{const double l=std::sqrt(dot(v,v));if(l<1e-12)return {};return V{v.x/l,v.y/l,v.z/l};};
+    if(source.triangles.size()!=3*source.triangle_references.size())return result;
+    const kernel::SurfaceGeometry* surface{};
+    std::vector<V> points;
+    std::map<std::array<long long,3>,unsigned> welded;
+    std::map<std::pair<unsigned,unsigned>,unsigned> boundary;
+    for(std::size_t i=0;i<source.triangle_references.size();++i) {
+        const auto& reference=source.triangle_references[i];if(reference!=face)continue;
+        if(!surface)surface=(reference.contour_surface?reference.contour_surface:reference.surface).get();
+        std::array<unsigned,3> ids;
+        for(unsigned j=0;j<3;++j) {
+            const auto index=source.triangles[3*i+j];if(index>=source.vertices.size())return result;
+            const auto p=source.vertices[index];
+            if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||std::max({std::abs(p.x),std::abs(p.y),std::abs(p.z)})>9e10)return result;
+            const std::array key{std::llround(p.x*1e8),std::llround(p.y*1e8),std::llround(p.z*1e8)};
+            auto [it,added]=welded.try_emplace(key,static_cast<unsigned>(points.size()));
+            if(added)points.push_back(p);ids[j]=it->second;
+        }
+        for(unsigned j=0;j<3;++j)if(ids[j]!=ids[(j+1)%3])++boundary[std::minmax(ids[j],ids[(j+1)%3])];
+    }
+    if(!surface||(surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder&&surface->kind!=kernel::SurfaceGeometry::Kind::Cone))return result;
+    const auto& s=*surface;const auto n=unit(normal);
+    if(!n||std::abs(dot(*n,s.axis))>1e-10)return result;
+    const auto radial=unit(cross(*n,s.axis));if(!radial)return result;
+    const auto axial=[&](V p){return dot(sub(p,s.origin),s.axis);};
+    const auto ray=[&](V p)->std::optional<V>{const auto z=axial(p);const auto d=sub(p,s.origin);return unit({d.x-z*s.axis.x,d.y-z*s.axis.y,d.z-z*s.axis.z});};
+    std::array<std::vector<std::pair<V,V>>,2> caps;
+    for(const auto& [indices,count]:boundary)if(count!=2) {
+        if(count!=1)return result;
+        const auto a=points[indices.first],b=points[indices.second];
+        const double za=axial(a),zb=axial(b);
+        const auto ra=ray(a),rb=ray(b);if(!ra||!rb)return result;
+        const bool low=std::abs(za-s.axial_min)<1e-7&&std::abs(zb-s.axial_min)<1e-7;
+        const bool high=std::abs(za-s.axial_max)<1e-7&&std::abs(zb-s.axial_max)<1e-7;
+        if(low||high) {
+            // Adjacent samples must certify the local angular arc unambiguously.
+            if(dot(*ra,*rb)<0)return result;
+            caps[high?1:0].push_back({*ra,*rb});
+        } else if(dot(*ra,*rb)<1.-1e-10)return result;
+    }
+    const auto contains=[&](const auto& arcs,V q) {
+        return std::ranges::any_of(arcs,[&](const auto& arc) {
+            const auto angle=[&](V p){return std::atan2(dot(s.axis,cross(arc.first,p)),dot(arc.first,p));};
+            const double sweep=angle(arc.second),part=angle(q);
+            return sweep>=0 ? part>=-1e-10&&part<=sweep+1e-10 : part<=1e-10&&part>=sweep-1e-10;
+        });
+    };
+    for(unsigned i=0;i<2;++i) {
+        const double sign=i?1.:-1.;const V direction{sign*radial->x,sign*radial->y,sign*radial->z};
+        if(!contains(caps[0],direction)||!contains(caps[1],direction))continue;
+        const auto point=[&](double z){const double r=s.radius+(s.kind==kernel::SurfaceGeometry::Kind::Cone?z*std::tan(s.semi_angle):0.);
+            return V{s.origin.x+z*s.axis.x+r*direction.x,s.origin.y+z*s.axis.y+r*direction.y,s.origin.z+z*s.axis.z+r*direction.z};};
+        result[i]=std::array{point(s.axial_min),point(s.axial_max)};
+    }
+    return result;
+}
+
 // Orthographic outlines consume calculated reference triangles and analytic
 // supports. The sketch origin never participates in a plane intersection.
 std::optional<std::vector<std::vector<std::array<double, 2>>>>
@@ -7,36 +74,15 @@ Sketch::external_face_reference_paths(const zima::kernel::ViewerReferenceGeometr
     using V=zima::kernel::Vec3;
     if(is_face_curve_key(face.semantic_key)) {
         auto support=face;support.semantic_key=face_curve_source_key(face.semantic_key);
-        const auto paths=external_face_reference_paths(source,support);
-        // A certified side-on complete band has the four analytical sides
-        // emitted below. Fail closed when trimming removes that support.
-        const auto surface=std::ranges::find_if(source.triangle_references,[&](const auto& r){
-            return r.owner_id==support.owner_id&&r.semantic_key==support.semantic_key&&r.instance_path==support.instance_path;});
-        const auto support_surface=surface==source.triangle_references.end()?nullptr:
-            (surface->contour_surface?surface->contour_surface:surface->surface);
-        if(!support_surface||
-            (support_surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder&&support_surface->kind!=kernel::SurfaceGeometry::Kind::Cone)||
-            !paths||paths->size()!=1||paths->front().size()!=5)return std::nullopt;
-        const auto& p=paths->front();
+        const auto tag=std::string_view(face.semantic_key).substr(face_curve_prefix.size(),face.semantic_key.find(':',face_curve_prefix.size())-face_curve_prefix.size());
+        if(tag!="negative"&&tag!="positive")return std::nullopt;
         const auto o=world_point(0,0),x=world_point(1,0),y=world_point(0,1);
         const V a{x.x-o.x,x.y-o.y,x.z-o.z},b{y.x-o.x,y.y-o.y,y.z-o.z};
-        const V n{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
-        const auto& s=*support_surface;
-        if(std::abs(n.x*s.axis.x+n.y*s.axis.y+n.z*s.axis.z)>1e-10)return std::nullopt;
-        V radial{n.y*s.axis.z-n.z*s.axis.y,n.z*s.axis.x-n.x*s.axis.z,n.x*s.axis.y-n.y*s.axis.x};
-        const double length=std::hypot(radial.x,radial.y,radial.z);if(length<1e-12)return std::nullopt;
-        radial={radial.x/length,radial.y/length,radial.z/length};
-        for(unsigned i=0;i<4;++i) {
-            const double z=(i==0||i==3)?s.axial_min:s.axial_max,side=i<2?-1.:1.;
-            const double r=s.radius+(s.kind==kernel::SurfaceGeometry::Kind::Cone?z*std::tan(s.semi_angle):0.);
-            const auto expected=local_point({s.origin.x+z*s.axis.x+side*r*radial.x,
-                s.origin.y+z*s.axis.y+side*r*radial.y,s.origin.z+z*s.axis.z+side*r*radial.z});
-            if(std::hypot(expected[0]-p[i][0],expected[1]-p[i][1])>1e-8)return std::nullopt;
-        }
-        const auto tag=std::string_view(face.semantic_key).substr(face_curve_prefix.size(),face.semantic_key.find(':',face_curve_prefix.size())-face_curve_prefix.size());
-        if(tag=="negative")return std::vector<std::vector<P>>{{p[0],p[1]}};
-        if(tag=="positive")return std::vector<std::vector<P>>{{p[3],p[2]}};
-        return std::nullopt;
+        const V normal{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
+        const auto generators=analytic_band_generators(source,support,normal);
+        const auto& selected=generators[tag=="positive"?1:0];
+        if(!selected)return std::nullopt;
+        return std::vector<std::vector<P>>{{local_point((*selected)[0]),local_point((*selected)[1])}};
     }
     if(!face.valid() || source.triangles.size()!=3*source.triangle_references.size())return std::nullopt;
     const auto dot=[](V a,V b){return a.x*b.x+a.y*b.y+a.z*b.z;};
@@ -194,13 +240,14 @@ std::vector<kernel::ViewerEdge> external_face_curve_edges(
         }
         if(band.triangle_references.empty())continue;
         const auto& face=band.triangle_references.front();
-        for(const int side:{-1,1}) {
-            auto reference=face;reference.semantic_key=face_curve_key(face.semantic_key,side);
-            if(const auto paths=frame.external_face_reference_paths(band,reference)) {
-                kernel::ViewerEdge edge;edge.reference={reference.owner_id,reference.semantic_key,reference.instance_path};
-                for(const auto& p:paths->front())edge.points.push_back(frame.world_point(p[0],p[1]));
-                edge.overlay=true;result.push_back(std::move(edge));
-            }
+        const auto generators=analytic_band_generators(band,face,frame.resolved_normal);
+        for(unsigned i=0;i<2;++i)if(generators[i]) {
+            kernel::ViewerEdge edge;
+            edge.reference={face.owner_id,face_curve_key(face.semantic_key,i?1:-1),face.instance_path};
+            // Offer the actual source generator, preserving its world depth.
+            // Only the accepted reference cache is projected onto the Sketch.
+            edge.points={(*generators[i])[0],(*generators[i])[1]};
+            edge.overlay=true;result.push_back(std::move(edge));
         }
     }
     return result;

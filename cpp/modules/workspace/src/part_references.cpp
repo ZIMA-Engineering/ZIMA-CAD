@@ -225,7 +225,7 @@ bool refresh_sketch_external_references(
                     body=document::general_surface_local_reference_geometry(parent,std::move(body));
                 }
         std::vector<sketcher::SketchExternalReference> intersections;
-        if(explicit_kernel && std::ranges::any_of(sketch.external_references,[](const auto& r){return r.intersection.has_value();})) {
+        if(explicit_kernel && std::ranges::any_of(sketch.external_references,[](const auto& r){return sketcher::is_intersection_reference(r);})) {
             if(!intersection_context)intersection_context.emplace(document,calculated_boundaries);
             intersections=calculate_part_sketch_intersections(*explicit_kernel,*intersection_context,sketch);
         }

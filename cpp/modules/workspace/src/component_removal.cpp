@@ -31,7 +31,7 @@ void remove_component(Workspace& live,const kernel::OcctKernel& kernel,const std
     std::erase_if(next.components,[&](const auto& item){return item.occurrence_id==occurrence;});
     std::erase_if(next.dependencies,[&](const auto& edge){return edge.dependent_occurrence_id==occurrence;});
     next.calculate_placement_references();
-    calculate_resolved_assembly_cuts(kernel,next);
+    calculate_resolved_assembly_cuts(kernel,next,false,&live);
     state->session.commit(std::move(next));
 }
 } // namespace zima::workspace

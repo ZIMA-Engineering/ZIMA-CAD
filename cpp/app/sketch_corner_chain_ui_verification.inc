@@ -7,6 +7,22 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         const auto source=qEnvironmentVariable("ZIMA_VERIFY_CORNER_CHAIN_FILE");
         auto part=document::PartDocument::create_default();
         if(!source.isEmpty())part=document::PartDocument::load(std::filesystem::path(source.toStdWString()));
+        else if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_THIN")) {
+            auto profile=sketcher::Sketch::create_default();
+            const auto sides=profile.add_rectangle(0,0,30,40);
+            static_cast<void>(profile.add_corner_fillet(sides[1],sides[2],8.619847297682325));
+            profile.corner_radii.front().dimension_visible=true;
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_DIMENSION")) {
+                static_cast<void>(profile.add_corner_fillet(sides[0],sides[3],8.619847297682325));
+                static_cast<void>(profile.add_equal_radius_constraint(profile.corner_radii[0].id,profile.corner_radii[1].id));
+            }
+            auto feature=document::PartDocument::create_feature_container(profile.id);
+            feature.feature.result_type=document::ProfileResultType::Thin;feature.feature.thin_thickness=1;
+            feature.feature.sides[0].length=20;profile.owner_container_id=feature.id;
+            part.history={feature};part.sketches={profile};document::BodyHistoryGraph graph;
+            static_cast<void>(graph.create_body("Rounded Thin GUI"));graph.insert({document::PartHistoryKind::Feature,feature.id});
+            part.set_body_history(graph);part.resolve_constructions();
+        }
         else if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_FOUR")) {
             auto profile=sketcher::Sketch::create_default();
             const auto sides=profile.add_rectangle(0,0,60,40);
@@ -42,6 +58,15 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         const auto sketch=part.sketches.front();
         const auto path=directory/"corner-chain-copy.prtz";
         part.save(path);
+        const auto verify_thin=[&] {
+            if(!qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_THIN"))return;
+            std::vector<kernel::BodyResult> calculated;const auto saved=document::PartDocument::load(path,&calculated);
+            check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"GUI rounded Thin profile retained a calculation error");
+            auto body=calculated.back();kernel::OcctKernel engine;engine.ensure_body_properties(body);
+            double rounding{};for(const auto& corner:saved.sketches.front().corner_radii)rounding+=(2*corner.radius-1)*(1-std::acos(-1.)/4);
+            const double expected=20*(30*40-28*38-rounding);
+            check(std::abs(body.volume-expected)<1e-5,"GUI rounded Thin volume disagrees with its independent section area");
+        };
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
         check(window.open_document_path(QString::fromStdString(path.string())),"Corner fixture failed to open");flush();
         check(activate_test_body(application,window,part.body_history.bodies().front().scope.id),"Corner Body unavailable");flush();
@@ -86,7 +111,8 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
                 if(ref.owner_id==candidate.owner_id && ref.semantic_key==candidate.semantic_key)
                     candidate.geometry_index=i;
             }
-            for(const double value:four?std::vector<double>{5,2,4}:std::vector<double>{5}) {
+            const bool thin=qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_THIN");
+            for(const double value:(four||thin)?std::vector<double>{5,2,4}:std::vector<double>{5}) {
                 window.edit_dimension_inline(candidate);flush();
                 auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
                 check(field,"Corner dimension inline editor missing");
@@ -99,8 +125,9 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
             for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
             check(window.execute_console_command("save").ok,"Equal corner Save failed");
             const auto after=document::PartDocument::load(path);
+            verify_thin();
             check(after.sketches.front().corner_radii.size()==(four?4:2) &&
-                std::ranges::all_of(after.sketches.front().corner_radii,[&](const auto& r){return std::abs(r.radius-(four?4:5))<1e-7;}),"Saved equal radii differ from edited value");
+                    std::ranges::all_of(after.sketches.front().corner_radii,[&](const auto& r){return std::abs(r.radius-((four||thin)?4:5))<1e-7;}),"Saved equal radii differ from edited value");
             check(after.sketches.front().points==sketch.points && after.sketches.front().segments==sketch.segments &&
                 (four?std::ranges::count_if(after.sketches.front().constraints,[](const auto& c){return !c.suppressed&&c.kind==sketcher::ConstraintKind::EqualRadius;})==3:
                     after.sketches.front().constraints==sketch.constraints),"Equal radius edit changed source geometry or constraints");
@@ -163,6 +190,7 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
         const auto saved=window.execute_console_command("save");check(saved.ok,"Save failed");
         const auto after=document::PartDocument::load(path);
+        verify_thin();
         check(after.sketches.front().corner_radii.size()==sketch.corner_radii.size()+1,"Second corner drag did not add a radius");
         check(after.sketches.front().segments==sketch.segments,"Corner drag changed source segments");
         check(after.sketches.front().constraints==sketch.constraints,"Corner drag changed source constraints");

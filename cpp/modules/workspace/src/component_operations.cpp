@@ -74,7 +74,7 @@ bool replace_component(Workspace& live,const kernel::OcctKernel& kernel,const st
     next=prepared.prepare_assembly_calculation(owner);
     // Missing mate references deliberately remain stored. The existing reference
     // index marks the affected component red until its Properties repair them.
-    calculate_resolved_assembly_cuts(kernel,next);
+    calculate_resolved_assembly_cuts(kernel,next,false,&prepared);
     live.open_assembly(owner)->session.commit(std::move(next));
     return true;
 }

@@ -88,7 +88,7 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
                 check(command&&command->isEnabled(),"External source command unavailable");command->trigger();flush();
                 if(mode==5) {
                     const auto loaded=app::ApplicationSettings::load(QString::fromStdString(directory.string()));
-                    check(window.findChild<QLabel*>("workspaceState")->text()==loaded.qt_translations.value("Reference → obrys: vyberte hranu tělesa."),"Body edge command status is not localized");
+                    check(window.findChild<QLabel*>("workspaceState")->text()==loaded.qt_translations.value("Reference → obrys: vyberte hranu nebo obrysovou křivku."),"Body edge command status is not localized");
                 }
                 std::optional<QPointF> hit;
                 if(mode==4) {

@@ -28,6 +28,25 @@ void verify_face_projection_matrix() {
             return g;
         };
         auto g=source(5);const auto unchanged=g.vertices;
+        if(individual) {
+            auto partial=g;
+            partial.triangles.resize(partial.triangles.size()/2);
+            partial.triangle_references.resize(partial.triangle_references.size()/2);
+            const auto curves=external_face_curve_edges(partial,frame.world_point(0,0),frame.resolved_x_axis,frame.resolved_y_axis);
+            require(curves.size()==1,"A half cylinder/cone must offer only its supported exact generator");
+            require(frame.local_point(curves.front().points.front())[0]<0,"A half-band offered an unsupported opposite generator");
+            auto shifted=frame;shifted.plane_offset=100;shifted.refresh_default_frame();
+            const auto shifted_curves=external_face_curve_edges(partial,shifted.world_point(0,0),shifted.resolved_x_axis,shifted.resolved_y_axis);
+            require(shifted_curves.size()==1&&shifted_curves.front().points==curves.front().points,
+                "The offered source generator moved onto the offset Sketch plane");
+            const auto paths=shifted.external_face_reference_paths(partial,{"source",curves.front().reference.semantic_key,{}});
+            require(paths&&paths->size()==1&&paths->front().size()==2,"Partial analytic band cannot supply an individual reference");
+            for(unsigned i=0;i<2;++i) {
+                const auto expected=frame.local_point(curves.front().points[i]);
+                require(std::hypot((*paths)[0][i][0]-expected[0],(*paths)[0][i][1]-expected[1])<1e-8,
+                    "An offset partial-band cache changed its exact projected line");
+            }
+        }
         const auto baseline=frame.external_face_reference_paths(g,{"source","side",{}});
         require(baseline&&baseline->size()==1&&baseline->front().size()==5,"Analytic face outline was faceted or incomplete");
         for(double offset:{-100.,-10.,0.,10.,100.}) {

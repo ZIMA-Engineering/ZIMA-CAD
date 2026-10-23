@@ -4,6 +4,7 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/feature_serialization.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -265,11 +266,35 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     const auto made=f.create_feature(sketch,parameters);const std::string cut=made.at("container");
     near(f.volume(f.first),1000-12*std::numbers::pi);near(f.volume(f.second),1000-12*std::numbers::pi);
+    const auto wire=[&](const assembly::AssemblyDocument& value) {
+        kernel::ViewerReferenceGeometry geometry;geometry.edges=value.find_cut(cut)->preview_wire;
+        require(!geometry.edges.empty(),"Revolution did not persist its cutter wire");
+        const auto& profile=*std::ranges::find(value.sketches,sketch,&sketcher::Sketch::id);
+        const auto origin=profile.world_point(0,0),end=profile.world_point(0,4);
+        const kernel::Vec3 axis{(end.x-origin.x)/4,(end.y-origin.y)/4,(end.z-origin.z)/4};
+        for(const auto& edge:geometry.edges) {
+            require(edge.reference.owner_id==cut&&edge.reference.instance_path.empty()&&!edge.parameter_seam,
+                "Revolution preview contains component geometry or a seam");
+            for(const auto& p:edge.points) {
+                const kernel::Vec3 d{p.x-origin.x,p.y-origin.y,p.z-origin.z};
+                const auto axial=d.x*axis.x+d.y*axis.y+d.z*axis.z;
+                const auto radius=std::hypot(d.x-axial*axis.x,d.y-axial*axis.y,d.z-axial*axis.z);
+                require(radius>=1-1e-6&&radius<=2+1e-6&&axial>=-1e-6&&axial<=4+1e-6,
+                    "Revolution cutter wire escaped the independent profile envelope");
+            }
+        }
+        return document::serialize_viewer_reference_geometry(geometry);
+    };
+    const auto full_wire=wire(f.doc());
     f.set_feature(cut,[](auto& p){p["sides"][0]["angle_degrees"]=180;},{{"targets",{f.second}}});near(f.volume(f.first),1000);near(f.volume(f.second),1000-6*std::numbers::pi);
+    const auto half_wire=wire(f.doc());require(half_wire!=full_wire,"Revolution angle edit reused its old cutter wire");
+    f.run("undo");require(wire(f.doc())==full_wire,"Revolution Undo lost its original cutter wire");
+    f.run("redo");require(wire(f.doc())==half_wire,"Revolution Redo lost its changed cutter wire");
     const auto revision=f.state().session.revision();
     require(!f.set_feature(cut,[](auto& p){p["axis_segment_id"]="missing";}).at("changed").get<bool>()&&f.state().session.revision()==revision,"Resolving the same construction axis committed a change");
     f.reject_feature(cut,[](auto& p){p["sides"][0]["angle_degrees"]=361;},"invalid_arguments");
     f.run("save");const auto loaded=assembly::AssemblyDocument::load(directory/"assembly-revolution.asmz");
+    require(wire(loaded)==half_wire,"Revolution cold reopen changed the stored cutter wire");
     require(loaded.find_cut(cut)->definition.feature.axis_segment_id==axis,"Native revolution lost axis");near(loaded.find_occurrence(f.second)->calculated_source->volume,1000-6*std::numbers::pi);
 }
 }

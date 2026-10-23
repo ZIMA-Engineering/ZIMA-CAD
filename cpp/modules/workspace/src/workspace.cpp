@@ -1106,7 +1106,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
 void Workspace::calculate_assembly_cuts(
     zima::assembly::AssemblyDocument& document) const {
     zima::kernel::OcctKernel kernel;
-    calculate_resolved_assembly_cuts(kernel,document);
+    calculate_resolved_assembly_cuts(kernel,document,false,this);
 }
 
 zima::assembly::AssemblyDocument Workspace::prepare_assembly_calculation(

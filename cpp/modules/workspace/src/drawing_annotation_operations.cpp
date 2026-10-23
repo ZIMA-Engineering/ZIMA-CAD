@@ -54,7 +54,7 @@ void set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kerne
     } else if(auto* assembly=staged.open_assembly(reference.document_id)) {
         auto next=assembly->session.document();
         if(!assign_driving_dimension(next,binding,value))throw std::invalid_argument("Kótu nelze změnit.");
-        calculate_resolved_assembly_cuts(kernel,next);
+        calculate_resolved_assembly_cuts(kernel,next,false,&staged);
         assembly->session.commit(std::move(next));
     } else throw std::invalid_argument("Zdroj kóty není model.");
     staged.refresh_source_geometry();

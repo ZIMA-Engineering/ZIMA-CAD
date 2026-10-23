@@ -1,5 +1,20 @@
 # Linux build and distribution handoff - 2026-09-15
 
+## Curve-plane points and rounded Sketch mirror (2026-10-23)
+
+Build and run the shared exact curve-plane query, Sketch curve-point reference,
+rounded-mirror and existing Sketcher contracts. Reproduce isolated crossings,
+tangencies, bounded endpoints, rational closed seams and non-unique intervals;
+verify conservative branch rejection, repeated dimension changes and permitted
+drags, immutable external sources, native save/reopen and Undo/Redo. Explicit
+Assembly regeneration must use unsaved open Part data for repeated/nested
+occurrences. Verify GUI source/branch choice, intrinsic radius Tree/View selection
+and deletion in both themes and all five languages. Use the same committed six
+start templates and factory assets; do not add a Linux-specific geometry path.
+Windows evidence and finite gaps are in the
+[verification record](verification/20261023-curve-plane-points-and-rounded-mirror.md).
+Windows execution does not establish native Linux compilation or GUI acceptance.
+
 ## Slot centre inference and 3D angular text (2026-10-20)
 
 Run the shared Sketcher contract, including `sketch_slot_direction_studies.hpp`,
@@ -154,7 +169,13 @@ ordinary feature selection. Run the finite native/GUI matrices described in
 Measurement must remain read-only and integrate actual native faces; deferred
 scalar properties are completed only for explicit inspection.
 
-Assembly JSON 48 / INI 36 stores one typed history and insertion cursor including
+Assembly JSON 49 / INI 37 additionally requires each cut's own persisted preview
+wire, separate from component reference geometry. This follow-up is undergoing
+Windows acceptance; run the native/GPU/main-window contracts in
+[the Assembly wire record](verification/20261023-assembly-preview-wire.md) on Linux
+before claiming platform acceptance. Use the regenerated Assembly templates.
+
+The typed history introduced with Assembly JSON 48 / INI 36 includes
 immediate components. Use the committed regenerated start templates and native
 factory assets. Verify real Tree dragging, mixed middle insertion, cached cut
 input restoration, nested active occurrences with passive parent context,

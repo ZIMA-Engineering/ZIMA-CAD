@@ -70,6 +70,15 @@ void populate_external_reference_cache(
         if(std::ranges::count_if(values,[&](const auto& value){return matches(value.reference);})>1)
             throw std::invalid_argument("Persisted source reference is ambiguous");
     };
+    if(sketcher::is_external_endpoint_kind(reference.kind)&&sketcher::is_face_curve_key(reference.source_semantic_key)) {
+        const auto paths=sketch.external_face_reference_paths(source,
+            {reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path});
+        if(!paths||paths->size()!=1||paths->front().size()!=2)
+            throw std::runtime_error("Source face cannot be projected into the Sketch plane");
+        reference.cached_points={reference.kind==sketcher::ExternalReferenceKind::EdgeStart?
+            paths->front().front():paths->front().back()};
+        reference.cached_paths.clear();reference.exact_spline.reset();reference.infinite=false;reference.broken=false;return;
+    }
     if(reference.kind==sketcher::ExternalReferenceKind::Edge || sketcher::is_external_endpoint_kind(reference.kind))unique(source.edges);
     if(reference.kind==sketcher::ExternalReferenceKind::Point)unique(source.points);
     if(reference.kind==sketcher::ExternalReferenceKind::Axis||reference.kind==sketcher::ExternalReferenceKind::AxisPoint)unique(source.axes);
@@ -136,15 +145,18 @@ void populate_external_reference_cache(
 namespace {
 using Kind=sketcher::ExternalReferenceKind;
 using Reference=sketcher::SketchExternalReference;
-Kind source_kind(Kind kind) { return sketcher::is_external_endpoint_kind(kind) ? Kind::Edge : kind==Kind::AxisPoint?Kind::Axis:kind; }
+Kind source_kind(Kind kind,const std::string& key) {
+    if(sketcher::is_face_curve_key(key))return Kind::Face;
+    return sketcher::is_external_endpoint_kind(kind)?Kind::Edge:kind==Kind::AxisPoint?Kind::Axis:kind;
+}
 using Key=std::tuple<Kind,std::string,std::string,std::string>;
 // Copy only selected original geometry, not a complete Part or Assembly mesh.
 kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string& doc,
     const sketcher::Sketch& sketch,const std::vector<Reference>& wanted,
     const std::string& draft_body_id = {}) {
     std::set<Key> keys;
-    for(const auto& r:wanted)keys.emplace(source_kind(r.kind),r.source_owner_id,
-        r.kind==Kind::Face?sketcher::face_curve_source_key(r.source_semantic_key):r.source_semantic_key,r.source_instance_path);
+    for(const auto& r:wanted)keys.emplace(source_kind(r.kind,r.source_semantic_key),r.source_owner_id,
+        sketcher::face_curve_source_key(r.source_semantic_key),r.source_instance_path);
     kernel::ViewerReferenceGeometry result;
     if(keys.empty())return result;
     visit_original_references(live,doc,[&](const auto& source,const ReferenceFrame& frame) {
@@ -214,10 +226,10 @@ sketcher::SketchExternalReference prepare_reference(const Workspace& live,
             : context_original_reference_geometry(live,reference.context_assembly_document_id,
             assembly::InstancePath::decode(reference.context_instance_path),reference.source_document_id,
             [&](OriginalReferenceKind candidate,const auto& candidate_owner,const auto& candidate_key,const auto& candidate_path) {
-                const auto requested=kind==Kind::Face?OriginalReferenceKind::Face:source_kind(kind)==Kind::Edge?OriginalReferenceKind::Edge:
+                const auto requested=source_kind(kind,key)==Kind::Face?OriginalReferenceKind::Face:source_kind(kind,key)==Kind::Edge?OriginalReferenceKind::Edge:
                     kind==Kind::Point?OriginalReferenceKind::Point:OriginalReferenceKind::Axis;
                 return candidate==requested&&candidate_owner==owner&&candidate_key==
-                    (kind==Kind::Face?sketcher::face_curve_source_key(key):key)&&candidate_path==path;
+                    sketcher::face_curve_source_key(key)&&candidate_path==path;
             });
         geometry=!draft_body_id.empty() && !part->session.document().body_owner_for_object(sketch.owner_container_id)
             ? part->session.document().construction_reference_geometry_for(draft_body_id,std::move(geometry))
@@ -246,6 +258,12 @@ sketcher::SketchExternalReference prepare_sketch_intersection_source(const Works
     const std::string& doc,const sketcher::Sketch& sketch,const kernel::FaceReference& original,
     const std::string& draft_body_id,bool draft_section) {
     return prepare_reference(live,doc,sketch,Kind::Face,original.owner_id,original.semantic_key,
+        original.instance_path,draft_body_id,draft_section,false,false);
+}
+sketcher::SketchExternalReference prepare_sketch_curve_intersection_source(const Workspace& live,
+    const std::string& doc,const sketcher::Sketch& sketch,const kernel::EdgeReference& original,
+    const std::string& draft_body_id,bool draft_section) {
+    return prepare_reference(live,doc,sketch,Kind::Edge,original.owner_id,original.semantic_key,
         original.instance_path,draft_body_id,draft_section,false,false);
 }
 
@@ -288,8 +306,8 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
         for(const auto& reference:references) {
             const auto address=live.resolve_occurrence(top,assembly::InstancePath::decode(reference.source_instance_path));
             if(address&&address->source_kind==assembly::ComponentSourceKind::Part&&address->source_document_id==source)
-                keys.emplace(source_kind(reference.kind),reference.source_owner_id,
-                    reference.kind==Kind::Face?sketcher::face_curve_source_key(reference.source_semantic_key):reference.source_semantic_key,reference.source_instance_path);
+                keys.emplace(source_kind(reference.kind,reference.source_semantic_key),reference.source_owner_id,
+                    sketcher::face_curve_source_key(reference.source_semantic_key),reference.source_instance_path);
         }
         kernel::ViewerReferenceGeometry current;
         if(!keys.empty())try {

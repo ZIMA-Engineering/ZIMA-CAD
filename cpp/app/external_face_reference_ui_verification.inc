@@ -1,7 +1,88 @@
+static int verify_plane_and_generator_reference_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool value,const char* error){if(!value)throw std::runtime_error(error);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        for(bool thin:{false,true})for(unsigned mode=0;mode<3;++mode) {
+            auto part=document::PartDocument::create_default();auto profile=sketcher::Sketch::create_default();
+            if(mode)static_cast<void>(profile.add_circle(0,0,5));else static_cast<void>(profile.add_rectangle(0,0,30,20));
+            auto feature=document::PartDocument::create_feature_container(profile.id);profile.owner_container_id=feature.id;
+            feature.feature.sides[0].length=10;feature.feature.result_type=thin?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
+            feature.feature.thin_thickness=1;
+            auto target=sketcher::Sketch::create_default();auto owner=document::PartDocument::create_sketch_container();
+            target.owner_container_id=owner.id;owner.feature.sketch_id=target.id;target.plane=sketcher::SketchPlane::XZ;target.plane_auto=false;
+            part.history={feature,owner};part.sketches={profile,target};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Plane and generator sources");graph.insert({document::PartHistoryKind::Feature,feature.id});
+            graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
+            kernel::OcctKernel engine;const auto geometry=engine.evaluate_history(part.kernel_operations());
+            const auto file=directory/("plane-generator-"+std::to_string(thin)+"-"+std::to_string(mode)+".prtz");part.save(file,geometry);
+            const auto baseline=document::PartDocument::load(file);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));window.resize(1100,850);window.show();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(file))),"Cannot open plane/generator fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate plane/generator Body");
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row=nullptr;
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==target.id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-sketch"){row=*i;break;}
+            check(row,"Plane/generator Sketch row is missing");window.show_tree_item_properties(row);flush();
+            if(auto* open=window.findChild<QPushButton*>("sketchOpenButton"))open->click();flush();
+            check(window.findChild<QAction*>("finishSketchAction")->isEnabled(),"Cannot edit plane/generator Sketch");
+            QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+            auto* action=window.findChild<QAction*>(mode==2?"sketchExternalProfileAction":"sketchExternalReferenceAction");
+            check(action&&action->isEnabled(),"Plane/generator reference command is unavailable");action->trigger();flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Plane/generator View is missing");
+            view->set_view_direction({1,-2,3},0);
+            QEventLoop orbit;QTimer::singleShot(950,&orbit,&QEventLoop::quit);orbit.exec();view->fit_all();flush();
+            const auto wanted=[&](const auto& c){
+                if(c.owner_id!=feature.id)return false;
+                if(mode)return c.kind==viewer::CandidateKind::Edge&&sketcher::is_face_curve_key(c.semantic_key);
+                return c.kind==viewer::CandidateKind::Face&&c.geometry==viewer::CandidateGeometry::Display&&
+                    c.geometry_index<view->mesh().triangle_references.size()&&view->mesh().triangle_references[c.geometry_index].surface&&
+                    view->mesh().triangle_references[c.geometry_index].surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                    std::abs(kernel::dimension_dot(view->mesh().triangle_references[c.geometry_index].surface->axis,part.sketches.back().normal()))<1e-8;
+            };
+            std::optional<QPointF> pixel;
+            for(int y=15;y<view->height()-15&&!pixel;y+=3)for(int x=15;x<view->width()-15&&!pixel;x+=3)
+                if(std::ranges::any_of(view->selection_candidates_at({double(x),double(y)}),wanted))pixel=QPointF(x,y);
+            if(!pixel) {
+                std::cerr<<"Missing plane/generator: thin="<<thin<<" mode="<<mode<<" display faces="<<view->mesh().triangle_references.size()
+                    <<" original faces="<<view->mesh().original_references.triangle_references.size()<<std::endl;
+                for(const auto& face:view->mesh().triangle_references) {
+                    std::cerr<<"Display owner="<<face.owner_id<<" expected="<<feature.id<<" key="<<face.semantic_key<<" surface="<<bool(face.surface)<<std::endl;
+                    if(face.surface)std::cerr<<"Source surface="<<int(face.surface->kind)<<" axis="<<face.surface->axis.x<<","<<face.surface->axis.y<<","<<face.surface->axis.z<<std::endl;
+                }
+                window.grab().save(QString::fromStdString(document::path_to_utf8(directory/"plane-generator-missing.png")));
+            }
+            check(pixel.has_value(),"A planar face or finite generator is absent from the real hover picker");
+            const auto mouse=[&](QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,*pixel,QPointF(view->mapToGlobal(pixel->toPoint())),button,
+                type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            mouse(QEvent::MouseMove,Qt::NoButton);
+            for(unsigned cycle=0;cycle<64;++cycle){const auto c=view->offered_candidate();if(c&&wanted(*c))break;mouse(QEvent::MouseButtonPress,Qt::RightButton);mouse(QEvent::MouseButtonRelease,Qt::RightButton);}
+            const auto offered=view->offered_candidate();check(offered&&wanted(*offered),"Candidate cycling did not retain the plane/generator");
+            mouse(QEvent::MouseButtonPress,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton);
+            const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
+            const auto saved=snapshot();const auto& result=*std::ranges::find(saved.sketches,target.id,&sketcher::Sketch::id);
+            check(result.external_references.size()==(mode==2?3u:1u),"Reference insertion did not create the expected single support and native endpoints");
+            const auto& reference=result.external_references.front();
+            check(!reference.broken&&reference.kind==sketcher::ExternalReferenceKind::Face&&reference.infinite==(mode==0),"Plane/generator support kind or finite extent is wrong");
+            check(result.segments.size()==(mode==2?1u:0u)&&result.bsplines.empty()&&result.circles.empty(),"Reference entry created extraneous profile geometry");
+            if(mode)check(reference.cached_paths.size()==1&&reference.cached_paths.front().size()==2,"Generator entry projected an entire face");
+            else check(reference.cached_paths.empty()&&reference.cached_points.size()==2,"Planar face did not become an infinite dashed support");
+            check(saved.history==baseline.history&&saved.sketches.front().serialized()==baseline.sketches.front().serialized(),"Reference entry changed its source definition");
+            window.findChild<QAction*>("undoAction")->trigger();flush();const auto undone=snapshot();
+            check(std::ranges::find(undone.sketches,target.id,&sketcher::Sketch::id)->external_references.empty(),"Plane/generator reference Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();const auto redone=snapshot();
+            check(std::ranges::find(redone.sketches,target.id,&sketcher::Sketch::id)->serialized()==result.serialized(),"Plane/generator reference Redo/reopen changed its identity");
+            window.grab().save(QString::fromStdString(document::path_to_utf8(directory/("plane-generator-"+std::to_string(thin)+"-"+std::to_string(mode)+".png"))));
+            std::cout<<"Plane/generator real mouse, native geometry, immutable source and Undo/Redo passed: thin="<<thin<<" mode="<<mode<<std::endl;
+        }
+        return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;return 1;}
+}
+
 int verify_external_face_reference_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
         const auto check=[](bool yes,const char* message){if(!yes)throw std::runtime_error(message);};
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLANE_GENERATOR_REFERENCE"))return verify_plane_and_generator_reference_ui(application,directory);
         const auto user=qEnvironmentVariable("ZIMA_VERIFY_EXTERNAL_FACE_SOURCE");
         for(bool thin:{false,true})for(bool end_cap:{false,true}) {
             document::PartDocument part;std::vector<kernel::BodyResult> calculated;
@@ -50,7 +131,8 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
             auto* action=window.findChild<QAction*>("sketchExternalReferenceAction");check(action&&action->isEnabled(),"External reference command unavailable");action->trigger();flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Cap reference View unavailable");
             // View both rims obliquely; ordinary Reference must still offer
-            // only individual original edges, never a face interior.
+            // individual original edges; planar faces can additionally supply
+            // their straight infinite support, never a curved whole-face outline.
             view->set_view_direction({1,-2,3},0);
             QEventLoop orbit;QTimer::singleShot(950,&orbit,&QEventLoop::quit);orbit.exec();
             view->fit_all();flush();
@@ -63,7 +145,8 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
                     source.semantic_key.find(curve_id)!=std::string::npos;};
             for(int y=15;y<view->height()-15&&!hit;y+=3)for(int x=15;x<view->width()-15&&!hit;x+=3) {
                 const auto candidates=view->selection_candidates_at(QPointF(x,y));
-                check(std::ranges::none_of(candidates,[](const auto& candidate){return candidate.kind==viewer::CandidateKind::Face;}),"Ordinary Reference hover offered a whole face");
+                check(std::ranges::all_of(candidates,[&](const auto& candidate){return candidate.kind!=viewer::CandidateKind::Face||
+                    app::sketch_external_reference_has_stable_geometry(candidate,false,false,&view->mesh());}),"Ordinary Reference offered an uncertified curved face");
                 if(candidates.empty())continue;
                 for(const auto& candidate:candidates)if(candidate.owner_id==source_id)++offered[std::to_string(int(candidate.kind))+":"+candidate.semantic_key.substr(0,60)];
                 if(std::ranges::any_of(candidates,is_cap))hit=QPointF(x,y);

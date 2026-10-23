@@ -19,6 +19,17 @@ auto comparable_history(std::vector<zima::document::HistoryContainer> history) {
 
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==4&&std::string_view(argv[1])=="--write-assembly-template") {
+        std::ifstream input(std::filesystem::u8path(argv[2]));nlohmann::json packet;input>>packet;
+        auto value=assembly::AssemblyDocument::from_serialized(packet);
+        if(!value.components.empty()||!value.cuts.empty()||!value.sketches.empty()||!value.constructions.empty())
+            throw std::runtime_error("Start Assembly must have no authored history");
+        const auto path=std::filesystem::u8path(argv[3]);value.save(path);
+        if(assembly::AssemblyDocument::load(path).serialized()!=value.serialized())
+            throw std::runtime_error("Assembly start template readback changed its definition");
+        std::cout<<"Assembly start template written and reopened with the current serializer\n";
+        return 0;
+    }
     if(argc==5&&std::string_view(argv[1])=="--regenerate-asset") {
         const auto source=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
         const auto report=std::filesystem::u8path(argv[4]);

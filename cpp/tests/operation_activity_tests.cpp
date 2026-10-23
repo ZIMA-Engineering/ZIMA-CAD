@@ -1,6 +1,8 @@
 #include <zima/ui/operation_activity.hpp>
+#include <zima/ui/background_task.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include "../app/feature_exact_preview.hpp"
 #include <QApplication>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -35,6 +37,47 @@ public:
 private:
     bool submit() override { return work(); }
 };
+void verify_exact_preview_lifecycle(const document::PartDocument& part,const std::string& feature_id) {
+    const auto operations=part.kernel_operations();
+    const auto found=std::ranges::find(operations,feature_id,&kernel::HistoryOperation::owner_id);
+    check(found!=operations.end(),"Preview lifecycle fixture operation is missing");
+    kernel::FeatureGroupRequest group;group.children.push_back(std::get<kernel::ExtrusionRequest>(found->primitive));
+    app::FeatureExactPreview::Job job;job.operation={feature_id,group};job.source_generation="initial";
+    std::string generation="initial";QWidget owner;app::FeatureExactPreview::Wire wire;unsigned publications=0;
+    auto* preview=new app::FeatureExactPreview(&owner,[&](auto value){wire=std::move(value);++publications;},[](auto){},[&]{return generation;});
+    const auto settled=[&] {
+        for(unsigned i=0;i<500&&owner.property("featureExactPreviewState").toString()=="pending";++i)wait(10);
+        check(owner.property("featureExactPreviewState").toString()!="pending","Exact preview worker did not finish");
+    };
+    const auto same_wire=[](const auto& first,const auto& second) {
+        return std::ranges::equal(first,second,[](const auto& a,const auto& b){return a.points==b.points&&a.reference==b.reference;});
+    };
+    preview->request(job,{},false);wait(200);
+    check(owner.property("featureExactPreviewCalculations").toInt()==0&&owner.property("featureExactPreviewState")=="unavailable",
+        "Opening without a stored wire calculated geometry");
+    kernel::OcctKernel engine;const auto stored=engine.calculate_feature_preview(job.operation,{});
+    preview->clear();preview->request(job,stored,false);wait(200);
+    check(same_wire(wire,stored)&&owner.property("featureExactPreviewCalculations").toInt()==0,"Opening did not reuse its stored exact wire");
+    auto changed=job;
+    for(double height:{11.,14.,12.}) {
+        std::get<kernel::ExtrusionRequest>(std::get<kernel::FeatureGroupRequest>(changed.operation.primitive).children.front()).direction.z=height;
+        preview->request(changed);
+    }
+    settled();
+    check(owner.property("featureExactPreviewState")=="ready"&&owner.property("featureExactPreviewCalculations").toInt()==1,
+        "Rapid exact-preview drafts were not combined");
+    check(same_wire(wire,engine.calculate_feature_preview(changed.operation,{})),"The published exact wire is stale");
+    preview->request(changed);wait(200);
+    check(owner.property("featureExactPreviewCalculations").toInt()==1,"An unchanged exact draft calculated again");
+    std::get<kernel::ExtrusionRequest>(std::get<kernel::FeatureGroupRequest>(changed.operation.primitive).children.front()).direction.z=15.;
+    preview->request(changed);generation="changed";settled();
+    check(owner.property("featureExactPreviewState")=="failed"&&wire.empty(),"A stale source generation published geometry");
+    changed.source_generation=generation;preview->request(changed);
+    std::this_thread::sleep_for(std::chrono::milliseconds(170));QCoreApplication::processEvents();
+    delete preview;const auto before=publications;wait(300);
+    check(publications==before,"A closed command published a worker result");
+    std::cout<<"Exact preview lifecycle: stored/missing opening without calculation, debounce, same-input reuse, source invalidation and command destruction passed\n";
+}
 }
 int main(int argc, char** argv) {
     QApplication app(argc,argv);
@@ -57,16 +100,11 @@ int main(int argc, char** argv) {
         activity.started=[&] {
             ++starts;
             execution=std::make_unique<workspace::CalculationExecutionScope>([&](auto task) {
-                ui::OperationActivity::InputBlock input_block;
-                auto future=std::async(std::launch::async,[&,task=std::move(task)] {
+                ui::run_background_task([&,task=std::move(task)] {
                     worker_thread=std::this_thread::get_id();
                     std::this_thread::sleep_for(std::chrono::milliseconds(700));
                     task();
                 });
-                while(future.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready) {
-                    app.processEvents(); std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                }
-                future.get();
             });
         };
         activity.finished=[&] {++finishes; execution.reset();};
@@ -80,6 +118,7 @@ int main(int argc, char** argv) {
         auto synchronous=original;
         const auto baseline=workspace::calculate_part_with_resolved_references(kernel,synchronous);
         check(!baseline.empty()&&baseline.back().calculation_errors.empty(),"Activity fixture calculation failed");
+        verify_exact_preview_lifecycle(original,feature.id);
         const auto source=original.serialized();
         TestProperties properties(&window);properties.show();app.processEvents();
         auto candidate=original;std::vector<kernel::BodyResult> result;

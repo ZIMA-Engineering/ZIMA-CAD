@@ -24,11 +24,21 @@ kernel::ViewerMesh sketch_plane_basis(const sketcher::Sketch& sketch) {
     mesh.edges.push_back(std::move(edge));return mesh;
 }
 kernel::FacePlaneIntersectionRequest plane_request(const sketcher::Sketch& sketch,
-        const kernel::FaceReference& face,const kernel::ViewerReferenceGeometry& basis,double tolerance) {
+        const kernel::FaceReference& face,const kernel::ViewerReferenceGeometry& basis,double tolerance,
+        const std::string& source_document_id,const sketcher::SketchExternalReference* context=nullptr) {
     const auto& points=basis.edges.front().points;const auto& p=points[0];
     const kernel::Vec3 x{points[1].x-p.x,points[1].y-p.y,points[1].z-p.z};
     const kernel::Vec3 y{points[2].x-p.x,points[2].y-p.y,points[2].z-p.z};
-    return {face,sketch.id,p,{x.y*y.z-x.z*y.y,x.z*y.x-x.x*y.z,x.x*y.y-x.y*y.x},tolerance};
+    kernel::FacePlaneIntersectionRequest request{face,sketch.id,p,{x.y*y.z-x.z*y.y,x.z*y.x-x.x*y.z,x.x*y.y-x.y*y.x},tolerance};
+    for(const auto& reference:sketch.external_references)if(reference.intersection&&
+            reference.source_document_id==source_document_id&&
+            (context?(reference.source_instance_path==context->source_instance_path&&
+                reference.context_assembly_document_id==context->context_assembly_document_id&&reference.context_instance_path==context->context_instance_path):
+                (reference.source_instance_path.empty()&&reference.context_assembly_document_id.empty()))&&
+            reference.intersection->face_owner_id==face.owner_id&&reference.intersection->face_semantic_key==face.semantic_key&&
+            reference.intersection->branch_key.find(":domain:conic-plane:")!=std::string::npos)
+        request.reference_branches.push_back(reference.intersection->branch_key);
+    return request;
 }
 bool contains_face(const kernel::BodyResult& source,const kernel::FaceReference& face) {
     if(std::ranges::any_of(source.kernel_faces,[&](const auto& binding){return binding.reference==face;}))return true;
@@ -41,6 +51,16 @@ std::size_t body_operation_count(const document::PartDocument& document,const do
     for(std::size_t i=0;i<body.cursor;++i)if(body.entries[i].kind==document::PartHistoryKind::Feature)
         if(const auto* feature=document.find_container(body.entries[i].id);feature&&feature->feature_kind!=document::FeatureKind::Sketch)++count;
     return count;
+}
+kernel::ViewerReferenceGeometry intersection_geometry_for_sketch(const document::PartDocument& document,
+        const sketcher::Sketch& sketch,kernel::ViewerReferenceGeometry geometry,const std::string& draft_body_id) {
+    // Reference-entry construction helpers add Origins to the candidate set.
+    // An intersection result must only transform its calculated curves/points.
+    if(!draft_body_id.empty()&&!document.body_owner_for_object(sketch.owner_container_id)) {
+        sketcher::Sketch frame;frame.owner_container_id=draft_body_id;
+        return document.sketch_reference_geometry_for(frame,std::move(geometry));
+    }
+    return document.sketch_reference_geometry_for(sketch,std::move(geometry));
 }
 }
 
@@ -69,7 +89,7 @@ kernel::ViewerReferenceGeometry part_sketch_face_intersection(const kernel::Occt
         if(result)throw SketchOperationError("intersection_source","Intersection face reference is ambiguous.");
         auto plane=world_basis;
         if(!local_body.empty())plane=document.construction_reference_geometry_for(local_body,std::move(plane));
-        auto curves=kernel.intersect_face_plane(source,plane_request(sketch,face,plane,document::precision_value(document.document_precision,"linear_tolerance",.001)));
+        auto curves=kernel.intersect_face_plane(source,plane_request(sketch,face,plane,document::precision_value(document.document_precision,"linear_tolerance",.001),document.document_id));
         if(!local_body.empty()) {
             kernel::ViewerMesh mesh;mesh.original_references=std::move(curves);
             curves=document.place_body_mesh(std::move(mesh),local_body).original_references;
@@ -94,8 +114,7 @@ kernel::ViewerReferenceGeometry part_sketch_face_intersection(const kernel::Occt
         }
     }
     if(!result)throw SketchOperationError("intersection_source","Intersection source face is missing at its input boundary.");
-    auto local=!body_id.empty()&&!target?document.construction_reference_geometry_for(body_id,std::move(*result)):
-        document.sketch_reference_geometry_for(sketch,std::move(*result));
+    auto local=intersection_geometry_for_sketch(document,sketch,std::move(*result),body_id);
     if(surface&&frame==SketchIntersectionFrame::Definition)local=document::general_surface_local_reference_geometry(*surface,std::move(local));
     return local;
 }
@@ -188,14 +207,13 @@ kernel::ViewerReferenceGeometry assembly_sketch_face_intersection(const Workspac
     for(auto& point:basis.edges.front().points)point=live.occurrence_point_from_scene(top_id,frame_path,to_scene(point));
     kernel::ViewerReferenceGeometry plane;plane.edges=std::move(basis.edges);
     const auto tolerance=document::precision_value(part?part->document_precision:assembly_document.document_precision,"linear_tolerance",.001);
-    auto result=kernel.intersect_face_plane(*source,plane_request(sketch,face,plane,tolerance));
+    auto result=kernel.intersect_face_plane(*source,plane_request(sketch,face,plane,tolerance,reference.source_document_id,&reference));
     ReferenceFrame frame;
     frame.point=[&](auto p){p=live.occurrence_point_to_scene(top_id,frame_path,p);return part?live.occurrence_point_from_scene(top_id,dependent,p):p;};
     frame.direction=[&](auto p){p=live.occurrence_direction_to_scene(top_id,frame_path,p);return part?live.occurrence_direction_from_scene(top_id,dependent,p):p;};
     kernel::ViewerReferenceGeometry local;append_original_reference_geometry(local,result,frame,[](auto,const auto&,const auto&,const auto&){return true;});
     if(part) {
-        local=!body_id.empty()&&!part->body_owner_for_object(sketch.owner_container_id)?
-            part->construction_reference_geometry_for(body_id,std::move(local)):part->sketch_reference_geometry_for(sketch,std::move(local));
+        local=intersection_geometry_for_sketch(*part,sketch,std::move(local),body_id);
         if(surface&&frame_space==SketchIntersectionFrame::Definition)local=document::general_surface_local_reference_geometry(*surface,std::move(local));
     }
     return local;
@@ -290,20 +308,27 @@ std::vector<sketcher::SketchExternalReference> calculate_intersections(
 }
 std::vector<sketcher::SketchExternalReference> calculate_part_sketch_intersections(
         const kernel::OcctKernel& kernel,const document::DocumentSession& session,const sketcher::Sketch& sketch) {
-    return calculate_intersections(sketch,[&](const auto& reference) {
+    auto result=calculate_intersections(sketch,[&](const auto& reference) {
         return reference.source_document_id==session.document().document_id && reference.source_instance_path.empty() && reference.context_assembly_document_id.empty();
     },[&](const auto&,const auto& face){return part_sketch_face_intersection(kernel,session,sketch,face);});
+    auto curves=calculate_part_sketch_curve_intersections(session,sketch);
+    result.insert(result.end(),std::make_move_iterator(curves.begin()),std::make_move_iterator(curves.end()));return result;
 }
 std::vector<sketcher::SketchExternalReference> calculate_assembly_sketch_intersections(
-        const kernel::OcctKernel& kernel,const assembly::AssemblyDocument& document,const sketcher::Sketch& sketch) {
+        const kernel::OcctKernel& kernel,const assembly::AssemblyDocument& document,const sketcher::Sketch& sketch,
+        const Workspace* authoritative_sources) {
     Workspace live;live.add_assembly(document);
-    return calculate_intersections(sketch,[](const auto& reference){return reference.context_assembly_document_id.empty()&&!reference.source_instance_path.empty();},
+    auto result=calculate_intersections(sketch,[](const auto& reference){return reference.context_assembly_document_id.empty()&&!reference.source_instance_path.empty();},
         [&](const auto& reference,const auto& face){return assembly_sketch_face_intersection(live,kernel,document.document_id,sketch,reference,face);});
+    auto curves=calculate_context_sketch_curve_intersections(live,document.document_id,sketch,nullptr,authoritative_sources);
+    result.insert(result.end(),std::make_move_iterator(curves.begin()),std::make_move_iterator(curves.end()));return result;
 }
 bool refresh_context_sketch_intersections(const Workspace& live,const kernel::OcctKernel& kernel,document::PartDocument& document) {
     return update_document_sketches(document,[&](auto& sketch) {
-        const auto values=calculate_intersections(sketch,[](const auto& reference){return !reference.context_assembly_document_id.empty();},
+        auto values=calculate_intersections(sketch,[](const auto& reference){return !reference.context_assembly_document_id.empty();},
             [&](const auto& reference,const auto& face){return assembly_sketch_face_intersection(live,kernel,document.document_id,sketch,reference,face,&document);});
+        auto curves=calculate_context_sketch_curve_intersections(live,document.document_id,sketch,&document);
+        values.insert(values.end(),std::make_move_iterator(curves.begin()),std::make_move_iterator(curves.end()));
         return !values.empty()&&sketch.refresh_external_references({}, {},false,nullptr,false,&values);
     });
 }

@@ -63,7 +63,7 @@ static void verify_limit_localization(QApplication& application,QWidget& parent)
             check(limits->findChild<QPushButton*>("featureLimitDown")->text()==QObject::tr("Dolů"),"Live language change missed the target ordering controls");
             check(limits->active_row()==1&&dialog.highlighted_reference_entries().size()==1,"Language/theme change lost entry or inspection identity");
             check(dialog.findChild<QLabel*>("featureUpToDraftNotice")->text()==QObject::tr(
-                "Draft preview: profile. Inspect target faces with the eyes; OK calculates the result."),"Draft preview notice did not follow the live language");
+                "Exact preview"),"Draft preview notice did not follow the live language");
             auto* correction=dialog.findChild<QDoubleSpinBox*>("featureSideCorrection0");
             auto* form=qobject_cast<QFormLayout*>(correction->parentWidget()->layout());
             check(form&&qobject_cast<QLabel*>(form->labelForField(correction))->text()==QObject::tr("Korekce"),

@@ -55,9 +55,11 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     if (const auto confirmed = viewer_->confirmed_candidate();
         confirmed && confirmed->kind == zima::viewer::CandidateKind::Dimension &&
         confirmed->owner_id == active_sketch_id_ &&
-        confirmed->semantic_key.starts_with("dimension:")) {
+        (confirmed->semantic_key.starts_with("dimension:") ||
+         confirmed->semantic_key.starts_with("corner_dimension:"))) {
         remove_sketch_relation(active_sketch_id_,
-            confirmed->semantic_key.substr(10), true);
+            confirmed->semantic_key.substr(
+                confirmed->semantic_key.starts_with("dimension:") ? 10 : 17), true);
         return true;
     }
     if (const auto confirmed = viewer_->confirmed_candidate();

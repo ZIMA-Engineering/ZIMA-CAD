@@ -192,6 +192,9 @@ struct AssemblyCut {
     // Persisted full component boundary immediately before this cut. It is
     // consumed by Properties rollback without recalculating through OCCT.
     std::map<std::string, zima::kernel::BodyResult> input_component_bodies;
+    // Calculated cutter wire in this Assembly's frame, before component
+    // subtraction. Presentation only: never component reference topology.
+    std::vector<zima::kernel::ViewerEdge> preview_wire;
     bool operator==(const AssemblyCut& other) const {
         return definition == other.definition &&
             target_occurrence_ids == other.target_occurrence_ids;

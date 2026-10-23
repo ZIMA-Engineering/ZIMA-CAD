@@ -11,6 +11,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/feature_material_wire.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/document/solid_state_calculation.hpp>
@@ -268,12 +269,12 @@ std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
 
 void calculate_resolved_assembly_cuts(
     const zima::kernel::OcctKernel& kernel,
-    zima::assembly::AssemblyDocument& document,bool refresh_physical_properties) {
+    zima::assembly::AssemblyDocument& document,bool refresh_physical_properties,const Workspace* authoritative_sources) {
     if (calculation_runner) {
         const auto runner = calculation_runner;
         runner([&] {
             CalculationExecutionScope synchronous({});
-            calculate_resolved_assembly_cuts(kernel,document,refresh_physical_properties);
+            calculate_resolved_assembly_cuts(kernel,document,refresh_physical_properties,authoritative_sources);
         });
         return;
     }
@@ -295,8 +296,8 @@ void calculate_resolved_assembly_cuts(
         return static_cast<std::size_t>(found-order.begin());
     };
     const auto refresh_intersection=[&](auto& sketch) {
-        if(std::ranges::none_of(sketch.external_references,[](const auto& r){return r.intersection.has_value();}))return;
-        const auto values=calculate_assembly_sketch_intersections(kernel,document,sketch);
+        if(std::ranges::none_of(sketch.external_references,[](const auto& r){return sketcher::is_intersection_reference(r);}))return;
+        const auto values=calculate_assembly_sketch_intersections(kernel,document,sketch,authoritative_sources);
         if(!values.empty())static_cast<void>(sketch.refresh_external_references({}, {},false,nullptr,false,&values));
     };
     std::set<std::string> refreshed_sketches;
@@ -306,6 +307,7 @@ void calculate_resolved_assembly_cuts(
     };
     for (auto& cut : document.cuts) {
         cut.input_component_bodies.clear();
+        cut.preview_wire.clear();
         // Datums also need their input boundary when Properties rolls back
         // later Assembly operations. Snapshots share the calculated packets.
         for (const auto& component : document.components) {
@@ -378,7 +380,17 @@ void calculate_resolved_assembly_cuts(
             zima::kernel::BooleanOperation::Add;
         if(cut.definition.feature_kind==document::FeatureKind::Feature)
             detail::attach_ordered_up_to_sources(document,cutter_operations);
-        const auto cutter_boundaries = kernel.evaluate_history(cutter_operations);
+        bool bounded_tool=false;
+        if(cut.definition.feature_kind==document::FeatureKind::Feature)
+            for(std::size_t side=0;side<(cut.definition.feature.symmetric?1u:2u);++side) {
+                const auto value=cut.definition.feature.effective_side(side);
+                bounded_tool|=value.operation==document::FeatureSideOperation::Extrusion&&value.extrusion_extent==document::EndCondition::ThroughAll;
+            }
+        const auto cutter_boundaries = bounded_tool
+            ? std::vector<kernel::BodyResult>{kernel.calculate_feature_tool(cutter_operations.front(),{}, {},
+                feature_preview_assembly_input(document,cut.target_occurrence_ids),
+                feature_preview_external_sources(document,cut.definition))}
+            : kernel.evaluate_history(cutter_operations);
         if (cutter_boundaries.empty()) {
             throw std::runtime_error("Assembly cut body is empty");
         }
@@ -400,6 +412,9 @@ void calculate_resolved_assembly_cuts(
                  target->placement.rotation_z}, cutter_operations.front().boolean_tolerance,
                 cutter_operations.front().mesh_deflection);
         }
+        for (const auto& edge : cutter_boundaries.back().mesh.original_references.edges)
+            if (document::feature_material_wire_edge(cut.definition,edge))
+                cut.preview_wire.push_back(edge);
     }
     refresh_standalone_before(order.size());
     document.calculate_derived_copies(kernel);
@@ -625,12 +640,12 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
         const auto intersection_sketches=[](const auto& document) {
             std::vector<std::string> result;
             visit_document_sketches(document,[&](const auto& sketch) {
-                if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.intersection.has_value();}))result.push_back(sketch.serialized());
+                if(std::ranges::any_of(sketch.external_references,[](const auto& r){return sketcher::is_intersection_reference(r);}))result.push_back(sketch.serialized());
                 return true;
             });return result;
         };
         const auto before_intersections=intersection_sketches(next);
-        calculate_resolved_assembly_cuts(kernel, next,true);
+        calculate_resolved_assembly_cuts(kernel, next,true,&workspace);
         const bool intersections_changed=before_intersections!=intersection_sketches(next);
         const bool analysis_changed=complete_assembly_analysis(workspace,kernel,next);
         if (references_changed || intersections_changed || !next.cuts.empty()) {

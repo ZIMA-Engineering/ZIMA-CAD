@@ -160,6 +160,74 @@ void verify_directory_includes(QApplication& application){
     {QSettings linked(source+"/0000-index/metadata.ini",QSettings::IniFormat);linked.remove("Directory/IncludeParameters");linked.sync();QSettings local(exports+"/0000-index/metadata.ini",QSettings::IniFormat);local.setValue("Directory/IncludeThumbnails","../missing");local.sync();}tab.navigate(exports);check(!tab.findChild<QLabel*>("fileManagerIncludeStatus")->text().isEmpty(),"Missing thumbnail include was silently ignored");
     const QStringList absolute{source,source};check(zima::app::directory_includes(exports,"Directory/IncludeParameters",&absolute).directories.size()==2,"Absolute or duplicate source resolution failed");
 }
+void verify_large_cleanup_responsiveness(QApplication& application){
+    QTemporaryDir fixture;check(fixture.isValid(),"Cannot create large cleanup fixture");
+    const auto root=fixture.path();
+    QDir().mkpath(root+"/versions");
+    for(int i=0;i<6500;++i)touch(root+"/versions/item.prtz."+QString::number(i));
+    touch(root+"/current.prtz");
+    zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";
+    zima::app::FileManagerTab tab(settings,root,root);tab.resize(1100,700);tab.show();application.processEvents();
+    int ticks=0;bool preview=false,spinning=false;QTimer heartbeat;heartbeat.setInterval(10);
+    QObject::connect(&heartbeat,&QTimer::timeout,&tab,[&]{
+        ++ticks;
+        for(auto* overlay:tab.findChildren<QWidget*>("operationActivityOverlay"))
+            spinning|=overlay->isVisible()&&overlay->property("activityAngle").isValid();
+        if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            preview=box->detailedText().split('\n').size()==6500&&!box->detailedText().contains("current.prtz");
+            box->done(QMessageBox::No);
+        }
+    });
+    QElapsedTimer elapsed;elapsed.start();heartbeat.start();tab.findChild<QPushButton*>("fileManagerClean")->click();heartbeat.stop();
+    check(preview&&ticks>2&&spinning,"Large cleanup blocked UI timers or failed to animate before confirmation");
+    check(QDir(root+"/versions").entryList(QDir::Files).size()==6500&&QFileInfo::exists(root+"/current.prtz"),"Cancel changed a large cleanup candidate or current document");
+    std::cout<<"Cleanup 6500 archives: "<<elapsed.elapsed()<<" ms, "<<ticks<<" UI heartbeats, animated indicator and Cancel preserved every file\n";
+}
+
+void verify_background_file_operations(QApplication& application){
+    QTemporaryDir fixture;check(fixture.isValid(),"Cannot create file operations fixture");const auto root=fixture.path();
+    const auto source=root+"/source",copy=root+"/copy",moved=root+"/moved";
+    for(const auto& path:{source,copy,moved})check(QDir().mkpath(path),"Cannot create operation directories");
+    touch(source+"/current.prtz");touch(source+"/archive.prtz.1");
+    zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";
+    zima::app::FileManagerTab tab(settings,root,source);tab.resize(1100,700);tab.show();application.processEvents();
+    const auto select=[&](const QString& directory,const QString& name){
+        tab.navigate(directory);auto* files=tab.findChild<QTreeWidget*>("fileManagerFiles");bool found=false;
+        for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);const bool yes=item->text(0)==name;
+            item->setCheckState(0,yes?Qt::Checked:Qt::Unchecked);found|=yes;}
+        check(found,"Operation source row is missing");
+    };
+    const auto transfer=[&](const QString& target,const char* button){
+        QTimer answer;answer.setInterval(5);bool seen=false;
+        QObject::connect(&answer,&QTimer::timeout,&tab,[&]{if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())){
+            seen=true;answer.stop();dialog->setDirectory(target);dialog->selectFile(target);QMetaObject::invokeMethod(dialog,"accept");}});
+        answer.start();tab.findChild<QPushButton*>(button)->click();check(seen,"Transfer skipped its destination chooser");
+    };
+    select(source,"current.prtz");transfer(copy,"fileManagerCopy");
+    check(QFileInfo::exists(source+"/current.prtz")&&QFileInfo::exists(copy+"/current.prtz"),"Background copy lost the source or destination");
+    select(copy,"current.prtz");transfer(moved,"fileManagerMove");
+    check(!QFileInfo::exists(copy+"/current.prtz")&&QFileInfo::exists(moved+"/current.prtz"),"Background move lost its destination or retained its original");
+    const auto recycle=[&](const char* button,bool confirm,bool change){
+        QTimer answer;answer.setInterval(5);bool question=false,warning=false;
+        QObject::connect(&answer,&QTimer::timeout,&tab,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){
+            if(box->standardButtons().testFlag(QMessageBox::Yes)){
+                question=true;if(change){QFile file(source+"/archive.prtz.1");check(file.open(QIODevice::Append),"Cannot change archive at confirmation");file.write("changed");}
+                box->button(confirm?QMessageBox::Yes:QMessageBox::No)->click();
+            }else {warning=true;std::cerr<<"File operation diagnostic ("<<button<<"): "<<box->text().toStdString()<<'\n';box->accept();}
+        }});
+        answer.start();tab.findChild<QPushButton*>(button)->click();answer.stop();
+        check(question,"Recycle skipped confirmation");check(warning==change,"Recycle changed-file validation produced the wrong outcome");
+    };
+    select(moved,"current.prtz");recycle("fileManagerDelete",false,false);check(QFileInfo::exists(moved+"/current.prtz"),"Delete Cancel changed its source");
+    recycle("fileManagerDelete",true,false);check(!QFileInfo::exists(moved+"/current.prtz"),"Background Delete did not recycle its source");
+    tab.navigate(source);recycle("fileManagerClean",false,false);
+    check(QFileInfo::exists(source+"/archive.prtz.1"),"Cleanup Cancel deleted its candidate");
+    recycle("fileManagerClean",true,true);check(QFileInfo::exists(source+"/archive.prtz.1"),"Cleanup recycled a changed file");
+    recycle("fileManagerClean",true,false);
+    check(!QFileInfo::exists(source+"/archive.prtz.1")&&QFileInfo::exists(source+"/current.prtz"),"Background cleanup touched a current document or retained its archive");
+    std::cout<<"Background file operations: copy, move, recycle/Cancel, cleanup/Cancel and changed-file revalidation passed\n";
+}
+
 void verify_native_icons_and_cleanup(QApplication& application){
     QTemporaryDir fixture;check(fixture.isValid(),"Cannot create template fixture");const auto templates=fixture.filePath("templates");check(QDir().mkpath(templates+"/0000-index")&&QDir().mkpath(templates+"/child"),"Cannot create protected templates");
     const QMap<QString,QString> names{{"START.prtz","part"},{"START.PRTZ.2","part"},{"START.asmz","assembly"},{"START.ASMZ.12","assembly"},{"sheet.drwz","drawing"},{"frame.frmz.3","drawing-format"},{"title.tblz","title-block"},{"text.symz","symbol"}};
@@ -247,6 +315,8 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
+        if(argc==2&&std::string(argv[1])=="--file-operations-small") {verify_background_file_operations(application);return 0;}
+        if(argc==2&&std::string(argv[1])=="--file-operations") {verify_large_cleanup_responsiveness(application);verify_background_file_operations(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--portable-factory-sources") {verify_portable_factory_file_manager_ui(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--factory-fasteners") {
             for(const auto* leaf:{"04-SCREWS/01-HEX-HEAD/07-SMALL-HEX","04-SCREWS/02-FITTED","04-SCREWS/03-STUDS",
@@ -287,6 +357,7 @@ int main(int argc,char** argv){
         verify_symbol_thumbnails(application);
         verify_directory_includes(application);
         verify_native_icons_and_cleanup(application);
+        verify_large_cleanup_responsiveness(application);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/01-GENERAL-STANDARDS/01-UNITS","01-BASE-UNITS",7);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/04-SHAFTS-SPLINES-GEARS","06-GEARS/09-SPAN",6);
         verify_reference_themes(application,"config/lib/03-ENGINEERING-TABLES/05-FASTENERS","04-SCREWS/01-HEX-HEAD/01-GRADE-AB",6);
@@ -535,16 +606,16 @@ int main(int argc,char** argv){
         bool read_only_properties=false;QTimer::singleShot(0,[&]{auto* menu=first.findChild<QMenu*>("fileManagerSourceMenu");if(!menu)return;auto* action=menu->findChild<QAction*>("fileManagerSourceProperties");read_only_properties=action;if(action)action->trigger();menu->close();});sources->customContextMenuRequested(sources->visualItemRect(sources->item(2)).center());application.processEvents();check(read_only_properties,"Read-only source does not offer directory properties");directory_editor=first.findChild<QDialog*>("fileManagerDirectoryEditor");check(directory_editor,"Directory properties did not open for a read-only source");en_label=directory_editor->findChild<QLineEdit*>("fileManagerDirectoryLabel_en");protection=directory_editor->findChild<QCheckBox*>("fileManagerDirectoryPreventRemoval");directory_buttons=directory_editor->findChild<QDialogButtonBox*>();check(en_label&&en_label->isEnabled()&&protection&&protection->isEnabled()&&directory_buttons&&directory_buttons->button(QDialogButtonBox::Ok)->isEnabled(),"Read-only source disabled directory metadata editing");en_label->setText("Protected library");protection->setChecked(true);directory_buttons->button(QDialogButtonBox::Ok)->click();application.processEvents();QSettings protected_metadata(read_only+"/0000-index/metadata.ini",QSettings::IniFormat);check(protected_metadata.value("Directory/Label/en").toString()=="Protected library"&&protected_metadata.value("Directory/PreventRemoval").toBool(),"Read-only source did not save editable directory metadata");
         first.navigate(working);const QString archive_a=working+"/cleanup.prtz.1",archive_b=working+"/orphan.SYMZ.999999999999999999999999",locked=working+"/locked/deeper";QDir().mkpath(locked);QDir().mkpath(working+"/locked/0000-index");{QSettings metadata(working+"/locked/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/PreventRemoval",true);metadata.sync();}
         for(const auto& path:{archive_a,archive_b,locked+"/protected.prtz.2"}){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot create cleanup fixture");file.write("archive");}
-        bool cleanup_preview=false;QTimer::singleShot(0,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;const QString details=box->detailedText();cleanup_preview=details.contains(archive_a)&&details.contains(archive_b)&&!details.contains("protected.prtz.2")&&!details.contains("PANEL.prtz");box->reject();});first.findChild<QPushButton*>("fileManagerClean")->click();check(cleanup_preview&&QFileInfo::exists(archive_a)&&QFileInfo::exists(archive_b)&&QFileInfo::exists(locked+"/protected.prtz.2"),"Cleanup preview, inherited protection or Cancel failed");
+        bool cleanup_preview=false;QTimer cleanup_preview_timer;cleanup_preview_timer.setInterval(5);QObject::connect(&cleanup_preview_timer,&QTimer::timeout,&first,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;cleanup_preview_timer.stop();const QString details=box->detailedText();cleanup_preview=details.contains(archive_a)&&details.contains(archive_b)&&!details.contains("protected.prtz.2")&&!details.contains("PANEL.prtz");box->reject();});cleanup_preview_timer.start();first.findChild<QPushButton*>("fileManagerClean")->click();check(cleanup_preview&&QFileInfo::exists(archive_a)&&QFileInfo::exists(archive_b)&&QFileInfo::exists(locked+"/protected.prtz.2"),"Cleanup preview, inherited protection or Cancel failed");
 
-        bool cleanup_confirmed=false;QTimer::singleShot(0,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;cleanup_confirmed=true;box->done(QMessageBox::Yes);});first.findChild<QPushButton*>("fileManagerClean")->click();check(cleanup_confirmed&&!QFileInfo::exists(archive_a)&&!QFileInfo::exists(archive_b)&&QFileInfo::exists(locked+"/protected.prtz.2")&&QFileInfo::exists(working+"/PANEL.prtz"),"Confirmed cleanup did not recycle only the disposable unprotected archive fixtures");
+        bool cleanup_confirmed=false;QTimer cleanup_confirmed_timer;cleanup_confirmed_timer.setInterval(5);QObject::connect(&cleanup_confirmed_timer,&QTimer::timeout,&first,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;cleanup_confirmed_timer.stop();cleanup_confirmed=true;box->done(QMessageBox::Yes);});cleanup_confirmed_timer.start();first.findChild<QPushButton*>("fileManagerClean")->click();check(cleanup_confirmed&&!QFileInfo::exists(archive_a)&&!QFileInfo::exists(archive_b)&&QFileInfo::exists(locked+"/protected.prtz.2")&&QFileInfo::exists(working+"/PANEL.prtz"),"Confirmed cleanup did not recycle only the disposable unprotected archive fixtures");
 
         const QString delete_file=working+"/recycle-test.txt",delete_folder=working+"/recycle-folder";
         QDir().mkpath(delete_folder);for(const auto& path:{delete_file,delete_folder+"/child.txt"}){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot create recycle fixture");file.write("recyclable");}
         {QSettings metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",true);metadata.sync();}
         first.navigate(working);files->clearSelection();for(int row=0;row<files->topLevelItemCount();++row){auto* item=files->topLevelItem(row);const QString path=item->data(0,Qt::UserRole).toString();item->setCheckState(0,path==delete_file||path==delete_folder?Qt::Checked:Qt::Unchecked);}
-        bool delete_cancelled=false;QTimer::singleShot(0,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;delete_cancelled=box->text().contains("koše");box->done(QMessageBox::No);});first.findChild<QPushButton*>("fileManagerDelete")->click();check(delete_cancelled&&QFileInfo::exists(delete_file)&&QFileInfo::exists(delete_folder+"/child.txt"),"Cancelled recycle changed the selected file or folder");
-        bool delete_confirmed=false;QTimer::singleShot(0,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;delete_confirmed=true;box->button(QMessageBox::Yes)->click();});first.findChild<QPushButton*>("fileManagerDelete")->click();check(delete_confirmed&&!QFileInfo::exists(delete_file)&&!QFileInfo::exists(delete_folder)&&QFileInfo::exists(working+"/PANEL.prtz"),"Delete did not recycle the selected file and folder while preserving the model");
+        bool delete_cancelled=false;QTimer delete_cancelled_timer;delete_cancelled_timer.setInterval(5);QObject::connect(&delete_cancelled_timer,&QTimer::timeout,&first,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;delete_cancelled_timer.stop();delete_cancelled=box->text().contains("koše");box->done(QMessageBox::No);});delete_cancelled_timer.start();first.findChild<QPushButton*>("fileManagerDelete")->click();check(delete_cancelled&&QFileInfo::exists(delete_file)&&QFileInfo::exists(delete_folder+"/child.txt"),"Cancelled recycle changed the selected file or folder");
+        bool delete_confirmed=false;QTimer delete_confirmed_timer;delete_confirmed_timer.setInterval(5);QObject::connect(&delete_confirmed_timer,&QTimer::timeout,&first,[&]{auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());if(!box)return;delete_confirmed_timer.stop();delete_confirmed=true;box->button(QMessageBox::Yes)->click();});delete_confirmed_timer.start();first.findChild<QPushButton*>("fileManagerDelete")->click();check(delete_confirmed&&!QFileInfo::exists(delete_file)&&!QFileInfo::exists(delete_folder)&&QFileInfo::exists(working+"/PANEL.prtz"),"Delete did not recycle the selected file and folder while preserving the model");
 
         QString protected_before;{QSettings metadata(working+"/0000-index/metadata.ini",QSettings::IniFormat);protected_before=metadata.value("Parts/PANEL/native_length").toString();metadata.setValue("Directory/PreventParameterEdit",true);metadata.sync();}
         first.navigate(working);QTreeWidgetItem* locked_native{};for(int row=0;row<files->topLevelItemCount();++row)if(files->topLevelItem(row)->text(0)=="PANEL.prtz")locked_native=files->topLevelItem(row);check(locked_native&&!(locked_native->flags()&Qt::ItemIsEditable),"Parameter protection did not lock native cells");

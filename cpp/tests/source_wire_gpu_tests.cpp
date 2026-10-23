@@ -13,6 +13,30 @@
 
 using namespace zima;
 void check(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
+void verify_assembly_provider(QApplication& application) {
+    kernel::ViewerMesh mesh;
+    mesh.vertices={{-1,-1,0},{1,-1,0},{0,1,0}};mesh.triangles={0,1,2};
+    mesh.triangle_references={{"cut","face",{}}};
+    mesh.edges={{{{-1,-1,0},{1,-1,0}},{"component","unrelated",{}}}};
+    mesh.edges.front().display_owner_id="cut";
+    viewer::MeshView view;view.resize(640,480);view.set_mesh(mesh);view.show();view.fit_all();
+    unsigned reads=0;bool available=true;
+    view.set_container_preview_provider([&](const auto&,const auto&) {
+        ++reads;
+        if(!available)return std::vector<kernel::ViewerEdge>{};
+        return std::vector<kernel::ViewerEdge>{{{{-.5,.5,0},{.5,.5,0}},{"cut","own-wire",{}}}};
+    },[](const auto& owner,const auto& path){return owner=="cut"&&path.empty();});
+    const auto render=[&]{application.processEvents();check(!view.grabFramebuffer().isNull(),"Assembly provider has no framebuffer");};
+    view.confirm_container("cut");render();
+    check(view.property("gpuSourceWireVertexCount").toInt()==2&&reads==1,
+        "Assembly selection ignored its dedicated wire without component source edges");
+    for(unsigned i=0;i<4;++i)render();
+    check(reads==1,"Assembly repaint repeatedly read or rebuilt the cutter wire");
+    available=false;view.set_container_inspection("cut");render();
+    check(view.container_inspection_wire().empty()&&view.property("gpuSourceWireVertexCount").toInt()==0,
+        "Missing Assembly wire fell back to unrelated component result edges");
+    std::cout<<"Assembly presentation-only source: one cached GPU batch, no repeated reads and no foreign-edge fallback passed\n";
+}
 void verify_import_batches(QApplication& application) {
     kernel::ViewerMesh mesh;
     for(int i=0;i<29000;++i)
@@ -271,6 +295,6 @@ int main(int argc,char** argv){QApplication application(argc,argv);try {
     std::cout<<"source="<<owner<<" edges="<<mesh.edges.size()<<" source_vertices="<<view.property("gpuSourceWireVertexCount").toInt()
         <<" initial_source_uploads="<<source_uploads<<" camera_frames=40 extra_source_uploads=0 extra_base_uploads=0 extra_color_builds=0 idle_median_ms="<<idle_times[idle_times.size()/2]<<" selected_median_ms="<<times[times.size()/2]<<" p90_ms="<<times[36]<<'\n';
     if(argc>2)render().save(QString::fromUtf8(argv[2]));
-    if(argc==1){verify_curved_hover(application);verify_occluded_selection(application);verify_import_batches(application);}
+    if(argc==1){verify_assembly_provider(application);verify_curved_hover(application);verify_occluded_selection(application);verify_import_batches(application);}
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -7,6 +7,10 @@
 #include <zima/document/container_origin_display.hpp>
 #include "../feature_view_cues.hpp"
 #include "sheet_cut_wire_preview.hpp"
+#include "../feature_exact_preview.hpp"
+#include <zima/document/feature_material_wire.hpp>
+#include <zima/workspace/operation_input.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/opening_copy.hpp>
@@ -499,7 +503,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 const bool completes_pending = pending_profile_feature_ && pending_profile_feature_->id == committed.id;
                 try {
                     zima::workspace::commit_profile(workspace_, kernel_, owner_id, std::move(committed), mode,
-                        property_owned_sketch_draft_);
+                        property_owned_sketch_draft_,zima::workspace::ProfileFailurePolicy::KeepDefinition);
                 } catch(const zima::kernel::OrderedUpToError&) {
                     throw;
                 } catch (const std::exception& error) {
@@ -798,8 +802,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             carrier.constructions.push_back(resolved_plane);
             append_mesh(*primitive_origin_preview_mesh_,carrier.construction_viewer_mesh(plane.id));
-            if(preview.feature.uses_sketch()) {
+            if(preview.feature.uses_sketch()&&
+                    !(preview.feature.type==zima::document::FeatureType::Modeling&&
+                      preview.feature.result_type==zima::document::ProfileResultType::Thin)) {
                 // Rollback hides saved output; show the pending owned geometry.
+                // Thin solids already show both physical wall boundaries in
+                // their operation wire. Their source profile is not a third
+                // wall boundary; it remains visible in the Sketch editor.
                 auto profile_mesh=sketch->viewer_mesh();
                 sketch->filter_hidden_3d_geometry(profile_mesh);
                 keep_only_inactive_sketch_profile(profile_mesh,preview.id);
@@ -1324,10 +1333,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     // An edited Part profile needs its rollback input before the first
     // synchronous preview. Publish that scene once, after dialog setup.
-    // Sheet cuts and Assembly cuts retain their separate input setup below.
-    const bool defer_profile_preview = rollback_boundary.has_value() &&
-        (feature_kind == zima::document::FeatureKind::Revolution ||
-         (feature_kind == zima::document::FeatureKind::Extrusion && !initial.extrusion.sheet_cut));
+    // Install the owner and rollback context before an exact Feature publishes
+    // its stored opening wire. Sheet cuts retain their separate input setup.
+    const bool defer_profile_preview = (rollback_boundary.has_value() &&
+        (feature_kind == zima::document::FeatureKind::Feature ||
+         feature_kind == zima::document::FeatureKind::Revolution ||
+         (feature_kind == zima::document::FeatureKind::Extrusion && !initial.extrusion.sheet_cut))) ||
+        (assembly_cut_index.has_value()&&feature_kind==zima::document::FeatureKind::Feature);
     const auto profile_scene_signature =
         std::make_shared<std::optional<std::vector<double>>>();
     const auto profile_scene_name=std::make_shared<std::string>();
@@ -1468,15 +1480,47 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 return path.occurrence_ids.empty()?placed:workspace_.occurrence_point_to_scene(top_id,path,placed);
             });
         }
+        const auto source_generation=[this,owner_id]() {
+            if(const auto* owner=workspace_.open_part(owner_id))
+                return std::to_string(reinterpret_cast<std::uintptr_t>(owner->runtime_identity.get()))+":"+std::to_string(owner->session.data_generation());
+            std::string key;
+            if(const auto* owner=workspace_.open_assembly(owner_id)) {
+                key=std::to_string(reinterpret_cast<std::uintptr_t>(owner->runtime_identity.get()))+":"+std::to_string(owner->session.data_generation());
+                for(const auto& component:owner->session.document().components)
+                    key+=":"+component.occurrence_id+":"+component.calculated_source->source_fingerprint;
+            }
+            return key;
+        };
+        auto* exact_preview=new FeatureExactPreview(dialog,
+            [this,dialog](auto wire){if(properties_dialog_==dialog)viewer_->set_transient_edges(std::move(wire));},
+            [this,dialog](const QString& text){if(properties_dialog_==dialog) {
+                if(auto* label=dialog->template findChild<QLabel*>("featureUpToDraftNotice"))label->setText(text);
+                state_->setText(text);
+            }},source_generation);
         const auto assembly_input=std::make_shared<std::optional<zima::kernel::ViewerMesh>>();
-        dialog->set_preview_callback([this,owner_id,placement_preview,prepare_owned_profile_preview,extent_drag_baseline,
-                update_owned_profile_context_preview,publish_profile_preview_scene,assembly_input,assembly_cut_index](const auto& pending) {
+        struct PreviewSources {
+            std::string generation;
+            zima::kernel::BodySnapshot references,input;
+        };
+        const auto preview_sources=std::make_shared<std::optional<PreviewSources>>();
+        install_profile_preview([this,owner_id,placement_preview,prepare_owned_profile_preview,extent_drag_baseline,
+                update_owned_profile_context_preview,publish_profile_preview_scene,assembly_input,assembly_cut_index,
+                exact_preview,source_generation,preview_sources,dialog](const auto& pending) {
             const auto preview=placement_preview?placement_preview(pending):pending;
             try {
                 const auto* owner=workspace_.open_part(owner_id);
                 const auto* assembly_owner=workspace_.open_assembly(owner_id);
                 if(!owner&&!assembly_owner)return;
                 auto document=owner?owner->session.document():assembly_owner->session.document().feature_document();
+                const auto* original=owner?owner->session.document().find_container(pending.id):
+                    assembly_owner->session.document().find_cut(pending.id)?&assembly_owner->session.document().find_cut(pending.id)->definition:nullptr;
+                bool unchanged=original&&pending==*original;
+                if(unchanged&&property_owned_sketch_draft_) {
+                    const auto saved=std::ranges::find(document.sketches,property_owned_sketch_draft_->id,&zima::sketcher::Sketch::id);
+                    unchanged=saved!=document.sketches.end()&&saved->serialized()==property_owned_sketch_draft_->serialized();
+                }
+                const auto targets=dialog->selected_assembly_targets();
+                if(unchanged&&assembly_owner)unchanged=targets==assembly_owner->session.document().find_cut(pending.id)->target_occurrence_ids;
                 if(property_owned_sketch_draft_) {
                     const auto found=std::ranges::find(document.sketches,property_owned_sketch_draft_->id,&zima::sketcher::Sketch::id);
                     if(found==document.sketches.end())document.sketches.push_back(*property_owned_sketch_draft_);
@@ -1491,7 +1535,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     input=&part_rollback_->input_body->mesh;
                 else if(owner&&!owner->session.calculated_boundaries().empty())
                     input=&owner->session.calculated_boundaries().back().mesh;
-                else if(assembly_owner) {
+                else if(assembly_owner&&!zima::document::feature_up_to_requires_exact_preview(preview.feature)) {
                     if(!*assembly_input) {
                         auto source=assembly_owner->session.document();
                         if(assembly_cut_index) {
@@ -1505,13 +1549,71 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     input=&**assembly_input;
                 }
                 try {
+                    if(zima::document::feature_up_to_requires_exact_preview(preview.feature)) {
+                        FeatureExactPreview::Job job;
+                        job.operation=zima::workspace::feature_preview_operation(document,preview);
+                        job.source_generation=source_generation();
+                        std::optional<FeatureExactPreview::Wire> existing;
+                        if(owner) {
+                            const auto& source=owner->session.document();
+                            const auto& calculated=owner->session.calculated_boundaries();
+                            // Retain one immutable source packet per generation,
+                            // rather than copying the model on each numeric edit.
+                            if(!*preview_sources||(**preview_sources).generation!=job.source_generation) {
+                                PreviewSources captured;captured.generation=job.source_generation;
+                                captured.references=zima::workspace::feature_preview_part_sources(owner->session,
+                                    source.find_container(preview.id)?preview.id:std::string{});
+                                if(const auto* before=zima::workspace::calculated_operation_input(owner->session,
+                                        source.find_container(preview.id)?preview.id:std::string{}))captured.input=*before;
+                                *preview_sources=std::move(captured);
+                            }
+                            job.references=(**preview_sources).references;job.input=(**preview_sources).input;
+                            const auto* body=source.body_owner_for_object(preview.id);
+                            if(!body)body=source.body_history.find(source.body_history.active_body_id());
+                            if(body)job.frame={{body->scope.placement.x,body->scope.placement.y,body->scope.placement.z},
+                                {body->scope.placement.rotation_x,body->scope.placement.rotation_y,body->scope.placement.rotation_z}};
+                            if(unchanged&&!calculated.empty()&&
+                                    !calculated.back().calculation_errors.contains(preview.id)) {
+                                const auto* boundaries=&calculated;
+                                if(body)if(const auto found=calculated.back().body_boundaries.find(body->scope.id);
+                                        found!=calculated.back().body_boundaries.end())boundaries=&found->second.get();
+                                FeatureExactPreview::Wire cached;
+                                for(const auto& boundary:*boundaries) {
+                                    for(const auto& edge:boundary.mesh.original_references.edges)
+                                        if(zima::document::feature_material_wire_edge(preview,edge))cached.push_back(edge);
+                                    if(!cached.empty())break;
+                                }
+                                if(!cached.empty())existing=std::move(cached);
+                            }
+                        } else {
+                            auto source=assembly_owner->session.document();
+                            if(unchanged) {
+                                if(const auto* cut=source.find_cut(preview.id);cut&&!cut->preview_wire.empty()) {
+                                    existing=cut->preview_wire;
+                                    std::erase_if(*existing,[&](const auto& edge){return !zima::document::feature_material_wire_edge(preview,edge);});
+                                }
+                            }
+                            if(assembly_cut_index) {
+                                const auto& boundary=source.cuts.at(*assembly_cut_index).input_component_bodies;
+                                for(auto& component:source.components)if(const auto found=boundary.find(component.occurrence_id);found!=boundary.end())
+                                    component.calculated_source=found->second;
+                                source.cuts.resize(*assembly_cut_index);
+                            }
+                            job.external_sources=zima::workspace::feature_preview_external_sources(source,preview);
+                            job.input=zima::workspace::feature_preview_assembly_input(source,targets);
+                        }
+                        exact_preview->request(std::move(job),std::move(existing),!unchanged);
+                    } else {
+                    exact_preview->clear();
                     // Keep native end targets in their containing Part reference universe;
                     // the command carrier holds only this Body and its pending Sketch.
                     const auto* references=owner?&owner->session.document():nullptr;
                     const zima::kernel::ViewerMesh empty_input;
                     auto wire=document.feature_preview_edges(preview,input?*input:empty_input,references);
                     viewer_->set_transient_edges(std::move(wire));
+                    }
                 } catch(const std::exception& error) {
+                    exact_preview->clear();
                     // An empty or unfinished profile cannot supply a body wire,
                     // but its resolved work plane is valid editing context.
                     if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
@@ -1521,6 +1623,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 publish_profile_preview_scene(&document,preview);
             } catch(const std::exception& error) {
+                exact_preview->clear();
                 if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
                     std::fprintf(stderr,"Feature preview failed: %s\n",error.what());
                 viewer_->set_transient_edges({});publish_profile_preview_scene(nullptr,preview);
@@ -2060,7 +2163,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         assembly_cut_rollback_ = AssemblyCutRollbackContext{
             assembly->session.document().document_id, container_id,
             *assembly_cut_index, edited_cut->input_component_bodies};
-        refresh_scene();
+        if(!deferred_profile_preview)refresh_scene();
     }
     if (rollback_boundary) {
         part_rollback_ = PartRollbackContext{

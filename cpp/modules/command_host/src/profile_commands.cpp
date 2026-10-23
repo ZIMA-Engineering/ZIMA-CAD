@@ -206,11 +206,12 @@ void Host::register_profile_commands() {
     for(bool create:{true,false}) {
         dispatcher_.add({create?"feature.create":"feature.set",tr("Create or edit a Feature through the shared Part/Assembly transaction."),
             {{create?"sketch":"container",true},{"parameters",false,Type::Object},{"name",false},{"combine",false},
-             {"targets",false,Type::Array},{"placement",false,Type::Object},{"profile_plane",false},{"document",false}},true},[this,create](const Json& args) {
+             {"targets",false,Type::Array},{"placement",false,Type::Object},{"profile_plane",false},{"keep_failed",false,Type::Boolean},{"document",false}},true},[this,create](const Json& args) {
             const auto checked=target(args);if(!checked.ok)return checked;
             try {
                 const auto id=workspace_.active_document_id();auto* part=workspace_.open_part(id);auto* assembly=workspace_.open_assembly(id);
                 if((!part&&!assembly)||interaction().template_document)throw Error("unsupported_document","Profile operations require an open Part or Assembly.");
+                if(!part&&args.value("keep_failed",false))throw Error("unsupported_document","Profile operations require an open Part.");
                 auto value=create?(part?workspace::profile_from_sketch(part->session.document(),args.at("sketch"),Kind::Feature):
                     workspace::profile_from_sketch(assembly->session.document(),args.at("sketch"),Kind::Feature)):
                     profile(workspace_,id,args.at("container"),Kind::Feature);
@@ -273,7 +274,8 @@ void Host::register_profile_commands() {
                     pending_sketch->plane_auto=plane=="AUTO";
                     if(!pending_sketch->plane_auto)pending_sketch->plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
                 }
-                if(part)workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch);
+                if(part)workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch,
+                    args.value("keep_failed",false)?workspace::ProfileFailurePolicy::KeepDefinition:workspace::ProfileFailurePolicy::Reject);
                 else {
                     std::vector<std::string> selected;
                     if(args.contains("targets"))for(const auto& entry:args.at("targets")) {

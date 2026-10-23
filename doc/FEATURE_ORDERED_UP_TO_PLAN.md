@@ -234,9 +234,14 @@ The table creates hidden rows lazily and exposes at least three rows. Wide paren
 windows grow the dialog to its minimum content width; smaller parents retain
 horizontal access rather than clipping the last controls.
 
-Draft interaction shows only the authored profile and inspected target faces;
-a localized notice states that OK calculates the exact result. Entry, inspection,
-row edits and numeric drafts do not calculate OCCT geometry. After acceptance,
+Changed multi-target and corrected Revolution drafts use a command-local private
+kernel to calculate the exact original operation wire. A 150 ms debounce combines
+rapid edits; one worker runs at a time and stale results cannot publish. Failed
+drafts clear their wire and expose localized status. Inspection, opening unchanged
+Properties and unchanged OK do not invoke the kernel. Opening reuses persisted
+original operand strokes; missing stored strokes are reported without an implicit
+calculation. The previous nominal untrimmed draft was rejected by user review.
+After acceptance,
 ordinary selection uses the stored original operand wire at the Feature's own
 creation boundary, before later body Booleans can introduce unrelated edges.
 There is no new solid fill or thick selection stroke.

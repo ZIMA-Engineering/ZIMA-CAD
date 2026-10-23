@@ -1,5 +1,6 @@
 #include <zima/sketcher/face_curve_reference.hpp>
 #include "profile_command_fixture.hpp"
+#include "broken_reference_fixture.hpp"
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
@@ -18,6 +19,35 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    for(bool reverse:{false,true})
+    for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::DistanceX,
+            sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Angle})
+    for(bool driving:{false,true})for(bool locked:{false,true}) {
+        auto sketch=test::broken_reference_fixture();
+        if(reverse)std::swap(sketch.segments.front().first_point_id,sketch.segments.front().second_point_id);
+        auto dimension=sketch.create_segment_dimension(sketch.segments.front().id,kind);
+        dimension.driving=driving;dimension.locked=locked;
+        const auto before=sketch.serialized();
+        try{sketch.apply_dimension(dimension);}catch(const std::exception&){require(sketch.serialized()==before,"Rejected dimension changed a broken-reference Sketch");}
+        const auto ids=sketch.external_references;const auto native_points=sketch.points;
+        const auto native_segments=sketch.segments;const auto native_dimensions=sketch.dimensions;
+        for(const auto& reference:ids) {
+            const auto count=sketch.external_references.size();
+            sketch.remove_geometry(reference.id);sketch.validate();
+            require(sketch.external_references.size()+1==count,"Broken reference was not independently removed");
+            require(sketch.points==native_points&&sketch.segments==native_segments&&sketch.dimensions==native_dimensions,
+                "Removing a broken reference changed unrelated dimensioned geometry");
+            sketch=sketcher::Sketch::from_serialized(sketch.serialized());
+        }
+        require(sketch.solve().status!=sketcher::SolveStatus::Invalid,"Removing broken references did not leave an editable Sketch");
+        const auto point=sketch.points.front().id;
+        for(double delta:{1.,-2.,.25}) {
+            const auto snapshot=sketch.serialized();const auto position=*sketch.find_point(point);
+            if(!sketch.move_point(point,position.x+delta,position.y+delta))
+                require(sketch.serialized()==snapshot,"Rejected drag changed geometry after broken-reference removal");
+            require(sketch.solve().status!=sketcher::SolveStatus::Invalid,"Repeated drag invalidated the repaired Sketch");
+        }
+    }
     {
         auto document=document::PartDocument::create_default();
         auto source=sketcher::Sketch::create_default();static_cast<void>(source.add_circle(0,0,15));
@@ -231,6 +261,63 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             const auto refreshed=current();
             for(std::size_t i=0;i<2;++i)require(refreshed.external_references[i]==identities[i],"Normal frame displacement or regeneration changed an individual outline identity/cache");
         }
+        unsigned profile_cases=0;
+        for(const auto& support:identities)for(bool reversed:{false,true}) {
+            auto linked=current();const auto source_before=curves.open_part(doc)->session.document().serialized();
+            const auto segment_id=linked.add_external_profile_geometry(support.id);
+            require(linked.segments.size()==1&&linked.bsplines.empty(),"A finite generator did not create exactly one native Segment");
+            if(reversed)std::swap(linked.segments.front().first_point_id,linked.segments.front().second_point_id);
+            const auto segment=linked.segments.front();
+            const auto equations=[&](const auto& value,double height) {
+                const auto* a=value.find_point(segment.first_point_id);const auto* b=value.find_point(segment.second_point_id);
+                require(a&&b&&std::abs(a->x-b->x)<1e-8&&std::abs(std::hypot(a->x-b->x,a->y-b->y)-height)<1e-7,
+                    "A projected generator escaped its exact finite endpoint equations");
+                require(std::abs(std::abs(a->x)-5)<1e-7&&std::abs(std::abs(b->x)-5)<1e-7,"A generator changed its physical contour side");
+            };
+            equations(linked,30);
+            for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::DistanceX,sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Angle})
+            for(bool driving:{false,true})for(bool locked:{false,true}) {
+                auto measured=linked;auto dimension=measured.create_segment_dimension(segment_id,kind);
+                dimension.driving=driving;dimension.locked=locked;const auto before=measured.serialized();bool accepted=false;
+                try{measured.apply_dimension(dimension);accepted=true;}
+                catch(const std::exception&){require(measured.serialized()==before,"Rejected generator dimension mutated its geometry");}
+                if(accepted) {
+                    equations(measured,30);
+                    for(double delta:{1.,-2.,.5}) {
+                        const auto stable=measured.serialized();
+                        const bool applied=measured.set_dimension_value(dimension.id,dimension.value+delta);
+                        require((!driving||!applied)&&measured.serialized()==stable,
+                            "An impossible dimension changed a read-only finite generator");
+                        equations(measured,30);
+                    }
+                    for(const auto& point:{segment.first_point_id,segment.second_point_id})for(double delta:{1.,-3.,.25}) {
+                        const auto stable=measured.serialized();const auto* position=measured.find_point(point);
+                        require(!measured.move_point(point,position->x+delta,position->y+delta)&&measured.serialized()==stable,
+                            "Dragging escaped a generator endpoint reference");
+                    }
+                    auto reopened=sketcher::Sketch::from_serialized(measured.serialized());equations(reopened,30);
+                }
+                ++profile_cases;
+            }
+            for(double height:{35.,20.,32.,30.}) {
+                auto changed=curves.open_part(doc)->session.document();
+                changed.find_container(cylinder)->feature.sides[0].length=height;changed.resolve_constructions();
+                const auto source_geometry=kernel.evaluate_history(changed.kernel_operations());
+                const auto geometry=workspace::sketch_external_reference_source_geometry(changed,source_geometry);
+                static_cast<void>(linked.refresh_external_references(doc,geometry));
+                equations(linked,height);
+                for(const auto& reference:linked.external_references)require(!reference.broken,"Source edit broke a generator or its endpoint reference");
+                linked=sketcher::Sketch::from_serialized(linked.serialized());equations(linked,height);++profile_cases;
+            }
+            auto candidate=curves.open_part(doc)->session.document();
+            *std::ranges::find(candidate.sketches,sketch,&sketcher::Sketch::id)=linked;
+            document::DocumentSession session(curves.open_part(doc)->session.document(),curves.open_part(doc)->session.calculated_boundaries());
+            const auto before=session.document().serialized();session.commit(candidate,session.calculated_boundaries());
+            require(session.undo()&&session.document().serialized()==before,"Generator profile Undo lost its source definition");
+            require(session.redo()&&session.document().sketches.back().serialized()==linked.serialized(),"Generator profile Redo lost endpoint identity");
+            require(curves.open_part(doc)->session.document().serialized()==source_before,"Generator matrix changed its read-only source");
+        }
+        std::cout<<"Finite outline profiles: "<<profile_cases<<" length/X/Y/angle, driving/reference, locked/unlocked, endpoint orders, repeated rejected edits/drags, source height changes, native roundtrip and Undo/Redo checks passed\n";
         const auto file=directory/"individual-outlines-roundtrip.prtz";run(curve_host,"save_as",{{"path",file.string()}});
         const auto reopened=document::PartDocument::load(file);
         auto persisted=identities;for(auto& reference:persisted)reference.source_document_id=reopened.document_id;
@@ -329,6 +416,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             "Restoring the Sketch frame did not recover its point and constraints");
         source.axes.clear();sketch.refresh_external_references(part.document_id,source);
         require(sketch.external_references.front().broken&&sketch.constraints==constraints,"Deleted source erased its dependent constraints");
+        sketch.remove_geometry(id);
+        require(sketch.external_references.empty()&&std::ranges::none_of(sketch.constraints,[](const auto& constraint){
+                return constraint.kind==sketcher::ConstraintKind::PointReference;})&&sketch.segments.front().id==line,
+            "Removing a broken axis point did not remove only its dependent contact");
+        require(sketch.solve().status!=sketcher::SolveStatus::Invalid,"A removed broken contact left the Sketch invalid");
     }
     workspace::Workspace live;command_host::Options options;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};

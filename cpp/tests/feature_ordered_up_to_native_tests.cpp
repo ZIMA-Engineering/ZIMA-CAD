@@ -1,4 +1,6 @@
 #include <zima/document/general_surface.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/feature_material_wire.hpp>
 #include "../modules/kernel_occt/src/ordered_up_to.hpp"
 #include <zima/workspace/general_surface_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -21,12 +23,109 @@
 #include <iostream>
 #include <numbers>
 #include <sstream>
+#include <cstdlib>
 
 using namespace zima;
 namespace {
 void check(bool yes,const char* text){if(!yes)throw std::runtime_error(text);}
 void near(double actual,double expected){if(!std::isfinite(actual)||std::abs(actual-expected)>1e-5)
     throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(actual));}
+std::vector<kernel::ViewerEdge> exact_draft(const workspace::PartState& state,const document::HistoryContainer& pending) {
+    const auto before=state.session.document().serialized();const auto revision=state.session.revision();
+    const auto& source=state.session.document();const auto* body=source.body_owner_for_object(pending.id);
+    check(body,"Preview fixture has no Body");auto carrier=source.body_document(body->scope.id);
+    const auto operation=workspace::feature_preview_operation(std::move(carrier),pending);
+    kernel::OcctKernel private_kernel;
+    auto wire=private_kernel.calculate_feature_preview(operation,workspace::feature_preview_part_sources(state.session,pending.id),
+        {body->scope.translation(),body->scope.rotation_degrees()});
+    check(!wire.empty(),"Exact draft returned no native operand edges");
+    for(const auto& edge:wire)if(edge.reference.owner_id!=pending.id||edge.parameter_seam) {
+        std::cerr<<"Preview edge owner="<<edge.reference.owner_id<<" expected="<<pending.id<<" key="<<edge.reference.semantic_key<<" seam="<<edge.parameter_seam<<'\n';
+        throw std::runtime_error("Exact draft exposed another source or a parameter seam");
+    }
+    check(source.serialized()==before&&state.session.revision()==revision,"Exact draft modified its document or Undo revision");return wire;
+}
+void compare_accepted_wire(const workspace::PartState& state,const std::string& owner,const std::vector<kernel::ViewerEdge>& preview) {
+    const auto feature=std::ranges::find(state.session.document().history,owner,&document::HistoryContainer::id);
+    check(feature!=state.session.document().history.end(),"Accepted Feature definition is missing");
+    const auto* body=state.session.document().body_owner_for_object(owner);
+    const auto& result=state.session.calculated_boundaries().back();
+    const auto& boundaries=result.body_boundaries.at(body->scope.id).get();
+    std::vector<kernel::Vec3> expected;
+    for(const auto& boundary:boundaries) {
+        for(const auto& edge:boundary.mesh.original_references.edges)if(document::feature_material_wire_edge(*feature,edge))
+            expected.insert(expected.end(),edge.points.begin(),edge.points.end());
+        if(!expected.empty())break;
+    }
+    check(!expected.empty(),"Accepted Feature has no original operand wire");
+    const auto distance=[](auto a,auto b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);};
+    std::vector<kernel::Vec3> actual;for(const auto& edge:preview)actual.insert(actual.end(),edge.points.begin(),edge.points.end());
+    for(const auto p:actual)check(std::ranges::any_of(expected,[&](auto q){return distance(p,q)<1e-5;}),"Exact preview differs from the accepted operand wire");
+    for(const auto p:expected)check(std::ranges::any_of(actual,[&](auto q){return distance(p,q)<1e-5;}),"Exact preview omitted an accepted operand wire point");
+}
+unsigned assembly_through_all_input() {
+    kernel::OcctKernel engine;kernel::ExtrusionRequest stock;
+    stock.profile_region_id="stock-region";stock.outer_boundary_id="stock-boundary";stock.outer_edge_source_ids={"stock-circle"};
+    stock.outer_profile=kernel::ExtrusionRequest::CircleProfile{{0,0,0},5};stock.direction={0,0,30};
+    const auto body=engine.evaluate_history({{"stock",stock}}).back();
+    kernel::ExtrusionRequest tool;tool.profile_region_id="tool-region";tool.outer_boundary_id="tool-boundary";tool.outer_edge_source_ids={"tool-circle"};
+    tool.outer_profile=kernel::ExtrusionRequest::CircleProfile{{0,0,0},1};
+    tool.direction={0,0,1};tool.extent=kernel::ExtrusionRequest::Extent::ThroughAll;
+    kernel::FeatureGroupRequest group;group.children.push_back(tool);
+    unsigned cases=0;
+    for(bool rotate:{false,true})for(double z:{-40.,0.,5.,25.}) {
+        auto document=assembly::AssemblyDocument::create_default();
+        auto component=assembly::AssemblyDocument::create_part_occurrence("Selected","source","source.prtz",body);
+        component.placement.z=z;component.placement.rotation_x=rotate?90.:0.;
+        auto other=assembly::AssemblyDocument::create_part_occurrence("Unselected","other","other.prtz",body);
+        other.placement.z=1000.;document.components={component,other};
+        const auto input=workspace::feature_preview_assembly_input(document,{component.occurrence_id});
+        check(input->body_outputs.size()==1&&input->body_outputs.at(component.occurrence_id)->body_outputs.at("source").shares_with(component.calculated_source),
+            "Assembly preview copied or included an unselected native source");
+        const auto wire=engine.calculate_feature_preview({"tool",group},{},{},input);
+        double end=-1e100;for(const auto& edge:wire)for(const auto p:edge.points)end=std::max(end,p.z);
+        near(end,std::max(0.,z+(rotate?5.:30.))+1.);
+        auto accepted=engine.calculate_feature_tool({"tool",group},{},{},input,{});
+        double accepted_end=-1e100;for(const auto& edge:accepted.mesh.original_references.edges)
+            if(edge.reference.owner_id=="tool")for(const auto p:edge.points)accepted_end=std::max(accepted_end,p.z);
+        near(accepted_end,end);
+        engine.ensure_body_properties(accepted);near(accepted.volume,std::numbers::pi*end);
+        check(document.components.front().calculated_source.shares_with(component.calculated_source),"Assembly preview rewrote its source snapshot");++cases;
+    }
+    std::cout<<"PASS "<<cases<<" Assembly Through-all preview inputs: selected targets, translation, rotation, negative bounds and shared immutable sources\n";
+    return cases;
+}
+void verify_saved_tangent_case(kernel::OcctKernel& engine,const std::filesystem::path& file) {
+    std::vector<kernel::BodyResult> geometry;auto part=document::PartDocument::load(file,&geometry);
+    const auto found=std::ranges::find(part.history,std::string("Vytažení 004"),&document::HistoryContainer::name);
+    check(found!=part.history.end(),"Saved tangent Feature is missing");const auto feature=*found;
+    const auto* body=part.body_owner_for_object(feature.id);check(body,"Saved tangent Feature has no Body");
+    workspace::Workspace live;live.add_part(part,geometry,file);live.activate(part.document_id);auto* state=live.open_part(part.document_id);
+    const auto rollback=state->session.rollback_boundary(feature.id);check(rollback&&rollback->input_body,"Saved tangent input boundary is missing");
+    const auto references=rollback->input_body->mesh.original_references.triangle_references;
+    const auto unchanged=state->session.document().serialized();std::set<std::pair<std::string,std::string>> tested;unsigned accepted=0;
+    for(const auto& source:references) {
+        if(!source.valid()||source.owner_id!=feature.feature.sides[0].targets.front().reference.owner_id||
+            !source.surface||source.surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder||!tested.emplace(source.owner_id,source.semantic_key).second)continue;
+        auto pending=feature;pending.feature.sides[0].up_to.length_correction=0;pending.placement.rotation_offset_y=15;
+        document::ExtrusionParameters::EndTarget target;target.reference=source;
+        target=workspace::resolve_profile_end_target(state->session.document(),state->session.calculated_boundaries(),body->scope.id,target);
+        pending.feature.sides[0].targets.push_back(target);document::prune_feature_up_to_patch_choices(pending.feature.sides[0]);
+        std::cout<<"Tangent source "<<source.semantic_key<<std::endl;
+        try {
+            workspace::commit_profile(live,engine,part.document_id,pending,workspace::ProfileEditMode::Replace);
+            auto result=state->session.calculated_boundaries().back();engine.ensure_body_properties(result);
+            check(!result.calculation_errors.contains(feature.id),"Accepted tangent Feature retains its calculation error");
+            const auto output=file.parent_path()/("tangent-004-"+std::to_string(++accepted)+".prtz");
+            state->session.document().save(output,state->session.calculated_boundaries());
+            std::cout<<"Accepted tangent Feature, volume="<<result.volume<<" copy="<<output.generic_string()<<std::endl;
+            check(state->session.undo()&&state->session.document().serialized()==unchanged,"Tangent probe Undo changed the input definition");
+        }catch(const kernel::OrderedUpToError& error){std::cout<<"Ordered failure="<<static_cast<int>(error.failure)<<" rows="<<error.row<<","<<error.other_row<<std::endl;}
+        catch(const std::exception& error){std::cout<<"Calculation failure="<<error.what()<<std::endl;}
+        check(state->session.document().serialized()==unchanged,"Failed tangent probe changed the native model");
+    }
+    check(accepted>0,"No reported tangent source produced a valid saved Feature");
+}
 template<class Doc> unsigned correction_relations() {
     unsigned cases=0;
     for(bool angular:{false,true})for(bool reversed:{false,true})for(std::size_t side:{0u,1u}) {
@@ -206,11 +305,61 @@ unsigned assembly_limit_sources(const std::filesystem::path& source_file,const s
     near(cold_live.open_assembly(id)->session.document().find_occurrence(block_id)->calculated_source->volume,693.);
     check(cold_live.open_assembly(id)->session.document().find_occurrence(input_id)->calculated_source->source_fingerprint==native_source.source_fingerprint,
         "Moving the source occurrence rewrote its source Part geometry");
-    return 6;
+    auto mixed=cold_live.open_assembly(id)->session.document().find_cut(cut.id)->definition;
+    mixed.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;
+    mixed.feature.sides[1].extrusion_extent=document::EndCondition::ThroughAll;
+    workspace::commit_assembly_profile(cold_live,cold,id,mixed,{block_id},workspace::ProfileEditMode::Replace);
+    const auto& mixed_document=cold_live.open_assembly(id)->session.document();
+    near(mixed_document.find_occurrence(block_id)->calculated_source->volume,693.);
+    auto before=mixed_document;
+    for(auto& component:before.components)component.calculated_source=mixed_document.find_cut(cut.id)->input_component_bodies.at(component.occurrence_id);
+    const auto operation=workspace::feature_preview_operation(before.feature_document(),mixed_document.find_cut(cut.id)->definition);
+    const auto draft=cold.calculate_feature_preview(operation,{}, {},workspace::feature_preview_assembly_input(before,{block_id}),
+        workspace::feature_preview_external_sources(before,mixed_document.find_cut(cut.id)->definition));
+    double minimum=1e100;for(const auto& edge:draft)for(const auto p:edge.points)minimum=std::min(minimum,p.z);
+    near(minimum,-1.);
+    double accepted_minimum=1e100;
+    for(const auto& edge:mixed_document.find_cut(cut.id)->preview_wire)
+        if(edge.reference.owner_id==cut.id)for(const auto p:edge.points)accepted_minimum=std::min(accepted_minimum,p.z);
+    near(accepted_minimum,minimum);
+    const auto wire_packet=[](const assembly::AssemblyDocument& value,const std::string& owner) {
+        kernel::ViewerReferenceGeometry wire;wire.edges=value.find_cut(owner)->preview_wire;
+        check(!wire.edges.empty(),"Assembly cut did not retain its own wire");
+        for(const auto& edge:wire.edges)
+            check(edge.reference.owner_id==owner&&edge.reference.instance_path.empty()&&!edge.parameter_seam,
+                "Assembly preview contains component geometry or parameter seams");
+        return document::serialize_viewer_reference_geometry(wire);
+    };
+    const auto mixed_wire=wire_packet(mixed_document,cut.id);
+    const auto mixed_file=source_file.parent_path()/"assembly-mixed-limits.asmz";mixed_document.save(mixed_file);
+    auto without_wire=mixed_document;without_wire.find_cut(cut.id)->preview_wire.clear();
+    const auto baseline_file=source_file.parent_path()/"assembly-mixed-no-wire-measurement.asmz";
+    without_wire.save(baseline_file);
+    std::cout<<"Assembly stored wire overhead: "<<std::filesystem::file_size(mixed_file)-std::filesystem::file_size(baseline_file)
+        <<" bytes for "<<mixed_document.find_cut(cut.id)->preview_wire.size()<<" edges\n";
+    const auto mixed_cold=assembly::AssemblyDocument::load(mixed_file);
+    check(mixed_cold.find_cut(cut.id)->definition==mixed_document.find_cut(cut.id)->definition,
+        "Mixed Assembly limit save/reopen changed the authored definition");
+    check(wire_packet(mixed_cold,cut.id)==mixed_wire,"Cold reopening changed the stored Assembly cutter wire");
+    auto invalid=mixed_cold.serialized();invalid["cuts"][0].erase("preview_wire");
+    bool rejected=false;
+    try {static_cast<void>(assembly::AssemblyDocument::from_serialized(invalid));}
+    catch(const std::exception&) {rejected=true;}
+    check(rejected,"Assembly accepted a missing required preview packet");
+    invalid=mixed_cold.serialized();invalid["cuts"][0]["preview_wire"]["references"][0]["owner"]="foreign-component";
+    rejected=false;
+    try {static_cast<void>(assembly::AssemblyDocument::from_serialized(invalid));}
+    catch(const std::exception&) {rejected=true;}
+    check(rejected,"Assembly accepted another owner's preview wire");
+    check(cold_live.open_assembly(id)->session.undo()&&cold_live.open_assembly(id)->session.redo(),"Mixed Assembly limit Undo/Redo failed");
+    check(wire_packet(cold_live.open_assembly(id)->session.document(),cut.id)==mixed_wire,
+        "Assembly Undo/Redo changed the cutter wire");
+    return 12;
 }
 }
 int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
-    unsigned cases=correction_relations<document::PartDocument>()+correction_relations<assembly::AssemblyDocument>();
+    if(const auto* file=std::getenv("ZIMA_VERIFY_TANGENT_SOURCE")){kernel::OcctKernel engine;verify_saved_tangent_case(engine,file);return 0;}
+    unsigned cases=correction_relations<document::PartDocument>()+correction_relations<assembly::AssemblyDocument>()+assembly_through_all_input();
     const auto output=std::filesystem::temp_directory_path()/
         ("zima-ordered-feature-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     check(std::filesystem::create_directory(output),"Native evidence directory already exists");
@@ -274,7 +423,16 @@ int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
             const auto before=state->session.document().serialized();auto changed=*state->session.document().find_container(feature.id);
             const auto choices=changed.feature.sides[0].up_to.retained_patches;
             changed.feature.sides[0].up_to.length_correction=correction;
+            const auto wire=exact_draft(*state,changed);
+            bool reaches_limit=false;
+            for(const auto& edge:wire)for(const auto p:edge.points) {
+                const double height=(concave?(p.x<2?12-p.x:p.x<6?10:p.x+4):(p.x<2?p.x+10:p.x<6?12:15-.5*p.x))+correction;
+                check(std::abs(p.z)<=height+1e-5,"Exact draft exceeded the independent joined-plane limit");
+                reaches_limit|=std::abs(std::abs(p.z)-height)<1e-5;
+            }
+            check(reaches_limit,"Exact draft substituted its nominal length for the actual targets");
             workspace::commit_profile(live,kernel,id,changed,workspace::ProfileEditMode::Replace);near(volume(kernel,*state),factor*(base+36*correction));
+            compare_accepted_wire(*state,feature.id,wire);
             check(state->session.document().find_container(feature.id)->feature.sides[0].up_to.retained_patches==choices,
                 "A correction edit reselected a retained source side");
             const auto after=state->session.document().serialized();check(state->session.undo()&&state->session.document().serialized()==before,"Correction Undo changed the prior document");
@@ -305,12 +463,27 @@ int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
         catch(const kernel::OrderedUpToError& error){rejected=error.row<3&&error.other_row<3;}
         check(rejected&&state->session.document().serialized()==before_bad&&state->session.revision()==bad_revision,
             "An invalid target order changed the native session");++cases;
+        workspace::commit_profile(live,kernel,id,invalid,workspace::ProfileEditMode::Replace,{},workspace::ProfileFailurePolicy::KeepDefinition);
+        check(state->session.document().find_container(feature.id)->feature==invalid.feature&&
+            state->session.calculated_boundaries().back().calculation_errors.contains(feature.id),
+            "Keeping a failed Feature lost its definition or advertised valid geometry");
+        const auto failed_file=output/(std::string(concave?"concave":"convex")+(symmetric?"-symmetric":"-end")+"-failed.prtz");
+        state->session.document().save(failed_file,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> failed_geometry;auto failed_document=document::PartDocument::load(failed_file,&failed_geometry);
+        check(failed_document.find_container(feature.id)->feature==invalid.feature&&failed_geometry.back().calculation_errors.contains(feature.id),
+            "Native reopening discarded the failed definition or its error");
+        check(state->session.undo()&&state->session.document().serialized()==before_bad,"Undo did not restore the valid Feature before its failed edit");
+        check(state->session.redo()&&state->session.calculated_boundaries().back().calculation_errors.contains(feature.id),"Redo did not restore the failed Feature");
+        auto repaired=*state->session.document().find_container(feature.id);repaired.feature=reordered.feature;
+        workspace::commit_profile(live,kernel,id,repaired,workspace::ProfileEditMode::Replace);near(volume(kernel,*state),factor*(base+27));
+        check(state->session.document().serialized()==before_bad,"Repair changed the original target identities or source history");++cases;
+        const auto missing_revision=state->session.revision();
         auto missing=*state->session.document().find_container(feature.id);
         missing.feature.sides[0].targets[1].reference.owner_id="missing-ordered-source";
         document::prune_feature_up_to_patch_choices(missing.feature.sides[0]);rejected=false;
         try{workspace::commit_profile(live,kernel,id,missing,workspace::ProfileEditMode::Replace);}
         catch(const kernel::OrderedUpToError& error){rejected=error.failure==kernel::OrderedUpToFailure::InvalidInput&&error.row==1&&error.other_row==1;}
-        check(rejected&&state->session.document().serialized()==before_bad&&state->session.revision()==bad_revision,
+        check(rejected&&state->session.document().serialized()==before_bad&&state->session.revision()==missing_revision,
             "Missing source rejection lost its row or changed the native session");++cases;
         const auto file=output/(std::string(concave?"concave":"convex")+(symmetric?"-symmetric":"-end")+".prtz");
         state->session.document().save(file,state->session.calculated_boundaries());

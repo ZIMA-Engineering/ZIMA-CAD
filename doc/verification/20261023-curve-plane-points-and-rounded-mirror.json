@@ -1,0 +1,225 @@
+{
+  "date": "2026-10-23",
+  "platform": "Windows x64",
+  "qt": "6.11.0",
+  "occt": "8.0.0",
+  "status": "Development native and GUI gates passed; package/publication accepted separately",
+  "protected_input_sha256": [
+    "1de366313a98c93c2bfc7c3ce1ad95610e0ca81112f24432cfe27b660221f43c",
+    "931ac6c8d091ff5d0394f6a6736fd9f895d0a9643714f0acde39d291c42d8c75",
+    "48fc65570314bb7e7dc84cc706ba5ff774ec67108256335f5980697d4500768f"
+  ],
+  "exact_curve_query_cases": 32,
+  "point_dimension_states": 96,
+  "point_dimension_edits": 144,
+  "point_dof_drags": 108,
+  "rounded_mirror_states": 576,
+  "centered_rectangle_states": 832,
+  "centered_rectangle_dimension_edits": 1152,
+  "centered_rectangle_dof_drags": 960,
+  "actual_rectangle_native_drags": 12,
+  "actual_rectangle_gui_drags": 24,
+  "malformed_payload_cases": 8,
+  "equal_xyz_distinct_branches": 3,
+  "bounded_sources": [
+    "trimmed spline retained interval",
+    "rounded support leg excludes removed vertex extension",
+    "exact rounded corner arc"
+  ],
+  "native_regression": {
+    "total": 19,
+    "passed": 19,
+    "seconds": 320.69,
+    "tests": [
+      {
+        "name": "zima_cpp_translations_contract",
+        "seconds": 14.15
+      },
+      {
+        "name": "zima_cpp_source_wire_gpu_tests",
+        "seconds": 5.08
+      },
+      {
+        "name": "zima_cpp_assembly_contract_tests",
+        "seconds": 0.84
+      },
+      {
+        "name": "zima_cpp_sketch_serialization_tests",
+        "seconds": 0.26
+      },
+      {
+        "name": "zima_cpp_sketcher_contract_tests",
+        "seconds": 16.01
+      },
+      {
+        "name": "zima_cpp_rolled_l_profile_tests",
+        "seconds": 39.76
+      },
+      {
+        "name": "zima_cpp_family_table_tests",
+        "seconds": 4.64
+      },
+      {
+        "name": "zima_cpp_sketch_reference_command_tests",
+        "seconds": 0.79
+      },
+      {
+        "name": "zima_cpp_sketch_intersection_reference_tests",
+        "seconds": 17.15
+      },
+      {
+        "name": "zima_cpp_sketch_dimension_command_tests",
+        "seconds": 1.19
+      },
+      {
+        "name": "zima_cpp_sketch_curve_plane_reference_tests",
+        "seconds": 0.56
+      },
+      {
+        "name": "zima_cpp_sketch_rounded_mirror_tests",
+        "seconds": 113.14
+      },
+      {
+        "name": "zima_cpp_thin_profile_contract_tests",
+        "seconds": 0.68
+      },
+      {
+        "name": "zima_cpp_thin_feature_wire_tests",
+        "seconds": 5.17
+      },
+      {
+        "name": "zima_cpp_assembly_profile_command_tests",
+        "seconds": 3.05
+      },
+      {
+        "name": "zima_cpp_curve_plane_intersection_tests",
+        "seconds": 0.05
+      },
+      {
+        "name": "zima_cpp_face_plane_intersection_tests",
+        "seconds": 1.44
+      },
+      {
+        "name": "zima_cpp_ordered_up_to_kernel_tests",
+        "seconds": 15.22
+      },
+      {
+        "name": "zima_cpp_feature_ordered_up_to_native_tests",
+        "seconds": 81.44
+      }
+    ]
+  },
+  "gui": [
+    {
+      "name": "rectangle",
+      "exit": 0,
+      "seconds": 16.319,
+      "protected_unchanged": true
+    },
+    {
+      "name": "curve",
+      "exit": 0,
+      "seconds": 118.06,
+      "protected_unchanged": true
+    },
+    {
+      "name": "mirror",
+      "exit": 0,
+      "seconds": 22.267,
+      "protected_unchanged": true
+    },
+    {
+      "name": "template-mm",
+      "exit": 0,
+      "seconds": 44.087,
+      "protected_unchanged": true
+    },
+    {
+      "name": "template-in",
+      "exit": 0,
+      "seconds": 43.521,
+      "protected_unchanged": true
+    }
+  ],
+  "process_measurement": {
+    "scope": "Entire native regression process, including fixture calculations, dimension matrix, private save/reopen and actual-model query; 10 ms polling",
+    "baseline_comparison": false,
+    "rows": [
+      {
+        "iteration": 0,
+        "seconds": 0.7639331000391394,
+        "peak_working_set_bytes": 170487808,
+        "peak_commit_bytes": 155680768
+      },
+      {
+        "iteration": 1,
+        "seconds": 0.749952599988319,
+        "peak_working_set_bytes": 169779200,
+        "peak_commit_bytes": 155627520
+      },
+      {
+        "iteration": 2,
+        "seconds": 0.7601155000156723,
+        "peak_working_set_bytes": 170459136,
+        "peak_commit_bytes": 155840512
+      }
+    ]
+  },
+  "start_templates": [
+    {
+      "name": "START_PART_mm.prtz",
+      "before_sha256": "e67c9b7772a8f9ab9c4ad3f42a398ab3c4009e46f44172c8737f5eb3ed2e230c",
+      "after_sha256": "e67c9b7772a8f9ab9c4ad3f42a398ab3c4009e46f44172c8737f5eb3ed2e230c",
+      "bytes": 6329
+    },
+    {
+      "name": "START_PART_in.prtz",
+      "before_sha256": "0274d760f685e78c18a9b40882d20b51fa29822c5b2616840e8a82ce7cf69c64",
+      "after_sha256": "0274d760f685e78c18a9b40882d20b51fa29822c5b2616840e8a82ce7cf69c64",
+      "bytes": 6375
+    },
+    {
+      "name": "START_SKELETON_mm.prtz",
+      "before_sha256": "2a18e6f12b061b5b4ecdbf3556ee8c918595a089c1c8d3f7c445f4f4e3c1ff94",
+      "after_sha256": "2a18e6f12b061b5b4ecdbf3556ee8c918595a089c1c8d3f7c445f4f4e3c1ff94",
+      "bytes": 1175
+    },
+    {
+      "name": "START_SKELETON_in.prtz",
+      "before_sha256": "7ed379bcd0a4b7b72ffd8e1425131c0492dc7ccc8fc067ab2e397a235f620146",
+      "after_sha256": "7ed379bcd0a4b7b72ffd8e1425131c0492dc7ccc8fc067ab2e397a235f620146",
+      "bytes": 1175
+    },
+    {
+      "name": "START_ASSEMBLY_mm.asmz",
+      "before_sha256": "1631714871ef015758905cd238a77ce4d8635be5a2b3f3b2c8ac027b40b3150f",
+      "after_sha256": "1631714871ef015758905cd238a77ce4d8635be5a2b3f3b2c8ac027b40b3150f",
+      "bytes": 4194
+    },
+    {
+      "name": "START_ASSEMBLY_in.asmz",
+      "before_sha256": "f4e60cf2e0cc26dde35a76bb6b319413fe31a029a4313852b3e77d5d6939fb7d",
+      "after_sha256": "f4e60cf2e0cc26dde35a76bb6b319413fe31a029a4313852b3e77d5d6939fb7d",
+      "bytes": 4286
+    }
+  ],
+  "localization": {
+    "languages": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "catalog_contract": "passed",
+    "live_curve_point_ui": "both themes and all five languages"
+  },
+  "limitations": [
+    "Native Linux execution not performed",
+    "Finite GUI matrices do not cover every curve or occluded/derived/nested occurrence combination",
+    "Root Assembly-owned authored curve sources not established",
+    "Changed parameterization or ambiguous branches conservatively require explicit reselection",
+    "External mirror axes are not added by this fix",
+    "No pre-feature performance comparison"
+  ]
+}

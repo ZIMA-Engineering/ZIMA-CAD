@@ -429,11 +429,14 @@ bool same_assembly_calculation(const assembly::AssemblyDocument& a,const assembl
     return true;
 }
 void evaluate_assembly(assembly::AssemblyDocument& next,const assembly::AssemblyDocument* before,
-    const kernel::OcctKernel& kernel) {
+    const kernel::OcctKernel& kernel,const Workspace& sources) {
     if(before&&same_assembly_calculation(next,*before))return;
     next.resolve_constructions();
-    if(!next.cuts.empty()||std::ranges::any_of(next.components,[](const auto& c){return c.derived_copy.has_value();}))
-        calculate_resolved_assembly_cuts(kernel,next);
+    const bool curve_points=std::ranges::any_of(next.sketches,[](const auto& sketch){
+        return std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.curve_intersection.has_value();});
+    });
+    if(curve_points||!next.cuts.empty()||std::ranges::any_of(next.components,[](const auto& c){return c.derived_copy.has_value();}))
+        calculate_resolved_assembly_cuts(kernel,next,false,&sources);
 }
 }
 std::string family_owner(const Workspace& live,const std::string& id) {
@@ -502,14 +505,14 @@ bool commit_family_assembly(Workspace& live,const std::string& id,assembly::Asse
         }
     },state);
     const kernel::OcctKernel kernel;
-    if(owner!=id)evaluate_assembly(base,&parent->session.document(),kernel);
+    if(owner!=id)evaluate_assembly(base,&parent->session.document(),kernel,live);
     auto rows=evaluated_rows(parent->session.document().family);if(owner!=id)rows.insert(source->session.document().family.row_id);
     base.family={};std::map<std::string,assembly::AssemblySession> members;
     for(const auto& row:table.instances)if(rows.contains(row.id)) {
         auto next=member(base,table,row);const auto* existing=std::as_const(live).open_assembly(next.document_id);
         std::optional<assembly::AssemblyDocument> previous;
         if(!existing)if(const auto old=parent->session.document().family.evaluated.find(row.id);old!=parent->session.document().family.evaluated.end())previous=assembly::AssemblyDocument::from_serialized(*old->second);
-        evaluate_assembly(next,existing?&existing->session.document():previous?&*previous:nullptr,kernel);
+        evaluate_assembly(next,existing?&existing->session.document():previous?&*previous:nullptr,kernel,live);
         auto session=existing?existing->session:assembly::AssemblySession(next);
         if(existing)session.commit(std::move(next));
         base.family.evaluated[row.id]=std::make_shared<const nlohmann::json>(session.document().serialized());
@@ -614,7 +617,7 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
         auto family=source->session.document().family;const auto path=source->path;assembly::AssemblyDocument next;
         if(const auto found=family.evaluated.find(row->id);found!=family.evaluated.end())next=assembly::AssemblyDocument::from_serialized(*found->second);
         else {
-            next=member(source->session.document(),table,*row);evaluate_assembly(next,nullptr,kernel);
+            next=member(source->session.document(),table,*row);evaluate_assembly(next,nullptr,kernel,live);
             family.evaluated[row->id]=std::make_shared<const nlohmann::json>(next.serialized());source->session.update_family_evaluated(std::move(family));
         }
         next.hydrate_sources(path,native_source_resolver(live));

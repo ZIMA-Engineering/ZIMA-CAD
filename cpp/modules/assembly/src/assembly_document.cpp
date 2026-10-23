@@ -61,6 +61,20 @@ void map_component_paths(nlohmann::json& packet, const std::filesystem::path& so
 
 using IniSections = std::map<std::string, std::map<std::string, std::string>>;
 
+void validate_preview_wire(const kernel::ViewerReferenceGeometry& wire,
+                           const std::string& owner) {
+    if (!wire.vertices.empty() || !wire.triangles.empty() ||
+        !wire.triangle_references.empty() || !wire.points.empty() || !wire.axes.empty() ||
+        std::ranges::any_of(wire.edges, [&](const auto& edge) {
+            return edge.reference.owner_id != owner || !edge.reference.valid() ||
+                !edge.reference.instance_path.empty() || edge.parameter_seam ||
+                edge.construction || edge.overlay || edge.infinite || edge.points.size() < 2 ||
+                std::ranges::any_of(edge.points, [](const auto& p) {
+                    return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z);
+                });
+        })) throw std::runtime_error("Invalid stored Assembly feature preview wire.");
+}
+
 // Keep Assembly placement-reference dimensions consistent with Part feature
 // parameters: a numerically zero value is still a valid stored constraint,
 // but it must not paint a meaningless dimension in the 3D view.
@@ -2092,7 +2106,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const SourceResolver& resolver, bool resolve_sources) {
     document::NativeReadCapture::observe(path);
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "36" ||
+    if (ini_value(ini, "Document", "format_version") != "37" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -2116,7 +2130,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const
     return document;
 }
 AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 48 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 49 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -2215,6 +2229,9 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
             cut.input_component_bodies.emplace(
                 occurrence_id, zima::document::load_body_result(body));
         }
+        auto wire = zima::document::load_viewer_reference_geometry(value.at("preview_wire"));
+        validate_preview_wire(wire, feature.id);
+        cut.preview_wire = std::move(wire.edges);
         if (feature.id.empty()) {
             throw std::runtime_error("Invalid Assembly cut definition");
         }
@@ -2467,13 +2484,17 @@ nlohmann::json AssemblyDocument::serialized(
         if (feature.feature_parent_id != feature.id) {
             throw std::runtime_error("Assembly cut feature parent is invalid");
         }
+        kernel::ViewerReferenceGeometry wire;
+        wire.edges = cut.preview_wire;
+        validate_preview_wire(wire, feature.id);
         nlohmann::json saved_cut = {{"id", feature.id}, {"feature_id", feature.feature_id},
             {"feature_parent_id", feature.feature_parent_id}, {"name", feature.name},
             {"kind", feature.feature_kind == zima::document::FeatureKind::Feature ? "feature":
                 feature.feature_kind == zima::document::FeatureKind::Extrusion ? "extrusion" : "revolution"},
             {"suppressed", feature.suppressed}, {"placement", feature.placement},
             {"value_locks", feature.value_locks}, {"targets", cut.target_occurrence_ids},
-            {"input_component_bodies", std::move(input_bodies)}};
+            {"input_component_bodies", std::move(input_bodies)},
+            {"preview_wire", zima::document::serialize_viewer_reference_geometry(wire)}};
         zima::document::save_profile_parameters(feature, saved_cut);
         cuts_json.push_back(std::move(saved_cut));
     }
@@ -2485,7 +2506,7 @@ nlohmann::json AssemblyDocument::serialized(
         history_json.push_back({{"kind",kind},{"id",entry.id}});
     }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 48},
+        {"format", "zima-cad-cpp"}, {"format_version", 49},
         {"history_order",std::move(history_json)},{"history_cursor",effective_history_cursor()},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
@@ -2525,7 +2546,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "36"},
+        {"format_version", "37"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

@@ -1,24 +1,29 @@
+#include "sketch_curve_plane_ui_verification.inc"
 int verify_sketch_face_plane_ui(QApplication& application,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PLANE_ONLY"))return verify_sketch_curve_plane_ui(application,directory);
     using namespace zima;
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
         const bool spline_case=qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_PLANE_SPLINE");
         const bool trimmed_case=qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_PLANE_TRIMMED");
+        const bool axial_conic=qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_PLANE_AXIAL_CONIC");
         for(bool assembly_mode:{false,true})for(bool multiple:{false,true})for(bool contour:{false,true}) {
+            if(axial_conic&&!multiple)continue;
             if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_PLANE_SINGLE")&&(assembly_mode||multiple||!contour))continue;
             std::cout<<"Face-plane GUI "<<assembly_mode<<multiple<<contour<<std::endl;
             auto part=document::PartDocument::create_default();auto source=sketcher::Sketch::create_default();
             if(spline_case) {
                 static_cast<void>(source.add_bspline({{-5,0},{-3,5},{3,5},{5,0}}));static_cast<void>(source.add_segment(5,0,-5,0));
-            } else if(!multiple)static_cast<void>(source.add_circle(0,0,5));
+            } else if(!multiple||axial_conic)static_cast<void>(source.add_circle(0,0,5));
             else {
                 const std::array<std::array<double,2>,8> points{{{0,0},{100,0},{100,20},{20,20},{20,60},{100,60},{100,80},{0,80}}};
                 for(std::size_t i=0;i<points.size();++i)static_cast<void>(source.add_segment(points[i][0],points[i][1],points[(i+1)%points.size()][0],points[(i+1)%points.size()][1]));
             }
             auto feature=document::PartDocument::create_extrusion_container(source.id);feature.extrusion.length_forward=10;source.owner_container_id=feature.id;
             auto target=sketcher::Sketch::create_default();auto owner=document::PartDocument::create_sketch_container();target.owner_container_id=owner.id;owner.feature.sketch_id=target.id;
-            if(multiple){target.plane=sketcher::SketchPlane::YZ;target.plane_auto=false;owner.placement.x=50;}else owner.placement.z=5;
+            if(axial_conic){target.plane=sketcher::SketchPlane::XZ;target.plane_auto=false;owner.placement.y=1.37;}
+            else if(multiple){target.plane=sketcher::SketchPlane::YZ;target.plane_auto=false;owner.placement.x=50;}else owner.placement.z=5;
             part.history={feature,owner};part.sketches={source,target};
             document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Source"));graph.insert({document::PartHistoryKind::Feature,feature.id});
             const auto body=graph.create_body("Target");graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
@@ -34,7 +39,7 @@ int verify_sketch_face_plane_ui(QApplication& application,const std::filesystem:
             for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
                 const auto& ref=mesh.triangle_references[i];if(!trimmed_case&&ref.owner_id!=feature.id)continue;
                 if(spline_case){if(!ref.surface||ref.surface->kind!=kernel::SurfaceGeometry::Kind::Plane){face=ref;break;}}
-                else if(!multiple){if(ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder){face=ref;break;}}
+                else if(!multiple||axial_conic){if(ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder){face=ref;break;}}
                 else {bool cap=true;for(unsigned j=0;j<3;++j)cap&=std::abs(mesh.vertices.at(mesh.triangles.at(i*3+j)).z-10)<1e-8;if(cap){face=ref;break;}}
             }
             check(face.valid(),"Face-plane GUI source face missing");
@@ -64,6 +69,10 @@ int verify_sketch_face_plane_ui(QApplication& application,const std::filesystem:
             QEventLoop camera;QTimer::singleShot(950,&camera,&QEventLoop::quit);camera.exec();flush();
             auto* action=window.findChild<QAction*>(contour?"sketchIntersectionProfileAction":"sketchIntersectionReferenceAction");
             check(action&&action->isEnabled()&&!action->icon().isNull(),"Face-plane action/icon unavailable");
+            const auto settings=app::ApplicationSettings::load(QString::fromStdString(document::path_to_utf8(directory)));
+            const auto label=QString::fromUtf8(contour?"Intersection → contour":"Intersection → reference");
+            check(!settings.qt_translations.value(label).isEmpty()&&action->text()==settings.qt_translations.value(label),
+                "Face-plane action did not use its selected-language translation");
             std::cerr<<"Face-plane command begin"<<std::endl;action->trigger();flush();std::cerr<<"Face-plane command end"<<std::endl;
             const auto find_hit=[&](bool branch)->QPointF {
                 for(int y=12;y<view->height()-12;y+=3)for(int x=12;x<view->width()-12;x+=3) {

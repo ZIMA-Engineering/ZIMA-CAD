@@ -9,10 +9,69 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <cstdlib>
 using namespace zima;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+void verify_saved_reference_case(kernel::OcctKernel& engine,const std::filesystem::path& file) {
+    std::vector<kernel::BodyResult> geometry;auto document=document::PartDocument::load(file,&geometry);
+    workspace::Workspace live;live.add_part(document,geometry,file);live.activate(document.document_id);
+    for(const auto& sketch:document.sketches)if(!sketch.external_references.empty()) {
+        const auto* owner=document.find_container(sketch.owner_container_id);
+        std::cout<<"Saved Sketch "<<(owner?owner->name:sketch.name)<<" references="<<sketch.external_references.size()<<'\n';
+        for(const auto& reference:sketch.external_references) {
+            std::cout<<"Reference "<<reference.id<<" broken="<<reference.broken;
+            if(reference.intersection) {
+                const auto& binding=*reference.intersection;
+                std::cout<<" branch="<<binding.branch_key<<std::endl;
+                try {
+                    const auto curves=workspace::part_sketch_face_intersection(engine,live.open_part(document.document_id)->session,sketch,
+                        {binding.face_owner_id,binding.face_semantic_key,{}});
+                    std::cout<<"Query edges="<<curves.edges.size()<<" points="<<curves.points.size()<<std::endl;
+                    for(const auto& edge:curves.edges)std::cout<<"Edge "<<edge.reference.owner_id<<" "<<edge.reference.semantic_key<<'\n';
+                    for(const auto& point:curves.points)std::cout<<"Point "<<point.reference.owner_id<<" "<<point.reference.semantic_key<<'\n';
+                } catch(const std::exception& error){std::cout<<"Query error: "<<error.what()<<std::endl;}
+            } else {
+                auto refreshed=workspace::prepare_sketch_external_reference(live,document.document_id,sketch,reference.kind,
+                    reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path);
+                check(!refreshed.broken,"Saved ordinary reference cannot be prepared");std::cout<<" ordinary source accepted\n";
+            }
+        }
+        if(owner&&owner->name=="Vytažení 005") {
+            std::set<std::pair<std::string,std::string>> tested;
+            for(const auto& face:geometry.back().mesh.triangle_references)if(face.valid()&&face.owner_id!=owner->id&&tested.emplace(face.owner_id,face.semantic_key).second) {
+                try {
+                    const auto curves=workspace::part_sketch_face_intersection(engine,live.open_part(document.document_id)->session,sketch,face);
+                    std::cout<<"Visible face "<<face.owner_id<<" "<<face.semantic_key<<" -> edges="<<curves.edges.size()<<" points="<<curves.points.size()<<'\n';
+                }catch(const std::exception& error){std::cout<<"Visible face "<<face.owner_id<<" "<<face.semantic_key<<" -> "<<error.what()<<'\n';}
+            }
+        }
+    }
+}
 struct Fixture {document::PartDocument part;std::vector<kernel::BodyResult> bodies;kernel::FaceReference face;};
+void verify_pending_profile_intersection(kernel::OcctKernel& engine,unsigned& cases) {
+    for(bool placed:{false,true})for(bool intersects:{false,true}) {
+        auto part=document::PartDocument::create_default();auto profile=sketcher::Sketch::create_default();
+        static_cast<void>(profile.add_circle(0,0,5));auto source=document::PartDocument::create_feature_container(profile.id);
+        source.feature.sides[0].length=10;profile.owner_container_id=source.id;part.history={source};part.sketches={profile};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Pending profile source");graph.insert({document::PartHistoryKind::Feature,source.id});
+        if(placed){auto scope=*graph.find(body);scope.scope.placement.x=12;scope.scope.placement.y=-7;
+            scope.scope.placement.rotation_x=scope.scope.placement.absolute_rotation_x=90;graph.update_body(scope);}
+        part.set_body_history(graph);part.resolve_constructions();auto calculated=engine.evaluate_history(part.kernel_operations());
+        kernel::FaceReference face;
+        for(const auto& reference:calculated.back().mesh.original_references.triangle_references)
+            if(reference.surface&&reference.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder){face=reference;break;}
+        check(face.valid(),"Pending profile cylinder source is missing");
+        workspace::Workspace live;live.add_part(part,calculated);live.activate(part.document_id);
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id="pending-owner";
+        sketch.plane_offset=intersects?5:20;sketch.refresh_default_frame();
+        const auto branches=workspace::prepare_sketch_intersection_branches(live,engine,part.document_id,sketch,face,face,body);
+        check(branches.size()==(intersects?1u:0u),"Pending intersection offered a foreign Origin point or lost its real curve");
+        if(intersects)check(branches.front().kind==sketcher::ExternalReferenceKind::Edge&&
+            branches.front().intersection->branch_key.starts_with("intersection:curve:"),"Pending intersection branch is not its actual native curve");
+        ++cases;
+    }
+}
 Fixture fixture(kernel::OcctKernel& kernel,bool circular,bool placed,bool separate) {
     Fixture f;f.part=document::PartDocument::create_default();
     auto source=sketcher::Sketch::create_default();
@@ -549,6 +608,127 @@ void verify_line_dimensions(kernel::OcctKernel& kernel,unsigned& cases) {
         }
     }
 }
+void verify_conic_endpoint_domains(kernel::OcctKernel& engine,unsigned& cases) {
+    using Kind=sketcher::DimensionKind;
+    const auto directory=std::filesystem::temp_directory_path()/("zima-conic-root-domains-"+kernel::make_stable_id());
+    std::filesystem::create_directory(directory);unsigned fixture_number=0;
+    for(bool ellipse:{false,true})for(bool cap:{false,true})for(bool alternative:{false,true})
+    for(bool locked:{false,true})for(bool fixed:{false,true})for(bool symmetric:{false,true}) {
+        auto part=document::PartDocument::create_default();auto source=sketcher::Sketch::create_default();
+        const auto curve=ellipse?source.add_ellipse(0,0,5,0,0,3):source.add_circle(0,0,5);
+        const auto center=ellipse?source.ellipses.front().center_point_id:source.circles.front().center_point_id;
+        source.find_point(center)->fixed=fixed;
+        auto driving=ellipse?source.create_ellipse_radius_dimension(curve,!alternative):
+            alternative?source.create_circle_diameter_dimension(curve):source.create_circle_radius_dimension(curve);
+        driving.locked=locked;source.apply_dimension(driving);
+        auto feature=document::PartDocument::create_feature_container(source.id);feature.feature.sides[0].length=10;
+        feature.feature.symmetric=symmetric;source.owner_container_id=feature.id;
+        auto target=sketcher::Sketch::create_default();target.plane=sketcher::SketchPlane::XZ;target.plane_auto=false;
+        auto owner=document::PartDocument::create_sketch_container();owner.placement.y=1.37;target.owner_container_id=owner.id;
+        part.history={feature,owner};part.sketches={source,target};document::BodyHistoryGraph graph;
+        static_cast<void>(graph.create_body("Conic root domains"));graph.insert({document::PartHistoryKind::Feature,feature.id});
+        graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
+        auto bodies=engine.evaluate_history(part.kernel_operations());kernel::FaceReference face;
+        for(const auto& candidate:bodies.back().mesh.triangle_references)if(candidate.owner_id==feature.id) {
+            const bool planar=candidate.surface&&candidate.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+            if(cap?(planar&&std::abs(candidate.surface->axis.z)>.9):!planar){face=candidate;break;}
+        }
+        check(face.valid(),"Conic endpoint source face is missing");workspace::Workspace live;live.add_part(part,bodies);
+        auto pending=part.sketches.back();const auto branches=workspace::prepare_sketch_intersection_branches(live,engine,part.document_id,pending,face,face);
+        check(branches.size()==(cap?1u:2u),"Conic root domains lost a chord or an axial branch");
+        for(const auto& branch:branches) {
+            check(branch.intersection->branch_key.find(":domain:conic-plane:")!=std::string::npos,"Ambiguous conic endpoints have no analytic root domain");
+            pending.add_external_reference(branch);static_cast<void>(pending.add_external_profile_geometry(branch.id));
+        }
+        const auto lines=pending.segments;
+        for(const auto& segment:lines)for(bool reverse:{false,true})
+        for(const auto kind:{Kind::Distance,Kind::DistanceX,Kind::DistanceY,Kind::Angle}) {
+            auto dimension=kind==Kind::Angle?pending.create_segment_dimension(segment.id,kind):pending.create_point_dimension(
+                reverse?segment.second_point_id:segment.first_point_id,reverse?segment.first_point_id:segment.second_point_id,kind);
+            dimension.driving=false;dimension.locked=false;pending.apply_dimension(dimension);
+        }
+        part.sketches.back()=pending;document::DocumentSession history(part,bodies);
+        for(unsigned step=0;step<3;++step) {
+            const auto before=part.serialized();auto& source=part.sketches.front();
+            const double radius=ellipse&&alternative?std::array{2.5,2.,3.}[step]:std::array{6.,4.,5.}[step];
+            check(source.set_dimension_value(driving.id,radius*(!ellipse&&alternative?2:1)),"Conic source dimension edit failed");
+            const auto p=*source.find_point(center);const auto stable=source.serialized();
+            const bool moved=source.move_point(center,p.x+.2,p.y+.1);
+            check(fixed?(!moved&&source.serialized()==stable):moved,"Conic source center violated its applicable free/fixed state");
+            if(!fixed)check(std::hypot(source.find_point(center)->x-p.x-.2,source.find_point(center)->y-p.y-.1)<1e-7,"Free conic center reported a drag without moving");
+            const auto source_before=source.serialized();bodies=engine.evaluate_history(part.kernel_operations());
+            static_cast<void>(workspace::refresh_sketch_external_references(part,bodies,&engine));const auto& actual=part.sketches.back();
+            for(const auto& branch:branches)check(!reference(actual,branch.id).broken&&reference(actual,branch.id).intersection==branch.intersection,
+                "Conic edit rebound an endpoint or branch domain");
+            const auto& center_point=*source.find_point(center);
+            const double a=ellipse?source.ellipses.front().major_radius:source.circles.front().radius;
+            const double b=ellipse?source.ellipses.front().minor_radius:source.circles.front().radius;
+            for(const auto& point:actual.points) {
+                const auto world=actual.world_point(point.x,point.y);const double x=(world.x-center_point.x)/a,y=(world.y-center_point.y)/b;
+                check(std::abs(x*x+y*y-1)<1e-7&&std::abs(world.y-1.37)<1e-7,"Conic endpoint escaped its independent curve/plane equations");
+                auto dragged=actual;const auto unchanged=dragged.serialized();
+                check(!dragged.move_point(point.id,point.x+2,point.y+3)&&dragged.serialized()==unchanged,"Associated conic endpoint escaped dragging");
+            }
+            for(const auto& dimension:actual.dimensions) {
+                const auto* p=actual.find_point(dimension.first_point_id);const auto* q=actual.find_point(dimension.second_point_id);
+                if(!p||!q) {
+                    const auto segment=std::ranges::find(actual.segments,dimension.geometry_id,&sketcher::SketchSegment::id);
+                    check(segment!=actual.segments.end(),"Section measurement has no native line");
+                    p=actual.find_point(segment->first_point_id);q=actual.find_point(segment->second_point_id);
+                }
+                check(p&&q,"Section measurement has no native endpoints");
+                const double dx=q->x-p->x,dy=q->y-p->y;
+                const double expected=dimension.kind==Kind::DistanceX?dx:dimension.kind==Kind::DistanceY?dy:
+                    dimension.kind==Kind::Angle?std::atan2(dy,dx)*180/std::acos(-1.):std::hypot(dx,dy);
+                check(std::abs(dimension.kind==Kind::Angle?std::remainder(dimension.value-expected,360.):dimension.value-expected)<1e-7,
+                    "Conic section reference dimension became stale after a source edit");
+                auto edited=actual;const auto unchanged=edited.serialized();static_cast<void>(edited.set_dimension_value(dimension.id,123));
+                check(edited.serialized()==unchanged,"Reference measurement drove a conic section");
+            }
+            check(source.serialized()==source_before,"Intersection refresh changed its read-only conic source");
+            const auto after=part.serialized();history.commit(part,bodies);
+            check(history.undo()&&history.document().serialized()==before&&history.redo()&&history.document().serialized()==after,
+                "Conic root-domain Undo/Redo changed the native definition");++cases;
+        }
+        const auto file=directory/(std::to_string(++fixture_number)+".prtz");part.save(file,bodies);
+        std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(file,&cache);kernel::OcctKernel cold;
+        const auto restored=workspace::calculate_part_sketch_intersections(cold,document::DocumentSession(reopened,cache),reopened.sketches.back());
+        check(!restored.empty()&&std::ranges::none_of(restored,[](const auto& reference){return reference.broken;}),"Cold reopening lost a conic endpoint domain");
+    }
+    std::filesystem::remove_all(directory);
+}
+void verify_conic_domain_disappearance(kernel::OcctKernel& engine,unsigned& cases) {
+    auto part=document::PartDocument::create_default();auto source=sketcher::Sketch::create_default();
+    const auto arc=source.add_arc(0,0,5,0,2.5,-std::sqrt(18.75));const auto native=source.arcs.front();
+    source.find_point(native.center_point_id)->fixed=true;source.find_point(native.start_point_id)->fixed=true;
+    auto feature=document::PartDocument::create_feature_container(source.id);feature.feature.result_type=document::ProfileResultType::Surface;
+    feature.feature.sides[0].length=10;source.owner_container_id=feature.id;
+    auto target=sketcher::Sketch::create_default();target.plane=sketcher::SketchPlane::XZ;target.plane_auto=false;
+    auto owner=document::PartDocument::create_sketch_container();owner.placement.y=1.37;target.owner_container_id=owner.id;
+    part.history={feature,owner};part.sketches={source,target};document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Partial conic domains"));graph.insert({document::PartHistoryKind::Feature,feature.id});
+    graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
+    auto bodies=engine.evaluate_history(part.kernel_operations());kernel::FaceReference face;
+    for(const auto& candidate:bodies.back().mesh.triangle_references)if(candidate.surface&&candidate.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder){face=candidate;break;}
+    check(face.valid(),"Partial conic source is missing");workspace::Workspace live;live.add_part(part,bodies);
+    auto pending=part.sketches.back();const auto branches=workspace::prepare_sketch_intersection_branches(live,engine,part.document_id,pending,face,face);
+    check(branches.size()==2,"Partial source did not offer both analytic roots");
+    for(const auto& branch:branches){pending.add_external_reference(branch);static_cast<void>(pending.add_external_profile_geometry(branch.id));}
+    part.sketches.back()=pending;
+    for(bool trimmed:{true,false,true,false}) {
+        auto& source=part.sketches.front();check(source.move_point(native.end_point_id,trimmed?0.:2.5,trimmed?5.:-std::sqrt(18.75)),"Partial source endpoint did not move");
+        check(std::abs(source.arcs.front().radius-5)<1e-7,"Partial source endpoint drag changed its fixed radial support");
+        bodies=engine.evaluate_history(part.kernel_operations());static_cast<void>(workspace::refresh_sketch_external_references(part,bodies,&engine));
+        unsigned intact=0,broken=0;const auto& actual=part.sketches.back();
+        for(const auto& branch:branches) {
+            const auto& value=reference(actual,branch.id);check(value.intersection==branch.intersection,"A disappearing root rebound its persisted branch");
+            if(value.broken){++broken;check(value.cached_points==branch.cached_points,"Missing root lost its frozen geometry");}
+            else ++intact;
+        }
+        check(intact==(trimmed?1u:2u)&&broken==(trimmed?1u:0u),"Trimming one root broke the other or failed to restore its original identity");++cases;
+    }
+    static_cast<void>(arc);
+}
 void verify_spline_edits(kernel::OcctKernel& kernel,unsigned& cases) {
     for(bool placed:{false,true})for(bool flipped:{false,true}) {
     auto f=fixture(kernel,false,placed,false);
@@ -602,4 +782,4 @@ void verify_spline_edits(kernel::OcctKernel& kernel,unsigned& cases) {
 }
 
 }
-int main(){try{kernel::FaceMeasurementScope measurements(false);kernel::OcctKernel kernel;unsigned cases{};verify(kernel,cases);verify_assembly(kernel,cases);verify_multiple_branches(kernel,cases);verify_qualified_copy(kernel,cases);verify_circular_edits(kernel,cases);verify_part_context(kernel,cases);verify_standalone_assembly(kernel,cases);verify_general_surface_frames(kernel,cases);verify_arc_edits(kernel,cases);verify_dependent_geometry(kernel,cases);verify_trimmed_fragment(kernel,cases);verify_line_dimensions(kernel,cases);verify_spline_edits(kernel,cases);std::cout<<cases<<" Sketch intersection reference cases passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::FaceMeasurementScope measurements(false);kernel::OcctKernel kernel;if(const auto* file=std::getenv("ZIMA_VERIFY_SAVED_REFERENCE_CASE")){verify_saved_reference_case(kernel,file);return 0;}unsigned cases{};verify_pending_profile_intersection(kernel,cases);verify(kernel,cases);verify_assembly(kernel,cases);verify_multiple_branches(kernel,cases);verify_qualified_copy(kernel,cases);verify_circular_edits(kernel,cases);verify_part_context(kernel,cases);verify_standalone_assembly(kernel,cases);verify_general_surface_frames(kernel,cases);verify_arc_edits(kernel,cases);verify_dependent_geometry(kernel,cases);verify_trimmed_fragment(kernel,cases);verify_line_dimensions(kernel,cases);verify_conic_endpoint_domains(kernel,cases);verify_conic_domain_disappearance(kernel,cases);verify_spline_edits(kernel,cases);std::cout<<cases<<" Sketch intersection reference cases passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

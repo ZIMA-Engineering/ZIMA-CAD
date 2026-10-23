@@ -107,6 +107,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     auto opening=*existing;
                     const auto& size=catalog[index];
                     try {
+                        ui::OperationActivity::Scope activity(operation_activity_,tr("Updating dimension…"));
                         zima::document::select_opening_thread_size(opening,opening.thread.standard,
                             {size.designation.toStdString(),size.nominal_diameter,size.pitch,
                              size.internal_root_diameter,size.external_root_diameter,size.preferred});
@@ -181,6 +182,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             guarded->hide();guarded->deleteLater();return;
         }
         try {
+            ui::OperationActivity::Scope activity(operation_activity_,tr("Updating dimension…"));
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
             if(document::is_sheet_form_internal_dimension(candidate.semantic_key)) {
                 if(candidate.instance_path!=workspace_.active_occurrence_path()||properties_dialog_||!part_element_context_menu_enabled(candidate.owner_id))
@@ -238,17 +240,20 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 static_cast<void>(zima::workspace::commit_component_properties(workspace_,edit,value));
                 guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
             }
-            const auto edit_sketch=[&](zima::sketcher::Sketch& sketch){
-                if(candidate.semantic_key.starts_with("dimension:")){
-                    if(!sketch.set_dimension_value(candidate.semantic_key.substr(10),next_value))
-                        throw std::runtime_error("Zadanou hodnotu nelze použít: je mimo meze nebo odporuje vazbám skici.");
-                }else{
-                    const auto radius=std::ranges::find(sketch.corner_radii,candidate.semantic_key.substr(17),&zima::sketcher::SketchCornerRadius::id);
-                    if(radius==sketch.corner_radii.end())throw std::runtime_error("Corner radius no longer exists");
-                    const auto first=radius->first_segment_id,second=radius->second_segment_id;
-                    static_cast<void>(sketch.add_corner_fillet(first,second,next_value));
-                }
-                sketch.validate();
+            const auto edit_sketch=[candidate,next_value](zima::sketcher::Sketch& sketch){
+                auto next=run_background_task([source=sketch,candidate,next_value]() mutable {
+                    if(candidate.semantic_key.starts_with("dimension:")){
+                        if(!source.set_dimension_value(candidate.semantic_key.substr(10),next_value))
+                            throw std::runtime_error("Zadanou hodnotu nelze použít: je mimo meze nebo odporuje vazbám skici.");
+                    }else{
+                        const auto radius=std::ranges::find(source.corner_radii,candidate.semantic_key.substr(17),&zima::sketcher::SketchCornerRadius::id);
+                        if(radius==source.corner_radii.end())throw std::runtime_error("Corner radius no longer exists");
+                        const auto first=radius->first_segment_id,second=radius->second_segment_id;
+                        static_cast<void>(source.add_corner_fillet(first,second,next_value));
+                    }
+                    source.validate();return source;
+                });
+                sketch=std::move(next);
             };
             const bool sketch_dimension=candidate.semantic_key.starts_with("dimension:")||candidate.semantic_key.starts_with("corner_dimension:");
             if(sketch_dimension&&!properties_dialog_&&!construction_dimension_object_id_.empty()) {

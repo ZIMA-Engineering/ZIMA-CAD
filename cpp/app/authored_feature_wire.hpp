@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/feature_material_wire.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/feature_up_to.hpp>
 #include <zima/document/bend.hpp>
@@ -74,7 +75,7 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     }
     for(const auto& boundary:*boundaries) {
         for(const auto& edge:boundary.mesh.original_references.edges)
-            if(edge.reference.owner_id==owner&&edge.reference.instance_path.empty()&&!edge.parameter_seam)
+            if(zima::document::feature_material_wire_edge(*feature,edge))
                 wire.edges.push_back(edge);
         if(!wire.edges.empty())break;
     }

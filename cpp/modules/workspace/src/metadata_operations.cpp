@@ -134,7 +134,7 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
     if(auto* assembly=live.open_assembly(id)) {
         auto next=assembly->session.document();convert_relation_units(next,values.units);next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         const bool calculate=precision_changed && !next.cuts.empty();
-        if(calculate)calculate_resolved_assembly_cuts(kernel,next);
+        if(calculate)calculate_resolved_assembly_cuts(kernel,next,false,&live);
         assembly->session.commit(std::move(next));return {true,calculate};
     }
     throw std::invalid_argument("Document metadata requires an open Part or Assembly.");

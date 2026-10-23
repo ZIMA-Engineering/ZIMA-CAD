@@ -83,6 +83,15 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     for(const auto& c:sketch.constraints)if(!c.suppressed) {
         if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
             if(!pair(c.first_point_id,c.second_point_id,c.kind==ConstraintKind::Horizontal?1:0,0))return false;
+        } else if(c.kind==ConstraintKind::Symmetric&&
+                (c.geometry_id=="sketch_axis:x"||c.geometry_id=="sketch_axis:y")) {
+            // Reflection in a fixed Sketch axis is linear. Solve it together
+            // with H/V so a dragged downstream vertex can drive the complete
+            // incidence graph, regardless of constraint direction/order.
+            const int reflected=c.geometry_id=="sketch_axis:y"?0:1;
+            if(!pair(c.first_point_id,c.second_point_id,1-reflected,0))return false;
+            const auto a=coordinate(c.first_point_id,reflected),b=coordinate(c.second_point_id,reflected);
+            if(!a||!b)return false;Row row(count);row[*a]=1;row[*b]+=1;add(std::move(row),0);
         } else if(c.kind==ConstraintKind::Coincident) {
             if(!pair(c.first_point_id,c.second_point_id,0,0)||!pair(c.first_point_id,c.second_point_id,1,0))return false;
         } else if(c.kind==ConstraintKind::PointReference) {

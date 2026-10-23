@@ -126,6 +126,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                     command_preview_follows=(feature->feature_kind==document::FeatureKind::Sweep2D||
                         feature->feature_kind==document::FeatureKind::HelicalSweep||
                         feature->feature_kind==document::FeatureKind::Sweep3D||
+                        feature->feature_kind==document::FeatureKind::Feature||
                         feature->feature_kind==document::FeatureKind::Extrusion||
                         feature->feature_kind==document::FeatureKind::Revolution||
                         feature->feature_kind==document::FeatureKind::BoundarySurface||
@@ -140,6 +141,11 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::DrillPoint)&&
                         part->session.document().history_index(id).has_value()&&
                         resolve_active_occurrence(part->session.document().document_id).has_value();
+        if(kind==QStringLiteral("assembly-cut")&&!properties_dialog_&&active_sketch_id_.empty())
+            if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
+                if(const auto* cut=assembly->session.document().find_cut(id))
+                    command_preview_follows=cut->definition.feature_kind==document::FeatureKind::Feature&&
+                        (!cut->input_component_bodies.empty()||assembly->session.document().components.empty());
         if(!command_preview_follows){preserve_view_on_refresh_ = true;refresh_scene();}
     }
     if (kind == QStringLiteral("part-container") ||

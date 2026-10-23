@@ -2617,6 +2617,13 @@ void Sketch::validate() const {
                            std::string, std::string, std::string>>
         external_sources;
     for (const auto& reference : external_references) {
+        if(reference.curve_intersection) {
+            validate_curve_intersection_binding(*reference.curve_intersection);
+            if(reference.intersection||reference.body_edge||reference.infinite||reference.exact_spline||reference.kind!=ExternalReferenceKind::Point||
+                    reference.curve_intersection->curve_owner_id!=reference.source_owner_id||
+                    reference.curve_intersection->curve_semantic_key!=reference.source_semantic_key)
+                throw std::runtime_error("Sketch intersection binding is invalid");
+        }
         if (reference.intersection && (reference.intersection->face_owner_id.empty() ||
                 reference.intersection->face_semantic_key.empty() || reference.intersection->branch_key.empty() ||
                 reference.body_edge || reference.infinite || (reference.kind != ExternalReferenceKind::Edge &&
@@ -2651,9 +2658,9 @@ void Sketch::validate() const {
             reference.source_instance_path,
             reference.context_assembly_document_id,
             reference.context_instance_path,
-            reference.intersection ? reference.intersection->face_owner_id : std::string{},
-            reference.intersection ? reference.intersection->face_semantic_key : std::string{},
-            reference.intersection ? reference.intersection->branch_key : std::string{}};
+            reference.intersection ? reference.intersection->face_owner_id : reference.curve_intersection?reference.curve_intersection->curve_owner_id:std::string{},
+            reference.intersection ? reference.intersection->face_semantic_key : reference.curve_intersection?reference.curve_intersection->curve_semantic_key:std::string{},
+            reference.intersection ? reference.intersection->branch_key : reference.curve_intersection?reference.curve_intersection->branch_key:std::string{}};
         if (std::ranges::find(external_sources, source) !=
             external_sources.end()) {
             throw std::runtime_error("Sketch external reference is duplicated");
@@ -6195,6 +6202,19 @@ void Sketch::remove_constraint(const std::string& constraint_id) {
 
 void Sketch::remove_dimension(const std::string& dimension_id) {
     auto next = *this;
+    const auto corner = std::ranges::find(next.corner_radii, dimension_id,
+        &SketchCornerRadius::id);
+    const bool corner_annotation = corner != next.corner_radii.end() &&
+        corner->dimension_visible;
+    if (corner_annotation) {
+        corner->dimension_visible = false;
+        corner->dimension_placement.reset();
+        // This removes only an intrinsic annotation. The corner parameter and
+        // equations are unchanged; do not solve or move underconstrained data.
+        next.validate();
+        *this = std::move(next);
+        return;
+    }
     const auto old_size = next.dimensions.size();
     std::erase_if(next.dimensions, [&](const auto& dimension) {
         return dimension.id == dimension_id;
@@ -6221,7 +6241,8 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             if(is_external_endpoint_kind(endpoint.kind) && endpoint.source_document_id==source_edge->source_document_id &&
                 endpoint.source_owner_id==source_edge->source_owner_id && endpoint.source_semantic_key==source_edge->source_semantic_key &&
                 endpoint.source_instance_path==source_edge->source_instance_path && endpoint.context_assembly_document_id==source_edge->context_assembly_document_id &&
-                endpoint.context_instance_path==source_edge->context_instance_path && endpoint.intersection==source_edge->intersection)children.push_back(endpoint.id);
+                endpoint.context_instance_path==source_edge->context_instance_path && endpoint.intersection==source_edge->intersection&&
+                endpoint.curve_intersection==source_edge->curve_intersection)children.push_back(endpoint.id);
         }
         for(const auto& child:children)next.remove_geometry(child);
     }
@@ -6843,6 +6864,10 @@ MirroredGeometryResult Sketch::mirror_geometry(
             static_cast<std::size_t>(std::count_if(
                 bsplines.begin(), bsplines.end(), [&](const auto& value) {
                     return value.id == entity_id;
+                })) +
+            static_cast<std::size_t>(std::count_if(
+                corner_radii.begin(), corner_radii.end(), [&](const auto& value) {
+                    return value.id == entity_id;
                 }));
         if (count != 1) {
             throw std::invalid_argument(
@@ -6850,9 +6875,25 @@ MirroredGeometryResult Sketch::mirror_geometry(
         }
     }
 
+    // A rounded corner is an authored treatment of two native legs, not the
+    // temporary arc produced by profile evaluation. Copy its supporting graph
+    // once, and retain the treatment when both legs are selected on their own.
+    auto sources = entity_ids;
+    auto source_set = selected;
+    for (const auto& corner : corner_radii) {
+        if (!selected.contains(corner.id)) continue;
+        for (const auto& leg : {corner.first_segment_id, corner.second_segment_id}) {
+            if (leg == axis_id) {
+                throw std::invalid_argument(
+                    "Sketch mirror sources must be unique and exclude a valid mirror axis");
+            }
+            if (source_set.insert(leg).second) sources.push_back(leg);
+        }
+    }
     auto next = *this;
     MirroredGeometryResult result;
     std::unordered_map<std::string, std::string> point_map;
+    std::unordered_map<std::string, std::string> geometry_map;
     std::vector<std::string> source_point_order;
     const auto map_point = [&](const std::string& source_id) {
         if (const auto existing = point_map.find(source_id);
@@ -6876,7 +6917,10 @@ MirroredGeometryResult Sketch::mirror_geometry(
         return mirrored_id;
     };
 
-    for (const auto& entity_id : entity_ids) {
+    for (const auto& entity_id : sources) {
+        if (std::ranges::any_of(corner_radii, [&](const auto& corner) {
+                return corner.id == entity_id;
+            })) continue;
         if (find_point(entity_id) != nullptr) {
             static_cast<void>(map_point(entity_id));
             continue;
@@ -6973,7 +7017,32 @@ MirroredGeometryResult Sketch::mirror_geometry(
             mirrored_id = mirrored.id;
             next.bsplines.push_back(std::move(mirrored));
         }
+        geometry_map.emplace(entity_id, mirrored_id);
         result.geometry_ids.push_back(std::move(mirrored_id));
+    }
+
+    for (const auto& source : corner_radii) {
+        if (!geometry_map.contains(source.first_segment_id) ||
+            !geometry_map.contains(source.second_segment_id)) continue;
+        auto mirrored = source;
+        mirrored.id = make_id();
+        mirrored.vertex_id = point_map.at(source.vertex_id);
+        mirrored.first_segment_id = geometry_map.at(source.first_segment_id);
+        mirrored.second_segment_id = geometry_map.at(source.second_segment_id);
+        mirrored.dimension_visible = false;
+        mirrored.dimension_placement.reset();
+        mirrored.equal_radius_group.clear();
+        const auto mirrored_id = mirrored.id;
+        next.corner_radii.push_back(std::move(mirrored));
+        result.geometry_ids.push_back(mirrored_id);
+        if (!source.suppressed) {
+            SketchConstraint radius;
+            radius.id = make_id();
+            radius.kind = ConstraintKind::EqualRadius;
+            radius.geometry_id = source.id;
+            radius.second_geometry_id = mirrored_id;
+            next.constraints.push_back(std::move(radius));
+        }
     }
 
     for (const auto& source_id : source_point_order) {
@@ -7520,7 +7589,7 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
     result.constraints.insert(result.constraints.end(),corner_relations.begin(),corner_relations.end());
     for(auto dimension:authored_dimensions) {
         if(dimension.kind==DimensionKind::Distance||dimension.kind==DimensionKind::DistanceX||
-            dimension.kind==DimensionKind::DistanceY) {
+            dimension.kind==DimensionKind::DistanceY||dimension.kind==DimensionKind::Angle) {
             const auto segment=std::ranges::find(result.segments,dimension.geometry_id,&SketchSegment::id);
             if(segment!=result.segments.end()) {
                 dimension.first_point_id=segment->first_point_id;
@@ -7979,7 +8048,7 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
             value.context_assembly_document_id ==
                 reference.context_assembly_document_id &&
             value.context_instance_path == reference.context_instance_path &&
-            value.intersection == reference.intersection;
+            value.intersection == reference.intersection && value.curve_intersection==reference.curve_intersection;
     };
     if (std::ranges::any_of(external_references, [&](const auto& value) {
             return value.id == reference.id || same_source(value);
@@ -7997,10 +8066,12 @@ std::string Sketch::add_external_profile_geometry(
     const auto reference = std::find_if(external_references.begin(),
         external_references.end(), [&](const auto& value) {
             return value.id == reference_id &&
-                value.kind == ExternalReferenceKind::Edge && !value.broken;
+                (value.kind == ExternalReferenceKind::Edge ||
+                 (value.kind == ExternalReferenceKind::Face && is_face_curve_key(value.source_semantic_key))) && !value.broken;
         });
-    if (reference == external_references.end() ||
-        reference->cached_points.size() < 2) {
+    const bool outline=reference!=external_references.end()&&reference->kind==ExternalReferenceKind::Face;
+    if (reference == external_references.end() || (outline?
+            (reference->cached_paths.size()!=1||reference->cached_paths.front().size()!=2):reference->cached_points.size()<2)) {
         throw std::invalid_argument(
             "External profile requires a valid projected edge");
     }
@@ -8066,7 +8137,7 @@ std::string Sketch::add_external_profile_geometry(
         next.validate();
         *this=std::move(next); return id;
     }
-    const auto& source = reference->cached_points;
+    const auto& source = outline?reference->cached_paths.front():reference->cached_points;
     const auto& first = source.front();
     const auto& last = source.back();
     const double dx = last[0] - first[0];
@@ -8164,7 +8235,7 @@ std::string Sketch::add_external_profile_geometry(
                     candidate.source_owner_id==endpoint.source_owner_id && candidate.source_semantic_key==endpoint.source_semantic_key &&
                     candidate.source_instance_path==endpoint.source_instance_path &&
                     candidate.context_assembly_document_id==endpoint.context_assembly_document_id &&
-                    candidate.context_instance_path==endpoint.context_instance_path && candidate.intersection==endpoint.intersection;
+                    candidate.context_instance_path==endpoint.context_instance_path && candidate.intersection==endpoint.intersection&&candidate.curve_intersection==endpoint.curve_intersection;
             });
             const auto endpoint_id = existing==next.external_references.end() ? endpoint.id : existing->id;
             if(existing==next.external_references.end())next.external_references.push_back(std::move(endpoint));
@@ -8533,23 +8604,22 @@ bool Sketch::refresh_external_references(
     bool changed = false;
     const auto same_source = [](const auto& reference, const auto& candidate) {
         return candidate.owner_id == reference.source_owner_id &&
-            candidate.semantic_key == (reference.kind==ExternalReferenceKind::Face
-                ? face_curve_source_key(reference.source_semantic_key):reference.source_semantic_key) &&
+            candidate.semantic_key == face_curve_source_key(reference.source_semantic_key) &&
             candidate.instance_path == reference.source_instance_path;
     };
     for (auto& reference : next.external_references) {
         // An explicit cache-only update must not invalidate ordinary projected
         // references from the same document by feeding them an empty packet.
-        if(source_document_id.empty()&&calculated_intersections&&!reference.intersection)continue;
+        if(source_document_id.empty()&&calculated_intersections&&!is_intersection_reference(reference))continue;
         if (axis_points_only && reference.kind != ExternalReferenceKind::AxisPoint) continue;
         if (!source_document_id.empty() && reference.source_document_id != source_document_id) continue;
-        if(reference.intersection) {
+        if(is_intersection_reference(reference)) {
             // Read-only display/snapshot refresh never calculates or substitutes
             // a projected face outline for a selected intersection branch.
             if(!calculated_intersections)continue;
             const auto found=std::ranges::find(*calculated_intersections,reference.id,&SketchExternalReference::id);
             if(found==calculated_intersections->end())continue;
-            if(found->intersection!=reference.intersection || found->kind!=reference.kind)
+            if(found->intersection!=reference.intersection || found->curve_intersection!=reference.curve_intersection || found->kind!=reference.kind)
                 throw std::invalid_argument("Calculated intersection identity changed");
             auto updated=reference;
             updated.broken=found->broken;
@@ -8563,7 +8633,13 @@ bool Sketch::refresh_external_references(
         }
         std::optional<std::vector<std::array<double, 2>>> resolved;
         bool face_projection_resolved = false;
-        if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
+        if(is_external_endpoint_kind(reference.kind)&&is_face_curve_key(reference.source_semantic_key)) {
+            const auto paths=next.external_face_reference_paths(source_geometry,
+                {reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path});
+            if(paths&&paths->size()==1&&paths->front().size()==2)
+                resolved=std::vector<std::array<double,2>>{reference.kind==ExternalReferenceKind::EdgeStart?
+                    paths->front().front():paths->front().back()};
+        } else if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
             const std::vector<zima::kernel::ViewerEdge> empty;
@@ -10092,7 +10168,9 @@ SolveResult Sketch::solve_impl(
         const double length=std::hypot(rx,ry)*std::hypot(dx,dy);if(length<=1e-12)continue;
         coupled_angle_branches[angle.id]={std::acos(std::clamp((rx*dx+ry*dy)/length,-1.,1.))*180/std::acos(-1.),rx*dy-ry*dx<0?-1.:1.};
     }
-    seed_rectilinear_equations(*this,preferred_point_ids);
+    const bool anchored_axis_symmetry=!preferred_point_ids.empty()&&std::ranges::any_of(constraints,[](const auto& c){
+        return !c.suppressed&&c.kind==ConstraintKind::Symmetric&&(c.geometry_id=="sketch_axis:x"||c.geometry_id=="sketch_axis:y");});
+    seed_rectilinear_equations(*this,preferred_point_ids,false,anchored_axis_symmetry);
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto linked_points = externally_linked_point_ids(*this);
@@ -11872,7 +11950,14 @@ SolveResult Sketch::solve_impl(
                 maximum_residual = std::max(maximum_residual, residual);
                 if (residual > tolerance) {
                     if (immutable(*mirrored)) {
-                        immovable_conflict = true;
+                        if (immutable(*source)) {
+                            immovable_conflict = true;
+                        } else {
+                            const auto reverse = reflected_position(
+                                {mirrored->x, mirrored->y}, axis->first, axis->second);
+                            source->x = reverse[0];
+                            source->y = reverse[1];
+                        }
                     } else {
                         mirrored->x = desired[0];
                         mirrored->y = desired[1];
@@ -14712,7 +14797,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             return support!=external_references.end() && support->kind==ExternalReferenceKind::Edge &&
                 support->source_document_id==endpoint.source_document_id && support->source_owner_id==endpoint.source_owner_id &&
                 support->source_semantic_key==endpoint.source_semantic_key && support->source_instance_path==endpoint.source_instance_path &&
-                support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path && support->intersection==endpoint.intersection;
+                support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path &&
+                support->intersection==endpoint.intersection&&support->curve_intersection==endpoint.curve_intersection;
         };
         std::string label=constraint_marker_label(constraint.kind);
         if (constraint.kind == ConstraintKind::PointReference) {
@@ -15769,7 +15855,8 @@ nlohmann::json Sketch::serialized_json() const {
         }
         external_reference_values.push_back({
             {"id", reference.id},
-            {"kind", reference.intersection ? std::string("intersection_")+external_reference_kind_name(reference.kind) : std::string(external_reference_kind_name(reference.kind))},
+            {"kind", reference.curve_intersection?std::string("curve_intersection_")+external_reference_kind_name(reference.kind):
+                reference.intersection ? std::string("intersection_")+external_reference_kind_name(reference.kind) : std::string(external_reference_kind_name(reference.kind))},
             {"body_edge", reference.body_edge},
             {"source_document_id", reference.source_document_id},
             {"source_owner_id", reference.source_owner_id},
@@ -15787,6 +15874,15 @@ nlohmann::json Sketch::serialized_json() const {
             {"face_owner_id",reference.intersection->face_owner_id},
             {"face_semantic_key",reference.intersection->face_semantic_key},
             {"branch_key",reference.intersection->branch_key}};
+        if(reference.curve_intersection) {
+            const auto& binding=*reference.curve_intersection;
+            external_reference_values.back()["curve_intersection"]={{"version",1},{"curve_owner_id",binding.curve_owner_id},
+                {"curve_semantic_key",binding.curve_semantic_key},{"degree",binding.degree},{"knots",binding.knots},
+                {"parameter_first",binding.parameter_first},{"parameter_last",binding.parameter_last},
+                {"contact",static_cast<unsigned>(binding.contact)},{"closed",binding.closed},
+                {"parameterization_key",binding.parameterization_key},{"branch_key",binding.branch_key},
+                {"orientation",binding.orientation},{"root_count",binding.root_count}};
+        }
     }
     nlohmann::json constraint_values = nlohmann::json::array();
     for (const auto& constraint : constraints) constraint_values.push_back({
@@ -16051,7 +16147,18 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
     for (const auto& value : root.at("external_references")) {
         SketchExternalReference reference;
         auto kind=value.at("kind").get<std::string>();
+        const bool curve_intersection=kind.starts_with("curve_intersection_");
         const bool intersection=kind.starts_with("intersection_");
+        if(curve_intersection) {
+            kind.erase(0,std::string_view("curve_intersection_").size());const auto& binding=value.at("curve_intersection");
+            if(binding.at("version")!=1||value.contains("intersection"))throw std::runtime_error("Sketch intersection mode and binding disagree");
+            reference.curve_intersection=SketchCurveIntersectionBinding{binding.at("curve_owner_id").get<std::string>(),
+                binding.at("curve_semantic_key").get<std::string>(),binding.at("degree").get<unsigned>(),binding.at("knots").get<std::vector<double>>(),
+                binding.at("parameter_first").get<double>(),binding.at("parameter_last").get<double>(),
+                static_cast<zima::kernel::CurvePlaneContactKind>(binding.at("contact").get<unsigned>()),binding.at("closed").get<bool>(),
+                binding.at("parameterization_key").get<std::string>(),binding.at("branch_key").get<std::string>(),
+                binding.at("orientation").get<int>(),binding.at("root_count").get<std::size_t>()};
+        } else if(value.contains("curve_intersection"))throw std::runtime_error("Sketch intersection mode and binding disagree");
         if(intersection) {
             kind.erase(0,std::string_view("intersection_").size());
             const auto& binding=value.at("intersection");

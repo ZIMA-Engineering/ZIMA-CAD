@@ -3,6 +3,8 @@
 #include <zima/document/feature_up_to.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
+#include "ordered_up_to_assembly_sources.hpp"
 #include <zima/workspace/origin_display_operations.hpp>
 #include <algorithm>
 #include <cmath>
@@ -128,7 +130,8 @@ document::HistoryContainer profile_from_sketch(const document::PartDocument& par
     return value;
 }
 void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std::string& id,
-    document::HistoryContainer value, ProfileEditMode mode, const std::optional<sketcher::Sketch>& owned_sketch) {
+    document::HistoryContainer value, ProfileEditMode mode, const std::optional<sketcher::Sketch>& owned_sketch,
+    ProfileFailurePolicy failure_policy) {
     auto* state = live.open_part(id);
     if (!state) throw ProfileOperationError("unsupported_document", "Profile operations require an open Part.");
     validate_profile_definition(value);
@@ -248,9 +251,83 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
                 policy.reject_errors=true;policy.edited_document_id=id;policy.edited_history_limit=next.history_index(container_id);break;
             }
         }
+        // Interactive OK may retain a valid authored definition whose geometry
+        // fails. The calculated boundary records that failure and input state;
+        // structural/reference validation above still rejects invalid ownership.
+        if(failure_policy==ProfileFailurePolicy::KeepDefinition)policy.reject_errors=false;
     }
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));
     commit_part_document(live,id,std::move(next), std::move(calculated));
+}
+kernel::HistoryOperation feature_preview_operation(document::PartDocument carrier,
+        const document::HistoryContainer& definition) {
+    auto* current=carrier.find_container(definition.id);
+    if(!current)throw ProfileOperationError("invalid_feature","Invalid Feature definition.");
+    *current=definition;
+    const auto entry=std::ranges::find(carrier.history_order,definition.id,&document::PartHistoryEntry::id);
+    if(entry!=carrier.history_order.end())carrier.history_cursor=static_cast<std::size_t>(entry-carrier.history_order.begin())+1;
+    const auto operations=carrier.kernel_operations(true);
+    const auto found=std::ranges::find(operations,definition.id,&kernel::HistoryOperation::owner_id);
+    if(found==operations.end())throw ProfileOperationError("invalid_feature","Invalid Feature definition.");
+    auto result=*found;result.body={};return result;
+}
+
+kernel::BodySnapshot feature_preview_part_sources(const document::DocumentSession& session,
+        const std::string& container_id) {
+    const auto& boundaries=session.calculated_boundaries();
+    if(boundaries.empty())return {};
+    const auto& document=session.document();
+    const auto* input=calculated_operation_input(session,container_id);
+    if(!input)return boundaries.back();
+    if(document.body_history.bodies().empty())return *input;
+    const auto* body=container_id.empty()?document.body_history.find(document.body_history.active_body_id()):
+        document.body_owner_for_object(container_id);
+    if(!body)return boundaries.back();
+    // The edited Body must supply its rollback input, not the final result
+    // which may already have consumed the selected target face. Other Bodies
+    // retain their current immutable data and document placement.
+    auto sources=boundaries.back();
+    sources.body_boundaries[body->scope.id]=std::vector<kernel::BodyResult>{*input};
+    sources.body_outputs[body->scope.id]=*input;
+    return sources;
+}
+
+std::vector<kernel::OrderedUpToPatch> feature_preview_external_sources(
+        const assembly::AssemblyDocument& source,const document::HistoryContainer& definition) {
+    kernel::ExtrusionRequest request;request.ordered_end_limit.emplace();
+    for(std::size_t side=0;side<(definition.feature.symmetric?1u:2u);++side) {
+        const auto end=definition.feature.effective_side(side);
+        if(!((end.operation==document::FeatureSideOperation::Extrusion&&end.extrusion_extent==document::EndCondition::UpTo)||
+             (end.operation==document::FeatureSideOperation::Revolution&&end.rotation_extent==document::FeatureRotationExtent::UpTo)))continue;
+        for(const auto& target:end.targets) {
+            if(target.kind==document::EndTargetKind::Point||document::profile_target_is_datum(target.reference))continue;
+            kernel::OrderedUpToPatch patch;patch.source_reference=target.reference;
+            patch.target.reference=target.reference;patch.target.reference.instance_path.clear();
+            request.ordered_end_limit->patches.push_back(std::move(patch));
+        }
+    }
+    std::vector<kernel::HistoryOperation> operations{{definition.id,std::move(request)}};
+    detail::attach_ordered_up_to_sources(source,operations);
+    return std::get<kernel::ExtrusionRequest>(operations.front().primitive).ordered_end_limit->patches;
+}
+
+kernel::BodySnapshot feature_preview_assembly_input(const assembly::AssemblyDocument& source,
+        const std::vector<std::string>& targets) {
+    kernel::BodyResult result;result.kernel_shape=kernel::kernel_body_compound;
+    for(const auto& id:targets) {
+        const auto found=std::ranges::find(source.components,id,&assembly::PartOccurrence::occurrence_id);
+        if(found==source.components.end()||found->suppressed||found->calculated_source->kernel_shape.empty())continue;
+        // Wrap the immutable source rather than copying its mesh or BRep.
+        kernel::BodyResult placed;placed.kernel_shape=kernel::kernel_body_compound;
+        placed.kernel_compound_bodies.push_back("source");placed.body_outputs.emplace("source",found->calculated_source);
+        const auto& p=found->placement;
+        placed.kernel_placements.push_back({{p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}});
+        result.kernel_compound_bodies.push_back(id);result.body_outputs.emplace(id,std::move(placed));
+        kernel::HistoryOperation frame;frame.body.id=id;frame.body.translation={p.x,p.y,p.z};
+        frame.body.rotation_degrees={p.rotation_x,p.rotation_y,p.rotation_z};
+        result.source_fingerprint+=":"+id+":"+found->calculated_source->source_fingerprint+":"+kernel::history_fingerprint({frame},1);
+    }
+    return result.kernel_compound_bodies.empty()?kernel::BodySnapshot{}:kernel::BodySnapshot{std::move(result)};
 }
 } // namespace zima::workspace

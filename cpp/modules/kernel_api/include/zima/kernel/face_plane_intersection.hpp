@@ -10,5 +10,8 @@ struct FacePlaneIntersectionRequest {
     Vec3 origin;
     Vec3 normal{0,0,1};
     double tolerance{0.001};
+    // Existing semantic branch domains keep their role if another root leaves
+    // the trimmed face. These are query inputs, never additional persisted data.
+    std::vector<std::string> reference_branches;
 };
 }

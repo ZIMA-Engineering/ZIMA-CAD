@@ -7,19 +7,28 @@
 namespace zima::app {
 inline std::vector<viewer::CandidateKind> sketch_external_reference_candidate_kinds(bool profile,bool intersection=false,bool branches=false) {
     using Kind=viewer::CandidateKind;
-    if(intersection)return branches?std::vector{Kind::SketchExternalReference}:std::vector{Kind::Face};
+    if(intersection)return branches?std::vector{Kind::SketchExternalReference}:std::vector{Kind::Face,Kind::Edge,Kind::SketchSegment,Kind::SketchCurve};
     if(profile)return {Kind::Edge};
-    return {Kind::Edge,Kind::Plane,Kind::SketchSegment,Kind::SketchCurve,
+    return {Kind::Edge,Kind::Face,Kind::Plane,Kind::SketchSegment,Kind::SketchCurve,
         Kind::SketchPoint,Kind::Vertex,Kind::Axis};
 }
 
 inline bool sketch_external_reference_has_stable_geometry(
-        const viewer::ViewerCandidate& candidate,bool profile,bool intersection=false) {
-    // Ordinary Reference consumes one curve/point/axis/plane. Whole-face
-    // entry belongs to the separate intersection command, not this picker.
-    if(intersection)return candidate.kind==viewer::CandidateKind::Face&&candidate.geometry==viewer::CandidateGeometry::Display;
+        const viewer::ViewerCandidate& candidate,bool profile,bool intersection=false,
+        const kernel::ViewerMesh* mesh=nullptr) {
+    if(intersection)return candidate.kind==viewer::CandidateKind::Face?candidate.geometry==viewer::CandidateGeometry::Display:
+        (candidate.kind==viewer::CandidateKind::Edge||candidate.kind==viewer::CandidateKind::SketchSegment||candidate.kind==viewer::CandidateKind::SketchCurve)&&
+        candidate.geometry==viewer::CandidateGeometry::OriginalReference&&!sketcher::is_face_curve_key(candidate.semantic_key);
     if(profile)return candidate.kind==viewer::CandidateKind::Edge&&
-        candidate.geometry==viewer::CandidateGeometry::Display;
+        (candidate.geometry==viewer::CandidateGeometry::Display||
+         (candidate.geometry==viewer::CandidateGeometry::OriginalReference&&sketcher::is_face_curve_key(candidate.semantic_key)));
+    // Ordinary face entry restores only a certified plane support. Arbitrary
+    // curved faces still belong to Intersection; they are never bulk outlines.
+    if(candidate.kind==viewer::CandidateKind::Face) {
+        if(candidate.geometry!=viewer::CandidateGeometry::Display||!mesh||candidate.geometry_index>=mesh->triangle_references.size())return false;
+        const auto& face=mesh->triangle_references[candidate.geometry_index];
+        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+    }
     return candidate.kind!=viewer::CandidateKind::Face&&
         candidate.geometry==viewer::CandidateGeometry::OriginalReference;
 }

@@ -41,9 +41,29 @@ std::optional<std::string> cylinder_plane_edge_domain(const TopoDS_Edge& edge,
     return {};
 }
 
+std::optional<std::string> conic_plane_point_domain(const gp_Pnt& point,const TopoDS_Edge& edge,
+        const TopoDS_Face& plane_face,double tolerance) {
+    const BRepAdaptor_Curve curve(edge);const BRepAdaptor_Surface support(plane_face);
+    if(support.GetType()!=GeomAbs_Plane)return {};
+    gp_Ax2 frame;double a,b;
+    if(curve.GetType()==GeomAbs_Circle){const auto circle=curve.Circle();frame=circle.Position();a=b=circle.Radius();}
+    else if(curve.GetType()==GeomAbs_Ellipse){const auto ellipse=curve.Ellipse();frame=ellipse.Position();a=ellipse.MajorRadius();b=ellipse.MinorRadius();}
+    else return {};
+    const auto plane=support.Plane();if(plane.Distance(point)>tolerance)return {};
+    const gp_Vec normal(plane.Axis().Direction()),delta(frame.Location(),point);
+    const double x=delta.Dot(gp_Vec(frame.XDirection()))/a,y=delta.Dot(gp_Vec(frame.YDirection()))/b;
+    const double alpha=a*normal.Dot(gp_Vec(frame.XDirection())),beta=b*normal.Dot(gp_Vec(frame.YDirection()));
+    const double gamma=gp_Vec(frame.Location(),plane.Location()).Dot(normal);
+    const double square=alpha*alpha+beta*beta-gamma*gamma,root=alpha*y-beta*x;
+    const double error=tolerance*std::max(1.,std::hypot(beta/a,alpha/b));
+    if(square<=error*error||std::abs(root)<=error||std::abs(std::abs(root)-std::sqrt(square))>error||
+            std::abs(x*x+y*y-1)>4*tolerance/std::min(a,b))return {};
+    return root<0?":domain:conic-plane:negative":":domain:conic-plane:positive";
+}
+
 PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& request,const std::string& owner,
     const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,
-    bool sketch_association=false) {
+    bool sketch_association=false,const std::vector<std::string>& reference_branches={}) {
     if(!std::isfinite(request.tolerance)||request.tolerance<=0||request.faces[0]==request.faces[1])
         throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
     std::array<TopoDS_Face,2> selected;
@@ -153,14 +173,26 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
             if(const auto domain=cylinder_plane_edge_domain(TopoDS::Edge(source.shape),selected,faces,request.tolerance))token+=*domain;
         edge_parents[index].insert(std::move(token));
     }
-    const auto endpoint_parents=[&](const TopoDS_Vertex& vertex) {
+    const auto endpoint_parents=[&](const TopoDS_Vertex& vertex,bool disambiguate=false) {
         const auto point=BRep_Tool::Pnt(vertex);std::set<std::string> parents;
         for(const auto& source:vertices)if(source_vertices.Contains(source.shape)&&
             BRep_Tool::Pnt(TopoDS::Vertex(source.shape)).Distance(point)<=request.tolerance)
             parents.insert(encoded_topology_reference(source.reference));
         for(int index=1;index<=source_edges.Extent();++index)if(!edge_parents[index].empty()) {
             BRepExtrema_DistShapeShape distance(vertex,source_edges.FindKey(index));
-            if(distance.IsDone()&&distance.Value()<=request.tolerance)parents.insert(edge_parents[index].begin(),edge_parents[index].end());
+            if(distance.IsDone()&&distance.Value()<=request.tolerance) {
+                std::optional<std::string> domain;
+                if(sketch_association&&(disambiguate||!reference_branches.empty()))
+                    domain=conic_plane_point_domain(point,TopoDS::Edge(source_edges.FindKey(index)),selected[1],request.tolerance);
+                for(const auto& parent:edge_parents[index]) {
+                    bool replay=false;
+                    if(domain&&!disambiguate)for(const auto* sign:{":domain:conic-plane:negative",":domain:conic-plane:positive"}) {
+                        const auto token=parent+sign,encoded=std::to_string(token.size())+":"+token;
+                        replay|=std::ranges::any_of(reference_branches,[&](const auto& key){return key.find(encoded)!=std::string::npos;});
+                    }
+                    parents.insert(domain&&(disambiguate||replay)?parent+*domain:parent);
+                }
+            }
         }
         return parents;
     };
@@ -242,10 +274,19 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
         return delta<0?":closed:domain:torus-inner":":closed:domain:torus-outer";
     };
     std::map<std::string,TopoDS_Shape> named_vertices,named_edges;
+    std::map<std::string,TopoDS_Shape> original_endpoints;std::set<std::string> ambiguous_endpoints;
+    if(sketch_association)for(int i=1;i<=result_edges.Extent();++i) {
+        const auto edge=TopoDS::Edge(result_edges.FindKey(i));if(closed_edge(edge))continue;
+        for(const auto& vertex:{TopExp::FirstVertex(edge,true),TopExp::LastVertex(edge,true)}) {
+            const auto key=ancestry(endpoint_parents(vertex));const auto [found,inserted]=original_endpoints.emplace(key,vertex);
+            if(!inserted&&!found->second.IsSame(vertex))ambiguous_endpoints.insert(key);
+        }
+    }
     const auto name_vertex=[&](const TopoDS_Vertex& vertex,bool isolated) {
         const auto existing=std::ranges::find_if(result.vertices,[&](const auto& item){return item.shape.IsSame(vertex);});
         if(existing!=result.vertices.end())return existing->reference.semantic_key;
-        const auto parents=endpoint_parents(vertex);
+        auto parents=endpoint_parents(vertex);
+        if(ambiguous_endpoints.contains(ancestry(parents)))parents=endpoint_parents(vertex,true);
         if(parents.empty()&&!isolated)throw std::runtime_error("Intersection endpoint ancestry is ambiguous.");
         const auto key="intersection:point:from:"+parent_key+(parents.empty()?":contact":":at:"+ancestry(parents));
         if(const auto found=named_vertices.find(key);found!=named_vertices.end()&&!found->second.IsSame(vertex))

@@ -140,7 +140,7 @@ public:
         swap_->setObjectName("featureSwapSides");options->addWidget(swap_);
         connect(swap_,&QPushButton::clicked,this,[this]{if(swap_requested_)swap_requested_();});
         content_->addWidget(options_row_);
-        draft_notice_=new QLabel(tr("Draft preview: profile. Inspect target faces with the eyes; OK calculates the result."),this);
+        draft_notice_=new QLabel(tr("Exact preview"),this);
         draft_notice_->setObjectName("featureUpToDraftNotice");draft_notice_->setWordWrap(true);draft_notice_->hide();
         content_->addWidget(draft_notice_);
         auto* sides=new QHBoxLayout;
@@ -309,7 +309,7 @@ public:
     bool modeling_limits() const {return selected_type()==document::FeatureType::Modeling;}
     void on_preview_notice_changed(std::function<void()> callback){notice_changed_=std::move(callback);}
     void update_draft_notice() {
-        const bool visible=document::feature_uses_extended_up_to(parameters());
+        const bool visible=document::feature_up_to_requires_exact_preview(parameters());
         if(draft_notice_->isHidden()==!visible)return;
         draft_notice_->setVisible(visible);if(notice_changed_)notice_changed_();
     }
@@ -357,7 +357,7 @@ protected:
     void changeEvent(QEvent* event) override {
         QWidget::changeEvent(event);
         if(event->type()==QEvent::LanguageChange&&draft_notice_) {
-            draft_notice_->setText(tr("Draft preview: profile. Inspect target faces with the eyes; OK calculates the result."));
+            draft_notice_->setText(tr("Exact preview"));
             for(auto& side:sides_)if(side.rows&&side.correction)
                 if(auto* label=qobject_cast<QLabel*>(side.rows->labelForField(side.correction)))label->setText(tr("Korekce"));
             if(notice_changed_)notice_changed_();

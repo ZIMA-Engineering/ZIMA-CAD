@@ -161,8 +161,11 @@ public:
         std::function<int(const ViewerCandidate&)> candidate_priority);
     // Visual inspection does not latch the picker; dimensions remain editable.
     // Read an already calculated authored contribution, without changing picking.
+    // An authoritative provider may intentionally return an empty wire;
+    // never replace it with unrelated result edges in that case.
     void set_container_preview_provider(std::function<std::vector<zima::kernel::ViewerEdge>(
-        const std::string&, const std::string&)> provider);
+        const std::string&, const std::string&)> provider,
+        std::function<bool(const std::string&, const std::string&)> authoritative = {});
     void set_container_inspection(const std::string& owner_id,
         const std::string& instance_path = {});
     void set_container_inspection_wire(std::vector<zima::kernel::ViewerEdge> wire);

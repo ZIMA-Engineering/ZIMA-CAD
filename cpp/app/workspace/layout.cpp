@@ -3,6 +3,7 @@
 #include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
+#include "../sketch_external_reference_selection.hpp"
 #include "tool_button_style.hpp"
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
@@ -164,9 +165,15 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_ = new zima::viewer::MeshView;
     viewer_->set_container_preview_provider([this](const std::string& owner,const std::string& path) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
-        if(!part)return std::vector<zima::kernel::ViewerEdge>{};
         std::vector<zima::kernel::ViewerEdge> wire;
-        try {wire=authored_feature_wire(part->session,owner);}
+        try {
+            if(part)wire=authored_feature_wire(part->session,owner);
+            else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
+                if(const auto* cut=assembly->session.document().find_cut(owner);cut&&!cut->definition.suppressed) {
+                    wire=cut->preview_wire;
+                    std::erase_if(wire,[&](const auto& edge){return !zima::document::feature_material_wire_edge(cut->definition,edge);});
+                }
+        }
         catch(const std::exception& error) {
             if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
                 std::fprintf(stderr,"Selection preview failed: %s\n",error.what());
@@ -178,6 +185,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),occurrence,point);
         }
         return wire;
+    },[this](const std::string& owner,const std::string&) {
+        if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
+            if(const auto* cut=assembly->session.document().find_cut(owner))
+                return true;
+        return false;
     });
     viewer_->set_preserve_screen_position_on_resize(true);
     initialize_symbol_handles();
@@ -391,9 +403,12 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.owner_id == active_sketch_id_ &&
-            candidate.semantic_key.starts_with("dimension:")) {
+            (candidate.semantic_key.starts_with("dimension:") ||
+             candidate.semantic_key.starts_with("corner_dimension:"))) {
             const auto dimension_id = QString::fromStdString(
-                candidate.semantic_key.substr(10));
+                candidate.semantic_key.substr(
+                    candidate.semantic_key.starts_with("dimension:") ? 10 : 17));
+            const auto semantic_key = candidate.semantic_key;
             tree_->clearSelection();
             QTreeWidgetItemIterator iterator(tree_);
             while (*iterator != nullptr) {
@@ -413,7 +428,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             // Keep the View selection deterministic even when the item was
             // already current and Qt therefore emits no selection signal.
             viewer_->confirm_reference(active_sketch_id_,
-                "dimension:" + dimension_id.toStdString(), {},
+                semantic_key, {},
                 zima::viewer::CandidateKind::Dimension);
             state_->setText(tr("Vybrána kóta skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchConstraint &&
@@ -523,10 +538,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             state_->setText(tr("Vybrána kružnice skici."));
         } else if (candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
                    candidate.owner_id == active_sketch_id_ &&
-                   candidate.semantic_key.starts_with("arc:")) {
+                   (candidate.semantic_key.starts_with("arc:") ||
+                    candidate.semantic_key.starts_with("corner_radius:"))) {
             selected_sketch_segment_id_.clear();
             selected_sketch_circle_id_.clear();
-            selected_sketch_arc_id_ = candidate.semantic_key.substr(4);
+            selected_sketch_arc_id_ = candidate.semantic_key.substr(
+                candidate.semantic_key.starts_with("arc:") ? 4 : 14);
             selected_sketch_ellipse_id_.clear();
             selected_sketch_elliptical_arc_id_.clear();
             selected_sketch_bspline_id_.clear();
@@ -632,7 +649,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         } else if (candidate.kind ==
                        zima::viewer::CandidateKind::SketchExternalReference &&
                    candidate.owner_id == active_sketch_id_) {
-            auto reference_id = sketch_external_reference_id_from_key(
+            auto reference_id = sketch_external_reference_selection_id_from_key(
                 candidate.semantic_key);
             if(reference_id)if(const auto source=zima::sketcher::external_center_source(*reference_id))reference_id=std::string(*source);
             if (!reference_id) return;
@@ -973,7 +990,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (candidate.kind ==
                     zima::viewer::CandidateKind::SketchExternalReference &&
                 candidate.owner_id == active_sketch_id_) {
-                auto reference_id = sketch_external_reference_id_from_key(
+                auto reference_id = sketch_external_reference_selection_id_from_key(
                     candidate.semantic_key);
                 if(reference_id)if(const auto source=zima::sketcher::external_center_source(*reference_id))reference_id=std::string(*source);
                 if (!reference_id) return;
@@ -1917,8 +1934,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                     item->data(0, Qt::UserRole + 4).toString().toStdString();
                 const bool dimension = role == QStringLiteral(
                     "part-sketch-dimension");
+                const auto* sketch = active_sketch();
+                const bool corner_dimension = dimension && sketch && std::ranges::any_of(
+                    sketch->corner_radii, [&](const auto& corner) { return corner.id == relation_id; });
                 viewer_->confirm_reference(sketch_id,
-                    (dimension ? "dimension:" : "constraint:") + relation_id,
+                    (corner_dimension ? "corner_dimension:" : dimension ? "dimension:" : "constraint:") + relation_id,
                     {}, dimension ? zima::viewer::CandidateKind::Dimension
                                   : zima::viewer::CandidateKind::SketchConstraint);
                 return;
@@ -2017,6 +2037,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                                     zima::sketcher::ExternalReferenceKind::Face
                                 ? "external_face:" + geometry_id
                                 : "external_edge:" + geometry_id;
+                    if (reference->broken) semantic_key += ":broken";
                 }
                 viewer_->confirm_reference(sketch_id, semantic_key, {}, candidate_kind);
                 // `confirm_reference()` deliberately does not re-enter the
@@ -2191,6 +2212,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-container" ||
+                item->data(0, Qt::UserRole + 3).toString() == "assembly-cut" ||
                 item->data(0, Qt::UserRole + 3).toString() ==
                     "part-hole-component") {
                 const auto owner_id =

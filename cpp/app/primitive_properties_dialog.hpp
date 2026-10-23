@@ -109,6 +109,7 @@ public:
     [[nodiscard]] double profile_plane_offset() const;
     void refresh_sketch_preview() { set_commit_required(true); notify_preview(); }
     [[nodiscard]] zima::document::HistoryContainer pending_value() const { return values(); }
+    [[nodiscard]] std::vector<std::string> selected_assembly_targets() const;
     bool set_feature_length_from_drag(std::size_t side,double coordinate,bool baseline_reversed);
     bool set_feature_angle_from_drag(std::size_t side,double angle,bool baseline_reversed);
     [[nodiscard]] double forward_extent_length() const;

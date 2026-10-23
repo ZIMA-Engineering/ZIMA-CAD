@@ -875,11 +875,11 @@ public:
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container, double through_all_span = 1000.0,
         double through_all_reverse_span = 0.0, double draft_angle_degrees = 0.0,
-        const PartDocument* reference_document = nullptr) const;
+        const PartDocument* reference_document = nullptr, double up_to_path_correction = 0.0) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container,
         const zima::kernel::ViewerMesh& through_all_input, double draft_angle_degrees = 0.0,
-        const PartDocument* reference_document = nullptr) const;
+        const PartDocument* reference_document = nullptr, double up_to_path_correction = 0.0) const;
     // A Body-local command carrier may use the containing Part for native
     // end-reference lookup. The profile and returned wire remain Body-local.
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> feature_preview_edges(

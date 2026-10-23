@@ -452,6 +452,13 @@ The previous/next choice columns select the retained side at each adjacent seam.
 follow source identities through reordering and native save/reopen. Ambiguous or
 disconnected chains are rejected with the affected row numbers.
 
+Tangent plane/cylinder and parallel-cylinder generators can form a limiting
+chain when the selected faces identify a unique continued branch. Their tangent
+seam uses **A**; explicit positive/negative normal-side choices belong to
+transverse intersections. Analytic supports can extend beyond their displayed
+trim; general free surfaces retain their actual trimmed domains. Selected face
+fragments may be separated when their continuations form the required chain.
+
 Each side's **Correction** advances or retreats along the operation path. For
 Extrusion it is a length; for Revolution it is an angle about the directed axis.
 It is independent of surface-normal thickness. Length and angle corrections
@@ -460,11 +467,22 @@ arithmetic, locking and Relations controls. Parameter inspection displays their
 signed Δ annotation. A corrected circular contact must stay within the same
 positive revolution; crossing zero or a complete turn is rejected.
 
-For multiple targets or a nonzero correction the draft wire shows the authored
-profile, with a notice that **OK** calculates the exact result. Use the eyes to
-inspect the target faces during entry. Reference clicks, reordering, inspection
-and numeric drafts do not calculate a solid. Cancel preserves the document;
+For multiple targets or a corrected Revolution, changing the definition schedules
+an exact private preview of the operation's own wire. Rapid edits are combined;
+outdated results are discarded. A failed calculation clears the wire and shows
+its status. A single-face Extrusion correction retains its analytical wire.
+Opening unchanged Properties reuses the calculated wire without a kernel call;
+an unavailable stored preview stays unavailable until an input changes. Use the
+eyes to inspect the target faces without calculating geometry. Preview work does
+not change the document or its Undo history. Cancel preserves the document;
 unchanged OK does not calculate geometry or add an Undo step.
+
+Part Feature **OK** can retain a structurally valid definition even when its
+geometry cannot be calculated. The Tree marks it as uncalculated and shows its
+error in the tooltip. Reopen Properties to repair it; Save/reopen and Undo/Redo
+preserve the failed definition. Invalid ownership or unresolved required source
+references still prevent confirmation. Assembly cuts keep their existing
+failure policy.
 
 A closed profile can create a solid or **Thin** walls. An open profile uses Thin.
 Choose first side, second side or symmetric thickness. The supported Thin input
@@ -604,18 +622,21 @@ letter height, consistent in Sketcher and Drawing.
 
 ### References
 
-**Reference** offers the current visible Body faces and persisted source edges,
-vertices and axes from valid source objects. A selected face fragment retains
-its visible geometry while its stored ancestry identifies the original source.
+**Reference** offers individual persisted source curves, points, axes and datum
+planes. A certified planar Body face supplies its infinite straight support in
+the Sketch plane. Analytic silhouette/generator curves are individual finite
+choices; selecting a curved face does not project its entire boundary. A selected
+face fragment retains its visible geometry while stored ancestry identifies its
+original source.
 The source must exist before the consuming feature's
 history boundary; a Sketch cannot depend on its own result. Construction geometry
 is also available subject to the same dependency checks.
 
 Hover/RMB/LMB use the common candidate list. A valid confirmation stores a
 read-only projection and the command remains active for further references.
-External curves and face boundaries are brown dashed lines; reference points are
-brown crosses. A face may contain several contours. Select/Delete removes the
-reference through the shared transaction.
+External curves are brown dashed lines; reference points are brown crosses.
+Select/Delete removes the reference through the shared transaction, including
+a broken red reference whose source is unavailable.
 
 References may come from other Assembly components while editing an exact active
 Part occurrence. They retain source and consumer identities, occurrence paths
@@ -626,8 +647,22 @@ At an explicit calculation/refresh boundary, the exact stored identity resolves
 again and updates the projection. Missing, ambiguous or degenerate sources are
 marked broken while retaining their last valid projection; they do not bind to
 nearby geometry. An axis perpendicular to the Sketch plane is a degenerate line
-projection and is rejected. A curved face can supply finite section branches;
-an axial plane through a cylinder, for example, yields two mantle boundaries.
+projection and is rejected.
+
+**Intersection → reference** intersects a selected face or exact curve with the
+active Sketch plane. A face supplies separate section branches; an axial plane
+through a cylinder, for example, yields two mantle boundaries. A native Sketch
+curve or authored 3D Curve supplies isolated associative points. Select the
+desired branch when several exist. A coincident curve interval has no unique
+point and is rejected. A short middle click returns from branch choice to source
+choice without removing existing references.
+
+**Intersection → contour** uses the same source/branch choice and creates linked
+native contour geometry; an isolated curve/plane contact creates a native point.
+Source geometry remains read-only. Save/reopen retains the exact source and
+selected branch. Missing or ambiguous branches retain their last point as broken
+references. Substantial changes to curve parameterization, contact orientation or
+root count can require reselection rather than silently switching to another root.
 
 Ordinary drawing, hover, tab changes and Properties opening do not trigger body
 calculation or a hidden dependency refresh. See [external reference geometry](CONTEXT_REFERENCE_GEOMETRY.md),
@@ -702,6 +737,14 @@ A reversible shared-corner radius is created by selecting two connected segments
 in Select mode and dragging their common point. The radius is retained as a Sketch parameter; its actual arc trims
 the two sides for profile calculation. See [Sketcher](SKETCHER.md)
 for the detailed corner workflow.
+
+Sketch **Mirror** copies selected native support legs together with their rounded
+corner treatments. Selecting a rounded corner includes its two support legs;
+selecting both legs includes their corner treatment. Corresponding source/copy
+radii remain linked. Original dimensions stay on the source. The intrinsic corner
+radius appears under Dimensions in the Tree; selecting and deleting that
+annotation hides the value while retaining the rounded geometry. Undo restores
+the annotation.
 
 ### Dimensions and selection
 

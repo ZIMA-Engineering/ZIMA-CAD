@@ -1,4 +1,5 @@
 #include <zima/document/feature_serialization.hpp>
+#include <zima/document/feature_up_to.hpp>
 #include <zima/document/part_document.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -27,6 +28,46 @@ FeatureParameters fixture() {
     }
     return p;
 }
+unsigned corrected_preview_matrix() {
+    unsigned cases=0;
+    for(bool reversed:{false,true})for(bool symmetric:{false,true})for(unsigned mode=0;mode<5;++mode)
+    for(double correction:{-2.,0.,1.25}) {
+        auto part=PartDocument::create_default();auto sketch=zima::sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_rectangle(-2,-1,2,1));
+        auto feature=PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
+        auto& parameters=feature.feature;parameters.reversed_sides=reversed;parameters.symmetric=symmetric;
+        parameters.result_type=mode==0?ProfileResultType::Solid:mode==1?ProfileResultType::Surface:ProfileResultType::Thin;
+        if(mode>=2){parameters.thin_mode=static_cast<ThinMode>(mode-2);parameters.thin_thickness=.25;}
+        for(std::size_t side=0;side<2;++side) {
+            auto& end=parameters.sides[side];end.operation=FeatureSideOperation::Extrusion;end.extrusion_extent=EndCondition::UpTo;
+            ExtrusionParameters::EndTarget target;target.kind=EndTargetKind::Plane;target.reference={"preview-source-"+std::to_string(side),"face",{}};
+            target.fallback_origin={0,0,parameters.side_direction_sign(side)*10};target.fallback_normal={0,0,1};
+            end.targets={target};end.up_to.length_correction=correction;
+        }
+        part.sketches={sketch};part.history={feature};BodyHistoryGraph graph;
+        static_cast<void>(graph.create_body("Preview"));graph.insert({PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        const auto original=part.serialized();const auto preview=part.feature_preview_edges(part.history.front());
+        check(!preview.empty()&&!feature_up_to_requires_exact_preview(parameters),"One-face correction lost its complete analytical wire");
+        bool start=false,end=false,connector=false;
+        for(const auto& edge:preview) {
+            check(edge.reference.owner_id==feature.id,"Correction preview contains a foreign source edge");
+            connector|=edge.reference.semantic_key=="preview:side";
+            for(const auto p:edge.points) {
+                const double distance=std::abs(p.z);
+                check(std::abs(distance)<1e-7||std::abs(distance-(10+correction))<1e-7,"Correction preview disagrees with the independently translated plane");
+                start|=distance<1e-7;end|=distance>1;
+            }
+        }
+        check(end&&connector&&(symmetric||start),"Corrected preview is only a flat profile");
+        check(part.serialized()==original,"Correction preview modified the document or source target");
+        const auto reopened=PartDocument::from_serialized(original);
+        const auto repeated=reopened.feature_preview_edges(reopened.history.front());
+        check(repeated.size()==preview.size(),"Reopening changed the correction preview");
+        ++cases;
+    }
+    return cases;
+}
+
 }
 int main(){try {
     unsigned cases=0;const auto base=fixture();
@@ -89,4 +130,6 @@ int main(){try {
         check(reopened.history.front().feature==feature.feature,"Native Part serialization lost Feature Up To intent");++cases;
     }
     std::cout<<"PASS "<<cases<<" Feature Up To definition checks: native round-trip, both corrections, reversal/symmetry, signed zero, semantic adjacency through reorder/removal and atomic invalid-data rejection.\n";
+    std::cout<<"PASS "<<corrected_preview_matrix()<<" single-face corrected wire checks: both directions/sides, symmetry, Solid/Surface/Thin, successive correction signs, immutable sources and native reopening.\n";
+
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

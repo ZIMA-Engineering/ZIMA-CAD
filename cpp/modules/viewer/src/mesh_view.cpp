@@ -329,6 +329,7 @@ struct MeshView::Impl {
     std::set<EdgeKey> feature_selected_edges;
     std::vector<zima::kernel::ViewerEdge> container_inspection_wire;
     std::function<std::vector<kernel::ViewerEdge>(const std::string&,const std::string&)> container_preview_provider;
+    std::function<bool(const std::string&,const std::string&)> container_preview_authoritative;
     std::optional<ViewerCandidate> inspected_container;
     std::optional<EdgeKey> container_color_key;
     std::vector<bool> container_color_edges;
@@ -585,7 +586,19 @@ struct MeshView::Impl {
 
     [[nodiscard]] bool has_authored_container_wire(const ViewerCandidate& candidate) const {
         const auto key=std::make_pair(candidate.owner_id,candidate.instance_path);
-        return original_container_edge_indices.contains(key)||edge_treatment_boundary_edge_indices.contains(key);
+        return original_container_edge_indices.contains(key)||edge_treatment_boundary_edge_indices.contains(key)||
+            (container_preview_authoritative&&container_preview_authoritative(candidate.owner_id,candidate.instance_path));
+    }
+
+    [[nodiscard]] std::optional<ViewerCandidate> authored_container_candidate(
+            const std::string& owner,const std::string& path = {}) const {
+        if(auto candidate=container_candidate(mesh,owner,path))return candidate;
+        // Tree selection can inspect an Assembly-owned tool even when its
+        // displayed faces belong to target occurrence paths or were consumed.
+        // This is an object selection, not a new selectable topology record.
+        if(container_preview_authoritative&&container_preview_authoritative(owner,path))
+            return ViewerCandidate{CandidateKind::Container,0.,0,owner,{},path,CandidateGeometry::Display};
+        return {};
     }
 
     [[nodiscard]] std::vector<kernel::ViewerEdge> container_preview_wire(
@@ -594,7 +607,7 @@ struct MeshView::Impl {
         if(owner.empty())return wire;
         if(container_preview_provider) {
             wire=container_preview_provider(owner,path);
-            if(!wire.empty())return wire;
+            if(!wire.empty()||(container_preview_authoritative&&container_preview_authoritative(owner,path)))return wire;
         }
         const auto key=std::make_pair(owner,path);
         const auto treatment=edge_treatment_boundary_edge_indices.find(key);
@@ -1781,8 +1794,10 @@ std::vector<zima::kernel::ViewerEdge> MeshView::confirmed_component_wire() const
 }
 
 void MeshView::set_container_preview_provider(std::function<std::vector<kernel::ViewerEdge>(
-        const std::string&,const std::string&)> provider) {
+        const std::string&,const std::string&)> provider,
+        std::function<bool(const std::string&,const std::string&)> authoritative) {
     impl_->container_preview_provider=std::move(provider);
+    impl_->container_preview_authoritative=std::move(authoritative);
     impl_->selected_source_key.reset();
     update();
 }
@@ -1810,7 +1825,7 @@ void MeshView::set_container_inspection_wire(std::vector<zima::kernel::ViewerEdg
 void MeshView::confirm_container(const std::string& owner_id) {
     impl_->container_inspection_wire.clear();
     impl_->inspected_container.reset();
-    auto candidate = container_candidate(impl_->mesh, owner_id);
+    auto candidate = impl_->authored_container_candidate(owner_id);
     if (!candidate) {
         clear_selection();
         return;
@@ -1857,7 +1872,7 @@ void MeshView::confirm_reference(const std::string& owner_id,
     ViewerCandidate candidate{kind, 0.0, 0, owner_id, semantic_key,
         instance_path, CandidateGeometry::Display};
     if(kind==CandidateKind::Container) {
-        const auto found=container_candidate(impl_->mesh,owner_id,instance_path);
+        const auto found=impl_->authored_container_candidate(owner_id,instance_path);
         if(!found)return clear_selection();
         candidate=*found;
     } else if (kind == CandidateKind::Vertex || kind == CandidateKind::SketchPoint ||
@@ -4299,10 +4314,10 @@ if (impl_->show_origins) {
     // zoom, rotation, repaint and reselecting it never project/rebuild its
     // segments. set_mesh invalidates this cache with its actual source data.
     std::optional<Impl::SourceWireKey> source_wire_key;
-    const bool inspecting_source=!impl_->container_inspection_wire.empty();
+    // Empty is also an authoritative inspection result. Its revision must
+    // invalidate a preceding nonempty batch, without reading the source twice.
+    const bool inspecting_source=impl_->inspected_container.has_value()||!impl_->container_inspection_wire.empty();
     if(inspecting_source)source_wire_key=Impl::SourceWireKey{"@inspection",{},impl_->inspection_wire_revision};
-    else if(impl_->inspected_container)
-        source_wire_key=Impl::SourceWireKey{impl_->inspected_container->owner_id,impl_->inspected_container->instance_path,0};
     else if(ordinary_preview_candidate)
         source_wire_key=Impl::SourceWireKey{ordinary_preview_candidate->owner_id,ordinary_preview_candidate->instance_path,0};
     if(source_wire_key&&source_wire_key!=impl_->selected_source_key) {

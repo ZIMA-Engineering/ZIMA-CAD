@@ -1,6 +1,8 @@
 #include "../modules/kernel_occt/src/ordered_up_to.hpp"
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/ordered_up_to_resolution.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/feature_rotation_direction.hpp>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -34,6 +36,29 @@ using namespace zima::kernel::detail;
 namespace {
 std::string active_case="ordered foundation";
 void check(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
+unsigned exact_preview_cases=0;
+void preview_matches_native(const zima::kernel::HistoryOperation& source,const zima::kernel::BodyResult& accepted) {
+    using namespace zima::kernel;
+    auto operation=source;FeatureGroupRequest group;
+    if(const auto* linear=std::get_if<ExtrusionRequest>(&source.primitive))group.children.push_back(feature_side_request(*linear,source.owner_id,FeatureSide::End));
+    else {
+        auto rotation=std::get<RevolutionRequest>(source.primitive);
+        // Standalone Forward/Reverse follows its axis; Feature sides follow
+        // the Sketch normal. Preserve the same physical direction in both.
+        rotation.feature_direction_reversed=feature_rotation_reversed(rotation);
+        group.children.push_back(feature_side_request(rotation,source.owner_id,FeatureSide::End));
+    }
+    operation.primitive=std::move(group);OcctKernel private_kernel;
+    const auto wire=private_kernel.calculate_feature_preview(operation,{});
+    check(!wire.empty(),"Exact native preview returned no wire");
+    std::vector<Vec3> expected,actual;
+    for(const auto& edge:accepted.mesh.edges)if(!edge.parameter_seam)expected.insert(expected.end(),edge.points.begin(),edge.points.end());
+    for(const auto& edge:wire){check(edge.reference.valid()&&edge.reference.owner_id==source.owner_id&&!edge.parameter_seam,"Exact native preview has an unnamed or foreign edge");actual.insert(actual.end(),edge.points.begin(),edge.points.end());}
+    const auto contained=[](const auto& points,auto p){return std::ranges::any_of(points,[&](auto q){return std::hypot(p.x-q.x,p.y-q.y,p.z-q.z)<1e-5;});};
+    for(const auto p:actual)check(contained(expected,p),"Exact native preview differs from the independently accepted solid wire");
+    for(const auto p:expected)check(contained(actual,p),"Exact native preview omitted an independently accepted solid edge");
+    ++exact_preview_cases;
+}
 struct Plane {double a,b;};
 TopoDS_Face face(Plane plane,double first,double last,bool reverse=false) {
     BRepBuilderAPI_MakePolygon polygon;
@@ -140,6 +165,28 @@ double clipped(const OrderedLimitResult& source,double correction,bool reverse_d
 }
 int main(){try {
     unsigned cases=0;Bnd_Box envelope;envelope.Update(-40,-40,-40,40,40,60);
+    for(unsigned flipped=0;flipped<4;++flipped)for(bool reverse_order:{false,true})for(bool separated:{false,true})
+    for(bool opposite_hemisphere:{false,true})for(double correction:{-1.,0.,1.}) {
+        active_case="authored tangent plane-cylinder";
+        auto plane=face({0,15},-5,0,flipped&1);
+        if(separated) {
+            BRepBuilderAPI_MakePolygon wire;for(const auto& p:std::array<gp_Pnt,4>{{{-5,-3,15},{0,-3,15},{0,-2,15},{-5,-2,15}}})wire.Add(p);
+            wire.Close();plane=BRepBuilderAPI_MakeFace(wire.Wire()).Face();if(flipped&1)plane.Reverse();
+        }
+        Handle(Geom_CylindricalSurface) cylinder=new Geom_CylindricalSurface(gp_Ax3({0,0,10},{0,1,0},{1,0,0}),5);
+        auto curved=BRepBuilderAPI_MakeFace(cylinder,-std::numbers::pi/2,opposite_hemisphere?std::numbers::pi/2:0,separated?4:-2,5,1e-7).Face();
+        if(flipped&2)curved.Reverse();
+        std::vector<OrderedLimitInput> inputs{{plane},{curved}};if(reverse_order)std::reverse(inputs.begin(),inputs.end());
+        const auto first=bytes(inputs[0].authored_face),second=bytes(inputs[1].authored_face);
+        const auto built=build_ordered_up_to(inputs,envelope,1e-7);
+        gp_Trsf advance;advance.SetTranslation({0,0,correction});const auto moved=transform_ordered_up_to(built,advance);
+        const auto prism=BRepPrimAPI_MakeBox(gp_Pnt(-2,0,0),4,3,30).Shape();
+        const double expected=3*(50+std::sqrt(21.)+12.5*std::asin(.4))+12*correction;
+        check(std::abs(clip_shape(moved.shell,prism,{-1,1,0})-expected)<1e-5,"Tangent limiting patches disagree with the independent circular integral");
+        check(bytes(inputs[0].authored_face)==first&&bytes(inputs[1].authored_face)==second,"Tangent sewing modified its source");
+        for(const auto& patch:built.patches)check(!patch.keep_previous_positive&&!patch.keep_next_positive,"Tangent seam invented a transverse retained-side choice");
+        ++cases;
+    }
     {
         // A surface can fit a plane within modeling tolerance while remaining
         // genuinely curved. Pole certification must preserve that small sag.
@@ -295,6 +342,7 @@ int main(){try {
         operation.boolean_tolerance=1e-7;OcctKernel kernel;
         auto calculated=kernel.evaluate_history({operation});
         check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Ordered native Extrusion request failed");
+        preview_matches_native(operation,calculated.back());
         kernel.ensure_body_properties(calculated.back());
         if(std::abs(calculated.back().volume-((kind==0?396.:408.)+36*correction))>1e-6)
             throw std::runtime_error("Native ordered Extrusion request disagrees with the independent volume");
@@ -335,6 +383,7 @@ int main(){try {
         HistoryOperation operation;operation.owner_id="limited-angular-feature";operation.primitive=request;operation.boolean_tolerance=1e-7;
         OcctKernel kernel;auto calculated=kernel.evaluate_history({operation});
         check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Ordered native Revolution request failed");
+        preview_matches_native(operation,calculated.back());
         kernel.ensure_body_properties(calculated.back());
         const double expected=angular_volume+3*(64-16)*.5*correction*std::numbers::pi/180;
         check(std::abs(calculated.back().volume-expected)<1e-6,
@@ -549,6 +598,7 @@ int main(){try {
         check(std::abs(edited.back().volume-expected)<1e-6,
             "Changed native source geometry did not invalidate and rebuild the exact limiter");++cases;
     }
+    std::cout<<"PASS "<<exact_preview_cases<<" exact native Feature preview comparisons: signed linear/angular corrections, both directions, mirrored limits, all accepted operand wire points and named source edges\n";
     std::cout<<"PASS "<<cases<<" ordered native patch-builder checks; automatic finite-plane extension, convex/concave chains, sphere/plane seam, explicit choice replay and opposite patches, all source orientations, reversed input order, mirrored/rotated clipping, actual native Extrusion/Revolution requests, signed corrections, cache identity and atomic rejection. Native Feature definitions, persistence and GUI acceptance remain separate.\n";
 }catch(const Standard_Failure& error){std::cerr<<active_case<<": OCCT failure: "<<error.GetMessageString()<<'\n';return 1;}
 catch(const zima::kernel::OrderedUpToError& error){std::cerr<<active_case<<": ordered failure="<<int(error.failure)<<" rows="<<error.row<<","<<error.other_row<<'\n';return 1;}

@@ -6605,9 +6605,25 @@ std::optional<zima::kernel::Vec3> profile_wall_start(
 std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
         const zima::sketcher::Sketch& evaluated_profile,
         double thickness, ThinMode mode, bool canonical_winding = false,
-        std::optional<zima::kernel::Vec3> start_point = std::nullopt) {
+        std::optional<zima::kernel::Vec3> start_point = std::nullopt,
+        std::vector<std::vector<std::size_t>>* junction_indices = nullptr) {
     auto source = profile_preview_source_edges(evaluated_profile);
     if (source.empty() || thickness <= 1.0e-12) return source;
+    std::vector<zima::kernel::Vec3> junctions;
+    std::vector<std::pair<zima::kernel::Vec3,zima::kernel::Vec3>> junction_tangents;
+    if(junction_indices)for(const auto& edge:source)if(!edge.points.empty()&&
+            !edge.reference.semantic_key.starts_with("circle:")&&
+            !edge.reference.semantic_key.starts_with("ellipse:")) {
+        junctions.push_back(edge.points.front());junctions.push_back(edge.points.back());
+        const auto separator=edge.reference.semantic_key.find(':');
+        if(separator!=std::string::npos)for(const auto& point:{edge.points.front(),edge.points.back()}) {
+            const auto local=evaluated_profile.local_point(point);
+            if(const auto tangent=evaluated_profile.curve_tangent_at_point(edge.reference.semantic_key.substr(separator+1),local[0],local[1])) {
+                const auto origin=evaluated_profile.world_point(0,0),along=evaluated_profile.world_point((*tangent)[0],(*tangent)[1]);
+                junction_tangents.push_back({point,{along.x-origin.x,along.y-origin.y,along.z-origin.z}});
+            }
+        }
+    }
     const auto distance = [](const auto& a, const auto& b) {
         return std::hypot(std::hypot(a.x-b.x, a.y-b.y), a.z-b.z);
     };
@@ -6665,13 +6681,29 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
                 normal.x*tangent.y-normal.y*tangent.x};
         }
         std::vector<zima::kernel::Vec3> result(count);
+        const auto native_side=[&](std::size_t index,zima::kernel::Vec3 fallback) {
+            // Use exact native tangents at a Sketch junction. Adjacent display
+            // chords would otherwise shift a rounded corner's rail sideways.
+            const zima::kernel::Vec3 along{fallback.y*normal.z-fallback.z*normal.y,
+                fallback.z*normal.x-fallback.x*normal.z,fallback.x*normal.y-fallback.y*normal.x};
+            double best=-1.;auto side=fallback;
+            for(const auto& [point,direction]:junction_tangents)if(distance(point,points[index])<=tolerance) {
+                const double length=std::hypot(direction.x,direction.y,direction.z);if(length<1e-12)continue;
+                const double alignment=(along.x*direction.x+along.y*direction.y+along.z*direction.z)/length;
+                if(std::abs(alignment)<=best)continue;best=std::abs(alignment);
+                const double scale=(alignment<0?-1.:1.)/length;
+                side={(normal.y*direction.z-normal.z*direction.y)*scale,
+                    (normal.z*direction.x-normal.x*direction.z)*scale,(normal.x*direction.y-normal.y*direction.x)*scale};
+            }
+            return side;
+        };
         for (std::size_t index = 0; index < count; ++index) {
             zima::kernel::Vec3 shift;
-            if (!closed && index == 0) shift = sides.front();
-            else if (!closed && index + 1 == count) shift = sides.back();
+            if (!closed && index == 0) shift = native_side(index,sides.front());
+            else if (!closed && index + 1 == count) shift = native_side(index,sides.back());
             else {
-                const auto& before = sides[(index + sides.size() - 1) % sides.size()];
-                const auto& after = sides[index % sides.size()];
+                const auto before = native_side(index,sides[(index + sides.size() - 1) % sides.size()]);
+                const auto after = native_side(index,sides[index % sides.size()]);
                 const double denominator = std::max(1.0e-6,
                     1.0 + before.x*after.x + before.y*after.y + before.z*after.z);
                 shift = {(before.x+after.x)/denominator,
@@ -6726,6 +6758,15 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
         }
         const auto first_role = first_is_inside ? "inside" : "outside";
         const auto second_role = first_is_inside ? "outside" : "inside";
+        if(junction_indices) {
+            std::vector<std::size_t> indices;
+            const auto count=closed?chain.size()-1:chain.size();
+            for(std::size_t i=0;i<count;++i)
+                if(std::ranges::any_of(junctions,[&](const auto& p){return distance(p,chain[i])<=tolerance;}))indices.push_back(i);
+            if(indices.empty())indices=closed?std::vector<std::size_t>{count/4}:std::vector<std::size_t>{0,count-1};
+            junction_indices->push_back(indices);junction_indices->push_back(std::move(indices));
+            if(!closed){junction_indices->push_back({0,1});junction_indices->push_back({0,1});}
+        }
         result.push_back({std::move(first),
             {evaluated_profile.id, "thin:" + std::string(first_role), {}}});
         result.push_back({std::move(second),
@@ -6747,7 +6788,7 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container, double through_all_span,
     double through_all_reverse_span, double draft_angle_degrees,
-    const PartDocument* reference_document) const {
+    const PartDocument* reference_document, double up_to_path_correction) const {
     if (container.feature_kind != FeatureKind::Extrusion) return {};
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
@@ -6802,6 +6843,18 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         const auto n=reverse_target->fallback_normal;const double dot=n.x*unit.x+n.y*unit.y+n.z*unit.z;
         reverse_target->fallback_normal={n.x-2*dot*unit.x,n.y-2*dot*unit.y,n.z-2*dot*unit.z};
         for(auto& p:reverse_target->fallback_triangles)p=reflect(p);
+    }
+    if(up_to_path_correction!=0) {
+        // Translate the resolved support along the sweep, as in the exact
+        // ordered-limit calculation. This is a transient viewer copy only.
+        const auto advance=[&](auto& target,double sign) {
+            if(!target)return;
+            const auto move=[&](auto& point){point.x+=sign*unit.x*up_to_path_correction;
+                point.y+=sign*unit.y*up_to_path_correction;point.z+=sign*unit.z*up_to_path_correction;};
+            move(target->fallback_origin);for(auto& point:target->fallback_triangles)move(point);
+        };
+        if(forward_condition==EndCondition::UpTo)advance(forward_target,1.);
+        if(reverse_condition==EndCondition::UpTo)advance(reverse_target,-1.);
     }
     const auto surface_distance=[&](const zima::kernel::Vec3& point,const zima::kernel::Vec3& ray,const std::vector<zima::kernel::Vec3>& triangles) {
         double nearest = std::numeric_limits<double>::infinity();
@@ -6883,12 +6936,16 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         for(const auto& edge:profile_preview_source_edges(evaluated_profile))
             for(const auto& point:edge.points){static_cast<void>(endpoint(point,true));static_cast<void>(endpoint(point,false));}
     }
+    std::vector<std::vector<std::size_t>> junction_indices;
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
         ? thin_profile_preview_edges(evaluated_profile,
               parameters.thin_thickness,
-              parameters.thin_mode, true, profile_wall_start(evaluated_profile,request))
+              parameters.thin_mode, true, profile_wall_start(evaluated_profile,request), &junction_indices)
         : profile_preview_source_edges(evaluated_profile);
+    std::set<std::array<double,6>> longitudinal_edges;
+    std::size_t source_index{};
     for (const auto& source : profile_edges) {
+        const auto index_in_profile=source_index++;
         if (source.points.size() < 2) continue;
         zima::kernel::ViewerEdge start = source;
         const auto profile_role = source.reference.semantic_key.starts_with("thin:")
@@ -6910,15 +6967,16 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             distance(source.points.front(), source.points.back()) <= 1.0e-7;
         const std::size_t distinct_count = closed
             ? source.points.size() - 1 : source.points.size();
-        // Match the compact OCCT rotational wire convention: a closed swept
-        // profile has its two end loops and one longitudinal connector.  A
-        // second, artificial opposite connector made the transient wire look
-        // unlike the calculated body.
-        const std::vector<std::size_t> samples = closed
+        // Thin offset chains retain the native curve junctions. Tessellation
+        // samples inside a circle/arc/spline are not longitudinal edges.
+        const std::vector<std::size_t> samples = thin&&index_in_profile<junction_indices.size()
+            ? junction_indices[index_in_profile] : closed
             ? std::vector<std::size_t>{distinct_count / 4}
             : std::vector<std::size_t>{0, source.points.size() - 1};
         for (const auto index : samples) {
             if(distance(start.points[index],end.points[index])<=1.0e-9)continue;
+            const auto a=start.points[index],b=end.points[index];
+            if(thin&&!longitudinal_edges.insert({a.x,a.y,a.z,b.x,b.y,b.z}).second)continue;
             result.push_back({{start.points[index], end.points[index]},
                               {container.id, "preview:side", {}}});
         }
@@ -6965,7 +7023,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container,
     const zima::kernel::ViewerMesh& through_all_input, double draft_angle_degrees,
-    const PartDocument* reference_document) const {
+    const PartDocument* reference_document, double up_to_path_correction) const {
     const auto& parameters = container.extrusion;
     const bool needs_input_bounds =
         parameters.extent == ExtrusionExtent::ThroughAll ||
@@ -6974,10 +7032,10 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
          parameters.extent_mode != ProfileExtentMode::Symmetric &&
          parameters.end_condition_reverse == EndCondition::ThroughAll);
     if (!needs_input_bounds) {
-        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document);
+        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document,up_to_path_correction);
     }
     if (through_all_input.vertices.empty()) {
-        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document);
+        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document,up_to_path_correction);
     }
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
@@ -7018,7 +7076,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const double margin = std::max(1.0, diagonal * 1.0e-4);
     return extrusion_preview_edges(container,
         std::max(1.0, farthest_forward + margin),
-        std::max(1.0, farthest_reverse + margin),draft_angle_degrees,reference_document);
+        std::max(1.0, farthest_reverse + margin),draft_angle_degrees,reference_document,up_to_path_correction);
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
@@ -7537,23 +7595,10 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
     if(container.feature_kind!=FeatureKind::Feature || container.feature.type!=FeatureType::Modeling)return {};
     const auto& definition=container.feature;
     validate_feature_parameters(definition);
+    if(feature_up_to_requires_exact_preview(definition))return {};
     std::array<double,2> rotation_angles{};
     const auto sketch=std::ranges::find(sketches,definition.sketch_id,&zima::sketcher::Sketch::id);
     if(sketch==sketches.end())return {};
-    if(feature_uses_extended_up_to(definition)) {
-        // The draft is explicitly labelled as a profile preview. Building a
-        // joined exact support here would put OCCT on row/field interaction.
-        auto profile=profile_preview_source_edges(sketch->evaluated_profile_sketch());
-        const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,
-            container.placement.rotation_y,container.placement.rotation_z});
-        const zima::kernel::Vec3 origin{container.placement.x,container.placement.y,container.placement.z};
-        for(auto& edge:profile) {
-            edge.reference={container.id,"preview:profile:"+edge.reference.semantic_key,{}};
-            if(sketch->owner_container_id!=container.id)for(auto& point:edge.points)
-                point=placement_transform_point(rotation,origin,point);
-        }
-        return profile;
-    }
     std::vector<zima::kernel::ViewerEdge> wire;
     for(std::size_t side=0;side<(definition.symmetric?1u:2u);++side) {
         const auto& settings=definition.effective_side(side);
@@ -7601,8 +7646,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
             p.direction=definition.side_direction_reversed(side)?ExtrusionDirection::Reverse:ExtrusionDirection::Forward;
             p.result_type=definition.result_type;p.thin_mode=definition.thin_mode;p.thin_thickness=definition.thin_thickness;
             p.extent_mode=definition.symmetric?ProfileExtentMode::Symmetric:ProfileExtentMode::OneSide;
-            p.end_condition_forward=settings.extrusion_extent;p.end_targets_forward=settings.targets;
-            edges=extrusion_preview_edges(operand,input,settings.draft_angle_degrees,reference_document);
+            p.end_condition_forward=settings.extrusion_extent;
+            p.end_targets_forward=settings.targets;
+            edges=extrusion_preview_edges(operand,input,settings.draft_angle_degrees,reference_document,settings.up_to.length_correction);
         } else {
             operand.feature_kind=FeatureKind::Revolution;
             auto& p=operand.revolution;p.sketch_id=definition.sketch_id;p.axis_segment_id=definition.axis_segment_id;
@@ -7713,12 +7759,16 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
         return limit?zima::kernel::rotation_target_preview_angle(point,request.axis_point,request.axis_direction,*limit):end_angle;
     };
     std::vector<zima::kernel::ViewerEdge> result;
+    std::vector<std::vector<std::size_t>> junction_indices;
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
         ? thin_profile_preview_edges(evaluated_profile,
               parameters.thin_thickness,
-              parameters.thin_mode, true, profile_wall_start(evaluated_profile,request))
+              parameters.thin_mode, true, profile_wall_start(evaluated_profile,request), &junction_indices)
         : profile_preview_source_edges(evaluated_profile);
+    std::set<std::array<double,3>> swept_points;
+    std::size_t source_index{};
     for (const auto& source : profile_edges) {
+        const auto index_in_profile=source_index++;
         if (source.points.size() < 2) continue;
         zima::kernel::ViewerEdge start;
         zima::kernel::ViewerEdge end;
@@ -7732,7 +7782,12 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
         }
         result.push_back(std::move(start));
         result.push_back(std::move(end));
-        for (const auto endpoint : {source.points.front(), source.points.back()}) {
+        const auto endpoints=parameters.result_type==ProfileResultType::Thin?junction_indices[index_in_profile]:
+            std::vector<std::size_t>{0,source.points.size()-1};
+        for (const auto index:endpoints) {
+            const auto endpoint=source.points[index];
+            if(parameters.result_type==ProfileResultType::Thin&&
+                    !swept_points.insert({endpoint.x,endpoint.y,endpoint.z}).second)continue;
             const auto sweep_end=angular_end(endpoint);
             zima::kernel::ViewerEdge sweep;
             sweep.reference = {container.id, "preview:sweep", {}};

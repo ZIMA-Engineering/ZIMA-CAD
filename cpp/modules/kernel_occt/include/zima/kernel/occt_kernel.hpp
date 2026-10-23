@@ -55,6 +55,18 @@ public:
     // Returns exact curves/points with native ancestry; source stays read-only.
     [[nodiscard]] ViewerReferenceGeometry intersect_face_plane(
         const BodyResult&,const FacePlaneIntersectionRequest&) const;
+    // Explicit, private Feature calculation for an editing preview. Reuses
+    // ordinary primitive/limit algorithms without applying the Body Boolean
+    // or evaluating another history row. Sources remain immutable.
+    [[nodiscard]] std::vector<ViewerEdge> calculate_feature_preview(
+        HistoryOperation,const BodyResult& references,
+        KernelRigidPlacement frame_to_document={},const BodyResult& local_input={},
+        const std::vector<OrderedUpToPatch>& external_sources={}) const;
+    // The accepted Assembly cutter uses the same source/bounds preparation as
+    // the exact draft, and additionally retains its complete native solid.
+    [[nodiscard]] BodyResult calculate_feature_tool(
+        HistoryOperation,const BodyResult& references,KernelRigidPlacement frame_to_document,
+        const BodyResult& local_input,const std::vector<OrderedUpToPatch>& external_sources) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
@@ -101,6 +113,8 @@ public:
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
 
 private:
+    [[nodiscard]] BodyResult calculate_feature_geometry(HistoryOperation,const BodyResult&,
+        KernelRigidPlacement,const BodyResult&,const std::vector<OrderedUpToPatch>&,bool wire_only) const;
     struct NativeFaceSource;
     [[nodiscard]] NativeFaceSource native_face_source(const BodyResult&,const FaceReference&) const;
     struct HistoryContext;

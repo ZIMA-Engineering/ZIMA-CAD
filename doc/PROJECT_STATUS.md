@@ -32,13 +32,21 @@ Linux verification. The linked guides give supported cases and finite checks.
 
 Family Table is therefore an existing feature, not a future implementation task.
 
-The current development build also provides **Intersection reference** and
+The current development build also provides **Intersection → reference** and
 **Intersection → contour** in Sketcher. They select bounded native face/Sketch-plane
 branches and persist their exact source/branch definitions. Certified circles and
 arcs remain native conics. See the [finite editor matrix and limits](verification/20261022-sketch-intersection-editor.md).
+The approved curve/Sketch-plane extension adds isolated associative points from
+native Sketch and authored 3D curves, with conservative branch validation and
+authoritative unsaved Assembly sources. Rounded Sketch Mirror and intrinsic
+radius annotation deletion are also under final verification; see the
+[point/mirror record](verification/20261023-curve-plane-points-and-rounded-mirror.md).
 This development status does not replace the immutable released build identified
 below or claim completion of portable release acceptance, Projection or view-relative
 H/V.
+The [2000.prtz follow-up](verification/20261023-2000-reference-and-up-to-corrections.md)
+records correction-wire, tangent-chain and intersection-reference fixes prepared
+for developer review before portable publication.
 Its linked editing and single-parent-file workflow were already included in
 [Windows 2026091508](releases/2026091508.md); later work extends and verifies it.
 Six old standalone primitives are removed; current modeling uses the Feature

@@ -58,17 +58,17 @@ void record_ordered_up_to_resolution(std::vector<ResolvedOrderedUpToLimit>* outp
     if(!output)return;
     bool seeded=definition.patches.size()>1&&!definition.primary_cap_source;
     for(std::size_t row=0;row<definition.patches.size();++row) {
-        seeded|=(row&&!definition.patches[row].keep_previous_positive)||
-            (row+1<definition.patches.size()&&!definition.patches[row].keep_next_positive);
+        seeded|=(row&&result.patches[row].keep_previous_positive&&!definition.patches[row].keep_previous_positive)||
+            (row+1<definition.patches.size()&&result.patches[row].keep_next_positive&&!definition.patches[row].keep_next_positive);
     }
     if(!seeded)return;
     ResolvedOrderedUpToLimit resolved{owner,region,{}};
     if(definition.patches.size()>1)resolved.primary_cap_source=definition.primary_cap_source?
         definition.primary_cap_source:std::optional<FaceReference>{definition.patches.front().source_reference};
     for(std::size_t row=0;row<definition.patches.size();++row) {
-        if(row)resolved.retained_patches.push_back({definition.patches[row].source_reference,
+        if(row&&result.patches[row].keep_previous_positive)resolved.retained_patches.push_back({definition.patches[row].source_reference,
             definition.patches[row-1].source_reference,*result.patches[row].keep_previous_positive});
-        if(row+1<definition.patches.size())resolved.retained_patches.push_back({definition.patches[row].source_reference,
+        if(row+1<definition.patches.size()&&result.patches[row].keep_next_positive)resolved.retained_patches.push_back({definition.patches[row].source_reference,
             definition.patches[row+1].source_reference,*result.patches[row].keep_next_positive});
     }
     output->push_back(std::move(resolved));
@@ -146,4 +146,9 @@ void clip_ordered_up_to_profile(PrimitiveData& result,const detail::OrderedLimit
     std::erase_if(result.edges,[&](const auto& value){return !actual.Contains(value.shape);});
     std::erase_if(result.vertices,[&](const auto& value){return !actual.Contains(value.shape);});
     result.shape=clip.Shape();
+    // Newly cut rims have no propagated edge parent. Complete their identity
+    // from the retained adjacent faces using the ordinary Boolean contract,
+    // before publishing either the native operand or its transient preview.
+    result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,cap.owner_id,role,named,result.vertices);
+    result.vertices=complete_boolean_vertices(result.shape,result.faces,result.edges,result.vertices,cap.owner_id,role);
 }
