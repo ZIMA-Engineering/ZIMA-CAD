@@ -3855,6 +3855,8 @@ if (impl_->show_origins) {
     const auto ordinary_preview_candidate=[&]()->std::optional<ViewerCandidate> {
         if(impl_->geometry_editing_presentation)return {};
         auto candidate=impl_->confirmed_candidate;
+        if((!candidate||candidate->kind==CandidateKind::Dimension)&&impl_->inspected_container)
+            candidate=impl_->inspected_container;
         if(!candidate&&!impl_->candidates.empty())candidate=impl_->candidates[impl_->active_candidate];
         if(candidate&&candidate->kind==CandidateKind::Container&&
             (candidate->semantic_key.empty()||candidate->semantic_key=="solid"||
@@ -5276,6 +5278,7 @@ if (impl_->show_origins) {
         // and hide a Point container's own marker -- the marker must
         // always stay on top, matching how the Origin's own point (drawn
         // even later, right below) is never hidden either.
+        std::vector<QPointF> ordinary_sketch_markers;
         if (points_visible) {
             for (const auto& point : impl_->mesh.points) {
                 if(!impl_->helper_point_visible(point))continue;
@@ -5439,7 +5442,8 @@ if (impl_->show_origins) {
                     // in viewer data and returns immediately when the dialog
                     // closes, preserving ordinary View-only editing.
                     if (!hidden_marker && !replaced_by_active_point_manipulator) {
-                        draw_circular_marker(painter, center, marker_color);
+                        if(ordinary_sketch_point)ordinary_sketch_markers.push_back(center);
+                        else draw_circular_marker(painter, center, marker_color);
                     }
                     if (!point.label.empty()) {
                         painter.setPen(QPen(replaced_by_active_point_manipulator
@@ -5918,6 +5922,10 @@ if (impl_->show_origins) {
                 }
             }
         }
+        // Whole-Sketch point feedback must also remain visible where a real
+        // native point coincides with a Body or document Origin marker.
+        for(const auto& center:ordinary_sketch_markers)
+            draw_circular_marker(painter,center,interaction::selected);
         if(impl_->command_snap_points_visible)for(const auto& point:impl_->command_snap_points) {
             const auto hovered=hovered_candidate();
             const bool hover=hovered && hovered->owner_id==point.reference.owner_id &&

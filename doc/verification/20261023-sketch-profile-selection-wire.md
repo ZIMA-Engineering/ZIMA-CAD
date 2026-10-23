@@ -122,10 +122,37 @@ unchanged; the new ownership lookup applies only to ordinary container preview.
 Framebuffer tests check every visible native point for hover, LMB confirmation
 after moving away, collapsed/expanded parent Tree rows, explicit Sketch-child
 selection and double-click inspection. An empty click clears their azure state
-without changing the document or scene revision. The synthetic spline and real
+without changing the document. Closing inspection can republish annotations.
+The synthetic spline and real
 user copy pass in both themes; light takes 3.478 s and dark 3.323 s. Exact native
 curve arrays, Tree ownership and unchanged upload counts still pass. The final
 full-window dark capture was visually reviewed: one correctly shaped azure
 curve and its five native point markers, without a duplicate foreground wire.
 Evidence: `build/sketch-point-color-gui.log`. No user-visible text or catalog key
 is added or changed.
+
+## Dimensioned and Origin-overlapping factory profiles
+
+The first packaged `b1b8157ff` candidate passed native smoke but was rejected by
+additional GUI acceptance: opening dimensions on BridgeLance's Sketch cleared
+the ordinary candidate while retaining inspection. The ordinary preview now
+uses the same inspected-container fallback as the established line selection
+path. Native point colors and the 3D Curve stroke therefore persist through
+double-click dimension inspection.
+
+The expanded DimpledHole check also found a native circle center coincident
+with an Origin. The final Origin reference layer covered that point's azure
+feedback. Selected native markers now draw once after that layer, retaining
+their exact positions, visibility and normal unselected appearance. Origin
+geometry and active command reference rules are unchanged.
+
+All four actual factory FORM definitions pass the full selection GUI scenario,
+including native rectangular and circular profiles, construction-only
+manufacturing-symbol profiles, explicit child rows, dimensions and empty-click
+clearing. Construction-only strokes use their native dashed painter and are
+not required to populate a solid GPU line batch. Profiles with no visible
+native point marker do not invent one; dedicated native fixtures still require
+real markers. DimpledHole takes 6.437 s, VentilationWindow 6.714 s and
+CornerGusset90 3.963 s. The protected user spline and synthetic spline also pass
+again. Evidence: `build/sketch-inspection-color-gui.log`; the rejected candidate
+and `build/release-2301-rejected-b1-extra.log` retain the earlier failure.
