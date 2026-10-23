@@ -1047,3 +1047,19 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
 - The user approved the required native point-to-symbol data extension and
   affected factory title-block/start-template verification on 2026-10-19.
   Preserve custom user libraries and embedded user definitions.
+
+## Active production-test project protection (mandatory)
+
+- The user's first live construction project is
+  `C:/Users/vladi/Prace/ZIMA-Engineering/03-CAD/01-ACTIVE_PROJECTS/ZE0176-TOYOTA-G92K1X`.
+  Treat its native documents, dependencies and authored definitions as protected
+  user work. Use read-only inspection or isolated copies for investigations.
+- Before changing a native file format or a required persisted contract, notify
+  the user in advance and explicitly include this project in the existing
+  format-change agreement: inventory affected documents/dependencies, preserve
+  a verified recoverable backup, agree conversion scope, and verify native
+  reopening and affected modeling/reference operations on copies before
+  replacing any originals. Do not silently convert or overwrite the project.
+- This is a development and format-change safeguard, not a claim that a
+  background directory watcher or automatic backup service is running.
+- This requirement was requested by the user on 2026-10-23.

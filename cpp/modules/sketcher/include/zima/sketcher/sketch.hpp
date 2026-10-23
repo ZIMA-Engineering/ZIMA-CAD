@@ -804,7 +804,8 @@ public:
 private:
     [[nodiscard]] SolveResult solve_impl(
         std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
-        const std::vector<std::string>& preferred_point_ids = {});
+        const std::vector<std::string>& preferred_point_ids = {},
+        const std::string& preferred_radius_id = {});
     // Non-persisted exact-state cache. The key is the complete current ZIMA
     // Sketch serialization, so direct public-vector edits invalidate it too.
     std::string solved_rank_cache_key_;

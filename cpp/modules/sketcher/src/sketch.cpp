@@ -4216,7 +4216,8 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         if (dimension.suppressed || !dimension.driving || dimension.locked) continue;
         relaxed_dimension_ids.insert(dimension.id);
         dimension.driving = false;
-        if (dimension.kind == DimensionKind::DistanceLineSymmetric) {
+        if (dimension.kind == DimensionKind::DistanceLine ||
+            dimension.kind == DimensionKind::DistanceLineSymmetric) {
             for (const auto& line : {dimension.second_geometry_id, dimension.third_geometry_id}) {
                 if (line.empty()) continue;
                 SketchConstraint parallel;
@@ -7457,19 +7458,7 @@ CornerFilletResult Sketch::add_corner_fillet(
             *this = std::move(next);
             return {{}, {}, {}};
         }
-        const auto id = existing->id;
-        existing->radius = 0.0;
-        existing->suppressed = false;
-        for (auto& dimension : next.dimensions) {
-            if (dimension.geometry_id == id &&
-                (dimension.kind == DimensionKind::Radius ||
-                 dimension.kind == DimensionKind::Diameter)) {
-                dimension.value = 0.0;
-            }
-        }
-        next.validate();
-        *this = std::move(next);
-        return {id, {}, {}};
+        radius = 0.0;
     }
     // Validate the value by evaluating it transactionally, without modifying
     // the persisted source graph.
@@ -7484,8 +7473,8 @@ CornerFilletResult Sketch::add_corner_fillet(
         return std::ranges::any_of(next.corner_radii,[&](const auto& corner){return corner.id==dimension.geometry_id;});
     });
     evaluated.corner_radii.clear();
-    const auto materialized = materialize_corner_fillet(
-        evaluated, first_segment_id, second_segment_id, radius, snap_tolerance);
+    if (radius > 0.0) static_cast<void>(materialize_corner_fillet(
+        evaluated, first_segment_id, second_segment_id, radius, snap_tolerance));
     const std::string id = existing == next.corner_radii.end()
         ? make_id() : existing->id;
     if (existing == next.corner_radii.end()) {
@@ -7508,9 +7497,14 @@ CornerFilletResult Sketch::add_corner_fillet(
             return !constraint.suppressed && constraint.kind==ConstraintKind::EqualRadius &&
                 (constraint.geometry_id==id || constraint.second_geometry_id==id);
         })) {
-        const auto solved=next.solve();
-        if (solved.status==SolveStatus::Conflicting || solved.status==SolveStatus::Invalid)
+        // The edited corner owns this gesture, independently of equality
+        // insertion order. Driving dimensions and immutable supports retain
+        // priority; a rejected request must not silently restore an old radius.
+        const auto solved=next.solve_impl(100, true, {}, id);
+        if (solved.status==SolveStatus::Conflicting || solved.status==SolveStatus::Invalid ||
+            std::abs(*next.circular_radius(id)-radius)>1e-7)
             throw std::runtime_error("Corner radius conflicts with its equal-radius relation");
+        next.refresh_curve_dependencies();
         static_cast<void>(next.evaluated_profile_sketch());
     }
     *this = std::move(next);
@@ -10099,7 +10093,8 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
 
 SolveResult Sketch::solve_impl(
     std::size_t maximum_iterations, bool calculate_degrees_of_freedom,
-    const std::vector<std::string>& preferred_point_ids) {
+    const std::vector<std::string>& preferred_point_ids,
+    const std::string& preferred_radius_id) {
     if(std::ranges::any_of(external_references,has_frozen_support)) {
         // Solve against immutable last-known geometry without declaring its
         // source link resolved. Public reference queries still report it lost.
@@ -10107,7 +10102,7 @@ SolveResult Sketch::solve_impl(
         for(auto& reference:frozen.external_references)if(has_frozen_support(reference)) {
             unavailable.insert(reference.id);reference.broken=false;
         }
-        const auto result=frozen.solve_impl(maximum_iterations,calculate_degrees_of_freedom,preferred_point_ids);
+        const auto result=frozen.solve_impl(maximum_iterations,calculate_degrees_of_freedom,preferred_point_ids,preferred_radius_id);
         for(auto& reference:frozen.external_references)if(unavailable.contains(reference.id))reference.broken=true;
         *this=std::move(frozen);return result;
     }
@@ -10884,7 +10879,8 @@ SolveResult Sketch::solve_impl(
         if (auto corner = std::ranges::find_if(corner_radii,
                 [&](const auto& value) { return value.id == geometry_id && !value.suppressed; });
             corner != corner_radii.end()) {
-            if (corner->dimension_visible || !std::isfinite(target_radius) || target_radius <= tolerance)
+            if ((corner->dimension_visible && preferred_radius_id.empty()) ||
+                !std::isfinite(target_radius) || target_radius < 0.0)
                 return false;
             corner->radius=target_radius;
             return true;
@@ -11088,6 +11084,8 @@ SolveResult Sketch::solve_impl(
         radius_adjacency[relation.second_geometry_id].push_back(relation.geometry_id);
     }
     std::vector<std::pair<int,std::string>> radius_drivers;
+    if(radius_adjacency.contains(preferred_radius_id))
+        radius_drivers.emplace_back(3,preferred_radius_id);
     for(const auto& corner:corner_radii)if(!corner.suppressed&&corner.dimension_visible&&radius_adjacency.contains(corner.id))
         radius_drivers.emplace_back(3,corner.id);
     for(const auto& dimension:dimensions)if(!dimension.suppressed&&dimension.driving&&radius_adjacency.contains(dimension.geometry_id)&&

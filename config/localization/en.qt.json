@@ -2571,7 +2571,7 @@
   "intersection point": "intersection point",
   "The source curve lies in the Sketch plane over an interval; there is no unique intersection point.": "The source curve lies in the Sketch plane over an interval; there is no unique intersection point.",
   "Intersection: select a source face or curve.": "Intersection: select a source face or curve.",
-  "Intersection → reference": "Intersection → reference",
+  "Intersection": "Intersection",
   "Intersection → contour": "Intersection → contour",
   "Create an associative intersection curve or point from a face or curve and the Sketch plane.": "Create an associative intersection curve or point from a face or curve and the Sketch plane.",
   "Create linked native Sketch geometry from the selected intersection curve or point.": "Create linked native Sketch geometry from the selected intersection curve or point."

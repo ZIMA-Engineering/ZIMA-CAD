@@ -18,13 +18,17 @@ void near(double value, double expected, double relative = 1e-8) {
     if (!std::isfinite(value) || std::abs(value - expected) > std::max(1e-5, std::abs(expected) * relative))
         throw std::runtime_error("Expected " + std::to_string(expected) + ", got " + std::to_string(value));
 }
+double measured_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);return body.volume;
+}
 struct Fixture {
+    const kernel::OcctKernel& engine;
     workspace::Workspace live;
     command_host::Interaction interaction;
     fs::path directory;
     command_host::Host host;
     Fixture(const kernel::OcctKernel& kernel, const fs::path& directory)
-        : directory(directory), host(live, kernel, this->directory, options()) {}
+        : engine(kernel), directory(directory), host(live, kernel, this->directory, options()) {}
     command_host::Options options() {
         command_host::Options value;
         value.settings = [] { return command_host::Settings{{fs::absolute("config/templates"), "START_PART_mm.prtz", "START_ASSEMBLY_mm.asmz", "Body"}, {}}; };
@@ -37,7 +41,7 @@ struct Fixture {
         return result.data;
     }
     workspace::PartState& state() { return *live.open_part(live.active_document_id()); }
-    double volume() { return state().session.calculated_boundaries().back().volume; }
+    double volume() { return measured_volume(engine,state().session.calculated_boundaries().back()); }
     void reject(const std::string& command, Json args, const char* code) {
         const auto before = state().session.document(); const auto revision = state().session.revision();
         const auto* cache = state().session.calculated_boundaries().data();
@@ -121,7 +125,7 @@ void verify_sweep_references(const kernel::OcctKernel& kernel,const fs::path& di
     f.run("save");std::vector<kernel::BodyResult> saved_cache;
     const auto saved=document::PartDocument::load(directory/(name+".prtz"),&saved_cache);
     require(saved.history==f.state().session.document().history&&!saved_cache.empty(),"Native Sweep lost original references or owned profiles");
-    near(saved_cache.back().volume,volume,helical?1e-3:1e-8);
+    near(measured_volume(kernel,saved_cache.back()),volume,helical?1e-3:1e-8);
     const auto body=saved.body_history.active_body_id();f.run("body.create",{{"name","Inactive reference test"}});
     f.reject(command,request,"inactive_body");f.run("body.activate",{{"body",body}});
 }
@@ -201,8 +205,8 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
     auto cold = saved;
     const auto recalculated = workspace::calculate_part_with_resolved_references(kernel, cold);
     require(cold.history == saved.history, "Cold calculation changed persisted Sweep frames or identities");
-    near(recalculated.back().volume, changed, helical ? 1e-3 : 1e-8);
-    near(reopened.back().volume, changed, helical ? 1e-3 : 1e-8);
+    near(measured_volume(kernel,recalculated.back()), changed, helical ? 1e-3 : 1e-8);
+    near(measured_volume(kernel,reopened.back()), changed, helical ? 1e-3 : 1e-8);
     f.run("body.create", {{"name", "Other"}});
     f.reject(prefix + ".set", {{"container", id}, {"name", "Inactive"}}, "inactive_body");
     f.run("body.activate", {{"body", body}});
@@ -567,7 +571,7 @@ void verify_planar_creation(const kernel::OcctKernel& kernel, const fs::path& di
                 f.run("save");auto saved=document::PartDocument::load(directory/"sweep2d-created.prtz");
                 require(saved.history==f.state().session.document().history && saved.sketches.empty(),"2D creation save changed the owned path or profile");
                 const auto cold=workspace::calculate_part_with_resolved_references(kernel,saved);
-                near(cold.back().volume,80*std::numbers::pi);
+                near(measured_volume(kernel,cold.back()),80*std::numbers::pi);
                 same_frame(sketcher::Sketch::from_serialized(saved.find_container(id)->sweep2d.path_sketch),expected);
             }
         } catch(const std::exception& error) {throw std::runtime_error("2D create frame scenario "+std::to_string(scenario)+": "+error.what());}
@@ -608,7 +612,7 @@ void verify_planar_curved_creation(const kernel::OcctKernel& kernel, const fs::p
     f.run("save");auto saved=document::PartDocument::load(directory/"sweep2d-created-arc.prtz");
     require(saved.history==f.state().session.document().history,"Arc path changed during native save");
     const auto cold=workspace::calculate_part_with_resolved_references(kernel,saved);
-    near(cold.back().volume,20*std::numbers::pi*std::numbers::pi,2e-3);
+    near(measured_volume(kernel,cold.back()),20*std::numbers::pi*std::numbers::pi,2e-3);
     f.run("undo");auto thin=create;thin["result_type"]="thin";thin["thin_mode"]="symmetric";thin["thickness_mm"]=.5;
     f.run("sweep2d.create",thin);near(f.volume(),10*std::numbers::pi*std::numbers::pi,2e-3);
 }
@@ -702,7 +706,7 @@ void verify_helical_creation(const kernel::OcctKernel& kernel, const fs::path& d
     f.run("save");auto saved=document::PartDocument::load(directory/"helical-created.prtz");
     require(saved.history==f.state().session.document().history && saved.sketches.empty(),"Helical save lost parameters or owned Sketch frames");
     const auto recalculated=workspace::calculate_part_with_resolved_references(kernel,saved);
-    near(recalculated.back().volume,volume(10),1e-3);
+    near(measured_volume(kernel,recalculated.back()),volume(10),1e-3);
     same_frame(sketcher::Sketch::from_serialized(saved.find_container(id)->helical.sketches[0]),base);
 }
 void verify_path_plane(const kernel::OcctKernel& kernel, const fs::path& directory) {

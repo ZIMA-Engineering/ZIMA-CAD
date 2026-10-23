@@ -61,10 +61,18 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Camera fixture View missing");
             const auto state=window.execute_console_command("documents").data;
             const auto verify=[&](bool right=true,bool up=true){std::cout<<"Check camera plane="<<int(plane)<<" placed="<<placed<<" right="<<right<<" up="<<up<<std::endl;check_sketch_entry_camera(application,*view,sketch.id,right,up);check(window.execute_console_command("documents").data==state,"Camera controls changed document revision");};
-            verify();window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,false);
-            window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify();
-            for(int i=0;i<4;++i){window.findChild<QAction*>("sketchRotateViewAction")->trigger();flush();if(i==3)verify();}
-            window.findChild<QAction*>("sketchNormalViewAction")->trigger();flush();verify();
+            const bool local_y_up=plane!=sketcher::SketchPlane::XZ;
+            verify(true,local_y_up);window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,!local_y_up);
+            window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,local_y_up);
+            for(int i=0;i<4;++i){window.findChild<QAction*>("sketchRotateViewAction")->trigger();flush();if(i==3)verify(true,local_y_up);}
+            window.findChild<QAction*>("sketchNormalViewAction")->trigger();flush();verify(true,local_y_up);
+            if(plane==sketcher::SketchPlane::XZ&&!placed) {
+                const auto camera=view->camera_state();const QQuaternion rotation(camera[0],camera[1],camera[2],camera[3]);
+                check(rotation.rotatedVector({1,0,0}).x()>1-1e-6&&rotation.rotatedVector({0,0,1}).y()>1-1e-6,
+                    "Explicit XZ does not show world X right and world Z up");
+                check(sketch.resolved_normal.y>1-1e-6&&sketch.resolved_y_axis.z<-1+1e-6,
+                    "XZ camera changed the persisted modeling basis or extrusion side");
+            }
             view->grabFramebuffer().save(QString::fromStdString((directory/("sketch-entry-view-"+std::to_string(cases)+".png")).string()));
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* cancel=buttons->button(QDialogButtonBox::Cancel)){cancel->click();flush();break;}

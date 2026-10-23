@@ -235,10 +235,13 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     // camera roll instead of replaying those Placement flags a second time.
     // Keep the resolved modeling frame; the viewing side is camera-only.
     zima::kernel::Vec3 screen_x = sketch->resolved_x_axis;
-    // Look toward the plane along -normal so resolved +X appears right and
-    // resolved +Y up. Drawing templates retain their right-anchored view;
-    // symbols already use this conventional local XY presentation.
-    if(!sketch->drawing_template||symbol_document_sketch())
+    // Explicit XZ retains its modeling normal +Y and local Y=-Z. View its
+    // other side so X is right and Z is up, without changing stored geometry,
+    // offset sides or extrusion direction. XY/YZ retain local +Y upward.
+    // Drawing templates retain their established right-anchored presentation.
+    const bool xz_world_view=!sketch->drawing_template && !sketch->plane_auto &&
+        sketch->plane==zima::sketcher::SketchPlane::XZ;
+    if((!sketch->drawing_template||symbol_document_sketch())&&!xz_world_view)
         direction={-direction.x,-direction.y,-direction.z};
     if (sketch_view_state_id_ != active_sketch_id_) {
         sketch_view_state_id_ = active_sketch_id_;

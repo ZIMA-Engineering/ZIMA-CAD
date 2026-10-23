@@ -22,6 +22,16 @@ inline QPointF dimension_screen_unit(QPointF a) {
     auto n = std::hypot(a.x(), a.y());
     return n > 1e-9 ? a / n : QPointF(1, 0);
 }
+inline QPointF dimension_readable_direction(QPointF direction) {
+    // Camera projection can leave a nominally vertical direction a few
+    // thousandths of a degree off-axis. Keep that text bottom-to-top on
+    // either side of vertical instead of letting numerical drift flip it.
+    constexpr double vertical_tolerance=1e-4;
+    if(direction.x() < -vertical_tolerance ||
+        (std::abs(direction.x())<=vertical_tolerance && direction.y()>0))
+        direction=-direction;
+    return direction;
+}
 // Invert the projected annotation plane. At an edge-on view the readable
 // measuring direction still permits dragging; use its one-dimensional measure.
 inline std::optional<QPointF> dimension_plane_drag(QPointF move,QPointF along,QPointF outward) {
@@ -149,7 +159,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         // The measured rim and the text shelf have independent grips. All
         // three RMB modes use this same radius and its drawing plane.
         auto text_direction=out.oblique?QPointF(1,0):along;
-        if(text_direction.x()<-1e-6||(std::abs(text_direction.x())<=1e-6&&text_direction.y()>0))text_direction=-text_direction;
+        text_direction=dimension_readable_direction(text_direction);
         const double radius=QLineF(a,b).length();
         double position=dimension_screen_dot(requested-a,along);
         const bool beyond=position>=radius*.5;
@@ -192,9 +202,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     const bool spatial_angular_text=angular&&angular_text_shelf;
     out.outside = out.oblique || radial || spatial_angular_text || std::abs(shift) > length / 2;
     auto text_direction = out.oblique || spatial_angular_text ? QPointF(1, 0) : along;
-    if (text_direction.x() < -1e-6 ||
-        (std::abs(text_direction.x()) <= 1e-6 && text_direction.y() > 0))
-        text_direction = -text_direction;
+    text_direction=dimension_readable_direction(text_direction);
     QPointF center = middle + along * shift;
     QPointF attachment;
     const bool planar_angular_text = angular && !angular_text_shelf;
@@ -231,8 +239,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
             out.curves.push_back(extension);
         }
         text_direction=dimension_screen_unit(-screen_u*std::sin(angle)+screen_v*std::cos(angle));
-        if(text_direction.x()<-1e-6||(std::abs(text_direction.x())<=1e-6&&text_direction.y()>0))
-            text_direction=-text_direction;
+        text_direction=dimension_readable_direction(text_direction);
         out.outside = false;
     }
     if (out.outside && !planar_angular_text) {

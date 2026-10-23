@@ -2973,7 +2973,7 @@ void MeshView::set_standard_view(StandardView view) {
             yaw = 90.0F; pitch = -90.0F;
             break;
         case StandardView::Top:
-            yaw = 180.0F; pitch = 0.0F;
+            yaw = 0.0F; pitch = 0.0F;
             break;
         case StandardView::Bottom:
             yaw = 180.0F; pitch = 180.0F;
@@ -3794,10 +3794,11 @@ if (impl_->show_origins) {
             impl_->program.setUniformValue("metallic",static_cast<float>(style.metallic));
             impl_->program.setUniformValue("color", color_vector(color));
         };
-        // Opaque geometry establishes depth first. Transparent geometry must
-        // neither hide later objects nor write depth when its alpha is zero.
+        // Surface alpha controls fill blending only. The separate edge-depth
+        // pass must include every surface, even a fully transparent one.
+        // During fill rendering only opaque geometry establishes depth.
         for (const auto& batch : impl_->surface_batches) {
-            if(batch.color.alpha()<255)continue;
+            if(!depth_only&&batch.color.alpha()<255)continue;
             set_material(batch);
             glDrawArrays(GL_TRIANGLES, static_cast<GLint>(batch.first * 3),
                 static_cast<GLsizei>(batch.count * 3));
@@ -4171,6 +4172,7 @@ if (impl_->show_origins) {
             // Default body fill matches Python's ViewerMesh surface color
             // #B9C2CC (zima_cad/viewer.py:565), not a hardcoded green.
             draw_triangles();
+            depth_prepass();
             draw_visible_lines();
             break;
         case DisplayMode::Shaded:
@@ -4391,7 +4393,7 @@ if (impl_->show_origins) {
         impl_->editing_origin_visible || axes_selectable ||
         std::any_of(impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [&](const auto& edge) {
             std::string source_key;
-            return kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:") &&
+            return kernel::construction_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:") &&
                 highlighted && candidate_recolors_wire_edge(*highlighted, edge);
         }) ||
         std::any_of(impl_->mesh.axes.begin(),impl_->mesh.axes.end(),[&](const auto& axis){
@@ -4821,7 +4823,8 @@ if (impl_->show_origins) {
                                 painter, project(axis.point), presentation_color);
                         }
                     }
-                    if (axis.reference.semantic_key.starts_with("centerline:from:centroid:")) {
+                    std::string axis_source_storage;
+                    if (kernel::construction_source_key(axis.reference.semantic_key,axis_source_storage).starts_with("centerline:from:centroid:")) {
                         // Profile axes extend 1 mm beyond each actual endpoint.
                         painter.setPen(QPen(presentation_color));
                         for(const double contact:{first + kernel::axis_display_overhang,
@@ -4972,7 +4975,7 @@ if (impl_->show_origins) {
             // width on every OpenGL driver.
             for (const auto& edge : impl_->mesh.edges) {
                 std::string source_key;
-                const auto datum_key=kernel::solid_state_source_key(edge.reference.semantic_key,source_key);
+                const auto datum_key=kernel::construction_source_key(edge.reference.semantic_key,source_key);
                 const bool centerline=datum_key.starts_with("centerline:from:");
                 const bool editing_curve = !impl_->editing_curve_owner.empty() &&
                     edge.display_owner_id == impl_->editing_curve_owner &&

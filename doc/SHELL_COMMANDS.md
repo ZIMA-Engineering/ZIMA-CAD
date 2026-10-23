@@ -7,8 +7,14 @@ and one Undo step.
 ## Inputs and example
 
 Shell removes material **inward**. Selected faces open the shell; an empty list
-creates a closed hollow body. Input must be one connected calculated body. OCCT
-geometric requirements are unchanged.
+creates a closed hollow body. A calculated Body may contain several disconnected
+solids. With selected opening faces, Shell hollows each solid owning an opening
+and retains the other solids unchanged. An empty opening list hollows all input
+solids. Multiple openings on one solid and consecutive Shell features use the
+same connected-solid algorithm. All selected solids succeed together or the
+operation is rejected without a partial commit. OCCT geometric requirements are
+unchanged. Zero-thickness **Surfaces from solid** retains its separate one-solid
+input contract.
 
 ```json
 {"command":"shell.faces","arguments":{}}
@@ -107,8 +113,9 @@ already passed. Logs: `build/shell-command-full-build.log`,
 After repair, complete model test passed **1/1** (0.75 s):
 `build/shell-command-curved-build.log`, `build/shell-command-curved-tests.log`.
 It covers two hollow-sphere radii, exact volume/face identities after saving, Shell
-after two vertical fillets with independent volume, and rejection of disconnected
-solids. Added open-hemisphere test passed **1/1** (0.78 s):
+after two vertical fillets with independent volume. At that checkpoint,
+disconnected solids were rejected; the current multi-solid behavior above
+supersedes that restriction. Added open-hemisphere test passed **1/1** (0.78 s):
 `build/shell-command-rim-build.log`, `build/shell-command-rim-tests.log`.
 Volume matches R10/R9 hemisphere difference, and both actual circular rims remain
 referenceable. Production code was unchanged between these runs.

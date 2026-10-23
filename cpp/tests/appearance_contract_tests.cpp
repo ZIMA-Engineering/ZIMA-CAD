@@ -12,11 +12,14 @@
 #include <QSpinBox>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QVariantAnimation>
 #include <iostream>
 #include <algorithm>
 #include <set>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/kernel/pattern_geometry.hpp>
+#include <zima/kernel/axis_display.hpp>
 using namespace zima;
 void require(bool ok, const char *message) {
   if (!ok)
@@ -30,9 +33,42 @@ void render() {
     QThread::msleep(5);
   }
 }
+void copied_axis_presentation() {
+  kernel::ViewerMesh source;
+  source.axes.push_back({{0,0,0},{1,0,0},12,{"source","axis:primary",{}}});
+  source.axes.push_back({{0,4,0},{1,0,0},12,{"source","centerline:from:centroid:profile",{}}});
+  kernel::ViewerEdge curve;curve.reference={"source","centerline:from:centroid:curve",{}};
+  curve.construction=curve.overlay=curve.dash_dot=true;
+  curve.points={{-5,-4,0},{0,-2,0},{5,-4,0}};source.edges.push_back(curve);
+  for(const bool mirror:{false,true}) {
+    kernel::PatternRequest pattern;pattern.linear[0].count=2;pattern.linear[0].spacing=20;
+    auto copied=mirror?kernel::mirrored_viewer_mesh(source,{{10,0,0},{1,0,0}},"copy"):
+      kernel::pattern_copy_mesh(source,pattern,1,"copy");
+    auto control=copied;
+    for(auto& axis:control.axes) {std::string storage;axis.reference.semantic_key=kernel::construction_source_key(axis.reference.semantic_key,storage);}
+    for(auto& edge:control.edges) {std::string storage;edge.reference.semantic_key=kernel::construction_source_key(edge.reference.semantic_key,storage);}
+    viewer::MeshView view;view.resize(600,450);view.set_candidate_filter([](const auto&){return false;});view.show();view.set_standard_view(viewer::StandardView::Top);
+    view.fit_points({{10,-10,0},{30,10,0}});
+    // Standard views animate for 850 ms; compare only the settled camera.
+    for(int frame=0;frame<4;++frame)render();
+    view.set_mesh(control,false);render();const auto expected=view.grabFramebuffer();
+    view.set_mesh(copied,false);render();
+    if(view.grabFramebuffer()!=expected) {
+      expected.save("pattern-axis-expected.png");view.grabFramebuffer().save("pattern-axis-actual.png");
+      std::cerr<<"Copied presentation mirror="<<mirror<<'\n';
+      throw std::runtime_error("Copied construction presentation differs from its source types");
+    }
+    view.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);render();
+    require(view.grabFramebuffer()!=expected,"Copied construction axes ignore visibility");
+    view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);render();
+    require(view.grabFramebuffer()==expected,"Copied axes do not restore after visibility toggle");
+  }
+  std::cout<<"Pattern/Mirror axes and curved centerlines: identical presentation and visibility toggles passed\n";
+}
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
   try {
+    copied_axis_presentation();
     kernel::Appearance a;
     a.body = {"#4DC57D5C", .12, 1};
     a.bodies["body"] = {"#225FC2", .3, 0};
@@ -204,6 +240,55 @@ int main(int argc, char **argv) {
     layers.triangles={0,1,2};layers.triangle_references={{"rear","face",{}}};
     sphere->set_mesh(layers,false);render();
     require(invisible_front==sphere->grabFramebuffer(),"Fully transparent surface occludes opaque geometry");
+    // Fill transparency must not change which native edges are occluded.
+    layers.triangles={0,1,2,3,4,5};
+    layers.triangle_references={{"rear","face",{}},{"front","face",{}}};
+    layers.edges={{{{-.5,0,0},{.5,0,0}},{"rear","edge",{}}},
+                  {{{-.5,-.4,1},{.5,-.4,1}},{"front","edge",{}}}};
+    sphere->set_mesh(layers,false);sphere->set_edge_color_override(QColor(255,0,255));
+    const auto edge_pixels=[](const QImage& image){
+        std::size_t count{};for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x){
+            const auto c=image.pixelColor(x,y);if(c.red()>180&&c.blue()>180&&c.green()<80)++count;
+        }return count;
+    };
+    std::map<viewer::DisplayMode,QImage> opaque_modes;
+    for(const int alpha:{255,77,0}) {
+        const auto color=QColor(90,110,140,alpha).name(QColor::HexArgb).toStdString();
+        sphere->set_body_surface_styles({color,.5,0});
+        for(const auto mode:{viewer::DisplayMode::Wire,viewer::DisplayMode::HiddenEdges,
+                viewer::DisplayMode::NoHiddenEdges,viewer::DisplayMode::ShadedWithEdges}) {
+            sphere->set_display_mode(mode);render();const auto image=sphere->grabFramebuffer();
+            if(alpha==255)opaque_modes.emplace(mode,image);
+            else if(mode!=viewer::DisplayMode::ShadedWithEdges)
+                require(image==opaque_modes.at(mode),"Surface alpha changed an edge-only display mode");
+            else require(edge_pixels(image)==edge_pixels(opaque_modes.at(mode)),"Transparent shaded fill exposed rear edges");
+        }
+    }
+    require(edge_pixels(opaque_modes.at(viewer::DisplayMode::Wire))>
+            edge_pixels(opaque_modes.at(viewer::DisplayMode::NoHiddenEdges))*1.5,
+        "No-hidden mode did not occlude the rear test edge");
+    require(edge_pixels(opaque_modes.at(viewer::DisplayMode::NoHiddenEdges))>5,
+        "No-hidden mode removed the visible front edge");
+    opaque_modes.at(viewer::DisplayMode::NoHiddenEdges).save("appearance-visible-edges.png");
+    sphere->set_edge_color_override({});sphere->set_display_mode(viewer::DisplayMode::Shaded);
+    if(const auto source=qEnvironmentVariable("ZIMA_VERIFY_TRANSPARENT_PART_FILE");!source.isEmpty()) {
+        std::vector<kernel::BodyResult> boundaries;
+        const auto part=document::PartDocument::load(std::filesystem::path(source.toStdWString()),&boundaries);
+        require(!boundaries.empty()&&!boundaries.back().mesh.triangles.empty(),"Supplied transparent Part has no cached faces");
+        viewer::MeshView actual;actual.resize(1000,800);actual.show();
+        actual.set_mesh(boundaries.back().mesh);actual.set_standard_view(viewer::StandardView::Isometric);
+        for(auto* animation:actual.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+        actual.set_body_surface_styles(part.appearance.body);
+        actual.set_display_mode(viewer::DisplayMode::NoHiddenEdges);render();
+        const auto transparent=actual.grabFramebuffer();transparent.save("supplied-part-visible-edges.png");
+        auto opaque=part.appearance.body;const QColor color(QString::fromStdString(opaque.color));
+        opaque.color=QColor(color.red(),color.green(),color.blue(),255).name(QColor::HexArgb).toStdString();
+        actual.set_body_surface_styles(opaque);render();
+        require(transparent==actual.grabFramebuffer(),"Supplied Part transparency changed visible edges");
+        actual.set_display_mode(viewer::DisplayMode::Wire);render();
+        require(transparent!=actual.grabFramebuffer(),"Supplied Part still shows every hidden edge");
+        std::cout<<"Supplied transparent Part: native cached faces, alpha-independent visible edges and distinct wire mode passed\n";
+    }
     QMouseEvent shortclick(QEvent::MouseButtonRelease, QPointF(20, 20),
                            QPointF(view.mapToGlobal(QPoint(20, 20))),
                            Qt::MiddleButton, Qt::NoButton, Qt::NoModifier);

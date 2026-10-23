@@ -2571,7 +2571,7 @@
   "intersection point": "точка пересечения",
   "The source curve lies in the Sketch plane over an interval; there is no unique intersection point.": "Участок исходной кривой лежит в плоскости эскиза; единственная точка пересечения не определена.",
   "Intersection: select a source face or curve.": "Пересечение: выберите исходную грань или кривую.",
-  "Intersection → reference": "Пересечение → ссылка",
+  "Intersection": "Пересечение",
   "Intersection → contour": "Пересечение → контур",
   "Create an associative intersection curve or point from a face or curve and the Sketch plane.": "Создаёт ассоциативную кривую или точку пересечения грани либо кривой с плоскостью эскиза.",
   "Create linked native Sketch geometry from the selected intersection curve or point.": "Создаёт связанную собственную геометрию эскиза из выбранной кривой или точки пересечения."

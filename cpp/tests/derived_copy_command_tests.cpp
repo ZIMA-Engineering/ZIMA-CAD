@@ -355,8 +355,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     near(assembly->session.document().find_occurrence(copied)->calculated_source->volume,2000);
     run(host,"pattern.set",{{"object",ring},{"count",4}});
     near(assembly->session.document().find_occurrence(ring)->calculated_source->volume,6000);
+    const auto persisted_source=document::PartDocument::load(dir/"simple-source.prtz");
+    const auto persisted_body=kernel.evaluate_history(persisted_source.kernel_operations()).back();
+    const auto persisted_x=extent(persisted_body,0);
     require(live.open_part(simple_id)->session.revision()==unsaved_revision&&live.open_part(simple_id)->session.is_dirty()&&
-        zima::test::profile_dimension(document::PartDocument::load(dir/"simple-source.prtz"),*document::PartDocument::load(dir/"simple-source.prtz").find_container(simple_box),0)==10,
+        std::abs(persisted_x.second-persisted_x.first-10)<1e-7,
         "Copy calculation saved, regenerated or edited the authoritative source Part");
 }
 }

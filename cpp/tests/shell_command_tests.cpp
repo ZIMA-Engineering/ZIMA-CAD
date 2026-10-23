@@ -28,10 +28,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto* state=live.open_part(live.active_document_id());const auto document_id=live.active_document_id();
     const auto body=state->session.document().body_history.active_body_id();
     require(host.execute_text("shell.create").code=="missing_input","Shell accepted an empty input");
-    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"},{"one_sided",true}}).data.at("container").get<std::string>();
     const auto face=[&](const char* key,const std::string& owner=std::string{}){const auto id=owner.empty()?box:owner;
         const auto& doc=live.open_part(live.active_document_id())->session.document();const auto* source=doc.find_container(id);
-        const auto identity=source&&source->feature_kind==document::FeatureKind::Extrusion&&std::string_view(key)!="missing"?test::profile_key(doc,id,key):std::string(key);
+        const auto identity=source&&(source->feature_kind==document::FeatureKind::Extrusion||source->feature_kind==document::FeatureKind::Feature)&&std::string_view(key)!="missing"?test::profile_key(doc,id,key):std::string(key);
         return Json{{"owner",id},{"key",identity}};};
     const auto top=face("z_max"),side=face("x_max"),bottom=face("z_min");
     const auto rev=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
@@ -69,7 +69,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(*loaded.find_container(id)==locked,"Shell native save lost properties/references");near(saved.back().volume,560);near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,560);
     // Select only the owning Body, including when another Body has an identical shape.
     const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body").get<std::string>();
-    const auto other_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container").get<std::string>();
+    const auto other_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"},{"one_sided",true}}).data.at("container").get<std::string>();
     const auto other_faces=run(host,"shell.faces").data;
     require(other_faces.at("total")==6&&std::ranges::all_of(other_faces.at("items"),[&](const auto& value){return value.at("owner")==other_box;}),"Shell mixed different Body inputs");
     require(host.execute({{"command","shell.set"},{"arguments",{{"container",id},{"faces",Json::array({top})}}}}).code=="inactive_body","Shell edited an inactive Body");
@@ -140,7 +140,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // removes solid volume without an offset calculation or a thickness field.
     run(host,"new",{{"type","part"},{"name","surface-shell"}});state=live.open_part(live.active_document_id());
     const auto skin_box=zima::test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
-        {{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+        {{"length_mm","10"},{"width_mm","10"},{"height_mm","10"},{"one_sided",true}}).data.at("container").get<std::string>();
     const auto skin_input=run(host,"shell.faces").data.at("items");
     const auto skin_id=run(host,"surface_shell.create").data.at("container").get<std::string>();
     const auto skin_definition=*state->session.document().find_container(skin_id);
@@ -197,7 +197,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,1000);
     require(std::ranges::any_of(state->session.calculated_boundaries().back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==unrelated.id&&ref.surface_result;}),
         "Solid extraction changed unrelated surface ownership");
-    // Two disconnected solids are not a valid single Shell input.
+    // An impossible thickness retains the whole multi-solid input atomically.
     run(host,"new",{{"type","part"},{"name","shell-disconnected"}});state=live.open_part(live.active_document_id());
     auto split=state->session.document();auto first=zima::test::rectangular_feature(split,{10,10,10});
     auto second=zima::test::rectangular_feature(split,{10,10,10});second.placement.x=30;
@@ -205,7 +205,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     split.resolve_constructions();
     auto split_results=kernel.evaluate_history(split.kernel_operations());state->session.commit(std::move(split),std::move(split_results));
     const auto split_revision=state->session.revision();const auto split_shape=state->session.calculated_boundaries().back().kernel_shape;
-    const auto failed=run(host,"shell.create").data.at("container").get<std::string>();
+    const auto failed=run(host,"shell.create",{{"thickness_mm",6}}).data.at("container").get<std::string>();
     require(state->session.revision()==split_revision+1&&state->session.document().find_container(failed)&&
         state->session.calculated_boundaries().back().calculation_errors.contains(failed)&&
         state->session.calculated_boundaries().back().kernel_shape==split_shape,"Disconnected Shell lost its definition or preceding geometry");
@@ -218,7 +218,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     state=live.open_part(live.active_document_id());
     const auto source_body=state->session.document().body_history.active_body_id();
     const auto source_box=test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
-        {{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+        {{"length_mm","10"},{"width_mm","10"},{"height_mm","10"},{"one_sided",true}}).data.at("container").get<std::string>();
     const auto destination=run(host,"body.create",{{"name","Linked skin"}}).data.at("body").get<std::string>();
     const auto source_faces=run(host,"shell.faces",{{"source_body",source_body}}).data.at("items");
     require(source_faces.size()==6,"External solid faces were not exposed without calculation");
@@ -283,9 +283,114 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(suppressed.find_container(extract)&&missing_input.back().calculation_errors.contains(extract),"Suppressed source aborts the Part or loses dependent definition/error");
 }
 }
+namespace {
+void verify_disconnected(const kernel::OcctKernel& kernel,fs::path directory) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return settings;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","disconnected-shell"}});
+    auto* state=live.open_part(live.active_document_id());
+    auto part=state->session.document();std::vector<std::string> boxes;
+    for(int i=0;i<3;++i) {
+        auto box=test::rectangular_feature(part,{20,16,12});box.placement.x=50*i;
+        boxes.push_back(box.id);part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
+    }
+    part.resolve_constructions();auto input=kernel.evaluate_history(part.kernel_operations());
+    near(input.back().volume,3*3840);state->session.commit(part,input);
+    const auto face=[&](int i,const char* side="z_max") {
+        return Json{{"owner",boxes[i]},{"key",test::profile_key(part,boxes[i],side)}};
+    };
+    const auto check=[&](double volume) {
+        const auto& result=state->session.calculated_boundaries().back();
+        require(result.calculation_errors.empty(),"Disconnected Shell retained a calculation error");near(result.volume,volume);
+    };
+    const auto untouched=[&](int i) {
+        const auto collect=[&](const kernel::ViewerMesh& mesh) {
+            std::set<std::string> values;
+            for(const auto& edge:mesh.edges)if(edge.reference.owner_id==boxes[i]) {
+                std::string value=edge.reference.semantic_key;
+                for(const auto& p:edge.points)value+='|'+std::to_string(p.x)+','+std::to_string(p.y)+','+std::to_string(p.z);
+                values.insert(std::move(value));
+            }return values;
+        };
+        const auto before=collect(input.back().mesh),after=collect(state->session.calculated_boundaries().back().mesh);
+        require(!before.empty()&&before==after,"Shell changed an unselected solid's exact edge geometry or references");
+    };
+    const auto first=run(host,"shell.create",{{"faces",Json::array({face(0)})}}).data.at("container").get<std::string>();
+    check(1068+2*3840);untouched(1);untouched(2);
+    const auto original=*state->session.document().find_container(first);
+    run(host,"undo");check(3*3840);run(host,"redo");check(1068+2*3840);
+    require(*state->session.document().find_container(first)==original,"Disconnected Shell Undo/Redo changed its definition");
+    const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
+    require(!run(host,"shell.set",{{"container",first},{"faces",Json::array({face(0)})}}).data.at("changed").get<bool>(),"Unchanged disconnected Shell committed");
+    require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Unchanged disconnected Shell recalculated");
+    for(const bool reverse:{false,true}) {
+        const auto faces=reverse?Json::array({face(1),face(0)}):Json::array({face(0),face(1)});
+        run(host,"shell.set",{{"container",first},{"faces",faces}});check(2*1068+3840);untouched(2);
+    }
+    run(host,"shell.set",{{"container",first},{"faces",Json::array({face(1)})}});check(1068+2*3840);untouched(0);untouched(2);
+    run(host,"shell.set",{{"container",first},{"faces",Json::array({face(0),face(0,"z_min"),face(1)})}});check(816+1068+3840);untouched(2);
+    run(host,"shell.set",{{"container",first},{"faces",Json::array({face(0)})}});
+    const auto second=run(host,"shell.create",{{"faces",Json::array({face(1)})}}).data.at("container").get<std::string>();
+    check(2*1068+3840);untouched(2);run(host,"undo");check(1068+2*3840);run(host,"redo");check(2*1068+3840);
+    run(host,"save");std::vector<kernel::BodyResult> stored;
+    auto reopened=document::PartDocument::load(directory/"disconnected-shell.prtz",&stored);
+    require(reopened.find_container(second)&&reopened.find_container(first),"Native reopen lost consecutive disconnected Shells");
+    const auto cold=kernel.evaluate_history(reopened.kernel_operations());near(cold.back().volume,2*1068+3840);
+    const auto identities=[](const kernel::BodyResult& result) {
+        std::set<std::pair<std::string,std::string>> values;
+        for(const auto& face:result.mesh.triangle_references)values.emplace(face.owner_id,face.semantic_key);
+        for(const auto& edge:result.mesh.edges)values.emplace(edge.reference.owner_id,edge.reference.semantic_key);
+        for(const auto& point:result.mesh.points)values.emplace(point.reference.owner_id,point.reference.semantic_key);
+        return values;
+    };
+    require(identities(cold.back())==identities(stored.back()),"Disconnected Shell cold regeneration changed native reference identities");
+    run(host,"undo");run(host,"shell.set",{{"container",first},{"faces",Json::array()}});check(3*1320);
+    run(host,"shell.set",{{"container",first},{"thickness_mm",2}});check(3*2304);
+    std::cout<<"Disconnected Shell: one/multiple/opposite openings, reversed order, untouched solids, consecutive Shells, closed walls, edits, no-op, Undo/Redo and cold identities passed\n";
+}
+void verify_supplied(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    const auto source=std::getenv("ZIMA_VERIFY_MULTISOLID_SHELL_FILE");if(!source)return;
+    const auto path=fs::u8path(source);std::vector<kernel::BodyResult> cached;
+    const auto same_volume=[](double actual,double expected) {
+        require(std::isfinite(actual)&&std::abs(actual-expected)<=std::max(1e-5,std::abs(expected)*1e-10),
+            "Supplied Shell cold volume differs from saved geometry");
+    };
+    auto part=document::PartDocument::load(path,&cached);
+    require(!part.history.empty()&&!cached.empty(),"Supplied Part has no calculated input");
+    if(part.history.back().feature_kind!=document::FeatureKind::Shell) {
+        const auto& mesh=cached.back().mesh;double bottom=std::numeric_limits<double>::infinity();
+        for(const auto& point:mesh.vertices)bottom=std::min(bottom,point.z);
+        std::map<std::pair<std::string,std::string>,kernel::FaceReference> unique;
+        for(std::size_t triangle=0;triangle<mesh.triangle_references.size();++triangle) {
+            bool planar=true;for(int i=0;i<3;++i)planar=planar&&std::abs(mesh.vertices.at(mesh.triangles.at(triangle*3+i)).z-bottom)<1e-6;
+            const auto& face=mesh.triangle_references[triangle];
+            if(planar&&face.valid())unique.emplace(std::pair{face.owner_id,face.semantic_key},face);
+        }
+        auto shell=document::PartDocument::create_shell_container();
+        for(const auto& [id,face]:unique)shell.shell.removed_faces.push_back(face);
+        part.insert_history_entry(document::PartHistoryKind::Feature,shell.id);part.history.push_back(shell);
+    }
+    const auto faces=part.history.back().shell.removed_faces;require(faces.size()>1,"Supplied Shell needs multiple opening faces");
+    for(std::size_t count=1;count<=faces.size();++count)for(const double thickness:{1.,3.,5.}) {
+        auto edited=part;edited.history.back().shell.thickness=thickness;
+        edited.history.back().shell.removed_faces.assign(faces.begin(),faces.begin()+count);
+        const auto result=kernel.evaluate_history(edited.kernel_operations());
+        require(result.back().calculation_errors.empty()&&result.back().volume>0&&result.back().volume<result[result.size()-2].volume,
+            "Supplied skeleton Shell failed one/multiple-solid opening calculation");
+        const auto copy=directory/("supplied-shell-"+std::to_string(count)+"-"+std::to_string(int(thickness))+".prtz");
+        edited.save(copy,result);std::vector<kernel::BodyResult> saved;const auto reopened=document::PartDocument::load(copy,&saved);
+        require(reopened.history.back().shell==edited.history.back().shell,"Supplied Shell native reopen changed its definition");
+        same_volume(saved.back().volume,result.back().volume);
+        const auto cold=kernel.evaluate_history(reopened.kernel_operations());same_volume(cold.back().volume,result.back().volume);
+        std::cout<<"Supplied skeleton openings="<<count<<" thickness="<<thickness<<" volume="<<result.back().volume<<" passed\n";
+    }
+}
+}
 int main(){try {
     kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-shell-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);
+    verify_disconnected(kernel,directory);verify_supplied(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Shell commands: independent wall volumes, real input faces, multiple bodies, history, locks, Undo and native round trip passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -552,7 +552,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         "sketchExternalProfileAction");
     sketch_external_profile_action_->setCheckable(true);
     sketch_external_profile_action_->setEnabled(false);
-    sketch_intersection_reference_action_=make_action(tr("Intersection → reference"),"sketch-reference");
+    sketch_intersection_reference_action_=make_action(tr("Intersection"),"sketch-reference");
     sketch_intersection_reference_action_->setObjectName("sketchIntersectionReferenceAction");
     sketch_intersection_reference_action_->setCheckable(true);
     sketch_intersection_reference_action_->setEnabled(false);

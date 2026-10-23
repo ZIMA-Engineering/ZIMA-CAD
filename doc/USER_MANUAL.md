@@ -486,8 +486,12 @@ failure policy.
 
 A closed profile can create a solid or **Thin** walls. An open profile uses Thin.
 Choose first side, second side or symmetric thickness. The supported Thin input
-is one continuous unbranched chain or one closed loop of segments, arcs, ellipses,
-elliptic arcs, splines and evaluated corner radii. Branches, disconnected chains,
+for each region is one continuous unbranched chain or one closed loop of segments,
+arcs, ellipses, elliptic arcs, splines and evaluated corner radii. Extrusion can
+contain several disconnected closed regions in the same profile. Closed regions
+use their finite interior consistently: One side grows inward, Other side grows
+outward and Symmetric straddles the profile, including mirrored loops. Open
+chains retain their directional side choice. Branches, disconnected open chains,
 collapsed offsets or self-intersections are rejected. **Surface** creates uncapped
 zero-volume geometry through the profile Feature's existing result selection.
 
@@ -649,13 +653,19 @@ marked broken while retaining their last valid projection; they do not bind to
 nearby geometry. An axis perpendicular to the Sketch plane is a degenerate line
 projection and is rejected.
 
-**Intersection → reference** intersects a selected face or exact curve with the
+**Intersection** intersects a selected face or exact curve with the
 active Sketch plane. A face supplies separate section branches; an axial plane
 through a cylinder, for example, yields two mantle boundaries. A native Sketch
 curve or authored 3D Curve supplies isolated associative points. Select the
 desired branch when several exist. A coincident curve interval has no unique
 point and is rejected. A short middle click returns from branch choice to source
 choice without removing existing references.
+
+Universal dimension accepts a native point or segment against a valid straight
+Reference, including an infinite planar-face support and a straight Intersection
+branch. Both selection orders use the same read-only support. Parallel lines
+offer distance; nonparallel lines offer angle. Curved reference display chords
+and broken references are not offered as straight dimension supports.
 
 **Intersection → contour** uses the same source/branch choice and creates linked
 native contour geometry; an isolated curve/plane contact creates a native point.
@@ -1432,6 +1442,11 @@ Pattern count includes the source: 4 means three additional copies. Copied geome
 is edited at the source; container Properties edits placement, source and copy
 parameters. OK commits and Cancel discards changes. Switching pattern mode retains
 its other saved axis settings.
+
+Feature copies also retain the source's generated construction axes, enabled
+Origin/centroid centerlines and associated points at each transformed position.
+The ordinary Axes and Points visibility controls apply to these copies. Changing
+the source definition takes effect through explicit regeneration.
 
 Activating an earlier source body shows its calculated geometry before downstream
 operations; later bodies, Booleans, Mirrors and Patterns become passive in the

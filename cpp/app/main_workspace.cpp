@@ -6085,6 +6085,8 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "placed_sketch_reference_ui_verification.inc"
 #include "sketch_corner_chain_ui_verification.inc"
 #include "rolled_l_dimension_ui_verification.inc"
+#include "sketch_external_dimension_ui_verification.inc"
+#include "multisolid_shell_ui_verification.inc"
 #include "sketch_entry_view_ui_verification.inc"
 #include "sketch_equal_endpoint_ui_verification.inc"
 #include "sketch_external_constraints_ui_verification.inc"
@@ -9610,6 +9612,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MULTISOLID_SHELL_UI_FILE")) return verify_multisolid_shell_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_DIMENSION_FILE")) return verify_sketch_external_dimension_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROLLED_L_FILE")) return verify_rolled_l_dimension_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENTRY_VIEW_ONLY")) return verify_sketch_entry_view_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_CHAIN_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_CHAIN_ONLY")) return verify_sketch_corner_chain_ui(application,test_directory);

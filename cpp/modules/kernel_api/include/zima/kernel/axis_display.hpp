@@ -2,15 +2,41 @@
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/mirror_geometry.hpp>
 #include <limits>
 
 namespace zima::kernel {
 // Presentation only. Exact reference endpoints and samples remain unchanged.
 inline constexpr double axis_display_overhang = 1.0;
+// Decode presentation type only; keep the complete copied identity for picking.
+inline std::string_view construction_source_key(std::string_view key,std::string& storage) {
+    for(;;) {
+        key=solid_state_source_key(key,storage);
+        if(key.starts_with("pattern:")) {
+            const auto separator=key.find(':',8);
+            if(separator==std::string_view::npos)return key;
+            key.remove_prefix(separator+1);
+        }
+        if(!key.starts_with("mirror:from:"))return key;
+        const auto parent=mirror_parent_reference(std::string(key));
+        if(!parent)return key;
+        storage=parent->semantic_key;key=storage;
+    }
+}
 inline std::string axis_endpoint_parent_key(std::string_view key) {
     if(const auto parent=solid_state_parent(key)) {
         const auto source=axis_endpoint_parent_key(parent->second);
         return source.empty()?std::string{}:solid_state_child_key(parent->first,source);
+    }
+    std::string prefix;
+    if(key.starts_with("pattern:")) {
+        const auto separator=key.find(':',8);
+        if(separator==std::string_view::npos)return {};
+        prefix=key.substr(0,separator+1);key.remove_prefix(separator+1);
+    }
+    if(key.starts_with("mirror:from:"))if(const auto parent=mirror_parent_reference(std::string(key))) {
+        const auto source=axis_endpoint_parent_key(parent->semantic_key);
+        return source.empty()?std::string{}:prefix+mirror_source_key(parent->owner_id,source);
     }
     for(const std::string_view prefix:{"profile:path-point:start:from:","profile:path-point:end:from:",
             "helical:axis-point:start:from:","helical:axis-point:end:from:"})
@@ -59,7 +85,7 @@ inline std::optional<std::array<Vec3,2>> axis_curve_overhang(const ViewerEdge& e
 }
 inline double axis_display_length(const ViewerAxis& axis) {
     std::string storage;
-    const auto key=solid_state_source_key(axis.reference.semantic_key,storage);
+    const auto key=construction_source_key(axis.reference.semantic_key,storage);
     // Calculated profile axes already include their fitted display margin.
     if(key=="axis:primary"||key.starts_with("axis:profile:")||key.starts_with("centerline:from:")||
        key.starts_with("origin:")||key.starts_with("sketch_axis:"))return axis.display_length;

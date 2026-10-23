@@ -5,6 +5,20 @@
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+// The picker and acceptance path must classify the same exact, read-only
+// supports. A sampled curved reference must never become a straight chord.
+std::optional<bool> external_dimension_line_kind(
+    const zima::sketcher::Sketch& sketch,const std::string& id) {
+    if(id=="sketch_origin")return false;
+    const auto found=std::ranges::find(sketch.external_references,id,
+        &zima::sketcher::SketchExternalReference::id);
+    if(found==sketch.external_references.end()||found->broken)return std::nullopt;
+    if(zima::sketcher::is_external_point_kind(found->kind)&&found->cached_points.size()==1)return false;
+    if(zima::sketcher::external_reference_line(*found))return true;
+    return std::nullopt;
+}
+}
 
 void AssemblyWorkspaceWindow::start_sketch_universal_dimension() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
@@ -114,6 +128,13 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
     }
     viewer_->set_selection_contract(kinds);
     const auto owner = active_sketch_id_;
+    std::map<std::string,bool> external_supports;
+    if(const auto* sketch=active_sketch()) {
+        external_supports.emplace("sketch_origin",false);
+        for(const auto& ref:sketch->external_references)
+            if(const auto kind=external_dimension_line_kind(*sketch,ref.id))
+                external_supports.emplace(ref.id,*kind);
+    }
     const auto references = refs;
     std::set<std::string> excluded_points;
     if (references.size() == 1 &&
@@ -132,7 +153,7 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
     const bool initial = references.empty() && !universal_pending_dimension_ &&
         universal_corner_radius_dimension_id_.empty();
     viewer_->set_candidate_filter(
-        [owner, references, excluded_points, initial](const auto& candidate) {
+        [owner, references, excluded_points, initial, external_supports](const auto& candidate) {
             if (candidate.owner_id != owner) return false;
             std::string id;
             UniversalDimensionReferenceKind kind{};
@@ -153,11 +174,13 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
                 id = candidate.semantic_key;
                 kind = UniversalDimensionReferenceKind::Line;
             } else if (candidate.kind == zima::viewer::CandidateKind::
-                           SketchExternalReference &&
-                       candidate.semantic_key ==
-                           "external_point:sketch_origin") {
-                id = "sketch_origin";
-                kind = UniversalDimensionReferenceKind::Point;
+                           SketchExternalReference) {
+                const auto decoded=sketch_external_reference_id_from_key(candidate.semantic_key);
+                if(!decoded)return false;
+                const auto found=external_supports.find(*decoded);
+                if(found==external_supports.end())return false;
+                id=*decoded;kind=found->second?UniversalDimensionReferenceKind::Line:
+                    UniversalDimensionReferenceKind::Point;
             } else if (initial && candidate.kind ==
                            zima::viewer::CandidateKind::Dimension &&
                        candidate.semantic_key.starts_with("dimension:")) {
@@ -277,10 +300,13 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
             next = {UniversalDimensionReferenceKind::Line,
                     candidate.semantic_key};
         } else if (candidate.kind == zima::viewer::CandidateKind::
-                       SketchExternalReference &&
-                   candidate.semantic_key ==
-                       "external_point:sketch_origin") {
-            next = {UniversalDimensionReferenceKind::Point, "sketch_origin"};
+                       SketchExternalReference) {
+            const auto id=sketch_external_reference_id_from_key(candidate.semantic_key);
+            if(!id)return;
+            const auto kind=external_dimension_line_kind(*sketch,*id);
+            if(!kind)return;
+            next={*kind?UniversalDimensionReferenceKind::Line:
+                UniversalDimensionReferenceKind::Point,*id};
         } else return;
 
         const bool repeated_first_line_for_symmetry =
@@ -319,14 +345,16 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         if (refs.empty()) {
             universal_dimension_references_.push_back(next);
             if (next.kind == UniversalDimensionReferenceKind::Line &&
-                !next.id.starts_with("sketch_axis:")) {
+                !next.id.starts_with("sketch_axis:") &&
+                !external_dimension_line_kind(*sketch,next.id).has_value()) {
                 universal_pending_dimension_ = sketch->create_segment_dimension(
                     next.id, zima::sketcher::DimensionKind::Distance);
             }
         } else if (refs.size() == 1 &&
                    refs[0].kind == UniversalDimensionReferenceKind::Line &&
                    next.kind == UniversalDimensionReferenceKind::Line) {
-            const bool next_axis = next.id.starts_with("sketch_axis:");
+            const bool next_axis = next.id.starts_with("sketch_axis:") ||
+                external_dimension_line_kind(*sketch,next.id)==std::optional<bool>{true};
             const auto reference_line_id = next_axis ? next.id : refs[0].id;
             const auto driven_line_id = next_axis ? refs[0].id : next.id;
             // Two parallel reference lines have no well-defined angle (it is

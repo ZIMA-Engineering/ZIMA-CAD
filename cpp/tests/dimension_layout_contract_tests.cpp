@@ -472,6 +472,35 @@ void verify_annotation_units() {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        {
+            viewer::MeshView view;view.resize(640,480);view.show();app.processEvents();
+            for(const auto projection:{viewer::ProjectionMode::Orthographic,viewer::ProjectionMode::Perspective}) {
+                view.set_projection_mode(projection);view.set_standard_view(viewer::StandardView::Top);
+                for(auto* animation:view.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                app.processEvents();
+                const auto xy=[&](QPointF screen) {
+                    const auto ray=view.ray_at(screen);require(ray.has_value(),"TOP ray missing");
+                    require(ray->second.z<0,"TOP is not looking from positive Z");
+                    const double t=-ray->first.z/ray->second.z;
+                    return kernel::dimension_add(ray->first,kernel::dimension_scale(ray->second,t));
+                };
+                const auto middle=xy({320,240}),right=xy({420,240}),up=xy({320,140});
+                require(right.x>middle.x&&up.y>middle.y,"TOP must show X right and Y up");
+                near(right.y,middle.y);near(up.x,middle.x);
+            }
+        }
+        for(const auto kind:{kernel::ViewerDimensionKind::Linear,kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter})
+            for(const double sign:{-1.,1.})for(const double drift:{-1e-5,0.,1e-5}) {
+                kernel::ViewerDimension source;source.kind=kind;source.plane_normal={0,0,1};
+                source.witness_first={0,0,0};source.witness_second={0,sign*20,0};
+                source.line_first=source.witness_first;source.line_second=source.witness_second;source.value=20;
+                const auto projected=[&](kernel::Vec3 p){return QPointF(p.x+drift*p.y,-p.y);};
+                const auto shown=viewer::dimension_presentation(source,projected,8,2,.75);
+                require(shown.valid&&shown.text_angle < -89.99&&shown.text_angle > -90.01,
+                    "Nominally vertical dimension text is not readable bottom-to-top");
+                require(source.value==20&&source.witness_second.y==sign*20,
+                    "Vertical text orientation changed dimension geometry");
+            }
         verify_spatial_angular_landing();
         verify_spatial_angular_view();
         // Polar grips change presentation only; circle radii and measured rays stay fixed.

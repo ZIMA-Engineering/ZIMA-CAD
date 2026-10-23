@@ -2571,7 +2571,7 @@
   "intersection point": "Schnittpunkt",
   "The source curve lies in the Sketch plane over an interval; there is no unique intersection point.": "Ein Abschnitt der Quellkurve liegt in der Skizzenebene; es gibt keinen eindeutigen Schnittpunkt.",
   "Intersection: select a source face or curve.": "Schnitt: Wählen Sie eine Quellfläche oder Quellkurve.",
-  "Intersection → reference": "Schnitt → Referenz",
+  "Intersection": "Schnitt",
   "Intersection → contour": "Schnitt → Kontur",
   "Create an associative intersection curve or point from a face or curve and the Sketch plane.": "Erstellt eine assoziative Schnittkurve oder einen Schnittpunkt einer Fläche oder Kurve mit der Skizzenebene.",
   "Create linked native Sketch geometry from the selected intersection curve or point.": "Erstellt verknüpfte native Skizzengeometrie aus der ausgewählten Schnittkurve oder dem Schnittpunkt."

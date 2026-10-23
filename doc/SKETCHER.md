@@ -1,12 +1,13 @@
 ﻿# ZIMA-CAD Sketcher
 
 Ordinary **Reference** selects one original edge/curve, vertex, axis or datum
-plane. It does not offer whole body faces; face selection belongs to the
-Face × Sketch-plane intersection command. Existing stored Face references retain
-their geometry and identity. **Reference to outline** keeps its separate actual
+plane. A certified planar body face may supply its infinite straight support in
+the Sketch plane; ordinary Reference does not project the whole face boundary.
+General face sections belong to the Face × Sketch-plane intersection command.
+Stored Face references retain their geometry and identity. **Reference to outline** keeps its separate actual
 body-edge contract. See the [entry correction and finite checks](verification/20261022-individual-sketch-reference-entry.md).
 
-**Intersection reference** calculates the selected face's actual intersection with
+**Intersection** calculates the selected face's actual intersection with
 the active Sketch plane. Select individual branches when several are offered.
 **Intersection → contour** creates associated native Sketch geometry from the
 same selection. Certified circles/arcs retain their center and radius; genuine
@@ -130,6 +131,17 @@ when the scene is empty, the initial scale uses the monitor's physical DPI.
 Drawing and dimension entry preserve the user's camera rather than repeatedly
 fitting. Background geometry follows normal history visibility and rollback.
 H-Sweep additionally retains its other pending source Sketches as passive context.
+
+Default XZ entry shows world X to the right and world Z upward. This is a camera
+convention; the persisted Sketch frame, its normal and plane-offset direction
+remain unchanged. The common TOP model view shows X right and Y up. Vertical
+dimension text reads from bottom to top, including tiny camera-projection drift.
+
+Universal dimension accepts native points and segments against valid straight
+external supports in either selection order, including planar-face Reference and
+straight Intersection branches. Parallel line pairs retain parallelism when an
+unlocked distance follows dragging. Reference sources remain read-only; broken
+supports and curved display chords are excluded.
 
 ## Tool confirmation
 

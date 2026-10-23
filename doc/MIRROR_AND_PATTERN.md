@@ -5,6 +5,12 @@ placement. Select a source before starting or through the green Source field in 
 The Source label precedes its reference controls. Openings, including threaded
 openings, are valid solid sources; their copies subtract the source tool geometry.
 
+Feature copies transform the source's construction axes, enabled Origin/centroid
+centerlines and associated points together with its material geometry. This also
+applies when a source is another feature copy. Ordinary global visibility switches
+remain in control; a copy does not force hidden construction geometry to appear.
+After changing source display-generation options, use explicit Regenerate.
+
 - **Mirror Properties** offers only XY/YZ/XZ planes of its own Origin for the
   reflection plane, through both the View and Tree. Other Origins and planar
   solid faces are rejected. The XY/YZ/XZ buttons select the same local planes.

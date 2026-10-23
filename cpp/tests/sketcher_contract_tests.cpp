@@ -23,6 +23,7 @@
 #include "trimmed_rectangle_arc_study.hpp"
 #include "sketch_corner_annotation_study.hpp"
 #include "sketch_coordinate_incidence_study.hpp"
+#include "sketch_external_dimension_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -32,6 +33,7 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        run_sketch_external_dimension_study();
         run_sketch_corner_annotation_study();
         if(const auto* path=std::getenv("ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC"))return run_trimmed_rectangle_arc_study(path);
         if(std::getenv("ZIMA_CPP_VERIFY_ARC_AXIS_ONLY"))return run_native_arc_axis_study();
@@ -6144,7 +6146,7 @@ int main() {
         }
 
         for(const bool chain:{false,true})for(const bool reverse:{false,true})
-            for(std::size_t driver=0;driver<4;++driver)for(const bool fixed:{false,true})for(const int dimension_kind:{0,1,2})
+            for(std::size_t driver=0;driver<4;++driver)for(const bool fixed:{false,true})for(const int dimension_kind:{-2,-1,0,1,2})
                 for(const bool dimension_locked:{false,true}) {
                 auto rounded=zima::sketcher::Sketch::create_default();
                 const auto sides=rounded.add_rectangle(0,0,60,40);
@@ -6157,7 +6159,8 @@ int main() {
                 for(auto& point:rounded.points)point.fixed=fixed;
                 std::string dimension_id;
                 if(dimension_kind==0)rounded.corner_radii[driver].dimension_visible=true;
-                else {
+                else if(dimension_kind==-2)rounded.corner_radii[(driver+1)%4].dimension_visible=true;
+                else if(dimension_kind>0) {
                     auto dimension=dimension_kind==1?rounded.create_arc_radius_dimension(corners[driver]):rounded.create_arc_diameter_dimension(corners[driver]);
                     dimension.locked=dimension_locked;dimension_id=dimension.id;rounded.apply_dimension(dimension);
                 }
@@ -6168,8 +6171,8 @@ int main() {
                 }
                 const auto original_points=rounded.points;
                 const auto original_constraints=rounded.constraints;
-                for(const double radius:{5.,2.,4.}) {
-                    if(dimension_kind==0)static_cast<void>(rounded.add_corner_fillet(sides[driver],sides[(driver+1)%4],radius));
+                for(const double radius:{5.,0.,2.,0.,4.}) {
+                    if(dimension_kind<=0)static_cast<void>(rounded.add_corner_fillet(sides[driver],sides[(driver+1)%4],radius));
                     else require(rounded.set_dimension_value(dimension_id,radius*(dimension_kind==2?2:1)),"Four-corner radius dimension edit failed");
                     require(std::ranges::all_of(rounded.corner_radii,[&](const auto& corner){return std::abs(corner.radius-radius)<1e-7;}),
                         "Four rounded rectangle corners did not follow one driving radius");
@@ -6179,7 +6182,7 @@ int main() {
                     require(reopened.solve().status!=zima::sketcher::SolveStatus::Conflicting&&reopened.corner_radii==rounded.corner_radii,
                         "Four equal corner radii did not survive reopening");
                     const auto profile=reopened.evaluated_profile_sketch();
-                    require(profile.arcs.size()==4&&std::ranges::all_of(profile.arcs,[&](const auto& arc){return std::abs(arc.radius-radius)<1e-7;}),
+                    require(profile.arcs.size()==(radius==0?0:4)&&std::ranges::all_of(profile.arcs,[&](const auto& arc){return std::abs(arc.radius-radius)<1e-7;}),
                         "Materialized rounded rectangle disagrees with its driving radius");
                     for(const auto& arc:profile.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
                         const auto* center=profile.find_point(arc.center_point_id);const auto* point=profile.find_point(id);
@@ -6193,7 +6196,7 @@ int main() {
                     }
                 }
                 const auto saved=rounded.serialized();bool rejected=false;
-                if(dimension_kind==0)try {static_cast<void>(rounded.add_corner_fillet(sides[driver],sides[(driver+1)%4],30));}catch(const std::exception&){rejected=true;}
+                if(dimension_kind<=0)try {static_cast<void>(rounded.add_corner_fillet(sides[driver],sides[(driver+1)%4],30));}catch(const std::exception&){rejected=true;}
                 else rejected=!rounded.set_dimension_value(dimension_id,30*(dimension_kind==2?2:1));
                 require(rejected&&rounded.serialized()==saved,"Impossible equal corner radius was not rejected atomically");
                 const auto point=rounded.points.back();
@@ -6207,6 +6210,43 @@ int main() {
                         "Rectangle drag broke the connected equal-radius component");
                 }
             }
+        for(const bool external:{false,true})for(const bool reverse:{false,true}) {
+            auto rounded=zima::sketcher::Sketch::create_default();
+            const auto sides=rounded.add_rectangle(0,0,60,40);
+            std::vector<std::string> ids;
+            for(std::size_t i=0;i<4;++i)ids.push_back(rounded.add_corner_fillet(sides[i],sides[(i+1)%4],3).arc_id);
+            for(std::size_t i=1;i<4;++i)static_cast<void>(rounded.add_equal_radius_constraint(ids[0],ids[i]));
+            std::string support;
+            if(external) {
+                auto reference=zima::sketcher::Sketch::create_external_reference(zima::sketcher::ExternalReferenceKind::Edge);
+                reference.source_document_id="radius-support-document";reference.source_owner_id="radius-support-owner";reference.source_semantic_key="edge:circle";
+                for(int i=0;i<=32;++i){const double a=2*std::numbers::pi*i/32.;reference.cached_points.push_back({100+3*std::cos(a),100+3*std::sin(a)});}
+                support=reference.id;rounded.add_external_reference(reference);
+            } else support=rounded.add_circle(100,100,3);
+            static_cast<void>(rounded.add_equal_radius_constraint(reverse?support:ids[0],reverse?ids[0]:support));
+            const auto sources=rounded.external_references;
+            for(const double value:{5.,0.,2.}) {
+                const auto before=rounded.serialized();bool rejected=false;
+                try {static_cast<void>(rounded.add_corner_fillet(sides[2],sides[3],value));}catch(const std::exception&){rejected=true;}
+                if(external||value==0)require(rejected&&rounded.serialized()==before,"Immutable or zero-circle equality edit was not rejected atomically");
+                else require(!rejected&&std::abs(*rounded.circular_radius(support)-value)<1e-6&&
+                    std::ranges::all_of(rounded.corner_radii,[&](const auto& r){return std::abs(r.radius-value)<1e-6;}),"Corner gesture failed to drive a free native circular support");
+                require(rounded.external_references==sources,"Corner gesture modified read-only external geometry");
+            }
+        }
+        for(const bool locked:{false,true})for(const bool diameter:{false,true}) {
+            auto rounded=zima::sketcher::Sketch::create_default();const auto sides=rounded.add_rectangle(0,0,60,40);
+            const auto first=rounded.add_corner_fillet(sides[0],sides[1],3).arc_id;
+            const auto second=rounded.add_corner_fillet(sides[2],sides[3],3).arc_id;
+            static_cast<void>(rounded.add_equal_radius_constraint(first,second));
+            auto dimension=diameter?rounded.create_arc_diameter_dimension(first):rounded.create_arc_radius_dimension(first);
+            dimension.locked=locked;rounded.apply_dimension(dimension);
+            for(const double value:{5.,0.}) {
+                const auto before=rounded.serialized();bool rejected=false;
+                try {static_cast<void>(rounded.add_corner_fillet(sides[2],sides[3],value));}catch(const std::exception&){rejected=true;}
+                require(rejected&&rounded.serialized()==before,"Corner gesture escaped another member's driving R/D constraint");
+            }
+        }
         for(const std::size_t count:{3u,8u,16u})for(const bool reverse:{false,true})for(const bool diameter:{false,true}) {
             auto group=zima::sketcher::Sketch::create_default();std::vector<std::string> ids;
             for(std::size_t i=0;i<count;++i)ids.push_back(group.add_circle(20*static_cast<double>(i),0,3));

@@ -2571,7 +2571,7 @@
   "intersection point": "průsečík",
   "The source curve lies in the Sketch plane over an interval; there is no unique intersection point.": "Část zdrojové křivky leží v rovině skici; průsečík není jednoznačný.",
   "Intersection: select a source face or curve.": "Průnik: vyberte zdrojovou plochu nebo křivku.",
-  "Intersection → reference": "Průnik → reference",
+  "Intersection": "Průnik",
   "Intersection → contour": "Průnik → obrys",
   "Create an associative intersection curve or point from a face or curve and the Sketch plane.": "Vytvoří asociativní průsečnici nebo bod průniku plochy či křivky s rovinou skici.",
   "Create linked native Sketch geometry from the selected intersection curve or point.": "Vytvoří navázanou nativní geometrii skici z vybrané průsečnice nebo bodu průniku."

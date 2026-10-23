@@ -3,6 +3,8 @@
 #include <tuple>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
+#include <zima/kernel/pattern_geometry.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/workspace/workspace.hpp>
@@ -109,7 +111,74 @@ static void incremental_copy_sources() {
     std::get<kernel::ExtrusionRequest>(operations[3].primitive).direction.z=16;verify();
     close(result.back().body_outputs.at("cache-copy-body")->volume,256);
 }
+static void copied_construction_axes() {
+    for(const bool circular:{false,true})for(const bool extra:{false,true}) {
+        kernel::OcctKernel engine;
+        auto profile=static_cast<kernel::ExtrusionRequest>(test::CircularExtrusion{2,8});
+        std::get<kernel::ExtrusionRequest::CircleProfile>(profile.outer_profile).center={12,0,0};
+        profile.centerlines.origin_enabled=profile.centerlines.centroid_enabled=extra;
+        profile.centerlines.origin={12,0,0};profile.centerlines.profile_id="profile";profile.centerlines.origin_id="origin";
+        kernel::HistoryOperation source{"axis-source",profile};
+        kernel::HistoryOperation copy;copy.owner_id="axis-pattern";
+        kernel::BodyHistoryScope scope;scope.source_feature_id=source.owner_id;
+        scope.combination=kernel::BodyCombination::Pattern;
+        scope.pattern.circular=circular;scope.pattern.count=3;
+        scope.pattern.angle_degrees=90;scope.pattern.full_circle=false;
+        scope.pattern.linear[0].count=3;scope.pattern.linear[0].spacing=10;
+        copy.feature_copy=scope;
+        std::vector<kernel::HistoryOperation> operations{source,copy};
+        const auto result=engine.evaluate_history(operations);
+        const auto source_axes=std::ranges::count_if(result.back().mesh.original_references.axes,
+            [](const auto& a){return a.reference.owner_id=="axis-source";});
+        require(source_axes>0,"Source construction fixture has no axes");
+        const auto verify=[&](const kernel::BodyResult& body) {
+            const auto& axes=body.mesh.original_references.axes;
+            require(std::ranges::count_if(axes,[](const auto& a){return a.reference.owner_id=="axis-source";})==source_axes,
+                "Pattern changed the original axis");
+            require(std::ranges::count_if(axes,[](const auto& a){return a.reference.owner_id=="axis-pattern";})==2*source_axes,
+                "Pattern omitted or duplicated copied axes");
+            for(unsigned index=1;index<3;++index) {
+                const auto expected=kernel::pattern_point({12,0,4},scope.pattern,index);
+                const auto found=std::ranges::find_if(axes,[&](const auto& a){
+                    return a.reference.owner_id==copy.owner_id &&
+                        a.reference.semantic_key.starts_with("pattern:"+kernel::pattern_copy_id(scope.pattern,index)+":")&&
+                        a.reference.semantic_key.ends_with("axis:primary");});
+                require(found!=axes.end(),"Pattern axis lost its copy identity");
+                close(found->point.x,expected.x);close(found->point.y,expected.y);close(found->point.z,expected.z);
+                close(found->direction.z,1);
+                close(kernel::axis_display_length(*found),found->display_length);
+            }
+            for(const auto& point:body.mesh.original_references.points)if(point.reference.owner_id==copy.owner_id) {
+                const auto parent=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
+                if(!parent.empty())require(std::ranges::any_of(axes,[&](const auto& a){return a.reference.owner_id==copy.owner_id&&a.reference.semantic_key==parent;}),
+                    "Copied endpoint lost its parent axis identity");
+            }
+            const auto source_edges=std::ranges::count_if(body.mesh.original_references.edges,[](const auto& e){return e.construction&&e.reference.owner_id=="axis-source";});
+            const auto copied_edges=std::ranges::count_if(body.mesh.original_references.edges,[](const auto& e){return e.construction&&e.reference.owner_id=="axis-pattern";});
+            require(copied_edges==2*source_edges,"Pattern lost enabled origin/centroid centerlines");
+        };
+        verify(result.back());
+        verify(document::load_body_result(document::serialize_body_result(result.back())));
+        kernel::OcctKernel cold;verify(cold.evaluate_history(operations).back());
+        auto toggled=operations;
+        auto& settings=std::get<kernel::ExtrusionRequest>(toggled.front().primitive).centerlines;
+        settings.origin_enabled=settings.centroid_enabled=!extra;
+        kernel::OcctKernel fresh;
+        compare_calculation(engine.evaluate_history_incremental(toggled,result).back(),fresh.evaluate_history(toggled).back());
+        // A copy of a copy must retain the construction packet as its source.
+        auto nested=copy;nested.owner_id="nested-pattern";
+        nested.feature_copy->source_feature_id=copy.owner_id;
+        nested.feature_copy->pattern.circular=false;
+        nested.feature_copy->pattern.linear[0].spacing=60;
+        operations.push_back(nested);
+        const auto chained=engine.evaluate_history(operations).back();
+        require(std::ranges::count_if(chained.mesh.original_references.axes,[](const auto& a){return a.reference.owner_id=="nested-pattern";})==4*source_axes,
+            "Nested Pattern dropped construction axes");
+    }
+    std::cout<<"Linear/circular and nested Pattern construction axes passed\n";
+}
 int main(){try{
+    copied_construction_axes();
     incremental_copy_sources();
     kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;

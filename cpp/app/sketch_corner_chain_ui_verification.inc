@@ -27,7 +27,8 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
             auto profile=sketcher::Sketch::create_default();
             const auto sides=profile.add_rectangle(0,0,60,40);
             for(std::size_t i=0;i<4;++i)static_cast<void>(profile.add_corner_fillet(sides[i],sides[(i+1)%4],3));
-            profile.corner_radii.back().dimension_visible=true;
+            if(!qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_DRAG"))
+                profile.corner_radii.back().dimension_visible=true;
             auto feature=document::PartDocument::create_sketch_container();
             profile.owner_container_id=feature.id;
             part.history={feature};part.sketches={profile};document::BodyHistoryGraph graph;
@@ -175,6 +176,90 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
             }
             click(*hit,Qt::ControlModifier);
         };
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_DRAG")) {
+            const auto read_sketch=[&] {
+                auto data=nlohmann::json::parse(sketch.serialized());
+                for(const auto* key:{"points","segments","corner_radii","constraints","dimensions"})data[key]=nlohmann::json::array();
+                const auto entities=window.execute_console_command(QString::fromStdString("sketch.entities "+sketch.id));
+                check(entities.ok,"Equal corner query failed");
+                for(const auto& item:entities.data.at("items")) {
+                    const auto entity=window.execute_console_command(QString::fromStdString("sketch.entity.get "+sketch.id+" "+item.at("id").get<std::string>()));
+                    check(entity.ok,"Equal corner entity query failed");
+                    data.at(entity.data.at("collection").get<std::string>()).push_back(entity.data.at("entity"));
+                }
+                return sketcher::Sketch::from_serialized(data.dump());
+            };
+            const auto verify_radius=[&](double value) {
+                const auto snapshot=read_sketch();const auto* current=&snapshot;
+                const double actual=current->corner_radii.front().radius;
+                std::cout<<"Mouse radius requested "<<value<<" actual "<<actual<<std::endl;
+                check(std::abs(actual-value)<1e-3,"Corner mouse gesture missed its requested radius");
+                check(current->points==sketch.points&&current->segments==sketch.segments,
+                    "Equal corner drag changed authored supports");
+                check(std::ranges::all_of(current->corner_radii,[&](const auto& r){return std::abs(r.radius-actual)<1e-7;}),
+                    "Equal corner drag did not update all four radii");
+                check(std::ranges::count_if(current->constraints,[](const auto& c){return !c.suppressed&&c.kind==sketcher::ConstraintKind::EqualRadius;})==3,
+                    "Equal corner drag lost relation identities");
+                const auto profile=current->evaluated_profile_sketch();
+                check(profile.arcs.size()==(value==0?0:4),"Zero equal corners did not restore sharp geometry");
+                for(const auto& arc:profile.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+                    const auto* p=profile.find_point(id);const auto* center=profile.find_point(arc.center_point_id);
+                    check(p&&center&&std::abs(std::hypot(p->x-center->x,p->y-center->y)-actual)<1e-7,
+                        "Equal corner GUI violates the independent circle equation");
+                }
+            };
+            for(std::size_t i=0;i<4;++i)for(const double value:{5.,2.}) {
+                const auto& corner=sketch.corner_radii[i];
+                const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){
+                    return p.reference.owner_id==sketch.id&&p.reference.semantic_key=="corner_radius_handle:"+corner.id+":first";
+                });
+                check(point!=view->mesh().points.end(),"Dependent corner tangent handle missing");
+                const auto xy=sketch.local_point(point->position);const auto start=screen(xy[0],xy[1]);
+                const auto* vertex=sketch.find_point(corner.vertex_id);
+                std::array<double,2> offset{};
+                for(const auto& segment_id:{corner.first_segment_id,corner.second_segment_id}) {
+                    const auto segment=std::ranges::find(sketch.segments,segment_id,&sketcher::SketchSegment::id);
+                    const auto* other=sketch.find_point(segment->first_point_id==vertex->id?segment->second_point_id:segment->first_point_id);
+                    const double length=std::hypot(other->x-vertex->x,other->y-vertex->y);
+                    offset[0]+=(other->x-vertex->x)*value/length;offset[1]+=(other->y-vertex->y)*value/length;
+                }
+                const auto target=screen(vertex->x+offset[0],vertex->y+offset[1]);
+                mouse(start,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                mouse(start,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+                mouse(target,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+                mouse(target,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);flush();
+                std::cout<<"Equal corner mouse driver "<<i<<" R "<<value<<std::endl;
+                verify_radius(value);
+            }
+            // Collapse through a dependent handle, then recreate through the
+            // existing two-support gesture at a sharp authored vertex.
+            const auto& corner=sketch.corner_radii.back();
+            const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.semantic_key=="corner_radius_handle:"+corner.id+":first";});
+            check(point!=view->mesh().points.end(),"Collapse handle missing");
+            const auto xy=sketch.local_point(point->position);const auto* vertex=sketch.find_point(corner.vertex_id);
+            mouse(screen(xy[0],xy[1]),QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            mouse(screen(xy[0],xy[1]),QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            const auto sharp=screen(2*vertex->x-xy[0],2*vertex->y-xy[1]);
+            mouse(sharp,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+            mouse(sharp,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);flush();verify_radius(0);
+            select_segment(0);select_segment(3);
+            const auto* original=sketch.find_point(sketch.segments[0].first_point_id);
+            mouse(screen(original->x,original->y),QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            mouse(screen(original->x,original->y),QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            mouse(screen(original->x+4,original->y+4),QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+            mouse(screen(original->x+4,original->y+4),QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);flush();verify_radius(4);
+            view->grabFramebuffer().save(QString::fromStdString((directory/"equal-corner-drag.png").string()));
+            const auto expected=read_sketch().serialized();
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
+            check(window.execute_console_command("save").ok,"Equal corner drag save failed");
+            check(document::PartDocument::load(path).sketches.front().serialized()==expected,"Equal corner drag reopen changed identities");
+            check(window.execute_console_command("undo").ok&&window.execute_console_command("save").ok,"Equal corner revival Undo failed");
+            check(std::ranges::all_of(document::PartDocument::load(path).sketches.front().corner_radii,[](const auto& r){return r.radius==0;}),"Undo did not restore the entire sharp equality group");
+            check(window.execute_console_command("redo").ok&&window.execute_console_command("save").ok,"Equal corner revival Redo failed");
+            check(document::PartDocument::load(path).sketches.front().serialized()==expected,"Redo lost equal corner identities");
+            std::cout<<"Four-corner dependent mouse drags, zero, revival, equations, save/reopen and Undo/Redo passed\n";return 0;
+        }
         const bool rectangle_fixture=sketch.segments.size()==4;
         select_segment(rectangle_fixture?0:2);select_segment(rectangle_fixture?3:5);
         check(view->sketch_selection().size()==2,"Ctrl clicks did not select two native legs");
