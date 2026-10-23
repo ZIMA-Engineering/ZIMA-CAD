@@ -1,0 +1,300 @@
+{
+  "version": "2026102303",
+  "commit": "96c89fd2e73ad04b64327ac6b0c648aec6b99443",
+  "published_at": "2026-10-23T22:45:07Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102303",
+  "assets": [
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "6a611e5956d239a5475596c28810d39bbaa21fdb0f0664fd277e254ded2cf85e",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102303/update-manifest.json"
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "1b48cc269f647b2ef1fbfebbc38b136d548fe3ba81c4acdd401c6624eae4d139",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102303/update-manifest.sig"
+    },
+    {
+      "name": "ZIMA-CAD-2026102303.zip",
+      "size": 1070346798,
+      "sha256": "8d658ec60e7b2ee2506db1a16339c996ed29ca3cadf5e8fbe14ba88d8f288394",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102303/ZIMA-CAD-2026102303.zip"
+    }
+  ],
+  "candidate_gui": [
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 8.25
+    },
+    {
+      "name": "sketch-face-plane",
+      "exit": 0,
+      "seconds": 29.312
+    },
+    {
+      "name": "sketch-spline",
+      "exit": 0,
+      "seconds": 4.734
+    },
+    {
+      "name": "sketch-trimmed",
+      "exit": 0,
+      "seconds": 4.75
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 27.0
+    },
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 38.75
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 38.782
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 5.046
+    },
+    {
+      "name": "CornerGusset90",
+      "exit": 0,
+      "seconds": 3.969
+    },
+    {
+      "name": "DimpledHole",
+      "exit": 0,
+      "seconds": 6.297
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 6.813
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 2.859
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 114.469
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 22.078
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 9.75
+    },
+    {
+      "name": "multisolid-shell",
+      "exit": 0,
+      "seconds": 17.64
+    },
+    {
+      "name": "external-dimension",
+      "exit": 0,
+      "seconds": 44.891
+    },
+    {
+      "name": "sketch-entry",
+      "exit": 0,
+      "seconds": 41.844
+    },
+    {
+      "name": "equal-corner-drag",
+      "exit": 0,
+      "seconds": 8.219
+    },
+    {
+      "name": "equal-corner-dimension",
+      "exit": 0,
+      "seconds": 9.281
+    }
+  ],
+  "signed_gui": [
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 8.078
+    },
+    {
+      "name": "sketch-face-plane",
+      "exit": 0,
+      "seconds": 29.36
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 27.031
+    },
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 37.875
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 38.141
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 5.047
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 6.906
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 2.875
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 114.625
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 22.11
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 9.906
+    },
+    {
+      "name": "multisolid-shell",
+      "exit": 0,
+      "seconds": 18.937
+    },
+    {
+      "name": "external-dimension",
+      "exit": 0,
+      "seconds": 47.375
+    },
+    {
+      "name": "sketch-entry",
+      "exit": 0,
+      "seconds": 41.828
+    },
+    {
+      "name": "equal-corner-drag",
+      "exit": 0,
+      "seconds": 8.454
+    },
+    {
+      "name": "equal-corner-dimension",
+      "exit": 0,
+      "seconds": 9.625
+    }
+  ],
+  "factory_documents": 1185,
+  "exact_factory_resources": 7353,
+  "immutable_checksums": 17301,
+  "archive": {
+    "fileCount": 17302,
+    "name": "ZIMA-CAD-2026102303.zip",
+    "sha256": "8d658ec60e7b2ee2506db1a16339c996ed29ca3cadf5e8fbe14ba88d8f288394",
+    "size": 1070346798,
+    "unpackedSize": 5960348496
+  },
+  "production_trust": true,
+  "previous_updater": {
+    "availableVersion": "2026102303",
+    "downloadUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102303/ZIMA-CAD-2026102303.zip",
+    "event": "result",
+    "installable": true,
+    "installedVersion": "2026102301",
+    "manifest": {
+      "archive": {
+        "fileCount": 17302,
+        "name": "ZIMA-CAD-2026102303.zip",
+        "sha256": "8d658ec60e7b2ee2506db1a16339c996ed29ca3cadf5e8fbe14ba88d8f288394",
+        "size": 1070346798,
+        "unpackedSize": 5960348496
+      },
+      "channel": "stable",
+      "checksumsSha256": "ea7542c3bc24cfc5bf45517cf88c4d7a07f11bb68b26e1eb0c554e05b76273a5",
+      "commit": "96c89fd2e73ad04b64327ac6b0c648aec6b99443",
+      "launcherProtocol": 1,
+      "minimumUpdaterVersion": 1,
+      "platforms": {
+        "windows-x64": {
+          "entry": "zima-cad-cpp.exe",
+          "runtime": "windows/2026102303",
+          "systemPackages": []
+        }
+      },
+      "product": "ZIMA-CAD",
+      "schemaVersion": 1,
+      "source": {
+        "path": "source/2026102303",
+        "treeSha256": "544b536d11af4845cdce9fb199ccae9a292c47c37db496ac45ebefe54e8f4acc"
+      },
+      "tag": "ZIMA-CAD-2026102303",
+      "version": "2026102303"
+    },
+    "notes": "Windows portable release. Previous published archives remain immutable.\r\n\r\n- Equal Sketch corner radii support dragging dependent corners, consistent collapse to zero and subsequent restoration.\r\n- Point/segment dimensions accept planar Face References and straight Intersection supports in either selection order; unlocked distance dragging retains parallelism.\r\n- Positive Shell handles multiple disconnected solids atomically, preserving untouched solids and their references.\r\n- Mirrored closed Thin profiles use the same interior/exterior material side as the cyan preview; the supplied skeleton extrusion builds both rounded regions consistently.\r\n- Pattern/Mirror retain generated construction axes, enabled Origin/centroid centerlines and associated points, including nested feature copies. Axes visibility and presentation remain consistent with the source.\r\n- TOP uses X right/Y up; XZ Sketch entry uses X right/Z up. Vertical dimensions read bottom to top. Transparent surfaces preserve hidden-edge occlusion.\r\n- The Sketch Intersection label is simplified and translated into Czech, English, German, French and Russian.\r\n\r\nAccepted from immutable source `96c89fd2e73ad04b64327ac6b0c648aec6b99443`, with Qt 6.11.0 and OCCT 8.0.0:\r\n\r\n- Clean candidate and signed native smoke, each loading all 1,185 factory native documents, native calculation/save/reopen, GUI startup, portable fonts and PDF/JPEG export.\r\n- 20 extracted-candidate and 16 fresh signed Unicode-path GUI scenarios, exact GUI/CLI/updater identities and production updater trust.\r\n- 7,353 exact factory resource comparisons and 17,301 immutable installed checksums.\r\n- Passing finite native radius, reference-dimension, Shell, mirrored Thin Extrusion/Sweep, derived-copy, display and localization matrices. Native formats and shared placement remain unchanged.\r\n\r\nFinite coverage limits are recorded in the [release documentation](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/main/doc/releases/2026102303.md). The supplied multi-solid Shell GUI test populates its shared reference table programmatically; it does not establish actual mouse picking of all four openings. Native Linux execution and packaging require the Linux host.\r\n\r\nRegenerate existing models to rebuild corrected Thin geometry and copied construction axes.\r\n\r\nUser projects, private settings and edited library assets are preserved. The local development launcher remains `zima-cad.bat`.\r\n\r\nArchive SHA-256: `8d658ec60e7b2ee2506db1a16339c996ed29ca3cadf5e8fbe14ba88d8f288394`.\r\n",
+    "reason": "",
+    "schemaVersion": 1,
+    "signature": {
+      "keyId": "zcp-8fa1f825cbde5d81",
+      "signature": "20025f51dcbe6be4fb0439312bef682040c80c3f88df088a4ce4f4dc573def0fed5858b202d55e734848615d88470b9e8440dd9a9be80fcb282e088f65310c0f"
+    },
+    "status": "available"
+  },
+  "native_linux": "not-run",
+  "packaging_recovery": "2302 rejected before publication; 2303 built fresh with bounded completed-build scratch cleanup",
+  "cleanup": {
+    "removed": [
+      "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\.dist-output\\windows-2004-signed\\ZIMA-CAD-2026102004.zip",
+      "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\.dist-output\\windows-2201-signed\\ZIMA-CAD-2026102201.zip",
+      "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\.dist-output\\windows-2303-candidate-final\\ZIMA-CAD-2026102303.zip",
+      "C:\\zcb\\p2303",
+      "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\ZIMA ov\u011b\u0159en\u00ed 2201\\ZIMA-CAD\\windows\\2026102201",
+      "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\ZIMA ov\u011b\u0159en\u00ed 2201\\ZIMA-CAD\\source\\2026102201"
+    ],
+    "skipped": [
+      {
+        "path": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\ZIMA ov\u011b\u0159en\u00ed 2002\\ZIMA-CAD\\windows\\2026102002",
+        "reason": "Modified or unknown file inventory"
+      },
+      {
+        "path": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\ZIMA ov\u011b\u0159en\u00ed 2003\\ZIMA-CAD\\windows\\2026102003",
+        "reason": "Modified or unknown file inventory"
+      },
+      {
+        "path": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\ZIMA ov\u011b\u0159en\u00ed 2004\\ZIMA-CAD\\windows\\2026102004",
+        "reason": "Modified or unknown file inventory"
+      }
+    ],
+    "free_before": 17601626112,
+    "free_after": 40785842176,
+    "current": "2026102303",
+    "previous": "2026102301",
+    "projects_and_sdk_preserved": true,
+    "archived_worktrees": [
+      "release-2302",
+      "release-2303"
+    ]
+  }
+}

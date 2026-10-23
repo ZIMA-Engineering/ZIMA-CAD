@@ -1,24 +1,23 @@
 # Current project status
 
-Reviewed on 2026-10-23 against the current C++ implementation, focused feature
+Reviewed on 2026-10-24 against the current C++ implementation, focused feature
 guides, verification records and public GitHub release. This is the current
 capability index. Dated design proposals in the roadmap and development notes
 must not be read as a list of features still missing today.
 
-Signed Windows [2026102301](releases/2026102301.md#windows-publication-acceptance)
-was published at `2026-10-23T18:24:39Z` from immutable source `bb15d2ba5211ae5d2f58f848d3d4f7985ff31017`.
-It includes exact associative Sketch intersections, ordered multi-face Up To
-limits and corrections, complete Thin Feature wires, rounded Sketch Mirror,
-removable radius annotations, centered-rectangle dragging and exact native
-Sketch selection with consistent azure 3D Curve strokes and native points.
-Candidate and signed native smoke each load all 1,185
-factory documents. All 15 candidate and 11
-fresh signed GUI scenarios pass, with 7,353
-exact factory resource comparisons and 17,292
-immutable checksums. Production trust, authenticated draft downloads, anonymous
-public downloads and trusted 2201 update discovery pass. No update installation
-is claimed. User data and the development BAT are preserved; native Linux
-verification remains separate host work. Linked finite coverage limits apply.
+Signed Windows [2026102303](releases/2026102303.md#windows-publication-acceptance)
+was published at `2026-10-23T22:45:07Z` from immutable source `96c89fd2e73ad04b64327ac6b0c648aec6b99443`.
+It includes linked corner-radius editing and zero collapse, planar Reference
+and straight Intersection dimensions, multi-solid Shell, consistent mirrored
+Thin profiles, copied construction axes/centerlines, camera/text orientation
+and transparency-independent hidden-edge display. All 20 candidate and
+16 fresh signed GUI scenarios pass. Both native smoke runs load 1,185
+factory documents; 7,353 exact resource comparisons and
+17,301 immutable checksums pass. Production trust, all authenticated
+and anonymous downloads and trusted 2301 update discovery pass. No update
+installation is claimed. Native formats, private user data and the development
+BAT are preserved; native Linux execution remains separate host work. Linked
+finite coverage limits apply.
 
 ## Available implementation
 
