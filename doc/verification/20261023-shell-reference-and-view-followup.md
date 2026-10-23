@@ -65,6 +65,14 @@ the display-mode contract is checked at opaque, translucent and zero alpha.
 The Sketch command is named **Intersection** (Czech **Průnik**) in all five
 catalogs. No other new user-facing text is introduced by these fixes.
 
+The unpublished 2302 candidate passed full package native smoke but an inherited
+GUI expectation still requested the old command label. Both Face-plane and
+Curve-plane GUI harnesses now expect **Intersection** for reference entry.
+`build/2303-intersection-label-gui.log` passes the eight Part/Assembly Face-plane
+combinations, separate spline/trimmed cases, and 40 Curve-plane combinations
+across both themes and all five languages. Protected production files are
+unchanged. Candidate 2302 was not published; 2303 includes this test correction.
+
 ## Pattern construction presentation
 
 Individual feature copies formerly transformed material topology but omitted

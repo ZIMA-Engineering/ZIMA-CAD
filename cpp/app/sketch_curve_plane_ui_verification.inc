@@ -43,7 +43,7 @@ int verify_sketch_curve_plane_ui(QApplication& application,const std::filesystem
             // source scene once they have their final width, as a user can.
             window.findChild<QAction*>("fitViewAction")->trigger();flush();
             auto* action=window.findChild<QAction*>(contour?"sketchIntersectionProfileAction":"sketchIntersectionReferenceAction");check(action&&action->isEnabled(),"Curve-plane command unavailable");
-            const auto settings=app::ApplicationSettings::load(QString::fromStdString(document::path_to_utf8(directory)));const auto label=QString::fromUtf8(contour?"Intersection → contour":"Intersection → reference");
+            const auto settings=app::ApplicationSettings::load(QString::fromStdString(document::path_to_utf8(directory)));const auto label=QString::fromUtf8(contour?"Intersection → contour":"Intersection");
             check(!settings.qt_translations.value(label).isEmpty()&&action->text()==settings.qt_translations.value(label),"Curve-plane action translation is missing");
             action->trigger();flush();
             const auto hit=[&](bool branch)->QPointF {

@@ -70,7 +70,7 @@ int verify_sketch_face_plane_ui(QApplication& application,const std::filesystem:
             auto* action=window.findChild<QAction*>(contour?"sketchIntersectionProfileAction":"sketchIntersectionReferenceAction");
             check(action&&action->isEnabled()&&!action->icon().isNull(),"Face-plane action/icon unavailable");
             const auto settings=app::ApplicationSettings::load(QString::fromStdString(document::path_to_utf8(directory)));
-            const auto label=QString::fromUtf8(contour?"Intersection → contour":"Intersection → reference");
+            const auto label=QString::fromUtf8(contour?"Intersection → contour":"Intersection");
             check(!settings.qt_translations.value(label).isEmpty()&&action->text()==settings.qt_translations.value(label),
                 "Face-plane action did not use its selected-language translation");
             std::cerr<<"Face-plane command begin"<<std::endl;action->trigger();flush();std::cerr<<"Face-plane command end"<<std::endl;
