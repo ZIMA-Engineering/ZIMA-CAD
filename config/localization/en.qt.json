@@ -2634,5 +2634,7 @@
   "Počet instancí v opačném směru": "Reverse instance count",
   "Korekce délky": "Length correction",
   "Korekce úhlu": "Angle correction",
-  "Vrtací špička": "Drill Point"
+  "Vrtací špička": "Drill Point",
+  "Body os": "Axis points",
+  "Zobrazit nebo skrýt koncové body os": "Show or hide axis endpoints"
 }

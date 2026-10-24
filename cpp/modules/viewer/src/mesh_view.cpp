@@ -15,6 +15,7 @@
 #include <QToolTip>
 #include <zima/viewer/view_theme.hpp>
 #include <zima/viewer/annotation_arrow.hpp>
+#include <zima/viewer/infinite_line.hpp>
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/kernel/surface_results.hpp>
@@ -435,6 +436,7 @@ struct MeshView::Impl {
     bool show_origins{true};
     bool show_points{true};
     bool show_axes{true};
+    bool show_axis_points{true};
     bool show_planes{true};
     bool show_sketches{true};
     bool show_dimensions{true};
@@ -508,7 +510,7 @@ struct MeshView::Impl {
         if(passive_sketch_axis_point(point)) {
             const bool explicit_entry=sketch_axis_entry_requested()||std::ranges::any_of(allowed_kinds,[](auto kind){
                 return kind==CandidateKind::Vertex||kind==CandidateKind::SketchPoint;});
-            return show_axes||explicit_entry||constraint_reference_owner_ids.contains(point.reference.owner_id)||
+            return (show_axes&&show_axis_points)||explicit_entry||constraint_reference_owner_ids.contains(point.reference.owner_id)||
                 constraint_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
                 assembly_reference_edges.contains({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})||
                 feature_preview_owner_ids.contains(point.reference.owner_id);
@@ -532,7 +534,7 @@ struct MeshView::Impl {
                 (category==ReferenceVisibility::Axes&&(kind==CandidateKind::Axis||kind==CandidateKind::SketchAxis))||
                 (category==ReferenceVisibility::Planes&&kind==CandidateKind::Plane);
         });
-        return (category==ReferenceVisibility::Axes?show_axes:show_planes)||explicit_entry||editing_origin_visible||
+        return (category==ReferenceVisibility::Axes?(show_axes&&show_axis_points):show_planes)||explicit_entry||editing_origin_visible||
             constraint_reference_owner_ids.contains(point.reference.owner_id)||
             constraint_reference_owner_ids.contains(reference.owner_id)||
             constraint_reference_edges.contains(reference)||
@@ -3049,6 +3051,7 @@ void MeshView::set_reference_visibility(
                     impl_->confirmed_candidate->semantic_key,impl_->confirmed_candidate->instance_path})) clear_selection();
             break;
         case ReferenceVisibility::Points: impl_->show_points = visible; break;
+        case ReferenceVisibility::AxisPoints: impl_->show_axis_points = visible; impl_->candidates.clear(); break;
         case ReferenceVisibility::Axes: impl_->show_axes = visible; impl_->candidates.clear(); break;
         case ReferenceVisibility::Planes: impl_->show_planes = visible; impl_->candidates.clear(); break;
         case ReferenceVisibility::Symbols:
@@ -3070,6 +3073,7 @@ bool MeshView::reference_visible(ReferenceVisibility reference) const {
         case ReferenceVisibility::Surfaces: return impl_->show_surfaces;
         case ReferenceVisibility::Origins: return impl_->show_origins;
         case ReferenceVisibility::Points: return impl_->show_points;
+        case ReferenceVisibility::AxisPoints: return impl_->show_axis_points;
         case ReferenceVisibility::Axes: return impl_->show_axes;
         case ReferenceVisibility::Planes: return impl_->show_planes;
         case ReferenceVisibility::Symbols: return impl_->show_symbols;
@@ -4516,13 +4520,8 @@ if (impl_->show_origins) {
         };
         const auto screen_infinite_line = [&](const QPointF& first,
                 const QPointF& second) {
-            const QLineF seed(first, second);
-            if (seed.length() <= 1.0e-6) return QLineF{};
-            const QPointF unit = (second - first) / seed.length();
-            const double extent = 2.0 * std::hypot(
-                static_cast<double>(width()), static_cast<double>(height()));
-            const QPointF middle = (first + second) * 0.5;
-            return QLineF(middle - unit * extent, middle + unit * extent);
+            return zima::viewer::screen_infinite_line(first, second,
+                QSizeF(width(), height()));
         };
         for (const auto& indicator : impl_->operation_direction_indicators) {
             const QColor purple("#D05CFF");
@@ -4862,10 +4861,26 @@ if (impl_->show_origins) {
             if (!impl_->active_sketch_owner_id.empty()) painter.restore();
         };
         if (!impl_->active_sketch_owner_id.empty() && axes_visible) draw_axes();
+        // Read-only reference markers belong below authored Sketch geometry.
+        if(points_visible&&impl_->show_sketches)for(const auto& point:impl_->mesh.points) {
+            if(!point.reference.semantic_key.starts_with("external_point:")||
+               point.reference.semantic_key=="external_point:sketch_origin"||
+               !impl_->helper_point_visible(point)||
+               !impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path}))continue;
+            const QColor color = point.reference.semantic_key.ends_with(
+                ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
+            painter.setPen(QPen(color, 1.8));
+            const QPointF center = project(point.position);
+            painter.drawLine(center + QPointF(-4.0, -4.0),
+                             center + QPointF(4.0, 4.0));
+            painter.drawLine(center + QPointF(-4.0, 4.0),
+                             center + QPointF(4.0, -4.0));
+        }
         if (sketch_geometry_visible) {
-            // Construction strokes cover ordinary Sketch wires and solid geometry.
-            for (const bool construction_pass : {false, true})
+            // All references first; native construction/profile strokes retain
+            // their existing relative order above read-only reference strokes.
             for (const bool reference_pass : {true, false})
+            for (const bool construction_pass : {false, true})
             for (const auto& edge : impl_->mesh.edges) {
                 if (!is_sketch_wire_edge(edge)) continue;
                 if (edge.construction != construction_pass) continue;
@@ -5309,14 +5324,7 @@ if (impl_->show_origins) {
                      !points_selectable && !point_container_candidate) ||
                     (external && !impl_->show_sketches)) continue;
                 if (external) {
-                    const QColor color = point.reference.semantic_key.ends_with(
-                        ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
-                    painter.setPen(QPen(color, 1.8));
-                    const QPointF center = project(point.position);
-                    painter.drawLine(center + QPointF(-4.0, -4.0),
-                                     center + QPointF(4.0, 4.0));
-                    painter.drawLine(center + QPointF(-4.0, 4.0),
-                                     center + QPointF(4.0, -4.0));
+                    continue; // Reference markers were painted below native Sketch wires.
                 } else {
                     const bool replaced_by_active_point_manipulator =
                         std::any_of(impl_->extent_manipulators.begin(),

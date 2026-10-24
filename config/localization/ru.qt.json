@@ -2634,5 +2634,7 @@
   "Počet instancí v opačném směru": "Количество в обратном направлении",
   "Korekce délky": "Коррекция длины",
   "Korekce úhlu": "Коррекция угла",
-  "Vrtací špička": "Сверлильный кончик"
+  "Vrtací špička": "Сверлильный кончик",
+  "Body os": "Точки осей",
+  "Zobrazit nebo skrýt koncové body os": "Показать или скрыть конечные точки осей"
 }

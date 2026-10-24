@@ -1,3 +1,5 @@
+#include "parameter_value_labels.hpp"
+#include <zima/viewer/dimension_units.hpp>
 #include "standard_view_labels.hpp"
 #include "file_dialog.hpp"
 #include <QTimer>
@@ -136,9 +138,44 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
-        for(const auto* key:{"Tažení","Vlastnosti tažení","Přechod","Krut","Špička","Směr tažení","Stoupání","Úhel pole","Rozteč pole","Počet instancí","Počet instancí v opačném směru","Korekce délky","Korekce úhlu"})
+        for(const auto* key:{"Body os","Zobrazit nebo skrýt koncové body os","Tažení","Vlastnosti tažení","Přechod","Krut","Špička","Směr tažení","Stoupání","Úhel pole","Rozteč pole","Počet instancí","Počet instancí v opačném směru","Korekce délky","Korekce úhlu"})
             check(!settings.qt_translations.value(key).isEmpty()&&QObject::tr(key)==settings.qt_translations.value(key),"Modeling name or numeric helper label is untranslated");
 
+        {
+            for(const auto sign:{-1.,1.}) {
+                std::vector<kernel::ViewerDimension> scene(1),overlay(1);
+                scene[0].reference={"label-test","parameter:direction",{}};scene[0].value=sign;
+                scene[0].label_only=true;scene[0].unit_suffix.clear();overlay=scene;
+                const auto translate=[](const char* text){return QObject::tr(text);};
+                app::localize_parameter_value_labels(scene,translate);app::localize_parameter_value_labels(overlay,translate);
+                const auto expected=QObject::tr("Směr tažení")+QString(sign>0?": +1":": -1");
+                check(QString::fromStdString(viewer::dimension_unit_presentation(scene[0],3,{}).text())==expected&&
+                    QString::fromStdString(viewer::dimension_unit_presentation(overlay[0],3,{}).text())==expected,
+                    "Scene and live numeric helper labels differ across languages");
+                check(scene[0].reference==overlay[0].reference&&overlay[0].value==sign,"Label localization changed its binding or value");
+                app::localize_parameter_value_labels(overlay,translate);
+                check(overlay[0].label_prefix==scene[0].label_prefix,"Repeated helper presentation duplicated its name or sign");
+            }
+        }
+        {
+            struct ValueCase {const char* key;const char* label;double value;const char* unit;bool angle;const char* index;};
+            for(const auto& item:std::vector<ValueCase>{
+                {"parameter:pitch","Stoupání",12,"mm",false,""},
+                {"parameter:pattern:count:0","Počet instancí",6,"",false," 1"},
+                {"parameter:pattern:spacing:1","Rozteč pole",15,"mm",false," 2"},
+                {"parameter:pattern:angle","Úhel pole",90,"°",true,""},
+                {"parameter:side0_up_to_length_correction","Korekce délky",-2,"mm",false,""},
+                {"parameter:side1_up_to_angle_correction","Korekce úhlu",5,"°",true,""}}) {
+                std::vector<kernel::ViewerDimension> values(1);auto& value=values[0];
+                value.reference={"label-test",item.key,{}};value.value=item.value;value.label_only=true;
+                value.unit_suffix=item.unit;if(item.angle)value.kind=kernel::ViewerDimensionKind::Angular;
+                app::localize_parameter_value_labels(values,[](const char* text){return QObject::tr(text);});
+                const auto expected=QObject::tr(item.label)+QString::fromUtf8(item.index)+": "+QString::number(item.value)+QString::fromUtf8(item.unit);
+                check(QString::fromStdString(viewer::dimension_unit_presentation(value,3,{}).text())==expected,
+                    "Numeric helper name, value or units differ across languages");
+                check(value.value==item.value&&value.reference.semantic_key==item.key,"Named helper changed its numeric binding");
+            }
+        }
         application.processEvents();
         {
             auto pending=document::PartDocument::create_sweep2d_container();

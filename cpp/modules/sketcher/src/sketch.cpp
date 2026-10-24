@@ -8697,8 +8697,15 @@ bool Sketch::refresh_external_references(
                 ++match_count;
             }
             if (match_count > 0) {
+                const bool circular_support=reference.kind==ExternalReferenceKind::Face&&reference.exact_spline&&
+                    !is_face_curve_key(reference.source_semantic_key)&&detail::exact_external_circle(*reference.exact_spline).has_value();
+                auto cylinder_reference=reference;
+                if(circular_support&&next.cache_external_cylinder_support(cylinder_reference,source_geometry)) {
+                    face_projection_resolved=true;
+                    if(reference!=cylinder_reference) {reference=std::move(cylinder_reference);changed=true;}
+                }
                 if(is_face_curve_key(reference.source_semantic_key))match.semantic_key=reference.source_semantic_key;
-                const auto paths = next.external_face_reference_paths(source_geometry, match);
+                const auto paths = circular_support?std::nullopt:next.external_face_reference_paths(source_geometry, match);
                 if (paths) {
                     face_projection_resolved = true;
                     auto projected=reference;projected.broken=false;projected.infinite=false;
@@ -14545,6 +14552,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             edge.construction = true;
             edge.overlay = true;
             edge.infinite = infinite;
+            if(reference.exact_spline) {
+                edge.exact_spline=reference.exact_spline;
+                for(auto& pole:edge.exact_spline->poles)pole=world_point(pole.x,pole.y);
+            }
             edge.points.reserve(points.size());
             for (const auto& point : points) {
                 edge.points.push_back(world_point(point[0], point[1]));

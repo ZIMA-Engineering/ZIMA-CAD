@@ -56,6 +56,7 @@ enum class ReferenceVisibility {
     Sketches,
     Dimensions,
     Symbols,
+    AxisPoints,
 };
 
 struct SymbolHandles {

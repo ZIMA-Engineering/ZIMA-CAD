@@ -22,12 +22,13 @@ inline bool sketch_external_reference_has_stable_geometry(
     if(profile)return candidate.kind==viewer::CandidateKind::Edge&&
         (candidate.geometry==viewer::CandidateGeometry::Display||
          (candidate.geometry==viewer::CandidateGeometry::OriginalReference&&sketcher::is_face_curve_key(candidate.semantic_key)));
-    // Ordinary face entry restores only a certified plane support. Arbitrary
-    // curved faces still belong to Intersection; they are never bulk outlines.
+    // Whole planes and cylinders expose analytic supports. Other curved faces
+    // retain the explicit Intersection path; never use arbitrary bulk outlines.
     if(candidate.kind==viewer::CandidateKind::Face) {
         if(candidate.geometry!=viewer::CandidateGeometry::Display||!mesh||candidate.geometry_index>=mesh->triangle_references.size())return false;
         const auto& face=mesh->triangle_references[candidate.geometry_index];
-        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+        return face.surface&&(face.surface->kind==kernel::SurfaceGeometry::Kind::Plane||
+            face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder);
     }
     return candidate.kind!=viewer::CandidateKind::Face&&
         candidate.geometry==viewer::CandidateGeometry::OriginalReference;

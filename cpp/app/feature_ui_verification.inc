@@ -31,6 +31,39 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
             check(tree&&view,"Profile axes workspace missing");
             auto* show=window.findChild<QAction*>("showAxesAction");check(show,"Axes visibility action missing");show->setChecked(true);flush();
+            auto* show_axis_points=window.findChild<QAction*>("showAxisPointsAction");
+            check(show_axis_points&&show_axis_points->isChecked()&&!show_axis_points->icon().isNull(),"Axis points action/default/icon missing");
+            check(show_axis_points->text()==translations.value(QStringLiteral("Body os"))&&
+                show_axis_points->toolTip()==translations.value(QStringLiteral("Zobrazit nebo skrýt koncové body os")),"Axis points controls are not localized");
+            const auto visibility_revision=view->base_mesh_revision();
+            show_axis_points->setChecked(false);flush();
+            check(!view->reference_visible(viewer::ReferenceVisibility::AxisPoints)&&view->reference_visible(viewer::ReferenceVisibility::Axes),"Axis points switch hid its parent axes");
+            show->setChecked(false);show->setChecked(true);flush();
+            check(!show_axis_points->isChecked(),"Parent axis switch discarded the points preference");
+            show_axis_points->setChecked(true);flush();
+            check(view->base_mesh_revision()==visibility_revision,"Axis point visibility republished/calculated the base scene");
+            if(language=="cs"&&!ellipse&&reopen==0) {
+                viewer::MeshView probe;probe.resize(640,480);probe.show();flush();
+                kernel::ViewerMesh support;
+                support.axes.push_back({{5,0,0},{1,0,0},10,{"test-axis","axis",{}}});
+                support.points.push_back({{0,0,0},{"test-axis","axis:point:start",{}},{},true});
+                support.points.push_back({{10,0,0},{"test-axis","axis:point:end",{}},{},true});
+                support.points.push_back({{0,10,0},{"ordinary-point","point",{}},{},true});
+                probe.set_mesh(support);probe.set_camera_state({1,0,0,0,10,0,0,10});
+                const auto image=[&]{flush();return probe.grabFramebuffer();};
+                const auto visible=image();probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                const auto hidden=image();check(hidden!=visible,"Axis points switch did not change real View pixels");
+                probe.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);
+                check(image()!=hidden,"Axis points switch also hid its parent axis wire");
+                probe.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);
+                check(image()==hidden,"Reenabling axes ignored hidden axis points");
+                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
+                check(image()==visible,"Axis point visibility was not reversible");
+                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                support.points.erase(support.points.begin(),support.points.begin()+2);probe.set_mesh(support,false);
+                check(image()==hidden,"Hidden endpoints affected ordinary point rendering");
+                std::cout<<"Axis point View pixels: independent points/axes, off/on preference and exact ordinary-point control passed"<<std::endl;
+            }
             std::vector<kernel::AxisReference> axes;
             for(const auto& axis:calculated.back().mesh.original_references.axes)
                 if(axis.reference.semantic_key.starts_with("axis:profile:from:")||axis.reference.semantic_key.starts_with("centerline:from:"))axes.push_back(axis.reference);

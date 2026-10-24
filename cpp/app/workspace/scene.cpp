@@ -1,3 +1,4 @@
+#include "../parameter_value_labels.hpp"
 #include <zima/document/loft.hpp>
 #include <zima/document/feature_parameter_dimensions.hpp>
 #include <zima/document/bend.hpp>
@@ -85,25 +86,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             mesh.edges.insert(mesh.edges.end(),std::make_move_iterator(choices.edges.begin()),std::make_move_iterator(choices.edges.end()));
             mesh.points.insert(mesh.points.end(),std::make_move_iterator(choices.points.begin()),std::make_move_iterator(choices.points.end()));
         }
-        // Localize only presentation; numeric values and semantic bindings stay canonical.
-        for(auto& dimension:mesh.dimensions)if(dimension.label_only) {
-            const auto& key=dimension.reference.semantic_key;
-            const char* label=nullptr;
-            if(key=="parameter:direction")label="Směr tažení";
-            else if(key=="parameter:pitch")label="Stoupání";
-            else if(key=="parameter:pattern:angle")label="Úhel pole";
-            else if(key.starts_with("parameter:pattern:spacing:"))label="Rozteč pole";
-            else if(key.starts_with("parameter:pattern:reverse_count:"))label="Počet instancí v opačném směru";
-            else if(key.starts_with("parameter:pattern:count"))label="Počet instancí";
-            else if(key.ends_with("_up_to_length_correction"))label="Korekce délky";
-            else if(key.ends_with("_up_to_angle_correction"))label="Korekce úhlu";
-            if(label) {
-                dimension.label_prefix=tr(label).toStdString()+": ";
-                if(key=="parameter:direction"&&dimension.value>0)dimension.label_prefix+="+";
-                if(key.starts_with("parameter:pattern:")&&key.back()>='0'&&key.back()<='2')
-                    dimension.label_prefix=tr(label).toStdString()+" "+std::to_string(key.back()-'0'+1)+": ";
-            }
-        }
+        localize_parameter_value_labels(mesh.dimensions,[this](const char* label){return tr(label);});
         viewer_->set_mesh(std::move(mesh),fit);
     };
     QElapsedTimer timer;timer.start();

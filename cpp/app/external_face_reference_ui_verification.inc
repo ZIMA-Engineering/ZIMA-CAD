@@ -3,14 +3,18 @@ static int verify_plane_and_generator_reference_ui(QApplication& application,con
     const auto check=[](bool value,const char* error){if(!value)throw std::runtime_error(error);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for(bool thin:{false,true})for(unsigned mode=0;mode<3;++mode) {
+        for(bool thin:{false,true})for(unsigned mode=0;mode<4;++mode) {
             auto part=document::PartDocument::create_default();auto profile=sketcher::Sketch::create_default();
-            if(mode)static_cast<void>(profile.add_circle(0,0,5));else static_cast<void>(profile.add_rectangle(0,0,30,20));
+            if(mode==3) {
+                static_cast<void>(profile.add_arc(0,0,5,0,0,5));
+                static_cast<void>(profile.add_segment(0,5,0,0));static_cast<void>(profile.add_segment(0,0,5,0));
+            } else if(mode)static_cast<void>(profile.add_circle(0,0,5));else static_cast<void>(profile.add_rectangle(0,0,30,20));
             auto feature=document::PartDocument::create_feature_container(profile.id);profile.owner_container_id=feature.id;
             feature.feature.sides[0].length=10;feature.feature.result_type=thin?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
             feature.feature.thin_thickness=1;
             auto target=sketcher::Sketch::create_default();auto owner=document::PartDocument::create_sketch_container();
             target.owner_container_id=owner.id;owner.feature.sketch_id=target.id;target.plane=sketcher::SketchPlane::XZ;target.plane_auto=false;
+            if(mode==3){target.plane=sketcher::SketchPlane::XY;target.plane_offset=25;target.refresh_default_frame();}
             part.history={feature,owner};part.sketches={profile,target};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Plane and generator sources");graph.insert({document::PartHistoryKind::Feature,feature.id});
             graph.insert({document::PartHistoryKind::Feature,owner.id});part.set_body_history(graph);part.resolve_constructions();
@@ -33,6 +37,9 @@ static int verify_plane_and_generator_reference_ui(QApplication& application,con
             QEventLoop orbit;QTimer::singleShot(950,&orbit,&QEventLoop::quit);orbit.exec();view->fit_all();flush();
             const auto wanted=[&](const auto& c){
                 if(c.owner_id!=feature.id)return false;
+                if(mode==3)return c.kind==viewer::CandidateKind::Face&&c.geometry==viewer::CandidateGeometry::Display&&
+                    c.geometry_index<view->mesh().triangle_references.size()&&view->mesh().triangle_references[c.geometry_index].surface&&
+                    view->mesh().triangle_references[c.geometry_index].surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
                 if(mode)return c.kind==viewer::CandidateKind::Edge&&sketcher::is_face_curve_key(c.semantic_key);
                 return c.kind==viewer::CandidateKind::Face&&c.geometry==viewer::CandidateGeometry::Display&&
                     c.geometry_index<view->mesh().triangle_references.size()&&view->mesh().triangle_references[c.geometry_index].surface&&
@@ -64,8 +71,62 @@ static int verify_plane_and_generator_reference_ui(QApplication& application,con
             const auto& reference=result.external_references.front();
             check(!reference.broken&&reference.kind==sketcher::ExternalReferenceKind::Face&&reference.infinite==(mode==0),"Plane/generator support kind or finite extent is wrong");
             check(result.segments.size()==(mode==2?1u:0u)&&result.bsplines.empty()&&result.circles.empty(),"Reference entry created extraneous profile geometry");
-            if(mode)check(reference.cached_paths.size()==1&&reference.cached_paths.front().size()==2,"Generator entry projected an entire face");
+            if(mode==3) {
+                const auto circle=sketcher::external_reference_circle(reference);
+                check(circle&&std::hypot((*circle)[0],(*circle)[1])<1e-8&&std::abs((*circle)[2]-5)<1e-8&&reference.exact_spline,
+                    "Partial cylindrical face did not provide its complete exact circular support");
+                check(reference.cached_paths.size()==1&&reference.cached_paths.front().front()==reference.cached_paths.front().back(),"Cylindrical support retained a trimmed arc");
+            } else if(mode)check(reference.cached_paths.size()==1&&reference.cached_paths.front().size()==2,"Generator entry projected an entire face");
             else check(reference.cached_paths.empty()&&reference.cached_points.size()==2,"Planar face did not become an infinite dashed support");
+            if(mode==0) {
+                // Real face entry above verifies source identity/persistence. Exercise
+                // its infinite-edge renderer independently of unrelated model strokes.
+                viewer::MeshView probe;probe.resize(640,480);probe.show();flush();
+                kernel::ViewerMesh support;const auto reference_mesh=result.viewer_mesh();
+                const auto found=std::ranges::find_if(reference_mesh.edges,[&](const auto& edge){return edge.reference.semantic_key=="external_face:"+reference.id;});
+                check(found!=reference_mesh.edges.end(),"Planar reference has no View edge");auto edge=*found;
+                check(edge.infinite,"Planar reference lost its infinite renderer flag");
+                edge.points={{0,0,0},{1,0,0}};support.edges={edge};probe.set_mesh(support);
+                const auto count_support=[&](const QColor& desired=QColor(145,105,72)) {
+                    flush();const auto image=probe.grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+                    unsigned count{};for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                        const QColor color(image.pixel(x,y));
+                        if(std::abs(color.red()-desired.red())<8&&std::abs(color.green()-desired.green())<8&&std::abs(color.blue()-desired.blue())<8)++count;
+                    }return count;
+                };
+                for(float scale:{1.F,.01F,.001F})for(float pan:{-100000.F,100000.F}) {
+                    probe.set_camera_state({1,0,0,0,scale,pan,0,scale});
+                    check(count_support()>100,"Infinite planar support disappeared from real View after zoom/pan");
+                }
+                support.edges.front().infinite=false;probe.set_mesh(support);
+                probe.set_camera_state({1,0,0,0,1,100000,0,1});
+                check(count_support()==0,"Viewport extension leaked into a bounded reference");
+                probe.set_geometry_editing_presentation(true);
+                for(bool circle:{false,true}) {
+                    auto native=edge;native.reference={"native-sketch",circle?"circle:front":"segment:front",{}};
+                    native.infinite=false;native.construction=false;native.color="#4DD811";
+                    native.points={{-100,0,0},{100,0,0}};
+                    if(circle) {
+                        native.points.clear();for(unsigned i=0;i<=128;++i) {
+                            const double angle=2*std::numbers::pi*i/128;
+                            native.points.push_back({12*std::cos(angle),12*std::sin(angle),0});
+                        }
+                    }
+                    auto background=edge;background.infinite=false;background.points=native.points;
+                    support.points.clear();support.edges={native,background};probe.set_mesh(support);
+                    probe.set_camera_state({1,0,0,0,10,0,0,10});
+                    check(count_support()==0&&count_support(QColor("#4DD811"))>100,
+                        "A read-only reference stroke covered authored Sketch geometry");
+                    if(!circle) {
+                        support.points.push_back({{0,0,0},{"reference-sketch","external_point:test",{}},{},true});
+                        probe.set_mesh(support);probe.set_camera_state({1,0,0,0,10,0,0,10});flush();
+                        const auto image=probe.grabFramebuffer();const QColor center(image.pixel(image.width()/2,image.height()/2));
+                        check(center.green()>150&&center.red()<120,"An external point marker covered the native line at their crossing");
+                    }
+                    probe.grabFramebuffer().save(QString::fromStdString(document::path_to_utf8(directory/(circle?"reference-circle-foreground.png":"reference-line-foreground.png"))));
+                }
+                std::cout<<"Infinite planar support framebuffer: six zoom/pan states, bounded-edge control and line/circle foreground passed"<<std::endl;
+            }
             check(saved.history==baseline.history&&saved.sketches.front().serialized()==baseline.sketches.front().serialized(),"Reference entry changed its source definition");
             window.findChild<QAction*>("undoAction")->trigger();flush();const auto undone=snapshot();
             check(std::ranges::find(undone.sketches,target.id,&sketcher::Sketch::id)->external_references.empty(),"Plane/generator reference Undo failed");

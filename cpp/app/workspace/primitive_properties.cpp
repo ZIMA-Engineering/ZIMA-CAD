@@ -1,3 +1,4 @@
+#include "../parameter_value_labels.hpp"
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/hole_operations.hpp>
@@ -1354,6 +1355,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 std::move(primitive_origin_preview_mesh_->dimensions);
             primitive_origin_preview_mesh_->dimensions.clear();
         }
+        localize_parameter_value_labels(live_dimensions,[this](const char* label){return tr(label);});
         viewer_->set_transient_dimensions(std::move(live_dimensions));
 
         const auto& placement = preview.placement;

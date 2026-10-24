@@ -1,6 +1,7 @@
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/state_display.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/infinite_line.hpp>
 #include <zima/viewer/shading.hpp>
 #include <zima/viewer/silhouette.hpp>
 #include "../app/construction_reference_candidate_policy.hpp"
@@ -16,6 +17,30 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
+}
+
+static void verify_infinite_reference_viewport() {
+    // A planar face projects to an infinite Sketch support. Its original seed
+    // can leave the viewport by millions of pixels during zoom/pan.
+    for (const QSizeF viewport : {QSizeF(800,600), QSizeF(1920,1080)})
+        for (const double angle : {0., .3, 1.5707963267948966, 2.4})
+            for (const double zoom : {1., 100., 1000000.})
+                for (const double along : {-100., 100.}) {
+                    const QPointF unit(std::cos(angle),std::sin(angle));
+                    const QPointF center(viewport.width()/2,viewport.height()/2);
+                    const QPointF normal(-unit.y(),unit.x());
+                    const QPointF crossing=center+normal*40.;
+                    const QPointF first=crossing+unit*(along*zoom);
+                    for (const double order : {-1.,1.}) {
+                        const auto line=zima::viewer::screen_infinite_line(first,first+unit*(20.*zoom*order),viewport);
+                        const auto delta=line.p2()-line.p1();
+                        const auto to_crossing=crossing-line.p1();
+                        const double t=(to_crossing.x()*delta.x()+to_crossing.y()*delta.y())/(delta.x()*delta.x()+delta.y()*delta.y());
+                        require(t>0&&t<1,"Infinite face reference disappeared after zoom/pan");
+                        require(QLineF(line.pointAt(t),crossing).length()<.0001,"Infinite reference moved off its exact support");
+                    }
+                }
+    require(zima::viewer::screen_infinite_line({1,1},{1,1},{800,600}).isNull(),"Degenerate reference generated a visible line");
 }
 
 static void verify_treatment_surface_selection() {
@@ -118,6 +143,7 @@ static void verify_smooth_silhouettes() {
 int main() {
     try {
         verify_picking_acceleration();
+        verify_infinite_reference_viewport();
         verify_treatment_surface_selection();
         verify_smooth_silhouettes();
         {

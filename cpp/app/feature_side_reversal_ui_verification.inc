@@ -45,8 +45,24 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
     check(swap&&first&&second,"Reversal GUI side controls missing");
     const auto revision=view->base_mesh_revision();extent(-5,12);
     auto* direction=dialog->findChild<QDoubleSpinBox*>("featureDirection");check(direction,"Feature scalar direction is missing");
+    const auto check_live_direction=[&](double sign) {
+        const auto base=view->mesh().dimensions.size();bool found=false;
+        for(std::size_t i=base;i<base+64;++i) {
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.geometry_index=i;
+            const auto value=view->dimension_source(candidate);if(!value)break;
+            if(value->reference.owner_id!=feature.id||value->reference.semantic_key!="parameter:direction")continue;
+            candidate.owner_id=value->reference.owner_id;candidate.semantic_key=value->reference.semantic_key;
+            check(value->label_only&&value->unit_suffix.empty()&&value->value==sign,"Live direction is not the canonical scalar parameter");
+            const auto expected=QObject::tr("Směr tažení")+QString(sign>0?": +1":": -1");
+            check(view->dimension_label_text(*value)==expected,"Live Properties direction lacks its localized numeric label");
+            check(view->candidate_dimension_label_position(candidate).has_value(),"Live direction label is not renderable in View");
+            found=true;break;
+        }
+        check(found,"Live Properties direction annotation is missing");
+    };
+    check_live_direction(1.);
     for(double sign:{-1.,1.,-1.,1.}) {
-        direction->setValue(sign);flush();
+        direction->setValue(sign);flush();check_live_direction(sign);
         check(dialog->pending_value().feature.sides==before.feature.sides,"Scalar direction exchanged panels");
         if(sign<0)extent(-12,5);else extent(-5,12);
     }

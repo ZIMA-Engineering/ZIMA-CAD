@@ -1,0 +1,69 @@
+{
+  "date_utc": "2026-10-24T17:07:46.765540+00:00",
+  "platform": "Windows x64",
+  "kernel": "OCCT 8.0.1",
+  "native_build": "build/cpp-windows-release/zima-cad-cpp.exe",
+  "ctest": [
+    {
+      "name": "zima_cpp_translations_contract",
+      "status": "passed",
+      "seconds": 13.4693
+    },
+    {
+      "name": "zima_cpp_feature_axis_highlight_contract",
+      "status": "passed",
+      "seconds": 5.7789
+    },
+    {
+      "name": "zima_cpp_sketch_axis_visibility_contract",
+      "status": "passed",
+      "seconds": 4.47606
+    },
+    {
+      "name": "zima_cpp_viewer_contract_tests",
+      "status": "passed",
+      "seconds": 0.146682
+    },
+    {
+      "name": "zima_cpp_coincident_reference_circle_tests",
+      "status": "passed",
+      "seconds": 1.84971
+    }
+  ],
+  "gui": {
+    "planar_and_partial_cylindrical_faces": "passed: eight solid/thin scenarios; six zoom/pan states per planar source; bounded control; line/circle and external-point foreground pixels; actual selection; Undo/Redo; native save/reopen",
+    "axis_points": "passed: independent point/axis framebuffer controls, five languages, exact selection, existing Properties and native reopen",
+    "numeric_helper_labels": "passed: live Properties labels; repeated direction reversals and actual zero-crossing mouse drags; eight Revolution matrices; no-op, Cancel, OK, Undo/Redo and native reopen"
+  },
+  "native_circle_manipulation_cases": 776,
+  "localization": "cs/en/de/fr/ru: identical key sets, no duplicates, placeholders/catalog contract passed; new controls verified in GUI",
+  "document_format_changed": false,
+  "user_project_opened_by_verification": false,
+  "linux_verification": "not run on this Windows host",
+  "limitations": [
+    "The complete native circle matrix was not repeated cell-by-cell through GUI mouse interactions.",
+    "All Sketch tangency/contact/trim combinations on the new cylindrical face support are not claimed."
+  ],
+  "evidence": [
+    {
+      "path": "build/loft-audit/reference-visibility-contracts.log",
+      "sha256": "0a32f2dee1c96bef6a0f332df2470b77d26fae5f1ebecfd922b58244ffb8dc7c"
+    },
+    {
+      "path": "build/loft-audit/reference-visibility-face-gui.log",
+      "sha256": "964ae12dc95ba7c46dc37c72f094771540c1b2c264c65456fc0118af5894e0c2"
+    },
+    {
+      "path": "build/loft-audit/reference-visibility-axes-gui.log",
+      "sha256": "a746f2595ce42477121b565f3844033bb3474cf2edee091975e2190eb498d471"
+    },
+    {
+      "path": "build/loft-audit/reference-visibility-labels-gui.log",
+      "sha256": "d4388c62d7185e0413c22695d20bdf761e79a50dd3afd4598a9b0ff2fdf6527b"
+    },
+    {
+      "path": "build/loft-audit/reference-circle-native.log",
+      "sha256": "c5ef2aa3ec3876c0774566e7f5bfe06f5e7dac3946d3e4cf2b757ab8bb37cb3d"
+    }
+  ]
+}

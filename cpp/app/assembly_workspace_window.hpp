@@ -299,6 +299,7 @@ private:
     QAction* show_origins_action_{};
     QAction* show_points_action_{};
     QAction* show_axes_action_{};
+    QAction* show_axis_points_action_{};
     QAction* show_planes_action_{};
     QAction* show_surfaces_action_{};
     QAction* show_sketches_action_{};

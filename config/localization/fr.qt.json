@@ -2634,5 +2634,7 @@
   "Počet instancí v opačném směru": "Nombre d’instances en sens inverse",
   "Korekce délky": "Correction de longueur",
   "Korekce úhlu": "Correction d’angle",
-  "Vrtací špička": "Pointe de perçage"
+  "Vrtací špička": "Pointe de perçage",
+  "Body os": "Points des axes",
+  "Zobrazit nebo skrýt koncové body os": "Afficher ou masquer les extrémités des axes"
 }

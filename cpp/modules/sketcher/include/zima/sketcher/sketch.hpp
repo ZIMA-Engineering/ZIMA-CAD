@@ -699,6 +699,11 @@ public:
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis_point(const zima::kernel::ViewerAxis& axis) const;
+    // Whole cylindrical faces use their complete analytic circular support
+    // when the Sketch is perpendicular to the axis, regardless of face trims.
+    [[nodiscard]] bool cache_external_cylinder_support(
+        SketchExternalReference& reference,
+        const zima::kernel::ViewerReferenceGeometry& source_geometry) const;
     // Orthographically projects the selected face boundary and apparent
     // contour into this Sketch frame, independently of normal displacement.
     // Consumes only calculated source geometry; never invokes the solid kernel.

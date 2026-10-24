@@ -2634,5 +2634,7 @@
   "Počet instancí v opačném směru": "Anzahl in Gegenrichtung",
   "Korekce délky": "Längenkorrektur",
   "Korekce úhlu": "Winkelkorrektur",
-  "Vrtací špička": "Bohrerspitze"
+  "Vrtací špička": "Bohrerspitze",
+  "Body os": "Achsenpunkte",
+  "Zobrazit nebo skrýt koncové body os": "Achsenendpunkte ein- oder ausblenden"
 }

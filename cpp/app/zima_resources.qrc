@@ -100,6 +100,7 @@
     <file alias="icons/sketch-view-rotate.svg">../../resources/icons/sketch-view-rotate.svg</file>
     <file alias="icons/origin.svg">../../resources/icons/origin.svg</file>
     <file alias="icons/point.svg">../../resources/icons/point.svg</file>
+    <file alias="icons/axis-points.svg">../../resources/icons/axis-points.svg</file>
     <file alias="icons/axis.svg">../../resources/icons/axis.svg</file>
     <file alias="icons/surface.svg">../../resources/icons/surface.svg</file>
     <file alias="icons/plane.svg">../../resources/icons/plane.svg</file>

@@ -1,3 +1,33 @@
+bool Sketch::cache_external_cylinder_support(SketchExternalReference& reference,
+        const kernel::ViewerReferenceGeometry& source) const {
+    if(reference.kind!=ExternalReferenceKind::Face||is_intersection_reference(reference)||
+       is_face_curve_key(reference.source_semantic_key))return false;
+    const kernel::FaceReference wanted{reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path};
+    const kernel::SurfaceGeometry* cylinder=nullptr;
+    for(const auto& face:source.triangle_references)if(face==wanted) {
+        const auto* surface=face.surface.get();
+        if(!surface||surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder)return false;
+        if(cylinder&&(cylinder->origin!=surface->origin||cylinder->axis!=surface->axis||cylinder->radius!=surface->radius))return false;
+        cylinder=surface;
+    }
+    if(!cylinder||!std::isfinite(cylinder->radius)||cylinder->radius<=1e-12)return false;
+    const auto n=normal(),a=cylinder->axis;
+    const double length=std::sqrt(a.x*a.x+a.y*a.y+a.z*a.z);
+    if(!std::isfinite(length)||length<=1e-12)return false;
+    const double parallel=std::abs(n.x*a.x+n.y*a.y+n.z*a.z)/length;
+    if(std::abs(parallel-1.)>1e-10)return false;
+    const auto center=local_point(cylinder->origin);
+    reference.exact_spline=circular_curve_geometry({center[0],center[1],0},cylinder->radius,0,2*std::numbers::pi);
+    reference.cached_points.clear();reference.cached_paths={{}};
+    auto& path=reference.cached_paths.front();
+    for(unsigned sample=0;sample<=128;++sample) {
+        const auto p=kernel::bspline_value(*reference.exact_spline,double(sample)/128);
+        path.push_back({p.x,p.y});
+    }
+    path.back()=path.front();
+    reference.infinite=false;reference.broken=false;return true;
+}
+
 // Exact side-on generators of a full or angularly bounded analytic band.
 // Boundary certification uses persisted triangles; no kernel call or new IDs.
 static std::array<std::optional<std::array<kernel::Vec3,2>>,2>

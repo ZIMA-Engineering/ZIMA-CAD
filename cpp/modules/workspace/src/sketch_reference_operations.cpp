@@ -127,6 +127,7 @@ void populate_external_reference_cache(
         reference.cached_points = *projected;
         reference.infinite = reference.kind==sketcher::ExternalReferenceKind::Axis;
     } else {
+        if(sketch.cache_external_cylinder_support(reference,source))return;
         const auto projected = sketch.external_face_reference_paths(source,
             {reference.source_owner_id, reference.source_semantic_key,
              reference.source_instance_path});

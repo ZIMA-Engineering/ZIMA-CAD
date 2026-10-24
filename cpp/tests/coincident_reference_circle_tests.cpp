@@ -35,13 +35,60 @@ sketcher::SketchExternalReference reference(double x,double y,double radius,unsi
     }
     return result;
 }
+void verify_cylinder_refresh() {
+    auto sketch=sketcher::Sketch::create_default();sketch.plane_offset=123;
+    auto source=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Face);
+    source.source_document_id="cylinder-document";source.source_owner_id="cylinder";source.source_semantic_key="partial-side";
+    auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
+    surface->origin={17,-9,-500};surface->axis={0,0,-1};surface->radius=7;surface->axial_min=0;surface->axial_max=2;
+    kernel::ViewerReferenceGeometry geometry;kernel::FaceReference face{"cylinder","partial-side",{}};face.surface=surface;
+    geometry.triangle_references={face};
+    check(sketch.cache_external_cylinder_support(source,geometry),"Reversed cylinder axis/remote Sketch plane lost its support");
+    sketch.add_external_reference(source);
+    for(double radius:{13.,4.,7.}) {
+        surface->radius=radius;check(sketch.refresh_external_references("cylinder-document",geometry),"Changed cylinder support was not refreshed");
+        const auto& current=sketch.external_references.front();const auto circle=sketcher::external_reference_circle(current);
+        check(current.id==source.id&&circle&&std::hypot((*circle)[0]-17,(*circle)[1]+9)<1e-9&&std::abs((*circle)[2]-radius)<1e-9,"Cylinder refresh lost identity or analytic center/radius");
+        for(unsigned i=0;i<=1024;++i) {
+            const auto point=kernel::bspline_value(*current.exact_spline,double(i)/1024);
+            check(std::abs(std::hypot(point.x-17,point.y+9)-radius)<1e-9,"Full cylinder support does not satisfy its circle equation");
+        }
+        const auto serialized=sketch.serialized();
+        check(!sketch.refresh_external_references("cylinder-document",geometry)&&sketch.serialized()==serialized,"Unchanged cylinder support introduced a change");
+        check(sketcher::Sketch::from_serialized(serialized).serialized()==serialized,"Cylinder support exact geometry did not round-trip");
+        const auto mesh=sketch.viewer_mesh();
+        check(std::ranges::any_of(mesh.edges,[&](const auto& edge){return edge.reference.semantic_key=="external_face:"+source.id&&edge.exact_spline.has_value();}),"Cylinder View edge lost its exact supporting curve");
+    }
+    auto old_reference=source;old_reference.exact_spline.reset();old_reference.cached_points.clear();old_reference.cached_paths={{{1,2},{3,4}}};
+    auto old_sketch=sketcher::Sketch::create_default();old_sketch.add_external_reference(old_reference);
+    static_cast<void>(old_sketch.refresh_external_references("cylinder-document",geometry));
+    check(!old_sketch.external_references.front().exact_spline&&old_sketch.external_references.front().cached_paths==old_reference.cached_paths,
+        "New cylinder support rewrote a previously stored face reference");
+    const auto valid=sketch.external_references.front();
+    check(sketch.refresh_external_references("cylinder-document",{})&&sketch.external_references.front().broken&&
+        sketch.external_references.front().exact_spline==valid.exact_spline,"Lost source discarded its last valid support");
+    check(sketch.refresh_external_references("cylinder-document",geometry)&&sketch.external_references.front()==valid,"Restored cylinder source changed reference identity");
+}
 void verify(unsigned& cases) {
-    for(unsigned samples:{8u,17u,57u,128u})for(bool reverse:{false,true})
+    for(bool cylindrical_face:{false,true})for(unsigned samples:{8u,17u,57u,128u})for(bool reverse:{false,true})
     for(bool arc:{false,true})for(bool fixed:{false,true})for(bool diameter:{false,true})for(bool locked:{false,true})
     for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ}) {
         auto sketch=sketcher::Sketch::create_default();sketch.plane=plane;sketch.refresh_default_frame();
         const double radius=31.331971171734438;
         auto source=reference(173,-81,radius,samples,reverse,arc);
+        if(cylindrical_face) {
+            source.kind=sketcher::ExternalReferenceKind::Face;
+            auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
+            surface->origin=sketch.world_point(173,-81);surface->axis=sketch.normal();surface->radius=radius;
+            kernel::ViewerReferenceGeometry geometry;
+            kernel::FaceReference face{source.source_owner_id,source.source_semantic_key,{}};face.surface=surface;
+            geometry.triangle_references={face};
+            check(sketch.cache_external_cylinder_support(source,geometry),"Analytic cylinder support was not resolved");
+            const auto saved=source;
+            check(sketch.cache_external_cylinder_support(source,geometry)&&source==saved,"Unchanged cylinder support changed persisted data");
+            auto oblique=sketch;oblique.plane=plane==sketcher::SketchPlane::XY?sketcher::SketchPlane::XZ:sketcher::SketchPlane::XY;
+            oblique.refresh_default_frame();check(!oblique.cache_external_cylinder_support(source,geometry)&&source==saved,"Oblique cylinder gained a false circular support");
+        }
         sketch.add_external_reference(source);
         const auto circle=sketch.add_circle(173,-81,radius);
         const auto center=sketch.circles.front().center_point_id;
@@ -165,7 +212,7 @@ void verify(unsigned& cases) {
 }
 int main(int argc,char** argv) {
     try {
-        unsigned cases{};verify(cases);
+        unsigned cases{};verify_cylinder_refresh();verify(cases);
         if(argc==2) {
             const auto document=document::PartDocument::load(argv[1]);
             for(const auto& sketch:document.sketches) {

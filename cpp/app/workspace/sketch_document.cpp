@@ -94,7 +94,8 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         }
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
             source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_&&!sketcher::is_face_curve_key(source.semantic_key));
-        if(candidate.kind==viewer::CandidateKind::Face&&!reference.infinite)
+        if(candidate.kind==viewer::CandidateKind::Face&&!reference.infinite&&
+           !(reference.exact_spline&&sketcher::external_reference_circle(reference)))
             throw std::runtime_error("Source face cannot be projected into the Sketch plane");
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
