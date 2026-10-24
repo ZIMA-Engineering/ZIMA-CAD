@@ -1,5 +1,7 @@
 #include "workspace_internal.hpp"
 #include "../general_surface_dialog.hpp"
+#include "../loft_dialog.hpp"
+#include <zima/document/loft.hpp>
 #include "../sketch_properties_dialog.hpp"
 #include "../primitive_properties_dialog.hpp"
 #include "../confirmed_face_hit.hpp"
@@ -8,16 +10,22 @@
 namespace zima::app {
 using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_general_surface_sketch_properties(GeneralSurfaceDialog* parent,unsigned stage) {
-    if(properties_dialog_!=parent||stage>=parent->pending.general_surface.boundaries.size())return;
-    const auto& boundary=parent->pending.general_surface.boundaries[stage];if(boundary.curve)return;
-    QPointer<GeneralSurfaceDialog> guard(parent);
+    show_owned_sketch_properties(parent,stage);
+}
+void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog* parent,unsigned stage) {
+    const auto boundaries=[](auto& feature)->auto& {return feature.feature_kind==document::FeatureKind::Loft?feature.loft.sketches:feature.general_surface.boundaries;};
+    const auto carrier=[](const auto& feature){return feature.feature_kind==document::FeatureKind::Loft?document::loft_sketch_editor_carrier(feature):feature;};
+    const auto refresh=[](SweepPlacementDialog* dialog){if(auto* loft=dynamic_cast<LoftDialog*>(dialog))loft->refresh();else if(auto* surface=dynamic_cast<GeneralSurfaceDialog*>(dialog))surface->refresh();};
+    if(properties_dialog_!=parent||stage>=boundaries(parent->pending).size())return;
+    const auto& boundary=boundaries(parent->pending)[stage];if(boundary.curve)return;
+    QPointer<SweepPlacementDialog> guard(parent);
     auto draft=std::make_shared<document::GeneralSurfaceBoundary>(boundary);
     const auto sketch_id=draft->sketch_feature->feature.sketch_id;
     const auto source_geometry=primitive_reference_geometry_;
-    const auto framed=[guard,stage,draft,source_geometry](const document::HistoryContainer& owned) {
+    const auto framed=[guard,stage,draft,source_geometry,carrier](const document::HistoryContainer& owned) {
         if(!guard||!draft->sketch_feature||owned.id!=draft->sketch_feature->id||
             owned.feature.type!=document::FeatureType::Sketch)throw std::invalid_argument("Invalid owned surface boundary.");
-        auto feature=guard->pending;auto value=*draft;value.sketch_feature=owned;
+        auto feature=carrier(guard->pending);auto value=*draft;value.sketch_feature=owned;
         auto sketch=sketcher::Sketch::from_serialized(value.sketch_serialized);
         sketch.name=owned.name;sketch.plane_offset=owned.feature.profile_plane_offset;
         value.sketch_serialized=sketch.serialized();feature.general_surface.boundaries.at(stage)=std::move(value);
@@ -26,8 +34,8 @@ void AssemblyWorkspaceWindow::show_general_surface_sketch_properties(GeneralSurf
         return feature;
     };
     auto* dialog=new PrimitivePropertiesDialog(*draft->sketch_feature,true,false,
-        [guard,stage,framed](auto owned){if(guard){auto feature=framed(owned);
-            guard->pending.general_surface.boundaries.at(stage)=std::move(feature.general_surface.boundaries.at(stage));guard->refresh();}},this);
+        [guard,stage,framed,boundaries,refresh](auto owned){if(guard){auto feature=framed(owned);
+            boundaries(guard->pending).at(stage)=std::move(feature.general_surface.boundaries.at(stage));refresh(guard);}},this);
     dialog->setObjectName("generalSurfaceSketchProperties");
     dialog->setProperty("retainForSketchEditing",true);
     dialog->findChild<QComboBox*>("featureType")->setEnabled(false);

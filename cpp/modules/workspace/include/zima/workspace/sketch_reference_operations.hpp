@@ -2,7 +2,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::workspace {
-// Owned General Surface definitions are parent-local; their interactive
+// Owned General Surface/Loft Sketch definitions are parent-local; their interactive
 // display Sketch is already in Body coordinates. Consumers declare the frame.
 enum class SketchIntersectionFrame { Definition, Body };
 [[nodiscard]] std::vector<sketcher::SketchExternalReference> prepare_sketch_curve_intersection_branches(
@@ -14,7 +14,7 @@ enum class SketchIntersectionFrame { Definition, Body };
     const Workspace&,const std::string& document,const sketcher::Sketch&,const document::PartDocument* candidate_part = nullptr,
     const Workspace* authoritative_sources = nullptr);
 // Explicit source choice/calculation only. Results use the declared Sketch
-// frame; an owned General Surface definition retains its parent-local frame.
+// frame; an owned Sketch definition retains its parent-local frame.
 [[nodiscard]] kernel::ViewerReferenceGeometry part_sketch_face_intersection(
     const kernel::OcctKernel&,const document::DocumentSession&,const sketcher::Sketch&,
     const kernel::FaceReference&,const std::string& draft_body_id = {},

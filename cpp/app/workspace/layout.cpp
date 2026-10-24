@@ -189,7 +189,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner))
-                if(authored_sketch_profile(*feature))return true;
+                if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Loft)return true;
         }
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))
@@ -2078,13 +2078,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                 viewer_->confirm_container(id);
                 return;
             }
-            if (item->data(0, Qt::UserRole + 3).toString() == "general-surface-boundary") {
+            if (item->data(0, Qt::UserRole + 3).toString() == "general-surface-boundary" || item->data(0,Qt::UserRole+3)=="loft-sketch") {
                 const auto* part = workspace_.open_part(workspace_.active_document_id());
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 const auto* feature = part ? part->session.document().find_container(id) : nullptr;
                 const auto index = item->data(0, Qt::UserRole + 6).toUInt();
-                if (!feature || index >= feature->general_surface.boundaries.size()) return;
-                const auto& boundary = feature->general_surface.boundaries[index];
+                if(!feature)return;
+                const auto& boundaries=feature->feature_kind==document::FeatureKind::Loft?feature->loft.sketches:feature->general_surface.boundaries;
+                if(index>=boundaries.size())return;
+                const auto& boundary=boundaries[index];
                 const auto owner = boundary.curve ? boundary.curve->entity_id :
                     zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).id;
                 const auto path = item->data(0, Qt::UserRole + 1).toString().toStdString();
@@ -2095,7 +2097,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     if (edge.reference.owner_id == owner && edge.reference.instance_path == path)
                         wire.push_back(edge);
                 if(wire.empty()) {
-                    auto definition=*feature;definition.general_surface.boundaries={boundary};
+                    auto definition=*feature;definition.general_surface.boundaries={boundary};definition.feature_kind=document::FeatureKind::GeneralSurface;definition.loft={};
                     auto mesh=document::general_surface_definition_mesh(definition);
                     if(const auto* body=part->session.document().body_owner_for_object(id))
                         mesh=part->session.document().place_body_mesh(std::move(mesh),body->scope.id);
@@ -2648,7 +2650,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                         QMessageBox::warning(this,tr("Trasu nelze změnit"),tr(error.what()));
                     }
                 }
-            } else if(item->data(0,Qt::UserRole+3).toString()=="general-surface-boundary") {
+            } else if(item->data(0,Qt::UserRole+3).toString()=="general-surface-boundary"||item->data(0,Qt::UserRole+3)=="loft-sketch") {
                 if(properties_dialog_)return;
                 QMenu menu(this);auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 if(exec_tree_menu(menu,item,position)==properties)show_tree_item_properties(item);

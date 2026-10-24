@@ -950,6 +950,21 @@ struct BoundarySurfaceRequest {
     double curvature_tolerance{1e-5}; // inverse mm
 };
 enum class SurfaceThicknessSide { First, Second, Symmetric };
+
+// Ordered planar Sketch curves; exact data uses the established profile packet.
+// This primitive is appended to the variant to retain existing fingerprint tags.
+struct LoftRequest {
+    std::vector<ExtrusionRequest> profiles;
+    std::vector<ExtrusionRequest> guides;
+    std::vector<std::string> profile_owners, guide_owners;
+    std::string region_id;
+    bool make_solid{true};
+    bool thin{};
+    double thickness{1.};
+    SurfaceThicknessSide thickness_side{SurfaceThicknessSide::Second};
+    double tolerance{0.001};
+};
+
 struct SurfaceThickenRequest {
     FaceReference face;
     double thickness{1.}; // Total thickness; symmetric uses half on each side.
@@ -1017,7 +1032,7 @@ using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest,
-    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest>;
+    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest, LoftRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.
 // No container/reference definition or native document format changes.

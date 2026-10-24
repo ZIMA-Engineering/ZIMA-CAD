@@ -34,14 +34,14 @@ part_annotation_frames(const PartDocument &part) {
     for (const auto &c : part.history)
         if (c.feature_kind == FeatureKind::Sweep3D)
             construction(construction, c.sweep3d.path);
-        else if(c.feature_kind==FeatureKind::GeneralSurface) {
+        else if(c.feature_kind==FeatureKind::GeneralSurface||c.feature_kind==FeatureKind::Loft) {
             const auto parent=body_frame(c.id,annotation_frame(c.placement));
             const auto owned=[&](auto&& self,const ConstructionObject& object,const kernel::ModelEnvelope& frame)->void {
                 const auto placed=kernel::composed_annotation_frame(frame,kernel::annotation_frame(object.origin,object.rotation));
                 for(const auto& id:{object.id,object.entity_id,object.container_origin.id})if(!id.empty())frames[{id,{}}]=placed;
                 for(const auto& point:object.curve_points)self(self,point,placed);
             };
-            for(const auto& boundary:c.general_surface.boundaries)
+            for(const auto& boundary:c.feature_kind==FeatureKind::Loft?c.loft.sketches:c.general_surface.boundaries)
                 if(boundary.curve)owned(owned,*boundary.curve,parent);
                 else {
                     const auto sketch=sketcher::Sketch::from_serialized(boundary.sketch_serialized);

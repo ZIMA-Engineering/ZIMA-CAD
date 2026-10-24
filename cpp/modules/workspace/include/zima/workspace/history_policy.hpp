@@ -104,6 +104,12 @@ struct HistoryDependencyCollector {
         case FeatureKind::HelicalSweep:
             for(const auto& data:feature.helical.sketches){auto owned=sketcher::Sketch::from_serialized(data);owned.plane_reference_owner_id.clear();sketch(owned,root);}
             break;
+        case FeatureKind::Loft:
+            for(const auto& boundary:feature.loft.sketches) {
+                for(const auto& ref:boundary.sketch_feature->placement.references)reference(root,ref);
+                sketch(sketcher::Sketch::from_serialized(boundary.sketch_serialized),root);
+            }
+            break;
         case FeatureKind::BoundarySurface:
             for(const auto& boundary:feature.boundary_surface.boundaries) {
                 use(root,boundary.owner_id);
@@ -154,8 +160,8 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
         // which appear earlier in storage than their referenced object.
         if (feature.feature_kind == document::FeatureKind::Sweep3D)
             graph.register_construction(feature.sweep3d.path,feature.id);
-        if(feature.feature_kind==document::FeatureKind::GeneralSurface)
-            for(const auto& boundary:feature.general_surface.boundaries) {
+        if(feature.feature_kind==document::FeatureKind::GeneralSurface||feature.feature_kind==document::FeatureKind::Loft)
+            for(const auto& boundary:feature.feature_kind==document::FeatureKind::Loft?feature.loft.sketches:feature.general_surface.boundaries) {
                 if(boundary.curve)graph.register_construction(*boundary.curve,feature.id);
                 else {
                     const auto& owned=*boundary.sketch_feature;

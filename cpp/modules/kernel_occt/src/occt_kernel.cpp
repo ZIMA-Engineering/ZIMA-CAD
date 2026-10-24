@@ -2,6 +2,11 @@
 #include "ordered_up_to.hpp"
 #include <zima/kernel/ordered_up_to_resolution.hpp>
 #include <BRepOffsetAPI_MakeFilling.hxx>
+#include <GeomFill_Gordon.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <GeomConvert_CompCurveToBSplineCurve.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
+
 #include <BRepLib_CheckCurveOnSurface.hxx>
 #include <BRepCheck_Result.hxx>
 #include <BRepAlgoAPI_Check.hxx>
@@ -5493,6 +5498,7 @@ std::vector<OwnedVertex> complete_shell_vertices(const TopoDS_Shape& shape,
 
 #include "surface_sewing_geometry.inc"
 #include "surface_thicken_geometry.inc"
+#include "loft_geometry.inc"
 #include "surface_intersection_geometry.inc"
 #include "surface_trim_geometry.inc"
 #include "sheet_form_geometry.inc"
@@ -5953,8 +5959,12 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
                 if(std::abs(direction.X())>1e-12&&std::abs(direction.Y())>1e-12) {adaptive_analytic_surface=true;break;}
             }
         }
+        // A symmetric normal offset can wrap every original rational face.
+        // Its GeomAbs_OffsetSurface type must retain adaptive integration too;
+        // otherwise an exact cylindrical Thin Loft loses percent-level mass.
         if (surface.GetType() == GeomAbs_BSplineSurface ||
             surface.GetType() == GeomAbs_BezierSurface ||
+            surface.GetType() == GeomAbs_OffsetSurface ||
             surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
             surface.GetType() == GeomAbs_SurfaceOfRevolution) {
             rational_surface = true;
@@ -8555,7 +8565,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
             const bool surface_operand=std::visit([](const auto& request){
                 if constexpr(requires{request.surface_result;})return request.surface_result;
-                else if constexpr(std::is_same_v<std::decay_t<decltype(request)>,Sweep3DRequest>)return !request.make_solid;
+                else if constexpr((std::is_same_v<std::decay_t<decltype(request)>,Sweep3DRequest>||std::is_same_v<std::decay_t<decltype(request)>,LoftRequest>))return !request.make_solid;
                 else if constexpr(std::is_same_v<std::decay_t<decltype(request)>,FeatureGroupRequest>)
                     return !request.children.empty()&&std::ranges::all_of(request.children,[](const auto& child){
                         return std::visit([](const auto& value){
@@ -11230,6 +11240,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::move(thickened.remaining.faces),std::move(thickened.remaining.edges),
                         std::move(thickened.remaining.vertices),owned_topology->hidden_display_edges});
                     return std::move(thickened.operand);
+                } else if constexpr (std::is_same_v<Request, LoftRequest>) {
+                    return make_loft_data(primitive,operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
                     std::vector<OwnedFace> sources;std::vector<OwnedEdge> edges;std::vector<OwnedVertex> vertices;
                     for(auto node=context.original_faces;node;node=node->previous) {

@@ -13,8 +13,8 @@ namespace zima::workspace {
 namespace {
 const document::HistoryContainer* general_surface_parent(const document::PartDocument& document,
         const sketcher::Sketch& sketch) {
-    for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::GeneralSurface)
-        for(const auto& boundary:feature.general_surface.boundaries)
+    for(const auto& feature:document.history)if((feature.feature_kind==document::FeatureKind::GeneralSurface||feature.feature_kind==document::FeatureKind::Loft))
+        for(const auto& boundary:feature.feature_kind==document::FeatureKind::Loft?feature.loft.sketches:feature.general_surface.boundaries)
             if(boundary.sketch_feature&&boundary.sketch_feature->id==sketch.owner_container_id)return &feature;
     return nullptr;
 }

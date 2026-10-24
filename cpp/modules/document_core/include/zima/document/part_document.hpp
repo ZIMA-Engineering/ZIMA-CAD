@@ -32,7 +32,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -674,6 +674,16 @@ struct SurfaceTrimParameters {
     bool operator==(const SurfaceTrimParameters&)const=default;
 };
 struct GeneralSurfaceBoundary;
+struct LoftParameters {
+    // Owned planar Sketch identities, with independent parent-local placement.
+    std::vector<GeneralSurfaceBoundary> sketches;
+    std::vector<std::string> profiles, guides;
+    ProfileResultType result_type{ProfileResultType::Solid};
+    ThinMode thin_mode{ThinMode::OneSide};
+    double thickness{1.};
+    bool operator==(const LoftParameters&)const=default;
+};
+struct GeneralSurfaceBoundary;
 struct GeneralSurfaceParameters {
     std::vector<GeneralSurfaceBoundary> boundaries;
     bool operator==(const GeneralSurfaceParameters&)const=default;
@@ -715,6 +725,7 @@ struct HistoryContainer {
     SurfaceIntersectionParameters surface_intersection;
     SurfaceTrimParameters surface_trim;
     GeneralSurfaceParameters general_surface;
+    LoftParameters loft;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
@@ -725,6 +736,7 @@ struct HistoryContainer {
             (feature_kind==FeatureKind::Shell && shell.thickness==0.) ||
             (feature_kind==FeatureKind::Sweep2D && sweep2d.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Sweep3D && sweep3d.result_type==ProfileResultType::Surface) ||
+            (feature_kind==FeatureKind::Loft && loft.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::HelicalSweep && helical.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface) ||

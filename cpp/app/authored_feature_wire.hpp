@@ -7,6 +7,7 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/sheet_transition.hpp>
+#include <zima/document/loft.hpp>
 #include <zima/workspace/operation_input.hpp>
 
 namespace zima::app {
@@ -71,6 +72,8 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         wire.edges=doc.primitive_preview_edges(*feature,input_mesh);return place(std::move(wire));
     case FeatureKind::Thread:
         wire.edges=doc.thread_edges(*feature,input?&input_mesh:nullptr);return place(std::move(wire));
+    case FeatureKind::Loft:
+        return place(document::loft_definition_mesh(doc,*feature));
     case FeatureKind::Sweep2D:
         return place(document::PartDocument::sweep2d_preview_mesh(*feature));
     case FeatureKind::HelicalSweep:

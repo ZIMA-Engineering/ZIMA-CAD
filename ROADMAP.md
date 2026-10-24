@@ -17,11 +17,12 @@ newer completion notes and focused contracts supersede their earlier status.
 The shared OCCT 8.0.1 transition and Windows 2026102401 package, signing,
 public download and trusted updater acceptance are complete. The
 [upgrade record](doc/verification/20261024-occt-801-upgrade.md) retains all 42
-existing baseline failures and the separate native Linux gap. The next task is to
-implement standalone **Loft** with planar 2D profile Sketches above planar 2D
-guide Sketches, based on the 3D Sweep interface without whole-curve type or
-corner-rounding controls. New persisted contracts require the approved factory
-library/template verification; this command is not implemented yet.
+existing baseline failures and the separate native Linux gap. The subsequent
+standalone **Loft** implementation owns planar 2D profile Sketches in the upper
+list and planar 2D guide Sketches below, without whole-curve type or corner
+rounding. It reuses shared Sketch Properties and supports Solid/Thin/Surface,
+native persistence and Undo/Redo. See [the finite verification](doc/verification/20261024-loft.md)
+for accepted cases and limitations; the immutable 2401 package does not contain it.
 
 Use the [current capability and backlog index](doc/PROJECT_STATUS.md) for what
 exists today, what is awaiting release acceptance and what remains planned.

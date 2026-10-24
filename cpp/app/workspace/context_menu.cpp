@@ -5,16 +5,24 @@
 #include <zima/document/file_path.hpp>
 #include "../file_dialog.hpp"
 #include "../general_surface_dialog.hpp"
+#include "../loft_dialog.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="loft-sketch") {
+        const auto stage=item->data(0,Qt::UserRole+6).toUInt();
+        show_loft_properties(item->data(0,Qt::UserRole).toString().toStdString());
+        if(auto* dialog=dynamic_cast<LoftDialog*>(properties_dialog_))dialog->edit_sketch_properties(stage);
+        return;
+    }
     if(item&&(item->data(0,Qt::UserRole+3)=="curve3d-point"||item->data(0,Qt::UserRole+3)=="construction-origin")) {
         const bool editing_point=item->data(0,Qt::UserRole+3)=="curve3d-point";
         const auto selected_id=item->data(0,Qt::UserRole).toString().toStdString();
         for(auto* ancestor=item->parent();ancestor;ancestor=ancestor->parent()) {
+            if(ancestor->data(0,Qt::UserRole+3)=="loft-sketch") {show_tree_item_properties(ancestor);return;}
             if(ancestor->data(0,Qt::UserRole+3)!="general-surface-boundary")continue;
             const auto stage=ancestor->data(0,Qt::UserRole+6).toUInt();
             show_sweep_properties(zima::document::FeatureKind::GeneralSurface,ancestor->data(0,Qt::UserRole).toString().toStdString());
@@ -125,6 +133,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                 if(const auto* feature=part->session.document().find_container(id))
                     command_preview_follows=(feature->feature_kind==document::FeatureKind::Sweep2D||
                         feature->feature_kind==document::FeatureKind::HelicalSweep||
+                        feature->feature_kind==document::FeatureKind::Loft||
                         feature->feature_kind==document::FeatureKind::Sweep3D||
                         feature->feature_kind==document::FeatureKind::Feature||
                         feature->feature_kind==document::FeatureKind::Extrusion||

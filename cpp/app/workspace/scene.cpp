@@ -558,9 +558,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 using zima::document::FeatureKind;
                 if (zima::document::has_primitive_parameter_dimensions(container->feature_kind)) {
                     auto display=zima::document::primitive_parameter_dimensions(*container);
-                    if (!parameter_dimension_preview_)
-                        if (const auto* body=document.body_owner_for_object(container->id))
-                            display=document.place_body_mesh(std::move(display),body->scope.id);
+                    if (!parameter_dimension_preview_||container->feature_kind==FeatureKind::Loft) {
+                        const auto* body=document.body_owner_for_object(container->id);
+                        if(!body&&container->feature_kind==FeatureKind::Loft)
+                            body=document.body_history.find(document.body_history.active_body_id());
+                        if(body)display=document.place_body_mesh(std::move(display),body->scope.id);
+                    }
                     mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                     if (properties_dialog_==nullptr && opening_component_edit_.first==container->id &&
                         !opening_component_edit_.second.empty()) {
@@ -1174,7 +1177,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         regenerate_action_->setEnabled(false);
         for (auto* action : {thread_action_, holes_action_, shaft_thread_action_, drill_point_action_, construction_point_action_,
                              curve_3d_action_,
-                             sweep_3d_action_, helical_sweep_action_, sweep2d_action_,
+                             sweep_3d_action_, helical_sweep_action_, sweep2d_action_, loft_action_,
                              construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
                              fillet_action_, chamfer_action_, shell_action_,
@@ -2017,6 +2020,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         curve_3d_action_->setEnabled(true);
         sweep_3d_action_->setEnabled(true);
         helical_sweep_action_->setEnabled(true);
+        {const auto* body=document.body_history.find(document.body_history.active_body_id());
+         loft_action_->setEnabled(body&&!body->derived_copy&&!properties_dialog_&&active_sketch_id_.empty());}
         sweep2d_action_->setEnabled(true);
         construction_axis_action_->setEnabled(true);
         construction_plane_action_->setEnabled(true);
@@ -2534,6 +2539,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     curve_3d_action_->setEnabled(supports_constructions);
     sweep_3d_action_->setEnabled(active_part != nullptr);
     helical_sweep_action_->setEnabled(active_part != nullptr);
+    {const auto* body=active_part?active_part->session.document().body_history.find(active_part->session.document().body_history.active_body_id()):nullptr;
+     loft_action_->setEnabled(body&&!body->derived_copy&&!properties_dialog_&&active_sketch_id_.empty());}
     sweep2d_action_->setEnabled(active_part != nullptr);
     construction_axis_action_->setEnabled(supports_constructions);
     construction_plane_action_->setEnabled(supports_constructions);

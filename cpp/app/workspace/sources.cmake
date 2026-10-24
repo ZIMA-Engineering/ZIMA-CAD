@@ -13,6 +13,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/dimension_edit.cpp
     app/workspace/document_commands.cpp
     app/workspace/boundary_surface.cpp
+    app/workspace/loft_properties.cpp
     app/workspace/surface_sewing.cpp
     app/workspace/surface_thicken.cpp
     app/workspace/surface_intersection.cpp

@@ -1,0 +1,127 @@
+{
+  "date": "2026-10-24",
+  "implementation": "native shared C++ / OCCT 8.0.1",
+  "release": "Loft is later than immutable Windows 2026102401",
+  "tests": {
+    "zima_cpp_occt_gauss_interval_contract_tests": {
+      "status": "passed",
+      "seconds": 0.668197,
+      "evidence": "build/loft-audit/owned-regressions.xml"
+    },
+    "zima_cpp_translations_contract": {
+      "status": "passed",
+      "seconds": 11.7049,
+      "evidence": "build/loft-audit/owned-regressions.xml"
+    },
+    "zima_cpp_native_documents_tests": {
+      "status": "passed",
+      "seconds": 0.993975,
+      "evidence": "build/loft-audit/owned-regressions.xml"
+    },
+    "zima_cpp_family_table_tests": {
+      "status": "passed",
+      "seconds": 3.531,
+      "evidence": "build/loft-audit/owned-regressions.xml"
+    },
+    "zima_cpp_placement_reference_assignment_tests": {
+      "status": "passed",
+      "seconds": 0.0959637,
+      "evidence": "build/loft-audit/owned-regressions.xml"
+    },
+    "zima_cpp_surface_thicken_tests": {
+      "status": "passed",
+      "seconds": 12.1423,
+      "evidence": "build/loft-audit/owned-regressions.xml"
+    },
+    "zima_cpp_loft_document_tests": {
+      "status": "passed",
+      "seconds": 0.660649,
+      "evidence": "build/loft-audit/owned-references.xml"
+    },
+    "zima_cpp_loft_tests": {
+      "status": "passed",
+      "seconds": 5.71344,
+      "evidence": "build/loft-audit/final-loft.xml"
+    },
+    "zima_cpp_boundary_surface_tests": {
+      "status": "passed",
+      "seconds": 25.9333,
+      "evidence": "build/loft-audit/owned-references.xml"
+    },
+    "zima_cpp_loft_ui_contract": {
+      "status": "passed",
+      "seconds": 6.23722,
+      "evidence": "build/loft-audit/owned-references.xml"
+    },
+    "zima_cpp_sketch_reference_command_tests": {
+      "status": "passed",
+      "seconds": 0.60579,
+      "evidence": "build/loft-audit/owned-references.xml"
+    },
+    "zima_cpp_sketch_intersection_reference_tests": {
+      "status": "passed",
+      "seconds": 13.8434,
+      "evidence": "build/loft-audit/owned-references.xml"
+    },
+    "zima_cpp_sketch_dimension_command_tests": {
+      "status": "passed",
+      "seconds": 1.21788,
+      "evidence": "build/loft-audit/owned-references.xml"
+    },
+    "zima_cpp_sketch_curve_plane_reference_tests": {
+      "status": "passed",
+      "seconds": 0.546798,
+      "evidence": "build/loft-audit/owned-references.xml"
+    }
+  },
+  "factory_native_reads": {
+    "total": 1185,
+    "passed": 1185,
+    "seconds": 76.01599999999962,
+    "evidence": "build/loft-audit/native-read/results.json"
+  },
+  "protected_project": {
+    "files": 145,
+    "all_originals_and_backup_hashes_match": true,
+    "native_read_successes": 3,
+    "native_read_failures": 1,
+    "failure": "import/POKUS.prtz: Missing INI key CachedBodies.definition_fingerprint",
+    "baseline": "Same failure in immutable Windows 2026102401; no conversion or overwrite performed",
+    "assembly_dependencies": "One immediate source Part; source resolves inside the verified project copy"
+  },
+  "additional_gui": {
+    "general_surface": "passed",
+    "templates": "passed",
+    "body_activation": "failed: Activating hidden body displayed no original geometry; identical failure in immutable 2401",
+    "native_relation_templates": "passed: actual new Part/Assembly dialogs, first editable Body and normal commands"
+  },
+  "known_limits": [
+    "One connected contour without holes per input Sketch",
+    "No Curve3D inputs",
+    "At least two profiles; zero or at least two guide Sketches",
+    "Out-of-tolerance rational Gordon networks rejected, including tested spherical network",
+    "Native Linux execution not performed",
+    "No exhaustive Sketcher dimension/drag matrix; no solver change",
+    "Loft-specific Family variants, nested Assembly placement, arbitrary arcs/B-splines and nonparallel networks are not exhaustively verified"
+  ],
+  "evidence_sha256": {
+    "final-loft.xml": "a3d4a27a48b0b3ba2f6af9b3ff640ca980df4f6e2e73fa7d0c3d53a492fee2ad",
+    "owned-regressions.xml": "4eaa1fdc81875cc8e6debaffbdce29717e5d803a0a8ce0f95295067e856399e0",
+    "native-read/results.json": "2ce43bcb57c7ea2798e46e0e3b2d2ae830b5319782d0951e71cb18baa60afe08",
+    "protected-project-read.json": "b4090b9f74efde6a3176b44b9bf0535e051c8a3f6bad34e7c407039fa67891ab",
+    "protected-project-legacy-baseline.json": "c2ed413a75b058246d21a91e6c617d9ee7c161ac4eebdacbc0f83f3dbbf5e2d1",
+    "ZIMA_VERIFY_GENERAL_SURFACE_ONLY.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ZIMA_VERIFY_TEMPLATES_ONLY.log": "36f17ac45c856237bb293737fdf1804798f34d70502249ea9757d6e9b9ac05a3",
+    "ZIMA_VERIFY_BODY_ACTIVATION_ONLY.log": "8996027730946561c54fa9994262e68484f88c260133da071dcacce596bc0a01",
+    "ZIMA_VERIFY_BODY_ACTIVATION_ONLY-baseline.log": "8996027730946561c54fa9994262e68484f88c260133da071dcacce596bc0a01",
+    "final-loft-eye-ui.xml": "95ba35f284d56d6e3901e8eb6ffb97fc11c8dd84ea2a8f693b695c4ac76ae452",
+    "ZIMA_VERIFY_RELATION_TEMPLATES_ONLY.log": "007a67c5d43c2850a9365c63655c1f844e8d70b5b82db9fdb58ce902a0b8a82c",
+    "owned-references.xml": "ffa2f3451bb479cdbce7575ad6645fc6b5571f8e7e8d865e41b1e783d9b5592c"
+  },
+  "representative_first_evaluation_ms": {
+    "profile_only_cylinder": 44.315,
+    "profile_only_cone": 56.5731,
+    "guided_cylinder": 78.8389,
+    "guided_cone": 101.303
+  }
+}

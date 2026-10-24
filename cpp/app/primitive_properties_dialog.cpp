@@ -63,7 +63,7 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
         kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
         kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition || kind == FeatureKind::GeneralSurface ||
-        kind == FeatureKind::SheetForm;
+        kind == FeatureKind::SheetForm || kind == FeatureKind::Loft;
 }
 
 namespace {

@@ -79,6 +79,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::BoundarySurface: return QStringLiteral("boundary-surface");
         case FeatureKind::SurfaceThicken: return QStringLiteral("surface-thicken");
         case FeatureKind::SurfaceSewing: return QStringLiteral("surface-sewing");
+        case FeatureKind::Loft: return QStringLiteral("loft");
         case FeatureKind::GeneralSurface: return QStringLiteral("boundary-surface");
         case FeatureKind::SurfaceIntersection: return QStringLiteral("sketch-3d");
         case FeatureKind::SurfaceTrim: return QStringLiteral("boundary-surface");
@@ -182,6 +183,18 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             sketch->setData(0, Qt::UserRole, QString::fromStdString(profile.id));
             sketch->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
             sketch->setData(0, Qt::UserRole + 3, "sweep3d-profile");
+        }
+        return;
+    }
+    if(container.feature_kind==zima::document::FeatureKind::Loft) {
+        for(const auto* family:{&container.loft.profiles,&container.loft.guides})for(const auto& id:*family) {
+            const auto found=std::ranges::find_if(container.loft.sketches,[&](const auto& value){return value.sketch_feature->id==id;});
+            if(found==container.loft.sketches.end())continue;
+            auto* child=new QTreeWidgetItem(parent,{QString::fromStdString(found->sketch_feature->name)});
+            child->setIcon(0,resource_icon("sketch"));child->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+            child->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));child->setData(0,Qt::UserRole+3,"loft-sketch");
+            child->setData(0,Qt::UserRole+6,static_cast<int>(found-container.loft.sketches.begin()));
+            add_construction_origin_tree_item(child,found->sketch_feature->container_origin,found->sketch_feature->name,instance_path);
         }
         return;
     }

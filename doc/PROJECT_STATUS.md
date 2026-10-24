@@ -13,7 +13,11 @@ changed for the kernel upgrade.
 
 After that Windows release, the requested standalone **Loft** command uses
 planar 2D Sketch inputs only: profiles in the upper list, guide Sketches below.
-It is subsequent work, distinct from the existing Sweep profile transitions.
+The native implementation and GUI now use owned 2D Sketches with shared Sketch
+Properties, Solid/Thin/Surface results, persistence and Undo/Redo. It remains
+distinct from the existing Sweep profile transitions and is not included in the
+immutable 2401 package. See [Loft](LOFT.md) and its
+[finite verification](verification/20261024-loft.md).
 
 Reviewed on 2026-10-24 against the current C++ implementation, focused feature
 guides, verification records and public GitHub release. This is the current

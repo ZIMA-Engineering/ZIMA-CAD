@@ -322,6 +322,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/surface_intersection_operations.cpp
     modules/workspace/src/surface_trim_operations.cpp
     modules/workspace/src/general_surface_operations.cpp
+    modules/workspace/src/loft_operations.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/save_properties.cpp
@@ -2374,6 +2375,12 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_boundary_surface_dialog_tests tests/boundary_surface_dialog_tests.cpp)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/loft-ui-contract")
+    add_test(NAME zima_cpp_loft_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/loft-ui-contract")
+    set_tests_properties(zima_cpp_loft_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_LOFT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/general-surface-ui-contract")
     add_test(NAME zima_cpp_general_surface_ui_contract COMMAND zima-cad-cpp --verify-startup
         --working-directory "${CMAKE_BINARY_DIR}/general-surface-ui-contract")
@@ -2460,6 +2467,20 @@ if(ZIMA_BUILD_TESTS)
     endforeach()
     target_link_libraries(zima_cpp_surface_thicken_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt TKTopAlgo)
     add_test(NAME zima_cpp_surface_thicken_tests COMMAND zima_cpp_surface_thicken_tests)
+    add_executable(zima_cpp_loft_document_tests tests/loft_document_tests.cpp)
+    target_link_libraries(zima_cpp_loft_document_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt TKTopAlgo)
+    if(MSVC)
+        target_link_options(zima_cpp_loft_document_tests PRIVATE /STACK:8388608)
+        target_compile_options(zima_cpp_loft_document_tests PRIVATE /utf-8)
+    endif()
+    add_test(NAME zima_cpp_loft_document_tests COMMAND zima_cpp_loft_document_tests)
+    add_executable(zima_cpp_loft_tests tests/loft_tests.cpp)
+    target_link_libraries(zima_cpp_loft_tests PRIVATE zima_kernel_occt TKTopAlgo)
+    if(MSVC)
+        target_link_options(zima_cpp_loft_tests PRIVATE /STACK:8388608)
+        target_compile_options(zima_cpp_loft_tests PRIVATE /utf-8)
+    endif()
+    add_test(NAME zima_cpp_loft_tests COMMAND zima_cpp_loft_tests)
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
     if(MSVC)
         # Combined surface fixtures use ~832 KiB before nested OCCT calls.

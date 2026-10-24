@@ -56,7 +56,7 @@ void validate_general_surface(const HistoryContainer& feature) {
     }
 }
 void validate_general_surface_document_ownership(const PartDocument& part) {
-    if(std::ranges::none_of(part.history,[](const auto& feature){return feature.feature_kind==FeatureKind::GeneralSurface;}))return;
+    if(std::ranges::none_of(part.history,[](const auto& feature){return feature.feature_kind==FeatureKind::GeneralSurface||feature.feature_kind==FeatureKind::Loft;}))return;
     std::set<std::string> occupied{part.document_id};
     const auto construction=[&](auto&& self,const ConstructionObject& object)->void {
         occupied.insert(object.id);occupied.insert(object.entity_id);occupied.insert(object.container_origin.id);
@@ -69,11 +69,11 @@ void validate_general_surface_document_ownership(const PartDocument& part) {
         occupied.insert(feature.id);occupied.insert(feature.feature_id);occupied.insert(feature.container_origin.id);
         for(const auto& child:feature.container_origin.children)occupied.insert(child.id);
         if(feature.feature_kind==FeatureKind::Sweep3D)construction(construction,feature.sweep3d.path);
-        if(feature.feature_kind!=FeatureKind::GeneralSurface)
+        if(feature.feature_kind!=FeatureKind::GeneralSurface&&feature.feature_kind!=FeatureKind::Loft)
             visit_feature_sketches(feature,[&](const auto& data,std::size_t){occupied.insert(sketcher::Sketch::from_serialized(data).id);});
     }
-    for(const auto& feature:part.history)if(feature.feature_kind==FeatureKind::GeneralSurface) {
-        validate_general_surface(feature);
+    for(const auto& stored:part.history)if(stored.feature_kind==FeatureKind::GeneralSurface||stored.feature_kind==FeatureKind::Loft) {
+        if(stored.feature_kind==FeatureKind::Loft)validate_loft(stored);else validate_general_surface(stored);
         const auto owned=[&](auto&& self,const ConstructionObject& object)->void {
             // Point entities also alias their Origin point child. Check each
             // native object's primary identity once, then reserve all aliases.
@@ -83,7 +83,7 @@ void validate_general_surface_document_ownership(const PartDocument& part) {
             for(const auto& child:object.container_origin.children)occupied.insert(child.id);
             for(const auto& point:object.curve_points)self(self,point);
         };
-        for(const auto& boundary:feature.general_surface.boundaries) {
+        for(const auto& boundary:stored.feature_kind==FeatureKind::Loft?stored.loft.sketches:stored.general_surface.boundaries) {
             if(boundary.curve)owned(owned,*boundary.curve);
             else {
                 const auto& owned=*boundary.sketch_feature;

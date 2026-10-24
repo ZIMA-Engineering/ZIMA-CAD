@@ -488,6 +488,10 @@ void AssemblyWorkspaceWindow::create_actions() {
     helical_sweep_action_->setObjectName("helicalSweepAction");
     helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
+    loft_action_=make_action(tr("Přechod / Loft"),"loft");loft_action_->setObjectName("loftAction");
+    loft_action_->setToolTip(tr("Přechod mezi 2D skicami profilů, volitelně řízený dalšími 2D skicami."));
+    connect(loft_action_,&QAction::triggered,this,[this]{show_loft_properties();});
+
     construction_axis_action_ = make_action(tr("Osa"), "axis");
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
     construction_point_action_->setObjectName("constructionPointAction");

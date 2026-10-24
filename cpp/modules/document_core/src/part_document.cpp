@@ -21,6 +21,7 @@
 #include <zima/document/surface_intersection.hpp>
 #include <zima/document/surface_trim.hpp>
 #include <zima/document/general_surface.hpp>
+#include <zima/document/loft.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/feature_serialization.hpp>
@@ -5091,8 +5092,8 @@ const BodyHistory* PartDocument::body_owner_for_object(const std::string& id) co
             return body_history.owner(container.id);
     for (const auto& sketch : sketches)
         if (id == sketch.id) return body_history.owner(sketch.owner_container_id.empty() ? sketch.id : sketch.owner_container_id);
-    for(const auto& container:history)if(container.feature_kind==FeatureKind::GeneralSurface) {
-        for(const auto& boundary:container.general_surface.boundaries) {
+    for(const auto& container:history)if(container.feature_kind==FeatureKind::GeneralSurface||container.feature_kind==FeatureKind::Loft) {
+        for(const auto& boundary:container.feature_kind==FeatureKind::Loft?container.loft.sketches:container.general_surface.boundaries) {
             if(boundary.curve&&owns_construction(owns_construction,*boundary.curve))return body_history.owner(container.id);
             if(!boundary.sketch_serialized.empty()&&sketcher::Sketch::from_serialized(boundary.sketch_serialized).id==id)return body_history.owner(container.id);
             if(boundary.sketch_feature) {
@@ -5847,8 +5848,8 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     // with the solid's wire when the whole history container is hovered or
     // selected.  This is ZIMA viewer data; no OCCT topology is inspected.
     for (const auto& container : history) {
-        if(container.feature_kind==FeatureKind::GeneralSurface&&!container.suppressed&&!excluded_features.contains(container.id)) {
-            for(const auto& boundary:container.general_surface.boundaries)if(boundary.sketch_feature) {
+        if((container.feature_kind==FeatureKind::GeneralSurface||container.feature_kind==FeatureKind::Loft)&&!container.suppressed&&!excluded_features.contains(container.id)) {
+            for(const auto& boundary:container.feature_kind==FeatureKind::Loft?container.loft.sketches:container.general_surface.boundaries)if(boundary.sketch_feature) {
                 PartDocument carrier;carrier.sketches={general_surface_display_sketch(container,boundary)};
                 append_body_mesh(mesh,carrier.feature_result_mesh(*boundary.sketch_feature));
             }
@@ -5994,8 +5995,8 @@ void PartDocument::resolve_constructions(
                 for (const auto& reference : feature.placement.references) dependency(reference);
                 if (feature.feature_kind == FeatureKind::Sweep3D)
                     construction_dependencies(construction_dependencies, feature.sweep3d.path);
-                if(feature.feature_kind==FeatureKind::GeneralSurface)
-                    for(const auto& boundary:feature.general_surface.boundaries) {
+                if(feature.feature_kind==FeatureKind::GeneralSurface||feature.feature_kind==FeatureKind::Loft)
+                    for(const auto& boundary:feature.feature_kind==FeatureKind::Loft?feature.loft.sketches:feature.general_surface.boundaries) {
                         if(boundary.curve)construction_dependencies(construction_dependencies,*boundary.curve);
                         else for(const auto& reference:boundary.sketch_feature->placement.references)dependency(reference);
                     }
@@ -6010,7 +6011,7 @@ void PartDocument::resolve_constructions(
                 }
             };
             for (const auto& sketch : carrier.sketches) sketch_dependencies(sketch);
-            for(const auto& feature:carrier.history)if(feature.feature_kind==FeatureKind::GeneralSurface)
+            for(const auto& feature:carrier.history)if(feature.feature_kind==FeatureKind::GeneralSurface||feature.feature_kind==FeatureKind::Loft)
                 visit_feature_sketches(feature,[&](const auto& data,std::size_t){sketch_dependencies(sketcher::Sketch::from_serialized(data));});
             for (const auto& feature : carrier.history)
                 if(feature.feature_kind==FeatureKind::Shell&&!feature.shell.source_body.empty()) {
@@ -6315,6 +6316,7 @@ void PartDocument::resolve_constructions(
             catch(const std::exception&) {container.sweep2d.reference_valid=false;}
         }
         if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
+        if(container.feature_kind==FeatureKind::Loft)resolve_loft_sketches(container,source_geometry);
         if(container.feature_kind==FeatureKind::GeneralSurface) {
             reframe_general_surface(container);
             for(std::size_t i=0;i<container.general_surface.boundaries.size();++i) {
@@ -6496,11 +6498,11 @@ void PartDocument::resolve_constructions(
                 }
             }
         }
-        if(container.feature_kind==FeatureKind::GeneralSurface)
-            append(source_geometry,general_surface_definition_mesh(container).original_references);
+        if(container.feature_kind==FeatureKind::GeneralSurface||container.feature_kind==FeatureKind::Loft)
+            append(source_geometry,(container.feature_kind==FeatureKind::Loft?general_surface_definition_mesh(loft_sketch_editor_carrier(container)):general_surface_definition_mesh(container)).original_references);
         if(container.feature_kind==FeatureKind::Feature)append(source_geometry,feature_result_mesh(container).original_references);
         if(container.feature_kind==FeatureKind::SheetTransition)append(source_geometry,sheet_transition_end_references(container));
-        if(container.feature_kind!=FeatureKind::Hole && container.feature_kind!=FeatureKind::Thread && container.feature_kind!=FeatureKind::GeneralSurface)
+        if(container.feature_kind!=FeatureKind::Hole && container.feature_kind!=FeatureKind::Thread && container.feature_kind!=FeatureKind::GeneralSurface && container.feature_kind!=FeatureKind::Loft)
         visit_feature_sketches(container,[&](const auto& data,std::size_t) {
             const auto sketch=zima::sketcher::Sketch::from_serialized(data);
             if(!sketch.suppressed)append(source_geometry,sketch.placement_reference_geometry());
@@ -8482,6 +8484,7 @@ if (sweep.separate_segments) {
 #include "surface_intersection.inc"
 #include "surface_trim.inc"
 #include "general_surface.inc"
+#include "loft.inc"
 
 zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,std::optional<double> override_tolerance) {
     const double tolerance=override_tolerance.value_or(input.sweep_precision.effective());
@@ -9578,6 +9581,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             require_default_sketch_feature_placement(container.placement);
             operations.push_back({container.id,surface_sewing_request(*this,container),
                 kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});
+            continue;
+        }
+        if(container.feature_kind==FeatureKind::Loft) {
+            operations.push_back({container.id,loft_request(*this,container),
+                container.combine_mode==CombineMode::Subtract?kernel::BooleanOperation::Subtract:kernel::BooleanOperation::Add,
+                container.suppressed,boolean_tolerance,mesh_deflection});
             continue;
         }
         if(container.feature_kind==FeatureKind::GeneralSurface) {
@@ -11118,7 +11127,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "fillet" && type != "chamfer" &&
             type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
-            type != "drill_point" && type != "sheet_form") {
+            type != "drill_point" && type != "sheet_form" && type != "loft") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -11141,6 +11150,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "surface_sewing" ? FeatureKind::SurfaceSewing
             : type == "surface_trim" ? FeatureKind::SurfaceTrim
             : type == "surface_intersection" ? FeatureKind::SurfaceIntersection
+            : type == "loft" ? FeatureKind::Loft
             : type == "general_surface" ? FeatureKind::GeneralSurface
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
@@ -11163,7 +11173,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         container.name = source.at("name").get<std::string>();
         container.origin_point_visible=source.at("origin_point_visible").get<bool>();
         container.origin_text_visible=source.at("origin_text_visible").get<bool>();
-        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep) {
+        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep || container.feature_kind==FeatureKind::Loft) {
             const auto& precision=source.at("sweep_precision");
             container.sweep_precision.default_tolerance=precision.at("default_mm").get<double>();
             if(!precision.at("custom_mm").is_null())container.sweep_precision.custom_tolerance=precision.at("custom_mm").get<double>();
@@ -11474,6 +11484,27 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
                 throw std::runtime_error("Invalid Twisted Sheet angle");
             static_cast<void>(twisted_sheet_developed_length(p));
+        } else if (container.feature_kind == FeatureKind::Loft) {
+            const auto& data=source.at("loft");auto& p=container.loft;
+            p.profiles=data.at("profiles").get<std::vector<std::string>>();
+            p.guides=data.at("guides").get<std::vector<std::string>>();
+            const std::string type=data.at("result"),side=data.at("thickness_side");
+            p.result_type=type=="solid"?ProfileResultType::Solid:type=="thin"?ProfileResultType::Thin:type=="surface"?ProfileResultType::Surface:
+                throw std::runtime_error("Invalid Loft result or thickness.");
+            p.thin_mode=side=="inside"?ThinMode::OneSide:side=="outside"?ThinMode::OtherSide:side=="symmetric"?ThinMode::Symmetric:
+                throw std::runtime_error("Invalid Loft result or thickness.");
+            for(const auto& row:data.at("sketches")) {
+                GeneralSurfaceBoundary boundary;boundary.sketch_serialized=row.at("sketch_serialized");
+                const auto& owned_data=row.at("sketch_feature");boundary.sketch_parent_id=owned_data.at("parent_id");
+                HistoryContainer owned;owned.feature_kind=FeatureKind::Feature;
+                owned.id=owned_data.at("id");owned.feature_id=owned_data.at("feature_id");owned.feature_parent_id=owned_data.at("feature_parent_id");
+                owned.name=owned_data.at("name");owned.container_origin=create_container_origin(owned.id);
+                owned.placement=owned_data.at("placement").get<Placement>();owned.feature=load_feature_parameters(owned_data.at("feature"));
+                owned.value_locks=owned_data.at("value_locks").get<std::set<std::string>>();
+                owned.origin_point_visible=owned_data.at("origin_point_visible");owned.origin_text_visible=owned_data.at("origin_text_visible");
+                boundary.sketch_feature=std::move(owned);p.sketches.push_back(std::move(boundary));
+            }
+            p.thickness=data.at("thickness");validate_loft(container);
         } else if (container.feature_kind == FeatureKind::GeneralSurface) {
             const auto& data=source.at("general_surface");
             if(!data.is_array())throw std::runtime_error("Invalid owned surface boundary.");
@@ -11845,6 +11876,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         // Derived Sketch frames depend on the fully loaded feature placement.
         // Reframing before reading it silently resets translated/rotated helices.
         if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
+
         if(container.feature_kind==FeatureKind::GeneralSurface)reframe_general_surface(container);
         if (container.feature_kind == FeatureKind::HelicalSweep) {
             if(!failed_containers.contains(container.id))reframe_helical_sketches(container);
@@ -12085,6 +12117,8 @@ nlohmann::json PartDocument::serialized(
             const std::set<std::string> unique(container.sheet_state.owners.begin(),container.sheet_state.owners.end());
             if(container.combine_mode!=CombineMode::Add||unique.size()!=container.sheet_state.owners.size()||
                 unique.contains("")||(!container.sheet_state.all&&unique.empty()))throw std::runtime_error("Invalid sheet state parameters.");
+        } else if (container.feature_kind == FeatureKind::Loft) {
+            validate_loft(container);
         } else if (container.feature_kind == FeatureKind::GeneralSurface) {
             validate_general_surface(container);
         } else if (container.feature_kind == FeatureKind::SurfaceTrim) {
@@ -12421,6 +12455,7 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::SurfaceSewing ? "surface_sewing"
                 : container.feature_kind == FeatureKind::SurfaceTrim ? "surface_trim"
                 : container.feature_kind == FeatureKind::SurfaceIntersection ? "surface_intersection"
+                : container.feature_kind == FeatureKind::Loft ? "loft"
                 : container.feature_kind == FeatureKind::GeneralSurface ? "general_surface"
                 : container.feature_kind == FeatureKind::Extrusion
                     ? "extrusion"
@@ -12457,7 +12492,7 @@ nlohmann::json PartDocument::serialized(
                 {"children", nlohmann::json::array()},
             }},
         };
-        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep) {
+        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep || container.feature_kind==FeatureKind::Loft) {
             static_cast<void>(container.sweep_precision.effective());
             serialized["sweep_precision"]={{"default_mm",container.sweep_precision.default_tolerance},
                 {"custom_mm",container.sweep_precision.custom_tolerance?nlohmann::json(*container.sweep_precision.custom_tolerance):nlohmann::json(nullptr)}};
@@ -12701,6 +12736,20 @@ nlohmann::json PartDocument::serialized(
                 {"reverse",p.reverse},{"sheet_attachment",p.sheet_attachment},
                 {"thickness_override",p.thickness_override},
                 {"attachment_material_side",p.attachment_material_side}};
+        } else if (container.feature_kind == FeatureKind::Loft) {
+            validate_loft(container);const auto& p=container.loft;
+            serialized["loft"]={{"profiles",p.profiles},{"guides",p.guides},
+                {"result",p.result_type==ProfileResultType::Surface?"surface":p.result_type==ProfileResultType::Thin?"thin":"solid"},
+                {"thickness",p.thickness},{"thickness_side",p.thin_mode==ThinMode::OneSide?"inside":p.thin_mode==ThinMode::OtherSide?"outside":"symmetric"}};
+            auto rows=nlohmann::json::array();
+            for(const auto& boundary:p.sketches) {
+                const auto& owned=*boundary.sketch_feature;
+                rows.push_back({{"sketch_serialized",boundary.sketch_serialized},{"sketch_feature",{
+                    {"id",owned.id},{"parent_id",boundary.sketch_parent_id},{"feature_id",owned.feature_id},{"feature_parent_id",owned.feature_parent_id},
+                    {"name",owned.name},{"placement",owned.placement},{"feature",serialize_feature_parameters(owned.feature)},
+                    {"value_locks",owned.value_locks},{"origin_point_visible",owned.origin_point_visible},{"origin_text_visible",owned.origin_text_visible}}}});
+            }
+            serialized["loft"]["sketches"]=std::move(rows);
         } else if (container.feature_kind == FeatureKind::GeneralSurface) {
             validate_general_surface(container);auto rows=nlohmann::json::array();
             for(const auto& boundary:container.general_surface.boundaries) {

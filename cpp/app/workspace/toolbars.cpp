@@ -337,6 +337,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
+        add_command(loft_action_);
         for(bool restore:{false,true}) {
             const auto name=restore?"restoreShapeAction":"straightenAction";
             auto* action=findChild<QAction*>(name);

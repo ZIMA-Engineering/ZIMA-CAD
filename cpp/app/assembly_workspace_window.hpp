@@ -64,6 +64,7 @@ class ShaftThreadDialog;
 class PlacementReferenceDialog;
 class ConstructionPropertiesDialog;
 class GeneralSurfaceDialog;
+class SweepPlacementDialog;
 class ComponentPropertiesDialog;
 class OrientationDialog;
 class DrawingWindow;
@@ -318,6 +319,7 @@ private:
     QAction* curve_3d_action_{};
     QAction* sweep_3d_action_{};
     QAction* helical_sweep_action_{};
+    QAction* loft_action_{};
     QAction* sweep2d_action_{};
     QAction* construction_axis_action_{};
     QAction* construction_plane_action_{};
@@ -875,6 +877,8 @@ private:
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_general_surface_curve_properties(GeneralSurfaceDialog*,unsigned);
     void show_general_surface_sketch_properties(GeneralSurfaceDialog*,unsigned);
+    void show_owned_sketch_properties(SweepPlacementDialog*,unsigned);
+    void show_loft_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {});
     void transform_sketch_container(

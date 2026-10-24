@@ -7,7 +7,7 @@ namespace zima::document {
 // Read-only parameter annotations shared by modeling inspection and Drawings.
 // Consume resolved placement data without solving references or bodies.
 inline bool has_primitive_parameter_dimensions(FeatureKind kind) {
-    return kind==FeatureKind::Thread;
+    return kind==FeatureKind::Thread||kind==FeatureKind::Loft;
 }
 inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer& feature) {
     kernel::ViewerMesh mesh;
@@ -115,6 +115,8 @@ inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer&
                         zima::kernel::ViewerDimensionKind::Radius;
                 };
                 using zima::document::FeatureKind;
+                if(container->feature_kind==FeatureKind::Loft&&container->loft.result_type==ProfileResultType::Thin)
+                    linear("thickness","t = ",local(0,0,0),local(container->loft.thickness,0,0),{0,8,0},container->loft.thickness);
                 if (container->feature_kind == FeatureKind::Thread) {
                     const double diameter=container->thread.enabled
                         ? container->thread.profile_diameter : container->thread.nominal_diameter;

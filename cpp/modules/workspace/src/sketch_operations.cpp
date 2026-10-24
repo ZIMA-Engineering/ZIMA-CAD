@@ -25,8 +25,8 @@ template<class Document,class Visitor> void visit_sketches(const Document& docum
     for(const auto& sketch:document.sketches)if(!visit(sketch))return;
     bool more=true;
     const auto feature=[&](const auto& container) {
-        if(container.feature_kind==document::FeatureKind::GeneralSurface) {
-            for(const auto& boundary:container.general_surface.boundaries)
+        if((container.feature_kind==document::FeatureKind::GeneralSurface||container.feature_kind==document::FeatureKind::Loft)) {
+            for(const auto& boundary:container.feature_kind==document::FeatureKind::Loft?container.loft.sketches:container.general_surface.boundaries)
                 if(more&&boundary.sketch_feature)more=visit(document::general_surface_display_sketch(container,boundary));
             return;
         }

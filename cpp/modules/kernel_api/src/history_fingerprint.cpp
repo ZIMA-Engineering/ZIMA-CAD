@@ -815,6 +815,23 @@ std::string encode_history_fingerprint(
                     u64(fingerprint.size());
                     for (const unsigned char value : fingerprint) byte(value);
                 }
+            } else if constexpr (std::is_same_v<Request, LoftRequest>) {
+                byte(primitive.make_solid);byte(primitive.thin);
+                u64(std::bit_cast<std::uint64_t>(primitive.thickness));
+                byte(static_cast<std::uint8_t>(primitive.thickness_side));
+                u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                const auto text=[&](const std::string& value){u64(value.size());for(unsigned char c:value)byte(c);};
+                text(primitive.region_id);
+                for(const auto* family:{&primitive.profiles,&primitive.guides}) {
+                    u64(family->size());
+                    for(const auto& profile:*family) {
+                        HistoryOperation input;input.primitive=profile;
+                        text(history_fingerprint({input},1));
+                    }
+                }
+                for(const auto* owners:{&primitive.profile_owners,&primitive.guide_owners}) {
+                    u64(owners->size());for(const auto& owner:*owners)text(owner);
+                }
             } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
                 u64(4);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
                 const auto text=[&](const std::string& s){u64(s.size());for(unsigned char c:s)byte(c);};

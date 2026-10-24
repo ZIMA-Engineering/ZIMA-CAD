@@ -1312,8 +1312,11 @@ This affects the calculated body, unlike the display-only mesh deflection
 used for STEP import. [Measured examples](benchmarks/SWEEP_PRECISION_20260926.md)
 show the timing and geometry tradeoff.
 
-2D Sweep, 3D Sweep and Helical Sweep are separate tools. Loft is a profile-transition
-option inside 2D/3D Sweep.
+2D Sweep, 3D Sweep and Helical Sweep are separate tools. Their existing profile
+transitions remain available. The standalone [Loft command](LOFT.md), added after
+Windows 2026102401, owns only planar 2D Sketches: profiles in the upper list and
+guides in the lower list. Clicking a field opens its owned Sketch Properties and
+ordinary Sketcher. No Curve3D type or corner-rounding selector is offered.
 
 For 2D Sweep, place the container, choose its own **XY / XZ / YZ** path plane
 (default XY) and open **Path Sketch**. This dropdown does not select another

@@ -122,8 +122,8 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         for(auto& tool:f.surface_trim.tools)reference(tool.reference);
         if(f.sweep2d.path_plane&&local(*f.sweep2d.path_plane))f.sweep2d.path_plane.reset();
         construction(construction,f.sweep3d.path);
-        if(f.feature_kind==document::FeatureKind::GeneralSurface)
-            for(auto& boundary:f.general_surface.boundaries) {
+        if((f.feature_kind==document::FeatureKind::GeneralSurface||f.feature_kind==document::FeatureKind::Loft))
+            for(auto& boundary:f.feature_kind==document::FeatureKind::Loft?f.loft.sketches:f.general_surface.boundaries) {
                 if(boundary.curve)construction(construction,*boundary.curve);
                 else refs(boundary.sketch_feature->placement.references);
             }

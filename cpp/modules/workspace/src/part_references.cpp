@@ -3,6 +3,7 @@
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/general_surface.hpp>
+#include <zima/document/loft.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -84,8 +85,8 @@ std::set<std::string> sketch_external_reference_source_owners(
                     owners.insert(feature->container_origin.id);
                     if (feature->feature_kind == zima::document::FeatureKind::Sweep3D)
                         add_construction(add_construction, feature->sweep3d.path);
-                    if(feature->feature_kind==zima::document::FeatureKind::GeneralSurface)
-                        for(const auto& boundary:feature->general_surface.boundaries)
+                    if(feature->feature_kind==zima::document::FeatureKind::GeneralSurface||feature->feature_kind==zima::document::FeatureKind::Loft)
+                        for(const auto& boundary:feature->feature_kind==zima::document::FeatureKind::Loft?feature->loft.sketches:feature->general_surface.boundaries)
                             if(boundary.curve)add_construction(add_construction,*boundary.curve);
                             else {
                                 owners.insert(zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).id);
@@ -134,8 +135,8 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     append_missing(source.points, sketches.points);
     append_missing(source.edges, sketches.edges);
     append_missing(source.axes, sketches.axes);
-    for(const auto& feature:document.history)if(feature.feature_kind==zima::document::FeatureKind::GeneralSurface&&!feature.suppressed) {
-        auto mesh=zima::document::general_surface_definition_mesh(feature);
+    for(const auto& feature:document.history)if((feature.feature_kind==zima::document::FeatureKind::GeneralSurface||feature.feature_kind==zima::document::FeatureKind::Loft)&&!feature.suppressed) {
+        auto mesh=feature.feature_kind==document::FeatureKind::Loft?document::general_surface_definition_mesh(document::loft_sketch_editor_carrier(feature)):document::general_surface_definition_mesh(feature);
         if(const auto* body=document.body_owner_for_object(feature.id))mesh=document.place_body_mesh(std::move(mesh),body->scope.id);
         append_reference_geometry(source,std::move(mesh.original_references));
     }
@@ -216,10 +217,10 @@ bool refresh_sketch_external_references(
         if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;}))
             body=part_sketch_body_reference_geometry(document::DocumentSession(document,calculated_boundaries),sketch);
         auto geometry=document.sketch_reference_geometry_for(sketch,std::move(allowed_source));
-        // Owned Sketch frames are stored relative to their General Surface.
+        // Owned Sketch frames are stored relative to their owning feature.
         // Body reference packets have already been converted to Body-local space.
-        for(const auto& parent:document.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
-            for(const auto& boundary:parent.general_surface.boundaries)
+        for(const auto& parent:document.history)if((parent.feature_kind==document::FeatureKind::GeneralSurface||parent.feature_kind==document::FeatureKind::Loft))
+            for(const auto& boundary:parent.feature_kind==document::FeatureKind::Loft?parent.loft.sketches:parent.general_surface.boundaries)
                 if(boundary.sketch_feature&&boundary.sketch_feature->id==sketch.owner_container_id) {
                     geometry=document::general_surface_local_reference_geometry(parent,std::move(geometry));
                     body=document::general_surface_local_reference_geometry(parent,std::move(body));
@@ -241,8 +242,8 @@ bool refresh_sketch_external_references(
             return refresh(sketch);
         } catch(const std::exception& error) {
             auto owner=sketch.owner_container_id;
-            for(const auto& parent:document.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
-                for(const auto& boundary:parent.general_surface.boundaries)
+            for(const auto& parent:document.history)if((parent.feature_kind==document::FeatureKind::GeneralSurface||parent.feature_kind==document::FeatureKind::Loft))
+                for(const auto& boundary:parent.feature_kind==document::FeatureKind::Loft?parent.loft.sketches:parent.general_surface.boundaries)
                     if(boundary.sketch_feature&&boundary.sketch_feature->id==owner)owner=parent.id;
             if(owner.empty()||!document.find_container(owner))throw;
             errors[owner]=sketch.name+": "+error.what();

@@ -38,6 +38,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if(profile_command)std::fprintf(stderr,"Profile command %s: %.3f ms\n",phase,profile_timer.nsecsElapsed()/1e6);
         profile_timer.restart();
     };
+    if(feature_kind==zima::document::FeatureKind::Loft){show_loft_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::BoundarySurface){show_boundary_surface_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceThicken){show_surface_thicken_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceSewing){show_surface_sewing_properties(container_id);return;}

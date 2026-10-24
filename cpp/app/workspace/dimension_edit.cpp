@@ -603,6 +603,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         else container->hole.drill_point_angle_degrees = next_value;
                         changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::Loft && key=="thickness"&&container->loft.result_type==document::ProfileResultType::Thin) {
+                    positive(container->loft.thickness);
                 } else if (container->feature_kind == FeatureKind::HelicalSweep && key=="pitch") {
                     positive(container->helical.pitch);
                 } else if (container->feature_kind == FeatureKind::Feature) {

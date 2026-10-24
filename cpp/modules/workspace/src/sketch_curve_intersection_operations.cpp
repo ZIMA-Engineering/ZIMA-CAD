@@ -16,8 +16,8 @@ using Reference=sketcher::SketchExternalReference;
 struct SourceCurve {kernel::BSplineGeometry geometry;bool closed{};std::string parameterization;};
 constexpr auto error="Curve-plane intersection calculation failed.";
 const document::HistoryContainer* surface_parent(const document::PartDocument& doc,const sketcher::Sketch& sketch) {
-    for(const auto& feature:doc.history)if(feature.feature_kind==document::FeatureKind::GeneralSurface)
-        for(const auto& boundary:feature.general_surface.boundaries)
+    for(const auto& feature:doc.history)if((feature.feature_kind==document::FeatureKind::GeneralSurface||feature.feature_kind==document::FeatureKind::Loft))
+        for(const auto& boundary:feature.feature_kind==document::FeatureKind::Loft?feature.loft.sketches:feature.general_surface.boundaries)
             if(boundary.sketch_feature&&boundary.sketch_feature->id==sketch.owner_container_id)return &feature;
     return nullptr;
 }

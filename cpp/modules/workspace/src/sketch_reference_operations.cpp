@@ -13,8 +13,8 @@ kernel::ViewerReferenceGeometry part_sketch_body_reference_geometry(
     const auto& document=session.document();
     auto context=document.body_history;
     auto boundary_id=sketch.owner_container_id;
-    for(const auto& parent:document.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
-        for(const auto& boundary:parent.general_surface.boundaries)
+    for(const auto& parent:document.history)if((parent.feature_kind==document::FeatureKind::GeneralSurface||parent.feature_kind==document::FeatureKind::Loft))
+        for(const auto& boundary:parent.feature_kind==document::FeatureKind::Loft?parent.loft.sketches:parent.general_surface.boundaries)
             if(boundary.sketch_feature&&boundary.sketch_feature->id==boundary_id)boundary_id=parent.id;
     if(const auto* owner=context.owner(boundary_id)) {
         context.activate(owner->scope.id);
