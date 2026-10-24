@@ -1,5 +1,6 @@
 #include <zima/document/loft.hpp>
 #include <zima/document/general_surface.hpp>
+#include <zima/document/placement_orientation.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
@@ -7,6 +8,8 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <filesystem>
 #include <iostream>
@@ -32,6 +35,136 @@ Fixture fixture(bool guided) {
 }
 int main(){try {
  k::OcctKernel kernel;
+ {
+  auto f=fixture(false);
+  auto& source=f.loft.loft.sketches.front();auto sketch=s::Sketch::from_serialized(source.sketch_serialized);
+  const auto radius=sketch.create_circle_radius_dimension(sketch.circles.front().id);sketch.apply_dimension(radius);source.sketch_serialized=sketch.serialized();
+  const auto sketch_owner=sketch.id;const auto radius_key="dimension:"+radius.id;
+  f.part.insert_history_entry(d::PartHistoryKind::Feature,f.loft.id);f.part.history.push_back(f.loft);f.part.synchronize_dimension_identifiers();
+  const auto owner=f.loft.loft.sketches.front().sketch_feature->id;
+  const auto key=std::string("parameter:placement:x");
+  const auto id=f.part.dimension_identifiers.identifier(owner,key);
+  check(!id.empty(),"Zero owned placement has no stable identifier");
+  const auto radius_id=f.part.dimension_identifiers.identifier(sketch_owner,radius_key);
+  check(!radius_id.empty(),"Owned Sketch dimension lacks a stable identifier");
+  for(double value:{11.,12.}) {
+    check(w::assign_driving_dimension(f.part,{"dimension",sketch_owner,radius_key},value),"Owned Sketch dimension cannot be edited repeatedly");
+    near(s::Sketch::from_serialized(f.part.history.back().loft.sketches.front().sketch_serialized).circles.front().radius,value);
+    check(f.part.dimension_identifiers.identifier(sketch_owner,radius_key)==radius_id,"Owned Sketch edit changed its identifier");
+  }
+  auto inputs=w::relation_dimensions(f.part);
+  check(inputs.contains(id)&&inputs.at(id).input.writable,"Zero owned placement is unavailable to Relations");
+  near(std::get<double>(inputs.at(id).input.value.data),0);
+  check(w::assign_driving_dimension(f.part,{"dimension",owner,key},3),"Owned placement assignment failed");
+  near(f.part.history.back().loft.sketches.front().sketch_feature->placement.x,3);
+  f.part.relations=id+" = 4";w::apply_relation_dimensions(f.part,{});f.part.relations.clear();
+  near(f.part.history.back().loft.sketches.front().sketch_feature->placement.x,4);
+  d::FamilyTable table;table.columns={"Position"};table.bindings["Position"]={"dimension",owner,key};
+  d::FamilyInstance row;row.name="Loft variant";row.values["Position"]="3";
+  auto variant=f.part;w::apply_family_variant(variant,table,row);
+  near(variant.history.back().loft.sketches.front().sketch_feature->placement.x,3);
+  check(variant.dimension_identifiers.identifier(owner,key)==id,"Family variant renumbered its dimension");
+  check(w::assign_driving_dimension(f.part,{"dimension",owner,key},3),"Relations placement cannot be edited again");
+
+  near(s::Sketch::from_serialized(f.part.history.back().loft.sketches.front().sketch_serialized).resolved_origin.x,3);
+  const auto offset=std::string("parameter:profile_offset");
+  check(!f.part.dimension_identifiers.identifier(owner,offset).empty(),"Zero owned profile offset lacks an identifier");
+  check(w::assign_driving_dimension(f.part,{"dimension",owner,offset},2),"Owned profile offset assignment failed");
+  near(s::Sketch::from_serialized(f.part.history.back().loft.sketches.front().sketch_serialized).resolved_origin.z,2);
+  const auto annotations=d::loft_definition_mesh(f.part,f.part.history.back());
+  check(std::ranges::any_of(annotations.dimensions,[&](const auto& value){return value.reference.owner_id==owner&&value.reference.semantic_key==offset&&value.value==2;}),"Owned profile offset annotation missing");
+  auto reopened=d::PartDocument::from_serialized(f.part.serialized());
+  check(reopened.dimension_identifiers.identifier(owner,key)==id,"Reopening renumbered owned placement");
+  w::Workspace live;live.add_part(reopened);const auto references=w::family_references(live,reopened.document_id);
+  check(std::ranges::any_of(references,[&](const auto& ref){return ref.name==id&&ref.binding.owner_id==owner;}),"Owned placement unavailable to Family Table");
+  auto& owned=*reopened.history.back().loft.sketches.front().sketch_feature;
+  owned.placement.value_locks.insert("x");
+  check(!w::relation_dimensions(reopened).at(id).input.writable,"Locked owned placement is writable");
+  const auto before=reopened.serialized();bool rejected=false;
+  try{static_cast<void>(w::assign_driving_dimension(reopened,{"dimension",owner,key},8));}catch(const std::invalid_argument&){rejected=true;}
+  check(rejected&&reopened.serialized()==before,"Locked assignment changed the document");
+  auto parent=d::create_loft();parent.id=f.loft.id;parent.feature_id=f.loft.feature_id;parent.container_origin=f.loft.container_origin;parent.loft.sketches.clear();parent.loft.sketches.push_back(d::create_loft_sketch(parent));f.part.history.back()=parent;f.part.synchronize_dimension_identifiers();
+  const auto attached=parent.loft.sketches.front().sketch_feature->id;
+  const auto reference_key=std::string("parameter:placement:reference_offset:0");
+  const auto reference_id=f.part.dimension_identifiers.identifier(attached,reference_key);
+  check(!reference_id.empty()&&w::relation_dimensions(f.part).at(reference_id).input.writable,"Zero reference offset unavailable");
+  check(w::assign_driving_dimension(f.part,{"dimension",attached,reference_key},4),"Reference offset assignment failed");
+  near(f.part.history.back().loft.sketches.front().sketch_feature->placement.y,4);
+ }
+
+ {
+  auto f=fixture(false);f.loft.loft.profiles.clear();f.loft.loft.sketches.clear();
+  f.loft.placement.x=11;f.loft.placement.y=7;f.loft.placement.z=3;f.loft.placement.rotation_z=90;f.loft.placement.absolute_rotation_z=90;
+  for(unsigned i=0;i<3;++i) {
+   auto owned=d::create_loft_sketch(f.loft);
+   check(d::placement_references_use_whole_origin(owned.sketch_feature->placement.references),"New Loft Sketch lacks complete parent Origin attachment");
+   for(auto& ref:owned.sketch_feature->placement.references) {
+    check(ref.owner_id==f.loft.container_origin.id,"Default Sketch uses Body Origin instead of Loft Origin");
+    if(!ref.orientation_only)ref.offset=ref.semantic_key=="origin:plane:yz"?4:ref.semantic_key=="origin:plane:xz"?2:5.+5*i;
+   }
+   auto sketch=s::Sketch::from_serialized(owned.sketch_serialized);static_cast<void>(sketch.add_circle(0,0,10));owned.sketch_serialized=sketch.serialized();
+   f.loft.loft.profiles.push_back(owned.sketch_feature->id);f.loft.loft.sketches.push_back(std::move(owned));
+  }
+  auto& body=f.part.body_history.bodies().front();
+  // Change only the existing Body definition through its ordinary graph value.
+  auto graph=f.part.body_history;auto placed_body=*graph.find(body.scope.id);
+  placed_body.scope.placement.x=100;placed_body.scope.placement.y=-20;placed_body.scope.placement.rotation_z=90;placed_body.scope.placement.absolute_rotation_z=90;graph.update_body(std::move(placed_body));f.part.set_body_history(graph);
+  d::resolve_loft_sketches(f.loft,{});
+  for(unsigned i=0;i<3;++i) {
+   const auto sketch=s::Sketch::from_serialized(f.loft.loft.sketches[i].sketch_serialized);
+   near(sketch.resolved_origin.x,4);near(sketch.resolved_origin.y,2);near(sketch.resolved_origin.z,5.+5*i);
+   const auto display=d::general_surface_display_sketch(f.loft,f.loft.loft.sketches[i]);
+   near(display.resolved_origin.x,9);near(display.resolved_origin.y,11);near(display.resolved_origin.z,8.+5*i);
+  }
+  w::Workspace live;live.add_part(f.part,w::calculate_part_with_resolved_references(kernel,f.part));live.activate(f.part.document_id);
+  check(w::commit_loft(live,kernel,f.part.document_id,f.loft),"Parent-Origin Loft failed to commit");
+  auto* state=live.open_part(f.part.document_id);auto result=state->session.calculated_boundaries().back();kernel.ensure_body_properties(result);
+  near(result.volume,1000*std::numbers::pi);near(result.volume_integrals->centroid.x,89);near(result.volume_integrals->centroid.y,-11);near(result.volume_integrals->centroid.z,13);
+  const auto file=std::filesystem::temp_directory_path()/"zima-loft-parent-origin.prtz";
+  state->session.document().save(file,state->session.calculated_boundaries());auto reopened=d::PartDocument::load(file);std::filesystem::remove(file);
+  check(reopened.find_container(f.loft.id)->loft==state->session.document().find_container(f.loft.id)->loft,"Parent-Origin references changed on reopen");
+  for(double offset:{3.,4.}) {
+   auto changed=*state->session.document().find_container(f.loft.id);
+   for(auto& owned:changed.loft.sketches)for(auto& ref:owned.sketch_feature->placement.references)
+    if(!ref.orientation_only&&ref.semantic_key=="origin:plane:xz")ref.offset=offset;
+   check(w::commit_loft(live,kernel,f.part.document_id,changed),"Parent-local correction did not commit");
+   auto edited=state->session.calculated_boundaries().back();kernel.ensure_body_properties(edited);
+   near(edited.volume,1000*std::numbers::pi);near(edited.volume_integrals->centroid.x,89);near(edited.volume_integrals->centroid.y,-9-offset);
+  }
+  check(w::step_part_document_history(live,f.part.document_id,false),"Parent-local correction Undo failed");
+  auto undone=state->session.calculated_boundaries().back();kernel.ensure_body_properties(undone);near(undone.volume_integrals->centroid.y,-12);
+  check(w::step_part_document_history(live,f.part.document_id,true),"Parent-local correction Redo failed");
+  auto redone=state->session.calculated_boundaries().back();kernel.ensure_body_properties(redone);near(redone.volume_integrals->centroid.y,-13);
+  std::cout<<"Loft parent-local defaults, rotated/transformed Body and Loft, native reopen and Undo/Redo passed"<<std::endl;
+ }
+
+ {
+  auto f=fixture(false);auto parent=f.loft;parent.loft.profiles.clear();parent.loft.sketches.clear();
+  parent.placement.x=11;parent.placement.y=7;parent.placement.z=3;parent.placement.rotation_z=90;parent.placement.absolute_rotation_z=90;
+  auto anchor=d::PartDocument::create_sketch_container();anchor.placement.x=20;anchor.placement.y=30;anchor.placement.z=13;
+  d::PartDocument external;external.history={anchor};auto geometry=external.history_origin_reference_geometry_before({});
+  for(unsigned i=0;i<3;++i) {
+   auto owned=d::create_loft_sketch(parent);for(auto& ref:owned.sketch_feature->placement.references)ref.owner_id=anchor.container_origin.id;
+   auto sketch=s::Sketch::from_serialized(owned.sketch_serialized);sketch.plane_offset=5.*i;static_cast<void>(sketch.add_circle(0,0,10));owned.sketch_serialized=sketch.serialized();
+   parent.loft.profiles.push_back(owned.sketch_feature->id);parent.loft.sketches.push_back(std::move(owned));
+  }
+  d::resolve_loft_sketches(parent,geometry);const auto valid=parent.loft;
+  for(const auto& owned:valid.sketches)check(owned.sketch_feature->placement.reference_valid,"Other Origin did not resolve into Loft frame");
+  d::resolve_loft_sketches(parent,{});
+  for(unsigned i=0;i<3;++i) {
+   const auto& frozen=parent.loft.sketches[i];check(!frozen.sketch_feature->placement.reference_valid,"Missing anchor was not marked");
+   check(frozen.sketch_serialized==valid.sketches[i].sketch_serialized&&frozen.sketch_feature->placement.references==valid.sketches[i].sketch_feature->placement.references,"Missing anchor changed the stored local Sketch or reference identity");
+  }
+  const auto evaluate=[&](const auto& value,double x){auto body=kernel.evaluate_history({{value.id,d::loft_request(f.part,value)}}).back();kernel.ensure_body_properties(body);near(body.volume,1000*std::numbers::pi);near(body.volume_integrals->centroid.x,x);near(body.volume_integrals->centroid.y,30);near(body.volume_integrals->centroid.z,18);};
+  evaluate(parent,20);
+  auto shifted=parent;shifted.placement.x+=10;d::resolve_loft_sketches(shifted,{});evaluate(shifted,30);
+  f.part.history.push_back(parent);auto graph=f.part.body_history;graph.insert({d::PartHistoryKind::Feature,parent.id});f.part.set_body_history(graph);
+  const auto file=std::filesystem::temp_directory_path()/"zima-loft-missing-anchor.prtz";f.part.save(file);auto reopened=d::PartDocument::load(file);std::filesystem::remove(file);
+  auto& restored=*reopened.find_container(parent.id);d::resolve_loft_sketches(restored,{});evaluate(restored,20);
+  external.history.front().placement.x=25;geometry=external.history_origin_reference_geometry_before({});d::resolve_loft_sketches(restored,geometry);
+  for(const auto& owned:restored.loft.sketches)check(owned.sketch_feature->placement.reference_valid,"Restored anchor did not reconnect");evaluate(restored,25);
+  std::cout<<"Loft foreign Origin conversion, missing-anchor local snapshot, native reopen and reference restoration passed"<<std::endl;
+ }
  for(bool guided:{false,true}) {
   auto f=fixture(guided);const auto source=f.part.serialized().at("sketches");
   const auto baseline=f.part.serialized();

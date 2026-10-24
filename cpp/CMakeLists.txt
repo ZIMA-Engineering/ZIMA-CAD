@@ -1788,6 +1788,8 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180
         FIXTURES_REQUIRED zima_imported_datum_source)
     add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
+    add_test(NAME zima_cpp_profile_public_naming_contract COMMAND zima_cpp_profile_command_tests --public-naming)
+    set_tests_properties(zima_cpp_profile_public_naming_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_symmetric_endpoint_contract COMMAND zima_cpp_profile_command_tests --symmetric-endpoints)
     set_tests_properties(zima_cpp_symmetric_endpoint_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

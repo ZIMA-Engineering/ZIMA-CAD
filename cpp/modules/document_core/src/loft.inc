@@ -1,9 +1,21 @@
+// Owned Sketch placement is expressed in the Loft frame, including its datum references.
+GeneralSurfaceBoundary create_loft_sketch(const HistoryContainer& parent) {
+    auto result=create_general_surface_sketch(parent);
+    std::vector<ConstructionReference> position,orientation;std::array<bool,3> locks{};
+    for(const auto* plane:{"xz","xy","yz"}) {
+        ConstructionReference reference;reference.owner_id=parent.container_origin.id;
+        reference.semantic_key=std::string("origin:plane:")+plane;reference.supports_offset=true;
+        static_cast<void>(assign_placement_reference({position,orientation,locks},true,position.size(),std::move(reference)));
+    }
+    result.sketch_feature->placement.references=combined_placement_references(position,orientation);
+    return result;
+}
 // Exact ordinary 2D Sketch adapters; no OCCT calculation or document mutation.
 HistoryContainer create_loft() {
     auto feature=PartDocument::create_sketch_container();
-    feature.feature_kind=FeatureKind::Loft;feature.name="Přechod / Loft";
+    feature.feature_kind=FeatureKind::Loft;feature.name="Přechod";
     for(unsigned i=0;i<2;++i) {
-        auto sketch=create_general_surface_sketch(feature);feature.loft.profiles.push_back(sketch.sketch_feature->id);
+        auto sketch=create_loft_sketch(feature);feature.loft.profiles.push_back(sketch.sketch_feature->id);
         feature.loft.sketches.push_back(std::move(sketch));
     }
     resolve_loft_sketches(feature,{});return feature;
@@ -33,8 +45,14 @@ HistoryContainer loft_sketch_editor_carrier(const HistoryContainer& feature) {
 }
 void resolve_loft_sketches(HistoryContainer& feature,const kernel::ViewerReferenceGeometry& geometry) {
     auto carrier=loft_sketch_editor_carrier(feature);
-    for(std::size_t i=0;i<carrier.general_surface.boundaries.size();++i)
-        resolve_general_surface_sketch(carrier.general_surface.boundaries[i],general_surface_boundary_reference_geometry(carrier,i,geometry));
+    for(std::size_t i=0;i<carrier.general_surface.boundaries.size();++i) {
+        auto& boundary=carrier.general_surface.boundaries[i];const auto previous=boundary;
+        resolve_general_surface_sketch(boundary,general_surface_boundary_reference_geometry(carrier,i,geometry));
+        if(!boundary.sketch_feature->placement.reference_valid) {
+            // The persisted parent-local frame remains authoritative when an anchor is unavailable.
+            boundary=previous;boundary.sketch_feature->placement.reference_valid=false;
+        }
+    }
     feature.loft.sketches=std::move(carrier.general_surface.boundaries);
 }
 kernel::LoftRequest loft_request(const PartDocument& part,const HistoryContainer& feature) {
@@ -60,8 +78,26 @@ kernel::LoftRequest loft_request(const PartDocument& part,const HistoryContainer
     append(p.guides,result.guides,result.guide_owners);
     return result;
 }
-kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryContainer& feature) {
-    auto result=general_surface_definition_mesh(loft_sketch_editor_carrier(feature));
+kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryContainer& feature,const kernel::ViewerReferenceGeometry& geometry) {
+    const auto carrier=loft_sketch_editor_carrier(feature);
+    auto result=general_surface_definition_mesh(carrier);
+    kernel::ViewerMesh parameters;
+    for(std::size_t i=0;i<feature.loft.sketches.size();++i) {
+        const auto& owned=feature.loft.sketches[i];if(!owned.sketch_feature)continue;
+        const auto& f=*owned.sketch_feature;
+        auto dimensions=container_placement_dimensions(f.id,f.placement,general_surface_boundary_reference_geometry(carrier,i,geometry));
+        for(auto& dimension:dimensions)if(std::abs(dimension.value)>1e-12)parameters.dimensions.push_back(std::move(dimension));
+        const auto sketch=sketcher::Sketch::from_serialized(owned.sketch_serialized);
+        if(std::abs(sketch.plane_offset)>1e-12) {
+            const auto b=sketch.resolved_origin,n=sketch.resolved_normal,x=sketch.resolved_x_axis;
+            const kernel::Vec3 a{b.x-n.x*sketch.plane_offset,b.y-n.y*sketch.plane_offset,b.z-n.z*sketch.plane_offset};
+            kernel::ViewerDimension dimension{a,b,{a.x+x.x*8,a.y+x.y*8,a.z+x.z*8},{b.x+x.x*8,b.y+x.y*8,b.z+x.z*8},sketch.plane_offset,{f.id,"parameter:profile_offset",{}}};
+            dimension.value_lock_key="profile_offset";dimension.locked=f.value_locks.contains("profile_offset");
+            parameters.dimensions.push_back(std::move(dimension));
+        }
+    }
+    parameters=general_surface_place_definition_mesh(feature.placement,std::move(parameters));
+    result.dimensions.insert(result.dimensions.end(),parameters.dimensions.begin(),parameters.dimensions.end());
     for(auto& edge:result.edges) {edge.reference.semantic_key="loft:input:from:"+edge.reference.owner_id+":"+edge.reference.semantic_key;edge.reference.owner_id=feature.id;edge.display_owner_id=feature.id;}
     for(auto& point:result.points){point.reference.semantic_key="loft:input:from:"+point.reference.owner_id+":"+point.reference.semantic_key;point.reference.owner_id=feature.id;point.display_owner_id=feature.id;}
     result.original_references.edges=result.edges;result.original_references.points=result.points;return result;

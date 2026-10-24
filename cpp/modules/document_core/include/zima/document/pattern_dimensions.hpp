@@ -67,25 +67,11 @@ inline std::vector<kernel::ViewerDimension> pattern_dimensions(const std::string
         d.reference={owner,"parameter:"+value.key,{}};d.value=value.value;
         d.driving=value.writable;d.locked=copy.value_locks.contains(value.key);d.value_lock_key=value.key;
         d.witness_first=p.origin;d.plane_normal=normal;
-        if(value.count) {
-            d.label_only=true;d.label_prefix="N = ";d.unit_suffix.clear();
-            d.label_position=add(p.origin,radial,20.+12.*result.size());
-            d.line_first=d.line_second=d.witness_second=*d.label_position;
-        } else if(value.angular) {
-            d.kind=kernel::ViewerDimensionKind::Angular;d.unit_suffix="°";d.sweep_degrees=value.value;
-            d.line_first=add(p.origin,radial,20.);
-            auto resolved=p;resolved.angle_degrees=value.value;
-            d.line_second=kernel::pattern_point(d.line_first,resolved,1);d.witness_second=d.line_second;
-        } else {
-            const auto& direction=p.linear.at(static_cast<std::size_t>(value.key.back()-'0'));
-            auto axis=kernel::normalized_mirror_plane({{},direction.direction}).normal;
-            if(direction.distribution==kernel::PatternDistribution::Reverse)axis={-axis.x,-axis.y,-axis.z};
-            const auto offset=kernel::dimension_unit(kernel::dimension_cross(axis,
-                std::abs(axis.z)<0.8?kernel::Vec3{0,0,1}:kernel::Vec3{0,1,0}));
-            d.witness_second=add(p.origin,axis,value.value);
-            d.line_first=add(p.origin,offset,10.);d.line_second=add(d.witness_second,offset,10.);
-            d.plane_normal=kernel::dimension_unit(kernel::dimension_cross(axis,offset));
-        }
+        d.label_only=true;
+        d.unit_suffix=value.count?"":value.angular?"°":"mm";
+        if(value.angular)d.kind=kernel::ViewerDimensionKind::Angular;
+        d.label_position=add(p.origin,radial,20.+12.*result.size());
+        d.line_first=d.line_second=d.witness_second=*d.label_position;
         result.push_back(std::move(d));
     }
     return result;

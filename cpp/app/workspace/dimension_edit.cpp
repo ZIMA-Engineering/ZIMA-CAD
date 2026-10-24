@@ -1,3 +1,6 @@
+#include "../loft_dialog.hpp"
+#include <zima/workspace/loft_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include "../inline_dimension_edit.hpp"
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/derived_copy_operations.hpp>
@@ -395,6 +398,18 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     return;
                 }
             }
+            if(candidate.semantic_key.starts_with("parameter:"))if(auto* loft=dynamic_cast<LoftDialog*>(properties_dialog_)) {
+                if(candidate.owner_id!=loft->pending.id&&loft->owns_reference_owner(candidate.owner_id)) {
+                    const auto* source=workspace_.open_part(workspace_.active_document_id());
+                    auto draft=source->session.document();
+                    auto* stored=draft.find_container(loft->pending.id);
+                    if(stored)*stored=loft->pending;
+                    else {draft.insert_history_entry(document::PartHistoryKind::Feature,loft->pending.id);draft.history.push_back(loft->pending);}
+                    if(!workspace::assign_driving_dimension(draft,{"dimension",candidate.owner_id,candidate.semantic_key},next_value))throw std::runtime_error("This dimension is not directly editable");
+                    loft->pending=*draft.find_container(loft->pending.id);loft->refresh();loft->changed();
+                    guarded->hide();guarded->deleteLater();return;
+                }
+            }
             PlacementReferenceDialog* inline_placement_dialog =
                 construction_reference_dialog_ != nullptr
                 ? static_cast<PlacementReferenceDialog*>(
@@ -480,6 +495,14 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             if (part == nullptr) throw std::runtime_error(
                 "Inline dimension editing currently requires an active Part");
             auto next = part->session.document();
+            if(!properties_dialog_)for(const auto& parent:part->session.document().history)if(parent.feature_kind==document::FeatureKind::Loft) {
+                const bool owned=std::ranges::any_of(parent.loft.sketches,[&](const auto& item){return item.sketch_feature&&(item.sketch_feature->id==candidate.owner_id||item.sketch_feature->feature.sketch_id==candidate.owner_id);});
+                if(!owned)continue;
+                if(!workspace::assign_driving_dimension(next,{"dimension",candidate.owner_id,candidate.semantic_key},next_value))throw std::runtime_error("This dimension is not directly editable");
+                static_cast<void>(workspace::commit_loft(workspace_,kernel_,workspace_.active_document_id(),*next.find_container(parent.id)));
+                construction_dimension_object_id_=parent.id;guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
+            }
+
             // Direct View editing must use the same owned Sketch and transaction
             // as Holes Properties. The plane offset belongs to that Sketch.
             if (const auto* holes=next.find_container(candidate.owner_id);
@@ -674,6 +697,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         container->edge_treatment.angle_degrees = next_value;
                         changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::Loft && key=="thickness") {
+                    positive(container->loft.thickness);
                 } else if (container->feature_kind == FeatureKind::SurfaceThicken && key=="thickness") {
                     positive(container->surface_thicken.thickness);
                 } else if (container->feature_kind == FeatureKind::Shell &&

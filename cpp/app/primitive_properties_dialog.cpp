@@ -97,7 +97,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
         case FeatureKind::SheetForm: return QObject::tr("Form Properties");
         case FeatureKind::Feature: return QObject::tr("Vlastnosti prvku");
-        case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
+        case FeatureKind::Extrusion: return QObject::tr("Vlastnosti tažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
         case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti 3D tažení");
         case FeatureKind::ImportedStep:
@@ -108,7 +108,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Hole: return QObject::tr("Vlastnosti otvoru");
         case FeatureKind::Thread: return QObject::tr("Vlastnosti otvoru");
         case FeatureKind::DrillPoint:
-            return QObject::tr("Vlastnosti vrtací špičky");
+            return QObject::tr("Vlastnosti špičky");
     }
     return QObject::tr("Vlastnosti prvku");
 }

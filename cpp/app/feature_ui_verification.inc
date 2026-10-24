@@ -492,7 +492,7 @@ static void verify_feature_operation_tree(QApplication& application,AssemblyWork
         for(int i=0;i<row->childCount();++i) {
             auto* child=row->child(i);if(child->data(0,Qt::UserRole+3)!="feature-operation")continue;
             const int side=child->data(0,Qt::UserRole+5).toInt();++operations;
-            check(modes[side]!=0&&child->text(0).contains(QObject::tr(modes[side]==2?"Rotace":"Vytažení"))&&
+            check(modes[side]!=0&&child->text(0).contains(QObject::tr(modes[side]==2?"Rotace":"Tažení"))&&
                 child->text(0).contains(QObject::tr(side==0?"Strana 1":"Strana 2")),"Operation tree row lost kind or side");
         }
         check(operations==(modes[0]!=0)+(modes[1]!=0),"Operation tree has missing or inactive side rows");
@@ -575,7 +575,7 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     check(dialog(),"Feature creation properties missing");
     dialog()->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(10);
     const auto pending=dialog()->pending_value();
-    check(pending.name==QObject::tr("Vytažení").toStdString()+" 001" && pending.feature.automatic_name==pending.name,
+    check(pending.name==QObject::tr("Tažení").toStdString()+" 001" && pending.feature.automatic_name==pending.name,
         "New Feature has no numbered automatic name");
     dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
     check(!dialog(),"Feature Sketch action did not enter the editor");
@@ -835,7 +835,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
         auto part=document::PartDocument::create_default();
         auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
-        feature.name=QObject::tr("Vytažení").toStdString()+" 001";feature.feature.automatic_name=feature.name;
+        feature.name=QObject::tr("Tažení").toStdString()+" 001";feature.feature.automatic_name=feature.name;
         feature.feature.sides[0].operation=document::FeatureSideOperation::None;
         sketch.owner_container_id=feature.id;
         const auto axis=sketch.add_segment(120,70,240,70);sketch.set_segment_centerline(axis,true);
@@ -912,7 +912,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 const auto pending=dialog()->pending_value();
                 check(std::ranges::count_if(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==pending.container_origin.id;})>=3,
                     "A Feature type omitted its full editing Origin");
-                const char* prefixes[]={"Bod","Osa","Rovina","Skica","Vytažení"};
+                const char* prefixes[]={"Bod","Osa","Rovina","Skica","Tažení"};
                 check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 001" && pending.feature.automatic_name==pending.name,
                     "GUI type switch did not update its automatic name");
                 check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
@@ -1012,7 +1012,7 @@ static void verify_sketch_context_conversion(QApplication& application, Assembly
             QTimer::singleShot(0,&window,[&]{
                 auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
                 wire_visibility=std::ranges::any_of(menu->actions(),[](const auto* action){return action->objectName()=="surfaceWireVisibilityAction";});
-                for(auto* action:menu->actions())if(action->text()==QObject::tr(rotation?"Rotace":"Vytažení")) {
+                for(auto* action:menu->actions())if(action->text()==QObject::tr(rotation?"Rotace":"Tažení")) {
                     found=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
                 }menu->close();
             });

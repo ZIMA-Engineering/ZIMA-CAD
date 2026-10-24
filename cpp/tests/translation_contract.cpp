@@ -136,6 +136,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        for(const auto* key:{"Tažení","Vlastnosti tažení","Přechod","Krut","Špička","Směr tažení","Stoupání","Úhel pole","Rozteč pole","Počet instancí","Počet instancí v opačném směru","Korekce délky","Korekce úhlu"})
+            check(!settings.qt_translations.value(key).isEmpty()&&QObject::tr(key)==settings.qt_translations.value(key),"Modeling name or numeric helper label is untranslated");
+
         application.processEvents();
         {
             auto pending=document::PartDocument::create_sweep2d_container();
@@ -590,7 +593,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
         }
         {
             auto part=document::PartDocument::create_default();
-            const char* sources[]={"Bod","Osa","Rovina","Skica","Vytažení"};
+            const char* sources[]={"Bod","Osa","Rovina","Skica","Tažení"};
             for(int type=0;type<5;++type)
                 check(app::next_feature_name(part,static_cast<document::FeatureType>(type),"")==
                     (settings.qt_translations.value(sources[type])+" 001").toStdString(),

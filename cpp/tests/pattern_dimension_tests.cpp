@@ -13,7 +13,7 @@ int main(){try {
     check(dimensions.size()==2&&dimensions[0].value==25&&dimensions[1].value==4);
     check(dimensions[0].reference.owner_id=="pattern"&&dimensions[1].reference.semantic_key=="parameter:pattern:count:0");
     check(dimensions[1].label_only&&dimensions[1].unit_suffix.empty());
-    check(dimensions[0].witness_first==copy.pattern->origin&&dimensions[0].witness_second.x==55);
+    check(dimensions[0].label_only&&dimensions[0].unit_suffix=="mm"&&dimensions[0].label_position.has_value());
     check(document::assign_pattern_dimension(copy,"pattern:count:0",7));
     check(copy.pattern->linear[0].count==7&&copy.source_id=="source");
     rejects([&]{document::assign_pattern_dimension(copy,"pattern:count:0",2.5);});
@@ -22,7 +22,7 @@ int main(){try {
     rejects([&]{document::assign_pattern_dimension(copy,"pattern:spacing:0",12);});
     copy.pattern->circular=true;copy.pattern->count=6;
     dimensions=document::pattern_dimensions("pattern",copy);
-    check(dimensions.size()==2&&dimensions[0].value==60&&!dimensions[0].driving);
+    check(dimensions.size()==2&&dimensions[0].value==60&&!dimensions[0].driving&&dimensions[0].label_only&&dimensions[0].unit_suffix=="°");
     rejects([&]{document::assign_pattern_dimension(copy,"pattern:angle",45);});
     copy.pattern->full_circle=false;
     check(document::assign_pattern_dimension(copy,"pattern:angle",45));

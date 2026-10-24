@@ -356,7 +356,7 @@ def smoke(root, version, gui=True):
     records = commands(['open PACKAGE-SMOKE.prtz', *profile,
         {'command': 'feature.create', 'arguments': {'sketch': sketch,
             'parameters': {'symmetric': True, 'sides': [
-                {'operation': 'extrusion', 'length': 15, 'extrusion_extent': 'length',
+                {'operation': 'extrude', 'length': 15, 'extrusion_extent': 'length',
                  'angle_degrees': 90, 'rotation_extent': 'angle', 'draft_angle_degrees': 0, 'targets': []},
                 {'operation': 'none', 'length': 50, 'extrusion_extent': 'length',
                  'angle_degrees': 90, 'rotation_extent': 'angle', 'draft_angle_degrees': 0, 'targets': []}]}}}, 'save'])

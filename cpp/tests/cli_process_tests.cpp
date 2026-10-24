@@ -517,7 +517,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",make_drill,"--command","save"});
         require(result.exit_code==0,"CLI drill-point creation failed");
         const auto drill_created=zima::test::load_part_with_properties(drill_path).history.back();
-        require(drill_created.name=="Drill point","CLI drill point name was not translated");
+        require(drill_created.name=="Drill Point","CLI drill point name was not translated");
         const auto edit_drill=command({{"command","drill_point.set"},{"arguments",{{"container",drill_created.id},{"angle_degrees",120},{"faces",Json::array({drill_face(2)})}}}});
         result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",edit_drill,"--command","undo","--command","redo",
             "--command","save","--command","drill_point.get "+QString::fromStdString(drill_created.id)});
@@ -841,7 +841,7 @@ int main(int argc,char** argv){
         fs::copy_file(repository/"config/templates/START_PART_mm.prtz",local_templates/"custom.prtz");
         const auto catalogue_directory=project/"catalogue";fs::create_directory(catalogue_directory);
         write(catalogue_directory/"en.ini",QByteArray("[QtTranslations]\nQObject|Těleso 1 = Body from context\nQMainWindow|Není otevřený dokument. = Context-specific empty document\n"));
-        write(catalogue_directory/"en.qt.json",QByteArray("{\"Vytažení\":\"Extrusion from JSON\",\"List\":\"Sheet from JSON\"}"));
+        write(catalogue_directory/"en.qt.json",QByteArray("{\"Tažení\":\"Extrude from JSON\",\"List\":\"Sheet from JSON\"}"));
         {
             QSettings local(qpath(project/"config.ini"),QSettings::IniFormat);
             local.setValue("Paths/Templates",qpath(local_templates.filename()));
@@ -856,7 +856,7 @@ int main(int argc,char** argv){
         require(result.exit_code==1&&result.results().front().at("message")=="Context-specific empty document","Command translation context differs from GUI");
         result=launch(executable,root,common+QStringList{"--stdin"},
             "new part json-names\n@fixture.rectangular 2 3 4\nsave\nnew drawing json-sheet\nsave\n");
-        require(result.exit_code==0 && zima::test::load_part_with_properties(project/"json-names.prtz").history.back().name=="Extrusion from JSON" &&
+        require(result.exit_code==0 && zima::test::load_part_with_properties(project/"json-names.prtz").history.back().name=="Extrude from JSON" &&
             drawing::DrawingDocument::load(project/"json-sheet.drwz").sheets.front().name=="Sheet from JSON 1",
             "CLI supplemental catalog did not localize new feature and sheet names");
         fs::remove(project/"config.ini");
@@ -1547,7 +1547,7 @@ int main(int argc,char** argv){
                 document::ExtrusionParameters::EndTarget upper_target;upper_target.kind=document::EndTargetKind::Plane;upper_target.reference={upper.get<std::string>(),"plane",{}};upper_target.label="Horní rovina žluťoučká";
                 auto lower_target=upper_target;lower_target.reference.owner_id=lower.get<std::string>();lower_target.label.clear();
                 bounded_parameters.sides[0].targets={upper_target};bounded_parameters.sides[1].targets={lower_target};
-                auto bounded_values=document::serialize_feature_parameters(bounded_parameters);bounded_values.erase("sketch_id");
+                auto bounded_values=zima::test::public_feature_parameters(bounded_parameters);bounded_values.erase("sketch_id");
                 const auto targets=command({{"command","feature.set"},{"arguments",{{"container",id},{"parameters",bounded_values}}}});
                 result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",targets,
                     "--command","undo","--command","redo","--command","save"});

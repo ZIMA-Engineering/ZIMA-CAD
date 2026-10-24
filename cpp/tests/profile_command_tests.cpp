@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -31,16 +32,16 @@ struct Fixture {
     workspace::PartState& part(){return *live.open_part(live.active_document_id());}
     const document::PartDocument& doc(){return part().session.document();}
     Json create_feature(const std::string& sketch,document::FeatureParameters parameters={},Json extra=Json::object()){
-        auto values=document::serialize_feature_parameters(parameters);values.erase("sketch_id");
+        auto values=zima::test::public_feature_parameters(parameters);values.erase("sketch_id");
         extra["sketch"]=sketch;extra["parameters"]=std::move(values);
         return run("feature.create",std::move(extra));
     }
     template<class Edit> Json set_feature(const std::string& id,Edit edit,Json extra=Json::object()){
-        auto values=document::serialize_feature_parameters(doc().find_container(id)->feature);edit(values);
+        auto values=zima::test::public_feature_parameters(doc().find_container(id)->feature);edit(values);
         extra["container"]=id;extra["parameters"]=std::move(values);return run("feature.set",std::move(extra));
     }
     template<class Edit> void reject_feature(const std::string& id,Edit edit,const char* code,Json extra=Json::object()){
-        auto values=document::serialize_feature_parameters(doc().find_container(id)->feature);edit(values);
+        auto values=zima::test::public_feature_parameters(doc().find_container(id)->feature);edit(values);
         extra["container"]=id;extra["parameters"]=std::move(values);reject("feature.set",std::move(extra),code);
     }
     void reject(const char* command,Json args,const char* code){
@@ -478,12 +479,14 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     require(id==source.id&&feature!=source.feature_id&&f.doc().history.size()==history_count,"Sketch conversion changed container or history position");
     require(f.doc().find_container(id)->container_origin==source.container_origin&&f.doc().find_container(id)->feature_parent_id==id,"Conversion lost native ancestry");
     require(created.at("sketch")==sketch&&created.at("parameters").at("profile_source")=="internal","Conversion lost owned profile");near(f.volume(),1000);
+    require(created.at("parameters").at("sides")[0].at("operation")=="extrude","CLI returned obsolete operation spelling");
+    f.reject_feature(id,[](auto& p){p["sides"][0]["operation"]="extrusion";},"invalid_arguments");
     f.reject("feature.set",{{"container",id},{"sheet_cut_clearance",true}},"invalid_arguments");
     const auto get_revision=f.part().session.revision();const auto* get_cache=f.part().session.calculated_boundaries().data();f.run("feature.get",{{"container",id}});
     require(f.part().session.revision()==get_revision&&f.part().session.calculated_boundaries().data()==get_cache&&!f.host.change(),"Profile query changed state");
     f.run("undo");require(*f.doc().find_container(id)==source,"Conversion Undo lost original Sketch container");f.run("redo");near(f.volume(),1000);require(f.doc().find_container(id)->feature_id==feature,"Conversion Redo changed feature identity");
     f.set_feature(id,[](auto& p){p["sides"][0]["length"]=10;});near(f.volume(),2000);f.run("undo");near(f.volume(),1000);f.run("redo");
-    f.set_feature(id,[](auto& p){p["sides"][0]["length"]=3;p["sides"][1]["operation"]="extrusion";p["sides"][1]["length"]=7;});near(f.volume(),2000);
+    f.set_feature(id,[](auto& p){p["sides"][0]["length"]=3;p["sides"][1]["operation"]="extrude";p["sides"][1]["length"]=7;});near(f.volume(),2000);
     f.set_feature(id,[](auto& p){p["symmetric"]=true;p["sides"][0]["length"]=5;});near(f.volume(),2000);
     require(f.doc().find_container(id)->feature.effective_side(1).length==5&&f.doc().find_container(id)->feature.sides[1].length==7,"Symmetry changed independent Start settings");
     f.set_feature(id,[](auto& p){p["symmetric"]=false;p["sides"][0]["operation"]="none";p["sides"][1]["length"]=6;});near(f.volume(),1200);
@@ -529,7 +532,7 @@ void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     const auto cut_sketch=f.rectangle(2,2,2,2);parameters={};parameters.sides[0].extrusion_extent=document::EndCondition::ThroughAll;
     const auto cut=f.create_feature(cut_sketch,parameters,{{"combine","subtract"}});const auto cut_id=cut.at("container").get<std::string>();near(f.volume(),980);
     // Stock is centred at the Origin; one side cuts only half its depth.
-    f.set_feature(cut_id,[](auto& p){p["sides"][1]["operation"]="extrusion";p["sides"][1]["extrusion_extent"]="through_all";});near(f.volume(),960);
+    f.set_feature(cut_id,[](auto& p){p["sides"][1]["operation"]="extrude";p["sides"][1]["extrusion_extent"]="through_all";});near(f.volume(),960);
     f.run("undo");near(f.volume(),980);f.run("redo");near(f.volume(),960);
 }
 #include "profile_point_end_verification.inc"
@@ -605,7 +608,7 @@ void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path dir
 void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-revolution"}});
     const auto sketch=f.rectangle(2,0,2,10);document::FeatureParameters parameters;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;parameters.sides[0].angle_degrees=360;
-    auto invalid=document::serialize_feature_parameters(parameters);invalid.erase("sketch_id");f.reject("feature.create",{{"sketch",sketch},{"parameters",invalid}},"profile_rejected");
+    auto invalid=zima::test::public_feature_parameters(parameters);invalid.erase("sketch_id");f.reject("feature.create",{{"sketch",sketch},{"parameters",invalid}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     const auto second_axis=f.line(sketch,-8,0,-8,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",second_axis},{"centerline",true}});
     const auto made=f.create_feature(sketch,parameters);const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
@@ -802,6 +805,10 @@ int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_direct
     if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
     kernel::OcctKernel kernel;
     if(argc==2&&std::string_view(argv[1])=="--symmetric-endpoints") {symmetric_endpoint_references(kernel,directory);fs::remove_all(directory);std::cout<<"Symmetric endpoint references passed\n";return 0;}
+    if(argc==2&&std::string_view(argv[1])=="--public-naming") {
+        retired_profile_commands(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);revolution(kernel,directory);
+        fs::remove_all(directory);std::cout<<"Public feature naming, Extrude roundtrip/rejection, surfaces, Thin and cuts passed\n";return 0;
+    }
     retired_profile_commands(kernel,directory);front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     point_end_targets(kernel,directory);
     directed_rotation_targets(kernel,directory);

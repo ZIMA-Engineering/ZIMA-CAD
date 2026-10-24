@@ -357,7 +357,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             const auto operation=container.feature.effective_side(side).operation;
             if(operation==zima::document::FeatureSideOperation::None)continue;
             const bool rotation=operation==zima::document::FeatureSideOperation::Revolution;
-            const auto name=rotation?QObject::tr("Rotace"):QObject::tr("Vytažení");
+            const auto name=rotation?QObject::tr("Rotace"):QObject::tr("Tažení");
             const auto direction=container.feature.symmetric?QObject::tr("Obě strany"):
                 side==0?QObject::tr("Strana 1"):QObject::tr("Strana 2");
             auto* row=new QTreeWidgetItem(parent,{name+QStringLiteral(" — ")+direction});

@@ -1,5 +1,10 @@
 # ZIMA-CAD Roadmap
 
+The 2026-10-24 Loft follow-up completes parent-local owned Sketch placement,
+missing-reference snapshots, owned parameter identifiers and numeric helper
+labels. See [the follow-up verification](doc/verification/20261024-loft-parent-origin.md)
+and [Windows 2402](doc/releases/2026102402.md) for finite acceptance and publication.
+
 ZIMA-CAD is an open-source parametric 3D CAD system for designers and
 mechanical engineers.
 

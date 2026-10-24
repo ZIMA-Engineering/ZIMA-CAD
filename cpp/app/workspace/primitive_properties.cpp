@@ -273,7 +273,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             initial.feature.sides[0].operation=zima::document::FeatureSideOperation::Twist;
             initial.feature.sides[1].operation=zima::document::FeatureSideOperation::None;
             initial.feature.symmetric=false;initial.feature.result_type=zima::document::ProfileResultType::Solid;
-            initial.name=tr("Twist").toStdString();initial.feature.automatic_name=initial.name;
+            initial.name=tr("Krut").toStdString();initial.feature.automatic_name=initial.name;
         }
         if(sketch_type_shortcut && !rotation_preset && !twist_preset)
             initial.feature.sides[0].operation=zima::document::FeatureSideOperation::Extrusion;

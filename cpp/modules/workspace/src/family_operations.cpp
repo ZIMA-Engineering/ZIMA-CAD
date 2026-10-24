@@ -10,6 +10,9 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/feature_direction.hpp>
+#include <zima/document/loft.hpp>
+#include <zima/document/general_surface.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/pattern_dimensions.hpp>
 #include <zima/document/document_copy_json.hpp>
@@ -73,6 +76,32 @@ Slots feature_slots(document::HistoryContainer& f) {
     case FeatureKind::HelicalSweep: return {{"pitch",&f.helical.pitch},{"thickness",&f.helical.thickness}};
     case FeatureKind::DrillPoint: return {{"angle",&f.drill_point.included_angle_degrees}};
     default: return {};
+    }
+}
+// Owned Loft placements use the existing placement editor in the parent-local frame.
+template<class Visitor> void loft_placement_values(const document::PartDocument& doc,
+    const document::HistoryContainer& parent,Visitor visit) {
+    if(parent.feature_kind!=FeatureKind::Loft)return;
+    const auto carrier=document::loft_sketch_editor_carrier(parent);
+    const auto source=doc.construction_reference_geometry_for(parent.id,doc.history_origin_reference_geometry_before(parent.id));
+    for(std::size_t i=0;i<parent.loft.sketches.size();++i) {
+        const auto& owned=parent.loft.sketches[i];if(!owned.sketch_feature)continue;
+        const auto& f=*owned.sketch_feature;const auto& p=f.placement;
+        const auto geometry=document::general_surface_boundary_reference_geometry(carrier,i,source);
+        const auto add=[&](const std::string& key,double value,bool angular=false) {
+            auto trial=p;
+            const bool writable=assign_placement_dimension(trial,geometry,key,value);
+            visit(f.id,f.name,"parameter:placement:"+key,value,angular,writable);
+        };
+        add("x",p.x);add("y",p.y);add("z",p.z);
+        const std::array<double,3> absolute{p.absolute_rotation_x,p.absolute_rotation_y,p.absolute_rotation_z};
+        const std::array<double,3> correction{p.rotation_offset_x,p.rotation_offset_y,p.rotation_offset_z};
+        for(std::size_t axis=0;axis<3;++axis)
+            add(std::string("rotation_")+"xyz"[axis],placement_angle_uses_reference_correction(p.references,geometry,{p.x,p.y,p.z},axis)?correction[axis]:absolute[axis],true);
+        std::size_t index=0;
+        for(const auto& ref:p.references)if(!ref.orientation_only&&(!ref.owner_id.empty()||!ref.semantic_key.empty()))
+            add("reference_offset:"+std::to_string(index++),ref.offset);
+        visit(f.id,f.name,"parameter:profile_offset",f.feature.profile_plane_offset,false,!f.value_locks.contains("profile_offset"));
     }
 }
 std::string number(double value) {
@@ -183,6 +212,25 @@ template<class Doc> bool assign_dimension(Doc& doc,const FamilyColumn& binding,d
             assign_feature(cut.definition,binding.semantic_key.substr(10),value);return true;
         }
     }
+    if constexpr(requires {doc.history;})for(auto& parent:doc.history)if(parent.feature_kind==FeatureKind::Loft) {
+        const auto carrier=document::loft_sketch_editor_carrier(parent);
+        for(std::size_t i=0;i<parent.loft.sketches.size();++i) {
+            auto& owned=parent.loft.sketches[i];if(!owned.sketch_feature||owned.sketch_feature->id!=binding.owner_id)continue;
+            auto& f=*owned.sketch_feature;
+            if(binding.semantic_key=="parameter:profile_offset") {
+                if(f.value_locks.contains("profile_offset"))throw std::invalid_argument("The family dimension is locked.");
+                f.feature.profile_plane_offset=value;
+                auto sketch=sketcher::Sketch::from_serialized(owned.sketch_serialized);sketch.plane_offset=value;owned.sketch_serialized=sketch.serialized();
+            } else if(binding.semantic_key.starts_with("parameter:placement:")) {
+                const auto source=doc.construction_reference_geometry_for(parent.id,doc.history_origin_reference_geometry_before(parent.id));
+                const auto geometry=document::general_surface_boundary_reference_geometry(carrier,i,source);
+                if(!assign_placement_dimension(f.placement,geometry,binding.semantic_key.substr(20),value))
+                    throw std::invalid_argument("The family dimension is not editable.");
+            } else continue;
+            const auto source=doc.construction_reference_geometry_for(parent.id,doc.history_origin_reference_geometry_before(parent.id));
+            document::resolve_loft_sketches(parent,source);return true;
+        }
+    }
     for(auto& sketch:doc.sketches)if(assign_sketch(sketch,binding,value))return true;
     bool changed=false;
     if constexpr(requires {doc.history;})for(auto& f:doc.history)document::visit_feature_sketches(f,[&](auto& serialized,std::size_t stage){
@@ -280,6 +328,8 @@ template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(con
     };
     if constexpr(requires{doc.history;})for(const auto& f:doc.history){feature(f);document::visit_feature_sketches(f,[&](const auto& data,std::size_t){sketch(sketcher::Sketch::from_serialized(data));});}
     else for(const auto& cut:doc.cuts)feature(cut.definition);
+    if constexpr(requires {doc.history;})for(const auto& f:doc.history)
+        loft_placement_values(doc,f,[&](const auto& owner,const auto&,const auto& key,double value,bool angular,bool writable){add(owner,key,value,angular,writable);});
     for(const auto& s:doc.sketches)sketch(s);
     if constexpr(requires{doc.body_history;}) {
         for(const auto& body:doc.body_history.bodies())if(body.derived_copy)pattern(body.scope.id,*body.derived_copy);
@@ -317,6 +367,10 @@ std::vector<FamilyReference> family_references(const Workspace& live,const std::
             out.push_back({{"body",id,{}},body->name,body->name,body->suppressed?"no":"yes"});
         for(const auto& f:doc.history) {
             add_feature_references(out,doc,f);
+            loft_placement_values(doc,f,[&](const auto& owner,const auto& label,const auto& key,double value,bool,bool writable) {
+                const auto name=doc.dimension_identifiers.identifier(owner,key);
+                if(writable&&!name.empty())out.push_back({{"dimension",owner,key},name,label,number(value)});
+            });
             document::visit_feature_sketches(f,[&](const auto& serialized,std::size_t){add_sketch_references(out,doc,sketcher::Sketch::from_serialized(serialized));});
         }
         for(const auto& sketch:doc.sketches)add_sketch_references(out,doc,sketch);

@@ -40,7 +40,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
 
     auto feature=stored?*stored:document::create_loft();
     if(!stored) {
-        feature.name=tr("Přechod / Loft").toStdString();
+        feature.name=tr("Přechod").toStdString();
         for(auto& value:feature.loft.sketches) {
             auto sketch=sketcher::Sketch::from_serialized(value.sketch_serialized);sketch.name=tr("Skica").toStdString();
             value.sketch_serialized=sketch.serialized();value.sketch_feature->name=sketch.name;value.sketch_feature->feature.automatic_name=sketch.name;
@@ -99,7 +99,13 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
         primitive_translation_dof_=document::point_constraint_remaining_dof(pending.placement.references,geometry);
         parameter_dimension_preview_=pending;construction_dimension_object_id_=pending.id;
         viewer_->set_feature_preview_owners({pending.feature_id,pending.container_origin.id});
-        const bool base_changed=!cache->scene_placement||*cache->scene_placement!=pending.placement||
+        const bool preview_changed=!cache->placement||*cache->placement!=pending.placement||
+            cache->profiles!=pending.loft.profiles||cache->guides!=pending.loft.guides||cache->sketches!=pending.loft.sketches;
+        if(preview_changed) {
+            cache->definition=document::loft_definition_mesh(live->session.document(),pending,geometry);
+            cache->placement=pending.placement;cache->profiles=pending.loft.profiles;cache->guides=pending.loft.guides;cache->sketches=pending.loft.sketches;++cache->preview_builds;
+        }
+        const bool base_changed=preview_changed||!cache->scene_placement||*cache->scene_placement!=pending.placement||
             cache->origin_display!=std::pair{pending.origin_point_visible,pending.origin_text_visible}||
             cache->dimensions!=std::pair{pending.loft.result_type,pending.loft.thickness};
         if(base_changed) {
@@ -108,16 +114,11 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
             origin.kind=document::ConstructionKind::Point;origin.origin={pending.placement.x,pending.placement.y,pending.placement.z};
             origin.rotation={pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z};origin.reference_valid=false;
             carrier.constructions.push_back(origin);primitive_origin_preview_mesh_=carrier.construction_viewer_mesh(pending.id);
+            primitive_origin_preview_mesh_->dimensions=cache->definition.dimensions;
             primitive_origin_preview_mesh_->points.push_back(document::container_origin_marker(pending,true));
             cache->scene_placement=pending.placement;cache->origin_display=std::pair{pending.origin_point_visible,pending.origin_text_visible};
             cache->dimensions=std::pair{pending.loft.result_type,pending.loft.thickness};
             preserve_view_on_refresh_=true;refresh_scene();++cache->scene_publications;
-        }
-        const bool preview_changed=!cache->placement||*cache->placement!=pending.placement||
-            cache->profiles!=pending.loft.profiles||cache->guides!=pending.loft.guides||cache->sketches!=pending.loft.sketches;
-        if(preview_changed) {
-            cache->definition=document::loft_definition_mesh(live->session.document(),pending);
-            cache->placement=pending.placement;cache->profiles=pending.loft.profiles;cache->guides=pending.loft.guides;cache->sketches=pending.loft.sketches;++cache->preview_builds;
         }
         if(base_changed||preview_changed||cache->inspected!=dialog->inspected_sources()) {
             auto preview=cache->definition;
@@ -143,7 +144,9 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
         if(base_changed||preview_changed||!sketch_error.empty())try {
             if(!sketch_error.empty())throw std::runtime_error(sketch_error);
             if(!valid)throw std::runtime_error("Chybí reference umístění kontejneru");
-            document::validate_loft(pending);dialog->set_status(tr("Skici jsou připravené. OK vypočítá přechod."));
+            document::validate_loft(pending);
+            dialog->set_status(std::ranges::any_of(pending.loft.sketches,[](const auto& value){return !value.sketch_feature->placement.reference_valid;})
+                ?tr("Chybí reference umístění skici; zachována poslední poloha v Loftu."):tr("Skici jsou připravené. OK vypočítá přechod."));
         }catch(const std::exception& error){dialog->set_status(tr(error.what()));}
         if(!pending_primitive_reference_index_&&!local_origin_selection_active_) {
             feature_reference_pick_={};feature_reference_end_={};set_primitive_properties_dimension_selection();

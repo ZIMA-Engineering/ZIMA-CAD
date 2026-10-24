@@ -1,3 +1,4 @@
+#include <zima/document/placement_reference_assignment.hpp>
 #include "../../../common/datum_display.hpp"
 #include <zima/document/derived_copy_json.hpp>
 #include "draft_preview.hpp"
@@ -3803,7 +3804,7 @@ HistoryContainer PartDocument::create_drill_point_container() {
     container.feature_id = make_id();
     container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
-    container.name = "Vrtací špička";
+    container.name = "Špička";
     container.feature_kind = FeatureKind::DrillPoint;
     container.combine_mode = CombineMode::Subtract;
     return container;
@@ -7812,7 +7813,7 @@ HistoryContainer PartDocument::create_extrusion_container(std::string sketch_id)
     container.feature_id = make_id();
     container.feature_parent_id = container.id;
     container.container_origin = create_container_origin(container.id);
-    container.name = "Vytažení";
+    container.name = "Tažení";
     container.feature_kind = FeatureKind::Extrusion;
     container.extrusion.sketch_id = std::move(sketch_id);
     return container;
@@ -7839,7 +7840,7 @@ HistoryContainer PartDocument::create_solid_state_container(bool restore) {
 HistoryContainer PartDocument::create_feature_container(std::string sketch_id) {
     auto container=create_extrusion_container(sketch_id);
     container.feature_kind=FeatureKind::Feature;
-    container.name="Vytažení";
+    container.name="Tažení";
     container.feature.automatic_name=container.name;
     container.feature.sketch_id=std::move(sketch_id);
     container.extrusion={};

@@ -79,6 +79,7 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
             case Kind::Revolution:add({"profile_offset","angle","length_reverse","thin_thickness"});break;
             case Kind::Fillet:add({"primary","secondary"});break;
             case Kind::Chamfer:add({"primary","secondary","treatment_angle"});break;
+            case Kind::Loft:
             case Kind::SurfaceThicken:
             case Kind::Shell:add({"thickness"});break;
             case Kind::Hole:add({"diameter","bore_length","entrance_chamfer","exit_chamfer","drill_point_angle","thread_diameter","pitch","thread_length"});break;
@@ -96,7 +97,11 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
         if(object.feature_kind==document::FeatureKind::Sweep3D)construction(construction,object.sweep3d.path);
     };
     for(auto& object:doc.constructions)construction(construction,object);
-    if constexpr(requires{doc.history;})for(auto& object:doc.history)feature(object);
+    if constexpr(requires{doc.history;})for(auto& object:doc.history) {
+        feature(object);
+        if(object.feature_kind==document::FeatureKind::Loft)for(auto& owned:object.loft.sketches)
+            if(owned.sketch_feature)feature(*owned.sketch_feature);
+    }
     if constexpr(requires{doc.cuts;})for(auto& cut:doc.cuts)feature(cut.definition);
     if constexpr(requires{doc.sketch_containers;})for(auto& container:doc.sketch_containers)feature(container);
     if constexpr(requires{doc.components;})for(auto& component:doc.components)

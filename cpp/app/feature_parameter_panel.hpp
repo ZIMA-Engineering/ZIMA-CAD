@@ -149,8 +149,8 @@ public:
             s.pending=initial_.sides[i];
             auto* rows=new QFormLayout(s.box);s.rows=rows;
             s.mode=new QComboBox(s.box);s.mode->setObjectName(QString("featureSideMode%1").arg(i));
-            s.mode->addItems({tr("Bez operace"),tr("Vytažení"),tr("Rotace")});rows->addRow(tr("Typ"),s.mode);
-            if(i==0)s.mode->addItem(tr("Twist"));
+            s.mode->addItems({tr("Bez operace"),tr("Tažení"),tr("Rotace")});rows->addRow(tr("Typ"),s.mode);
+            if(i==0)s.mode->addItem(tr("Krut"));
             s.draft=number(i==0?"featureSideDraft0":"featureSideDraft1",true);
             s.draft->setRange(-89.999,89.999);s.draft->setValue(s.pending.draft_angle_degrees);
             s.displayed_draft=s.draft->value();rows->addRow(tr("Úhel úkosu"),s.draft);

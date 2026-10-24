@@ -1434,7 +1434,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const auto parameters=[&]{return run(QString::fromStdString("feature.get "+feature_id)).data;};
         check(parameters().at("parameters")["sides"][0]["length"]==loaded.history.front().feature.sides[0].length,"Console cannot read GUI Box");
         run(QString::fromStdString(commands::Json{{"command","feature.set"},{"arguments",{{"container",feature_id},{"parameters",zima::test::feature_profile_parameters(150,true)}}}}.dump()));flush();
-        run(QString::fromStdString(commands::Json{{"command","feature.set"},{"arguments",{{"container",feature_id},{"parameters",[&]{auto p=parameters().at("parameters");p["symmetric"]=false;p["sides"][1]["operation"]="extrusion";return p;}()}}}}.dump()));
+        run(QString::fromStdString(commands::Json{{"command","feature.set"},{"arguments",{{"container",feature_id},{"parameters",[&]{auto p=parameters().at("parameters");p["symmetric"]=false;p["sides"][1]["operation"]="extrude";return p;}()}}}}.dump()));
         const auto edit_box=[&]() -> QDialog* {
             QTreeWidgetItem* item=nullptr;
             for(QTreeWidgetItemIterator it(model_tree);*it;++it)
@@ -2991,7 +2991,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             const auto native=zima::test::load_part_with_properties(directory/(stem+"-"+kind+".prtz"),&cache);
             check(native.history.front().id==id && std::abs(cache.back().volume-(kind=="extrusion"?160:30*std::acos(-1.0)))<1e-6,"GUI profile saved incorrect geometry");
             if(kind=="extrusion") {
-                auto bounded=get();bounded["sides"][1]["operation"]="extrusion";
+                auto bounded=get();bounded["sides"][1]["operation"]="extrude";
                 for(int i=0;i<2;++i){
                     bounded["sides"][i]["extrusion_extent"]="up_to";
                     document::ExtrusionParameters::EndTarget target;target.kind=document::EndTargetKind::Plane;target.reference={(i==0?target_upper:target_lower).at("entity").get<std::string>(),"plane",{}};

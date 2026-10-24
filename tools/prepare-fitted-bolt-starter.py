@@ -47,7 +47,7 @@ def main():
         native.run('sketch.dimension.create', sketch=sketch, kind='diameter', geometry=[circle], value=11)
         # The underlying Ø10 blank continues to 50 mm. The concentric Ø11 Add
         # defines the fitted region without a display-only diameter or epsilon.
-        sides = [dict(operation='extrusion', length=34, extrusion_extent='length',
+        sides = [dict(operation='extrude', length=34, extrusion_extent='length',
             angle_degrees=90, rotation_extent='angle', draft_angle_degrees=0, targets=[]),
             dict(operation='none', length=50, extrusion_extent='length',
             angle_degrees=90, rotation_extent='angle', draft_angle_degrees=0, targets=[])]

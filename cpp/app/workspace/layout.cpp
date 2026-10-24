@@ -2769,7 +2769,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                      container->feature.type == zima::document::FeatureType::Sketch)) {
                     menu.addSeparator();
                     transform_extrusion = menu.addAction(
-                        resource_icon("protrusion"), tr("Vytažení"));
+                        resource_icon("protrusion"), tr("Tažení"));
                     transform_revolution = menu.addAction(
                         resource_icon("revolve"), tr("Rotace"));
                     menu.addSeparator();

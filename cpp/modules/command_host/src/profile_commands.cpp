@@ -14,6 +14,19 @@ namespace {
 using Feature = document::HistoryContainer;
 using Kind = document::FeatureKind;
 using Error = workspace::ProfileOperationError;
+Json public_feature_parameters(const document::FeatureParameters& feature) {
+    auto result=document::serialize_feature_parameters(feature);
+    for(auto& side:result.at("sides"))if(side.at("operation")=="extrusion")side["operation"]="extrude";
+    return result;
+}
+Json native_feature_patch(Json patch) {
+    if(patch.contains("sides")&&patch.at("sides").is_array())for(auto& side:patch["sides"])
+        if(side.is_object()&&side.contains("operation")) {
+            if(side["operation"]=="extrusion")throw Error("invalid_arguments","Unknown profile parameter option.");
+            if(side["operation"]=="extrude")side["operation"]="extrusion";
+        }
+    return patch;
+}
 void validate_feature_patch(const Json& patch,const Json& definition){
     const auto keys=[](const Json& value,const auto& allowed){
         if(!value.is_object())throw Error("invalid_arguments","Unknown profile parameter option.");
@@ -59,7 +72,7 @@ Json details(const workspace::Workspace& live, const std::string& id, const Feat
     if(value.feature_kind==Kind::Feature) {
         Json result={{"document",id},{"container",value.id},{"feature",value.feature_id},
             {"sketch",value.feature.sketch_id},{"body",owner?owner->scope.id:std::string{}},
-            {"name",value.name},{"kind","feature"},{"parameters",document::serialize_feature_parameters(value.feature)},
+            {"name",value.name},{"kind","feature"},{"parameters",public_feature_parameters(value.feature)},
             {"combine",value.combine_mode==document::CombineMode::Add?"add":"subtract"},
             {"revision",part?part->session.revision():assembly->session.revision()},
             {"value_locks",value.value_locks},{"reference_valid",value.placement.reference_valid},
@@ -223,7 +236,7 @@ void Host::register_profile_commands() {
                 }
                 if(args.contains("parameters")) {
                     auto parameters=document::serialize_feature_parameters(value.feature);
-                    validate_feature_patch(args.at("parameters"),parameters);parameters.merge_patch(args.at("parameters"));
+                    validate_feature_patch(args.at("parameters"),parameters);parameters.merge_patch(native_feature_patch(args.at("parameters")));
                     document::FeatureParameters next;
                     try {next=document::load_feature_parameters(parameters);}
                     catch(const std::invalid_argument& error){throw Error("invalid_arguments",error.what());}

@@ -84,7 +84,7 @@ def author(native,v,path):
     center=native.run('sketch.entity.get',sketch=sk,entity=circle)['entity']['center']
     native.run('sketch.constraint.create',sketch=sk,kind='point_reference',points=[center,'sketch_origin'])
     diameter=native.run('sketch.dimension.create',sketch=sk,kind='diameter',geometry=[circle],value=v['diameter_mm'])
-    side=dict(operation='extrusion',length=v['length_mm'],extrusion_extent='length',angle_degrees=90,
+    side=dict(operation='extrude',length=v['length_mm'],extrusion_extent='length',angle_degrees=90,
         rotation_extent='angle',draft_angle_degrees=0,targets=[])
     metal_side={**side,'length':v['metal_length_mm']}
     shaft=native.run('feature.create',sketch=sk,parameters=dict(symmetric=False,sides=[metal_side,side]))['container']

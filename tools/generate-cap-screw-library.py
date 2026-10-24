@@ -80,7 +80,7 @@ def variants():
     return result
 
 
-def side(length=1,operation='extrusion',extent='length'):
+def side(length=1,operation='extrude',extent='length'):
     return dict(operation=operation,length=length,extrusion_extent=extent,angle_degrees=90,
         rotation_extent='angle',draft_angle_degrees=0,targets=[])
 

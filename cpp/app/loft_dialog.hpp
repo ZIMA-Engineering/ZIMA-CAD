@@ -19,7 +19,7 @@ public:
     std::function<void(unsigned)> edit_sketch_properties;
     LoftDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,
                bool allow_subtract,QWidget* parent)
-        :SweepPlacementDialog(tr("Vlastnosti přechodu / Loftu"),std::move(initial),parent),
+        :SweepPlacementDialog(tr("Vlastnosti přechodu"),std::move(initial),parent),
          commit_(std::move(commit)),allow_subtract_(allow_subtract) {
         setObjectName("loftDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(470);
         setProperty("expandBottomTable",true);
@@ -27,8 +27,6 @@ public:
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);name->setObjectName("loftName");
         form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](const auto& value){pending.name=value.toStdString();});
-        operation_=add_feature_operation_buttons(this,content_layout(),pending.combine_mode==document::CombineMode::Subtract,
-            [this](bool subtract){pending.combine_mode=subtract?document::CombineMode::Subtract:document::CombineMode::Add;notify();});
         auto* precision=new SweepPrecisionControls(pending.sweep_precision,this,[this]{pending.sweep_precision=precision_->value();notify();});
         content_layout()->addWidget(precision);
         precision_=precision;
@@ -36,8 +34,8 @@ public:
         result_=new QComboBox(this);result_->setObjectName("loftResultType");
         result_->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
         result_->setCurrentIndex(pending.loft.result_type==document::ProfileResultType::Surface?2:pending.loft.result_type==document::ProfileResultType::Thin?1:0);
-        auto* result_form=new QFormLayout;result_form->addRow(tr("Typ výsledku"),result_);content_layout()->addLayout(result_form);
-        thin_form_=new QFormLayout;content_layout()->addLayout(thin_form_);
+        auto* result_form=new QFormLayout;result_form->addRow(tr("Typ výsledku"),result_);
+        thin_form_=new QFormLayout;
         thickness_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness_->setObjectName("loftThickness");
         thickness_->setRange(.001,1'000'000);thickness_->setValue(pending.loft.thickness);thin_form_->addRow(tr("Tloušťka"),thickness_);
         ui::bind_numeric_value_lock(thickness_,"thickness",pending.value_locks,[this]{notify();});
@@ -79,6 +77,9 @@ public:
             lists->addWidget(group);
         }
         lists->setStretchFactor(0,1);lists->setStretchFactor(1,1);content_layout()->addWidget(lists,1);
+        content_layout()->addLayout(result_form);content_layout()->addLayout(thin_form_);
+        operation_=add_feature_operation_buttons(this,content_layout(),pending.combine_mode==document::CombineMode::Subtract,
+            [this](bool subtract){pending.combine_mode=subtract?document::CombineMode::Subtract:document::CombineMode::Add;notify();});
         status_=new QLabel(this);status_->setObjectName("loftStatus");status_->setWordWrap(true);content_layout()->addWidget(status_);
         refresh();update_result();set_initial_size({560,950});
     }
@@ -107,7 +108,7 @@ public:
     void open_sketch(bool guides,int row) {
         auto& values=family(guides);if(row<0||row>static_cast<int>(values.size()))return;
         if(row==static_cast<int>(values.size())) {
-            auto value=document::create_general_surface_sketch(pending);
+            auto value=document::create_loft_sketch(pending);
             auto sketch=sketcher::Sketch::from_serialized(value.sketch_serialized);sketch.name=tr("Skica").toStdString();
             value.sketch_serialized=sketch.serialized();value.sketch_feature->name=sketch.name;
             values.push_back(value.sketch_feature->id);pending.loft.sketches.push_back(std::move(value));refresh();notify();

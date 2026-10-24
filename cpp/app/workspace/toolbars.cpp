@@ -323,7 +323,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         const auto* boundary_body=modeling_part?modeling_part->session.document().body_history.find(modeling_part->session.document().body_history.active_body_id()):nullptr;
         auto* twist=findChild<QAction*>("modelTwistAction");
         if(!twist) {
-            twist=new QAction(resource_icon("sheet-twist"),tr("Twist"),this);
+            twist=new QAction(resource_icon("sheet-twist"),tr("Krut"),this);
             twist->setObjectName("modelTwistAction");
             connect(twist,&QAction::triggered,this,[this]{show_primitive_properties(
                 zima::document::FeatureKind::Feature,{},false,zima::document::FeatureType::Modeling,false,true);});

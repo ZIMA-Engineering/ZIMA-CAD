@@ -1,0 +1,132 @@
+{
+  "version": "2026102402",
+  "platform": "Windows x64",
+  "kernel": "OCCT 8.0.1",
+  "checks": [
+    {
+      "name": "zima_cpp_occt_gauss_interval_contract_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_translations_contract",
+      "passed": true,
+      "evidence": "final-2402.xml"
+    },
+    {
+      "name": "zima_cpp_family_table_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_pattern_dimension_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_sketch_reference_command_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_sketch_dimension_command_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_assembly_profile_command_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_profile_public_naming_contract",
+      "passed": true,
+      "evidence": "final-2402.xml"
+    },
+    {
+      "name": "zima_cpp_surface_thicken_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_loft_document_tests",
+      "passed": true,
+      "evidence": "final-2402-extra.xml"
+    },
+    {
+      "name": "zima_cpp_loft_tests",
+      "passed": true,
+      "evidence": "final-focused.xml"
+    },
+    {
+      "name": "zima_cpp_cli_process_tests",
+      "passed": false,
+      "evidence": "final-2402-extra.xml"
+    }
+  ],
+  "limitations": [
+    "Native Linux not executed",
+    "Finite Sketcher dimension/drag matrix; not exhaustive",
+    "Arbitrary spline/rotation networks and nested Assembly Loft integration unverified"
+  ],
+  "localization": {
+    "languages": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "reviewed_keys": [
+      "Tažení",
+      "Vlastnosti tažení",
+      "Přechod",
+      "Vlastnosti přechodu",
+      "Krut",
+      "Špička",
+      "Vlastnosti špičky",
+      "Směr tažení",
+      "Stoupání",
+      "Úhel pole",
+      "Rozteč pole",
+      "Počet instancí",
+      "Počet instancí v opačném směru",
+      "Korekce délky",
+      "Korekce úhlu"
+    ],
+    "catalog_keys": 2636
+  },
+  "known_baseline_failures": {
+    "zima_cpp_ui_contract_tests": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+    "zima_cpp_profile_command_tests": "Duplicate target: expected missing_reference, got invalid_arguments",
+    "zima_cpp_value_lock_command_tests": "Lock query calculated or mutated geometry",
+    "zima_cpp_cli_process_tests": "Material assignment evaluated relations outside Regenerate"
+  },
+  "schema": "No native schema/version change; existing factory assets and start templates retained",
+  "gui": {
+    "LOFT": {
+      "log": "build/loft-audit/ZIMA_VERIFY_LOFT_ONLY.log",
+      "last_output": "Loft GUI: five languages, stacked lists, owned 2D Sketch edit/add/remove, eye/order, whole Origin, numeric placement, resize, rollback, no-op, middle confirmation, View/Tree single/double inspection, Thin sides, native reopen and Undo/Redo passed\n"
+    },
+    "DERIVED_COPY": {
+      "log": "build/loft-audit/ZIMA_VERIFY_DERIVED_COPY_ONLY.log",
+      "last_output": "Copy Origin GUI: Mirror, field 0, occurrence \nCopy Origin GUI: Mirror, field 0, occurrence \nCopy Origin GUI: Pattern, field 2, occurrence \nCopy Origin GUI: Pattern, field 0, occurrence \nCopy Origin GUI: Pattern, field 2, occurrence \nCopy Origin GUI: Mirror, field 0, occurrence \nCopy Origin GUI: Mirror, field 0, occurrence \nCopy Origin GUI: Pattern, field 2, occurrence \nCopy Origin GUI: Pattern, field 3, occurrence \nCopy Origin GUI: Pattern, field 4, occurrence \nCopy Origin GUI: Pattern, field 0, occurrence \nPart and Assembly Pattern copies display their owning spacing/count dimensions\n"
+    },
+    "CONSOLE": {
+      "log": "build/loft-audit/ZIMA_VERIFY_CONSOLE_ONLY.log",
+      "last_output": "Feature reversal GUI: scalar/negative View edits, actual zero-crossing drag, locks, stable panels/references, repeated swaps, no-op inspection, Cancel, OK, Undo/Redo and native reopen passed\nRevolution: eight actual mouse matrices, zero crossing/back, opposite-end stop, negative field/View angles, locks, sector volume, Undo/Redo and reopen passed\n"
+    },
+    "GENERAL_SURFACE": {
+      "log": "build/loft-audit/ZIMA_VERIFY_GENERAL_SURFACE_ONLY.log",
+      "last_output": ""
+    },
+    "RELATION_TEMPLATES": {
+      "log": "build/loft-audit/ZIMA_VERIFY_RELATION_TEMPLATES_ONLY.log",
+      "last_output": "Native relation templates and View feature/dimension cursor insertion passed\n"
+    },
+    "TEMPLATES": {
+      "log": "build/loft-audit/ZIMA_VERIFY_TEMPLATES_ONLY.log",
+      "last_output": "Template opening, editing, region priority, shared confirmation, persistence and five UI languages passed\n"
+    }
+  }
+}

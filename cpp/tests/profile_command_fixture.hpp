@@ -5,10 +5,15 @@
 #include <algorithm>
 #include <cmath>
 namespace zima::test {
+inline commands::Json public_feature_parameters(const document::FeatureParameters& parameters) {
+    auto result=document::serialize_feature_parameters(parameters);
+    for(auto& side:result.at("sides"))if(side.at("operation")=="extrusion")side["operation"]="extrude";
+    return result;
+}
 inline commands::Json through_all_feature_parameters() {
     document::FeatureParameters parameters;
     for(auto& side:parameters.sides){side.operation=document::FeatureSideOperation::Extrusion;side.extrusion_extent=document::EndCondition::ThroughAll;}
-    auto result=document::serialize_feature_parameters(parameters);result.erase("sketch_id");return result;
+    auto result=public_feature_parameters(parameters);result.erase("sketch_id");return result;
 }
 inline commands::Json feature_profile_parameters(double length,bool symmetric=false,
         const std::string& axis={}) {
@@ -20,7 +25,7 @@ inline commands::Json feature_profile_parameters(double length,bool symmetric=fa
         parameters.sides[0].operation=document::FeatureSideOperation::Revolution;
         parameters.sides[0].angle_degrees=length;
     }
-    auto result=document::serialize_feature_parameters(parameters);
+    auto result=public_feature_parameters(parameters);
     result.erase("sketch_id");
     return result;
 }

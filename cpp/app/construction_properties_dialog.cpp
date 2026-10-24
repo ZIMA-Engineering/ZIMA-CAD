@@ -597,7 +597,6 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     sweep_thin_mode_->setToolTip(tr("Symetricky: polovina zadané tloušťky na každou stranu profilu. "
         "U otevřené kontury určuje stranu směr jejího obvodu."));
     thin_form->addRow(tr("Strana tloušťky"),sweep_thin_mode_);
-    content_layout()->addLayout(thin_form);
     const auto update_thin=[this,thin_form] {
         const bool thin=sweep_result_type_->currentIndex()==1;
         thin_form->setRowVisible(sweep_thickness_,thin);
@@ -642,6 +641,7 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     // stretch alone still lets the upper point table grow toward sizeHint().
     curve_points_table_->setFixedHeight(curve_points_table_->minimumHeight());
     content_layout()->addWidget(sweep_profiles_table_,1);
+    content_layout()->addLayout(thin_form);
     auto* operation_row = new QWidget(this);
     auto* operation_layout = new QHBoxLayout(operation_row);
     operation_layout->setContentsMargins(0, 0, 0, 0);

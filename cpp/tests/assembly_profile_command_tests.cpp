@@ -42,18 +42,18 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
     auto feature=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
     feature.feature.sides[0].length=4;
     const auto id=feature.id;
-    const auto created=f.run("feature.create",{{"sketch",sketch},{"parameters",document::serialize_feature_parameters(feature.feature)},{"targets",{f.first}}});
+    const auto created=f.run("feature.create",{{"sketch",sketch},{"parameters",zima::test::public_feature_parameters(feature.feature)},{"targets",{f.first}}});
     require(created.at("container")==id&&created.at("parameters").at("type")=="modeling","Feature CLI did not use the shared definition");
     near(f.volume(f.first),976);near(f.volume(f.second),1000);
     feature=f.doc().find_cut(id)->definition;
     const auto revision=f.state().session.revision();
-    require(!f.run("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(feature.feature)}}).at("changed").get<bool>(),
+    require(!f.run("feature.set",{{"container",id},{"parameters",zima::test::public_feature_parameters(feature.feature)}}).at("changed").get<bool>(),
         "Unchanged Feature CLI reported a change");
     require(f.state().session.revision()==revision,"Unchanged Assembly Feature committed or calculated");
     for(auto type:{document::FeatureType::Axis,document::FeatureType::Point,document::FeatureType::Plane,document::FeatureType::Sketch}) {
         feature=f.doc().find_cut(id)->definition;feature.feature.type=type;
         feature.feature.sides[0].length=7;feature.feature.sides[1].axis_enabled=false;
-        f.run("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(feature.feature)}});
+        f.run("feature.set",{{"container",id},{"parameters",zima::test::public_feature_parameters(feature.feature)}});
         near(f.volume(f.first),1000);near(f.volume(f.second),1000);
         const auto stored=f.doc().find_cut(id)->definition;
         require(stored.feature_id==feature.feature_id&&stored.feature.sketch_id==sketch,"Assembly Feature type replaced native identity");
@@ -71,7 +71,7 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
     f.run("redo");require(f.doc().find_cut(id)->definition.feature.type==document::FeatureType::Sketch,"Feature type Redo lost ownership");
     f.run("value_lock.set",{{"object",id},{"key","side0_length"},{"locked",true}});
     auto locked=f.doc().find_cut(id)->definition.feature;locked.sides[0].length+=1;
-    f.reject("feature.set",{{"container",id},{"parameters",document::serialize_feature_parameters(locked)}},"value_locked");
+    f.reject("feature.set",{{"container",id},{"parameters",zima::test::public_feature_parameters(locked)}},"value_locked");
     require(f.live.open_part(f.source)->session.document().history.size()==1,"Assembly Feature modified its source Part history");
 }
 void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
@@ -113,10 +113,10 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     near(f.volume(f.first),976);near(f.volume(f.second),1000);f.run("undo");near(f.volume(f.first),988);
     f.run("save");const auto loaded=assembly::AssemblyDocument::load(directory/"assembly-extrusion.asmz");
     require(loaded.cuts==f.doc().cuts&&loaded.sketches.front().serialized()==f.doc().sketches.front().serialized(),"Native cut lost definition or owned profile");near(loaded.find_occurrence(f.first)->calculated_source->volume,988);
-    f.set_feature(cut,[](auto& p){p["sides"][0]["length"]=2;p["sides"][1]["operation"]="extrusion";p["sides"][1]["length"]=1;});near(f.volume(f.first),982);
+    f.set_feature(cut,[](auto& p){p["sides"][0]["length"]=2;p["sides"][1]["operation"]="extrude";p["sides"][1]["length"]=1;});near(f.volume(f.first),982);
     f.set_feature(cut,[](auto& p){p["symmetric"]=true;p["sides"][0]["length"]=2;});near(f.volume(f.first),976);
     f.set_feature(cut,[](auto& p){p["symmetric"]=false;p["sides"][1]["operation"]="none";p["sides"][0]["extrusion_extent"]="through_all";});near(f.volume(f.first),970);
-    f.set_feature(cut,[](auto& p){p["sides"][1]["operation"]="extrusion";p["sides"][1]["extrusion_extent"]="through_all";});near(f.volume(f.first),940);
+    f.set_feature(cut,[](auto& p){p["sides"][1]["operation"]="extrude";p["sides"][1]["extrusion_extent"]="through_all";});near(f.volume(f.first),940);
     f.set_feature(cut,[](auto& p){p["sides"][0]["extrusion_extent"]="length";p["sides"][0]["length"]=2;p["sides"][1]["operation"]="none";p["result_type"]="thin";p["thin_thickness"]=.25;p["thin_mode"]="symmetric";});near(f.volume(f.first),995);
     f.run("save");const auto thin=assembly::AssemblyDocument::load(directory/"assembly-extrusion.asmz");
     require(thin.find_cut(cut)->definition.feature==f.doc().find_cut(cut)->definition.feature,"Thin or extent parameters lost in Assembly format");
@@ -261,7 +261,7 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
 void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-revolution");const auto sketch=f.rectangle(1,0,1,4);
     document::FeatureParameters parameters;parameters.sides[0].operation=document::FeatureSideOperation::Revolution;parameters.sides[0].angle_degrees=360;
-    auto initial=document::serialize_feature_parameters(parameters);initial.erase("sketch_id");
+    auto initial=zima::test::public_feature_parameters(parameters);initial.erase("sketch_id");
     f.reject("feature.create",{{"sketch",sketch},{"parameters",initial}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     const auto made=f.create_feature(sketch,parameters);const std::string cut=made.at("container");

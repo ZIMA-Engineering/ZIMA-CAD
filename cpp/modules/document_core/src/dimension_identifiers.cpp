@@ -156,6 +156,16 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     case FeatureKind::Chamfer:
         add({"primary", "secondary", "treatment_angle"}); break;
     case FeatureKind::Loft:
+        add({"thickness"});
+        for(const auto& owned:feature.loft.sketches) {
+            if(owned.sketch_feature) {
+                const auto& sketch=*owned.sketch_feature;
+                placement_parameters(out,sketch.id,sketch.name,sketch.placement.references);
+                out.push_back({sketch.id,"parameter:profile_offset",sketch.name});
+            }
+            embedded_sketch(out,owned.sketch_serialized);
+        }
+        break;
     case FeatureKind::SurfaceThicken:
     case FeatureKind::Shell:
         add({"thickness"}); break;

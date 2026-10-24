@@ -1,3 +1,4 @@
+#include <zima/document/loft.hpp>
 #include <zima/document/feature_parameter_dimensions.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/relation_program.hpp>
@@ -83,6 +84,25 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             auto choices=sketch_intersection_choice_mesh();
             mesh.edges.insert(mesh.edges.end(),std::make_move_iterator(choices.edges.begin()),std::make_move_iterator(choices.edges.end()));
             mesh.points.insert(mesh.points.end(),std::make_move_iterator(choices.points.begin()),std::make_move_iterator(choices.points.end()));
+        }
+        // Localize only presentation; numeric values and semantic bindings stay canonical.
+        for(auto& dimension:mesh.dimensions)if(dimension.label_only) {
+            const auto& key=dimension.reference.semantic_key;
+            const char* label=nullptr;
+            if(key=="parameter:direction")label="Směr tažení";
+            else if(key=="parameter:pitch")label="Stoupání";
+            else if(key=="parameter:pattern:angle")label="Úhel pole";
+            else if(key.starts_with("parameter:pattern:spacing:"))label="Rozteč pole";
+            else if(key.starts_with("parameter:pattern:reverse_count:"))label="Počet instancí v opačném směru";
+            else if(key.starts_with("parameter:pattern:count"))label="Počet instancí";
+            else if(key.ends_with("_up_to_length_correction"))label="Korekce délky";
+            else if(key.ends_with("_up_to_angle_correction"))label="Korekce úhlu";
+            if(label) {
+                dimension.label_prefix=tr(label).toStdString()+": ";
+                if(key=="parameter:direction"&&dimension.value>0)dimension.label_prefix+="+";
+                if(key.starts_with("parameter:pattern:")&&key.back()>='0'&&key.back()<='2')
+                    dimension.label_prefix=tr(label).toStdString()+" "+std::to_string(key.back()-'0'+1)+": ";
+            }
         }
         viewer_->set_mesh(std::move(mesh),fit);
     };
@@ -485,7 +505,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     if(const auto* body=document.body_owner_for_object(container->id))internal=document.place_body_mesh(std::move(internal),body->scope.id);
                     mesh.dimensions.insert(mesh.dimensions.end(),internal.dimensions.begin(),internal.dimensions.end());
                 }
-                if(active_sketch_id_.empty())zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t stage){
+                if(active_sketch_id_.empty()&&container->feature_kind!=zima::document::FeatureKind::Loft)zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t stage){
                     if(container->feature_kind==zima::document::FeatureKind::Bend&&stage==0&&container->bend.angle_degrees==0)return;
                     const auto sketch=zima::sketcher::Sketch::from_serialized(data);
                     // Properties already publishes these annotations in the
@@ -494,8 +514,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         primitive_origin_preview_mesh_->dimensions,[&](const auto& dimension) {
                             return dimension.reference.owner_id==sketch.id;
                         }))return;
-                    auto display=container->feature_kind==zima::document::FeatureKind::Bend
-                        ?zima::document::bend_offset_dimension_display(sketch).viewer_mesh():sketch.viewer_mesh();
+                    auto display=container->feature_kind==zima::document::FeatureKind::Loft
+                        ?zima::document::general_surface_display_sketch(*container,container->loft.sketches.at(stage)).viewer_mesh()
+                        :container->feature_kind==zima::document::FeatureKind::Bend
+                            ?zima::document::bend_offset_dimension_display(sketch).viewer_mesh():sketch.viewer_mesh();
                     const auto* body=document.body_owner_for_object(container->id);
                     const auto body_id=body?body->scope.id:document.body_history.active_body_id();
                     if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
@@ -507,6 +529,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         ? primitive_reference_geometry_
                         : document.construction_reference_geometry_for(
                               container->id, reference_geometry());
+                if(active_sketch_id_.empty()&&container->feature_kind==zima::document::FeatureKind::Loft&&!primitive_origin_preview_mesh_) {
+                    auto annotations=zima::document::loft_definition_mesh(document,*container,placement_reference_geometry);
+                    if(const auto* body=document.body_owner_for_object(container->id))annotations=document.place_body_mesh(std::move(annotations),body->scope.id);
+                    mesh.dimensions.insert(mesh.dimensions.end(),annotations.dimensions.begin(),annotations.dimensions.end());
+                }
                 auto placement_dimensions = container->feature_kind==zima::document::FeatureKind::SheetForm
                     ? zima::document::sheet_form_placement_dimensions(*container,placement_reference_geometry)
                     : zima::document::container_placement_dimensions(
@@ -591,6 +618,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         display.dimensions.push_back({path.origin,end,kernel::dimension_add(path.origin,offset),
                             kernel::dimension_add(end,offset),path.pitch,{container->id,"parameter:pitch",{}}});
                         display.dimensions.back().plane_normal=kernel::dimension_cross(path.axis,path.radial);
+                        display.dimensions.back().label_only=true;
+                        display.dimensions.back().label_position=kernel::dimension_add(path.origin,offset);
                         if(!parameter_dimension_preview_)if(const auto* body=document.body_owner_for_object(container->id))
                             display=document.place_body_mesh(std::move(display),body->scope.id);
                         mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());

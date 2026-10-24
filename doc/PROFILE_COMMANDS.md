@@ -29,8 +29,8 @@ This example creates an extrusion of 20 mm toward End and 5 mm toward Start:
     "parameters": {
       "symmetric": false,
       "sides": [
-        {"operation":"extrusion","length":20,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]},
-        {"operation":"extrusion","length":5,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]}
+        {"operation":"extrude","length":20,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]},
+        {"operation":"extrude","length":5,"extrusion_extent":"length","angle_degrees":90,"rotation_extent":"angle","draft_angle_degrees":0,"targets":[]}
       ]
     }
   }
@@ -127,3 +127,7 @@ accepts neither a `sheet_cut` nor a `sheet_metal` enable/disable switch.
 Historical development results are retained in
 [profile milestones](history/PROFILE_COMMAND_MILESTONES.md); current release
 acceptance is recorded separately after the complete verification gates pass.
+
+The public side operation is `extrude` (action name); `extrusion` is rejected.
+Native document enum identifiers remain unchanged. `feature.create`, `feature.set`
+and `feature.get` share the same parameter schema for solid, surface and thin results.

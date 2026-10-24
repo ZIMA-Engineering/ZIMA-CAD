@@ -466,7 +466,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     shaft_thread_action_=make_action(tr("Závit"),"thread");
     shaft_thread_action_->setObjectName("shaftThreadAction");
     connect(shaft_thread_action_,&QAction::triggered,this,[this] { show_shaft_thread_properties(); });
-    drill_point_action_ = make_action(tr("Vrtací špička"), "drill-point");
+    drill_point_action_ = make_action(tr("Špička"), "drill-point");
     drill_point_action_->setObjectName("drillPointAction");
     construction_point_action_ = make_action(tr("Bod"), "point");
     curve_3d_action_ = make_action(tr("3D křivka"), "sketch-3d");
@@ -488,7 +488,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     helical_sweep_action_->setObjectName("helicalSweepAction");
     helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
-    loft_action_=make_action(tr("Přechod / Loft"),"loft");loft_action_->setObjectName("loftAction");
+    loft_action_=make_action(tr("Přechod"),"loft");loft_action_->setObjectName("loftAction");
     loft_action_->setToolTip(tr("Přechod mezi 2D skicami profilů, volitelně řízený dalšími 2D skicami."));
     connect(loft_action_,&QAction::triggered,this,[this]{show_loft_properties();});
 
@@ -499,7 +499,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sweep_3d_action_->setObjectName("sweep3DAction");
     construction_axis_action_->setObjectName("constructionAxisAction");
     construction_plane_action_->setObjectName("constructionPlaneAction");
-    extrusion_action_ = make_action(tr("Vytažení"), "protrusion");
+    extrusion_action_ = make_action(tr("Tažení"), "protrusion");
     extrusion_action_->setObjectName("extrusionAction");
     auto* feature_prototype=make_action(tr("Prvek"),"feature");
     feature_prototype->setObjectName("featurePrototypeAction");
@@ -508,7 +508,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         show_primitive_properties(zima::document::FeatureKind::Feature);
     });
     connect(extrusion_action_,&QAction::changed,this,[this,feature_prototype]{feature_prototype->setEnabled(extrusion_action_->isEnabled());});
-    const std::array feature_labels{tr("Bod"),tr("Osa"),tr("Rovina"),tr("Skica"),tr("Vytažení"),tr("Rotace")};
+    const std::array feature_labels{tr("Bod"),tr("Osa"),tr("Rovina"),tr("Skica"),tr("Tažení"),tr("Rotace")};
     const std::array feature_icons{"point","axis","plane","sketch","protrusion","revolve"};
     for(std::size_t i=0;i<feature_labels.size();++i) {
         auto* shortcut=make_action(feature_labels[i],feature_icons[i]);

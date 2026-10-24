@@ -124,7 +124,7 @@ def author(native, variant, output, template):
             points=[center], geometry=['sketch_axis:x'], value=variant['head_height_mm']/2)
         native.run('sketch.dimension.create', sketch=sketch, kind='diameter',
             geometry=[hole], value=variant['locking_hole_diameter_mm'])
-        sides = [dict(operation='extrusion', length=variant['across_flats_mm'],
+        sides = [dict(operation='extrude', length=variant['across_flats_mm'],
             extrusion_extent='through_all', angle_degrees=90, rotation_extent='angle',
             draft_angle_degrees=0, targets=[]) for _ in range(2)]
         native.run('feature.create', sketch=sketch, combine='subtract',

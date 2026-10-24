@@ -6,7 +6,9 @@ The accepted OCCT 8.0.1 Windows release is 2026102401. Loft is later work.
 ## Inputs and calculation
 
 Loft owns every input as an ordinary planar 2D Sketch with an independent
-parent-local placement. Profiles occupy the upper full-width list; guide Sketches
+parent-local placement. New definitions attach to the complete Loft Origin through
+the shared reference assignment. The owned Sketch Default Origin action initializes
+those same shared rows instead of relying on a Body-level Tree fallback. Profiles occupy the upper full-width list; guide Sketches
 occupy a separate list below. Clicking a populated field opens its shared Sketch
 Properties and Sketcher editor. Clicking the last row creates an owned Sketch.
 Both lists exclude Curve3D entirely. The user explicitly selected this ownership
@@ -83,3 +85,10 @@ selection, Thin, native save/reopen and Undo/Redo. Existing General Surface,
 translations, native documents, Family, placement, surface and integration tests
 are checked separately. No arbitrary-network, exhaustive Sketcher or native Linux
 acceptance is implied.
+
+Owned placement and profile-offset parameters use the owned feature identity;
+native Sketch dimensions use their existing Sketch/dimension identities. Registry
+enumeration is independent of display visibility and numeric zero. Relations and
+Family Table consume the existing shared placement assignment adapter in the
+Loft-local reference universe. Missing anchors preserve the last resolved local
+Sketch/frame snapshot while retaining original reference and side identities.

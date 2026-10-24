@@ -138,6 +138,11 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         primitive_origin_preview_mesh_->edges.insert(primitive_origin_preview_mesh_->edges.end(),parent_origin.edges.begin(),parent_origin.edges.end());
         primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),parent_origin.points.begin(),parent_origin.points.end());
         primitive_origin_preview_mesh_->axes.insert(primitive_origin_preview_mesh_->axes.end(),parent_origin.axes.begin(),parent_origin.axes.end());
+        if(guard->pending.feature_kind==document::FeatureKind::Loft) {
+            auto loft=guard->pending;loft.loft.sketches=feature.general_surface.boundaries;
+            if(const auto* live=workspace_.open_part(workspace_.active_document_id()))
+                primitive_origin_preview_mesh_->dimensions=document::loft_definition_mesh(live->session.document(),loft,source_geometry).dimensions;
+        }
         viewer_->set_feature_preview_owners({value.id,value.feature_id,value.container_origin.id});
         preserve_view_on_refresh_=true;refresh_scene();
         auto mesh=document::general_surface_definition_mesh(feature);
@@ -151,6 +156,26 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         viewer_->set_transient_edges(std::move(mesh.edges));
     });
     bind_local_origin_selection(dialog);
+    if(parent->pending.feature_kind==document::FeatureKind::Loft) {
+        // Initialize the shared rows from the owned Sketch parent datum.
+        // The outer draft owns the parent; the child is not a Body-level feature.
+        auto* button=dialog->findChild<QPushButton*>("containerDefaultOriginButton");
+        if(button) {
+            QObject::disconnect(button,&QPushButton::clicked,nullptr,nullptr);
+            button->setIcon(resource_icon("origin-document"));
+            connect(button,&QPushButton::clicked,this,[this,guard,dialog] {
+                if(!guard||primitive_reference_dialog_!=dialog)return;
+                set_local_origin_selection_mode(false);pending_primitive_reference_index_.reset();
+                dialog->set_active_reference_index({});dialog->clear_reference_highlights();
+                const auto definition=document::create_loft_sketch(guard->pending);
+                for(auto* object:dialog->findChildren<QObject*>())
+                    if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(object))
+                        section->initialize_from_references(definition.sketch_feature->placement.references,
+                            [](const auto& key){return QString::fromStdString(key);});
+                dialog->refresh_sketch_preview();set_primitive_properties_dimension_selection();viewer_->clear_selection();
+            });
+        }
+    }
     dialog->show();dialog->refresh_sketch_preview();
 }
 void AssemblyWorkspaceWindow::show_general_surface_curve_properties(GeneralSurfaceDialog* parent,unsigned stage) {

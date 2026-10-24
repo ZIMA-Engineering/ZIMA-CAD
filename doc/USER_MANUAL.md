@@ -1502,3 +1502,11 @@ own contribution, and a fillet shows its treatment boundaries. Display edges
 and triangle shading consume already calculated viewer data. These rules apply
 to other Parts and interactive Drawing views as well as the FORM example;
 exact modeling and measurement geometry is unchanged.
+
+## Numeric modeling parameter inspection
+
+[Numeric helper labels](PARAMETER_VALUE_LABELS.md) identify direction, pattern
+values, pitch and corrections using localized names and numeric values. Double-click
+a feature to inspect its parameters; double-click an editable value to change it.
+The [Loft guide](LOFT.md) covers owned 2D Sketches, parent-local placement,
+missing anchors and stable zero-value identifiers for Relations/Family Table.

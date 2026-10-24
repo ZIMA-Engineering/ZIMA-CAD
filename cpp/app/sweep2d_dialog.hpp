@@ -55,7 +55,7 @@ public:
         side_=new QComboBox(this);side_->setObjectName("sweep2dThinSide");side_->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
         side_->setCurrentIndex(pending.sweep2d.thin_mode==document::ThinMode::OneSide?0:pending.sweep2d.thin_mode==document::ThinMode::OtherSide?1:2);
         side_->setToolTip(tr("Symetricky: polovina celkové tloušťky na každou stranu. U otevřené kontury stranu určuje její směr."));
-        thin_form_->addRow(tr("Strana tloušťky"),side_);content_layout()->addLayout(thin_form_);
+        thin_form_->addRow(tr("Strana tloušťky"),side_);
         connect(result,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.result_type=i==2?document::ProfileResultType::Surface:i==1?document::ProfileResultType::Thin:document::ProfileResultType::Solid;update_thin();notify();});
         connect(thickness_,&QDoubleSpinBox::valueChanged,this,[this](double v){pending.sweep2d.thickness=v;notify();});
         connect(side_,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
@@ -71,8 +71,9 @@ public:
         });
         profiles_->setEditTriggers(QAbstractItemView::NoEditTriggers);content_layout()->addWidget(profiles_,1);
         setProperty("expandBottomTable",true);
+        content_layout()->addLayout(thin_form_);install_operation_buttons();
         status_=new QLabel(this);status_->setWordWrap(true);content_layout()->addWidget(status_);
-        install_operation_buttons();update_thin();refresh_plane();refresh_profiles();
+        update_thin();refresh_plane();refresh_profiles();
     }
     void set_status(const QString& text) override {status_->setText(path_error_.isEmpty()?text:path_error_);}
     void set_sketch(unsigned stage,const sketcher::Sketch& sketch) override {

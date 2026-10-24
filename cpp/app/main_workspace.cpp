@@ -1242,6 +1242,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==group_id&&d.reference.semantic_key=="parameter:pattern:count:0";}),
         "Pattern occurrence double-click did not show its owning group's count"))return 1;
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PATTERN_DIMENSIONS_ONLY")) {
+        for(const auto& dimension:view->mesh().dimensions)if(dimension.reference.owner_id==group_id&&dimension.reference.semantic_key.starts_with("parameter:pattern:")) {
+            if(!verify(dimension.label_only&&dimension.label_position.has_value(),"Pattern helper value still draws dimension lines"))return 1;
+            if(!verify(dimension.label_prefix.find(": ")!=std::string::npos,"Pattern helper value has no localized meaning"))return 1;
+        }
+
         std::cout<<"Part and Assembly Pattern copies display their owning spacing/count dimensions\n";return 0;
     }
     window.show_tree_item_properties(row(group_id,"assembly-occurrence"));flush();
@@ -10660,7 +10665,7 @@ int verify_startup_contract(
             auto* child = root->child(index);
             const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
             if (item_kind == QStringLiteral("part-container") &&
-                child->text(0) == QStringLiteral("Vytažení")) {
+                child->text(0) == QStringLiteral("Tažení")) {
                 box_tree_item = child;
             } else if (item_kind ==
                     QStringLiteral("part-construction")) {
@@ -11848,7 +11853,7 @@ int verify_startup_contract(
             const auto* child = root->child(index);
             if (child->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("part-container") &&
-                child->text(0).endsWith(QStringLiteral("Vytažení"))) {
+                child->text(0).endsWith(QStringLiteral("Tažení"))) {
                 extrusion_in_tree = true;
                 break;
             }
@@ -11863,7 +11868,7 @@ int verify_startup_contract(
     std::string rectangular_extrusion_id;
     for (QTreeWidgetItemIterator it(tree);*it;++it)
         if ((*it)->data(0,Qt::UserRole+3).toString()=="part-container" &&
-                (*it)->text(0).endsWith(QStringLiteral("Vytažení")))
+                (*it)->text(0).endsWith(QStringLiteral("Tažení")))
             rectangular_extrusion_id=(*it)->data(0,Qt::UserRole).toString().toStdString();
     box->trigger();application.processEvents();
     auto* axis_check_dialog=window.findChild<QDialog*>("zimaPropertiesSubWindow");
@@ -11881,7 +11886,7 @@ int verify_startup_contract(
                 auto* candidate = root->child(index);
                 if (candidate->data(0, Qt::UserRole + 3).toString() ==
                         QStringLiteral("part-container") &&
-                    candidate->text(0).endsWith(QStringLiteral("Vytažení"))) {
+                    candidate->text(0).endsWith(QStringLiteral("Tažení"))) {
                     item = candidate;
                     break;
                 }
@@ -12068,7 +12073,7 @@ int verify_startup_contract(
     if (rollback_root != nullptr) {
         for (int index = 0; index < rollback_root->childCount(); ++index) {
             auto* item = rollback_root->child(index);
-            if (item->text(0).endsWith(QStringLiteral("Vytažení"))) {
+            if (item->text(0).endsWith(QStringLiteral("Tažení"))) {
                 rollback_extrusion = item;
             } else if (rollback_extrusion != nullptr &&
                        item->data(0, Qt::UserRole + 3).toString() ==

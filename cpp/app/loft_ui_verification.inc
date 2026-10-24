@@ -12,6 +12,24 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
     };
     try {
         window.resize(1400,1050);window.show();flush();
+        const auto output_order=[&](QWidget* editor,const char* result_name,const char* operation_name,const char* profiles_name) {
+            auto* result=editor->findChild<QComboBox*>(result_name);auto* operation=editor->findChild<QPushButton*>(operation_name);auto* profiles=editor->findChild<QTableWidget*>(profiles_name);
+            check(result&&operation&&profiles,"Sweep output controls missing");
+            check(result->mapTo(editor,QPoint(0,0)).y()>profiles->mapTo(editor,QPoint(0,profiles->height())).y()&&
+                  result->mapTo(editor,QPoint(0,0)).y()<operation->mapTo(editor,QPoint(0,0)).y(),"Sweep output type and operation order differ");
+        };
+        {
+            Sweep2DDialog editor(document::PartDocument::create_sweep2d_container(),[](auto){},&window);editor.show();flush();
+            output_order(&editor,"sweep2dResultType","primitiveAddOperation","sweep2dProfiles");
+            editor.findChild<QComboBox*>("sweep2dResultType")->setCurrentIndex(2);flush();
+            check(!editor.findChild<QPushButton*>("primitiveSubtractOperation")->isEnabled(),"Surface 2D Sweep permits subtraction");editor.hide();
+        }
+        {
+            ConstructionPropertiesDialog editor(document::PartDocument::create_sweep3d_container(),false,true,[](document::HistoryContainer){},&window);editor.show();flush();
+            output_order(&editor,"sweep3DResultType","sweep3DAddOperation","sweep3DProfiles");
+            editor.findChild<QComboBox*>("sweep3DResultType")->setCurrentIndex(2);flush();
+            check(!editor.findChild<QPushButton*>("sweep3DSubtractOperation")->isEnabled(),"Surface 3D Sweep permits subtraction");editor.hide();
+        }
         auto part=document::PartDocument::create_default();part.history.clear();part.sketches.clear();part.constructions.clear();part.history_order.clear();
         document::BodyHistoryGraph graph;const auto body=graph.create_body("Loft GUI Body");
         std::vector<std::string> profiles,guides;
@@ -52,7 +70,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         auto restore_language=qScopeGuard([&]{apply_application_translations(application,original_settings);});
         QTemporaryDir translations;check(translations.isValid(),"Cannot isolate Loft translation settings");
         const std::array<const char*,5> languages{"cs","en","de","fr","ru"};
-        const std::array<const char*,5> titles{"Vlastnosti přechodu / Loftu","Loft Properties","Loft-Eigenschaften","Propriétés du lissage / Loft","Свойства перехода / Loft"};
+        const std::array<const char*,5> titles{"Vlastnosti přechodu","Loft Properties","Loft-Eigenschaften","Propriétés du lissage / Loft","Свойства перехода / Loft"};
         const std::array<const char*,5> profile_labels{"Skici profilů","Profile sketches","Profilskizzen","Esquisses de profil","Эскизы профилей"};
         for(unsigned language=0;language<languages.size();++language) {
             QSettings settings(translations.filePath("config.ini"),QSettings::IniFormat);
@@ -60,6 +78,7 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             settings.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));settings.sync();
             apply_application_translations(application,ApplicationSettings::load(translations.path()));
             action->trigger();flush();auto* dialog=editor();check(dialog,"Localized Loft creation did not open");
+            if(language==0)check(action->text()==QString::fromUtf8("Přechod"),"Czech menu does not use Přechod");
             check(dialog->windowTitle()==QString::fromUtf8(titles[language]),"Loft title is not translated");
             bool found=false;for(auto* label:dialog->findChildren<QLabel*>())found|=label->text()==QString::fromUtf8(profile_labels[language]);
             check(found,"Loft profile section is not translated");
@@ -72,16 +91,24 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         const auto opening_scene=view->base_mesh_revision();
         action->trigger();flush();auto* dialog=editor();check(dialog,"Loft dialog missing");
         check(view->base_mesh_revision()==opening_scene+1,"Loft opening published an unused intermediate scene");
+        for(const auto& owned:dialog->pending.loft.sketches)for(const auto& ref:owned.sketch_feature->placement.references)
+            check(ref.owner_id==dialog->pending.container_origin.id,"New profile defaults to Body Origin");
         const auto id=dialog->pending.id;auto* profile_table=dialog->findChild<QTableWidget*>("loftProfiles");
         auto* guide_table=dialog->findChild<QTableWidget*>("loftGuides");
         check(profile_table&&guide_table&&profile_table->columnCount()==5&&guide_table->columnCount()==5,"Loft reference list structure is wrong");
         check(profile_table->mapTo(dialog,QPoint(0,0)).y()<guide_table->mapTo(dialog,QPoint(0,0)).y(),"Loft lists are side by side or reversed");
+        auto* operation=dialog->findChild<QPushButton*>("primitiveAddOperation");
+        auto* output_type=dialog->findChild<QComboBox*>("loftResultType");
+        check(output_type->mapTo(dialog,QPoint(0,0)).y()>guide_table->mapTo(dialog,QPoint(0,guide_table->height())).y()&&
+              output_type->mapTo(dialog,QPoint(0,0)).y()<operation->mapTo(dialog,QPoint(0,0)).y(),"Loft output type is not above operation below the lists");
+        check(operation&&operation->mapTo(dialog,QPoint(0,0)).y()>guide_table->mapTo(dialog,QPoint(0,guide_table->height())).y(),"Loft operation is not below both Sketch lists");
         dialog->pending.loft.profiles.clear();dialog->pending.loft.guides.clear();dialog->pending.loft.sketches.clear();
         for(unsigned i=0;i<5;++i) {
             auto value=document::create_general_surface_sketch(dialog->pending);
             auto sketch=sketcher::Sketch::from_serialized(value.sketch_serialized);sketch.plane_auto=false;
             if(i<3) {value.sketch_feature->placement.z=5.*i;static_cast<void>(sketch.add_circle(0,0,10));profiles.push_back(value.sketch_feature->id);}
             else {sketch.plane=sketcher::SketchPlane::XZ;static_cast<void>(sketch.add_segment(i==3?10:-10,0,i==3?10:-10,-10));guides.push_back(value.sketch_feature->id);}
+            if(i==0) {auto dimension=sketch.create_circle_radius_dimension(sketch.circles.front().id);dimension.driving=false;sketch.apply_dimension(std::move(dimension));}
             value.sketch_serialized=sketch.serialized();dialog->pending.loft.sketches.push_back(std::move(value));
         }
         dialog->pending.loft.profiles=profiles;dialog->pending.loft.guides=guides;
@@ -103,6 +130,10 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         auto* child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
         check(child&&!dialog->isVisible(),"Owned Loft Sketch did not open shared Properties");
         check(!child->findChild<QComboBox*>("featureType")->isEnabled(),"Loft permits converting its owned Sketch to 3D geometry");
+        auto* default_origin=child->findChild<QPushButton*>("containerDefaultOriginButton");check(default_origin,"Owned profile has no Default Origin");
+        default_origin->click();flush();
+        const auto default_placement=child->pending_value().placement;
+        check(child->first_empty_position_index()==3&&std::ranges::all_of(default_placement.references,[&](const auto& ref){return ref.owner_id==dialog->pending.container_origin.id;}),"Owned Sketch Default Origin did not select Loft Origin");
         child->set_inline_parameter_value("placement:z",1);child->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(dialog->isVisible()&&dialog->pending.loft==pending_before_editor,"Owned Sketch Cancel modified Loft draft");
         field(profile_table,0,3);flush();child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
@@ -123,6 +154,23 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         field(placement,0,1);pick_tree(row(body+":origin","document-origin"));
         check(dialog->first_empty_position_index()==3,"Loft whole-Origin entry did not use the complete placement contract");
         check(dialog->set_inline_parameter_value("placement:reference_offset:0",3),"Loft placement correction is unavailable");flush();
+        field(profile_table,0,3);flush();child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
+        check(child,"Placed parent child editor missing");
+        unsigned slot=0;for(const auto* plane:{"xz","xy","yz"}) {
+            document::ConstructionReference ref;ref.owner_id=body+":origin";ref.semantic_key=std::string("origin:plane:")+plane;ref.supports_offset=true;ref.measured_offset=0.;
+            check(child->set_reference(slot++,ref,QStringLiteral("Body")),"Cannot prepare alternate Body Origin reference");
+        }
+        check(child->first_empty_position_index()==3,"Alternate Body Origin did not fill reference rows");
+        child->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+        for(const auto& ref:child->pending_value().placement.references)check(ref.owner_id==dialog->pending.container_origin.id,"Placed Loft child selected Body Origin");
+        check(std::abs(child->pending_value().placement.y)<1e-8,"Parent translation was stored again in the child local placement");
+        child->set_inline_parameter_value("placement:reference_offset:0",2);flush();
+        check(std::abs(child->pending_value().placement.y-2)<1e-8,"Child correction was not evaluated in Loft coordinates");
+        const auto child_owner=child->pending_value().id;
+        check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& dim){return dim.reference.owner_id==child_owner&&dim.reference.semantic_key=="parameter:placement:reference_offset:0"&&std::abs(dim.value-2)<1e-8;}),"Nonzero owned placement dimension is missing during editing");
+
+        child->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(dialog->pending.loft==unchanged,"Parent-local child Cancel changed the Loft");
         auto* name=dialog->findChild<QLineEdit*>("loftName");const auto top=name->mapTo(dialog,QPoint(0,0)).y();
         dialog->resize(dialog->width()+80,std::max(dialog->minimumHeight(),800));flush();
         dialog->resize(dialog->width(),900);flush();
@@ -158,6 +206,29 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         for(std::size_t i=0;i<authored.size();++i)
             check(inspection[i].points==authored[i].points,"Loft ordinary inspection differs from its authored preview");
         check(window.execute_console_command("documents").data==selection_state,"Loft ordinary selection or inspection changed the document");
+        const auto own_sketch=sketcher::Sketch::from_serialized(saved.find_container(id)->loft.sketches.front().sketch_serialized);
+        const auto own_mesh=own_sketch.viewer_mesh();check(!own_mesh.dimensions.empty(),"Fixture reference dimension is hidden");
+        const auto local_dimension=own_mesh.dimensions.front();
+        const auto shown_dimension=std::ranges::find_if(view->mesh().dimensions,[&](const auto& value){return value.reference.owner_id==own_sketch.id&&value.reference.semantic_key==local_dimension.reference.semantic_key;});
+        check(shown_dimension!=view->mesh().dimensions.end(),"Loft owned Sketch dimension was not inspected");
+        const auto& parent_placement=saved.find_container(id)->placement;
+        check(std::abs(shown_dimension->witness_first.x-local_dimension.witness_first.x-parent_placement.x)<1e-8&&
+              std::abs(shown_dimension->witness_first.y-local_dimension.witness_first.y-parent_placement.y)<1e-8&&
+              std::abs(shown_dimension->witness_first.z-local_dimension.witness_first.z-parent_placement.z)<1e-8,"Owned Sketch annotation remained in Body coordinates");
+        const auto placement_owner=saved.find_container(id)->loft.sketches[1].sketch_feature->id;
+        const auto placement_dimension=std::ranges::find_if(view->mesh().dimensions,[&](const auto& dim){return dim.reference.owner_id==placement_owner&&dim.reference.semantic_key=="parameter:placement:z";});
+        check(placement_dimension!=view->mesh().dimensions.end()&&std::abs(placement_dimension->value-5)<1e-8,"Double-click omitted a nonzero owned placement dimension");
+        viewer::ViewerCandidate dimension_candidate;dimension_candidate.kind=viewer::CandidateKind::Dimension;dimension_candidate.geometry_index=static_cast<std::size_t>(placement_dimension-view->mesh().dimensions.begin());dimension_candidate.owner_id=placement_owner;dimension_candidate.semantic_key="parameter:placement:z";
+        window.edit_dimension_inline(dimension_candidate);flush();
+        auto* inline_edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(inline_edit,"Owned placement inline editor missing");
+        const auto stable_identifier=inline_edit->property("dimensionIdentifier").toString();check(!stable_identifier.isEmpty(),"Owned placement inline editor has no dimension identifier");
+        inline_edit->setText("6 mm");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(inline_edit,&enter);flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        auto edited=document::PartDocument::load(path);
+        check(std::abs(edited.find_container(id)->loft.sketches[1].sketch_feature->placement.z-6)<1e-8,"Inline edit did not update the owned Sketch placement");
+        check(QString::fromStdString(edited.dimension_identifiers.identifier(placement_owner,"parameter:placement:z"))==stable_identifier,"Inline edit changed the dimension identifier");
+        window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(path).find_container(id)->loft==saved.find_container(id)->loft,"Owned placement inline Undo lost the original Loft");
         const auto stored=*saved.find_container(id);const auto state=window.execute_console_command("documents").data;
         auto* item=row(id);check(item,"Loft Tree item missing");window.show_tree_item_properties(item);flush();
         dialog=editor();check(dialog&&dialog->pending.loft==stored.loft,"Loft Properties did not reopen the same definition");
