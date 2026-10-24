@@ -66,3 +66,7 @@ The corrected 2403 local run passes all four repeated native/localization/CLI
 checks and the Loft, Pattern and complete Helical Sweep GUI gates. The older
 full-turn pitch witness assertion was replaced with the approved label-only
 numeric/units/identity contract; the visible-marker assertion remains intact.
+
+Windows publication is accepted in [the 2403 evidence](20261024-windows-2403-publication.json):
+25 candidate and 21 signed-package GUI scenarios, both 1,185-file native smoke
+runs, exact source/resources, production trust and complete public downloads pass.

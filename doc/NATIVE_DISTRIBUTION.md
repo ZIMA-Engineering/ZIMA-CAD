@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026102403](releases/2026102403.md#windows-publication-acceptance)
+was published at `2026-10-24T15:43:25Z` from immutable source
+`033f709d00e43c2a0a7a84a433a3561b6590a464`, using OCCT 8.0.1 and Qt 6.11.0.
+It adds owned planar Loft Sketches, parent-local placement and reference-loss
+snapshots, stable zero-value identifiers for Relations/Family Table, numeric
+helper labels and aligned modeling/CLI names. All 25 candidate and 21 signed
+GUI scenarios, both 1,185-file native factory smoke runs, exact source/resources,
+17,325 signed checksums, production trust and complete
+authenticated/public downloads pass. Trusted 2303 offers the installable update;
+its launcher/settings remain unchanged. No update installation or native Linux
+verification is claimed. Existing baseline failures remain documented.
+
 Signed Windows [2026102401](releases/2026102401.md#windows-publication-acceptance)
 was published at `2026-10-24T07:47:19Z` from immutable source
 `2bbbb08b02f09c7880753a5f90ff5ba9e289e057`, using OCCT 8.0.1 and Qt 6.11.0.

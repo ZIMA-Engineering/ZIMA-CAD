@@ -1,0 +1,391 @@
+{
+  "version": "2026102403",
+  "source_commit": "033f709d00e43c2a0a7a84a433a3561b6590a464",
+  "published_at": "2026-10-24T15:43:25Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102403",
+  "archive_sha256": "6f89cbfa36c6e358f52a3ef4157f52eb837fd72329920e9879d9d9ac226406cc",
+  "native_factory_loads_per_smoke": 1185,
+  "candidate_gui": [
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 12.234,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "sketch-face-plane",
+      "exit": 0,
+      "seconds": 29.016,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "sketch-spline",
+      "exit": 0,
+      "seconds": 4.812,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "sketch-trimmed",
+      "exit": 0,
+      "seconds": 4.859,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 26.016,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 36.594,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 36.844,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 5.062,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "CornerGusset90",
+      "exit": 0,
+      "seconds": 3.953,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "DimpledHole",
+      "exit": 0,
+      "seconds": 6.25,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 6.813,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 2.843,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 111.235,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 21.39,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 9.688,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "multisolid-shell",
+      "exit": 0,
+      "seconds": 18.625,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "external-dimension",
+      "exit": 0,
+      "seconds": 45.875,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "sketch-entry",
+      "exit": 0,
+      "seconds": 41.187,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "equal-corner-drag",
+      "exit": 0,
+      "seconds": 8.375,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "equal-corner-dimension",
+      "exit": 0,
+      "seconds": 9.25,
+      "reused_after_immutable_checksum_verification": true
+    },
+    {
+      "name": "loft",
+      "exit": 0,
+      "seconds": 7.625
+    },
+    {
+      "name": "helical-values",
+      "exit": 0,
+      "seconds": 8.578
+    },
+    {
+      "name": "general-surface",
+      "exit": 0,
+      "seconds": 8.125
+    },
+    {
+      "name": "relation-templates",
+      "exit": 0,
+      "seconds": 2.641
+    },
+    {
+      "name": "pattern-values",
+      "exit": 0,
+      "seconds": 23.844
+    }
+  ],
+  "signed_gui": [
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 10.781
+    },
+    {
+      "name": "sketch-face-plane",
+      "exit": 0,
+      "seconds": 28.39
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 26.985
+    },
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 37.156
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 38.266
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 5.14
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 6.938
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 3.422
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 109.297
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 21.187
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 9.688
+    },
+    {
+      "name": "multisolid-shell",
+      "exit": 0,
+      "seconds": 20.781
+    },
+    {
+      "name": "external-dimension",
+      "exit": 0,
+      "seconds": 50.844
+    },
+    {
+      "name": "sketch-entry",
+      "exit": 0,
+      "seconds": 41.156
+    },
+    {
+      "name": "equal-corner-drag",
+      "exit": 0,
+      "seconds": 8.312
+    },
+    {
+      "name": "equal-corner-dimension",
+      "exit": 0,
+      "seconds": 9.844
+    },
+    {
+      "name": "loft",
+      "exit": 0,
+      "seconds": 7.328
+    },
+    {
+      "name": "helical-values",
+      "exit": 0,
+      "seconds": 8.328
+    },
+    {
+      "name": "general-surface",
+      "exit": 0,
+      "seconds": 7.391
+    },
+    {
+      "name": "relation-templates",
+      "exit": 0,
+      "seconds": 2.375
+    },
+    {
+      "name": "pattern-values",
+      "exit": 0,
+      "seconds": 21.141
+    }
+  ],
+  "exact_factory_resources": 7354,
+  "verified_implementation_files": 1388,
+  "immutable_checksums": 17325,
+  "occt": {
+    "version": "8.0.1",
+    "dll_sha256": {
+      "TKBO.dll": "91da33132f0f9ab1ee11e6d8e79d902b4683c4ce92dd23de41db327559b9fba5",
+      "TKBool.dll": "e6707368f9c6b8a20a715528362338392f74d049b0649c21037535b68312c9d4",
+      "TKBRep.dll": "2e4b028f93f0a3bb556c34429562f66ae2ea7d6581e5792b21f2694e124cd208",
+      "TKCAF.dll": "2d24ba59e33ed684d0fb089794697c48090b018046c396b136634a7131643da7",
+      "TKCDF.dll": "c09507100d2892438b1978f3ff0523b8acdb04755f1ec2ccb2d346f688008931",
+      "TKDE.dll": "ced3ff66a6258dfde2361951dc4acf6072cbe403a9e7a8ff5573894d076c052a",
+      "TKDEIGES.dll": "5edc4dcc0c158a5cc859d5cbc133e6af95ef753fd7acf9c3ddaf3069845b04b0",
+      "TKDESTEP.dll": "4798078c33f2f57420b2cb4f99f3974f02b332a14d94e347d37dd3cd36332711",
+      "TKDESTL.dll": "b39d3fa10ddb8f2c83f22a403c728f32be9e0fe1c772ab9e324294f2a1d52664",
+      "TKernel.dll": "d7e5a9ffe115786fa5fb7563b4e4fef5157954436685ce2d00d317d3d492eaab",
+      "TKFillet.dll": "5d81bbfdefa716747281a0cff0177a5f9240bf5064104ec0d826dd8f2c848695",
+      "TKG2d.dll": "ec422559cfc2fb0c8a40804a0b5e21597aade8e4cfcf7007e0f6479802f37bd8",
+      "TKG3d.dll": "78d5be5898a6852845065e4adbb63036cefb847867bbbbf8f638ae42109e45f5",
+      "TKGeomAlgo.dll": "f865721f2cd71b7a7b666c4a4f0c0c67c18b9d6f3a8cbfc88bfc2df5b87a5a30",
+      "TKGeomBase.dll": "2ae2fb3c1b6eee7403e57490db25a725f41a5c310be235c5d0f84df9996c06a8",
+      "TKHLR.dll": "4fef0d873721d7af8b05e3ccee2ee293b0f3c92a5a31c2deca368d906e7a18e8",
+      "TKLCAF.dll": "f8ac0ed4594397ed2ef7a3c509c65fd6e2d56395855b8084488323c365892c8e",
+      "TKMath.dll": "d9d8ce4a2bcffe10d5ca49cefa86ee0564069073fafd1f59e56d3bedb25241e5",
+      "TKMesh.dll": "22c9ce5df14063ffea3397c635197107e3d23eca5eb1680e9b29fd1d27ac43ba",
+      "TKOffset.dll": "d59544120804a47950de018f749bd4eb38ba0bc560afce73eae86b92814dd45b",
+      "TKPrim.dll": "344371060896b9f2a62de0dacfad92ae55abb1fd70b49d4152849bb8acc6835a",
+      "TKService.dll": "2fc14d9ae16b70dcedcfe0857a9742727f78189676bc6b88e443258faf183321",
+      "TKShHealing.dll": "306f1f5575a5b88594db184f75abb92cf2673c28b72b220eee6d8a1abfa510da",
+      "TKTopAlgo.dll": "0172b1930065e8adfe85b713d7eb97b75b4b87fc511e88cd36643f6bda243865",
+      "TKV3d.dll": "f6ac8169d3b19332a00c077aa4512af811178797899afba69dec1844ea0d51f1",
+      "TKVCAF.dll": "8a044c12c0cc5a76987cc300e9d0f0cb8866bf8ba374797d9cca6f41dca81254",
+      "TKXCAF.dll": "fae99760b365114622c1c1d3be6ff4ea3980752179c6336e2ed9937f9579ed73",
+      "TKXSBase.dll": "149d729cd57aed04cd5f6c59ade5bded0fa305f6b429c0152a594a0e080f2fbd"
+    }
+  },
+  "production_trust": {
+    "event": "result",
+    "installedVersion": "2026102403",
+    "schemaVersion": 1,
+    "status": "idle",
+    "trusted": true
+  },
+  "authenticated_draft_downloads": [
+    {
+      "name": "update-manifest.json",
+      "bytes": 704,
+      "sha256": "feed18f9bb2709c93cd45298ebeb05878751280c53de305170ff71e478d90217"
+    },
+    {
+      "name": "update-manifest.sig",
+      "bytes": 176,
+      "sha256": "1f0c9547a8341452b2d22e038945fc826c3b05b90ab0f9caff580ac5ab7c44e6"
+    },
+    {
+      "name": "ZIMA-CAD-2026102403.zip",
+      "bytes": 1070778382,
+      "sha256": "6f89cbfa36c6e358f52a3ef4157f52eb837fd72329920e9879d9d9ac226406cc"
+    }
+  ],
+  "public_downloads": [
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "feed18f9bb2709c93cd45298ebeb05878751280c53de305170ff71e478d90217",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102403/update-manifest.json"
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "1f0c9547a8341452b2d22e038945fc826c3b05b90ab0f9caff580ac5ab7c44e6",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102403/update-manifest.sig"
+    },
+    {
+      "name": "ZIMA-CAD-2026102403.zip",
+      "size": 1070778382,
+      "sha256": "6f89cbfa36c6e358f52a3ef4157f52eb837fd72329920e9879d9d9ac226406cc",
+      "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102403/ZIMA-CAD-2026102403.zip"
+    }
+  ],
+  "previous_updater": {
+    "availableVersion": "2026102403",
+    "downloadUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102403/ZIMA-CAD-2026102403.zip",
+    "event": "result",
+    "installable": true,
+    "installedVersion": "2026102303",
+    "manifest": {
+      "archive": {
+        "fileCount": 17326,
+        "name": "ZIMA-CAD-2026102403.zip",
+        "sha256": "6f89cbfa36c6e358f52a3ef4157f52eb837fd72329920e9879d9d9ac226406cc",
+        "size": 1070778382,
+        "unpackedSize": 5961466136
+      },
+      "channel": "stable",
+      "checksumsSha256": "4fa08120a03145b9b20971fe075101236eb17024d2a86b3b5422ba619a3a769a",
+      "commit": "033f709d00e43c2a0a7a84a433a3561b6590a464",
+      "launcherProtocol": 1,
+      "minimumUpdaterVersion": 1,
+      "platforms": {
+        "windows-x64": {
+          "entry": "zima-cad-cpp.exe",
+          "runtime": "windows/2026102403",
+          "systemPackages": []
+        }
+      },
+      "product": "ZIMA-CAD",
+      "schemaVersion": 1,
+      "source": {
+        "path": "source/2026102403",
+        "treeSha256": "9ede997effcb64f9896b17b16db4110a60047a5d740ac47cb574442fc412a403"
+      },
+      "tag": "ZIMA-CAD-2026102403",
+      "version": "2026102403"
+    },
+    "notes": "Windows portable release with OCCT 8.0.1 and Qt 6.11.0.\r\n\r\n- Adds **Loft** (Czech **Přechod**) with owned planar 2D profile and guide Sketches.\r\n- Uses Loft-local placement, retains the last valid frame when anchors disappear, and exposes Sketch/placement dimensions during editing and double-click inspection.\r\n- Registers stable identifiers even for zero values, with editable quantities available to Relations and Family Table.\r\n- Places output type above Add/Subtract in Loft, 2D Sweep and 3D Sweep.\r\n- Adds localized numeric helper labels for direction (+1/-1), patterns, pitch and corrections. Aligns names to Extrude / Tažení, Twist / Krut and Drill Point / Špička.\r\n- **CLI change:** Feature side operations use `extrude`; `extrusion` input is rejected. Native document identifiers and user-authored names are preserved.\r\n\r\nVerified from immutable source `033f709d00e43c2a0a7a84a433a3561b6590a464`: 25 candidate and 21 fresh signed-package GUI scenarios pass. Both native smoke runs load all 1,185 factory documents and verify calculation/save/reopen, fonts and PDF/JPEG export. Exact source/resources, all 17,325 installed checksums, the OCCT 8.0.1 DLL closure and production updater trust pass.\r\n\r\n[Loft guide and geometric limits](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/main/doc/LOFT.md), [finite verification](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/main/doc/verification/20261024-loft-parent-origin.md), and [existing OCCT baseline failures](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/main/doc/verification/20261024-occt-801-upgrade.md) remain documented. Native Linux execution is unverified. Candidate 2402 was held before publication; 2403 includes its helper-anchor correction.\r\n\r\nPrivate settings, projects and edited library assets are preserved. The development launcher remains `zima-cad.bat`.\r\n\r\nArchive SHA-256: `6f89cbfa36c6e358f52a3ef4157f52eb837fd72329920e9879d9d9ac226406cc`\r\n",
+    "reason": "",
+    "schemaVersion": 1,
+    "signature": {
+      "keyId": "zcp-8fa1f825cbde5d81",
+      "signature": "3baf833d37d6613fefc009e864426098a802f15cb68e1783764b5d0eba0989b38d670778e3273843523f7cf6a55e96e0494658a68df7399cb396cfbaaadce603"
+    },
+    "status": "available"
+  },
+  "previous_installation_preserved": true,
+  "linux": "not executed on this Windows host",
+  "diagnostic_catalog_fixture": "The Loft startup diagnostic expects config/localization beneath its cwd. Exact packaged catalogs were supplied under an ASCII diagnostic cwd; the actual runtime was extracted and tested from a Unicode production path. Catalog bytes and immutable package checksums remain exact.",
+  "staging": "Disposable same-volume hardlinks bounded scratch copies; the ZIP carries regular independent files. Source/Git, archive safety/CRC/SHA-256, dependency, smoke and signing gates were retained.",
+  "candidate_2402": "Held before publication after the helper anchor GUI gate; the immutable candidate tag remains available."
+}
