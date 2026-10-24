@@ -532,11 +532,15 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
             window.show_tree_item_properties(row(feature.id));flush();check(editor(),"Rotation Properties cannot reopen");
             editor()->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(2);flush();
             check(!editor()->requires_planar_end_target(),"Rotation still filters out original general surfaces");
-            QLineEdit* input{};for(auto* field:editor()->findChildren<QLineEdit*>())
-                if(!input&&field->isVisible()&&field->isReadOnly()&&field->placeholderText()==QObject::tr("Reference"))input=field;
-            check(input,"Rotation target field missing");
-            QMouseEvent arm(QEvent::MouseButtonPress,QPointF(10,10),QPointF(input->mapToGlobal(QPoint(10,10))),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-            QApplication::sendEvent(input,&arm);flush();view->fit_all();flush();
+            auto* targets=editor()->findChild<QTableWidget*>("featureSideTargets0");
+            check(targets&&targets->isVisible()&&targets->item(0,3),"Rotation target table missing");
+            const auto input=targets->visualItemRect(targets->item(0,3)).center();
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent arm(type,QPointF(input),QPointF(targets->viewport()->mapToGlobal(input)),Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(targets->viewport(),&arm);flush();
+            }
+            view->fit_all();flush();
             std::optional<QPointF> target_pick;std::size_t target_index{};
             for(int y=20;y<view->height()-20&&!target_pick;y+=8)for(int x=20;x<view->width()-20&&!target_pick;x+=8) {
                 const auto offered=view->selection_candidates_at(QPointF(x,y));

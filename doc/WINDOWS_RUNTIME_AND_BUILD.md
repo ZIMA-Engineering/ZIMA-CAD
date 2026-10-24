@@ -44,7 +44,9 @@ Conda path. Version layout and release gates are in [DISTRIBUTION_CLEANUP_PLAN.m
 The browser requires Qt WebEngine Widgets and WebChannel. Use one complete
 Qt 6.11.0 MSVC kit for all Qt modules, plugins, helper processes, resources and
 locales. Do not combine official Qt binaries with Qt modules from another kit.
-OCCT 8.0.0 and the other native dependencies remain in the pinned vcpkg tree.
+OCCT 8.0.1 and the other native dependencies use the pinned vcpkg recipes.
+The kernel upgrade remains subject to the
+[8.0.1 verification gates](verification/20261024-occt-801-upgrade.md).
 
 `tools/dependencies/provision-qt-windows.py --help` describes the repository-owned
 provisioner. It downloads the official modules, verifies published SHA-1 values,

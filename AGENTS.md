@@ -6,7 +6,7 @@
   branches to necessary operating-system integration, toolchain and packaging
   differences; do not duplicate modeling algorithms to accommodate divergent SDKs.
 - Keep dependency versions aligned across both platforms wherever possible.
-  Both native builds use the pinned OCCT 8.0.0 source version. Update the Linux
+  Both native build recipes pin OCCT 8.0.1. Update the Linux
   SDK and Windows dependency pin together when changing that version.
 - Verify the affected geometry and persistence contracts after a kernel update.
   Report platform-specific verification gaps explicitly.

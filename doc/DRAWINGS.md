@@ -510,8 +510,9 @@ New base and projected views receive distinct numbered default names (`Pohled 1`
 `Pohled 2`, etc.). Existing and manually assigned names are preserved.
 
 The dialog groups source/name, orientation, display/line styles, scale/position,
-guide settings, and sections/breaks. Related inputs occupy adjacent columns with
-labels above them, using the available width instead of a long form.
+guide settings, and sections/breaks. Source and name/caption occupy consecutive
+full-width rows. Other related inputs occupy adjacent columns with labels above
+them, using the available width instead of a long form.
 
 Drawing guides are horizontal/vertical rectangles enclosing the actual 2D
 projection, including retained fragments of broken views. Model annotations do

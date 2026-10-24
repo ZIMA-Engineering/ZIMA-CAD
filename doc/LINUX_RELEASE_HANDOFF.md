@@ -1,5 +1,26 @@
 # Linux build and distribution handoff - 2026-09-15
 
+## OCCT 8.0.1 transition (2026-10-24; native Linux acceptance pending)
+
+The shared dependency recipes and CMake version gate now target OCCT 8.0.1.
+Build a fresh SDK with `tools/distribution/build-linux-sdk.sh`; it uses the same
+verified source archive and unchanged Gauss interval patch as Windows. Preserve
+the existing 8.0.0 SDK for comparison until the new build is accepted. Do not
+substitute platform-specific modeling code or relax numerical tolerances.
+
+Run the native Gauss interval contract, kernel/modeling, Sketch equation/edit/drag,
+reference identity, document save/reopen, Undo/Redo, Assembly and Drawing suites.
+Verify real GUI dimension edits and dragging, selection/inspection, factory FORM
+and library usage and ordinary new documents from the committed start templates.
+Compare failures with the baseline rather than treating successful cached loads
+as geometry-regeneration acceptance. Reproduce representative native library
+regeneration on disposable copies; preserve custom libraries and private models.
+
+The finite Windows matrix, source checksums and current acceptance state are in
+[the upgrade record](verification/20261024-occt-801-upgrade.md). No native Linux
+compilation, GUI, dependency closure or portable release is established by that
+Windows record. Loft is subsequent work and must consume the same shared kernel.
+
 ## Curve-plane points and rounded Sketch mirror (2026-10-23)
 
 Build and run the shared exact curve-plane query, Sketch curve-point reference,

@@ -585,8 +585,11 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(view_source->count()>=5,"Main view omitted family rows"))return 1;
     if(!verify(view_source->currentData().toString().toStdString()==part.document_id,"Main view selected a different source"))return 1;
     const auto* view_name=view_properties->findChild<QLineEdit*>("drawingViewName");
-    if(!verify(view_source->parentWidget()->mapToGlobal(QPoint(0,0)).y()==view_name->parentWidget()->mapToGlobal(QPoint(0,0)).y()&&
-        view_source->mapToGlobal(QPoint(0,0)).x()<view_name->mapToGlobal(QPoint(0,0)).x(),"Main view source and name are not in the top row"))return 1;
+    const auto* source_row=view_source->parentWidget();const auto* name_row=view_name->parentWidget();
+    const auto source_position=source_row->mapToGlobal(QPoint(0,0)),name_position=name_row->mapToGlobal(QPoint(0,0));
+    if(!verify(source_row->parentWidget()==name_row->parentWidget()&&source_position.x()==name_position.x()&&
+        source_position.y()+source_row->height()<=name_position.y()&&source_row->width()==name_row->width(),
+        "Main view source and name do not occupy consecutive full-width identity rows"))return 1;
     view_source->setCurrentIndex(view_source->findData(QString::fromStdString(short_id)));flush();
     if(!verify(drawing_models.open_part(part.document_id)->session.data_generation()==source_generation&&!drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),"Selecting an unevaluated row calculated the source before OK"))return 1;
     view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();

@@ -1,5 +1,20 @@
 # Current project status
 
+## OCCT 8.0.1 release preparation — 2026-10-24
+
+The shared kernel pin is updated to 8.0.1. Windows Debug/Release SDK and complete
+application/test builds pass. The 317-case run has 275 passes and 42 failures;
+all 42 reproduce on the current implementation with OCCT 8.0.0. They remain
+open. Analytical integration, selected GUI and representative timing checks pass;
+see [the finite upgrade record](verification/20261024-occt-801-upgrade.md).
+Windows 2026102401 portable/signing/publication acceptance is pending; native
+Linux verification requires its host. No document format or factory asset is
+changed for the kernel upgrade.
+
+After that Windows release, the requested standalone **Loft** command uses
+planar 2D Sketch inputs only: profiles in the upper list, guide Sketches below.
+It is subsequent work, distinct from the existing Sweep profile transitions.
+
 Reviewed on 2026-10-24 against the current C++ implementation, focused feature
 guides, verification records and public GitHub release. This is the current
 capability index. Dated design proposals in the roadmap and development notes

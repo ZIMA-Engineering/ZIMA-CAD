@@ -1,0 +1,2015 @@
+{
+  "kernel": "8.0.1",
+  "source_archive_sha256": "0d6913eae4bcc09a3653ceced6dda1aec11c35a1513d4c06762c9b002092c68a",
+  "baseline_kernel": "8.0.0",
+  "source_commit_before_upgrade": "75b46eb3512f6a286862e463d18aff1839a5ec59",
+  "broad": {
+    "tests": 317,
+    "passed": 275,
+    "failed": 42,
+    "unclassified": 0,
+    "results": [
+      {
+        "name": "zima_cpp_portable_settings",
+        "passed": true,
+        "seconds": 0.528289
+      },
+      {
+        "name": "zima_cpp_origin_camera_tests",
+        "passed": true,
+        "seconds": 0.0791277
+      },
+      {
+        "name": "zima_cpp_solid_straightening_contract_tests",
+        "passed": true,
+        "seconds": 21.5147
+      },
+      {
+        "name": "zima_cpp_solid_state_history_tests",
+        "passed": true,
+        "seconds": 0.0569694
+      },
+      {
+        "name": "zima_cpp_solid_state_kernel_tests",
+        "passed": true,
+        "seconds": 46.3854
+      },
+      {
+        "name": "zima_cpp_solid_state_face_transfer_document_tests",
+        "passed": false,
+        "seconds": 0.170858,
+        "candidate_reason": "Restore has a calculation error",
+        "baseline_reason": "Restore has a calculation error",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_formed_chain_tests",
+        "passed": false,
+        "seconds": 0.0764106,
+        "candidate_reason": "Continuation has no semantic end cap",
+        "baseline_reason": "Continuation has no semantic end cap",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_formed_point_tests",
+        "passed": false,
+        "seconds": 0.369306,
+        "candidate_reason": "Part placement references did not converge during regeneration",
+        "baseline_reason": "Part placement references did not converge during regeneration",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_formed_point_chain_tests",
+        "passed": false,
+        "seconds": 0.21696,
+        "candidate_reason": "Continuation has no semantic end cap",
+        "baseline_reason": "Continuation has no semantic end cap",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_curved_continuation_tests",
+        "passed": true,
+        "seconds": 6.57074
+      },
+      {
+        "name": "zima_cpp_solid_state_sweep_continuation_tests",
+        "passed": false,
+        "seconds": 0.990379,
+        "candidate_reason": "Transferred contour coordinate differs: actual=0.000000, expected=60.103694",
+        "baseline_reason": "Transferred contour coordinate differs: actual=0.000000, expected=60.103694",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_helical_continuation_tests",
+        "passed": false,
+        "seconds": 2.76087,
+        "candidate_reason": "Transferred contour coordinate differs: actual=0.000000, expected=70.885798",
+        "baseline_reason": "Transferred contour coordinate differs: actual=0.000000, expected=70.885798",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_document_tests",
+        "passed": true,
+        "seconds": 0.92826
+      },
+      {
+        "name": "zima_cpp_solid_state_attached_restore_tests",
+        "passed": true,
+        "seconds": 5.59293
+      },
+      {
+        "name": "zima_cpp_solid_state_owned_reference_tests",
+        "passed": true,
+        "seconds": 0.331935
+      },
+      {
+        "name": "zima_cpp_solid_state_spline_document_tests",
+        "passed": false,
+        "seconds": 0.0888152,
+        "candidate_reason": "Native sweep source volume differs from independent length: expected 205.212126, got 0.000000",
+        "baseline_reason": "Native sweep source volume differs from independent length: expected 205.212126, got 0.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_spatial_sweep_document_tests",
+        "passed": false,
+        "seconds": 0.243956,
+        "candidate_reason": "Native sweep source volume differs from independent length: expected 1051.667718, got 0.000000",
+        "baseline_reason": "Native sweep source volume differs from independent length: expected 1051.667718, got 0.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_fillet_document_tests",
+        "passed": false,
+        "seconds": 0.730395,
+        "candidate_reason": "Native state value: expected 69035.398957, got 0.000000",
+        "baseline_reason": "Native state value: expected 69035.398957, got 0.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_hole_document_tests",
+        "passed": false,
+        "seconds": 0.2228,
+        "candidate_reason": "Native curved Sweep exceeds the fixture approximation budget",
+        "baseline_reason": "Native curved Sweep exceeds the fixture approximation budget",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_solid_state_drawing_tests",
+        "passed": true,
+        "seconds": 0.765057
+      },
+      {
+        "name": "zima_cpp_solid_state_drawing_chain_tests",
+        "passed": true,
+        "seconds": 1.57613
+      },
+      {
+        "name": "zima_cpp_history_reference_view_tests",
+        "passed": true,
+        "seconds": 0.0635013
+      },
+      {
+        "name": "zima_cpp_solid_state_dialog_tests",
+        "passed": true,
+        "seconds": 0.271469
+      },
+      {
+        "name": "zima_cpp_instance_startup_contract",
+        "passed": true,
+        "seconds": 13.7775
+      },
+      {
+        "name": "zima_cpp_import_model_contract_tests",
+        "passed": true,
+        "seconds": 0.514077
+      },
+      {
+        "name": "zima_cpp_step_model_contract_tests",
+        "passed": true,
+        "seconds": 0.981365
+      },
+      {
+        "name": "zima_cpp_occt_gauss_interval_contract_tests",
+        "passed": true,
+        "seconds": 0.631922
+      },
+      {
+        "name": "zima_cpp_step_parallel_properties_tests",
+        "passed": true,
+        "seconds": 3.71168
+      },
+      {
+        "name": "zima_cpp_section_contract_tests",
+        "passed": true,
+        "seconds": 0.215373
+      },
+      {
+        "name": "zima_cpp_symbol_library",
+        "passed": true,
+        "seconds": 0.108039
+      },
+      {
+        "name": "zima_cpp_cache_storage_contract_tests",
+        "passed": true,
+        "seconds": 0.475009
+      },
+      {
+        "name": "zima_cpp_face_measurement_demand_tests",
+        "passed": true,
+        "seconds": 0.264575
+      },
+      {
+        "name": "zima_cpp_measurement_contract_tests",
+        "passed": true,
+        "seconds": 0.106456
+      },
+      {
+        "name": "zima_cpp_measurement_partition_contract_tests",
+        "passed": true,
+        "seconds": 0.0690994
+      },
+      {
+        "name": "zima_cpp_import_feature_frame_ui_contract",
+        "passed": true,
+        "seconds": 3.03457
+      },
+      {
+        "name": "zima_cpp_dimension_identifiers_contract_tests",
+        "passed": true,
+        "seconds": 0.507514
+      },
+      {
+        "name": "zima_cpp_history_deletion_tests",
+        "passed": true,
+        "seconds": 0.655556
+      },
+      {
+        "name": "zima_cpp_history_recovery_contract_tests",
+        "passed": true,
+        "seconds": 0.206294
+      },
+      {
+        "name": "zima_cpp_multibody_contract_tests",
+        "passed": true,
+        "seconds": 0.634162
+      },
+      {
+        "name": "zima_cpp_contract_tests",
+        "passed": false,
+        "seconds": 1.00324,
+        "candidate_reason": "Shell accepted multiple disjoint input solids",
+        "baseline_reason": "Shell accepted multiple disjoint input solids",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_derived_copy_contract_tests",
+        "passed": true,
+        "seconds": 3.21862
+      },
+      {
+        "name": "zima_cpp_sweep2d_contract_tests",
+        "passed": true,
+        "seconds": 7.15429
+      },
+      {
+        "name": "zima_cpp_curve3d_sweep_contract_tests",
+        "passed": true,
+        "seconds": 7.69609
+      },
+      {
+        "name": "zima_cpp_helical_sweep_contract_tests",
+        "passed": true,
+        "seconds": 26.5046
+      },
+      {
+        "name": "zima_cpp_helical_result_modes_contract",
+        "passed": true,
+        "seconds": 22.2472
+      },
+      {
+        "name": "zima_cpp_shaft_thread_contract_tests",
+        "passed": true,
+        "seconds": 0.623828
+      },
+      {
+        "name": "zima_cpp_hole_contract_tests",
+        "passed": true,
+        "seconds": 0.154761
+      },
+      {
+        "name": "zima_cpp_ui_contract_tests",
+        "passed": false,
+        "seconds": 1.19397,
+        "candidate_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_file_dialog_contract_tests",
+        "passed": true,
+        "seconds": 12.4992
+      },
+      {
+        "name": "zima_cpp_tree_branches_ui_contract",
+        "passed": true,
+        "seconds": 0.287896
+      },
+      {
+        "name": "zima_cpp_curve_presentation_ui_contract",
+        "passed": true,
+        "seconds": 1.52532
+      },
+      {
+        "name": "zima_cpp_operation_activity_tests",
+        "passed": true,
+        "seconds": 3.03624
+      },
+      {
+        "name": "zima_cpp_relations_editor_contract",
+        "passed": true,
+        "seconds": 1.24814
+      },
+      {
+        "name": "zima_cpp_command_guidance_contract",
+        "passed": true,
+        "seconds": 0.91783
+      },
+      {
+        "name": "zima_cpp_entry_tables_contract",
+        "passed": true,
+        "seconds": 0.989867
+      },
+      {
+        "name": "zima_cpp_sheet_attachment_dialog_contract",
+        "passed": false,
+        "seconds": 1.0433,
+        "candidate_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_sketch_line_styles_contract",
+        "passed": true,
+        "seconds": 1.3294
+      },
+      {
+        "name": "zima_cpp_part_dialog_layout_contract",
+        "passed": false,
+        "seconds": 0.41052,
+        "candidate_reason": "Command retained hover/press state after a missed Leave/release and movement into View",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true,
+        "isolated_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "isolated_passed": false
+      },
+      {
+        "name": "zima_cpp_point_marker_colors_contract",
+        "passed": false,
+        "seconds": 0.849796,
+        "candidate_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_translations_contract",
+        "passed": true,
+        "seconds": 11.6365
+      },
+      {
+        "name": "zima_cpp_source_wire_gpu_tests",
+        "passed": true,
+        "seconds": 4.23096
+      },
+      {
+        "name": "zima_cpp_unit_input_tests",
+        "passed": true,
+        "seconds": 0.679668
+      },
+      {
+        "name": "zima_cpp_feature_unit_input_contract",
+        "passed": true,
+        "seconds": 27.3309
+      },
+      {
+        "name": "zima_cpp_face_inspection_contract",
+        "passed": true,
+        "seconds": 0.903204
+      },
+      {
+        "name": "zima_cpp_feature_axis_highlight_contract",
+        "passed": false,
+        "seconds": 2.46306,
+        "candidate_reason": "Cannot save hidden-axis GUI evidence",
+        "baseline_reason": "Cannot save hidden-axis GUI evidence",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_sketch_axis_visibility_contract",
+        "passed": false,
+        "seconds": 1.06954,
+        "candidate_reason": "Cannot save hidden-axis GUI evidence",
+        "baseline_reason": "Cannot save hidden-axis GUI evidence",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_numeric_value_locks_contract",
+        "passed": true,
+        "seconds": 0.871181
+      },
+      {
+        "name": "zima_cpp_numeric_fields_contract",
+        "passed": false,
+        "seconds": 1.09575,
+        "candidate_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_numeric_fields_windows_contract",
+        "passed": false,
+        "seconds": 1.09856,
+        "candidate_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_numeric_fields_windows11_contract",
+        "passed": false,
+        "seconds": 1.08191,
+        "candidate_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_reason": "Main Origin and construction/feature/occurrence points have incorrect base colours",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_mesh_surface_placement_tests",
+        "passed": true,
+        "seconds": 0.195639
+      },
+      {
+        "name": "zima_cpp_curve_placement_contract_tests",
+        "passed": true,
+        "seconds": 1.0137
+      },
+      {
+        "name": "zima_cpp_viewer_contract_tests",
+        "passed": true,
+        "seconds": 0.228769
+      },
+      {
+        "name": "zima_cpp_assembly_contract_tests",
+        "passed": true,
+        "seconds": 0.603232
+      },
+      {
+        "name": "zima_cpp_workspace_contract_tests",
+        "passed": true,
+        "seconds": 1.00297
+      },
+      {
+        "name": "zima_cpp_sketch_serialization_tests",
+        "passed": true,
+        "seconds": 0.253261
+      },
+      {
+        "name": "zima_cpp_sketcher_contract_tests",
+        "passed": true,
+        "seconds": 16.0289
+      },
+      {
+        "name": "zima_cpp_rolled_l_profile_tests",
+        "passed": true,
+        "seconds": 32.0214
+      },
+      {
+        "name": "zima_cpp_rounded_tangent_wing_tests",
+        "passed": true,
+        "seconds": 32.3056
+      },
+      {
+        "name": "zima_cpp_midpoint_profile_tests",
+        "passed": true,
+        "seconds": 2.60974
+      },
+      {
+        "name": "zima_cpp_equal_circle_dimension_tests",
+        "passed": true,
+        "seconds": 1.2716
+      },
+      {
+        "name": "zima_cpp_trimmed_rectangle_arc_tests",
+        "passed": true,
+        "seconds": 2.33085
+      },
+      {
+        "name": "zima_cpp_trimmed_rectangle_extrusion_tests",
+        "passed": true,
+        "seconds": 1.31311
+      },
+      {
+        "name": "zima_cpp_native_tangent_contact_tests",
+        "passed": true,
+        "seconds": 1.14929
+      },
+      {
+        "name": "zima_cpp_native_arc_axis_tests",
+        "passed": true,
+        "seconds": 4.20226
+      },
+      {
+        "name": "zima_cpp_sketch_keypoint_contact_tests",
+        "passed": true,
+        "seconds": 1.56706
+      },
+      {
+        "name": "zima_cpp_rectilinear_solver_tests",
+        "passed": true,
+        "seconds": 2.28211
+      },
+      {
+        "name": "zima_cpp_interchange_contract_tests",
+        "passed": true,
+        "seconds": 0.118831
+      },
+      {
+        "name": "zima_cpp_model_calculation_tests",
+        "passed": true,
+        "seconds": 0.861732
+      },
+      {
+        "name": "zima_cpp_numeric_value_locks_windows_contract",
+        "passed": true,
+        "seconds": 0.879966
+      },
+      {
+        "name": "zima_cpp_native_documents_tests",
+        "passed": true,
+        "seconds": 1.04199
+      },
+      {
+        "name": "zima_cpp_workspace_publication_tests",
+        "passed": true,
+        "seconds": 0.0775401
+      },
+      {
+        "name": "zima_cpp_document_session_transaction_tests",
+        "passed": true,
+        "seconds": 0.0811723
+      },
+      {
+        "name": "zima_cpp_file_rename_command_tests",
+        "passed": true,
+        "seconds": 1.2801
+      },
+      {
+        "name": "zima_cpp_file_relocation_state_tests",
+        "passed": true,
+        "seconds": 0.242211
+      },
+      {
+        "name": "zima_cpp_file_removal_command_tests",
+        "passed": true,
+        "seconds": 0.149426
+      },
+      {
+        "name": "zima_cpp_archive_command_tests",
+        "passed": true,
+        "seconds": 0.105032
+      },
+      {
+        "name": "zima_cpp_symbol_explode_tests",
+        "passed": true,
+        "seconds": 5.39943
+      },
+      {
+        "name": "zima_cpp_symbol_anchor_tests",
+        "passed": true,
+        "seconds": 0.917233
+      },
+      {
+        "name": "zima_cpp_save_properties_tests",
+        "passed": true,
+        "seconds": 0.827028
+      },
+      {
+        "name": "zima_cpp_document_operations_tests",
+        "passed": true,
+        "seconds": 5.89698
+      },
+      {
+        "name": "zima_cpp_cli_process_tests",
+        "passed": false,
+        "seconds": 29.4008,
+        "candidate_reason": "Material assignment evaluated relations outside Regenerate",
+        "baseline_reason": "Material assignment evaluated relations outside Regenerate",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_drawing_image_command_tests",
+        "passed": true,
+        "seconds": 0.397451
+      },
+      {
+        "name": "zima_cpp_drawing_dxf_command_tests",
+        "passed": true,
+        "seconds": 0.442061
+      },
+      {
+        "name": "zima_cpp_drawing_pdf_command_tests",
+        "passed": true,
+        "seconds": 4.35485
+      },
+      {
+        "name": "zima_cpp_drawing_title_command_tests",
+        "passed": true,
+        "seconds": 0.39877
+      },
+      {
+        "name": "zima_cpp_drawing_dimension_command_tests",
+        "passed": true,
+        "seconds": 0.173095
+      },
+      {
+        "name": "zima_cpp_drawing_label_command_tests",
+        "passed": true,
+        "seconds": 0.128368
+      },
+      {
+        "name": "zima_cpp_drawing_annotation_command_tests",
+        "passed": true,
+        "seconds": 0.350206
+      },
+      {
+        "name": "zima_cpp_dxf_spline_import_tests",
+        "passed": true,
+        "seconds": 0.33405
+      },
+      {
+        "name": "zima_cpp_dxf_point_import_tests",
+        "passed": true,
+        "seconds": 0.230597
+      },
+      {
+        "name": "zima_cpp_dxf_detail_export_tests",
+        "passed": true,
+        "seconds": 0.162396
+      },
+      {
+        "name": "zima_cpp_drawing_hatch_command_tests",
+        "passed": true,
+        "seconds": 0.287389
+      },
+      {
+        "name": "zima_cpp_drawing_view_command_tests",
+        "passed": true,
+        "seconds": 0.855748
+      },
+      {
+        "name": "zima_cpp_drawing_command_tests",
+        "passed": true,
+        "seconds": 26.4148
+      },
+      {
+        "name": "zima_cpp_nested_copy_reference_tests",
+        "passed": true,
+        "seconds": 0.835868
+      },
+      {
+        "name": "zima_cpp_assembly_reference_summary_tests",
+        "passed": true,
+        "seconds": 0.227055
+      },
+      {
+        "name": "zima_cpp_context_reference_transaction_tests",
+        "passed": true,
+        "seconds": 0.18161
+      },
+      {
+        "name": "zima_cpp_owned_reference_refresh_tests",
+        "passed": true,
+        "seconds": 0.168183
+      },
+      {
+        "name": "zima_cpp_context_reference_refresh_tests",
+        "passed": true,
+        "seconds": 0.154893
+      },
+      {
+        "name": "zima_cpp_document_dependency_tests",
+        "passed": true,
+        "seconds": 0.11566
+      },
+      {
+        "name": "zima_cpp_context_reference_geometry_tests",
+        "passed": true,
+        "seconds": 0.0990068
+      },
+      {
+        "name": "zima_cpp_reference_geometry_transform_tests",
+        "passed": true,
+        "seconds": 0.0524111
+      },
+      {
+        "name": "zima_cpp_component_activation_command_tests",
+        "passed": false,
+        "seconds": 0.180097,
+        "candidate_reason": "close: unsaved_changes: Dokument má neuložené změny. Uložte jej nebo povolte zahození volbou discard.",
+        "baseline_reason": "close: unsaved_changes: Dokument má neuložené změny. Uložte jej nebo povolte zahození volbou discard.",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_component_source_tests",
+        "passed": true,
+        "seconds": 0.180858
+      },
+      {
+        "name": "zima_cpp_component_removal_command_tests",
+        "passed": true,
+        "seconds": 0.259768
+      },
+      {
+        "name": "zima_cpp_component_property_command_tests",
+        "passed": false,
+        "seconds": 0.216537,
+        "candidate_reason": "Expected 45.000000, got 30.000000",
+        "baseline_reason": "Expected 45.000000, got 30.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_component_command_tests",
+        "passed": true,
+        "seconds": 0.179145
+      },
+      {
+        "name": "zima_cpp_material_library_tests",
+        "passed": false,
+        "seconds": 0.587644,
+        "candidate_reason": "Bundled material coverage incomplete",
+        "baseline_reason": "Bundled material coverage incomplete",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_body_link_tests",
+        "passed": true,
+        "seconds": 0.187785
+      },
+      {
+        "name": "zima_cpp_title_block_family_tests",
+        "passed": true,
+        "seconds": 20.2125
+      },
+      {
+        "name": "zima_cpp_body_scale_tests",
+        "passed": true,
+        "seconds": 0.369633
+      },
+      {
+        "name": "zima_cpp_family_table_tests",
+        "passed": true,
+        "seconds": 3.73022
+      },
+      {
+        "name": "zima_cpp_exact_unit_conversion_tests",
+        "passed": true,
+        "seconds": 0.0765132
+      },
+      {
+        "name": "zima_cpp_relation_dimension_order_tests",
+        "passed": true,
+        "seconds": 0.0787844
+      },
+      {
+        "name": "zima_cpp_relation_program_tests",
+        "passed": true,
+        "seconds": 0.0462648
+      },
+      {
+        "name": "zima_cpp_pattern_dimension_tests",
+        "passed": true,
+        "seconds": 0.033914
+      },
+      {
+        "name": "zima_cpp_engineering_metadata_command_tests",
+        "passed": true,
+        "seconds": 0.231941
+      },
+      {
+        "name": "zima_cpp_named_view_command_tests",
+        "passed": true,
+        "seconds": 0.238863
+      },
+      {
+        "name": "zima_cpp_metadata_command_tests",
+        "passed": false,
+        "seconds": 0.0877683,
+        "candidate_reason": "Feature direction must be +1 or -1.",
+        "baseline_reason": "Feature direction must be +1 or -1.",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_view_export_command_tests",
+        "passed": true,
+        "seconds": 0.141366
+      },
+      {
+        "name": "zima_cpp_export_command_tests",
+        "passed": false,
+        "seconds": 0.166892,
+        "candidate_reason": "Fixture Sketch missing",
+        "baseline_reason": "Fixture Sketch missing",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_assembly_import_command_tests",
+        "passed": true,
+        "seconds": 0.394103
+      },
+      {
+        "name": "zima_cpp_import_command_tests",
+        "passed": true,
+        "seconds": 1.30545
+      },
+      {
+        "name": "zima_cpp_sketch_spline_command_tests",
+        "passed": false,
+        "seconds": 0.206832,
+        "candidate_reason": "Sketch import block is invalid",
+        "baseline_reason": "Sketch import block is invalid",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_sketch_text_command_tests",
+        "passed": true,
+        "seconds": 0.104935
+      },
+      {
+        "name": "zima_cpp_sketch_text_geometry_tests",
+        "passed": true,
+        "seconds": 6.52701
+      },
+      {
+        "name": "zima_cpp_sketch_reference_command_tests",
+        "passed": true,
+        "seconds": 0.6129
+      },
+      {
+        "name": "zima_cpp_sketch_intersection_reference_tests",
+        "passed": true,
+        "seconds": 14.863
+      },
+      {
+        "name": "zima_cpp_coincident_reference_circle_tests",
+        "passed": true,
+        "seconds": 0.966044
+      },
+      {
+        "name": "zima_cpp_sketch_dimension_command_tests",
+        "passed": true,
+        "seconds": 1.27779
+      },
+      {
+        "name": "zima_cpp_sketch_relation_command_tests",
+        "passed": true,
+        "seconds": 0.157302
+      },
+      {
+        "name": "zima_cpp_sketch_curve_plane_reference_tests",
+        "passed": true,
+        "seconds": 0.573577
+      },
+      {
+        "name": "zima_cpp_sketch_rounded_mirror_tests",
+        "passed": true,
+        "seconds": 89.6193
+      },
+      {
+        "name": "zima_cpp_sketch_mirror_tangent_tests",
+        "passed": true,
+        "seconds": 2.17524
+      },
+      {
+        "name": "zima_cpp_equal_length_component_tests",
+        "passed": true,
+        "seconds": 1.60629
+      },
+      {
+        "name": "zima_cpp_sketch_curve_command_tests",
+        "passed": true,
+        "seconds": 0.127079
+      },
+      {
+        "name": "zima_cpp_sketch_command_tests",
+        "passed": true,
+        "seconds": 0.178103
+      },
+      {
+        "name": "zima_cpp_reference_command_tests",
+        "passed": false,
+        "seconds": 0.102953,
+        "candidate_reason": "Box did not expose six original faces",
+        "baseline_reason": "Box did not expose six original faces",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_assembly_history_cursor_tests",
+        "passed": true,
+        "seconds": 0.343418
+      },
+      {
+        "name": "zima_cpp_assembly_history_command_tests",
+        "passed": true,
+        "seconds": 0.315888
+      },
+      {
+        "name": "zima_cpp_history_command_tests",
+        "passed": true,
+        "seconds": 0.545865
+      },
+      {
+        "name": "zima_cpp_body_reference_command_tests",
+        "passed": true,
+        "seconds": 0.175688
+      },
+      {
+        "name": "zima_cpp_body_command_tests",
+        "passed": true,
+        "seconds": 0.567914
+      },
+      {
+        "name": "zima_cpp_placement_reference_removal_tests",
+        "passed": false,
+        "seconds": 0.260306,
+        "candidate_reason": "Expected 0.000000, got 251.327412",
+        "baseline_reason": "Expected 0.000000, got 251.327412",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_placement_reference_assignment_tests",
+        "passed": true,
+        "seconds": 0.0816112
+      },
+      {
+        "name": "zima_cpp_placement_command_tests",
+        "passed": true,
+        "seconds": 0.694155
+      },
+      {
+        "name": "zima_cpp_construction_curve_command_tests",
+        "passed": true,
+        "seconds": 0.238152
+      },
+      {
+        "name": "zima_cpp_construction_removal_tests",
+        "passed": true,
+        "seconds": 0.234276
+      },
+      {
+        "name": "zima_cpp_construction_command_tests",
+        "passed": true,
+        "seconds": 0.285414
+      },
+      {
+        "name": "zima_cpp_extrusion_limit_contract_tests",
+        "passed": true,
+        "seconds": 7.85991
+      },
+      {
+        "name": "zima_cpp_closed_spline_extrusion_tests",
+        "passed": true,
+        "seconds": 0.440661
+      },
+      {
+        "name": "zima_cpp_surface_profile_tests",
+        "passed": true,
+        "seconds": 0.223195
+      },
+      {
+        "name": "zima_cpp_thin_profile_contract_tests",
+        "passed": true,
+        "seconds": 0.522933
+      },
+      {
+        "name": "zima_cpp_derived_copy_command_tests",
+        "passed": true,
+        "seconds": 3.27762
+      },
+      {
+        "name": "zima_cpp_derived_copy_query_tests",
+        "passed": true,
+        "seconds": 0.307485
+      },
+      {
+        "name": "zima_cpp_value_lock_command_tests",
+        "passed": false,
+        "seconds": 0.120746,
+        "candidate_reason": "Lock query calculated or mutated geometry",
+        "baseline_reason": "Lock query calculated or mutated geometry",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_thin_feature_wire_tests",
+        "passed": true,
+        "seconds": 3.96182
+      },
+      {
+        "name": "zima_cpp_sketch_profile_wire_tests",
+        "passed": true,
+        "seconds": 0.378639
+      },
+      {
+        "name": "zima_cpp_edge_treatment_command_tests",
+        "passed": true,
+        "seconds": 1.5465
+      },
+      {
+        "name": "zima_cpp_boolean_split_edge_tests",
+        "passed": true,
+        "seconds": 5.53348
+      },
+      {
+        "name": "zima_cpp_boolean_part_fragment_tests",
+        "passed": true,
+        "seconds": 5.25558
+      },
+      {
+        "name": "zima_cpp_boolean_form_tests",
+        "passed": false,
+        "seconds": 0.527861,
+        "candidate_reason": "FORM is not a valid B-Rep",
+        "baseline_reason": "FORM is not a valid B-Rep",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_edge_treatment_query_tests",
+        "passed": true,
+        "seconds": 0.136795
+      },
+      {
+        "name": "zima_cpp_tangent_edge_route_tests",
+        "passed": true,
+        "seconds": 0.0318171
+      },
+      {
+        "name": "zima_cpp_shell_command_tests",
+        "passed": true,
+        "seconds": 1.30549
+      },
+      {
+        "name": "zima_cpp_drill_point_command_tests",
+        "passed": true,
+        "seconds": 1.36443
+      },
+      {
+        "name": "zima_cpp_shaft_thread_command_tests",
+        "passed": true,
+        "seconds": 0.743228
+      },
+      {
+        "name": "zima_cpp_section_sketch_command_tests",
+        "passed": true,
+        "seconds": 0.14855
+      },
+      {
+        "name": "zima_cpp_section_property_command_tests",
+        "passed": true,
+        "seconds": 0.164618
+      },
+      {
+        "name": "zima_cpp_drawing_balloon_tests",
+        "passed": true,
+        "seconds": 0.0801563
+      },
+      {
+        "name": "zima_cpp_body_properties_tests",
+        "passed": true,
+        "seconds": 90.4704
+      },
+      {
+        "name": "zima_cpp_measurement_edit_command_tests",
+        "passed": true,
+        "seconds": 0.206541
+      },
+      {
+        "name": "zima_cpp_measurement_command_tests",
+        "passed": true,
+        "seconds": 0.559206
+      },
+      {
+        "name": "zima_cpp_section_reference_command_tests",
+        "passed": false,
+        "seconds": 0.149583,
+        "candidate_reason": "Expected 28.000000, got 3.000000",
+        "baseline_reason": "Expected 28.000000, got 3.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_section_command_tests",
+        "passed": true,
+        "seconds": 0.139504
+      },
+      {
+        "name": "zima_cpp_hole_target_command_tests",
+        "passed": false,
+        "seconds": 0.319718,
+        "candidate_reason": "Fixture Sketch missing",
+        "baseline_reason": "Fixture Sketch missing",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_hole_command_tests",
+        "passed": true,
+        "seconds": 0.452302
+      },
+      {
+        "name": "zima_cpp_opening_target_command_tests",
+        "passed": true,
+        "seconds": 1.59082
+      },
+      {
+        "name": "zima_cpp_opening_component_command_tests",
+        "passed": true,
+        "seconds": 0.89469
+      },
+      {
+        "name": "zima_cpp_opening_command_tests",
+        "passed": true,
+        "seconds": 7.57568
+      },
+      {
+        "name": "zima_cpp_thread_catalog_tests",
+        "passed": true,
+        "seconds": 0.164181
+      },
+      {
+        "name": "zima_cpp_sweep_command_tests",
+        "passed": true,
+        "seconds": 24.7641
+      },
+      {
+        "name": "zima_cpp_assembly_cut_history_tests",
+        "passed": true,
+        "seconds": 0.743678
+      },
+      {
+        "name": "zima_cpp_assembly_profile_command_tests",
+        "passed": true,
+        "seconds": 3.72994
+      },
+      {
+        "name": "zima_cpp_profile_sketch_command_tests",
+        "passed": false,
+        "seconds": 0.151032,
+        "candidate_reason": "revolution.create: unknown_command: Unknown command: revolution.create",
+        "baseline_reason": "revolution.create: unknown_command: Unknown command: revolution.create",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_imported_datum_command_contract",
+        "passed": false,
+        "seconds": 0.245784,
+        "candidate_reason": "Material operation after a cold datum reused incomplete OCCT ancestry",
+        "baseline_reason": "Material operation after a cold datum reused incomplete OCCT ancestry",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_profile_command_tests",
+        "passed": false,
+        "seconds": 1.91207,
+        "candidate_reason": "Expected missing_reference, got invalid_arguments: Invalid Feature definition.",
+        "baseline_reason": "Expected missing_reference, got invalid_arguments: Invalid Feature definition.",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_symmetric_endpoint_contract",
+        "passed": true,
+        "seconds": 1.38279
+      },
+      {
+        "name": "zima_cpp_assembly_sketch_properties_tests",
+        "passed": true,
+        "seconds": 0.645823
+      },
+      {
+        "name": "zima_cpp_sketch_properties_command_tests",
+        "passed": true,
+        "seconds": 0.195288
+      },
+      {
+        "name": "zima_cpp_sweep_point_reference_tests",
+        "passed": false,
+        "seconds": 0.258193,
+        "candidate_reason": "Expected 259.062367, got 0.000000",
+        "baseline_reason": "Expected 259.062367, got 0.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_construction_curve_reference_tests",
+        "passed": true,
+        "seconds": 0.467249
+      },
+      {
+        "name": "zima_cpp_drill_reference_command_tests",
+        "passed": true,
+        "seconds": 2.03984
+      },
+      {
+        "name": "zima_cpp_profile_reference_command_tests",
+        "passed": true,
+        "seconds": 0.420269
+      },
+      {
+        "name": "zima_cpp_primitive_reference_command_tests",
+        "passed": false,
+        "seconds": 1.26666,
+        "candidate_reason": "Expected 0.000000, got 5000.200698",
+        "baseline_reason": "Expected 0.000000, got 5000.200698",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_construction_reference_occurrence_tests",
+        "passed": true,
+        "seconds": 0.563972
+      },
+      {
+        "name": "zima_cpp_construction_reference_command_tests",
+        "passed": true,
+        "seconds": 0.251037
+      },
+      {
+        "name": "zima_cpp_template_object_command_tests",
+        "passed": true,
+        "seconds": 0.180369
+      },
+      {
+        "name": "zima_cpp_template_command_tests",
+        "passed": true,
+        "seconds": 0.545814
+      },
+      {
+        "name": "zima_cpp_command_host_tests",
+        "passed": false,
+        "seconds": 0.179416,
+        "candidate_reason": "Command catalog changed",
+        "baseline_reason": "Command catalog changed",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_command_dispatcher_tests",
+        "passed": true,
+        "seconds": 0.168777
+      },
+      {
+        "name": "zima_cpp_transition_plane_picker_ui_contract",
+        "passed": true,
+        "seconds": 1.94777
+      },
+      {
+        "name": "zima_cpp_show_erase_ui_contract",
+        "passed": true,
+        "seconds": 5.59946
+      },
+      {
+        "name": "zima_cpp_measurement_dimension_ui_contract",
+        "passed": true,
+        "seconds": 16.57
+      },
+      {
+        "name": "zima_cpp_drawing_clearance_ui_contract",
+        "passed": true,
+        "seconds": 6.83195
+      },
+      {
+        "name": "zima_cpp_drawing_surface_contour_ui_contract",
+        "passed": true,
+        "seconds": 14.1417
+      },
+      {
+        "name": "zima_cpp_drawing_balloon_ui_contract",
+        "passed": true,
+        "seconds": 4.10853
+      },
+      {
+        "name": "zima_cpp_drawing_ui_contract",
+        "passed": true,
+        "seconds": 16.144
+      },
+      {
+        "name": "zima_cpp_solid_state_drawing_gui_fixture",
+        "passed": true,
+        "seconds": 0.867274
+      },
+      {
+        "name": "zima_cpp_solid_state_drawing_ui_contract",
+        "passed": true,
+        "seconds": 1.79406
+      },
+      {
+        "name": "zima_cpp_drawing_view_controls_ui_contract",
+        "passed": true,
+        "seconds": 6.89994
+      },
+      {
+        "name": "zima_cpp_solid_state_drawing_chain_gui_fixture",
+        "passed": true,
+        "seconds": 1.99479
+      },
+      {
+        "name": "zima_cpp_solid_state_drawing_chain_ui_contract",
+        "passed": true,
+        "seconds": 1.71731
+      },
+      {
+        "name": "zima_cpp_drawing_breaks_ui_contract",
+        "passed": true,
+        "seconds": 1.66823
+      },
+      {
+        "name": "zima_cpp_drawing_details_ui_contract",
+        "passed": true,
+        "seconds": 2.56061
+      },
+      {
+        "name": "zima_cpp_drawing_source_picker_contract",
+        "passed": true,
+        "seconds": 5.27645
+      },
+      {
+        "name": "zima_cpp_show_erase_contract_tests",
+        "passed": true,
+        "seconds": 0.0612332
+      },
+      {
+        "name": "zima_cpp_measurement_picker_tests",
+        "passed": true,
+        "seconds": 1.26064
+      },
+      {
+        "name": "zima_cpp_measurement_dimension_contract_tests",
+        "passed": false,
+        "seconds": 0.0615741,
+        "candidate_reason": "Cannot write Drawing document",
+        "baseline_reason": "Cannot write Drawing document",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_drawing_text_coverage_tests",
+        "passed": true,
+        "seconds": 8.09073
+      },
+      {
+        "name": "zima_cpp_thread_drawing_tests",
+        "passed": true,
+        "seconds": 1.53619
+      },
+      {
+        "name": "zima_cpp_drawing_contract_tests",
+        "passed": true,
+        "seconds": 2.32021
+      },
+      {
+        "name": "zima_cpp_drawing_sources_tests",
+        "passed": true,
+        "seconds": 0.0635608
+      },
+      {
+        "name": "zima_cpp_work_plane_contract_tests",
+        "passed": true,
+        "seconds": 1.74257
+      },
+      {
+        "name": "zima_cpp_sheet_cut_wire_preview_tests",
+        "passed": true,
+        "seconds": 1.71988
+      },
+      {
+        "name": "zima_cpp_boundary_surface_dialog_tests",
+        "passed": true,
+        "seconds": 0.350694
+      },
+      {
+        "name": "zima_cpp_sheet_form_definition_tests",
+        "passed": true,
+        "seconds": 55.9805
+      },
+      {
+        "name": "zima_cpp_sheet_form_command_tests",
+        "passed": true,
+        "seconds": 16.1575
+      },
+      {
+        "name": "zima_cpp_sheet_form_geometry_tests",
+        "passed": true,
+        "seconds": 20.0257
+      },
+      {
+        "name": "zima_cpp_factory_preview_context_tests",
+        "passed": true,
+        "seconds": 0.268065
+      },
+      {
+        "name": "zima_cpp_sheet_form_copy_tests",
+        "passed": true,
+        "seconds": 99.8252
+      },
+      {
+        "name": "zima_cpp_sheet_form_copy_after_unbend_tests",
+        "passed": true,
+        "seconds": 16.2027
+      },
+      {
+        "name": "zima_cpp_factory_dimpled_hole_tests",
+        "passed": true,
+        "seconds": 6.66141
+      },
+      {
+        "name": "zima_cpp_factory_bridge_lance_tests",
+        "passed": true,
+        "seconds": 7.43877
+      },
+      {
+        "name": "zima_cpp_factory_finished_corner_tests",
+        "passed": true,
+        "seconds": 2.4252
+      },
+      {
+        "name": "zima_cpp_factory_outward_window_tests",
+        "passed": true,
+        "seconds": 11.6256
+      },
+      {
+        "name": "zima_cpp_corner_form_roundtrip_copy_tests",
+        "passed": true,
+        "seconds": 41.6327
+      },
+      {
+        "name": "zima_cpp_corner_form_workspace_copy_tests",
+        "passed": true,
+        "seconds": 82.5041
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_add",
+        "passed": true,
+        "seconds": 0.711656
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_cut",
+        "passed": true,
+        "seconds": 0.510394
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_overlap-add",
+        "passed": true,
+        "seconds": 0.475826
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_overlap-cut",
+        "passed": true,
+        "seconds": 0.464136
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_touch-add",
+        "passed": true,
+        "seconds": 0.431502
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_touch-cut",
+        "passed": true,
+        "seconds": 0.395456
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_large-add",
+        "passed": true,
+        "seconds": 7.29545
+      },
+      {
+        "name": "zima_cpp_ordinary_copy_batch_large-cut",
+        "passed": true,
+        "seconds": 5.74237
+      },
+      {
+        "name": "zima_cpp_corner_form_range_0.5_2",
+        "passed": true,
+        "seconds": 2.92665
+      },
+      {
+        "name": "zima_cpp_corner_form_range_1_2",
+        "passed": true,
+        "seconds": 3.07362
+      },
+      {
+        "name": "zima_cpp_corner_form_range_2_4",
+        "passed": true,
+        "seconds": 2.74127
+      },
+      {
+        "name": "zima_cpp_corner_form_range_3_6",
+        "passed": true,
+        "seconds": 2.93412
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_0.5",
+        "passed": true,
+        "seconds": 2.9962
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_1",
+        "passed": true,
+        "seconds": 2.89646
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_2",
+        "passed": true,
+        "seconds": 3.24348
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_3",
+        "passed": true,
+        "seconds": 2.87515
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_4",
+        "passed": true,
+        "seconds": 3.2545
+      },
+      {
+        "name": "zima_cpp_surface_thicken_tests",
+        "passed": true,
+        "seconds": 12.2957
+      },
+      {
+        "name": "zima_cpp_boundary_surface_tests",
+        "passed": true,
+        "seconds": 26.1653
+      },
+      {
+        "name": "zima_cpp_transition_attachment_tests",
+        "passed": true,
+        "seconds": 223.249
+      },
+      {
+        "name": "zima_cpp_sheet_transition_command_tests",
+        "passed": true,
+        "seconds": 120.316
+      },
+      {
+        "name": "zima_cpp_sheet_transition_thickness_contract",
+        "passed": true,
+        "seconds": 25.4582
+      },
+      {
+        "name": "zima_cpp_sheet_transition_marking_contract",
+        "passed": true,
+        "seconds": 22.5905
+      },
+      {
+        "name": "zima_cpp_transition_study_ui_contract",
+        "passed": true,
+        "seconds": 2.72989
+      },
+      {
+        "name": "zima_cpp_sheet_exchange_tests",
+        "passed": false,
+        "seconds": 0.195438,
+        "candidate_reason": "Mismatch: 15.000000 versus 3.000000",
+        "baseline_reason": "Mismatch: 15.000000 versus 3.000000",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_sheet_state_cone_tests",
+        "passed": true,
+        "seconds": 12.1253
+      },
+      {
+        "name": "zima_cpp_sheet_state_command_tests",
+        "passed": true,
+        "seconds": 9.40935
+      },
+      {
+        "name": "zima_cpp_sheet_state_dialog_tests",
+        "passed": true,
+        "seconds": 0.0983836
+      },
+      {
+        "name": "zima_cpp_sheet_state_tests",
+        "passed": true,
+        "seconds": 14.8996
+      },
+      {
+        "name": "zima_cpp_flat_command_tests",
+        "passed": true,
+        "seconds": 6.69507
+      },
+      {
+        "name": "zima_cpp_bend_arc_only_contract",
+        "passed": true,
+        "seconds": 3.80415
+      },
+      {
+        "name": "zima_cpp_bend_command_tests",
+        "passed": true,
+        "seconds": 33.8837
+      },
+      {
+        "name": "zima_cpp_sheet_cut_skin_to_skin_contract",
+        "passed": true,
+        "seconds": 0.959469
+      },
+      {
+        "name": "zima_cpp_twisted_sheet_tests",
+        "passed": false,
+        "seconds": 0.173146,
+        "candidate_reason": "Twisted Sheet volume is outside its geometric tolerance",
+        "baseline_reason": "Twisted Sheet volume is outside its geometric tolerance",
+        "baseline_same_failure": true
+      },
+      {
+        "name": "zima_cpp_holes_command_tests",
+        "passed": true,
+        "seconds": 0.408442
+      },
+      {
+        "name": "zima_cpp_sketch_offset_geometry_tests",
+        "passed": true,
+        "seconds": 0.0417716
+      },
+      {
+        "name": "zima_cpp_curve_plane_intersection_tests",
+        "passed": true,
+        "seconds": 0.0414177
+      },
+      {
+        "name": "zima_cpp_face_plane_intersection_tests",
+        "passed": true,
+        "seconds": 0.963161
+      },
+      {
+        "name": "zima_cpp_ordered_up_to_kernel_tests",
+        "passed": true,
+        "seconds": 11.0591
+      },
+      {
+        "name": "zima_cpp_external_trim_boundary_tests",
+        "passed": true,
+        "seconds": 0.146739
+      },
+      {
+        "name": "zima_cpp_external_circular_profiles_tests",
+        "passed": true,
+        "seconds": 0.730366
+      },
+      {
+        "name": "zima_cpp_external_curve_centers_tests",
+        "passed": true,
+        "seconds": 0.924732
+      },
+      {
+        "name": "zima_cpp_exact_spline_contract_tests",
+        "passed": true,
+        "seconds": 12.3558
+      },
+      {
+        "name": "zima_cpp_exact_spline_dialog_tests",
+        "passed": true,
+        "seconds": 0.749911
+      },
+      {
+        "name": "zima_cpp_symbol_drawing",
+        "passed": true,
+        "seconds": 0.134244
+      },
+      {
+        "name": "zima_cpp_symbol_document",
+        "passed": true,
+        "seconds": 0.271141
+      },
+      {
+        "name": "zima_cpp_symbol_placement",
+        "passed": true,
+        "seconds": 0.122949
+      },
+      {
+        "name": "zima_cpp_symbol_integration",
+        "passed": true,
+        "seconds": 0.815322
+      },
+      {
+        "name": "zima_cpp_feature_up_to_parameters_tests",
+        "passed": true,
+        "seconds": 0.14952
+      },
+      {
+        "name": "zima_cpp_feature_ordered_up_to_native_tests",
+        "passed": true,
+        "seconds": 58.3633
+      },
+      {
+        "name": "zima_cpp_feature_direction_command_tests",
+        "passed": true,
+        "seconds": 0.220211
+      },
+      {
+        "name": "zima_cpp_feature_side_reversal",
+        "passed": true,
+        "seconds": 6.81667
+      },
+      {
+        "name": "zima_cpp_revolution_limits",
+        "passed": true,
+        "seconds": 1.16386
+      },
+      {
+        "name": "zima_cpp_feature_draft",
+        "passed": true,
+        "seconds": 1.28616
+      },
+      {
+        "name": "zima_cpp_feature_parameters",
+        "passed": true,
+        "seconds": 0.0480369
+      },
+      {
+        "name": "zima_cpp_profile_centerlines",
+        "passed": true,
+        "seconds": 8.52789
+      },
+      {
+        "name": "zima_cpp_axis_extents",
+        "passed": true,
+        "seconds": 0.0490374
+      },
+      {
+        "name": "zima_cpp_construction_reference_tree_tests",
+        "passed": true,
+        "seconds": 0.0561004
+      }
+    ]
+  },
+  "numerical": {
+    "baseline_cases": 7,
+    "isolated_candidate_cases": 7,
+    "windows_port_cases": 7
+  },
+  "observed_timings": [
+    {
+      "name": "zima_cpp_sheet_form_copy_tests",
+      "candidate_passed": true,
+      "baseline_passed": true,
+      "candidate_seconds": 99.8252,
+      "baseline_seconds": 110.488
+    },
+    {
+      "name": "zima_cpp_transition_attachment_tests",
+      "candidate_passed": true,
+      "baseline_passed": true,
+      "candidate_seconds": 223.249,
+      "baseline_seconds": 235.604
+    },
+    {
+      "name": "zima_cpp_sheet_transition_command_tests",
+      "candidate_passed": true,
+      "baseline_passed": true,
+      "candidate_seconds": 120.316,
+      "baseline_seconds": 127.803
+    }
+  ],
+  "gui": [
+    {
+      "name": "new-documents-mm",
+      "exit": 0,
+      "seconds": 54.157
+    },
+    {
+      "name": "new-documents-in",
+      "exit": 0,
+      "seconds": 50.359
+    },
+    {
+      "name": "ordered-up-to",
+      "exit": 0,
+      "seconds": 12.391
+    },
+    {
+      "name": "side-reversal",
+      "exit": 0,
+      "seconds": 33.062
+    },
+    {
+      "name": "curve-plane-points",
+      "exit": 0,
+      "seconds": 144.937
+    },
+    {
+      "name": "rounded-sketch-mirror",
+      "exit": 0,
+      "seconds": 25.906
+    },
+    {
+      "name": "symmetric-rectangle",
+      "exit": 0,
+      "seconds": 11.704
+    },
+    {
+      "name": "sketch-dimension-entry",
+      "exit": 0,
+      "seconds": 69.562
+    },
+    {
+      "name": "sketch-profile-wire",
+      "exit": 0,
+      "seconds": 4.047
+    },
+    {
+      "name": "BridgeLance",
+      "exit": 0,
+      "seconds": 7.375
+    },
+    {
+      "name": "CornerGusset90",
+      "exit": 0,
+      "seconds": 5.89
+    },
+    {
+      "name": "DimpledHole",
+      "exit": 0,
+      "seconds": 9.453
+    },
+    {
+      "name": "VentilationWindow",
+      "exit": 0,
+      "seconds": 9.875
+    }
+  ],
+  "corrected_gui": [
+    {
+      "name": "zima_cpp_part_dialog_layout_contract",
+      "passed": false,
+      "seconds": 1.2824,
+      "reason": "Main Origin and construction/feature/occurrence points have incorrect base colours"
+    },
+    {
+      "name": "zima_cpp_family_table_ui_contract",
+      "passed": true,
+      "seconds": 9.14924,
+      "reason": ""
+    },
+    {
+      "name": "zima_cpp_boundary_surface_ui_contract",
+      "passed": true,
+      "seconds": 15.0195,
+      "reason": ""
+    }
+  ],
+  "windows_sdk": {
+    "gauss_patch_sha256": "2f500bc8e2e0346be3c6770351c3ac043d8b1a9da4a904aa4e829f3af45e6863",
+    "dll_sha256": {
+      "TKMath.dll": "d9d8ce4a2bcffe10d5ca49cefa86ee0564069073fafd1f59e56d3bedb25241e5",
+      "TKXmlTObj.dll": "3cb900837af5556470ab76bfba494830be5a153dc1e1ad72d2031b8268e5a1bc",
+      "TKDE.dll": "ced3ff66a6258dfde2361951dc4acf6072cbe403a9e7a8ff5573894d076c052a",
+      "TKService.dll": "2fc14d9ae16b70dcedcfe0857a9742727f78189676bc6b88e443258faf183321",
+      "TKDEIGES.dll": "5edc4dcc0c158a5cc859d5cbc133e6af95ef753fd7acf9c3ddaf3069845b04b0",
+      "TKDEPLY.dll": "d0febbe5f52546d834479c29b5a426aacd23ee0b17d67a2261b780a18764e9df",
+      "TKHelix.dll": "1c14a41a1437766c6ea8ca58eeb638ec5066b53f2cd88f81878ca5c68c80d418",
+      "TKCDF.dll": "c09507100d2892438b1978f3ff0523b8acdb04755f1ec2ccb2d346f688008931",
+      "TKernel.dll": "d7e5a9ffe115786fa5fb7563b4e4fef5157954436685ce2d00d317d3d492eaab",
+      "TKMeshVS.dll": "a53b32f873310a5ab43031279612d05009c3ea8b9625eca44d404555efb89eb8",
+      "TKG3d.dll": "78d5be5898a6852845065e4adbb63036cefb847867bbbbf8f638ae42109e45f5",
+      "TKXmlXCAF.dll": "56c839588b233b859191e42e34fa492affd6e860de5875bc87f4715d5d0b56ca",
+      "TKStdL.dll": "d731eb0c47d7053d37e68e586ca7b938f060ee81999f9dbe5324473a9f3f1f2b",
+      "TKFeat.dll": "dba6e3a7944f45b6e57126d2afab927def0c2dec20336c5710035565113c98af",
+      "TKGeomBase.dll": "2ae2fb3c1b6eee7403e57490db25a725f41a5c310be235c5d0f84df9996c06a8",
+      "TKXSBase.dll": "149d729cd57aed04cd5f6c59ade5bded0fa305f6b429c0152a594a0e080f2fbd",
+      "TKXCAF.dll": "fae99760b365114622c1c1d3be6ff4ea3980752179c6336e2ed9937f9579ed73",
+      "TKXml.dll": "2c68c4a64084f82d36413722bfc256ea3c8ade07edb75bacc0bac3c65039f1e6",
+      "TKDECascade.dll": "0f49fe7c4b13e535ac2e0c05ffea438c6051531c4c52d68adf276606a0cf1e8c",
+      "TKOffset.dll": "d59544120804a47950de018f749bd4eb38ba0bc560afce73eae86b92814dd45b",
+      "TKShHealing.dll": "306f1f5575a5b88594db184f75abb92cf2673c28b72b220eee6d8a1abfa510da",
+      "TKTopAlgo.dll": "0172b1930065e8adfe85b713d7eb97b75b4b87fc511e88cd36643f6bda243865",
+      "TKBO.dll": "91da33132f0f9ab1ee11e6d8e79d902b4683c4ce92dd23de41db327559b9fba5",
+      "TKDESTEP.dll": "4798078c33f2f57420b2cb4f99f3974f02b332a14d94e347d37dd3cd36332711",
+      "TKXMesh.dll": "00969580805496a0ff0e5a8b3dcf1880f701a675682fce17be22d3e5e254336c",
+      "TKDESTL.dll": "b39d3fa10ddb8f2c83f22a403c728f32be9e0fe1c772ab9e324294f2a1d52664",
+      "TKDEOBJ.dll": "b5f016465dd5ef092fca814f9d9a341531dccd23c181523a2f67a04ac9881668",
+      "TKExpress.dll": "53dc995d13709eb67d8e8c8fc32b8dd514ab42c6dd96074a343df3aa00b120ce",
+      "TKBinL.dll": "05c0014dcddde01ff6f03be53efe3a35cf96f8b51c369937458d5691e56c2e6d",
+      "TKXmlL.dll": "1dc08f7bd1bf18a0d1602f19133b3db4256dff1604bbb6d41b6b0265acc5efe1",
+      "TKBinTObj.dll": "b5a801ed39ed65861eb642153157211d2f65913d7adb62cda64dfd5d407e9fa8",
+      "TKLCAF.dll": "f8ac0ed4594397ed2ef7a3c509c65fd6e2d56395855b8084488323c365892c8e",
+      "TKDEVRML.dll": "5b0831a91ef19b2ce8c542a96abe8938d9cb1ee0d6846181d4cfdd79061317da",
+      "TKPrim.dll": "344371060896b9f2a62de0dacfad92ae55abb1fd70b49d4152849bb8acc6835a",
+      "TKVCAF.dll": "8a044c12c0cc5a76987cc300e9d0f0cb8866bf8ba374797d9cca6f41dca81254",
+      "TKBin.dll": "6ad43b866743d56b4c457b2c53dc9d35b7af47428a133f0abdf3da527219e578",
+      "TKRWMesh.dll": "e70d34911c8d629702739fa35c3faf318a855644631606d4c801edaca127b1fd",
+      "TKMesh.dll": "22c9ce5df14063ffea3397c635197107e3d23eca5eb1680e9b29fd1d27ac43ba",
+      "TKBool.dll": "e6707368f9c6b8a20a715528362338392f74d049b0649c21037535b68312c9d4",
+      "TKOpenGl.dll": "3ac77bd299dadb128f7bd17a3cfdb39e5aa2fd5d197e17369b154a46d55a14f3",
+      "TKGeomAlgo.dll": "f865721f2cd71b7a7b666c4a4f0c0c67c18b9d6f3a8cbfc88bfc2df5b87a5a30",
+      "TKCAF.dll": "2d24ba59e33ed684d0fb089794697c48090b018046c396b136634a7131643da7",
+      "TKV3d.dll": "f6ac8169d3b19332a00c077aa4512af811178797899afba69dec1844ea0d51f1",
+      "TKBinXCAF.dll": "de4ad4ffbecdcfa17b5ebe066649048f64caa1b1cd116ac9e9292fe282abc3d5",
+      "TKHLR.dll": "4fef0d873721d7af8b05e3ccee2ee293b0f3c92a5a31c2deca368d906e7a18e8",
+      "TKTObj.dll": "df6d683e3eaacb69386520149f36ed713e69af78c9812d14f214626008cdf76b",
+      "TKStd.dll": "43bdac859ad6696d6300039ccbf1a061e973ece61d6d4782ef0c426b81d2fd5b",
+      "TKG2d.dll": "ec422559cfc2fb0c8a40804a0b5e21597aade8e4cfcf7007e0f6479802f37bd8",
+      "TKFillet.dll": "5d81bbfdefa716747281a0cff0177a5f9240bf5064104ec0d826dd8f2c848695",
+      "TKBRep.dll": "2e4b028f93f0a3bb556c34429562f66ae2ea7d6581e5792b21f2694e124cd208"
+    },
+    "debug_and_release": true,
+    "version": "8.0.1"
+  },
+  "sdk_facing_sources_sha256": {
+    "cpp/modules/kernel_occt/include/zima/kernel/calculated_body_shape.hpp": "64adb209c0a3236d00d961a8307aff15da7cd65658f7641767b34dd6e337c934",
+    "cpp/modules/kernel_occt/include/zima/kernel/occt_curve_data.hpp": "ceb0afb49b198a67f170ddfb9b421f04b42d338cb8d438e47143c569159a1585",
+    "cpp/modules/kernel_occt/include/zima/kernel/occt_kernel.hpp": "bf00ccfdd4ec77a00a2f0b4ff64a2e10b0d032d8e4ac8dd71ba9971c0aa2b11c",
+    "cpp/modules/kernel_occt/include/zima/kernel/sheet_exchange.hpp": "47038dee951e9458e3180f7f1badce7ba94a1dfedd7c1df8b31b5e47926d09bc",
+    "cpp/modules/kernel_occt/include/zima/kernel/step_source_document.hpp": "a19cae4004b5d5997f530828470b90949eb525f8cd5cfb33360eedeca192a43b",
+    "cpp/modules/kernel_occt/src/boundary_surface_geometry.inc": "7ea2ea83bf0dbb45ab2865ab538779131adbaeb73f0f60ac6f3378afc0935ecf",
+    "cpp/modules/kernel_occt/src/curve_plane_intersection.cpp": "c1d90ac22dce1fa8b6196c2e191e052b784c1ca52ca1658937ffbad4a20aaeeb",
+    "cpp/modules/kernel_occt/src/occt_kernel.cpp": "b3b9b40005939196bb898d7299e21f689d2fbd7a27b39ee27b38001bdab4cb87",
+    "cpp/modules/kernel_occt/src/ordered_up_to.cpp": "0fb8faf54b83599302afe731e3726be5683c6fc16eaa7bac066bf29dbdbbb93f",
+    "cpp/modules/kernel_occt/src/ordered_up_to.hpp": "9eb850bd2ee7a6571ea0c52f8985da4434d62fc56f749605c3f2b5229e3a2aee",
+    "cpp/modules/kernel_occt/src/ordered_up_to_profile.inc": "3f0305c7c48d663f3013593a56884ec508a226b23616052cda84371170e20f21",
+    "cpp/modules/kernel_occt/src/revolution_limit.inc": "c244b35d68252627e4ccdc1affbb00797febdea68f63df9e38b52fd36ed3a8e4",
+    "cpp/modules/kernel_occt/src/sheet_cut_boundary_runs.inc": "f59ccd06e2301c55d31480703cd384c7d1ee89ea8822fe9b4521009fe42b5288",
+    "cpp/modules/kernel_occt/src/sheet_cut_circle_clearance.inc": "2734892b3df002203501058e5a0567464abb1c98ca8429b4736134e4c4a83e6e",
+    "cpp/modules/kernel_occt/src/sheet_cut_clearance.inc": "7818b260d4c135207095d6482bf612030e11326b69cb950783d3a67ad3904abf",
+    "cpp/modules/kernel_occt/src/sheet_cut_conic_profile_clearance.inc": "db8cebff11dd10f6912fb0342f86bc2567d577a8602e30806f808d31b75cb7c3",
+    "cpp/modules/kernel_occt/src/sheet_cut_polygon_clearance.inc": "d672155f149adeff75f688080aa171f47dc463d647a6a6c7efdbce6cd9d859c1",
+    "cpp/modules/kernel_occt/src/sheet_exchange.cpp": "948b40251a87e98ebf8ee4d9df2ded28fb54c3509e72f322db6236d9836b64ad",
+    "cpp/modules/kernel_occt/src/sheet_form_geometry.inc": "14ab481d714b95e7620634384cc083a543b8e2f1af84145b7fa15e522b30a75c",
+    "cpp/modules/kernel_occt/src/sheet_state_geometry.inc": "efb21dcf0c9d826792ac78d7573f11ddbbbc8b4df6f1d17063b4e8d3150a34c7",
+    "cpp/modules/kernel_occt/src/sheet_state_sources.inc": "391cf89446d9a228788eb4604c5c136809e8b20a7fc07e128365cfba21d52253",
+    "cpp/modules/kernel_occt/src/solid_state_replay.inc": "c4142a71d04718cd87ba532fb4ff58566efee128bde56376c0c2d751edb9d0d0",
+    "cpp/modules/kernel_occt/src/solid_straightening.inc": "cb268e44f0bc316240da46bb11ca0e64e9eeb89505d70d9aed39285e15b9c8d7",
+    "cpp/modules/kernel_occt/src/step_source_document.cpp": "bfcd1e7793e489f744d76b3918d339de241636c7c3a2e75f102d600564cb41ec",
+    "cpp/modules/kernel_occt/src/surface_intersection_geometry.inc": "390a07e097a55d06f759c8a02775701d8d4451584cb04dc30917529f8309f7d2",
+    "cpp/modules/kernel_occt/src/surface_sewing_geometry.inc": "fdac22c482e493aaf32614d39b2464c8d9e927955af39df4830a57f6fa265948",
+    "cpp/modules/kernel_occt/src/surface_thicken_geometry.inc": "6001f02f82cee1bea5f4d9a46f1c9a020bd7cf0e03373a2e8d0be4c1cd464eff",
+    "cpp/modules/kernel_occt/src/surface_trim_geometry.inc": "f4e36d8f7be1b7a9f7f6439583195138910085e6fcac419758203c74e48b8215",
+    "cpp/modules/interchange/include/zima/interchange/dxf.hpp": "3992336c22e6813455e5289dfecab3f56a46394b594ebd83399d8bd62533bcfa",
+    "cpp/modules/interchange/include/zima/interchange/interchange.hpp": "64a07062766aea8ef09efdec7f8fd48cbbe53fc79e7c829a179eeea20535d579",
+    "cpp/modules/interchange/include/zima/interchange/model_import.hpp": "cc6a2fa69ed9eef1b3f8154b360683d8d06c4a65217a1360ac2eba117cccb756",
+    "cpp/modules/interchange/include/zima/interchange/planar_face.hpp": "23955e7e6677a96e111d3a3eda5bdbb01a7b0d5a205007bffa7e45b303d396b9",
+    "cpp/modules/interchange/include/zima/interchange/step.hpp": "8404530a573f49314e51c1ce922f26d6e92cd42f2cb49e26f6eb99d2afdf7c83",
+    "cpp/modules/interchange/include/zima/interchange/step_model.hpp": "25bc44d30597924170712dac81e8f6659c04b88946fce66a3007e21e54aec133",
+    "cpp/modules/interchange/src/dxf.cpp": "0b87e924a87f21e3633e90bd233a3e4746efcd131a2b13848b397cd4074cc500",
+    "cpp/modules/interchange/src/dxf_document.hpp": "2dfd59045295db9907be2dbf46c37c3115980a435f8a4e904c6e83e9397382af",
+    "cpp/modules/interchange/src/dxf_export.cpp": "607a5c882a3751e8196678a4245bb1b6023bd68ace28e6a366fe84564282001b",
+    "cpp/modules/interchange/src/interchange.cpp": "0631a829b1f813384dbc5819728a9e7987c27aca673604647e232cb01ac5a922",
+    "cpp/modules/interchange/src/model_import.cpp": "7fd65483871ddfa967756598472aa30f6a6013efc30c260220b40c452592a01f",
+    "cpp/modules/interchange/src/planar_face.cpp": "a5e9d31e557c549bf45b2597d01282604c56411d09c78d9a8f3fe28437ec9b5d",
+    "cpp/modules/interchange/src/step.cpp": "2da7fac9cbf8b0d95a12d2d7faa61464468da2bb7ed594a113cad242209b4588",
+    "cpp/modules/interchange/src/step_model.cpp": "243695d84ebdb8fff5ecd2993c250e84eb7727c5389362e8965a0cde013a15fd"
+  },
+  "baseline_runtime": {
+    "version": "8.0.0",
+    "preserved_sdk": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\build\\native-sdk-baseline-8.0.0\\x64-windows",
+    "deployed_dll_count": 28,
+    "dll_sha256": {
+      "TKV3d.dll": "4b1a5af9e3b3fec2a97a13d382a7b6ec03fca4f90b861e7ba97d790bd1101772",
+      "TKCAF.dll": "b20f9d94470b0442630f0b38890b5a2af8d21e5f2c6b7b955cc3f9b965dc542a",
+      "TKPrim.dll": "6831c46cfb41f13d80b7987e53f078a7f1873f87572be7126c3c56f3e17f5790",
+      "TKBRep.dll": "61408cb8869c039e0947c81d4407b23be45e6131faae76c08025834e3f6bfe91",
+      "TKLCAF.dll": "0b14eee20cfacf45ef9e0dfb2e2f47540ce4437113d1f5ac69d60812fc3ee18a",
+      "TKXCAF.dll": "2718ebaae89b15c10fd31702583f7693de4ea437daffc5b639c912d9effb4407",
+      "TKVCAF.dll": "d36133bee078735fc55ee2ebc4b703e09cec2eea4514408287c448c8959c982b",
+      "TKBool.dll": "8f6019d2ffde57f45c560454bff1ea64663cf42cfbdc84c887db67ac081b8995",
+      "TKFillet.dll": "04af1c217d7833ecc487005daa14a94b7eb9df8b4870c5348f68dc93117611e6",
+      "TKernel.dll": "6453ad4a3de3fd85e2c6ef8b17ca6b1bfb0aae64f1d6381cb32ad6edee261b13",
+      "TKDE.dll": "e3a61d6526bddea908981225a30c8870327f7f14597dc902c4afc8b846156525",
+      "TKOffset.dll": "5a84dd2ae98f08b359805f80d1a8ae95d009592981d70a622a9d7075429815c2",
+      "TKG3d.dll": "c438a099c5d6cc7b66fe6d1740496fba9a569539fcdb786c2fb2ba7462335064",
+      "TKGeomBase.dll": "873af9212e1c092764a0f25a8db28724cd3a258e789a898460e226da2074a6f9",
+      "TKMesh.dll": "fd3fa8a44777134a574667b9419456f6e00034e1b637046150e2e4926da8761a",
+      "TKTopAlgo.dll": "47ec5d16b4618f1f2fb2126d6e7e53f00b4e40e375294438bf9948b20ea6aa54",
+      "TKXSBase.dll": "b871f9abf5236d665584abec850e0c5d8a250920392ec5eb0716b8bc485f20c6",
+      "TKDESTEP.dll": "c0f641299d7393a0f06fe2e60daf2b1ebf45334c8c8839bc35af94c443db697a",
+      "TKGeomAlgo.dll": "929a1444f22e512fd2df6db4fd657294820c4c1f802dbf9d69c02b6ab77b98b0",
+      "TKG2d.dll": "ed642f0500d91e9b7105c896bc2e819bbc1a7f565c5704c2acc6048bb3a03e92",
+      "TKCDF.dll": "ee32324abaf977647ae69cf61640b42d9397e9258274bc85520acd5398ccd3ba",
+      "TKMath.dll": "a884cb4d3971f04fac69c3bca30384c0e82558cda34ab2ea045ec9de0e5fbf52",
+      "TKHLR.dll": "885a506844b1ed94c08549ab4353748f92d2f0f0512effc4504f042a9d40ba98",
+      "TKService.dll": "0fbb5d17049d5efedcc31ab73c38ef2a6a5b20c851206aa1bdbb785171e759c4",
+      "TKDESTL.dll": "97950eddddecc66aea40cf896b5bd1a10ecd803ae32609a2e58af9ec17449b99",
+      "TKShHealing.dll": "267217c88fc279cdeb581daedd00d2baa02edbadce83577db0ac86e1231e1a94",
+      "TKDEIGES.dll": "2997a9e8e3690dbe9bbf2165e78ac3c9c56f450e208e9535e1e7dffa461617d9",
+      "TKBO.dll": "49cd35911a9199c43b3984d7f9006eaea457a0ba4581ddd297f96f440685074c"
+    }
+  },
+  "sdk_promotion": {
+    "new_sdk": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\build\\cpp-windows-release\\vcpkg_installed",
+    "new_version": "8.0.1",
+    "old_version": "8.0.0",
+    "preserved_baseline_sdk": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\00-SOFTWARE\\01-ZIMA\\ZIMA-CAD\\build\\native-sdk-baseline-8.0.0",
+    "verified_dll_count": 50
+  },
+  "reused_sdk_independent_libraries": [
+    "zima_browser_store",
+    "zima_update_client",
+    "zima_update_ui",
+    "zima_commands",
+    "zima_ai",
+    "zima_kernel_api",
+    "zima_sketcher",
+    "zima_symbols",
+    "zima_transition_core",
+    "zima_document_core",
+    "zima_assembly",
+    "zima_drawing",
+    "zima_measurement",
+    "zima_workspace",
+    "zima_command_host",
+    "zima_viewer",
+    "zima_drawing_render",
+    "zima_ui",
+    "zima_dxf_preview",
+    "zima_desktop_integration"
+  ],
+  "limits": [
+    "Native Linux build/GUI/package not run on this Windows host.",
+    "Existing baseline failures are retained, not fixed by the kernel upgrade.",
+    "Finite tests do not establish all geometries or all interaction variants.",
+    "Observed test durations are not hardware-independent performance guarantees."
+  ],
+  "diagnostic_comparison": "Generated 32-hex IDs use encounter-ordered placeholders for comparison, preserving equality relationships; geometry values and side flags are unchanged. Full raw logs remain local.",
+  "publication": "not yet performed"
+}

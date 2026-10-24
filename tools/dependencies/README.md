@@ -1,6 +1,6 @@
 # Shared native dependency patches
 
-Both native SDKs use OCCT **8.0.0** plus the same
+The shared dependency recipes now target OCCT **8.0.1** plus the same
 [`occt-gauss-large-spans.patch`](occt-gauss-large-spans.patch). The patch leaves
 integration precision and quadrature unchanged. It removes the historical fixed
 cap of 1,953 intervals (32 times the maximum quadrature order, plus one) from
@@ -16,16 +16,19 @@ maximum-error search includes retained capacity beyond the current budget.
 These checks are necessary when the fixed cap no longer masks those ranges.
 
 Windows uses the repository vcpkg overlay selected by `cpp/vcpkg.json`. Its
-OCCT port is copied from vcpkg baseline
+OCCT port is derived from vcpkg baseline
 `e03dc9b29710050cd1018bc5674688108658d327`, port tree
-`380113d2be95b9e41f2eb1740d809769edf41769`, with only the shared patch and its
-SDK provenance record added. The five upstream packaging patches retain their
+`380113d2be95b9e41f2eb1740d809769edf41769`, with the 8.0.1 source pin/checksum,
+shared patch and SDK provenance record added. The five upstream packaging patches retain their
 original content. vcpkg is distributed under the MIT license.
 
 When editing the shared patch, update `ZIMA_GAUSS_PATCH_EXPECTED_SHA256` in the
 portfile in the same change. vcpkg does not automatically hash a patch outside
 the port directory; this explicit digest makes it part of the package ABI.
 The port verifies the digest both before and after the SDK build.
+
+The 8.0.1 transition is under verification; the existing development SDK is not
+evidence of acceptance. See [the upgrade record](../../doc/verification/20261024-occt-801-upgrade.md).
 
 Linux applies the identical patch in `tools/distribution/build-linux-sdk.sh`.
 Re-running that script accepts only the original or already patched source.
