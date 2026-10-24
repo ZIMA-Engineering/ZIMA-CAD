@@ -14,6 +14,13 @@ int main(){try {
     check(dimensions[0].reference.owner_id=="pattern"&&dimensions[1].reference.semantic_key=="parameter:pattern:count:0");
     check(dimensions[1].label_only&&dimensions[1].unit_suffix.empty());
     check(dimensions[0].label_only&&dimensions[0].unit_suffix=="mm"&&dimensions[0].label_position.has_value());
+    kernel::ModelEnvelope envelope;envelope.include({-100,-100,-100});envelope.include({100,100,100});
+    for(const auto& value:dimensions) {
+        const auto shown=kernel::layout_dimension(value,envelope,kernel::DimensionLayout{0,8.,0,0});
+        check(shown.label_position==value.label_position&&shown.value==value.value&&shown.reference==value.reference);
+        check(shown.witness_first==shown.witness_second);
+    }
+
     check(document::assign_pattern_dimension(copy,"pattern:count:0",7));
     check(copy.pattern->linear[0].count==7&&copy.source_id=="source");
     rejects([&]{document::assign_pattern_dimension(copy,"pattern:count:0",2.5);});

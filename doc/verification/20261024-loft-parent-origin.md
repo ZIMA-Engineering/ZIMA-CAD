@@ -53,3 +53,16 @@ Loft case and GUI inline placement edit pass after their fixture corrections.
 General Surface, relation templates, new-document templates, Pattern helper
 inspection and feature direction/rotation GUI regressions pass. The broad CLI
 process reaches the same material/Relations regeneration failure as baseline.
+
+The additional Helical Sweep GUI run exposed a candidate-only helper-label
+placement defect: geometric witness data caused the existing default envelope
+layout to replace the value label anchor. Pitch and Pattern values now reuse
+the existing zero-witness scalar-label contract. The Pattern native test checks
+anchor preservation through that same layout, and the Helical GUI checks both
+the visible start marker and the agreed numeric pitch label. No shared layout,
+placement solver or geometry algorithm is changed by this correction.
+
+The corrected 2403 local run passes all four repeated native/localization/CLI
+checks and the Loft, Pattern and complete Helical Sweep GUI gates. The older
+full-turn pitch witness assertion was replaced with the approved label-only
+numeric/units/identity contract; the visible-marker assertion remains intact.

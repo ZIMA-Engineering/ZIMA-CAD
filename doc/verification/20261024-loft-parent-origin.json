@@ -1,5 +1,5 @@
 {
-  "version": "2026102402",
+  "version": "2026102403",
   "platform": "Windows x64",
   "kernel": "OCCT 8.0.1",
   "checks": [
@@ -11,7 +11,7 @@
     {
       "name": "zima_cpp_translations_contract",
       "passed": true,
-      "evidence": "final-2402.xml"
+      "evidence": "final-2403.xml"
     },
     {
       "name": "zima_cpp_family_table_tests",
@@ -21,7 +21,7 @@
     {
       "name": "zima_cpp_pattern_dimension_tests",
       "passed": true,
-      "evidence": "final-focused.xml"
+      "evidence": "final-2403.xml"
     },
     {
       "name": "zima_cpp_sketch_reference_command_tests",
@@ -41,7 +41,7 @@
     {
       "name": "zima_cpp_profile_public_naming_contract",
       "passed": true,
-      "evidence": "final-2402.xml"
+      "evidence": "final-2403.xml"
     },
     {
       "name": "zima_cpp_surface_thicken_tests",
@@ -51,7 +51,7 @@
     {
       "name": "zima_cpp_loft_document_tests",
       "passed": true,
-      "evidence": "final-2402-extra.xml"
+      "evidence": "final-2403.xml"
     },
     {
       "name": "zima_cpp_loft_tests",
@@ -127,6 +127,17 @@
     "TEMPLATES": {
       "log": "build/loft-audit/ZIMA_VERIFY_TEMPLATES_ONLY.log",
       "last_output": "Template opening, editing, region priority, shared confirmation, persistence and five UI languages passed\n"
+    },
+    "HELICAL_SWEEP": {
+      "log": "build/loft-audit/ZIMA_VERIFY_HELICAL_SWEEP_ONLY.log",
+      "last_output": "Helical Sweep UI contracts passed\n"
     }
+  },
+  "helper_anchor_correction": {
+    "contract": "Zero measured witness direction preserves label-only anchor under existing default envelope layout",
+    "native_test": "zima_cpp_pattern_dimension_tests",
+    "gui": "ZIMA_VERIFY_HELICAL_SWEEP_ONLY",
+    "result": "passed",
+    "candidate_2402_published": false
   }
 }

@@ -2273,11 +2273,10 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
         return d.reference.owner_id==feature_id&&d.reference.semantic_key=="parameter:pitch";});
     if(!verify(pitch_dimension!=placement_view->mesh().dimensions.end()&&pitch_dimension->value==5,
         "Helical pitch dimension missing in View"))return 1;
-    const auto along=zima::kernel::dimension_sub(pitch_dimension->witness_second,pitch_dimension->witness_first);
-    const auto offset=zima::kernel::dimension_sub(pitch_dimension->line_first,pitch_dimension->witness_first);
-    if(!verify(std::abs(zima::kernel::dimension_dot(along,along)-25)<1e-8&&
-        std::abs(zima::kernel::dimension_dot(along,offset))<1e-8&&zima::kernel::dimension_dot(offset,offset)>1,
-        "Pitch dimension is not a full turn with perpendicular offset from its axis"))return 1;
+    if(!verify(pitch_dimension->label_only&&pitch_dimension->unit_suffix=="mm"&&pitch_dimension->label_position.has_value()&&
+        pitch_dimension->witness_first==pitch_dimension->witness_second&&
+        pitch_dimension->label_prefix==QObject::tr("Stoupání").toStdString()+": ",
+        "Pitch is not a localized numeric value without dimension lines"))return 1;
     if(!verify(!stored.dimension_identifiers.identifier(feature_id,"parameter:pitch").empty(),"Pitch has no Relations identifier"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;

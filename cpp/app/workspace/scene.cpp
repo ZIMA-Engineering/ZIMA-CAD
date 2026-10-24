@@ -619,7 +619,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             kernel::dimension_add(end,offset),path.pitch,{container->id,"parameter:pitch",{}}});
                         display.dimensions.back().plane_normal=kernel::dimension_cross(path.axis,path.radial);
                         display.dimensions.back().label_only=true;
-                        display.dimensions.back().label_position=kernel::dimension_add(path.origin,offset);
+                        // A value label has no measured witness direction. Reuse the scalar
+                        // annotation contract so the default envelope layout keeps its anchor.
+                        display.dimensions.back().witness_first=display.dimensions.back().witness_second=
+                            display.dimensions.back().line_first=display.dimensions.back().line_second=path.origin;
+                        display.dimensions.back().label_position=kernel::dimension_add(kernel::dimension_add(path.origin,kernel::dimension_scale(path.radial,path.radius+8.+viewer_->world_tolerance_for_pixels(80))),kernel::dimension_scale(path.axis,path.pitch*.5));
                         if(!parameter_dimension_preview_)if(const auto* body=document.body_owner_for_object(container->id))
                             display=document.place_body_mesh(std::move(display),body->scope.id);
                         mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());

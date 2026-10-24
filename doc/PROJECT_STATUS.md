@@ -3,7 +3,7 @@
 The 2026-10-24 Loft follow-up completes parent-local owned Sketch placement,
 missing-reference snapshots, owned parameter identifiers and numeric helper
 labels. See [the follow-up verification](verification/20261024-loft-parent-origin.md)
-and [Windows 2402](releases/2026102402.md) for finite acceptance and publication.
+and [Windows 2403](releases/2026102403.md) for finite acceptance and publication.
 
 ## OCCT 8.0.1 Windows release — 2026-10-24
 

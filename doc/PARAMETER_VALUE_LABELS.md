@@ -26,3 +26,8 @@ Its side-operation spelling is `extrude`; `extrusion` is rejected at the public
 boundary. Native serialization continues to use its existing enum spelling.
 The CLI fixtures, library generators, examples and packaging smoke use the new
 public spelling. `twist` and `drill_point.*` retain their canonical English names.
+
+Helper labels have no measured witness direction. The shared default geometric
+dimension layout therefore retains their authored label anchor instead of
+placing them relative to a body envelope. Helical pitch adds screen-scale
+clearance from the start marker when its initial label position is created.

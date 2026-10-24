@@ -71,7 +71,7 @@ inline std::vector<kernel::ViewerDimension> pattern_dimensions(const std::string
         d.unit_suffix=value.count?"":value.angular?"°":"mm";
         if(value.angular)d.kind=kernel::ViewerDimensionKind::Angular;
         d.label_position=add(p.origin,radial,20.+12.*result.size());
-        d.line_first=d.line_second=d.witness_second=*d.label_position;
+        d.witness_first=d.witness_second=d.line_first=d.line_second=p.origin;
         result.push_back(std::move(d));
     }
     return result;
