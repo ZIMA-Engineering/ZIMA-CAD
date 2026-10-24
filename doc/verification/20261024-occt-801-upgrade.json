@@ -2011,5 +2011,411 @@
     "Observed test durations are not hardware-independent performance guarantees."
   ],
   "diagnostic_comparison": "Generated 32-hex IDs use encounter-ordered placeholders for comparison, preserving equality relationships; geometry values and side flags are unchanged. Full raw logs remain local.",
-  "publication": "not yet performed"
+  "publication": {
+    "version": "2026102401",
+    "published_at": "2026-10-24T07:47:19Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102401",
+    "assets": [
+      {
+        "name": "update-manifest.json",
+        "size": 704,
+        "sha256": "d8d98a40b61c15aef4780ac982d46900870aef5503462f38f066577e91640d91",
+        "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102401/update-manifest.json"
+      },
+      {
+        "name": "update-manifest.sig",
+        "size": 176,
+        "sha256": "bc57b27d2dd53450cf84452496a2ceba4b40600bfb30d099b30c833309e98d28",
+        "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102401/update-manifest.sig"
+      },
+      {
+        "name": "ZIMA-CAD-2026102401.zip",
+        "size": 1070570606,
+        "sha256": "d6af0b06e2cb6a1f148b88e4dd578565e3ea3b82f811fbde20b6ca6804372adf",
+        "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102401/ZIMA-CAD-2026102401.zip"
+      }
+    ],
+    "previous_updater": {
+      "availableVersion": "2026102401",
+      "downloadUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/download/ZIMA-CAD-2026102401/ZIMA-CAD-2026102401.zip",
+      "event": "result",
+      "installable": true,
+      "installedVersion": "2026102303",
+      "manifest": {
+        "archive": {
+          "fileCount": 17306,
+          "name": "ZIMA-CAD-2026102401.zip",
+          "sha256": "d6af0b06e2cb6a1f148b88e4dd578565e3ea3b82f811fbde20b6ca6804372adf",
+          "size": 1070570606,
+          "unpackedSize": 5960897509
+        },
+        "channel": "stable",
+        "checksumsSha256": "ff8e080b619081005d5af367aadb4ff59a69ce1996738bee996951c2db01981e",
+        "commit": "2bbbb08b02f09c7880753a5f90ff5ba9e289e057",
+        "launcherProtocol": 1,
+        "minimumUpdaterVersion": 1,
+        "platforms": {
+          "windows-x64": {
+            "entry": "zima-cad-cpp.exe",
+            "runtime": "windows/2026102401",
+            "systemPackages": []
+          }
+        },
+        "product": "ZIMA-CAD",
+        "schemaVersion": 1,
+        "source": {
+          "path": "source/2026102401",
+          "treeSha256": "0d7a0d846c29e2c37cd10163b1d9ae0849a714309b6717d5f05535d4d49531ab"
+        },
+        "tag": "ZIMA-CAD-2026102401",
+        "version": "2026102401"
+      },
+      "notes": "Windows portable release with OCCT 8.0.1 and Qt 6.11.0.\r\n\r\nThe shared Windows/Linux dependency recipes use the same pinned OCCT source and unchanged Gauss integration repair. Native document formats and modeling algorithms remain unchanged.\r\n\r\nVerified from immutable source commit 2bbbb08b02f09c7880753a5f90ff5ba9e289e057:\r\n\r\n- All seven analytical integration cases pass on OCCT 8.0.0 and 8.0.1.\r\n- The broad Windows matrix has 275 passing and 42 failing tests. All 42 failures reproduce on the current implementation with OCCT 8.0.0 and remain open.\r\n- Candidate and signed package native smoke load all 1,185 factory native documents and verify calculation, save/reopen, GUI startup, fonts and PDF/JPEG export.\r\n- All 20 candidate and 16 fresh signed-package GUI scenarios pass.\r\n- Packaged OCCT DLL hashes match the verified 8.0.1 SDK. Exact source/resources, immutable installed checksums and production updater trust pass.\r\n\r\nNative Linux build, GUI and package verification require the Linux host. Finite coverage and inherited failures are recorded in the [upgrade record](https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/main/doc/verification/20261024-occt-801-upgrade.md).\r\n\r\nUser projects, private settings and edited library assets are preserved. The normal local launcher remains zima-cad.bat. Loft is subsequent work and is not included.\r\n\r\nArchive SHA-256: d6af0b06e2cb6a1f148b88e4dd578565e3ea3b82f811fbde20b6ca6804372adf\r\n",
+      "reason": "",
+      "schemaVersion": 1,
+      "signature": {
+        "keyId": "zcp-8fa1f825cbde5d81",
+        "signature": "367a93110f7602f34f2cc4c82c3a3abdaaf710b06fc4ba9b839f2dc2c2e5d9744d599831dc214d7f5740be31e8543ed92e116752e2c5d6ea80968be75ad59e00"
+      },
+      "status": "available"
+    },
+    "previous_installation_preserved": true
+  },
+  "windows_package_acceptance": {
+    "candidate": {
+      "commit": "2bbbb08b02f09c7880753a5f90ff5ba9e289e057",
+      "version": "2026102401",
+      "archive_sha256": "d709554cdd80a7ca1410b972446c5ae083f336ab5bd6af88f81bb9c728a75e51",
+      "factory_count": 1185,
+      "exact_factory_resources": 7353,
+      "verified_implementation_files": 1378,
+      "immutable_checksums": 17303,
+      "gui": [
+        {
+          "name": "ordered-up-to",
+          "exit": 0,
+          "seconds": 10.234
+        },
+        {
+          "name": "sketch-face-plane",
+          "exit": 0,
+          "seconds": 28.391
+        },
+        {
+          "name": "sketch-spline",
+          "exit": 0,
+          "seconds": 4.734
+        },
+        {
+          "name": "sketch-trimmed",
+          "exit": 0,
+          "seconds": 4.672
+        },
+        {
+          "name": "side-reversal",
+          "exit": 0,
+          "seconds": 25.937
+        },
+        {
+          "name": "new-documents-mm",
+          "exit": 0,
+          "seconds": 36.157
+        },
+        {
+          "name": "new-documents-in",
+          "exit": 0,
+          "seconds": 36.359
+        },
+        {
+          "name": "BridgeLance",
+          "exit": 0,
+          "seconds": 4.875
+        },
+        {
+          "name": "CornerGusset90",
+          "exit": 0,
+          "seconds": 3.953
+        },
+        {
+          "name": "DimpledHole",
+          "exit": 0,
+          "seconds": 6.203
+        },
+        {
+          "name": "VentilationWindow",
+          "exit": 0,
+          "seconds": 7.031
+        },
+        {
+          "name": "sketch-profile-wire",
+          "exit": 0,
+          "seconds": 2.75
+        },
+        {
+          "name": "curve-plane-points",
+          "exit": 0,
+          "seconds": 107.875
+        },
+        {
+          "name": "rounded-sketch-mirror",
+          "exit": 0,
+          "seconds": 26.844
+        },
+        {
+          "name": "symmetric-rectangle",
+          "exit": 0,
+          "seconds": 9.719
+        },
+        {
+          "name": "multisolid-shell",
+          "exit": 0,
+          "seconds": 18.328
+        },
+        {
+          "name": "external-dimension",
+          "exit": 0,
+          "seconds": 45.719
+        },
+        {
+          "name": "sketch-entry",
+          "exit": 0,
+          "seconds": 40.515
+        },
+        {
+          "name": "equal-corner-drag",
+          "exit": 0,
+          "seconds": 8.766
+        },
+        {
+          "name": "equal-corner-dimension",
+          "exit": 0,
+          "seconds": 9.234
+        }
+      ],
+      "pristine": "C:\\zcb\\p2401\\c\\p-4zhixj3p\\ZIMA-CAD",
+      "installation": "C:\\zcb\\p2401\\c\\p-4zhixj3p\\ověření balíku\\ZIMA-CAD",
+      "updater_version": "2026102401",
+      "diagnostic_fixture_paths": "ASCII for inherited path::string probes; production extraction is Unicode",
+      "occt_kernel": {
+        "version": "8.0.1",
+        "dll_sha256": {
+          "TKBO.dll": "91da33132f0f9ab1ee11e6d8e79d902b4683c4ce92dd23de41db327559b9fba5",
+          "TKBool.dll": "e6707368f9c6b8a20a715528362338392f74d049b0649c21037535b68312c9d4",
+          "TKBRep.dll": "2e4b028f93f0a3bb556c34429562f66ae2ea7d6581e5792b21f2694e124cd208",
+          "TKCAF.dll": "2d24ba59e33ed684d0fb089794697c48090b018046c396b136634a7131643da7",
+          "TKCDF.dll": "c09507100d2892438b1978f3ff0523b8acdb04755f1ec2ccb2d346f688008931",
+          "TKDE.dll": "ced3ff66a6258dfde2361951dc4acf6072cbe403a9e7a8ff5573894d076c052a",
+          "TKDEIGES.dll": "5edc4dcc0c158a5cc859d5cbc133e6af95ef753fd7acf9c3ddaf3069845b04b0",
+          "TKDESTEP.dll": "4798078c33f2f57420b2cb4f99f3974f02b332a14d94e347d37dd3cd36332711",
+          "TKDESTL.dll": "b39d3fa10ddb8f2c83f22a403c728f32be9e0fe1c772ab9e324294f2a1d52664",
+          "TKernel.dll": "d7e5a9ffe115786fa5fb7563b4e4fef5157954436685ce2d00d317d3d492eaab",
+          "TKFillet.dll": "5d81bbfdefa716747281a0cff0177a5f9240bf5064104ec0d826dd8f2c848695",
+          "TKG2d.dll": "ec422559cfc2fb0c8a40804a0b5e21597aade8e4cfcf7007e0f6479802f37bd8",
+          "TKG3d.dll": "78d5be5898a6852845065e4adbb63036cefb847867bbbbf8f638ae42109e45f5",
+          "TKGeomAlgo.dll": "f865721f2cd71b7a7b666c4a4f0c0c67c18b9d6f3a8cbfc88bfc2df5b87a5a30",
+          "TKGeomBase.dll": "2ae2fb3c1b6eee7403e57490db25a725f41a5c310be235c5d0f84df9996c06a8",
+          "TKHLR.dll": "4fef0d873721d7af8b05e3ccee2ee293b0f3c92a5a31c2deca368d906e7a18e8",
+          "TKLCAF.dll": "f8ac0ed4594397ed2ef7a3c509c65fd6e2d56395855b8084488323c365892c8e",
+          "TKMath.dll": "d9d8ce4a2bcffe10d5ca49cefa86ee0564069073fafd1f59e56d3bedb25241e5",
+          "TKMesh.dll": "22c9ce5df14063ffea3397c635197107e3d23eca5eb1680e9b29fd1d27ac43ba",
+          "TKOffset.dll": "d59544120804a47950de018f749bd4eb38ba0bc560afce73eae86b92814dd45b",
+          "TKPrim.dll": "344371060896b9f2a62de0dacfad92ae55abb1fd70b49d4152849bb8acc6835a",
+          "TKService.dll": "2fc14d9ae16b70dcedcfe0857a9742727f78189676bc6b88e443258faf183321",
+          "TKShHealing.dll": "306f1f5575a5b88594db184f75abb92cf2673c28b72b220eee6d8a1abfa510da",
+          "TKTopAlgo.dll": "0172b1930065e8adfe85b713d7eb97b75b4b87fc511e88cd36643f6bda243865",
+          "TKV3d.dll": "f6ac8169d3b19332a00c077aa4512af811178797899afba69dec1844ea0d51f1",
+          "TKVCAF.dll": "8a044c12c0cc5a76987cc300e9d0f0cb8866bf8ba374797d9cca6f41dca81254",
+          "TKXCAF.dll": "fae99760b365114622c1c1d3be6ff4ea3980752179c6336e2ed9937f9579ed73",
+          "TKXSBase.dll": "149d729cd57aed04cd5f6c59ade5bded0fa305f6b429c0152a594a0e080f2fbd"
+        }
+      },
+      "git_archive_text_materialization": {
+        "native_forms": [
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/BridgeLance.prtz",
+            "canonical_sha256": "549846ef2653b79563e425d63b70bfe2fffe959861b4fd4dd841e31aa9689b39",
+            "archive_sha256": "59345cb20832b3a4eebf50404066cc9cad520970c6f629fa18c9dc3dbf901abb"
+          },
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz",
+            "canonical_sha256": "3be0c6038f206927f1cb964f246bb67e4a867e60ee736d389d57d5ea7c6fed24",
+            "archive_sha256": "129b15dc11defdcbf528351e42ae6fba038b192e5a20f22b1351c1ec5e229d55"
+          },
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/DimpledHole.prtz",
+            "canonical_sha256": "08de7da5c3a30a5972fc87b072ea20569e9a1299b74a154f0a20ce22ef75a9c3",
+            "archive_sha256": "0e14f143d223c7f09ebb6aad2611a495109d3e25fc6cbc82e9d9a3f5a67eb57f"
+          },
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz",
+            "canonical_sha256": "67c765287f9040d5ea77bf04727263ee1a920eb1ca53ec1659da3d2d4619ef9f",
+            "archive_sha256": "2e224fcad1ba08e5006a52ef427aaca0bc6442f16a597d292529020d1b4a101a"
+          }
+        ],
+        "cpp_files": 1371,
+        "policy": "Only CRLF/LF text materialization; exact Git blob content otherwise"
+      }
+    },
+    "signed": {
+      "commit": "2bbbb08b02f09c7880753a5f90ff5ba9e289e057",
+      "version": "2026102401",
+      "archive_sha256": "d6af0b06e2cb6a1f148b88e4dd578565e3ea3b82f811fbde20b6ca6804372adf",
+      "factory_count": 1185,
+      "exact_factory_resources": 7353,
+      "verified_implementation_files": 1378,
+      "immutable_checksums": 17305,
+      "gui": [
+        {
+          "name": "ordered-up-to",
+          "exit": 0,
+          "seconds": 10.093
+        },
+        {
+          "name": "sketch-face-plane",
+          "exit": 0,
+          "seconds": 28.438
+        },
+        {
+          "name": "side-reversal",
+          "exit": 0,
+          "seconds": 26.328
+        },
+        {
+          "name": "new-documents-mm",
+          "exit": 0,
+          "seconds": 36.047
+        },
+        {
+          "name": "new-documents-in",
+          "exit": 0,
+          "seconds": 35.406
+        },
+        {
+          "name": "BridgeLance",
+          "exit": 0,
+          "seconds": 5.0
+        },
+        {
+          "name": "VentilationWindow",
+          "exit": 0,
+          "seconds": 6.766
+        },
+        {
+          "name": "sketch-profile-wire",
+          "exit": 0,
+          "seconds": 2.781
+        },
+        {
+          "name": "curve-plane-points",
+          "exit": 0,
+          "seconds": 108.891
+        },
+        {
+          "name": "rounded-sketch-mirror",
+          "exit": 0,
+          "seconds": 21.157
+        },
+        {
+          "name": "symmetric-rectangle",
+          "exit": 0,
+          "seconds": 9.625
+        },
+        {
+          "name": "multisolid-shell",
+          "exit": 0,
+          "seconds": 18.078
+        },
+        {
+          "name": "external-dimension",
+          "exit": 0,
+          "seconds": 45.375
+        },
+        {
+          "name": "sketch-entry",
+          "exit": 0,
+          "seconds": 40.531
+        },
+        {
+          "name": "equal-corner-drag",
+          "exit": 0,
+          "seconds": 8.437
+        },
+        {
+          "name": "equal-corner-dimension",
+          "exit": 0,
+          "seconds": 9.875
+        }
+      ],
+      "pristine": "None",
+      "installation": "C:\\Users\\vladi\\Prace\\ZIMA-Engineering\\ZIMA ověření 2401\\ZIMA-CAD",
+      "updater_version": "2026102401",
+      "diagnostic_fixture_paths": "ASCII for inherited path::string probes; production extraction is Unicode",
+      "occt_kernel": {
+        "version": "8.0.1",
+        "dll_sha256": {
+          "TKBO.dll": "91da33132f0f9ab1ee11e6d8e79d902b4683c4ce92dd23de41db327559b9fba5",
+          "TKBool.dll": "e6707368f9c6b8a20a715528362338392f74d049b0649c21037535b68312c9d4",
+          "TKBRep.dll": "2e4b028f93f0a3bb556c34429562f66ae2ea7d6581e5792b21f2694e124cd208",
+          "TKCAF.dll": "2d24ba59e33ed684d0fb089794697c48090b018046c396b136634a7131643da7",
+          "TKCDF.dll": "c09507100d2892438b1978f3ff0523b8acdb04755f1ec2ccb2d346f688008931",
+          "TKDE.dll": "ced3ff66a6258dfde2361951dc4acf6072cbe403a9e7a8ff5573894d076c052a",
+          "TKDEIGES.dll": "5edc4dcc0c158a5cc859d5cbc133e6af95ef753fd7acf9c3ddaf3069845b04b0",
+          "TKDESTEP.dll": "4798078c33f2f57420b2cb4f99f3974f02b332a14d94e347d37dd3cd36332711",
+          "TKDESTL.dll": "b39d3fa10ddb8f2c83f22a403c728f32be9e0fe1c772ab9e324294f2a1d52664",
+          "TKernel.dll": "d7e5a9ffe115786fa5fb7563b4e4fef5157954436685ce2d00d317d3d492eaab",
+          "TKFillet.dll": "5d81bbfdefa716747281a0cff0177a5f9240bf5064104ec0d826dd8f2c848695",
+          "TKG2d.dll": "ec422559cfc2fb0c8a40804a0b5e21597aade8e4cfcf7007e0f6479802f37bd8",
+          "TKG3d.dll": "78d5be5898a6852845065e4adbb63036cefb847867bbbbf8f638ae42109e45f5",
+          "TKGeomAlgo.dll": "f865721f2cd71b7a7b666c4a4f0c0c67c18b9d6f3a8cbfc88bfc2df5b87a5a30",
+          "TKGeomBase.dll": "2ae2fb3c1b6eee7403e57490db25a725f41a5c310be235c5d0f84df9996c06a8",
+          "TKHLR.dll": "4fef0d873721d7af8b05e3ccee2ee293b0f3c92a5a31c2deca368d906e7a18e8",
+          "TKLCAF.dll": "f8ac0ed4594397ed2ef7a3c509c65fd6e2d56395855b8084488323c365892c8e",
+          "TKMath.dll": "d9d8ce4a2bcffe10d5ca49cefa86ee0564069073fafd1f59e56d3bedb25241e5",
+          "TKMesh.dll": "22c9ce5df14063ffea3397c635197107e3d23eca5eb1680e9b29fd1d27ac43ba",
+          "TKOffset.dll": "d59544120804a47950de018f749bd4eb38ba0bc560afce73eae86b92814dd45b",
+          "TKPrim.dll": "344371060896b9f2a62de0dacfad92ae55abb1fd70b49d4152849bb8acc6835a",
+          "TKService.dll": "2fc14d9ae16b70dcedcfe0857a9742727f78189676bc6b88e443258faf183321",
+          "TKShHealing.dll": "306f1f5575a5b88594db184f75abb92cf2673c28b72b220eee6d8a1abfa510da",
+          "TKTopAlgo.dll": "0172b1930065e8adfe85b713d7eb97b75b4b87fc511e88cd36643f6bda243865",
+          "TKV3d.dll": "f6ac8169d3b19332a00c077aa4512af811178797899afba69dec1844ea0d51f1",
+          "TKVCAF.dll": "8a044c12c0cc5a76987cc300e9d0f0cb8866bf8ba374797d9cca6f41dca81254",
+          "TKXCAF.dll": "fae99760b365114622c1c1d3be6ff4ea3980752179c6336e2ed9937f9579ed73",
+          "TKXSBase.dll": "149d729cd57aed04cd5f6c59ade5bded0fa305f6b429c0152a594a0e080f2fbd"
+        }
+      },
+      "git_archive_text_materialization": {
+        "native_forms": [
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/BridgeLance.prtz",
+            "canonical_sha256": "549846ef2653b79563e425d63b70bfe2fffe959861b4fd4dd841e31aa9689b39",
+            "archive_sha256": "59345cb20832b3a4eebf50404066cc9cad520970c6f629fa18c9dc3dbf901abb"
+          },
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz",
+            "canonical_sha256": "3be0c6038f206927f1cb964f246bb67e4a867e60ee736d389d57d5ea7c6fed24",
+            "archive_sha256": "129b15dc11defdcbf528351e42ae6fba038b192e5a20f22b1351c1ec5e229d55"
+          },
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/DimpledHole.prtz",
+            "canonical_sha256": "08de7da5c3a30a5972fc87b072ea20569e9a1299b74a154f0a20ce22ef75a9c3",
+            "archive_sha256": "0e14f143d223c7f09ebb6aad2611a495109d3e25fc6cbc82e9d9a3f5a67eb57f"
+          },
+          {
+            "path": "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz",
+            "canonical_sha256": "67c765287f9040d5ea77bf04727263ee1a920eb1ca53ec1659da3d2d4619ef9f",
+            "archive_sha256": "2e224fcad1ba08e5006a52ef427aaca0bc6442f16a597d292529020d1b4a101a"
+          }
+        ],
+        "cpp_files": 1371,
+        "policy": "Only CRLF/LF text materialization; exact Git blob content otherwise"
+      },
+      "production_trust": {
+        "event": "result",
+        "installedVersion": "2026102401",
+        "schemaVersion": 1,
+        "status": "idle",
+        "trusted": true
+      }
+    }
+  }
 }

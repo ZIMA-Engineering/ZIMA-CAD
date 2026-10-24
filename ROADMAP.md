@@ -14,10 +14,10 @@ newer completion notes and focused contracts supersede their earlier status.
 
 ## Current status and work order (2026-10-24)
 
-The current task is the shared OCCT 8.0.1 transition and system verification,
-followed by Windows 2026102401 package/signing/publication acceptance. The
+The shared OCCT 8.0.1 transition and Windows 2026102401 package, signing,
+public download and trusted updater acceptance are complete. The
 [upgrade record](doc/verification/20261024-occt-801-upgrade.md) retains all 42
-existing baseline failures and the separate native Linux gap. After publication,
+existing baseline failures and the separate native Linux gap. The next task is to
 implement standalone **Loft** with planar 2D profile Sketches above planar 2D
 guide Sketches, based on the 3D Sweep interface without whole-curve type or
 corner-rounding controls. New persisted contracts require the approved factory

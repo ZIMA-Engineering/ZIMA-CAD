@@ -57,10 +57,10 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest accepted signed Windows release is
-[2026102303](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102303).
-It includes linked Sketch radii, reference dimensions, multi-solid Shell,
-consistent mirrored Thin profiles, copied construction axes and view corrections.
-See its [verification and limits](doc/releases/2026102303.md).
+[2026102401](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102401).
+It upgrades the shared OCCT kernel to 8.0.1; Windows package, signature, GUI,
+public downloads and trusted updater discovery are verified.
+See its [verification and limits](doc/releases/2026102401.md).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

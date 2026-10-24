@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Windows [2026102401](releases/2026102401.md#windows-publication-acceptance)
+was published at `2026-10-24T07:47:19Z` from immutable source
+`2bbbb08b02f09c7880753a5f90ff5ba9e289e057`, using OCCT 8.0.1 and Qt 6.11.0.
+All 20 candidate and 16 fresh signed GUI scenarios pass. Both native smoke runs
+load all 1,185 factory native documents. Exact source/resources,
+17,305 immutable installed checksums, all 28 packaged OCCT DLL
+hashes, production trust, complete authenticated and anonymous downloads, and
+trusted 2303 updater discovery pass. No update installation is claimed.
+The broader upgrade matrix retains 42 failures reproduced with OCCT 8.0.0;
+see [the finite upgrade evidence](verification/20261024-occt-801-upgrade.md).
+Native Linux execution remains unverified on this Windows host.
+
 Signed Windows [2026102303](releases/2026102303.md#windows-publication-acceptance)
 was published at `2026-10-23T22:45:07Z` from immutable source `96c89fd2e73ad04b64327ac6b0c648aec6b99443`.
 It includes linked corner-radius editing and zero collapse, planar Reference
