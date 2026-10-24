@@ -283,7 +283,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     show_axis_points_action_ = reference_action(
         tr("Body os"), "axis-points", zima::viewer::ReferenceVisibility::AxisPoints);
     show_axis_points_action_->setObjectName("showAxisPointsAction");
-    show_axis_points_action_->setToolTip(tr("Zobrazit nebo skrýt koncové body os"));
+    show_axis_points_action_->setToolTip(tr("Zobrazit nebo skrýt body os a konstrukčních čar"));
     show_planes_action_ = reference_action(
         tr("Roviny"), "plane", zima::viewer::ReferenceVisibility::Planes);
     show_surfaces_action_ = reference_action(tr("Plochy"), "surface", zima::viewer::ReferenceVisibility::Surfaces);

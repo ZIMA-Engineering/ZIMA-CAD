@@ -653,7 +653,7 @@ void AssemblyWorkspaceWindow::accept_sketch_corner_fillet_segment(
     initial.kind = zima::sketcher::DimensionKind::Radius;
     initial.value = 1.0;
     auto* dialog = new SketchDimensionPropertiesDialog(
-        std::move(initial), false,
+        std::move(initial), active_sketch()->plane, false,
         [this, sketch_id = active_sketch_id_, first_segment_id,
          second_segment_id = segment_id](zima::sketcher::SketchDimension value) {
             if (active_sketch_id_ != sketch_id ||

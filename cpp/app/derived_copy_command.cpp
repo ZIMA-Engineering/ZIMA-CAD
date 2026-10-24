@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QDialogButtonBox>
 #include "resource_icon.hpp"
+#include "authored_feature_wire.hpp"
 
 namespace zima::app {
 namespace {
@@ -56,8 +57,11 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         const auto& document=part->session.document();graph=document.body_history;
         if(id.empty())graph.set_insertion_cursor(choices.boundary);
         available=choices.context_bodies;
-        for(const auto& source:choices.items)
-            sources.emplace(source.id,MirrorSource{QString::fromStdString(source.name),workspace::derived_copy_source_mesh(part->session,source),source.kind!=workspace::CopySourceKind::Solid});
+        for(const auto& source:choices.items) {
+            auto mesh=workspace::derived_copy_source_mesh(part->session,source);
+            if(source.kind==workspace::CopySourceKind::Solid)mesh.edges=authored_feature_wire(part->session,source.id);
+            sources.emplace(source.id,MirrorSource{QString::fromStdString(source.name),std::move(mesh),source.kind!=workspace::CopySourceKind::Solid});
+        }
     } else {
         const auto& document=assembly->session.document();
         auto preview=document;bool downstream=false;
@@ -275,28 +279,38 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             const auto local=assembly::InstancePath::decode(ref.instance_path);for(const auto& p:local.occurrence_ids)path=path.child(p);
             highlights.insert({ref.owner_id,ref.semantic_key,path.encoded()});if(ref.semantic_key=="plane")highlights.insert({ref.owner_id,"border",path.encoded()});
         }
-        if(dialog->inspected(1)&&sources.contains(dialog->derived_copy.source_id))for(const auto& edge:sources.at(dialog->derived_copy.source_id).mesh.edges) {
-            auto path=assembly::InstancePath::decode(prefix);for(const auto& p:assembly::InstancePath::decode(edge.reference.instance_path).occurrence_ids)path=path.child(p);
-            highlights.insert({edge.reference.owner_id,edge.reference.semantic_key,path.encoded()});
+        std::vector<kernel::ViewerEdge> source_inspection;
+        if(dialog->inspected(1)&&sources.contains(dialog->derived_copy.source_id)) {
+            source_inspection=sources.at(dialog->derived_copy.source_id).mesh.edges;
+            std::erase_if(source_inspection,[](const auto& edge){return edge.parameter_seam||kernel::smooth_transition_junction(edge);});
+            if(!prefix.empty())for(auto& edge:source_inspection)for(auto& point:edge.points)
+                point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),point);
         }
-        viewer_->set_constraint_reference_highlights({},std::move(highlights));
+        // Authored preview keys intentionally differ from calculated topology.
+        // Inspect that complete wire directly, rather than trying to find its
+        // preview-only keys among later Boolean result fragments.
         if(dialog->active_input()>=0)dialog->request_input(dialog->active_input());
         else if(!pending_primitive_reference_index_) {feature_reference_pick_={};set_primitive_properties_dimension_selection();}
+        viewer_->set_container_inspection_wire(std::move(source_inspection));
+        viewer_->set_constraint_reference_highlights({},std::move(highlights));
         if(inspecting||dialog->inspected(1))feature_reference_end_=[this,dialog]{feature_reference_pick_={};feature_reference_end_={};dialog->end_input();dialog->changed();};
     };
+    // Release the Tree transaction before the final scene/Tree publication.
+    // Otherwise that refresh still treats the closed dialog as an active edit
+    // and omits Insert Here until the next unrelated refresh/regeneration.
+    if(!choices.body_id.empty())track_tree_edit(dialog);
     connect(dialog,&QDialog::finished,this,[this]{
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
         primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_origin_preview_mesh_.reset();
         properties_dialog_=nullptr;properties_dialog_instance_path_.clear();primitive_parameter_owner_id_.clear();
         part_rollback_.reset();body_dialog_preview_.reset();body_dialog_context_.reset();body_dialog_step_id_.clear();derived_copy_assembly_preview_.reset();
         local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();selectable_local_origin_container_ids_.clear();
-        viewer_->set_transient_edges({});viewer_->set_constraint_reference_highlights({},{});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
+        viewer_->set_transient_edges({});viewer_->set_container_inspection_wire({});viewer_->set_constraint_reference_highlights({},{});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
         viewer_->set_candidate_priority({});
         viewer_->set_original_container_selection(false);
         viewer_->set_editing_origin_visible(false);
         tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });
-    if(!choices.body_id.empty())track_tree_edit(dialog);
     bind_local_origin_selection(dialog);dialog->show();dialog->changed();
     if(id.empty())start_primitive_reference_selection(0,true);
 }

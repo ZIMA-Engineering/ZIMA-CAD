@@ -252,7 +252,14 @@ require mouse selection. The native solver checks suitability, solvability and
 duplicate driving dimensions.
 
 Coordinates from the built-in Sketch origin or X/Y axes display and accept
-signed absolute values, including `point_line` against a built-in axis. Repeating
+signed absolute values in the owning Feature Origin's named axes, including
+`point_line` against a built-in axis. `get` additionally reports the read-only
+`coordinate_axis` (`x`, `y`, `z`, or empty for a non-coordinate dimension).
+XY maps to X/Y, XZ maps to X/Z, and YZ maps to Y/Z. In particular, the canonical
+XZ Sketch Y basis points along negative Feature Z; public values compensate for
+that basis. CLI, View, Properties, Relations and Family Table use the same rule.
+See [the coordinate contract](COORDINATE_FRAME_CORRECTION.md).
+ Repeating
 `value=-30` keeps that coordinate at -30. Other distances display magnitudes;
 negative input reverses their current direction. Limits use the displayed value.
 

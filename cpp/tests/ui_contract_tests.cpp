@@ -5739,7 +5739,7 @@ int main(int argc, char* argv[]) {
         std::optional<zima::kernel::DimensionLayout> committed_placement;
         zima::sketcher::SketchDimension committed_dimension;
         auto* dimension_dialog = new zima::app::SketchDimensionPropertiesDialog(
-            dimension, false, [&](zima::sketcher::SketchDimension committed) {
+            dimension, zima::sketcher::SketchPlane::XY, false, [&](zima::sketcher::SketchDimension committed) {
                 require(committed_placement&&std::abs(committed_placement->line_offset-12)<1e-9,"Value committed separately from its presentation");
                 ++dimension_commits;
                 committed_dimension = std::move(committed);

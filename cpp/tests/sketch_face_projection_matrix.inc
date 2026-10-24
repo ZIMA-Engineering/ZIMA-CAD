@@ -76,7 +76,8 @@ void verify_face_projection_matrix() {
                 require(std::abs(p->y-6)<1e-7&&std::abs(p->x-side*(radius+(cone?.6:0)))<1e-7,
                     "Projected source update lost point contact or its dimension");
                 for(double height:{7.,8.,6.}) {
-                    require(s.set_dimension_value(d.id,height),"Projected face contact blocked successive dimension edits");
+                    const double origin_coordinate=plane==SketchPlane::XZ?-height:height;
+                    require(s.set_dimension_value(d.id,origin_coordinate),"Projected face contact blocked successive Feature Origin coordinate edits");
                     const auto* q=s.find_point(point);
                     require(std::abs(q->y-height)<1e-7&&std::abs(q->x-side*(radius+(cone?.1*height:0)))<1e-7,
                         "Projected contact did not follow its exact straight contour");

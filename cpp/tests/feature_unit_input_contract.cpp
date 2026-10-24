@@ -303,17 +303,17 @@ void annotation_inputs(QApplication& application,QWidget& parent,double scale,do
         sketcher::SketchDimension sketch{"annotation",angular?sketcher::DimensionKind::AngleBetween:sketcher::DimensionKind::Distance,"first","second",d.value};
         sketch.suffix=initial.suffix;
         std::optional<sketcher::SketchDimension> saved;
-        auto* dialog=new app::SketchDimensionPropertiesDialog(sketch,true,[&](auto result){saved=std::move(result);},&parent);
+        auto* dialog=new app::SketchDimensionPropertiesDialog(sketch,sketcher::SketchPlane::XY,true,[&](auto result){saved=std::move(result);},&parent);
         mode=dialog->findChild<QComboBox*>("sketchDimensionToleranceMode");mode->setCurrentIndex(mode->findData("symmetric"));
         dialog->findChild<QLineEdit*>("sketchSymmetricTolerance")->setText("0.0010");
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
         check(saved&&saved->value==sketch.value&&saved->value_unit==unit&&saved->symmetric_tolerance=="0.0010"&&saved->suffix==symbol.toStdString(),
             "Sketch tolerance commit changed geometry or lost document units");
         const auto original=*saved;saved.reset();
-        dialog=new app::SketchDimensionPropertiesDialog(original,true,[&](auto result){saved=std::move(result);},&parent);
+        dialog=new app::SketchDimensionPropertiesDialog(original,sketcher::SketchPlane::XY,true,[&](auto result){saved=std::move(result);},&parent);
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
         check(saved&&*saved==original,"Reopened tolerance properties changed the saved specification");
-        saved.reset();dialog=new app::SketchDimensionPropertiesDialog(original,true,[&](auto result){saved=std::move(result);},&parent);
+        saved.reset();dialog=new app::SketchDimensionPropertiesDialog(original,sketcher::SketchPlane::XY,true,[&](auto result){saved=std::move(result);},&parent);
         dialog->findChild<QLineEdit*>("sketchSymmetricTolerance")->setText("99");dialog->reject();application.processEvents();
         check(!saved,"Cancel committed a tolerance edit");
     }
@@ -360,7 +360,7 @@ void sketch_inputs(QApplication& application,QWidget& parent,double scale,double
     for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::AngleBetween}) {
         sketcher::SketchDimension initial{"units",kind,"first","second",12.3456789};initial.annotation_decimals=7;
         std::optional<sketcher::SketchDimension> stored;
-        auto* dialog=new app::SketchDimensionPropertiesDialog(initial,true,[&](auto d){stored=std::move(d);},&parent);
+        auto* dialog=new app::SketchDimensionPropertiesDialog(initial,sketcher::SketchPlane::XY,true,[&](auto d){stored=std::move(d);},&parent);
         dialog->setLocale(QLocale::c());
         auto* field=dialog->findChild<QDoubleSpinBox*>("sketchDimensionValue");
         auto* unit=dynamic_cast<app::UnitExpressionDoubleSpinBox*>(field);
@@ -370,7 +370,7 @@ void sketch_inputs(QApplication& application,QWidget& parent,double scale,double
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
         check(stored.has_value(),"Converted Sketch dimension was not committed");
         check(stored->annotation_decimals==7&&stored->value_unit.empty(),"Editing only the value rewrote inherited annotation formatting");
-        near(sketcher::dimension_display_value(*stored),kind==sketcher::DimensionKind::Distance?.625*25.4:90.);
+        near(sketcher::dimension_display_value(*stored,sketcher::SketchPlane::XY),kind==sketcher::DimensionKind::Distance?.625*25.4:90.);
     }
     sketcher::Sketch sketch;sketch.plane_offset=.123456789;
     auto* properties=new app::SketchPropertiesDialog(sketch,{},true,{},[](auto,auto,bool){},&parent);

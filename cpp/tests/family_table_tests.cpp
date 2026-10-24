@@ -38,7 +38,7 @@ void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& dir
         const auto& model=live.open_part(document)->session.document();
         const auto sketch=std::ranges::find(model.sketches,owner,&sketcher::Sketch::id);
         const auto dimension=std::ranges::find(sketch->dimensions,key.substr(10),&sketcher::SketchDimension::id);
-        return sketcher::dimension_display_value(*dimension);
+        return sketcher::dimension_display_value(*dimension,sketch->plane);
     };
     require(std::abs(native_length(id)-10.5)<1e-10&&std::abs(native_length(variant)-20.25)<1e-10,
         "Fractional Family fixture did not establish its generic/member dimensions");

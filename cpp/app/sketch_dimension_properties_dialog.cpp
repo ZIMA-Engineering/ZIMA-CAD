@@ -13,6 +13,7 @@
 #include <QMenu>
 #include <QToolButton>
 #include <QWidget>
+#include <cmath>
 
 namespace zima::app {
 namespace {
@@ -25,18 +26,22 @@ QDoubleSpinBox* dimension_field(double value, const char* name, QWidget* parent,
     field->set_display_decimals(zima::ui::numeric_decimal_places(parent));
     field->setSingleStep(1.0);
     field->setValue(value);
+    // Qt normalizes a stored -0 to +0. Keep the authored input sign visible
+    // until submit so an unchanged coordinate does not reverse its side.
+    if(value==0.0&&std::signbit(value))
+        field->findChild<QLineEdit*>()->setText(field->prefix()+QStringLiteral("-0")+field->suffix());
     return field;
 }
 
 }  // namespace
 
 SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
-    zima::sketcher::SketchDimension initial, bool edit_mode,
+    zima::sketcher::SketchDimension initial, zima::sketcher::SketchPlane frame, bool edit_mode,
     CommitCallback commit, QWidget* parent, QString custom_title)
     : PropertiesSubWindow(custom_title.isEmpty()
           ? tr("Vlastnosti kóty")
           : std::move(custom_title), parent),
-      initial_(std::move(initial)), commit_(std::move(commit)) {
+      initial_(std::move(initial)), coordinate_frame_(frame), commit_(std::move(commit)) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
     setMinimumHeight(560);
@@ -44,7 +49,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     using Kind=zima::sketcher::DimensionKind;
     const bool angular=initial_.kind==Kind::Angle||initial_.kind==Kind::AngleBetween||
         initial_.kind==Kind::AngleThreePoint||initial_.kind==Kind::AngleSymmetric||initial_.kind==Kind::EllipseRotation;
-    value_ = dimension_field(zima::sketcher::dimension_display_value(initial_), "sketchDimensionValue", this,
+    value_ = dimension_field(zima::sketcher::dimension_display_value(initial_,coordinate_frame_), "sketchDimensionValue", this,
         angular?ui::InputQuantity::Angle:ui::InputQuantity::Length);
     form_->addRow(tr("Jmenovitá hodnota"), value_);
     driving_ = new QCheckBox(tr("Řídicí kóta"), this);
@@ -76,12 +81,13 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
     connect(value_, qOverload<double>(&QDoubleSpinBox::valueChanged),
-        this, [this](double) { error_->clear(); });
+        this, [this](double) { value_edited_=true;error_->clear(); });
+    connect(value_->findChild<QLineEdit*>(),&QLineEdit::textEdited,this,[this]{value_edited_=true;});
     connect(driving_, &QCheckBox::toggled, this, [this](bool driving) {
         // A reference dimension is a measurement, not an editable command.
         // Restore the last measured value if the user first typed a new
         // number and only then changed the dimension to reference mode.
-        if (!driving) value_->setValue(zima::sketcher::dimension_display_value(initial_));
+        if (!driving) value_->setValue(zima::sketcher::dimension_display_value(initial_,coordinate_frame_));
         if (!driving) locked_->setChecked(false);
         locked_->setEnabled(driving);
         value_->setEnabled(driving);
@@ -118,8 +124,12 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.tolerance_mode=style.tolerance_mode;result.symmetric_tolerance=style.symmetric_tolerance;
     result.single_tolerance=style.single_tolerance;result.upper_tolerance=style.upper_tolerance;result.lower_tolerance=style.lower_tolerance;
     try {
-        result.value = zima::sketcher::dimension_value_from_input(initial_,
-            static_cast<UnitExpressionDoubleSpinBox*>(value_)->expression_value());
+        const double input=static_cast<UnitExpressionDoubleSpinBox*>(value_)->expression_value();
+        // An untouched zero can be reformatted by Qt without a minus sign.
+        // Only an intentional value edit is allowed to choose its zero side.
+        if(result.driving&&(value_edited_||input!=0.0||
+                zima::sketcher::dimension_display_value(initial_,coordinate_frame_)!=0.0))
+            zima::sketcher::set_dimension_input_value(result,input,coordinate_frame_);
         zima::sketcher::validate_dimension_property_value(result);
         if(placement_fields_&&pending_layout_)pending_layout_(placement_fields_->value());
         commit_(std::move(result));

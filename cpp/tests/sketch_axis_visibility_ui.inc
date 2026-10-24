@@ -25,7 +25,9 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
         for(bool editing:{false,true}) {
             auto packet=sketch.viewer_mesh();if(!editing)sketch.filter_hidden_3d_geometry(packet);
             packet.axes.clear();packet.vertices={{-50,-50,0},{50,50,0}};
-            view.set_active_sketch_owner(editing?sketch.id:"");view.set_mesh(packet);view.clear_selection();
+            view.set_active_sketch_owner(editing?sketch.id:"");
+            view.set_geometry_editing_presentation(editing,editing?sketch.id:"");
+            view.set_mesh(packet);view.clear_selection();
             view.set_selection_contract({});
             for(const auto mode:{viewer::DisplayMode::Wire,viewer::DisplayMode::ShadedWithEdges,viewer::DisplayMode::Shaded})
             for(bool sketches:{true,false})for(bool axes:{true,false})for(bool points:{true,false}) {
@@ -34,8 +36,18 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
                 view.set_reference_visibility(viewer::ReferenceVisibility::Points,points);application.processEvents();
                 const auto frame=view.grabFramebuffer();const bool line_shown=editing?sketches:axes;
                 const auto wire_color=editing?QColor("#4DD811"):QColor(173,110,46);
-                require(framebuffer_contains_color_near(frame,view.size(),project(0,12),wire_color,8)==line_shown,
-                    "Sketch rotation axis uses the wrong visibility category");
+                // The centre of a dash-dot wire may lie in a transparent gap.
+                // Sample one complete middle pattern, away from its endpoints.
+                bool wire_visible=false;
+                for(double x:{-10.,-5.,0.,5.,10.})
+                    wire_visible|=framebuffer_contains_color_near(frame,view.size(),project(x,12),wire_color,3);
+                if(wire_visible!=line_shown) {
+                    std::cerr<<"Axis visibility dark="<<dark<<" reopened="<<reopened<<" editing="<<editing
+                        <<" mode="<<static_cast<int>(mode)<<" sketches="<<sketches<<" axes="<<axes<<" points="<<points
+                        <<" expected="<<line_shown<<" actual="<<wire_visible<<std::endl;
+                    frame.save("build/sketch-axis-visibility-failure.png");
+                }
+                require(wire_visible==line_shown,"Sketch rotation axis uses the wrong visibility category");
                 for(double x:{-20.,20.}) {
                     const auto color=editing?viewer::view_theme(palette).foreground:QColor(173,110,46);
                     require(framebuffer_contains_color_near(frame,view.size(),project(x,12),color,2)==(editing||axes),

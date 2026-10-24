@@ -359,7 +359,9 @@ private:
     SketchInferenceSettings sketch_inference_settings_;
     QPointer<QDialog> sketch_constraints_dialog_;
     void show_sketch_constraints();
-    bool automatic_constraint_enabled(zima::sketcher::ConstraintKind kind) const { return sketch_inference_settings_.enabled(kind); }
+    zima::sketcher::ConstraintKind sketch_view_constraint_kind(zima::sketcher::ConstraintKind kind) const;
+    void refresh_sketch_hv_labels();
+    bool automatic_constraint_enabled(zima::sketcher::ConstraintKind kind) const { return sketch_inference_settings_.enabled(sketch_view_constraint_kind(kind)); }
     std::optional<SketchPointAlignment> sketch_point_alignment(const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) const;
     QAction* sketch_horizontal_action_{};
     QAction* sketch_vertical_action_{};

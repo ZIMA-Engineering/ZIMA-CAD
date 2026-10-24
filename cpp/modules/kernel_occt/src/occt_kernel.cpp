@@ -4774,6 +4774,13 @@ std::vector<OwnedFace> shell_result_faces(
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+    // Adjacency describes the same original parent graph for every face.
+    // Reading a neighbor's mutable parents below would include discriminator
+    // tokens added earlier in this loop, making identities depend on OCCT's
+    // face traversal order even when the geometry and ancestry are unchanged.
+    std::vector<std::string> adjacency_base_tokens;
+    adjacency_base_tokens.reserve(pending.size());
+    for(const auto& value:pending)adjacency_base_tokens.push_back(base_parent_token(value));
     for (auto& value : pending) {
         if (value.unchanged.size() == 1) continue;
         std::set<std::string> adjacent_parents;
@@ -4792,7 +4799,7 @@ std::vector<OwnedFace> shell_result_faces(
                         return candidate.shape.IsSame(neighbor.Value());
                     });
                 if (found != pending.end()) {
-                    auto token = base_parent_token(*found);
+                    auto token = adjacency_base_tokens.at(static_cast<std::size_t>(found-pending.begin()));
                     adjacent_parents.insert(token);
                     edge_neighbors.insert(std::move(token));
                 }

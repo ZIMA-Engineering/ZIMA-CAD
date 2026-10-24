@@ -44,7 +44,7 @@ int main(){try{
         auto base=variant(source,sx,sy,reverse,external,projected,driving,locked);const auto references=base.external_references;
         auto s=base;
         for(const auto& dimension:base.dimensions)for(double factor:{.8,1.2,1.05}){
-            const auto before=s.serialized();const bool accepted=s.set_dimension_value(dimension.id,dimension_display_value(dimension)*factor);
+            const auto before=s.serialized();const bool accepted=s.set_dimension_value(dimension.id,dimension_display_value(dimension,s.plane)*factor);
             if(!accepted)std::cerr<<"case sx="<<sx<<" sy="<<sy<<" reverse="<<reverse<<" external="<<external<<" projected="<<projected<<" driving="<<driving<<" locked="<<locked<<" dimension="<<dimension.id<<" factor="<<factor<<'\n';
             check(accepted,"Dimension edit contract failed");if(!driving)check(s.points==base.points,"Reference dimension drove geometry");equations(s);check(s.external_references==references,"Dimension edit changed external source");++edits;
         }
@@ -58,7 +58,7 @@ int main(){try{
     }
     auto combined=source;
     for(const auto& dimension:source.dimensions)for(double factor:{1.1,.95,1.05})
-        check(combined.set_dimension_value(dimension.id,dimension_display_value(dimension)*factor),"Combined dimension sequence failed");
+        check(combined.set_dimension_value(dimension.id,dimension_display_value(dimension,combined.plane)*factor),"Combined dimension sequence failed");
     for(double delta:{.8,-.5,.6}) {
         const auto p=combined.points[3];
         check(combined.move_point(p.id,p.x+delta,p.y+delta-2e-5),"Point drag near the coupled free path failed");equations(combined);

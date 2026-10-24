@@ -16,6 +16,9 @@
 #include <zima/viewer/view_theme.hpp>
 #include <zima/viewer/annotation_arrow.hpp>
 #include <zima/viewer/infinite_line.hpp>
+#include <zima/viewer/sketch_hv.hpp>
+#include <zima/viewer/sketch_pick_priority.hpp>
+#include <QTimer>
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/kernel/surface_results.hpp>
@@ -244,6 +247,9 @@ struct MeshView::Impl {
     bool offer_original_faces{};
     bool offer_original_containers{};
     bool advance_selection_on_hover{true};
+    std::map<std::pair<std::string,std::string>,bool> sketch_hv_mapping;
+    std::function<void()> sketch_hv_changed;
+    bool sketch_hv_notification_pending{};
     std::function<int(const ViewerCandidate&)> candidate_priority;
     std::vector<ViewerCandidate> candidates;
     // Position at which `candidates` was last (re)computed. RMB cycling
@@ -506,7 +512,15 @@ struct MeshView::Impl {
         return point.construction&&point.reference.semantic_key.starts_with("point:")&&
             !point.reference.semantic_key.starts_with("point:from:")&&!active_sketch_geometry(point.reference);
     }
-    bool helper_point_visible(const kernel::ViewerPoint& point) const {
+    bool helper_point_visible(const kernel::ViewerPoint& point,bool picking=false) const {
+        if(active_sketch_geometry(point.reference)&&point.construction&&
+            point.reference.semantic_key.starts_with("point:")&&
+            !point.reference.semantic_key.starts_with("point:from:")) {
+            // The visibility preference also covers authored construction
+            // curves in the active Sketch. Keep real editable points available
+            // for snapping/dragging, with normal feedback only when picked.
+            return show_axis_points||picking;
+        }
         if(passive_sketch_axis_point(point)) {
             const bool explicit_entry=sketch_axis_entry_requested()||std::ranges::any_of(allowed_kinds,[](auto kind){
                 return kind==CandidateKind::Vertex||kind==CandidateKind::SketchPoint;});
@@ -594,11 +608,18 @@ struct MeshView::Impl {
 
     [[nodiscard]] std::optional<ViewerCandidate> authored_container_candidate(
             const std::string& owner,const std::string& path = {}) const {
-        if(auto candidate=container_candidate(mesh,owner,path))return candidate;
+        const bool authored=container_preview_authoritative&&container_preview_authoritative(owner,path);
+        if(auto candidate=container_candidate(mesh,owner,path)) {
+            // A feature can retain only its helper axis after later coplanar
+            // merging. Tree selection still selects the authored feature,
+            // rather than reinterpreting it as that surviving helper.
+            if(authored)candidate->semantic_key.clear();
+            return candidate;
+        }
         // Tree selection can inspect an Assembly-owned tool even when its
         // displayed faces belong to target occurrence paths or were consumed.
         // This is an object selection, not a new selectable topology record.
-        if(container_preview_authoritative&&container_preview_authoritative(owner,path))
+        if(authored)
             return ViewerCandidate{CandidateKind::Container,0.,0,owner,{},path,CandidateGeometry::Display};
         return {};
     }
@@ -1244,6 +1265,37 @@ void MeshView::set_geometry_editing_presentation(bool editing,
     impl_->editing_curve_path=editing?instance_path:std::string{};
     update();
 }
+bool MeshView::sketch_hv_swapped(const std::string& owner,const std::string& path) const {
+    if(owner.empty())return false;
+    const auto key=std::pair{owner,path};auto [entry,inserted]=impl_->sketch_hv_mapping.try_emplace(key,false);
+    const kernel::ViewerAxis *x=nullptr,*y=nullptr;
+    for(const auto& axis:impl_->mesh.axes)if(axis.reference.owner_id==owner&&axis.reference.instance_path==path) {
+        if(axis.reference.semantic_key=="sketch_axis:x")x=&axis;
+        else if(axis.reference.semantic_key=="sketch_axis:y")y=&axis;
+    }
+    if(!x||!y)return entry->second;
+    const auto rotated=[&](const auto& v){return impl_->orientation.rotatedVector(QVector3D(v.x,v.y,v.z));};
+    const bool next=sketch_hv_swap_for_view(rotated(x->direction),rotated(y->direction),entry->second);
+    if(next!=entry->second) {
+        entry->second=next;
+        if(impl_->sketch_hv_changed&&!impl_->sketch_hv_notification_pending) {
+            impl_->sketch_hv_notification_pending=true;
+            QTimer::singleShot(0,const_cast<MeshView*>(this),[this]{
+                impl_->sketch_hv_notification_pending=false;
+                if(impl_->sketch_hv_changed)impl_->sketch_hv_changed();
+            });
+        }
+    }
+    return entry->second;
+}
+std::string MeshView::sketch_hv_label(std::string label,const std::string& owner,const std::string& path) const {
+    if((label=="H"||label=="V")&&sketch_hv_swapped(owner,path))return label=="H"?"V":"H";
+    return label;
+}
+void MeshView::set_sketch_hv_changed_callback(std::function<void()> callback) {
+    impl_->sketch_hv_changed=std::move(callback);
+}
+
 void MeshView::set_active_sketch_owner(std::string owner_id) {
     if (impl_->active_sketch_owner_id == owner_id) return;
     impl_->active_sketch_owner_id = std::move(owner_id);
@@ -1481,7 +1533,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         if (marker.reference.semantic_key.starts_with("offset:")) continue;
         const QPointF baseline = anchor + QPointF(7.0 + slot * 16.0, -7.0);
         QRectF bounds = constraint_metrics.boundingRect(
-            QString::fromStdString(marker.label));
+            QString::fromStdString(sketch_hv_label(marker.label,marker.reference.owner_id,marker.reference.instance_path)));
         bounds.moveTopLeft(
             baseline + QPointF(0.0, -constraint_metrics.ascent()));
         // Match the same 9 px ordinary picking radius, with a small allowance
@@ -1537,7 +1589,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             !(candidate.kind==CandidateKind::Container&&(candidate.semantic_key=="point"||
                 !kernel::axis_endpoint_parent_key(candidate.semantic_key).empty()||candidate.semantic_key.starts_with("point:from:"))))return false;
         const auto& points=candidate.geometry==CandidateGeometry::OriginalReference?impl_->persisted_reference_mesh.points:impl_->mesh.points;
-        return candidate.geometry_index<points.size()&&!impl_->helper_point_visible(points[candidate.geometry_index]);
+        return candidate.geometry_index<points.size()&&!impl_->helper_point_visible(points[candidate.geometry_index],true);
     });
     const bool origin_geometry_requested = impl_->component_origin_handle || impl_->editing_origin_visible ||
         std::ranges::any_of(impl_->allowed_kinds, [](CandidateKind kind) {
@@ -1582,6 +1634,13 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 return impl_->candidate_priority(left) <
                     impl_->candidate_priority(right);
             });
+    }
+    if(!impl_->candidate_priority&&!impl_->active_sketch_owner_id.empty()) {
+        const auto priority=[&](const auto& candidate) {
+            return candidate.owner_id==impl_->active_sketch_owner_id&&candidate.instance_path==impl_->editing_curve_path
+                ? sketch_edit_pick_priority(candidate):5;
+        };
+        std::stable_sort(filtered.begin(),filtered.end(),[&](const auto& left,const auto& right){return priority(left)<priority(right);});
     }
     if (impl_->component_origin_handle) {
         const auto& key = *impl_->component_origin_handle;
@@ -3521,6 +3580,8 @@ void MeshView::upload_mesh() {
 }
 
 void MeshView::paintGL() {
+    if(!impl_->active_sketch_owner_id.empty())
+        static_cast<void>(sketch_hv_swapped(impl_->active_sketch_owner_id,impl_->editing_curve_path));
     const bool profile_paint=qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_VIEW_PAINT");
     QElapsedTimer paint_timer;paint_timer.start();
     const auto paint_phase=[&](const char* name){if(profile_paint)std::fprintf(stderr,"View paint %s: %.3f ms\n",name,paint_timer.nsecsElapsed()/1e6);paint_timer.restart();};
@@ -3749,7 +3810,7 @@ if (impl_->show_origins) {
                     static_cast<int>(std::lround(anchor.y()))};
                 const int slot = occupied_slots[key]++;
                 painter.drawText(anchor + QPointF(7.0 + slot * 16.0, -7.0),
-                    QString::fromStdString(marker.label));
+                    QString::fromStdString(sketch_hv_label(marker.label,marker.reference.owner_id,marker.reference.instance_path)));
             }
         }
         return;
@@ -3865,7 +3926,7 @@ if (impl_->show_origins) {
         if(!candidate&&!impl_->candidates.empty())candidate=impl_->candidates[impl_->active_candidate];
         if(candidate&&candidate->kind==CandidateKind::Container&&
             (candidate->semantic_key.empty()||candidate->semantic_key=="solid"||
-                (candidate->semantic_key=="sketch"&&impl_->container_preview_authoritative&&
+                ((candidate->semantic_key=="sketch"||candidate->semantic_key=="axis")&&impl_->container_preview_authoritative&&
                     impl_->container_preview_authoritative(candidate->owner_id,candidate->instance_path)))&&
             impl_->has_authored_container_wire(*candidate))return candidate;
         return {};
@@ -5064,7 +5125,7 @@ if (impl_->show_origins) {
                     static_cast<int>(std::lround(anchor.y()))};
                 const int slot = occupied_slots[key]++;
                 painter.drawText(anchor + QPointF(7.0 + slot * 16.0, -7.0),
-                    QString::fromStdString(marker.label));
+                    QString::fromStdString(sketch_hv_label(marker.label,marker.reference.owner_id,marker.reference.instance_path)));
             }
         }
         if (planes_visible) {
@@ -5228,14 +5289,14 @@ if (impl_->show_origins) {
             if (!impl_->sketch_cursor_label.empty()) {
                 painter.setPen(QPen(cursor_color, 1.5));
                 painter.drawText(cursor + QPointF(8.0, -8.0),
-                    QString::fromStdString(impl_->sketch_cursor_label));
+                    QString::fromStdString(sketch_hv_label(impl_->sketch_cursor_label,impl_->active_sketch_owner_id,impl_->editing_curve_path)));
             }
         }
         if (!impl_->transient_labels.empty()) {
             painter.setPen(QPen(interaction::hover, 1.5));
             for (const auto& [point, label] : impl_->transient_labels) {
                 painter.drawText(project(point) + QPointF(8.0, -8.0),
-                    QString::fromStdString(label));
+                    QString::fromStdString(sketch_hv_label(label,impl_->active_sketch_owner_id,impl_->editing_curve_path)));
             }
         }
         if (dimensions_visible && impl_->show_dimensions) {
@@ -5871,7 +5932,7 @@ if (impl_->show_origins) {
                         (highlighted->kind == CandidateKind::SketchExternalReference &&
                          highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size() &&
-                       impl_->helper_point_visible(selectable_points[highlighted->geometry_index])) {
+                       impl_->helper_point_visible(selectable_points[highlighted->geometry_index],true)) {
                 painter.setPen(QPen(color, 2.0));
                 painter.setBrush(color);
                 painter.drawEllipse(project(

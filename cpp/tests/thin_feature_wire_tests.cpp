@@ -49,6 +49,42 @@ void sketch_wire_matrix() {
     }
     std::cout<<cases<<" pure Sketch wire cases: legacy/current/empty Modeling roles, open/closed control/interpolating splines, XY/XZ and placed Body frames, repeated edits/native readback/Undo/Redo passed"<<std::endl;
 }
+void copy_wire_matrix() {
+    for(bool placed:{false,true})for(bool pattern:{false,true}) {
+        auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_rectangle(2,3,12,9));
+        auto source=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=source.id;
+        source.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;source.feature.sides[0].length=20;
+        auto copy=document::PartDocument::create_feature_container(sketch.id);copy.feature_kind=document::FeatureKind::DerivedCopy;
+        copy.derived_copy.source_id=source.id;copy.placement.x=30;
+        copy.derived_copy.reference.owner_id=copy.container_origin.id;copy.derived_copy.reference.semantic_key="origin:plane:yz";
+        if(pattern) {
+            kernel::PatternRequest request;request.circular=true;request.count=3;request.angle_degrees=45;
+            copy.derived_copy.pattern=request;copy.derived_copy.reference.semantic_key="origin:axis:z";
+        }
+        part.history={source,copy};part.sketches={sketch};document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Authored copy wire");graph.insert({document::PartHistoryKind::Feature,source.id});graph.insert({document::PartHistoryKind::Feature,copy.id});
+        if(placed){auto positioned=*graph.find(body);positioned.scope.placement={11,7,-3,20,30,40};graph.update_body(positioned);}
+        part.set_body_history(graph);part.resolve_constructions();
+        // Deliberately incomplete later result geometry cannot define a copy's
+        // authored wire. Selection must recover every source preview stroke.
+        kernel::BodyResult later;later.mesh.original_references.edges={{{{0,0,0},{1,0,0}},{source.id,"later-fragment",{}}}};
+        document::DocumentSession session(part,{later});const auto before=session.document().serialized();
+        kernel::ViewerMesh expected;expected.edges=app::authored_feature_wire(session,source.id);
+        kernel::ViewerReferenceGeometry local;local.edges=expected.edges;expected.edges=part.construction_reference_geometry_for(body,local).edges;
+        const auto& definition=*part.find_container(copy.id);auto parameters=definition.derived_copy;
+        document::PartDocument::resolve_copy_reference(parameters,copy.id,definition.placement,{});
+        std::vector<kernel::ViewerEdge> local_expected;
+        if(pattern)for(unsigned i=1;i<3;++i){auto mesh=kernel::pattern_copy_mesh(expected,*parameters.pattern,i);local_expected.insert(local_expected.end(),mesh.edges.begin(),mesh.edges.end());}
+        else local_expected=kernel::mirrored_viewer_mesh(expected,parameters.resolved_plane,copy.id).edges;
+        expected.edges=std::move(local_expected);expected=part.place_body_mesh(std::move(expected),body);
+        const auto actual=app::authored_feature_wire(session,copy.id);
+        require(!actual.empty()&&actual.size()==expected.edges.size(),"Mirror/Pattern selection lost source preview strokes");
+        for(std::size_t i=0;i<actual.size();++i)require(actual[i].points==expected.edges[i].points,"Mirror/Pattern wire differs from its creation preview");
+        require(session.document().serialized()==before,"Copy wire inspection changed the native document");
+    }
+    std::cout<<"Mirror/Pattern authored wire: local/placed Body and incomplete downstream geometry passed"<<std::endl;
+}
 void actual_sketch_wire(const std::filesystem::path& path) {
     std::vector<kernel::BodyResult> bodies;const auto doc=document::PartDocument::load(path,&bodies);
     const auto before=doc.serialized();document::DocumentSession session(doc,bodies);unsigned checked{};
@@ -307,7 +343,17 @@ void rounded_profile_matrix(const kernel::OcctKernel& engine) {
 }
 int main(int argc,char** argv) {
     QCoreApplication application(argc,argv);
-    try{if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();return 0;}
+    try{if(argc>2&&std::string_view(argv[1])=="--audit-authored-wire") {
+            std::vector<kernel::BodyResult> boundaries;auto part=document::PartDocument::load(std::filesystem::u8path(argv[2]),&boundaries);
+            document::DocumentSession session(part,boundaries);
+            for(const auto& feature:part.history) {
+                try {const auto wire=app::authored_feature_wire(session,feature.id);
+                    std::cout<<feature.name<<" id="<<feature.id<<" kind="<<static_cast<int>(feature.feature_kind)<<" wire="<<wire.size()<<std::endl;}
+                catch(const std::exception& e){std::cout<<feature.name<<" ERROR "<<e.what()<<std::endl;}
+            }
+            return 0;
+        }
+        if(argc>1&&std::string_view(argv[1])=="--sketch-profile-wire"){sketch_wire_matrix();copy_wire_matrix();return 0;}
         if(const auto* file=std::getenv("ZIMA_SKETCH_WIRE_REVIEW_FILE")){actual_sketch_wire(std::filesystem::u8path(file));return 0;}
         kernel::OcctKernel engine;rectangular_matrix(engine);revolution_matrix(engine);rounded_profile_matrix(engine);
         if(const auto* file=std::getenv("ZIMA_THIN_REVIEW_FILE"))review_fillets(engine,std::filesystem::u8path(file));

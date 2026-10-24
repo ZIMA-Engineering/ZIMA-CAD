@@ -300,9 +300,9 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     int constraint_index = 0;
     for (const auto& constraint : sketch.constraints) {
         auto* item = new QTreeWidgetItem(constraints, {
-            sketch_constraint_label(constraint.kind) +
+            sketch_constraint_label(sketch.id==active_sketch_id_?sketch_view_constraint_kind(constraint.kind):constraint.kind) +
             QStringLiteral("%1").arg(++constraint_index, 3, 10, QLatin1Char('0'))});
-        item->setIcon(0, sketch_constraint_tree_icon(constraint.kind));
+        item->setIcon(0, sketch_constraint_tree_icon(sketch.id==active_sketch_id_?sketch_view_constraint_kind(constraint.kind):constraint.kind));
         item->setData(0, Qt::UserRole, QString::fromStdString(constraint.id));
         item->setData(0, Qt::UserRole + 3, "part-sketch-constraint");
         item->setData(0, Qt::UserRole + 4, QString::fromStdString(sketch.id));
@@ -310,7 +310,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     int dimension_index = 0;
     for (const auto& dimension : sketch.dimensions) {
         auto* item = new QTreeWidgetItem(dimensions, {
-            sketch_dimension_label(dimension) + QStringLiteral(" · %1")
+            sketch_dimension_label(dimension,sketch.plane) + QStringLiteral(" · %1")
                 .arg(++dimension_index, 3, 10, QLatin1Char('0'))});
         item->setIcon(0, resource_icon("sketch-dimensions"));
         item->setData(0, Qt::UserRole, QString::fromStdString(dimension.id));
@@ -323,7 +323,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
         display.kind = sketcher::DimensionKind::Radius;
         display.value = corner.radius;
         auto* item = new QTreeWidgetItem(dimensions, {
-            sketch_dimension_label(display) + QStringLiteral(" · %1")
+            sketch_dimension_label(display,sketch.plane) + QStringLiteral(" · %1")
                 .arg(++dimension_index, 3, 10, QLatin1Char('0'))});
         item->setIcon(0, resource_icon("sketch-dimensions"));
         item->setData(0, Qt::UserRole, QString::fromStdString(corner.id));
@@ -612,8 +612,8 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         }
         for (const auto& constraint : sketch.constraints) {
             auto* child = new QTreeWidgetItem(
-                item, {sketch_constraint_label(constraint.kind)});
-            child->setIcon(0, sketch_constraint_tree_icon(constraint.kind));
+                item, {sketch_constraint_label(sketch.id==active_sketch_id_?sketch_view_constraint_kind(constraint.kind):constraint.kind)});
+            child->setIcon(0, sketch_constraint_tree_icon(sketch.id==active_sketch_id_?sketch_view_constraint_kind(constraint.kind):constraint.kind));
             child->setData(0, Qt::UserRole,
                 QString::fromStdString(constraint.id));
             child->setData(0, Qt::UserRole + 3, "part-sketch-constraint");
@@ -622,7 +622,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         }
         for (const auto& dimension : sketch.dimensions) {
             auto* child = new QTreeWidgetItem(
-                item, {sketch_dimension_label(dimension)});
+                item, {sketch_dimension_label(dimension,sketch.plane)});
             child->setData(
                 0, Qt::UserRole, QString::fromStdString(dimension.id));
             child->setData(0, Qt::UserRole + 3, "part-sketch-dimension");

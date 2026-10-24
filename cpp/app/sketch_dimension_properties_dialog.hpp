@@ -24,7 +24,7 @@ public:
     using CommitCallback = std::function<void(zima::sketcher::SketchDimension)>;
 
     SketchDimensionPropertiesDialog(
-        zima::sketcher::SketchDimension initial, bool edit_mode,
+        zima::sketcher::SketchDimension initial, zima::sketcher::SketchPlane frame, bool edit_mode,
         CommitCallback commit, QWidget* parent,
         QString custom_title = {});
 
@@ -36,8 +36,10 @@ protected:
 
 private:
     zima::sketcher::SketchDimension initial_;
+    zima::sketcher::SketchPlane coordinate_frame_;
     CommitCallback commit_;
     QDoubleSpinBox* value_{};
+    bool value_edited_{};
     QFormLayout* form_{};
     QCheckBox* driving_{};
     QCheckBox* locked_{};

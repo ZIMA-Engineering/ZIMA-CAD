@@ -95,6 +95,10 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             "Sketch point framebuffer check found no visible native points");
     };
     bool all=true;std::size_t targets=0;
+    const bool tree_only=qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_TREE_ONLY");
+    std::vector<kernel::BodyResult> native_boundaries;
+    if(tree_only)model=document::PartDocument::load(path,&native_boundaries);
+    const document::DocumentSession native_session(model,native_boundaries);
     for(const auto& feature:model.history) {
         const bool sketch_profile=authored_sketch_profile(feature);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_SKETCH_ONLY")&&!sketch_profile)continue;
@@ -102,7 +106,8 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             feature.feature.type==document::FeatureType::Modeling&&!feature.feature.sketch_only();
         const bool flat=feature.feature_kind==document::FeatureKind::Flat;
         const bool bend=feature.feature_kind==document::FeatureKind::Bend;
-        if(!modeling&&!flat&&!bend&&!sketch_profile)continue;
+        const bool copy=feature.feature_kind==document::FeatureKind::DerivedCopy;
+        if(!modeling&&!flat&&!bend&&!sketch_profile&&!(tree_only&&copy))continue;
         const auto* dialog_name=flat?"flatPropertiesDialog":bend?"bendPropertiesDialog":"featurePropertiesDialog";
         if(const auto* body=model.body_owner_for_object(feature.id);body&&body->scope.id!=active_body) {
             check(window.execute_console_command(QString::fromStdString(commands::Json{
@@ -125,7 +130,18 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
                 <<" actual_expanded="<<row->isExpanded()<<" role="<<tree->currentItem()->data(0,Qt::UserRole+3).toString().toStdString()<<std::endl;
             all&=correct;
             check_sketch_point_color(feature);
+            if(tree_only) {
+                const auto wire=authored_feature_wire(native_session,feature.id);std::size_t vertices{};
+                for(const auto& edge:wire)if(!edge.construction&&!edge.parameter_seam&&edge.points.size()>1)vertices+=2*(edge.points.size()-1);
+                static_cast<void>(view->grabFramebuffer());const auto selected=view->confirmed_candidate();
+                check(vertices>0&&selected&&selected->owner_id==feature.id&&selected->semantic_key.empty()&&
+                    view->property("gpuSourceWireVertexCount").toULongLong()==vertices,
+                    "Tree selection displayed only a surviving helper or omitted authored preview strokes");
+                check(view->property("selectedFeatureFaceTriangleCount").toULongLong()==0&&view->base_mesh_revision()==revision&&
+                    window.execute_console_command("documents").data==state,"Tree preview changed geometry, revision or filled faces");
+            }
         }
+        if(tree_only)continue;
         const auto saved_palette=application.palette();
         for(bool dark:{false,true,false}) {
             auto palette=saved_palette;palette.setColor(QPalette::WindowText,dark?QColor("#EEEEEE"):QColor("#202020"));

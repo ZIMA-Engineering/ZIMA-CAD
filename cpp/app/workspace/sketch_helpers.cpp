@@ -291,9 +291,9 @@ QIcon sketch_constraint_tree_icon(zima::sketcher::ConstraintKind kind) {
     return QIcon(pixmap);
 }
 
-QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension) {
+QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension, zima::sketcher::SketchPlane frame) {
     using Kind = zima::sketcher::DimensionKind;
-    const auto value = [value = zima::sketcher::dimension_display_value(dimension)](const QString& pattern) {
+    const auto value = [value = zima::sketcher::dimension_display_value(dimension,frame)](const QString& pattern) {
         return pattern.arg(value, 0, 'f', 3);
     };
     switch (dimension.kind) {

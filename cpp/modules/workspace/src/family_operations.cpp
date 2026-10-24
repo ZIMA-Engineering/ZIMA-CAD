@@ -136,7 +136,7 @@ template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out
     for(const auto& dimension:sketch.dimensions) {
         const auto key="dimension:"+dimension.id;
         const auto name=doc.dimension_identifiers.identifier(sketch.id,key);
-        if(!name.empty() && dimension.driving && !dimension.suppressed && !dimension.locked)out.push_back({{"dimension",sketch.id,key},name,sketch.name,number(sketcher::dimension_display_value(dimension))});
+        if(!name.empty() && dimension.driving && !dimension.suppressed && !dimension.locked)out.push_back({{"dimension",sketch.id,key},name,sketch.name,number(sketcher::dimension_display_value(dimension,sketch.plane))});
     }
     for(const auto& radius:sketch.corner_radii) {
         const auto key="corner_dimension:"+radius.id;
@@ -320,7 +320,7 @@ template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(con
         using K=sketcher::DimensionKind;
         for(const auto& d:s.dimensions) {
             const bool angular=d.kind==K::Angle||d.kind==K::AngleBetween||d.kind==K::AngleThreePoint||d.kind==K::AngleSymmetric||d.kind==K::EllipseRotation;
-            add(s.id,"dimension:"+d.id,sketcher::dimension_display_value(d),angular,d.driving&&!d.suppressed&&!d.locked);
+            add(s.id,"dimension:"+d.id,sketcher::dimension_display_value(d,s.plane),angular,d.driving&&!d.suppressed&&!d.locked);
             const auto name=doc.dimension_identifiers.identifier(s.id,"dimension:"+d.id);
             if(result.contains(name))result.at(name).input.calculated=!d.driving;
         }

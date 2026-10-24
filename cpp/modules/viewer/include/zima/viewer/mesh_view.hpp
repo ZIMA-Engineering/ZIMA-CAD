@@ -152,6 +152,11 @@ public:
     [[nodiscard]] std::vector<CandidateKind> selection_contract() const;
     [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;
     [[nodiscard]] bool advances_selection_on_hover() const;
+    [[nodiscard]] bool sketch_hv_swapped(const std::string& owner_id,
+        const std::string& instance_path = {}) const;
+    [[nodiscard]] std::string sketch_hv_label(std::string label,
+        const std::string& owner_id, const std::string& instance_path = {}) const;
+    void set_sketch_hv_changed_callback(std::function<void()> callback);
     void set_active_sketch_owner(std::string owner_id);
     void set_geometry_editing_presentation(bool editing,
         const std::string& curve_owner = {}, const std::string& instance_path = {});

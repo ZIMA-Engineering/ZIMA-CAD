@@ -1103,7 +1103,7 @@ int main() {
                         }
                         const auto& edited = *std::find_if(s.dimensions.begin(), s.dimensions.end(),
                             [&](const auto& d) { return d.id == id; });
-                        require(std::abs(zima::sketcher::dimension_display_value(edited) - value) < 1e-9,
+                        require(std::abs(zima::sketcher::dimension_display_value(edited,s.plane) - value) < 1e-9,
                             "Solver changed the signed coordinate value");
                         const auto solved = s.solve();
                         require(solved.status == zima::sketcher::SolveStatus::Solved &&

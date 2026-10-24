@@ -1037,7 +1037,7 @@ bool refresh_reference_dimensions(Sketch& sketch) {
         if (const auto side = measured_dimension_solution_side(sketch, dimension)) {
             dimension.solution_side = *side;
         }
-        const auto displayed = dimension_display_value(dimension);
+        const auto displayed = dimension_display_value(dimension,sketch.plane);
         if ((dimension.lower_limit && displayed < *dimension.lower_limit) ||
             (dimension.upper_limit && displayed > *dimension.upper_limit)) return false;
     }
@@ -3051,7 +3051,7 @@ void Sketch::validate() const {
             *dimension.lower_limit > *dimension.upper_limit) {
             throw std::runtime_error("Dimension limits are reversed");
         }
-        const auto displayed = dimension_display_value(dimension);
+        const auto displayed = dimension_display_value(dimension,plane);
         if ((dimension.lower_limit && displayed < *dimension.lower_limit) ||
             (dimension.upper_limit && displayed > *dimension.upper_limit)) {
             throw std::runtime_error("Dimension value lies outside its absolute limits");
@@ -3105,14 +3105,14 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
     const auto found = std::find_if(dimensions.begin(), dimensions.end(),
         [&](const auto& dimension) { return dimension.id == dimension_id; });
     if (found == dimensions.end()) return false;
-    value = dimension_value_from_input(*found, value);
     auto updated = *found;
-    updated.value = value;
+    set_dimension_input_value(updated,value,plane);
+    value=updated.value;
     const bool unsigned_branch = uses_unsigned_distance_branch(found->kind);
     const double checked_value = is_coordinate_dimension(updated)
-        ? dimension_display_value(updated)
+        ? dimension_display_value(updated,plane)
         : unsigned_branch || found->kind == DimensionKind::Distance
-            ? std::abs(value) : dimension_display_value(updated);
+            ? std::abs(value) : dimension_display_value(updated,plane);
     if (
         ((found->kind == DimensionKind::DistanceSymmetric ||
           found->kind == DimensionKind::DistanceLineSymmetric ||
@@ -9038,9 +9038,10 @@ SketchDimension Sketch::create_point_dimension(
     }
     const double dx = (*second)[0] - (*first)[0];
     const double dy = (*second)[1] - (*first)[1];
-    return {make_id(), kind, first_point_id, second_point_id,
+    SketchDimension result{make_id(), kind, first_point_id, second_point_id,
             kind == DimensionKind::DistanceX ? dx
             : kind == DimensionKind::DistanceY ? dy : std::hypot(dx, dy)};
+    return result;
 }
 
 SketchDimension Sketch::create_three_point_angle_dimension(
@@ -9450,30 +9451,55 @@ bool is_coordinate_dimension(const SketchDimension& dimension) noexcept {
         (dimension.kind == DimensionKind::DistancePointLine && axis);
 }
 
-double dimension_display_value(const SketchDimension& dimension) noexcept {
+double dimension_coordinate_sign(const SketchDimension& dimension, SketchPlane frame) noexcept {
+    if(!is_coordinate_dimension(dimension)||frame!=SketchPlane::XZ)return 1.;
+    const bool native_y=dimension.kind==DimensionKind::DistanceY||
+        (dimension.kind==DimensionKind::DistancePointLine&&dimension.geometry_id=="sketch_axis:x");
+    return native_y?-1.:1.;
+}
+const char* dimension_coordinate_axis(const SketchDimension& dimension, SketchPlane frame) noexcept {
+    if(!is_coordinate_dimension(dimension))return "";
+    const bool native_y=dimension.kind==DimensionKind::DistanceY||
+        (dimension.kind==DimensionKind::DistancePointLine&&dimension.geometry_id=="sketch_axis:x");
+    if(frame==SketchPlane::YZ)return native_y?"z":"y";
+    if(frame==SketchPlane::XZ)return native_y?"z":"x";
+    return native_y?"y":"x";
+}
+
+double dimension_display_value(const SketchDimension& dimension, SketchPlane frame) noexcept {
     if (is_coordinate_dimension(dimension)) {
         if (dimension.kind == DimensionKind::DistancePointLine)
-            return dimension.value * dimension.solution_side *
+            return dimension_coordinate_sign(dimension,frame) * dimension.value * dimension.solution_side *
                 (dimension.geometry_id == "sketch_axis:y" ? -1.0 : 1.0);
-        return dimension.value * (dimension.second_point_id == "sketch_origin" ? -1.0 : 1.0);
+        return dimension_coordinate_sign(dimension,frame) * dimension.value * (dimension.second_point_id == "sketch_origin" ? -1.0 : 1.0);
     }
     return (dimension.kind == DimensionKind::DistanceX ||
         dimension.kind == DimensionKind::DistanceY)
         ? std::abs(dimension.value) : dimension.value;
 }
 
-double dimension_value_from_input(const SketchDimension& dimension, double value) noexcept {
+double dimension_value_from_input(const SketchDimension& dimension, double value, SketchPlane frame) noexcept {
     if (is_coordinate_dimension(dimension)) {
         if (dimension.kind == DimensionKind::DistancePointLine)
-            return value * dimension.solution_side *
+            return dimension_coordinate_sign(dimension,frame) * value * dimension.solution_side *
                 (dimension.geometry_id == "sketch_axis:y" ? -1.0 : 1.0);
-        return value * (dimension.second_point_id == "sketch_origin" ? -1.0 : 1.0);
+        return dimension_coordinate_sign(dimension,frame) * value * (dimension.second_point_id == "sketch_origin" ? -1.0 : 1.0);
     }
     // The solver retains the signed coordinate difference. A positive input
     // changes its magnitude; a negative input reverses its current direction.
     return (dimension.kind == DimensionKind::DistanceX ||
         dimension.kind == DimensionKind::DistanceY)
         ? std::copysign(1.0, dimension.value) * value : value;
+}
+
+void set_dimension_input_value(SketchDimension& dimension,double value,SketchPlane frame) noexcept {
+    dimension.value=dimension_value_from_input(dimension,value,frame);
+    if(value==0&&dimension.kind==DimensionKind::DistancePointLine&&is_coordinate_dimension(dimension)) {
+        const double native=dimension_coordinate_sign(dimension,frame)*value*
+            (dimension.geometry_id=="sketch_axis:y"?-1.:1.);
+        dimension.solution_side=std::signbit(native)?-1:1;
+        dimension.value=0.; // The independent branch above retains the signed-zero intent.
+    }
 }
 
 void validate_dimension_property_value(const SketchDimension& result) {
@@ -14180,7 +14206,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if(hidden_derived_poles.contains(point.id))continue;
         result.points.push_back(
             {project(point), {id, "point:" + point.id, {}}, {}, true,
-             point.construction||(auxiliary_points.contains(point.id)&&!profile_points.contains(point.id))});
+             (point.construction||auxiliary_points.contains(point.id))&&!profile_points.contains(point.id)});
         const auto text=std::ranges::find_if(texts,[&](const auto& value){return value.anchor_point_id==point.id;});
         if(text!=texts.end())result.points.back().sketch_text_key="text:"+text->id+":"+text_color_name(text->color);
     }
@@ -15037,7 +15063,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point(point->x + shift[0], point->y + shift[1]),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
                 dimension.kind == DimensionKind::DistanceSymmetric ? "⌀" : ""});
-            result.dimensions.back().value = dimension_display_value(dimension);
+            result.dimensions.back().value = dimension_display_value(dimension,plane);
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceLine ||
@@ -15417,14 +15443,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 result.dimensions.push_back({
                     world_point(0.0, point->y), world_point(point->x, point->y),
                     world_point(0.0, line_y), world_point(point->x, line_y),
-                    dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
+                    dimension_display_value(dimension,plane), {id, "dimension:" + dimension.id, {}}, {}});
             } else {
                 const double line_x = dimension.placement
                     ? (*dimension.placement)[0] : point->x + offset;
                 result.dimensions.push_back({
                     world_point(point->x, 0.0), world_point(point->x, point->y),
                     world_point(line_x, 0.0), world_point(line_x, point->y),
-                    dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
+                    dimension_display_value(dimension,plane), {id, "dimension:" + dimension.id, {}}, {}});
             }
             continue;
         }
@@ -15456,7 +15482,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0] + display_radius, (*first)[1]),
                 world_point((*first)[0] + display_radius * std::cos(radians),
                             (*first)[1] + display_radius * std::sin(radians)),
-                dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}},
+                dimension_display_value(dimension,plane), {id, "dimension:" + dimension.id, {}},
                 "∠ ", "°"});
             result.dimensions.back().kind =
                 zima::kernel::ViewerDimensionKind::Angular;
@@ -15472,7 +15498,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0], (*first)[1]),
                 world_point((*second)[0], (*second)[1]),
                 world_point((*first)[0], line_y), world_point((*second)[0], line_y),
-                dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
+                dimension_display_value(dimension,plane), {id, "dimension:" + dimension.id, {}}, {}});
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceY) {
@@ -15483,7 +15509,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0], (*first)[1]),
                 world_point((*second)[0], (*second)[1]),
                 world_point(line_x, (*first)[1]), world_point(line_x, (*second)[1]),
-                dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
+                dimension_display_value(dimension,plane), {id, "dimension:" + dimension.id, {}}, {}});
             continue;
         }
         const double nx = magnitude > 1.0e-12 ? -dy / magnitude : 0.0;
@@ -15499,7 +15525,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                         (*first)[1] + ny * placed_offset),
             world_point((*second)[0] + nx * placed_offset,
                         (*second)[1] + ny * placed_offset),
-            dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}});
+            dimension_display_value(dimension,plane), {id, "dimension:" + dimension.id, {}}});
     }
     for (auto& rendered : result.dimensions) {
         if (!rendered.reference.semantic_key.starts_with("dimension:")) continue;
@@ -15929,7 +15955,7 @@ nlohmann::json Sketch::serialized_json() const {
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 35},
+    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 36},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)}, {"plane_auto", plane_auto},
@@ -15987,7 +16013,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
 }
 
 Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 35) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 36) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;

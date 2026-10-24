@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/sketch_pick_priority.hpp>
 
 namespace zima::app {
 // Command-local ordering of the existing common candidates; hit tolerances,
@@ -14,6 +15,7 @@ inline int sketch_point_pick_priority(const viewer::ViewerCandidate& candidate) 
          candidate.semantic_key.starts_with("sketch_curve_keypoint:")))return 0;
     return 1;
 }
+using viewer::sketch_edit_pick_priority;
 inline int sketch_placement_pick_priority(const viewer::ViewerCandidate& candidate) {
     if(candidate.kind==viewer::CandidateKind::SketchExternalReference&&candidate.semantic_key=="external_point:sketch_origin")return -2;
     if (candidate.kind == viewer::CandidateKind::SketchAxis) return 3;

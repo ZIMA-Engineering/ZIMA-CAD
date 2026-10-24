@@ -412,7 +412,7 @@ QString sketch_constraint_label(zima::sketcher::ConstraintKind kind);
 
 QIcon sketch_constraint_tree_icon(zima::sketcher::ConstraintKind kind);
 
-QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension);
+QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension, zima::sketcher::SketchPlane frame);
 
 std::vector<zima::kernel::ViewerEdge> sketch_text_preview_edges(
     const zima::sketcher::Sketch& sketch,

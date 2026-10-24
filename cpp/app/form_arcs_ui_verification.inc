@@ -77,7 +77,7 @@ int verify_form_dimensions_ui(QApplication& application,const std::filesystem::p
                 const auto p=hit("dimension:"+d.id);mouse(p,QEvent::MouseButtonDblClick);
                 auto* edit=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(edit,"FORM dimension double-click did not open editor");
                 const double delta=step==1?-.2:.3;
-                edit->setText(QString::number(sketcher::dimension_display_value(d)+(d.kind==sketcher::DimensionKind::DistanceSymmetric?delta:-delta),'f',9));
+                edit->setText(QString::number(sketcher::dimension_display_value(d,sketch.plane)+(d.kind==sketcher::DimensionKind::DistanceSymmetric?delta:-delta),'f',9));
                 QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(edit,&enter);flush();
                 auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");check(undo->isEnabled(),"FORM dimension edit has no Undo");undo->trigger();flush();redo->trigger();flush();
             }

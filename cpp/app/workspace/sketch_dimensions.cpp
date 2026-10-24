@@ -1544,7 +1544,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         return;
     }
     auto* dialog = new SketchDimensionPropertiesDialog(
-        std::move(initial), true, commit_dimension, this);
+        std::move(initial), sketch->plane, true, commit_dimension, this);
     {
         const auto mesh=sketch->viewer_mesh();
         const auto source=std::find_if(mesh.dimensions.begin(),mesh.dimensions.end(),[&](const auto& d){return d.reference.semantic_key=="dimension:"+dimension_id;});

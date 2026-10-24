@@ -131,7 +131,7 @@ void matrix() {
             auto d=s.create_segment_dimension(leg,kind);d.locked=locked;d.driving=driving;
             if(!driving&&locked){const auto before=s.serialized();bool rejected=false;try{s.apply_dimension(d);}catch(const std::exception&){rejected=true;}check(rejected&&before==s.serialized(),"Locked reference segment dimension was not atomic");continue;}
             s.apply_dimension(d);
-            for(double factor:{1.03,.97,1.02}) {const auto before=s.serialized();const auto value=kind==DimensionKind::Angle?dimension_display_value(d)+factor:dimension_display_value(d)*factor;const auto accepted=s.set_dimension_value(d.id,value);if(!accepted)check(s.serialized()==before,"Rejected dimension edit changed mirror");else if(!driving)check(s.serialized()==before,"Reference length edit changed mirror");solved(s);equations(s,axis);s=Sketch::from_serialized(s.serialized());}
+            for(double factor:{1.03,.97,1.02}) {const auto before=s.serialized();const auto value=kind==DimensionKind::Angle?dimension_display_value(d,s.plane)+factor:dimension_display_value(d,s.plane)*factor;const auto accepted=s.set_dimension_value(d.id,value);if(!accepted)check(s.serialized()==before,"Rejected dimension edit changed mirror");else if(!driving)check(s.serialized()==before,"Reference length edit changed mirror");solved(s);equations(s,axis);s=Sketch::from_serialized(s.serialized());}
             check(s.external_references==sources,"Mirror dimension edit changed external axis");++count;
             for(int i=0;i<3;++i){const auto p=s.points.front();const auto before=s.serialized();const auto moved=s.move_point(p.id,p.x+.1,p.y+.15);
                 if(!moved)check(s.serialized()==before,"Rejected dimensioned mirror drag changed geometry");
@@ -185,7 +185,7 @@ void rectangle_matrix(const Sketch& original) {
                     if((!driving&&locked)||(driving&&fixed)){check(!applied&&before==s.serialized(),"Impossible/redundant rectangle dimension changed the document");++cases;continue;}
                     check(applied,"Valid symmetric rectangle dimension was rejected");
                     for(double factor:{1.1,.9,1.03}) {
-                        const auto unchanged=s.serialized();check(s.set_dimension_value(d.id,dimension_display_value(d)*factor),"Symmetric rectangle dimension edit failed");
+                        const auto unchanged=s.serialized();check(s.set_dimension_value(d.id,dimension_display_value(d,s.plane)*factor),"Symmetric rectangle dimension edit failed");
                         if(!driving)check(s.serialized()==unchanged,"Reference rectangle dimension moved its source");
                         solved(s);rectangle_equations(s);check(s.external_references==base.external_references,"Rectangle dimension changed external references");
                         s=Sketch::from_serialized(s.serialized());++edits;

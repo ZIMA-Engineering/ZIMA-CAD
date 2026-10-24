@@ -364,11 +364,15 @@ struct SketchDimension {
 };
 
 // Numeric entry policy shared by the Properties dialog and command edits.
-// Origin/axis coordinates display and accept signed Sketch coordinates.
+// Origin/axis coordinates display and accept signed Feature-Origin coordinates.
+// XY uses X/Y, XZ uses X/Z (native 2D Y is -Z), and YZ uses Y/Z.
 // Other distances display magnitudes; negative input reverses the current side.
 [[nodiscard]] bool is_coordinate_dimension(const SketchDimension&) noexcept;
-[[nodiscard]] double dimension_display_value(const SketchDimension&) noexcept;
-[[nodiscard]] double dimension_value_from_input(const SketchDimension&, double) noexcept;
+[[nodiscard]] double dimension_coordinate_sign(const SketchDimension&, SketchPlane) noexcept;
+[[nodiscard]] const char* dimension_coordinate_axis(const SketchDimension&, SketchPlane) noexcept;
+[[nodiscard]] double dimension_display_value(const SketchDimension&, SketchPlane) noexcept;
+[[nodiscard]] double dimension_value_from_input(const SketchDimension&, double, SketchPlane) noexcept;
+void set_dimension_input_value(SketchDimension&, double, SketchPlane) noexcept;
 void validate_dimension_property_value(const SketchDimension&);
 
 struct SolveResult {

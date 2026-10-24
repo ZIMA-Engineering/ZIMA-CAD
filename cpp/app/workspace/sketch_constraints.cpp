@@ -1,9 +1,35 @@
 #include "workspace_internal.hpp"
 #include "../sketch_point_pick_priority.hpp"
+#include <QTreeWidgetItemIterator>
+#include <QSignalBlocker>
 
 namespace zima::app {
 using namespace workspace_detail;
 
+
+zima::sketcher::ConstraintKind AssemblyWorkspaceWindow::sketch_view_constraint_kind(zima::sketcher::ConstraintKind kind) const {
+    using K=zima::sketcher::ConstraintKind;
+    if((kind==K::Horizontal||kind==K::Vertical)&&viewer_&&
+       viewer_->sketch_hv_swapped(active_sketch_id_,workspace_.active_occurrence_path()))
+        return kind==K::Horizontal?K::Vertical:K::Horizontal;
+    return kind;
+}
+void AssemblyWorkspaceWindow::refresh_sketch_hv_labels() {
+    const auto* sketch=active_sketch();if(!sketch||!tree_)return;
+    const QSignalBlocker blocked(tree_);
+    for(QTreeWidgetItemIterator row(tree_);*row;++row) {
+        auto* item=*row;
+        if(item->data(0,Qt::UserRole+3)!="part-sketch-constraint"||
+           item->data(0,Qt::UserRole+4).toString().toStdString()!=sketch->id)continue;
+        const auto id=item->data(0,Qt::UserRole).toString().toStdString();
+        const auto found=std::ranges::find(sketch->constraints,id,&zima::sketcher::SketchConstraint::id);
+        if(found==sketch->constraints.end())continue;
+        const auto kind=sketch_view_constraint_kind(found->kind);
+        QString suffix;const auto old=item->text(0);
+        if(old.size()>=3&&old.at(old.size()-1).isDigit()&&old.at(old.size()-2).isDigit()&&old.at(old.size()-3).isDigit())suffix=old.right(3);
+        item->setText(0,sketch_constraint_label(kind)+suffix);item->setIcon(0,sketch_constraint_tree_icon(kind));
+    }
+}
 
 void AssemblyWorkspaceWindow::clear_completed_sketch_interaction() {
     if (viewer_ == nullptr) return;
@@ -60,7 +86,7 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
     try {
         if (!mutate_active_sketch([&](auto& sketch) {
                 static_cast<void>(sketch.add_segment_constraint(
-                    selected_sketch_segment_id_, kind));
+                    selected_sketch_segment_id_, sketch_view_constraint_kind(kind)));
             })) return;
         selected_sketch_segment_id_.clear();
         preserve_view_on_refresh_ = true;
@@ -696,7 +722,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         try {
             const auto id=candidate.semantic_key.substr(8);
             if (!mutate_active_sketch([&](auto& sketch) {
-                static_cast<void>(sketch.add_segment_constraint(id,pending_point_pair_constraint_kind_));
+                static_cast<void>(sketch.add_segment_constraint(id,sketch_view_constraint_kind(pending_point_pair_constraint_kind_)));
             })) return;
             clear_completed_sketch_interaction();
             preserve_view_on_refresh_=true;
@@ -891,7 +917,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                 } else {
                     static_cast<void>(sketch.add_point_pair_constraint(
                         pending_coincident_point_id_, point_id,
-                        pending_point_pair_constraint_kind_));
+                        sketch_view_constraint_kind(pending_point_pair_constraint_kind_)));
                 }
             })) return;
         const auto completed_kind = pending_point_pair_constraint_kind_;

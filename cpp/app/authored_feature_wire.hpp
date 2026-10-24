@@ -8,7 +8,10 @@
 #include <zima/document/holes.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <zima/document/loft.hpp>
+#include <zima/document/sheet_form_definition.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/kernel/mirror_geometry.hpp>
 
 namespace zima::app {
 inline bool authored_sketch_profile(const document::HistoryContainer& feature) {
@@ -72,6 +75,15 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         wire.edges=doc.primitive_preview_edges(*feature,input_mesh);return place(std::move(wire));
     case FeatureKind::Thread:
         wire.edges=doc.thread_edges(*feature,input?&input_mesh:nullptr);return place(std::move(wire));
+    case FeatureKind::SheetForm: {
+        // Match the FORM Properties tool preview, not supporting stock-edge
+        // fragments introduced by its Boolean intersection with the sheet.
+        wire.edges=document::sheet_form_preview_edges(feature->sheet_form);
+        const auto& p=feature->placement;
+        const auto frame=kernel::annotation_frame({p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z});
+        for(auto& edge:wire.edges)for(auto& point:edge.points)point=frame.world(point);
+        return place(std::move(wire));
+    }
     case FeatureKind::Loft:
         return place(document::loft_definition_mesh(doc,*feature));
     case FeatureKind::Sweep2D:
@@ -80,6 +92,26 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         wire.edges=document::PartDocument::helical_preview_edges(*feature);return place(std::move(wire));
     case FeatureKind::SheetTransition:
         return place(document::sheet_transition_preview(*feature,document::sheet_metal_defaults(doc)));
+    case FeatureKind::DerivedCopy: {
+        // Mirror/Pattern copy the source's complete authored tool wire. A
+        // downstream Boolean can consume or split source edges; those result
+        // fragments cannot define the copy's creation/inspection preview.
+        kernel::ViewerMesh source;source.edges=authored_feature_wire(session,feature->derived_copy.source_id);
+        if(body) {
+            kernel::ViewerReferenceGeometry geometry;geometry.edges=std::move(source.edges);
+            source.edges=doc.construction_reference_geometry_for(body->scope.id,geometry).edges;
+        }
+        auto parameters=feature->derived_copy;
+        document::PartDocument::resolve_copy_reference(parameters,feature->id,feature->placement,{});
+        if(parameters.pattern) {
+            const auto pattern=kernel::validated_pattern(*parameters.pattern);
+            for(unsigned i=1;i<pattern.count;++i) {
+                auto copy=kernel::pattern_copy_mesh(source,pattern,i);
+                wire.edges.insert(wire.edges.end(),copy.edges.begin(),copy.edges.end());
+            }
+        } else wire=kernel::mirrored_viewer_mesh(std::move(source),parameters.resolved_plane,feature->id);
+        return place(std::move(wire));
+    }
     default:break;
     }
     // Use the first stored contribution, at the creation boundary. In sheet

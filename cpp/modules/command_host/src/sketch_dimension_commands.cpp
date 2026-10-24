@@ -47,12 +47,12 @@ Dimension create_dimension(const Sketch& s,const Json& a) {
     if(p.empty()){shape(0,1);return s.create_segment_dimension(g[0],kind);}
     shape(2,0);return s.create_point_dimension(p[0],p[1],kind);
 }
-void patch(Dimension& d,const Json& a) {
-    const double measurement=d.value;
-    if(a.contains("value"))d.value=sketcher::dimension_value_from_input(d,number(a["value"]));
+void patch(Dimension& d,const Json& a,sketcher::SketchPlane frame) {
+    const double measurement=d.value;const int measurement_side=d.solution_side;
+    if(a.contains("value"))sketcher::set_dimension_input_value(d,number(a["value"]),frame);
     if(a.contains("driving"))d.driving=a["driving"].get<bool>();
     if(a.contains("locked"))d.locked=a["locked"].get<bool>();
-    if(!d.driving){d.locked=false;d.value=measurement;}
+    if(!d.driving){d.locked=false;d.value=measurement;d.solution_side=measurement_side;}
     if(a.contains("position"))d.placement=point(a,"position");
     if(a.contains("solution_side")){const auto& value=a["solution_side"];if(value!=-1&&value!=1)invalid("Dimension solution side must be -1 or 1.");d.solution_side=value.get<int>();}
     if(a.contains("angle_sector")){const auto& value=a["angle_sector"];if(value<-1||value>1)invalid("Dimension angle sector must be -1, 0 or 1.");d.angle_sector=value.get<int>();}
@@ -100,7 +100,7 @@ Json layout_data(const kernel::DimensionLayout* d) {
 Json data(const workspace::Workspace& live,const std::string& doc,const Sketch& sketch,const Dimension& d) {
     std::string kind;for(const auto& [key,value]:kinds)if(value==d.kind)kind=key;
     const kernel::EdgeReference reference{sketch.id,"dimension:"+d.id,{}};
-    return {{"dimension",d.id},{"kind",kind},{"value",sketcher::dimension_display_value(d)},{"unit",angular(d)?"deg":"mm"},{"driving",d.driving},{"locked",d.locked},{"suppressed",d.suppressed},
+    return {{"dimension",d.id},{"kind",kind},{"value",sketcher::dimension_display_value(d,sketch.plane)},{"coordinate_axis",sketcher::dimension_coordinate_axis(d,sketch.plane)},{"unit",angular(d)?"deg":"mm"},{"driving",d.driving},{"locked",d.locked},{"suppressed",d.suppressed},
         {"first_point",d.first_point_id},{"second_point",d.second_point_id},{"geometry",d.geometry_id},{"second_geometry",d.second_geometry_id},{"third_geometry",d.third_geometry_id},
         {"position",d.placement?Json(*d.placement):Json(nullptr)},{"solution_side",d.solution_side},{"angle_sector",d.angle_sector},
         {"limits",{{"lower",d.lower_limit?Json(*d.lower_limit):Json(nullptr)},{"upper",d.upper_limit?Json(*d.upper_limit):Json(nullptr)}}},
@@ -120,7 +120,7 @@ void Host::register_sketch_dimension_commands() {
             if(interaction().template_document)return Result::failure("unsupported_document",tr("Sketch commands require an ordinary Part or Assembly."));
             try {
                 const auto doc=workspace_.active_document_id(),id=a["sketch"].get<std::string>();const auto before=workspace::document_sketch(workspace_,doc,id);
-                auto value=create?create_dimension(before,a):dimension(before,a["dimension"].get<std::string>());patch(value,a);
+                auto value=create?create_dimension(before,a):dimension(before,a["dimension"].get<std::string>());patch(value,a,before.plane);
                 std::vector<kernel::DimensionLayoutEntry> updated_layouts;
                 if(a.contains("layout")) {
                     const kernel::EdgeReference reference{id,"dimension:"+value.id,{}};const auto* current=kernel::find_dimension_layout(layouts(workspace_,doc),reference);

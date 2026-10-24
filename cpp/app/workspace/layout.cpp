@@ -163,6 +163,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { navigate_document_kind(); });
     tree_->setMouseTracking(true);
     viewer_ = new zima::viewer::MeshView;
+    viewer_->set_sketch_hv_changed_callback([this]{refresh_sketch_hv_labels();});
     viewer_->set_container_preview_provider([this](const std::string& owner,const std::string& path) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         std::vector<zima::kernel::ViewerEdge> wire;
@@ -189,7 +190,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner))
-                if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Loft)return true;
+                if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Feature||
+                    feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft)return true;
         }
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))

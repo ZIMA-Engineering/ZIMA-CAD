@@ -151,32 +151,37 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         }
         // The inline entry point uses the same policy as CLI/Properties.
         auto edited = current();
-        require(edited.set_dimension_value(id.get<std::string>(), -17) && sketcher::dimension_display_value(edited.dimensions.front())==17, "Inline distance flip failed");
+        require(edited.set_dimension_value(id.get<std::string>(), -17) && sketcher::dimension_display_value(edited.dimensions.front(),edited.plane)==17, "Inline distance flip failed");
         require(std::abs(edited.dimensions.front().value+sign*17)<1e-7, "Inline distance used a different orientation");
         run(host,"undo"); require(std::abs(delta()+sign*18)<1e-7,"Undo lost distance orientation"); run(host,"redo");
     }
     // Origin in either pick order, explicit coordinate axis, and Universal
     // Dimension's point-line axis distance use signed absolute coordinates.
+    for (const auto* plane : {"XY", "XZ", "YZ"})
     for (const int reference : {0, 1, 2, 3}) for (const bool x_axis : {false, true})
         for (const double sign : {-1., 1.}) {
-        create("Origin and axis distance"); const auto p = point(sign*12, sign*9);
+        sketch=run(host,"sketch.create",{{"name","Origin and axis distance"},{"plane",plane}}).data.at("sketch").get<std::string>();
+        const double frame_sign=std::string(plane)=="XZ"&&!x_axis?-1.:1.;
+        const std::string coordinate_axis=std::string(plane)=="YZ"?(x_axis?"y":"z"):std::string(plane)=="XZ"?(x_axis?"x":"z"):(x_axis?"x":"y");
+        const auto p = point(sign*12, sign*9);
         Json args{{"kind",reference==3?"point_line":x_axis?"distance_x":"distance_y"},
             {"points",reference>=2?Json::array({p}):reference==0?Json::array({"sketch_origin",p}):Json::array({p,"sketch_origin"})},
             {"limits",{{"lower",-40},{"upper",40}}}};
         if(reference>=2) args["geometry"]={x_axis?"sketch_axis:y":"sketch_axis:x"};
         const auto d=command("sketch.dimension.create",args);
-        require(d.at("value")== sign*(x_axis?12:9), "Origin/axis label is not the signed Sketch coordinate");
+        require(d.at("value")== frame_sign*sign*(x_axis?12:9) && d.at("coordinate_axis")==coordinate_axis,
+            "Origin/axis label is not the signed Feature Origin coordinate");
         for(const double input:{20.,-30.,-30.,0.,15.,-25.}) {
             const auto result=command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"value",input}});
             const auto s=current();
-            require(result.at("value")==input && std::abs((x_axis?s.find_point(p)->x:s.find_point(p)->y)-input)<1e-7,
+            require(result.at("value")==input && std::abs((x_axis?s.find_point(p)->x:s.find_point(p)->y)-frame_sign*input)<1e-7,
                 "Origin/axis input is not an absolute coordinate");
             require(s.viewer_mesh().dimensions.front().value==input, "Origin and axis labels use different signs");
             require(sketcher::Sketch::from_serialized(s.serialized()).serialized()==s.serialized(), "Native save/reload lost the distance direction");
         }
         auto edited=current();
         require(edited.set_dimension_value(d.at("dimension").get<std::string>(),-18) &&
-            std::abs((x_axis?edited.find_point(p)->x:edited.find_point(p)->y)+18)<1e-7 &&
+            std::abs((x_axis?edited.find_point(p)->x:edited.find_point(p)->y)+frame_sign*18)<1e-7 &&
             edited.viewer_mesh().dimensions.front().value==-18, "Inline origin/axis input differs from CLI/Properties");
         edited.set_point_fixed(p,true);const auto fixed=edited.serialized();
         require(!edited.set_dimension_value(d.at("dimension").get<std::string>(),18) && edited.serialized()==fixed,
@@ -185,7 +190,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(!host.execute({{"command","sketch.dimension.set"},{"arguments",{{"sketch",sketch},{"dimension",d.at("dimension")},{"value",-41}}}}).ok &&
             current().serialized()==before && state->session.revision()==revision, "Origin/axis magnitude limit was bypassed by negative input");
         run(host,"undo");const auto undone=current();
-        require(std::abs((x_axis?undone.find_point(p)->x:undone.find_point(p)->y)-15)<1e-7,"Undo lost origin/axis direction");
+        require(std::abs((x_axis?undone.find_point(p)->x:undone.find_point(p)->y)-frame_sign*15)<1e-7,"Undo lost origin/axis direction");
         run(host,"redo");require(current().serialized()==before,"Redo lost origin/axis magnitude or direction");
         command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"driving",false}});
         require(command("sketch.dimension.get",{{"dimension",d.at("dimension")}}).at("value")==-25 &&

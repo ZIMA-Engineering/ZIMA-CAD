@@ -108,6 +108,28 @@ void unit_conversion() {
         }
     }
 }
+void signed_coordinates() {
+    const std::map<std::string,double> factors{{"d1",-1.},{"d3",-1.}};
+    const std::string source="# d1 stays in this comment\nif d1 < 0\n d3 = d1 * 2\nelse\n d3 = 5\nendif\nlabel = \"d1\" & d1\nd2 = abs(d3)\n";
+    const auto converted=RelationProgram(source).reexpress_values(factors);
+    check(converted.find("# d1 stays in this comment")!=std::string::npos);
+    check(converted.find("\"d1\"")!=std::string::npos);
+    for(const double value:{-150.,-3.,0.,20.}) {
+        RelationInputs old{{"d1",{{value,{1,0,0}},true}}, {"d2",{{0.,{1,0,0}},true}}, {"d3",{{0.,{1,0,0}},true}}};
+        auto next=old;next.at("d1").value.data=-value;
+        const auto before=RelationProgram(source).evaluate(old),after=RelationProgram(converted).evaluate(next);
+        for(const auto& [name,item]:before) {
+            const auto& actual=after.at(name);check(item.units==actual.units);
+            if(const auto* number=std::get_if<double>(&item.data))
+                check(std::abs(std::get<double>(actual.data)-*number*(factors.contains(name)?factors.at(name):1.))<1e-10);
+            else check(actual.data==item.data);
+        }
+    }
+    const auto zero=RelationProgram("d3 = -0").reexpress_values(factors);
+    RelationInputs input{{"d3",{{0.,{1,0,0}},true}}};
+    check(!std::signbit(std::get<double>(RelationProgram(zero).evaluate(input).at("d3").data)));
+    rejects([&]{static_cast<void>(RelationProgram(source).reexpress_values({{"d1",0.}}));});
+}
 void missing_dimensions() {
     RelationInputs input{{"d1",{{10.,{1,0,0}},true}}, {"d2",{{20.,{1,0,0}},true}},
         {"model.mass",{{12.,{0,0,1}},false,true}}};
@@ -138,6 +160,7 @@ int main() {
     try {
         angle_units();
         unit_conversion();
+        signed_coordinates();
         missing_dimensions();
         RelationInputs inputs{{"d1",{{50.,{1,0,0}},true}}, {"d2",{{100.,{1,0,0}},true}},
             {"d3",{{1.,{1,0,0}},true}}, {"angle",{{30.,{0,1,0}},true}},

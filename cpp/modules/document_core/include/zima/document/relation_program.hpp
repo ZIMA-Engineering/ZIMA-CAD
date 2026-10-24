@@ -69,6 +69,10 @@ public:
         const std::array<double,3>& old_to_new,
         const std::set<std::string>& fixed_unit_names = {},
         double old_degrees_per_angle_unit = 1) const;
+    // Re-express explicitly named numeric quantities in another signed basis.
+    // Reads, conditional guards and writes are transformed through the AST;
+    // comments, strings and unrelated identifiers retain their authored text.
+    [[nodiscard]] std::string reexpress_values(const std::map<std::string,double>& old_to_new) const;
 private:
     explicit RelationProgram(std::shared_ptr<const RelationProgramData> data):data_(std::move(data)){}
     [[nodiscard]] std::map<std::string, RelationValue> evaluate_impl(const RelationInputs&,

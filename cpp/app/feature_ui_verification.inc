@@ -34,7 +34,7 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
             auto* show_axis_points=window.findChild<QAction*>("showAxisPointsAction");
             check(show_axis_points&&show_axis_points->isChecked()&&!show_axis_points->icon().isNull(),"Axis points action/default/icon missing");
             check(show_axis_points->text()==translations.value(QStringLiteral("Body os"))&&
-                show_axis_points->toolTip()==translations.value(QStringLiteral("Zobrazit nebo skrýt koncové body os")),"Axis points controls are not localized");
+                show_axis_points->toolTip()==translations.value(QStringLiteral("Zobrazit nebo skrýt body os a konstrukčních čar")),"Axis points controls are not localized");
             const auto visibility_revision=view->base_mesh_revision();
             show_axis_points->setChecked(false);flush();
             check(!view->reference_visible(viewer::ReferenceVisibility::AxisPoints)&&view->reference_visible(viewer::ReferenceVisibility::Axes),"Axis points switch hid its parent axes");
@@ -63,6 +63,37 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 support.points.erase(support.points.begin(),support.points.begin()+2);probe.set_mesh(support,false);
                 check(image()==hidden,"Hidden endpoints affected ordinary point rendering");
                 std::cout<<"Axis point View pixels: independent points/axes, off/on preference and exact ordinary-point control passed"<<std::endl;
+                auto construction=sketcher::Sketch::create_default();
+                static_cast<void>(construction.add_segment(-10,0,10,0,1e-6,true));
+                static_cast<void>(construction.add_segment(-10,0,-10,10));
+                static_cast<void>(construction.add_point(6,10));
+                support=construction.viewer_mesh();
+                const auto shared=std::ranges::find_if(support.points,[](const auto& point){return point.position==kernel::Vec3{-10,0,0};});
+                check(shared!=support.points.end()&&!shared->construction,"Shared construction/profile vertex lost its profile role");
+                support.axes.clear();support.constraint_markers.clear();
+                std::erase_if(support.points,[](const auto& point){return !point.reference.semantic_key.starts_with("point:");});
+                probe.set_active_sketch_owner(construction.id);
+                probe.set_geometry_editing_presentation(true,construction.id);
+                probe.set_selection_contract({viewer::CandidateKind::SketchPoint,viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve});
+                probe.set_mesh(support);
+                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
+                const auto construction_visible=image();const auto revision=probe.base_mesh_revision();
+                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                const auto construction_hidden=image();
+                check(construction_hidden!=construction_visible&&probe.base_mesh_revision()==revision,"Active construction points ignored visibility or republished the scene");
+                const auto hidden_point=std::ranges::find_if(support.points,[](const auto& point){return point.construction;});
+                check(hidden_point!=support.points.end(),"Construction fixture lost its exclusive endpoint");
+                // Find the real point through the ordinary screen picker while
+                // its permanent marker is hidden. No surrogate point is made.
+                bool pickable=false;
+                for(int x=0;x<probe.width()&&!pickable;x+=2)for(int y=0;y<probe.height()&&!pickable;y+=2)
+                    for(const auto& candidate:probe.selection_candidates_at(QPointF(x,y)))
+                        if(candidate.owner_id==construction.id&&candidate.semantic_key==hidden_point->reference.semantic_key)pickable=true;
+                check(pickable,"Hidden construction endpoint lost editable/snapping identity");
+                std::erase_if(support.points,[](const auto& point){return point.construction;});
+                probe.set_mesh(support,false);
+                check(image()==construction_hidden,"Construction point toggle hid ordinary/shared profile points or changed curve wires");
+                std::cout<<"Active construction points: exact pixels, shared profile incidence, unchanged scene revision and real endpoint picking passed"<<std::endl;
             }
             std::vector<kernel::AxisReference> axes;
             for(const auto& axis:calculated.back().mesh.original_references.axes)

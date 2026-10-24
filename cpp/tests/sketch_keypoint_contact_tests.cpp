@@ -120,7 +120,7 @@ int main(){try {
                 if(support)static_cast<void>(s.add_segment_pair_constraint(support==1?"sketch_axis:y":s.segments.back().id,s.segments.front().id,ConstraintKind::Perpendicular));
                 for(auto d:std::vector(s.dimensions)){d.driving=!reference;d.locked=locked&&!reference;s.apply_dimension(d);}verify(s);
                 for(int step=0;step<3;++step) {
-                    if(!reference)for(auto d:std::vector(s.dimensions)) {d.value+=step==1?-.2:.3;if(step==1)s.apply_dimension(d);else check(s.set_dimension_value(d.id,dimension_display_value(d)),"FORM displayed dimension value edit rejected");verify(s);}
+                    if(!reference)for(auto d:std::vector(s.dimensions)) {d.value+=step==1?-.2:.3;if(step==1)s.apply_dimension(d);else check(s.set_dimension_value(d.id,dimension_display_value(d,s.plane)),"FORM displayed dimension value edit rejected");verify(s);}
                     const auto point=s.arcs.front().center_point_id;const auto* p=s.find_point(point);const auto before=s.serialized();
                     const auto y=p->y;const bool moved=s.move_point(point,p->x,p->y-.1);
                     if(!moved)check(s.serialized()==before,"Rejected FORM dimension drag changed Sketch");

@@ -491,6 +491,37 @@ std::string conversion_number(double value) {
     std::ostringstream out;out.imbue(std::locale::classic());out<<std::setprecision(17)<<value;return out.str();
 }
 }
+std::string RelationProgram::reexpress_values(const std::map<std::string,double>& factors) const {
+    for(const auto& [name,factor]:factors)if(!std::isfinite(factor)||factor==0)
+        throw RelationError(1,1,"Cannot safely convert relation units.");
+    std::vector<std::size_t> offsets{0};
+    for(std::size_t i=0;i<data_->source.size();++i)if(data_->source[i]=='\n')offsets.push_back(i+1);
+    struct Edit {std::size_t offset,length;std::string text;};std::vector<Edit> edits;
+    std::set<std::pair<int,int>> visited;
+    std::function<void(const Node&)> reads=[&](const Node& node) {
+        if(!visited.emplace(node->line,node->column).second)return;
+        if(node->op=="name") {
+            const auto& name=std::get<std::string>(node->value.data);
+            if(const auto f=factors.find(name);f!=factors.end()&&f->second!=1)
+                edits.push_back({offsets.at(node->line-1)+node->column-1,name.size(),"("+name+" / "+conversion_number(f->second)+")"});
+        }
+        for(const auto& arg:node->args)reads(arg);
+    };
+    for(const auto& condition:data_->conditions)reads(condition);
+    for(const auto& assignment:data_->assignments) {
+        reads(assignment.expression);
+        if(const auto f=factors.find(assignment.target);f!=factors.end()&&f->second!=1) {
+            const auto tokens=lex(assignment.source,assignment.expression->line);
+            const auto start=offsets.at(assignment.expression->line-1);
+            edits.push_back({start+tokens[2].column-1,0,"("});
+            edits.push_back({start+tokens.back().end,0,") * "+conversion_number(f->second)});
+        }
+    }
+    std::sort(edits.begin(),edits.end(),[](const auto& a,const auto& b){return a.offset!=b.offset?a.offset>b.offset:a.length>b.length;});
+    auto result=data_->source;for(const auto& edit:edits)result.replace(edit.offset,edit.length,edit.text);
+    static_cast<void>(RelationProgram(result));return result;
+}
+
 RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inputs,const std::array<double,3>& factors,const std::set<std::string>& fixed_unit_names,double degrees_per_angle_unit) const {
     validate(inputs);
     if(!(degrees_per_angle_unit>0)||!std::isfinite(degrees_per_angle_unit))throw RelationError(1,1,"Cannot safely convert relation units.");

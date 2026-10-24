@@ -82,6 +82,8 @@ int verify_translations(QApplication& application, QWidget& parent) {
     check(directory.isValid(), "Cannot create translation test directory");
     const auto catalogue = std::filesystem::path(__FILE__).parent_path()
         .parent_path().parent_path() / "config/localization";
+    const auto factory_override=qEnvironmentVariable("ZIMA_TEST_FACTORY_CONFIG");
+    const auto factory=factory_override.isEmpty()?catalogue.parent_path():std::filesystem::u8path(factory_override.toStdString());
     const auto load = [&](const QString& language) {
         QSettings config(directory.filePath("config.ini"), QSettings::IniFormat);
         config.setValue("Application/Language", language);
@@ -138,7 +140,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
-        for(const auto* key:{"Body os","Zobrazit nebo skrýt koncové body os","Tažení","Vlastnosti tažení","Přechod","Krut","Špička","Směr tažení","Stoupání","Úhel pole","Rozteč pole","Počet instancí","Počet instancí v opačném směru","Korekce délky","Korekce úhlu"})
+        for(const auto* key:{"Body os","Zobrazit nebo skrýt body os a konstrukčních čar","Tažení","Vlastnosti tažení","Přechod","Krut","Špička","Směr tažení","Stoupání","Úhel pole","Rozteč pole","Počet instancí","Počet instancí v opačném směru","Korekce délky","Korekce úhlu"})
             check(!settings.qt_translations.value(key).isEmpty()&&QObject::tr(key)==settings.qt_translations.value(key),"Modeling name or numeric helper label is untranslated");
 
         {
@@ -214,7 +216,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
         {
             auto feature=document::create_sheet_form();
             feature.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(
-                std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
+                factory/"lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
             feature.placement.references={{{},"sheet","face"},{{},"origin","origin:point"},{{},"origin","origin:plane:yz"}};
             app::PrimitivePropertiesDialog dialog(feature,false,false,[](auto){},&parent);
             check(dialog.windowTitle()==settings.qt_translations.value("Form Properties"),"Form title is not localized");
@@ -236,7 +238,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("Form definition");}),
                 "FORM definition label is not localized");
             const auto corner_source=document::read_sheet_form_definition(
-                std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+                factory/"lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
             auto corner=document::create_sheet_form();corner.sheet_form=document::copy_sheet_form_definition(corner_source);
             app::PrimitivePropertiesDialog corner_dialog(corner,false,true,[](auto){},&parent);
             corner_dialog.setAttribute(Qt::WA_DeleteOnClose,false);corner_dialog.show();application.processEvents();
@@ -266,7 +268,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
         }
         {
             sketcher::SketchDimension dimension{"units",sketcher::DimensionKind::Distance,"first","second",10};
-            app::SketchDimensionPropertiesDialog dialog(dimension,true,[](auto){},&parent);
+            app::SketchDimensionPropertiesDialog dialog(dimension,sketcher::SketchPlane::XY,true,[](auto){},&parent);
             dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
             auto* field=dialog.findChild<QDoubleSpinBox*>("sketchDimensionValue");
             for(const auto& [input,message]:std::array<std::pair<const char*,const char*>,2>{{
@@ -474,7 +476,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             dialog.reject();
         }
         {
-            const auto definition=symbols::Definition::load(catalogue.parent_path()/"symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz");
+            const auto definition=symbols::Definition::load(factory/"symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz");
             bool accepted=false;
             app::SymbolFamilyDialog dialog(definition,[&](auto value){check(value.serialized()==definition.serialized(),"Localized Family Table changed an untouched definition");accepted=true;},&parent);dialog.setAttribute(Qt::WA_DeleteOnClose,false);
             dialog.show();application.processEvents();

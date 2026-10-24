@@ -94,7 +94,7 @@ int main(){try{
             kind==2?f.sketch.create_line_symmetric_dimension(horizontal?"sketch_axis:y":"sketch_axis:x",f.edges[swap?1:3],f.edges[swap?3:1],DimensionKind::DistanceLineSymmetric):
             kind==3?f.sketch.create_line_pair_dimension(f.edges[swap?1:3],f.edges[swap?3:1],DimensionKind::DistanceLine):
             f.sketch.create_point_line_dimension(f.vertices[swap?1:0],f.edges[swap?3:1]);
-        f.width=d.id;f.sketch.apply_dimension(d);const double initial=dimension_display_value(d);
+        f.width=d.id;f.sketch.apply_dimension(d);const double initial=dimension_display_value(d,f.sketch.plane);
         for(double factor:{1.01,1.02,1.}){check(f.sketch.set_dimension_value(f.width,initial*factor),"Cannot edit projected or symmetric midpoint width");verify(f,2.9*factor,.8);}
         auto locked=f;for(auto& dim:locked.sketch.dimensions)if(dim.driving)dim.locked=true;
         const auto fixed=locked.sketch.serialized();const auto* point=locked.sketch.find_point(locked.vertices[2]);

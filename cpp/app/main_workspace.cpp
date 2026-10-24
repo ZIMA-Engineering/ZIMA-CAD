@@ -5789,15 +5789,18 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         // Properties uses signed origin/axis coordinates and other distances
         // use magnitudes, with the same expression grammar as inline entry.
         QWidget parent;parent.resize(1000,850);parent.show();
-        for(const int reference:{0,1,2,3}) {
-        auto sketch=sketcher::Sketch::create_default();const auto a=reference==0?sketch.add_point(30,5):std::string("sketch_origin");
-        const auto b=sketch.add_point(reference==0?10:-20,15);
-        auto dimension=reference==3?sketch.create_point_line_dimension(b,"sketch_axis:y"):
-            reference==2?sketch.create_axis_dimension(b,"sketch_axis:y"):
-            sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);sketch.apply_dimension(dimension);
+        for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})
+        for(const bool y:{false,true})for(const int reference:{0,1,2,3}) {
+        auto sketch=sketcher::Sketch::create_default();sketch.plane=plane;sketch.refresh_default_frame();
+        const double frame_sign=plane==sketcher::SketchPlane::XZ&&y?-1.:1.;
+        const auto a=reference==0?sketch.add_point(30,30):std::string("sketch_origin");
+        const auto b=sketch.add_point(reference==0?10:-20,reference==0?10:-20);const auto axis=y?"sketch_axis:x":"sketch_axis:y";
+        auto dimension=reference==3?sketch.create_point_line_dimension(b,axis):
+            reference==2?sketch.create_axis_dimension(b,axis):
+            sketch.create_point_dimension(a,b,y?sketcher::DimensionKind::DistanceY:sketcher::DimensionKind::DistanceX);sketch.apply_dimension(dimension);
         const auto unchanged=sketch.serialized();
-        auto* properties=new app::SketchDimensionPropertiesDialog(dimension,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);properties->show();flush();
-        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==(reference==0?20:-20),"Properties coordinate/distance sign is incorrect");
+        auto* properties=new app::SketchDimensionPropertiesDialog(dimension,sketch.plane,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);properties->show();flush();
+        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==(reference==0?20:-20*frame_sign),"Properties coordinate/distance sign is incorrect");
         auto* input=value->findChild<QLineEdit*>();check(input,"Expression field missing");
         input->setFocus();input->selectAll();
         for(const QChar c:QStringLiteral("1/0")){QKeyEvent key(QEvent::KeyPress,0,Qt::NoModifier,QString(c));QApplication::sendEvent(input,&key);}flush();
@@ -5809,14 +5812,14 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         check(properties->isVisible()&&sketch.serialized()==unchanged,"Invalid Properties expression committed");
         input->setText("-(5+10)*2mm");properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(sketch.viewer_mesh().dimensions.front().value==(reference==0?30:-30),"Properties arithmetic or coordinate sign differs from inline entry");
-        if(reference!=0)check(std::abs(sketch.find_point(b)->x+30)<1e-7,"Origin/axis Properties edit did not use the absolute signed coordinate");
+        if(reference!=0)check(std::abs((y?sketch.find_point(b)->y:sketch.find_point(b)->x)+30*frame_sign)<1e-7,"Origin/axis Properties edit did not use the absolute signed coordinate");
         }
         for(const bool negative:{false,true}) {
             auto sketch=sketcher::Sketch::create_default();
             const auto a=sketch.add_point(2,3),b=sketch.add_point(12,13);
             auto dimension=sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);
             sketch.apply_dimension(dimension);
-            auto* properties=new app::SketchDimensionPropertiesDialog(dimension,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);
+            auto* properties=new app::SketchDimensionPropertiesDialog(dimension,sketch.plane,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);
             properties->show();flush();
             auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");
             auto* input=value->findChild<QLineEdit*>();input->setFocus();flush();
@@ -5829,6 +5832,21 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             check(restored.set_dimension_value(dimension.id,8),"Cannot grow saved zero dimension");
             check(std::abs(restored.find_point(b)->x-restored.find_point(a)->x-(negative?-8:8))<1e-7,
                 "Dimension Properties zero chose the wrong side on subsequent edit");
+        }
+        // Reopening a zero coordinate must retain its independent contact side
+        // even when Qt formats the stored numeric zero without its sign.
+        for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})
+        for(const bool y:{false,true})for(const int side:{-1,1}) {
+            auto sketch=sketcher::Sketch::create_default();sketch.plane=plane;sketch.refresh_default_frame();
+            const auto point=sketch.add_point(0,0);
+            auto dimension=sketch.create_point_line_dimension(point,y?"sketch_axis:x":"sketch_axis:y");
+            dimension.value=0;dimension.solution_side=side;sketch.apply_dimension(dimension);
+            auto* properties=new app::SketchDimensionPropertiesDialog(sketch.dimensions.front(),plane,true,
+                [&](auto d){sketch.apply_dimension(std::move(d));},&parent);
+            properties->show();flush();
+            properties->buttons()->button(QDialogButtonBox::Ok)->setFocus();flush();
+            properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(sketch.dimensions.front().solution_side==side,"Unchanged zero coordinate Properties reversed its contact side");
         }
         std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
@@ -6098,6 +6116,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "sketch_equal_endpoint_ui_verification.inc"
 #include "sketch_external_constraints_ui_verification.inc"
 
+#include "sketch_hv_view_ui_verification.inc"
 #include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -6155,8 +6174,12 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
                 palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);palette.setColor(QPalette::Text,dark?Qt::white:Qt::black);
                 application.setPalette(palette);flush();
                 const auto image=view->grabFramebuffer();const double ratio=image.devicePixelRatio();int azure{};
-                for(int y=qRound(middle.y()*ratio)-3;y<=qRound(middle.y()*ratio)+3;++y)
-                    for(int x=qRound(middle.x()*ratio)-3;x<=qRound(middle.x()*ratio)+3;++x)
+                // A construction wire retains dash gaps during hover. Sample
+                // a complete pattern along it while keeping the normal-width
+                // transverse band; the cursor can legitimately sit in a gap.
+                const int along=construction?24:3;
+                for(int y=qRound(middle.y()*ratio)-(vertical?along:3);y<=qRound(middle.y()*ratio)+(vertical?along:3);++y)
+                    for(int x=qRound(middle.x()*ratio)-(vertical?3:along);x<=qRound(middle.x()*ratio)+(vertical?3:along);++x)
                         if(image.valid(x,y)){const auto color=image.pixelColor(x,y);if(color.red()<110&&color.green()>170&&color.blue()>170)++azure;}
                 check(azure>2,"Origin axis paints over the hovered Sketch wire");
                 }
@@ -9762,6 +9785,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_HV_VIEW_ONLY"))return verify_sketch_hv_view_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_EDGE_DISPLAY_ONLY"))

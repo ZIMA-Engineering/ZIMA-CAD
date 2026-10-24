@@ -279,7 +279,7 @@ void verify_sheet_attachment(std::filesystem::path directory) {
         std::array<double,2> result;
         for(std::size_t i=0;i<2;++i) {
             const auto& dimension=*std::ranges::find(sketch.dimensions,profile_id+(i?":position:last":":position:first"),&sketcher::SketchDimension::id);
-            near(sketcher::dimension_display_value(dimension),i?11:3);
+            near(sketcher::dimension_display_value(dimension,sketch.plane),i?11:3);
             const auto* point=sketch.find_point(dimension.second_point_id);
             result[i]=sketch.world_point(point->x,point->y).x;
         }
@@ -473,7 +473,7 @@ void verify_attachment(const std::filesystem::path& directory) {
             const double coordinate=line.find_point(s.first_point_id)->x;
             check(edited.set_dimension_value(line.id+":position:first",coordinate),"Cannot re-enter the prepared Bend coordinate");
             near(edited.find_point(s.first_point_id)->x,coordinate);
-            near(sketcher::dimension_display_value(edited.dimensions.front()),coordinate);
+            near(sketcher::dimension_display_value(edited.dimensions.front(),edited.plane),coordinate);
         }
         // Point-first remains coincidence: an off-edge point conflicts with
         // the selected edge, rather than silently acquiring projection meaning.

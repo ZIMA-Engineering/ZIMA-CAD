@@ -111,7 +111,7 @@ void dimension_cases(const kernel::OcctKernel& engine) {
             const double actual=kind==DimensionKind::Distance?std::hypot(dx,dy):kind==DimensionKind::DistanceX?dx:dy;
             const auto& persisted=s.dimensions.front();near(actual,persisted.value);check(s.external_references==std::vector{reference},"Point dimension or drag modified read-only source");};
         verify();
-        for(double factor:{1.05,.97,1.02}) {const auto unchanged=s.serialized();const auto p=*s.find_point(native);const bool accepted=s.set_dimension_value(d.id,dimension_display_value(d)*factor);
+        for(double factor:{1.05,.97,1.02}) {const auto unchanged=s.serialized();const auto p=*s.find_point(native);const bool accepted=s.set_dimension_value(d.id,dimension_display_value(d,s.plane)*factor);
             if(driving&&fixed)check(!accepted&&unchanged==s.serialized(),"Impossible fixed point edit changed Sketch");
             else {check(accepted,"Editable point dimension rejected");if(!driving)check(unchanged==s.serialized(),"Reference point dimension changed geometry");else check(std::hypot(s.find_point(native)->x-p.x,s.find_point(native)->y-p.y)>.001,"Driving point dimension did not move available DOF");}
             solved(s);verify();s=Sketch::from_serialized(s.serialized());++edits;}
