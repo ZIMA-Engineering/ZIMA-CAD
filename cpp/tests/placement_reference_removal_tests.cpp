@@ -104,9 +104,16 @@ void sweeps(const kernel::OcctKernel& kernel, fs::path directory) {
         const auto state = [&]() -> workspace::PartState& { return *live.open_part(id); };
         const auto current = [&] { return *state().session.document().find_container(object); };
         run(host, "placement.reference.set", {{"object", object}, {"index", 0}, {"reference", {{"owner", id + ":origin"}, {"key", "origin:plane:yz"}}}, {"offset_mm", 5}, {"derive_orientation", false}});
-        const auto bound = current(); const auto volume = state().session.calculated_boundaries().back().volume;
+        const auto bound = current();
+        const auto measured_volume=[&] {
+            // A newly calculated Sweep can defer physical analysis. Its zero
+            // cache field is not the volume to compare with a later analyzed
+            // result; inspect the actual unchanged native shape on a copy.
+            auto body=state().session.calculated_boundaries().back();kernel.ensure_body_properties(body);return body.volume;
+        };
+        const auto volume=measured_volume();
         require(run(host, "placement.reference.remove", {{"object", object}, {"index", 0}}).at("body_calculated") == true, "Sweep removal bypassed its body transaction");
-        require(current().placement.references.empty(), "Sweep retained the removed source"); near(state().session.calculated_boundaries().back().volume, volume);
+        require(current().placement.references.empty(), "Sweep retained the removed source"); near(measured_volume(), volume);
         const auto freed = current(); run(host, "undo"); require(current() == bound, "Sweep removal Undo failed"); run(host, "redo"); require(current() == freed, "Sweep removal Redo changed profile or path identities");
         if (kind == document::FeatureKind::Sweep3D) {
             auto next = state().session.document(); auto& point = next.find_container(object)->sweep3d.path.curve_points.back();
@@ -114,7 +121,7 @@ void sweeps(const kernel::OcctKernel& kernel, fs::path directory) {
             state().session.commit(std::move(next), state().session.calculated_boundaries());
             run(host, "placement.reference.remove", {{"object", point_id}, {"index", 0}});
             require(current().sweep3d.path.reference_valid && current().sweep3d.path.curve_points.back().references.empty(), "Owned path point source could not be removed");
-            near(state().session.calculated_boundaries().back().volume, volume);
+            near(measured_volume(), volume);
         }
         run(host, "save"); std::vector<kernel::BodyResult> cache; const auto stored = document::PartDocument::load(file, &cache);
         require(*stored.find_container(object) == current() && !cache.empty(), "Native Sweep lost repaired path or placement"); near(cache.back().volume, volume);

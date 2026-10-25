@@ -94,6 +94,27 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 probe.set_mesh(support,false);
                 check(image()==construction_hidden,"Construction point toggle hid ordinary/shared profile points or changed curve wires");
                 std::cout<<"Active construction points: exact pixels, shared profile incidence, unchanged scene revision and real endpoint picking passed"<<std::endl;
+                // A modeled profile publishes only its visible construction
+                // curves outside Sketcher. Its shared native vertex is now
+                // presented solely as an axis endpoint, with the same ID.
+                construction.set_segment_centerline(construction.segments.front().id,true);
+                check(!construction.geometry_visible_in_3d(construction.segments.front().id),"New construction geometry is visible in the model by default");
+                construction.set_geometry_visible_in_3d(construction.segments.front().id,true);
+                const auto definition=construction.serialized();
+                support=construction.viewer_mesh();construction.filter_hidden_3d_geometry(support,true);
+                support.axes.clear();support.constraint_markers.clear();
+                check(support.points.size()==2&&std::ranges::all_of(support.points,[](const auto& point){return point.construction;}),
+                    "A construction-only display retained a shared profile marker outside the axis-points switch");
+                probe.set_active_sketch_owner({});probe.set_geometry_editing_presentation(false);probe.set_selection_contract({});
+                probe.set_mesh(support);probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                const auto passive_hidden=image();const auto passive_revision=probe.base_mesh_revision();
+                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
+                check(image()!=passive_hidden&&probe.base_mesh_revision()==passive_revision,"Shared passive axis endpoint ignored the point preference or republished the scene");
+                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                support.points.clear();probe.set_mesh(support,false);
+                check(image()==passive_hidden,"Hidden shared axis endpoint left a white marker");
+                check(construction.serialized()==definition,"Axis display classification modified native Sketch incidence");
+                std::cout<<"Passive shared construction/profile point: exact hidden pixels and unchanged native definition passed"<<std::endl;
             }
             std::vector<kernel::AxisReference> axes;
             for(const auto& axis:calculated.back().mesh.original_references.axes)
@@ -903,6 +924,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
         feature.feature.sides[0].operation=document::FeatureSideOperation::None;
         sketch.owner_container_id=feature.id;
         const auto axis=sketch.add_segment(120,70,240,70);sketch.set_segment_centerline(axis,true);
+        sketch.set_geometry_visible_in_3d(axis,true);
         const auto hidden=sketch.add_segment(120,100,240,100);sketch.set_segment_centerline(hidden,true);
         sketch.set_geometry_visible_in_3d(hidden,false);
         std::vector<std::string> curves{axis};

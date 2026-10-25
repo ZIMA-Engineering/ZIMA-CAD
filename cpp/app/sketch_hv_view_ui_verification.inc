@@ -3,6 +3,7 @@ static int verify_sketch_hv_view_ui(QApplication& application,const std::filesys
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_JUNCTION_SOURCE"))return verify_sketch_junction_ui(application,directory);
         if(const auto source=qEnvironmentVariable("ZIMA_VERIFY_SKETCH_COORDINATE_SOURCE");!source.isEmpty()) {
             const auto model=document::PartDocument::load(std::filesystem::u8path(source.toStdString()));
             const auto sketch=std::ranges::find_if(model.sketches,[](const auto& s){return std::ranges::any_of(s.dimensions,[&](const auto& d){return sketcher::is_coordinate_dimension(d)&&std::abs(std::abs(sketcher::dimension_display_value(d,s.plane))-150)<1e-7;});});

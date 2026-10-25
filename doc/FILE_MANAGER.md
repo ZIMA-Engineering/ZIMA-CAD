@@ -31,6 +31,17 @@ symbols, templates, sheet-metal assets, native ZIMA-CAD library content and
 engineering tables. Custom local or network sources can be added. Factory
 source names follow the application language; their paths remain configurable.
 
+The source rows use the same directory branding renderer and metadata labels as
+ordinary folders. Custom sources also read `0000-index/metadata.ini`; a source's
+configured name is retained when no metadata label is provided. `logo.svg` uses
+logo-only presentation with a localized accessible name and tooltip;
+`logo-text.svg` retains the localized label beside the artwork. The working
+directory always keeps its Home icon and working-directory label. Missing
+artwork falls back to the folder icon, and unavailable sources retain their
+availability feedback. Language reloads and live Light/Dark changes refresh
+these presentations. All seven factory source roots carry SVG artwork and
+labels in Czech, English, German, French and Russian.
+
 The context menu on a source row provides the same Open, Open in New Tab,
 Set as Working Directory, Directory Properties and Create/Edit Project Overview
 actions as a directory row. This allows the root of a writable source to be configured even though it

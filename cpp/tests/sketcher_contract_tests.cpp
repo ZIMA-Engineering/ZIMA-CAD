@@ -2586,8 +2586,11 @@ int main() {
                 "The finite construction centerline contract was lost");
         // Every native curve supports the same finite construction role and
         // independent 3D visibility without modifying shape or identity.
-        for (const auto& curve_id : auxiliary_curve_ids)
+        for (const auto& curve_id : auxiliary_curve_ids) {
             auxiliary_curves.set_geometry_centerline(curve_id, true);
+            require(!auxiliary_curves.geometry_visible_in_3d(curve_id),"New construction curve unexpectedly defaults to visible in 3D");
+            auxiliary_curves.set_geometry_visible_in_3d(curve_id,true);
+        }
         auto construction_roundtrip = zima::sketcher::Sketch::from_serialized(auxiliary_curves.serialized());
         auto construction_display = construction_roundtrip.viewer_mesh();
         construction_roundtrip.filter_hidden_3d_geometry(construction_display);

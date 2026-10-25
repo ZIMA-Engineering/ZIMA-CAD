@@ -66,9 +66,11 @@ static void verify_profile_origin_ui(QApplication& application, AssemblyWorkspac
             check(std::abs(p.rotation_x)+std::abs(p.rotation_y)+std::abs(p.rotation_z)<1e-7,
                 "Whole Origin rotated the profile axes away from the owning Origin");
             check(std::abs(p.x)+std::abs(p.y)+std::abs(p.z)<1e-7,"Whole Origin moved the profile origin");
-            // The existing picker refreshes the reference/Origin scene after
-            // each accepted plane. A MeshView packet revision is not a kernel
-            // calculation counter; verify the authoritative document instead.
+            // Whole-Origin input publishes only its completed reference scene;
+            // all ordered solving and reference initialization still run.
+            if(feature_mode)check(view->base_mesh_revision()-revision==1,
+                "Whole-Origin Feature entry published redundant scenes");
+            // Scene publication is not a kernel calculation counter.
             check(run("documents")==initial,"Origin draft modified the document");
         };
         pick();verify();dialog->reject();flush();check(run("documents")==initial,"Origin Cancel changed document");

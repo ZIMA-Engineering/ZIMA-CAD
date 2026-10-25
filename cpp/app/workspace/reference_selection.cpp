@@ -1536,6 +1536,13 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
         };
         std::ranges::sort(planes, {}, origin_plane_rank);
         bool accepted_any = false;
+        const bool body_preview=dynamic_cast<BodyPropertiesDialog*>(primitive_reference_dialog_)!=nullptr;
+        const bool publish_at_end=!body_preview&&!defer_reference_scene_refresh_;
+        {
+        // Solve and initialize every reference in the established order. Only
+        // the final scene has a consumer during whole-Origin entry. Body
+        // Properties retains its independently owned synchronous preview.
+        const QScopedValueRollback batch(defer_reference_scene_refresh_,defer_reference_scene_refresh_||!body_preview);
         for (const auto& plane : planes) {
             const auto row = primitive_reference_dialog_->first_empty_position_index();
             if (row >= 3) break;
@@ -1551,6 +1558,12 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
             accept_primitive_reference(candidate);
             accepted_any = accepted_any ||
                 primitive_reference_dialog_->first_empty_position_index() != before;
+        }
+        }
+        if(accepted_any&&publish_at_end) {
+            preserve_view_on_refresh_=true;
+            refresh_scene();
+            set_primitive_properties_dimension_selection();
         }
         return accepted_any;
     }

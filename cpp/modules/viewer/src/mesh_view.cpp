@@ -191,6 +191,7 @@ struct MeshView::Impl {
     std::optional<SourceWireKey> selected_source_key;
     std::size_t inspection_wire_revision{};
     GLsizei selected_source_vertex_count{};
+    bool selected_source_native_sketch{};
     std::vector<float> selected_source_data;
     QOpenGLBuffer silhouette{QOpenGLBuffer::VertexBuffer};
     QOpenGLVertexArrayObject vertex_array;
@@ -4398,8 +4399,10 @@ if (impl_->show_origins) {
         source_wire_key=Impl::SourceWireKey{ordinary_preview_candidate->owner_id,ordinary_preview_candidate->instance_path,0};
     if(source_wire_key&&source_wire_key!=impl_->selected_source_key) {
         std::vector<float> data;
+        bool native_strokes=false,model_strokes=false;
         const auto append=[&](const kernel::ViewerEdge& edge) {
             if(edge.construction||edge.parameter_seam)return;
+            if(is_sketch_wire_edge(edge))native_strokes=true;else model_strokes=true;
             for(std::size_t i=1;i<edge.points.size();++i)for(const auto& p:{edge.points[i-1],edge.points[i]})
                 data.insert(data.end(),{float(p.x),float(p.y),float(p.z),0.F,0.F,1.F});
         };
@@ -4409,6 +4412,7 @@ if (impl_->show_origins) {
             for(const auto& edge:impl_->container_preview_wire(candidate->owner_id,candidate->instance_path))append(edge);
         }
         impl_->selected_source_vertex_count=static_cast<GLsizei>(data.size()/6);
+        impl_->selected_source_native_sketch=native_strokes&&!model_strokes;
         if(!data.empty()&&data!=impl_->selected_source_data) {
             impl_->selected_source_lines.bind();
             impl_->selected_source_lines.allocate(data.data(),static_cast<int>(data.size()*sizeof(float)));
@@ -4421,7 +4425,10 @@ if (impl_->show_origins) {
     setProperty("gpuSourceWireVertexCount",source_wire_visible?impl_->selected_source_vertex_count:0);
     // Native Sketch and 3D Curve wires use the same antialiased QPainter
     // stroke below. Do not add the ordinary one-pixel GPU stroke beneath it.
-    if(source_wire_visible&&ordinary_sketch_point_owners.empty()) {
+    // Only the source preview itself decides whether its native Sketch
+    // strokes are painted below. A modeling feature may also publish a
+    // construction Sketch axis; that helper must never suppress its tool wire.
+    if(source_wire_visible&&!impl_->selected_source_native_sketch) {
         impl_->program.setUniformValue("unlit",1);
         impl_->program.setUniformValue("color",interaction::rgba(interaction::selected));
         bind_attributes(impl_->selected_source_lines);

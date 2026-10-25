@@ -5,6 +5,8 @@
 #include "native_file_icon.hpp"
 #include "directory_metadata.hpp"
 #include "branding_image.hpp"
+#include "resource_icon.hpp"
+#include <QPainter>
 
 #include <QAction>
 #include <QPersistentModelIndex>
@@ -66,6 +68,65 @@ public:
 };
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 void touch(const QString& path){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot create synthetic file");file.write("synthetic");}
+void verify_source_branding(QApplication& application) {
+    QImage artwork(7*72,2*72,QImage::Format_ARGB32_Premultiplied);artwork.fill(Qt::white);QPainter art(&artwork);art.fillRect(0,72,artwork.width(),72,QColor("#20262d"));int column=0;
+    for(const auto* root:{"formats","materials","symbols","templates","lib/01-SHEETMETAL","lib/02-NATIVE","lib/03-ENGINEERING-TABLES"}) {
+        const QString directory=QFileInfo(QString("config/%1/0000-index").arg(root)).absoluteFilePath();
+        QSettings metadata(directory+"/metadata.ini",QSettings::IniFormat);
+        for(const auto* language:{"cs","en","de","fr","ru"})check(!metadata.value(QString("Directory/Label/%1").arg(language)).toString().trimmed().isEmpty(),"Factory root metadata is missing a localized label");
+        const QString image=directory+QLatin1Char('/')+metadata.value("Directory/Logo").toString();
+        check(metadata.value("Directory/LogoMode")=="logo-text"&&QFileInfo(image).isFile()&&!QIcon(image).pixmap(32,32).isNull(),"Factory root metadata has no usable SVG logo");
+        for(int row=0;row<2;++row)art.drawPixmap(column*72+4,row*72+4,QIcon(image).pixmap(64,64));++column;
+    }
+    art.end();QDir().mkpath("build/loft-audit");check(artwork.save("build/loft-audit/factory-source-icons.png"),"Factory source artwork inspection cannot save");
+    QTemporaryDir temporary;check(temporary.isValid(),"Source branding fixture directory missing");
+    const QString root=temporary.path(),logo=root+"/logo-only",text=root+"/logo-text",plain=root+"/plain",missing=root+"/missing-logo";
+    for(const auto& directory:{root,logo,text,plain,missing})check(QDir().mkpath(directory+"/0000-index"),"Source branding fixture cannot create directory");
+    const auto svg=[](const QString& path){QFile f(path);check(f.open(QIODevice::WriteOnly),"Source branding SVG cannot open");f.write("<svg xmlns='http://www.w3.org/2000/svg' width='300' height='48' viewBox='0 0 300 48'><rect width='300' height='48' fill='#80AA1A'/></svg>");};
+    svg(root+"/0000-index/logo.svg");svg(logo+"/0000-index/logo.svg");svg(text+"/0000-index/logo-text.svg");
+    for(const auto& directory:{root,logo,text,missing}) {
+        QSettings metadata(directory+"/0000-index/metadata.ini",QSettings::IniFormat);
+        for(const auto* language:{"cs","en","de","fr","ru"})metadata.setValue(QString("Directory/Label/%1").arg(language),QString("Label %1").arg(language));
+        if(directory==missing)metadata.setValue("Directory/Logo","absent.svg");metadata.sync();
+    }
+    zima::app::ApplicationSettings settings;settings.language="cs";settings.file_manager.default_view="files";
+    settings.file_manager.sources={{"custom-logo","Configured logo",logo,logo,true,false,false},
+        {"custom-text","Configured text",text,text,true,false,false},{"plain","Configured plain",plain,plain,true,false,false},
+        {"missing","Configured missing",missing,missing,true,false,false},{"unavailable","Unavailable",root+"/absent",root+"/absent",true,false,false}};
+    zima::app::FileManagerTab tab(settings,root);tab.resize(1000,700);tab.show();application.processEvents();
+    const auto original_palette=application.palette();
+    for(const auto* language:{"cs","en","de","fr","ru"}) {
+        settings.language=language;tab.reload_settings(settings);application.processEvents();
+        auto* list=tab.findChild<QListWidget*>("fileManagerSources");check(list&&list->count()==6,"Source branding fixture list missing");
+        const QString label=QString("Label %1").arg(language);
+        check(list->item(0)->text()!=label&&!list->item(0)->text().isEmpty(),"Working Home adopted directory metadata");
+        check(list->item(1)->text().isEmpty()&&list->item(1)->data(Qt::AccessibleTextRole)==label,"Logo-only source lost its localized accessible label");
+        check(list->item(2)->text()==label&&list->item(4)->text()==label,"User source labels did not follow metadata language or missing-logo fallback");
+        check(list->item(3)->text()=="Configured plain","Source without metadata lost its configured name");
+        check(!list->item(5)->icon().isNull()&&list->item(5)->toolTip().contains(root+"/absent"),"Unavailable source lost its feedback");
+        check(list->item(1)->toolTip().contains(label)&&list->item(1)->toolTip().contains(QDir::toNativeSeparators(logo)),"Branded source tooltip lost its label/path");
+        for(bool dark:{false,true,false}) {
+            auto palette=original_palette;palette.setColor(QPalette::Window,dark?QColor("#20262d"):QColor(Qt::white));palette.setColor(QPalette::WindowText,dark?QColor(Qt::white):QColor(Qt::black));
+            application.setPalette(palette);application.processEvents();
+            const auto home=zima::app::resource_icon("web-home").pixmap(24,24).toImage();
+            check(list->item(0)->icon().pixmap(24,24).toImage()==home,"Home source lost its fixed palette-aware house icon");
+            QImage image(220,38,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);QPainter painter(&image);
+            QStyleOptionViewItem option;option.initFrom(list);option.rect=image.rect();option.widget=list;option.decorationSize=list->iconSize();
+            list->itemDelegate()->paint(&painter,option,list->model()->index(1,0));painter.end();
+            int far_ink=0;for(int y=0;y<image.height();++y)for(int x=40;x<image.width();++x)if(image.pixelColor(x,y)==QColor("#80AA1A"))++far_ink;
+            check(far_ink>500,"Source logo was missing or squeezed into a folder-sized square");
+            int rows=2*list->frameWidth();for(int i=0;i<list->count();++i)rows+=list->sizeHintForRow(i);
+            check(list->height()>=rows,"Mixed Home and branded source row heights clipped the source list");
+        }
+        const auto at=list->visualItemRect(list->item(2)).center();
+        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){QMouseEvent e(type,at,QPointF(list->viewport()->mapToGlobal(at)),Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(list->viewport(),&e);}application.processEvents();
+        check(tab.current_directory()==QDir::cleanPath(text)&&list->currentRow()==2,"Branded source click lost navigation or selection");
+    }
+    application.setPalette(original_palette);application.processEvents();
+    QSettings metadata(logo+"/0000-index/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/LogoMode","none");metadata.sync();tab.reload_settings(settings);
+    auto* list=tab.findChild<QListWidget*>("fileManagerSources");check(list->item(1)->text()=="Label ru","Disabling source branding failed to restore its localized label");
+    std::cout<<"Source branding: five languages, custom/factory metadata, Home exception, logo/logo-text/missing/disabled fallbacks, Light/Dark/Light and actual source navigation passed\n";
+}
 void verify_symbol_thumbnails(QApplication& application){
     const auto root=QString::fromStdString((std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/symbols").generic_string());
     zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";zima::app::FileManagerTab manager(settings,root);int checked=0;
@@ -315,6 +376,7 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
+        if(argc==2&&std::string(argv[1])=="--source-branding") {verify_source_branding(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--file-operations-small") {verify_background_file_operations(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--file-operations") {verify_large_cleanup_responsiveness(application);verify_background_file_operations(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--portable-factory-sources") {verify_portable_factory_file_manager_ui(application);return 0;}

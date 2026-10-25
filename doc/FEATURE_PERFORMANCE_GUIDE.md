@@ -144,5 +144,10 @@ separately from those checks. The finite large-import evidence is in the
   replacement, and keep complete model readback in development tests. Avoid
   automatically reloading the full saved history during ordinary Save.
 
+- [Whole-Origin input and native edge packets](verification/20261025-sketch-junction-selection-performance.md):
+  retain ordered reference initialization while publishing its completed scene
+  once; bound native face-classification preparation to immutable packet inputs
+  and compare every classification state and full reference packet.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

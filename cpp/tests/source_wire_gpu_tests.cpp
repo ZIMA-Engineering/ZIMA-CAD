@@ -70,6 +70,11 @@ void verify_occluded_selection(QApplication& application) {
     mesh.edges={{{{-.8,0,0},{.8,0,0}},{"inside","rim",{}}},
                 {{{-.8,-.6,0},{.8,-.6,0}},{"other","rim",{}}}};
     mesh.original_references.edges={{{{-.7,-.7,0},{.7,-.7,0},{.7,.7,0},{-.7,.7,0},{-.7,-.7,0}},{"inside","start:profile",{}}}};
+    // A modeled feature can retain a visible native construction axis after
+    // its profile has been consumed. It must not switch its authored material
+    // preview to the native Sketch painter and suppress the GPU wire.
+    kernel::ViewerEdge helper{{{-.5,-.3,0},{.5,-.3,0}},{"owned-sketch","segment:construction-axis",{}}};
+    helper.construction=helper.dash_dot=true;helper.display_owner_id="inside";mesh.edges.push_back(helper);
     viewer::MeshView view;view.resize(640,640);view.set_mesh(mesh);view.show();view.fit_all();
     unsigned preview_reads=0;
     view.set_container_preview_provider([&](const auto& owner,const auto& path) {

@@ -3215,7 +3215,10 @@ bool Sketch::geometry_visible_in_3d(const std::string& id) const {
     bool result=false;visit_sketch_geometry(*this,id,[&](const auto& v){result=v.visible_in_3d;});return result;
 }
 void Sketch::set_geometry_centerline(const std::string& id,bool enabled) {
-    if(!visit_sketch_geometry(*this,id,[&](auto& v){v.centerline=enabled;if(enabled)v.construction=true;}))
+    if(!visit_sketch_geometry(*this,id,[&](auto& v){
+        if(enabled&&!v.centerline)v.visible_in_3d=false;
+        v.centerline=enabled;if(enabled)v.construction=true;
+    }))
         throw std::invalid_argument("Sketch geometry does not support a construction role");
     validate();
 }
@@ -3249,7 +3252,13 @@ void Sketch::filter_hidden_3d_geometry(zima::kernel::ViewerMesh& mesh, bool cons
     std::erase_if(mesh.points,[&](auto& point){
         if(!point.reference.semantic_key.starts_with("point:"))return construction_only;
         const auto id=point.reference.semantic_key.substr(6);
-        if(shown_points.contains(id))return false;
+        if(shown_points.contains(id)) {
+            // Outside a modeled profile, only its construction curves are
+            // published. A vertex shared with a hidden profile is presented
+            // solely as their endpoint here. Do not change its native role.
+            if(construction_only&&owned_points.contains(id))point.construction=true;
+            return false;
+        }
         const auto* p=find_point(id);
         return construction_only||owned_points.contains(id)||point.construction||(p&&p->centerline&&!p->visible_in_3d);
     });
@@ -4270,8 +4279,16 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     });
     if(!translated_drag_component&&(dragging_curve_center||dragging_native_tangent_pair))
         static_cast<void>(seed_circular_equations(next,{point_id}));
+    const bool symmetric_component=std::ranges::any_of(next.constraints,[](const auto& c){
+        return !c.suppressed&&c.kind==ConstraintKind::Symmetric;
+    });
+    if(!translated_drag_component&&symmetric_component)
+        // Fit from the requested handle before sequential reflections can
+        // distort the remaining participants into a different initial branch.
+        static_cast<void>(seed_circular_equations(next,{point_id},true));
     auto solved = next.solve_impl(100, false, {point_id});
-    const bool midpoint_component=std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::Midpoint;});
+    const bool midpoint_component=std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
+        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);});
     // Fit the actual handle before the generic distance fallback releases its
     // pin. A free midpoint-centred rigid profile must follow the cursor rather
     // than redistribute its displacement among the other vertices.
@@ -9919,7 +9936,8 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && (std::ranges::any_of(next.dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
-    })||std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::Midpoint;}))) {
+    })||std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
+        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);}))) {
         // The sequential corrections may already have distorted the two line
         // directions or the two halves of an anchored midpoint. Changes in
         // that graph need a coupled fit, including ordinary length edits.
@@ -10108,7 +10126,9 @@ SolveResult Sketch::solve(std::size_t maximum_iterations) {
     }
     if(result.status==SolveStatus::Conflicting&&(std::ranges::any_of(dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
-    })||std::ranges::any_of(constraints,[](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::Midpoint;}))) {
+    })||std::ranges::any_of(constraints,[&](const auto& c){return !c.suppressed&&
+        (c.kind==ConstraintKind::Midpoint||(c.kind==ConstraintKind::Symmetric&&
+            std::ranges::any_of(constraints,[](const auto& pair){return !pair.suppressed&&pair.kind==ConstraintKind::Perpendicular;})));}))) {
         // Updated read-only supports need the same coupled angular/midpoint fit as an
         // explicit value edit; sequential line projections can otherwise undo
         // each other while the valid profile changes height or width.
@@ -13749,8 +13769,9 @@ SolveResult Sketch::solve_impl(
     }
 
     std::vector<std::vector<std::size_t>> equation_columns;
+    std::vector<bool> centered_equations;
     const auto append_equations = [&](std::size_t count,
-                                      std::initializer_list<std::string> ids) {
+                                      std::initializer_list<std::string> ids,bool centered=false) {
         std::vector<std::size_t> columns;
         for (const auto& id : ids) {
             const auto found = entity_columns.find(id);
@@ -13761,6 +13782,7 @@ SolveResult Sketch::solve_impl(
         std::ranges::sort(columns);
         columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
         equation_columns.insert(equation_columns.end(), count, columns);
+        centered_equations.insert(centered_equations.end(),count,centered);
     };
     for(const auto& arc:arcs)for(const auto& endpoint:{arc.start_point_id,arc.end_point_id})
         append_equations(1,{arc.id,arc.center_point_id,endpoint});
@@ -13773,7 +13795,8 @@ SolveResult Sketch::solve_impl(
             constraint.kind == ConstraintKind::PointReference ? 2 : 1;
         append_equations(count,
             {constraint.first_point_id, constraint.second_point_id,
-             constraint.geometry_id, constraint.second_geometry_id});
+             constraint.geometry_id, constraint.second_geometry_id},
+            constraint.kind==ConstraintKind::Symmetric||constraint.kind==ConstraintKind::EqualLength);
     }
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed || !dimension.driving) continue;
@@ -13798,6 +13821,8 @@ SolveResult Sketch::solve_impl(
     std::vector<std::vector<double>> jacobian(
         base.size(), std::vector<double>(variables.size()));
     constexpr double step = 1.0e-6;
+    constexpr double centered_step=1.0e-5;
+    const bool use_centered=std::ranges::any_of(centered_equations,[](bool value){return value;});
     std::vector<std::size_t> column_colors(
         variables.size(), std::numeric_limits<std::size_t>::max());
     std::size_t color_count{};
@@ -13854,11 +13879,25 @@ SolveResult Sketch::solve_impl(
             *variables[column] = shifted_columns.back().second + step;
         }
         const auto shifted = residuals();
+        std::vector<double> centered,opposite;
+        if(use_centered) {
+            for(const auto& [column,original_value]:shifted_columns)*variables[column]=original_value+centered_step;
+            centered=residuals();
+            for(const auto& [column,original_value]:shifted_columns)*variables[column]=original_value-centered_step;
+            opposite=residuals();
+        }
         for (const auto& [column, original_value] : shifted_columns) {
             *variables[column] = original_value;
             for (std::size_t row = 0; row < base.size(); ++row) {
                 if (std::ranges::binary_search(equation_columns[row], column)) {
-                    jacobian[row][column] = (shifted[row] - base[row]) / step;
+                    // Central differences do not invent rank from the
+                    // first-order truncation of dependent nonlinear rows
+                    // (e.g. equal legs already implied by native symmetry).
+                    // Contact-distance rows use their established one-sided
+                    // derivative at zero; their absolute residual is nonsmooth.
+                    jacobian[row][column] = centered_equations[row]
+                        ?(centered[row]-opposite[row])/(2*centered_step)
+                        :(shifted[row]-base[row])/step;
                 }
             }
         }

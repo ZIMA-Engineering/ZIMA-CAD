@@ -23,6 +23,15 @@ construction curves in the active Sketch. Hidden markers keep their real native
 point identity for picking, snapping and dragging, with hover/selection feedback
 when needed. Shared profile vertices retain their ordinary profile presentation.
 The localized tooltip explains this scope in all five supported languages.
+When a modeled feature publishes only construction curves outside Sketcher,
+their endpoints follow Axis points even if a native vertex also belongs to a
+hidden profile. This changes only the displayed packet: editing the Sketch
+retains the real shared profile vertex and its ordinary picking behavior.
+
+Newly assigned construction curves default to hidden outside Sketcher. Their
+individual Show in 3D setting remains available and existing saved choices are
+retained. A Revolution keeps its calculated rotation axis independently of
+that Sketch display preference.
 
 Feature selection uses the authored wire even when later coplanar merging leaves
 only that feature's helper axis available in the final scene. Mirror and Pattern
@@ -31,6 +40,12 @@ instead of downstream Boolean fragments. This is display preparation without
 solid calculation or an Undo transaction. The Mirror/Pattern dialog releases its
 Tree editing transaction before the final Tree refresh, restoring Insert Here
 immediately after OK or Cancel.
+
+A visible construction curve must never suppress the modeled feature's authored
+material wire. The renderer decides which drawing pass owns a preview from the
+preview's own strokes, rather than from helper Sketch geometry in the scene.
+The source-wire GPU regression covers real pixels with an occluded feature and
+a visible internal construction axis in every ordinary display mode.
 
 ## Verification
 

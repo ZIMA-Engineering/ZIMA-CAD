@@ -221,9 +221,12 @@ private:
 
 class DirectoryTreeDelegate final : public QStyledItemDelegate {
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
+    explicit DirectoryTreeDelegate(QObject* parent,bool compact_unbranded=false)
+        :QStyledItemDelegate(parent),compact_unbranded_(compact_unbranded){}
     QSize sizeHint(const QStyleOptionViewItem& option,const QModelIndex& index)const override{
-        auto size=QStyledItemDelegate::sizeHint(option,index);size.setHeight(std::max(size.height(),38));return size;
+        auto size=QStyledItemDelegate::sizeHint(option,index);
+        const bool compact=compact_unbranded_&&index.data(BrandingModeRole).toInt()==static_cast<int>(DirectoryBrandingMode::None);
+        size.setHeight(std::max(size.height(),compact?28:38));return size;
     }
     void paint(QPainter* painter,const QStyleOptionViewItem& option,const QModelIndex& index)const override{
         const auto mode=static_cast<DirectoryBrandingMode>(index.data(BrandingModeRole).toInt());
@@ -238,6 +241,8 @@ public:
         const QRect target(QPoint(option.rect.left()+4,option.rect.center().y()-logical.height()/2),logical);
         painter->drawPixmap(target,pixmap);
     }
+private:
+    bool compact_unbranded_{};
 };
 
 QString clean_path(const QString& path) {
@@ -843,7 +848,7 @@ void FileManagerTab::build_ui(){
     auto* source_toolbar=new QToolBar(source_panel);source_toolbar->setObjectName("fileManagerSourceToolbar");source_toolbar->setIconSize({18,18});
     auto* source_settings=source_toolbar->addAction(resource_icon("settings"),tr("Nastavení Správce souborů"));source_settings->setObjectName("fileManagerSettings");source_layout->addWidget(source_toolbar);
     connect(source_settings,&QAction::triggered,this,[this]{if(settings_requested)settings_requested();});
-    source_list_=new QListWidget(source_panel);source_list_->setObjectName("fileManagerSources");source_list_->setIconSize({24,24});source_list_->setSelectionMode(QAbstractItemView::SingleSelection);source_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);source_list_->setContextMenuPolicy(Qt::CustomContextMenu);source_layout->addWidget(source_list_);
+    source_list_=new QListWidget(source_panel);source_list_->setObjectName("fileManagerSources");source_list_->setIconSize({24,24});source_list_->setItemDelegate(new DirectoryTreeDelegate(source_list_,true));source_list_->setSelectionMode(QAbstractItemView::SingleSelection);source_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);source_list_->setContextMenuPolicy(Qt::CustomContextMenu);source_layout->addWidget(source_list_);
     source_stack_=new QStackedWidget(source_panel);source_stack_->setObjectName("fileManagerSourceTrees");source_layout->addWidget(source_stack_,1);
     views_=new QTabWidget(splitter);views_->setObjectName("fileManagerViews");views_->setDocumentMode(true);
     overview_stack_=new QStackedWidget(views_);overview_stack_->setObjectName("fileManagerOverviewStack");
@@ -905,7 +910,6 @@ void FileManagerTab::rebuild_sources(){
     FileManagerSource working;working.id="working";working.name=tr("Pracovní adresář");working.path=working_directory_;working.resolved_path=working_directory_;working.enabled=true;working.read_only=false;working.factory=true;
     QVector<FileManagerSource> all{working};for(const auto& source:settings_.file_manager.sources)if(source.enabled)all.push_back(source);
     for(auto source:all){
-        if(source.factory&&source.id!="working"&&QFileInfo(metadata_path(source.resolved_path)).isFile())source.name=directory_label(source.resolved_path,settings_.language);
         auto* tree=new QTreeView(source_stack_);tree->setObjectName(QStringLiteral("fileManagerSourceTree_%1").arg(source.id));tree->setHeaderHidden(true);tree->setAnimated(false);tree->setIconSize({28,28});tree->setItemDelegate(new DirectoryTreeDelegate(tree));tree->setContextMenuPolicy(Qt::CustomContextMenu);
         auto* model=new QFileSystemModel(tree);QDir::Filters model_filters=QDir::Dirs|QDir::NoDotAndDotDot;
         if(settings_.file_manager.show_hidden)model_filters|=QDir::Hidden|QDir::System;
@@ -915,11 +919,8 @@ void FileManagerTab::rebuild_sources(){
         const int index=source_stack_->addWidget(tree);auto* item=new QListWidgetItem(source.name,source_list_);item->setData(Qt::UserRole,index);sources_.push_back({source,model,proxy,tree});
         connect(tree,&QTreeView::clicked,this,[this,model,proxy](const QModelIndex& selected){const QFileInfo info=model->fileInfo(proxy->mapToSource(selected));if(info.isDir())navigate(info.absoluteFilePath());});
         connect(tree,&QTreeView::customContextMenuRequested,this,[this,tree](const QPoint& point){show_tree_menu(tree,point);});
-        if(!QFileInfo(source.resolved_path).isDir()){item->setIcon(resource_icon("suppress"));item->setToolTip(tr("Zdroj není dostupný: %1").arg(source.resolved_path));}
-        else{item->setIcon(source.id=="working"?resource_icon("web-home"):resource_icon("web-folder"));item->setToolTip(QDir::toNativeSeparators(source.resolved_path));}
     }
     refresh_source_labels();
-    const int row=source_list_->count()?std::max(28,source_list_->sizeHintForRow(0)):28;source_list_->setFixedHeight(row*source_list_->count()+2*source_list_->frameWidth());
 }
 
 int FileManagerTab::source_index_for(const QString& path)const{
@@ -927,7 +928,22 @@ int FileManagerTab::source_index_for(const QString& path)const{
 }
 
 void FileManagerTab::refresh_source_labels(){
-    for(int index=0;index<sources_.size();++index){auto& source=sources_[index].source;if(source.factory&&source.id!="working"&&QFileInfo(metadata_path(source.resolved_path)).isFile()){source.name=directory_label(source.resolved_path,settings_.language);source_list_->item(index)->setText(source.name);}}
+    if(!source_list_)return;
+    for(int index=0;index<sources_.size();++index) {
+        const auto& source=sources_[index].source;auto* item=source_list_->item(index);
+        const bool home=source.id=="working",available=QFileInfo(source.resolved_path).isDir();
+        const auto branding=!home&&available?directory_branding(source.resolved_path):DirectoryBranding{};
+        const QString label=home?tr("Pracovní adresář"):localized_directory_label(source.resolved_path,settings_.language,source.name);
+        item->setData(BrandingPathRole,branding.path);item->setData(BrandingModeRole,static_cast<int>(branding.mode));
+        item->setText(branding.mode==DirectoryBrandingMode::LogoOnly?QString{}:label);
+        item->setData(Qt::AccessibleTextRole,label);
+        item->setIcon(home?resource_icon("web-home"):!available?resource_icon("suppress"):
+            branding.path.isEmpty()?resource_icon("web-folder"):QIcon(branding_pixmap(branding.path,{160,30},palette())));
+        item->setToolTip(available?label+QLatin1Char('\n')+QDir::toNativeSeparators(source.resolved_path):tr("Zdroj není dostupný: %1").arg(source.resolved_path));
+    }
+    int height=2*source_list_->frameWidth();
+    for(int row=0;row<source_list_->count();++row)height+=std::max(28,source_list_->sizeHintForRow(row));
+    source_list_->setFixedHeight(height);
 }
 
 void FileManagerTab::navigate(const QString& requested,bool track_history){
@@ -990,6 +1006,7 @@ void FileManagerTab::changeEvent(QEvent* event){
     QWidget::changeEvent(event);
     if(event->type()==QEvent::PaletteChange){
         sync_overview_theme();
+        refresh_source_labels();
         if(project_logo_&&!current_directory_.isEmpty())refresh_overview_header();
         if(overview_)for(int row=0;row<overview_->count();++row){
             auto* item=overview_->item(row);

@@ -211,6 +211,10 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
         };
         context(line,"sketchConstructionRoleAction",true);
         context(circle,"sketchConstructionRoleAction",true);
+        // Construction curves now start hidden. Explicitly show the segment,
+        // and exercise both visibility transitions on the circle.
+        context(line,"sketchGeometryVisible3DAction",false);
+        context(circle,"sketchGeometryVisible3DAction",false);
         context(circle,"sketchGeometryVisible3DAction",false);
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         SketchPropertiesDialog* properties{};

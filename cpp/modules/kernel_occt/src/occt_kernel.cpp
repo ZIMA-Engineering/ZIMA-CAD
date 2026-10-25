@@ -72,6 +72,7 @@
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepClass_FaceExplorer.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
@@ -5587,7 +5588,8 @@ std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
     const gp_Vec& edge_tangent,
     double probe_distance, double tolerance,
     GeomAPI_ProjectPointOnSurf& projection,
-    const Handle(Geom_Surface)& surface,const TopLoc_Location& location) {
+    const Handle(Geom_Surface)& surface,const TopLoc_Location& location,
+    BRepClass_FaceExplorer& face_explorer) {
     if (surface.IsNull() || edge_tangent.SquareMagnitude() <= 1.0e-18) {
         return std::nullopt;
     }
@@ -5628,8 +5630,14 @@ std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
         }
         double test_u{}, test_v{};
         projection.LowerDistanceParameters(test_u, test_v);
-        BRepClass_FaceClassifier classifier(
-            face, gp_Pnt2d(test_u, test_v), std::max(1.0e-9, tolerance));
+        const gp_Pnt2d uv(test_u,test_v);const auto classifier_tolerance=std::max(1.0e-9,tolerance);
+        BRepClass_FaceClassifier classifier(face_explorer,uv,classifier_tolerance);
+        if(std::getenv("ZIMA_CPP_VERIFY_FACE_CLASSIFIER_REUSE")) {
+            // Internal verification oracle; the ordinary path keeps exactly
+            // the original OCCT domain, gap policy and classification tolerance.
+            BRepClass_FaceClassifier baseline(face,uv,classifier_tolerance);
+            if(baseline.State()!=classifier.State())throw std::logic_error("Face classifier reuse differs from the baseline");
+        }
         return classifier.State() == TopAbs_IN ||
             classifier.State() == TopAbs_ON;
     };
@@ -5669,7 +5677,8 @@ std::optional<Vec3> inward_face_direction(const TopoDS_Edge& edge,
 }
 
 std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
-    const TopoDS_Face& face, const std::vector<double>& parameters) {
+    const TopoDS_Face& face, const std::vector<double>& parameters,
+    BRepClass_FaceExplorer& face_explorer) {
     if (parameters.empty()) return {};
     BRepAdaptor_Curve curve(edge);
     GProp_GProps properties;
@@ -5696,7 +5705,7 @@ std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
         gp_Vec tangent;
         curve.D1(parameter, point, tangent);
         sampled.push_back(inward_face_direction(
-            edge, face, point, tangent, probe, tolerance * 10.0,projection,surface,location));
+            edge, face, point, tangent, probe, tolerance * 10.0,projection,surface,location,face_explorer));
     }
     if (std::none_of(sampled.begin(), sampled.end(),
             [](const auto& value) { return value.has_value(); })) return {};
@@ -6207,6 +6216,20 @@ BodyResult make_result(
     profile("face packets");
     if(profile_calc)std::fprintf(stderr,"Kernel face measurements: %.6f s\n",face_measurement_seconds);
     TopTools_IndexedMapOfShape sampled_edges;
+    // The packet owns fixed native faces throughout sampling. Reuse each
+    // face's UV bounds and incidence preparation across its edge probes;
+    // discard it with this packet, before any modeling operation can change it.
+    TopTools_IndexedMapOfShape classification_faces;
+    std::vector<std::unique_ptr<BRepClass_FaceExplorer>> classification_explorers;
+    const auto classifier_for=[&](const TopoDS_Face& face)->BRepClass_FaceExplorer& {
+        const auto index=classification_faces.Add(face);
+        if(static_cast<std::size_t>(index)>classification_explorers.size()) {
+            auto explorer=std::make_unique<BRepClass_FaceExplorer>(face);
+            explorer->SetMaxTolerance(0.1);explorer->SetUseBndBox(false);
+            classification_explorers.push_back(std::move(explorer));
+        }
+        return *classification_explorers[static_cast<std::size_t>(index-1)];
+    };
     TopTools_IndexedMapOfShape hidden_edges;
     for (const auto& edge : hidden_display_edges) hidden_edges.Add(edge);
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
@@ -6378,9 +6401,9 @@ BodyResult make_result(
                 const bool step_side=face_reference.semantic_key.starts_with("step:face:#");
                 auto directions=(form_side||step_side)?form_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters):std::vector<Vec3>{};
                 if(directions.empty())directions=sampled_inward_face_directions(
-                    edge, TopoDS::Face(iterator.Value()), sample_parameters);
+                    edge, TopoDS::Face(iterator.Value()), sample_parameters,classifier_for(TopoDS::Face(iterator.Value())));
                 else if(verify_guides) {
-                    const auto original=sampled_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters);
+                    const auto original=sampled_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters,classifier_for(TopoDS::Face(iterator.Value())));
                     if(original.size()!=directions.size())throw std::runtime_error("FORM definition calculation failed.");
                     for(std::size_t i=0;i<original.size();++i) {
                         const auto a=original[i],b=directions[i];
@@ -9597,8 +9620,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         }
                         if(sides.size()!=2||std::ranges::none_of(sides,[&](const auto& side){return side.first.owner_id==operation.owner_id;}))continue;
                         BRepAdaptor_Curve curve(edge);const std::vector<double> parameter{(curve.FirstParameter()+curve.LastParameter())*.5};
-                        const auto a=sampled_inward_face_directions(edge,sides[0].second,parameter),
-                            b=sampled_inward_face_directions(edge,sides[1].second,parameter);
+                        BRepClass_FaceExplorer first_explorer(sides[0].second),second_explorer(sides[1].second);
+                        const auto a=sampled_inward_face_directions(edge,sides[0].second,parameter,first_explorer),
+                            b=sampled_inward_face_directions(edge,sides[1].second,parameter,second_explorer);
                         if(a.empty()||b.empty()||std::abs(dot(unit(a.front()),unit(b.front())))>1.-1e-6)continue;
                         const auto first_support=support_side(sides[0].second),second_support=support_side(sides[1].second);
                         if(first_support.has_value()==second_support.has_value())continue;

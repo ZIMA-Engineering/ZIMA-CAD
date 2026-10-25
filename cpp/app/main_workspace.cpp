@@ -6116,6 +6116,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "sketch_equal_endpoint_ui_verification.inc"
 #include "sketch_external_constraints_ui_verification.inc"
 
+#include "sketch_junction_ui_verification.inc"
 #include "sketch_hv_view_ui_verification.inc"
 #include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {

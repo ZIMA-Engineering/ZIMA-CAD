@@ -97,9 +97,10 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
     bool all=true;std::size_t targets=0;
     const bool tree_only=qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_TREE_ONLY");
     std::vector<kernel::BodyResult> native_boundaries;
-    if(tree_only)model=document::PartDocument::load(path,&native_boundaries);
+    model=document::PartDocument::load(path,&native_boundaries);
     const document::DocumentSession native_session(model,native_boundaries);
     for(const auto& feature:model.history) {
+        if(const auto owner=qEnvironmentVariable("ZIMA_VERIFY_SELECTION_OWNER");!owner.isEmpty()&&owner.toStdString()!=feature.id)continue;
         const bool sketch_profile=authored_sketch_profile(feature);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_SKETCH_ONLY")&&!sketch_profile)continue;
         const bool modeling=feature.feature_kind==document::FeatureKind::Feature&&
@@ -125,6 +126,30 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         for(bool expanded:{false,true}) {
             tree->clearSelection();view->clear_selection();row->setExpanded(expanded);tree->scrollToItem(row);flush();
             mouse(tree->viewport(),tree->visualItemRect(row).center());
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_OWNER")) {
+                static_cast<void>(view->grabFramebuffer());
+                window.grab().save(QString::fromStdWString((directory/"selected-owner-tree.png").wstring()));
+                const auto wire=authored_feature_wire(native_session,feature.id);
+                std::cout<<"Selected owner diagnostic: wire="<<wire.size()<<" gpu="<<view->property("gpuSourceWireVertexCount").toULongLong()<<std::endl;
+                std::vector<kernel::Vec3> points;
+                for(const auto& edge:wire)points.insert(points.end(),edge.points.begin(),edge.points.end());
+                view->fit_points(points);flush();
+                const auto image=view->grabFramebuffer();const double scale=double(image.width())/view->width();
+                std::size_t colored_strokes{};
+                for(const auto& edge:wire)if(!edge.construction&&!edge.parameter_seam&&edge.points.size()>1) {
+                    const auto a=edge.points.front(),b=edge.points.back();
+                    const auto pixel=(project({(a.x+b.x)*.5,(a.y+b.y)*.5,(a.z+b.z)*.5})*scale).toPoint();
+                    bool colored=false;
+                    for(int y=pixel.y()-2;y<=pixel.y()+2;++y)for(int x=pixel.x()-2;x<=pixel.x()+2;++x)if(image.rect().contains(x,y)) {
+                        const auto c=image.pixelColor(x,y);
+                        colored|=std::abs(c.red()-interaction::selected.red())<40&&std::abs(c.green()-interaction::selected.green())<40&&std::abs(c.blue()-interaction::selected.blue())<40;
+                    }
+                    colored_strokes+=colored;
+                }
+                window.grab().save(QString::fromStdWString((directory/"selected-owner-focused.png").wstring()));
+                std::cout<<"Authored stroke framebuffer matches="<<colored_strokes<<std::endl;
+                check(colored_strokes>=3,"Whole-feature wire is prepared but not actually drawn beside a visible construction axis");
+            }
             const bool correct=tree->currentItem()==row&&tree->selectedItems().size()==1&&row->isExpanded()==expanded;
             std::cout<<"Feature selection Tree owner="<<feature.id<<" expected_expanded="<<expanded
                 <<" actual_expanded="<<row->isExpanded()<<" role="<<tree->currentItem()->data(0,Qt::UserRole+3).toString().toStdString()<<std::endl;

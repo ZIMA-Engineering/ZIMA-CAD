@@ -8,7 +8,8 @@
 namespace zima::app {
 // Shared by the File Manager and the ordinary Qt file choosers. Labels affect
 // presentation only; filesystem paths and user-authored filenames stay intact.
-inline QString localized_directory_label(const QString& path, const QString& language) {
+inline QString localized_directory_label(const QString& path, const QString& language,
+                                         const QString& fallback = {}) {
     QSettings metadata(QDir(path).filePath("0000-index/metadata.ini"), QSettings::IniFormat);
     for (const auto& key : {QStringLiteral("Directory/Label/") + language,
                            QStringLiteral("Directory/Label")}) {
@@ -20,7 +21,7 @@ inline QString localized_directory_label(const QString& path, const QString& lan
             if(!old_value.isEmpty())return old_value;
         }
     }
-    return QFileInfo(path).fileName();
+    return fallback.isEmpty()?QFileInfo(path).fileName():fallback;
 }
 inline QString document_thumbnail_path(const QString& path) {
     const QFileInfo file(path);
