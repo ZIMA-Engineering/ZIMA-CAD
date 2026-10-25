@@ -166,6 +166,10 @@ public:
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path,
         const zima::kernel::Vec3& local_point) const;
+    // The same persisted frames as occurrence_point_to_scene, root first.
+    // This read-only query never solves mates or calculates geometry.
+    [[nodiscard]] std::vector<kernel::KernelRigidPlacement> occurrence_placements(
+        const std::string& top,const assembly::InstancePath&) const;
     [[nodiscard]] zima::kernel::Vec3 occurrence_point_from_scene(
         const std::string& top_assembly_document_id,
         const zima::assembly::InstancePath& instance_path,

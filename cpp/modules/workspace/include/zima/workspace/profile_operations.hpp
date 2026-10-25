@@ -32,6 +32,13 @@ void normalize_owned_profile_front_references(std::vector<document::Construction
 // Refresh only successful original references; calculation errors retain their
 // last useful target geometry and the original identity needed for repair.
 bool refresh_profile_end_targets(document::PartDocument&,const std::vector<kernel::BodyResult>&);
+// Explicit Skeleton dependency. Selection only reads persisted viewer data;
+// a non-null kernel captures the small native face during explicit calculation.
+[[nodiscard]] document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
+    const Workspace&,const document::PartDocument&,const std::string& frame_owner,
+    const document::ExtrusionParameters::EndTarget&,const kernel::OcctKernel* capture=nullptr);
+void refresh_external_profile_targets(const Workspace&,const kernel::OcctKernel&,document::PartDocument&);
+void refresh_cached_external_profile_target_frames(document::PartDocument&);
 
 // Pure request preparation from an already resolved command carrier. No live
 // document mutation, placement solving, kernel calculation or Undo transaction.

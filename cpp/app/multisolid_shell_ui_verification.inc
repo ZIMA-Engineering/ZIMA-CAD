@@ -1,3 +1,51 @@
+int verify_shell_value_label_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        auto part=document::PartDocument::create_default();auto stock=test::rectangular_feature(part,{100,80,50});part.history={stock};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Shell label Body");
+        graph.insert({document::PartHistoryKind::Feature,stock.id});
+        auto shell=document::PartDocument::create_shell_container({{stock.id,test::profile_key(part,stock.id,"z_max"),{}}});
+        shell.shell.thickness=5;part.history.push_back(shell);graph.insert({document::PartHistoryKind::Feature,shell.id});
+        auto placed_body=*graph.find(body);auto& placement=placed_body.scope.placement;placement.x=30;placement.y=20;placement.z=10;
+        placement.rotation_x=12;placement.rotation_y=23;placement.rotation_z=31;
+        graph.update_body(std::move(placed_body));
+        part.set_body_history(graph);part.resolve_constructions();kernel::OcctKernel kernel;
+        auto calculated=workspace::calculate_part(kernel,part);check(calculated.back().calculation_errors.empty(),"Shell label fixture failed");
+        const auto path=directory/"shell-value-label.prtz";part.save(path,calculated);
+        app::AssemblyWorkspaceWindow window(QString::fromStdWString(directory.wstring()));window.resize(1200,900);window.show();flush();
+        check(window.open_document_path(QString::fromStdWString(path.wstring())),"Shell label Part cannot open");flush();
+        check(activate_test_body(application,window,body),"Shell label Body cannot activate");
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Shell label View missing");view->fit_all();flush();
+        const auto run=[&](const char* command){const auto result=window.execute_console_command(command);check(result.ok,result.message.c_str());flush();return result.data;};
+        const auto before=run("documents");
+        window.show_parameter_dimensions(shell.id);flush();
+        const auto dimension=[&]()->kernel::ViewerDimension {
+            const auto found=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==shell.id&&d.reference.semantic_key=="parameter:thickness";});
+            check(found!=view->mesh().dimensions.end(),"Shell thickness label missing");return *found;
+        };
+        const auto label=dimension();check(label.label_only&&label.value==5&&label.unit_suffix=="mm","Shell thickness is not an editable numeric label");
+        kernel::ViewerMesh origin;origin.vertices={{shell.placement.x,shell.placement.y,shell.placement.z}};
+        const auto expected=part.place_body_mesh(std::move(origin),body).vertices.front();
+        check(std::abs(label.witness_first.x-expected.x)<1e-9&&std::abs(label.witness_first.y-expected.y)<1e-9&&std::abs(label.witness_first.z-expected.z)<1e-9,
+            "Shell value label did not use the placed feature Origin");
+        check(run("documents")==before,"Shell inspection created a transaction");
+        viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.owner_id=shell.id;candidate.semantic_key="parameter:thickness";
+        const auto position=view->candidate_dimension_label_position(candidate);check(position.has_value(),"Shell label has no View hit target");
+        QMouseEvent click(QEvent::MouseButtonDblClick,QPointF(*position),QPointF(view->mapToGlobal(*position)),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&click);flush();
+        auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor&&editor->isVisible(),"Double-clicking Shell label did not open its value editor");
+        const auto identifier=editor->property("dimensionIdentifier").toString();check(!identifier.isEmpty(),"Shell value lost its numeric identifier");
+        editor->setText("6 mm");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();run("save");
+        check(document::PartDocument::load(path).find_container(shell.id)->shell.thickness==6,"Shell label edit did not persist its actual parameter");
+        run("undo");run("save");check(document::PartDocument::load(path).find_container(shell.id)->shell.thickness==5,"Shell label edit Undo failed");
+        run("redo");run("save");check(document::PartDocument::load(path).find_container(shell.id)->shell.thickness==6,"Shell label edit Redo failed");
+        window.show_parameter_dimensions(shell.id);flush();check(dimension().value==6,"Shell label is stale after Redo");
+        std::cout<<"Shell label GUI: placed Origin, numeric value/units, unchanged inspection, actual double-click editor, native save and Undo/Redo passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<"Shell value label GUI: "<<e.what()<<'\n';return 1;}
+}
+
 int verify_multisolid_shell_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};

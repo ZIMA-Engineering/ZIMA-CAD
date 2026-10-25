@@ -1,5 +1,6 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include "ordered_up_to.hpp"
+#include "kernel_history_version.hpp"
 #include <zima/kernel/ordered_up_to_resolution.hpp>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <GeomFill_Gordon.hxx>
@@ -5523,7 +5524,8 @@ std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
 }
 
 void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedFace>& faces,
-        const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,BodyResult& result) {
+        const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,BodyResult& result,
+        const std::vector<TopoDS_Shape>* hidden=nullptr,std::vector<std::string>* hidden_locators=nullptr) {
     BRepTools_ShapeSet archive(false,false);
     archive.SetFormatNb(TopTools_FormatVersion_CURRENT);archive.Add(shape);
     const auto bind=[&](const auto& owned,TopAbs_ShapeEnum kind,auto& bindings) {
@@ -5538,34 +5540,52 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
     };
     bind(faces,TopAbs_FACE,result.kernel_faces);bind(edges,TopAbs_EDGE,result.kernel_edges);
     bind(vertices,TopAbs_VERTEX,result.kernel_vertices);
+    if(hidden&&hidden_locators) {
+        TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,TopAbs_EDGE,members);
+        hidden_locators->clear();
+        for(const auto& edge:*hidden)if(members.Contains(edge)) {
+            std::ostringstream address;archive.Write(edge,address);hidden_locators->push_back(address.str());
+        }
+    }
     std::ostringstream stream;archive.Write(stream);archive.Write(shape,stream);result.kernel_shape=stream.str();
 }
 
-PrimitiveData bound_face_geometry(const BodyResult& body,bool curve_ancestry=false) {
+PrimitiveData bound_face_geometry(const BodyResult& body,bool curve_ancestry=false,
+        const std::vector<std::string>* hidden_locators=nullptr,std::vector<TopoDS_Shape>* hidden=nullptr) {
     PrimitiveData result;BRep_Builder builder;BRepTools_ShapeSet archive(builder);
     std::istringstream stream(body.kernel_shape.get());archive.Read(stream);archive.Read(result.shape,stream);
     if(result.shape.IsNull())throw std::runtime_error("Regenerate the model before measuring body properties.");
     TopTools_IndexedMapOfShape members;
     if(curve_ancestry)TopExp::MapShapes(result.shape,members);
     else TopExp::MapShapes(result.shape,TopAbs_FACE,members);
-    const auto locate=[&](const auto& binding,TopAbs_ShapeEnum kind) {
-        char orientation{};int object{},location{};std::istringstream fields(binding.locator);
+    const auto locate_address=[&](const std::string& locator,TopAbs_ShapeEnum kind) {
+        char orientation{};int object{},location{};std::istringstream fields(locator);
         if(!(fields>>orientation>>object>>location)||std::string_view("+-ie").find(orientation)==std::string_view::npos||
-            object<1||object>archive.NbShapes()||location<0||!binding.reference.valid())
+            object<1||object>archive.NbShapes()||location<0)
             throw std::runtime_error("Invalid native topology binding");
         fields>>std::ws;if(!fields.eof())throw std::runtime_error("Invalid native topology binding");
-        TopoDS_Shape shape;std::istringstream address(binding.locator);archive.Read(shape,address);
+        TopoDS_Shape shape;std::istringstream address(locator);archive.Read(shape,address);
         if(shape.IsNull()||shape.ShapeType()!=kind||!members.Contains(shape))
             throw std::runtime_error("Invalid native topology binding");
         return shape;
+    };
+    const auto locate=[&](const auto& binding,TopAbs_ShapeEnum kind) {
+        if(!binding.reference.valid())throw std::runtime_error("Invalid native topology binding");
+        return locate_address(binding.locator,kind);
     };
     for(const auto& binding:body.kernel_faces)result.faces.push_back({TopoDS::Face(locate(binding,TopAbs_FACE)),binding.reference});
     if(curve_ancestry) {
         for(const auto& binding:body.kernel_edges)result.edges.push_back({TopoDS::Edge(locate(binding,TopAbs_EDGE)),binding.reference});
         for(const auto& binding:body.kernel_vertices)result.vertices.push_back({TopoDS::Vertex(locate(binding,TopAbs_VERTEX)),binding.reference});
     }
+    if(hidden_locators&&hidden) {
+        hidden->clear();
+        for(const auto& locator:*hidden_locators)hidden->push_back(locate_address(locator,TopAbs_EDGE));
+    }
     return result;
 }
+
+#include "incremental_history_native.inc"
 
 PrimitiveData place_bound_geometry(PrimitiveData result,const BodyResult& body) {
     for(const auto& placement:body.kernel_placements) {
@@ -5738,7 +5758,7 @@ std::vector<Vec3> sampled_inward_face_directions(const TopoDS_Edge& edge,
 // globally projecting each sample and two probe points onto a spline again.
 // Unavailable/degenerate p-curves retain the established resolver below.
 std::vector<Vec3> form_inward_face_directions(const TopoDS_Edge& edge,
-        const TopoDS_Face& face,const std::vector<double>& parameters) {
+        const TopoDS_Face& face,const std::vector<double>& parameters,bool normalize_components=false) {
     double first{},last{};const auto uv=BRep_Tool::CurveOnSurface(edge,face,first,last);
     if(uv.IsNull()||!BRep_Tool::SameParameter(edge))return {};
     std::optional<TopAbs_Orientation> orientation;
@@ -5759,6 +5779,9 @@ std::vector<Vec3> form_inward_face_directions(const TopoDS_Edge& edge,
         if(point.Distance(actual)>tolerance||tangent.SquareMagnitude()<1e-18)return {};
         auto normal=du.Crossed(dv);if(normal.SquareMagnitude()<1e-18)return {};
         if(face.Orientation()==TopAbs_REVERSED)normal.Reverse();
+        // Native guides retain the established normalization order.
+        // FORM/STEP keep their existing numerical calculation unchanged.
+        if(normalize_components){normal.Normalize();tangent.Normalize();}
         auto direction=normal.Crossed(tangent);if(direction.SquareMagnitude()<1e-18)return {};
         if(*orientation==TopAbs_REVERSED)direction.Reverse();direction.Normalize();
         result.push_back({direction.X(),direction.Y(),direction.Z()});
@@ -6062,6 +6085,8 @@ void calculate_aggregate_properties(const TopoDS_Shape& shape,BodyResult& result
     result.solid_present=TopExp_Explorer(shape,TopAbs_SOLID).More();
 }
 
+#include "edge_guide_reuse.inc"
+
 BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
@@ -6073,7 +6098,8 @@ BodyResult make_result(
     const std::vector<TopoDS_Shape>& hidden_display_edges = {},
     double mesh_deflection = 0.0,
     bool calculate_body_properties = true,
-    bool parallel_corner_volume = false) {
+    bool parallel_corner_volume = false,
+    EdgeGuideReuse* edge_guide_reuse = nullptr) {
     const bool profile_calc=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
     const bool profile_form=std::getenv("ZIMA_CPP_FORM_PROFILE")&&std::ranges::any_of(owned_faces,
         [](const auto& face){return face.reference.semantic_key.starts_with("form:");});
@@ -6216,6 +6242,7 @@ BodyResult make_result(
     profile("face packets");
     if(profile_calc)std::fprintf(stderr,"Kernel face measurements: %.6f s\n",face_measurement_seconds);
     TopTools_IndexedMapOfShape sampled_edges;
+    EdgeGuidePacketSignatures guide_edge_signatures,guide_face_signatures;
     // The packet owns fixed native faces throughout sampling. Reuse each
     // face's UV bounds and incidence preparation across its edge probes;
     // discard it with this packet, before any modeling operation can change it.
@@ -6399,9 +6426,31 @@ BodyResult make_result(
                 if (!face_reference.valid()) continue;
                 const bool form_side=symbolic_form_face(face_reference);
                 const bool step_side=face_reference.semantic_key.starts_with("step:face:#");
-                auto directions=(form_side||step_side)?form_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters):std::vector<Vec3>{};
-                if(directions.empty())directions=sampled_inward_face_directions(
-                    edge, TopoDS::Face(iterator.Value()), sample_parameters,classifier_for(TopoDS::Face(iterator.Value())));
+                const auto face=TopoDS::Face(iterator.Value());
+                const bool native_face=!form_side&&!step_side;
+                auto directions=(form_side||step_side||native_face)?form_inward_face_directions(
+                    edge,face,sample_parameters,native_face):std::vector<Vec3>{};
+                if(native_face&&!directions.empty()&&std::getenv("ZIMA_CPP_VERIFY_NATIVE_FACE_GUIDES")) {
+                    const auto baseline=sampled_inward_face_directions(edge,face,sample_parameters,classifier_for(face));
+                    bool same=baseline.size()==directions.size();double deviation{};
+                    for(std::size_t i=0;same&&i<baseline.size();++i) {
+                        const auto a=baseline[i],b=directions[i];
+                        deviation=std::max(deviation,std::hypot(a.x-b.x,a.y-b.y,a.z-b.z));
+                        same=deviation<=1e-12;
+                    }
+                    if(!same) {
+                        std::fprintf(stderr,"Native face guide mismatch owner=%s key=%s deviation=%.17g samples=%zu/%zu\n",
+                            face_reference.owner_id.c_str(),face_reference.semantic_key.c_str(),deviation,baseline.size(),directions.size());
+                        throw std::logic_error("Native face guide differs from the baseline");
+                    }
+                }
+                if(directions.empty()) {
+                    const auto calculate=[&]{return sampled_inward_face_directions(
+                        edge,TopoDS::Face(iterator.Value()),sample_parameters,classifier_for(TopoDS::Face(iterator.Value())));};
+                    if(edge_guide_reuse)directions=edge_guide_reuse->directions(
+                        guide_edge_signatures.get(edge),guide_face_signatures.get(iterator.Value()),sample_parameters,calculate);
+                    else directions=calculate();
+                }
                 else if(verify_guides) {
                     const auto original=sampled_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters,classifier_for(TopoDS::Face(iterator.Value())));
                     if(original.size()!=directions.size())throw std::runtime_error("FORM definition calculation failed.");
@@ -6723,6 +6772,7 @@ void compact_history_reference_geometry(std::vector<BodyResult>& boundaries) {
     for (auto iterator = boundaries.begin(); iterator != boundaries.end() - 1;
          ++iterator) {
         iterator->mesh.original_references = {};
+        iterator->incremental_history.reset();
     }
 }
 
@@ -6739,6 +6789,15 @@ BSplineGeometry exact_path_segment_geometry(const Sweep3DRequest::PathSegment& s
 struct OcctKernel::LiveCache {
     const std::shared_ptr<const void> provenance=std::make_shared<const int>(0);
     std::vector<BodyResult> mark_current(std::vector<BodyResult> result,bool proven) const {
+        const auto current=[&](const auto& self,const BodyResult& body)->bool {
+            if(!body.calculation_errors.empty())return false;
+            if(body.calculation_provenance==provenance)return true;
+            if(body.body_boundaries.empty())return false;
+            return std::ranges::all_of(body.body_boundaries,[&](const auto& branch) {
+                return !branch.second.empty()&&std::ranges::all_of(branch.second,[&](const auto& value){return self(self,value);});
+            });
+        };
+        proven=proven||(!result.empty()&&std::ranges::all_of(result,[&](const auto& body){return current(current,body);}));
         for(auto& boundary:result)boundary.calculation_provenance=proven?provenance:nullptr;
         return result;
     }
@@ -7027,6 +7086,37 @@ OcctKernel::NativeFaceSource OcctKernel::native_face_source(
     // Resolution still checks the entire source universe for ambiguity. The
     // caller may then decode this exact immutable source once for several faces.
     return {source,placed_source};
+}
+
+BodyResult OcctKernel::capture_reference_face(const BodyResult& body,const FaceReference& reference) const {
+    const auto native=native_face_source(body,reference).geometry(*this);
+    TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
+    std::vector<OwnedFace> faces;
+    for(const auto& face:native.faces)if(same_face_identity(face.reference,reference)) {
+        faces.push_back(face);builder.Add(compound,face.shape);
+    }
+    if(faces.empty())throw std::runtime_error("The original extrusion target is unavailable.");
+    BodyResult result;persist_surface_topology(compound,faces,{}, {},result);
+    result.source_fingerprint="external-target-face:"+dependency_fingerprint(result.kernel_shape.get())+":"+body.source_fingerprint+":"+
+        std::to_string(reference.owner_id.size())+":"+reference.owner_id+":"+reference.semantic_key+":"+reference.instance_path;
+    result.physical_properties_current=false;
+    return result;
+}
+
+BodyResult OcctKernel::capture_reference_face_history(const std::vector<BodyResult>& history,const FaceReference& reference) const {
+    // Find the original defining native face in document history order. A
+    // later Boolean's operational fragments cannot replace that source face.
+    for(const auto& boundary:history) {
+        try{static_cast<void>(native_face_source(boundary,reference));}
+        catch(const std::runtime_error& error) {
+            if(std::string_view(error.what())=="Intersection source face is missing at its input boundary.")continue;
+            throw;
+        }
+        // Decode only after selection. Malformed archive/binding errors must
+        // propagate, never choose a different later geometry on their behalf.
+        return capture_reference_face(boundary,reference);
+    }
+    throw std::runtime_error("The original extrusion target is unavailable.");
 }
 
 std::vector<ViewerEdge> OcctKernel::calculate_feature_preview(HistoryOperation operation,
@@ -7723,7 +7813,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
     }
     std::vector<BodyResult> valid;
     std::shared_ptr<const OriginalFaces> valid_originals;
-    for (std::size_t index = 0; index < operations.size(); ++index) {
+    // An error in the changed suffix does not invalidate its unchanged input.
+    // Finalize that prefix once through the ordinary evaluator (including all
+    // ancestry/copy-source guards), then locate failures only after it. Walking
+    // every earlier boundary separately rebuilt known valid history on each
+    // transient reference-settling failure.
+    std::size_t unchanged{};
+    while(unchanged<std::min(operations.size(),previous_boundaries.size())&&
+          previous_boundaries[unchanged].calculation_errors.empty()&&
+          previous_boundaries[unchanged].source_fingerprint==history_fingerprint(operations,unchanged+1)+context.dependency_key)
+        ++unchanged;
+    if(unchanged>1)try {
+        const std::vector<HistoryOperation> prefix(operations.begin(),operations.begin()+static_cast<std::ptrdiff_t>(unchanged));
+        valid=evaluate_flat_history(prefix,previous_boundaries,context);
+        if(!valid.back().mesh.triangles.empty()&&valid.back().kernel_shape.empty())
+            valid=evaluate_flat_history(prefix,{},context);
+        valid_originals=context.original_faces;
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"[history recovery] unchanged_prefix="<<valid.size()<<"\n";
+    }catch(const std::exception&){valid.clear();}
+    for (std::size_t index = valid.size(); index < operations.size(); ++index) {
         const std::vector<HistoryOperation> prefix(operations.begin(),
             operations.begin() + static_cast<std::ptrdiff_t>(index + 1));
         try {
@@ -8253,9 +8361,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::map<std::string,std::vector<sheet_form_geometry::Instance>> form_copy_operands;
         std::vector<sheet_form_geometry::Instance> copied_form_operands;
         std::size_t current_operation{};
+        EdgeGuideReuse edge_guide_reuse;
+#include "incremental_history_cache.inc"
         const auto remember_live_boundary = [&](
                 const std::string& fingerprint, const TopoDS_Shape& shape,
                 std::shared_ptr<const LiveCache::Topology> topology) {
+            if(!fingerprint.empty())try{capture_native_frame(fingerprint,shape,*topology);}
+            catch(const Standard_Failure&){native_history_enabled=false;
+                if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"[native history capture] archive unavailable; keep the calculated result\n";}
+            catch(const std::runtime_error&){native_history_enabled=false;
+                if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::cerr<<"[native history capture] metadata unavailable; keep the calculated result\n";}
             if (fingerprint.empty() || shape.IsNull()) return;
             const bool trace=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
             auto start=trace?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
@@ -8365,6 +8480,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             ++matching_prefix;
         }
+        static_cast<void>(restore_native_prefix(matching_prefix));
         // A copied feature needs its standalone operand at its actual input
         // boundary, including Through All / Up To and external dependencies.
         // Reuse that exact calculation, never the complete preceding Body.
@@ -8418,8 +8534,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 else reused.back().mesh.original_references=reference_geometry_for_owners(
                     previous_boundaries.back().mesh.original_references,owners);
             }
+            attach_native_history(reused);
             compact_history_reference_geometry(reused);
-            return reused;
+            return live_cache_->mark_current(std::move(reused),complete_live!=live_cache_->boundaries.end());
         }
         std::size_t reusable_prefix = matching_prefix;
         if(std::getenv("ZIMA_CPP_CALC_PROFILE"))std::fprintf(stderr,
@@ -8570,6 +8687,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            native_original_before=context.original_faces;
+            native_reference_before.emplace(original_references);
             std::vector<ResolvedOrderedUpToLimit> resolved_up_to;
             struct OperationProfile {
                 const HistoryOperation& operation;
@@ -8629,7 +8748,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // Later cuts and copies retain the FORM's rational patches.
                     // Their complete properties need the same exact parallel
                     // integration as the FORM itself, not a serial reintegration.
-                    has_forms);
+                    has_forms,&edge_guide_reuse);
                 if(!eager_face_measurements&&(original||collect)&&!result.kernel_faces.empty()) {
                     BodyResult source;source.kernel_shape=result.kernel_shape;source.kernel_faces=result.kernel_faces;
                     source.source_fingerprint=operation.owner_id;source.physical_properties_current=false;
@@ -11922,8 +12041,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if(native!=live_cache_->boundaries.end()&&!native->second.shape.IsNull())
                 boundary.kernel_shape=serialize_kernel_shape(native->second.shape);
         }
+        attach_native_history(boundaries);
         compact_history_reference_geometry(boundaries);
-        return boundaries;
+        return live_cache_->mark_current(std::move(boundaries),!cold_reference_tail);
     } catch (const Standard_Failure& failure) {
         throw std::runtime_error(failure.GetMessageString());
     }

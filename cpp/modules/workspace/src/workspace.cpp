@@ -4,6 +4,7 @@
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/workspace.hpp>
+#include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/document_dependencies.hpp>
@@ -117,6 +118,7 @@ struct PersistedOccurrence {
     std::string source_document_id;
     zima::assembly::ComponentSourceKind source_kind;
     zima::assembly::ComponentPlacement placement;
+    bool suppressed{};
 };
 
 std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
@@ -135,7 +137,7 @@ std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
             if (occurrence == nullptr) return std::nullopt;
             result.push_back({occurrence->occurrence_id,
                 occurrence->source_document_id, occurrence->source_kind,
-                occurrence->placement});
+                occurrence->placement,occurrence->suppressed});
             snapshots = &occurrence->nested_snapshot;
         } else {
             const auto found = std::find_if(snapshots->begin(), snapshots->end(),
@@ -144,7 +146,7 @@ std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
                 });
             if (found == snapshots->end()) return std::nullopt;
             result.push_back({found->occurrence_id, found->source_document_id,
-                              found->source_kind, found->placement});
+                              found->source_kind, found->placement,found->manually_suppressed||found->dependency_suppressed});
             snapshots = &found->children;
         }
         source = source_override && result.back().source_kind == zima::assembly::ComponentSourceKind::Assembly &&
@@ -649,6 +651,19 @@ std::optional<OccurrenceAddress> Workspace::activate_occurrence(
     return address;
 }
 
+std::vector<kernel::KernelRigidPlacement> Workspace::occurrence_placements(
+        const std::string& top_id,const assembly::InstancePath& path) const {
+    const auto* top=open_assembly(top_id);
+    const auto chain=top?persisted_occurrence_chain(top->session.document(),path):std::nullopt;
+    if(!chain)throw std::invalid_argument("Occurrence point transform requires an exact path");
+    std::vector<kernel::KernelRigidPlacement> result;
+    for(const auto& item:*chain) {
+        if(item.suppressed)throw std::invalid_argument("The original extrusion target is unavailable.");
+        const auto& p=item.placement;result.push_back({{p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}});
+    }
+    return result;
+}
+
 zima::kernel::Vec3 Workspace::occurrence_point_to_scene(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path,
@@ -828,6 +843,9 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     std::erase_if(scene.dimensions, [&](const auto& dimension) {
         return dimension.reference.instance_path == target_path;
     });
+    std::erase_if(scene.constraint_markers, [&](const auto& marker) {
+        return marker.reference.instance_path == target_path;
+    });
     auto& scene_references = scene.original_references;
     std::vector<std::uint32_t> reference_triangles;
     std::vector<zima::kernel::FaceReference> reference_faces;
@@ -959,9 +977,7 @@ std::string Workspace::insert_open_part(
     if (assembly == nullptr || part == nullptr) {
         throw std::invalid_argument("Insertion requires open Part and Assembly documents");
     }
-    const auto& calculated = part->session.calculated_boundaries();
-    if (!assembly::is_skeleton_file(part->path) && (part->session.document().history.empty() ||
-            (calculated.empty() && !part->session.document().kernel_operations().empty()))) {
+    if (!part_source_is_insertable(*part)) {
         throw std::runtime_error("Open Part has no explicit calculated result");
     }
     auto next = assembly->session.document();
@@ -973,11 +989,6 @@ std::string Workspace::insert_open_part(
     occurrence.body_color = part->session.document().body_color;
     occurrence.appearance = part_appearance(part->session.document());
     occurrence.face_colors = part->session.document().face_colors;
-    if (zima::assembly::is_skeleton(occurrence)) {
-        kernel::Appearance style; style.body = {"#4D8C78AE", .55, 0};
-        occurrence.appearance_override = style;
-        occurrence.body_color_override = style.body.color;
-    }
     const std::string occurrence_id = occurrence.occurrence_id;
     next.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Component,occurrence_id);
     next.components.push_back(std::move(occurrence));

@@ -30,7 +30,7 @@ public:
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
         for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         auto* result=new QComboBox(this);result->setObjectName("helicalResultType");
-        result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
+        result->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
         result->setCurrentIndex(pending.helical.result_type==document::ProfileResultType::Surface?2:pending.helical.result_type==document::ProfileResultType::Thin?1:0);
         form->addRow(tr("Typ výsledku"),result);
         auto* thickness=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness->setObjectName("helicalThickness");

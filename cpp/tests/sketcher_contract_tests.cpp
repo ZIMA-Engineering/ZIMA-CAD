@@ -6752,8 +6752,18 @@ int main() {
         static_cast<void>(mirrored.add_segment_pair_constraint(
             mirror_first, mirror_second,
             zima::sketcher::ConstraintKind::EqualLength));
-        const auto mirrored_pair = mirrored.mirror_geometry(
-            {mirror_first, mirror_second}, mirror_axis);
+        auto mirror_context=zima::sketcher::Sketch::create_external_reference(
+            zima::sketcher::ExternalReferenceKind::Point);
+        mirror_context.source_document_id="read-only-mirror-context";
+        mirror_context.source_owner_id="source-point";mirror_context.source_semantic_key="point";
+        mirror_context.cached_points={{3,2}};mirrored.add_external_reference(mirror_context);
+        const auto mirror_read_only=mirrored.external_references;
+        const std::vector<std::string> mixed_sources{mirror_context.id,mirror_first,
+            mirrored.constraints.front().id,"sketch_origin",mirror_second,"unsupported-object"};
+        require(mirrored.mirror_source_geometry_ids(mixed_sources)==std::vector<std::string>{mirror_first,mirror_second},
+            "Mixed mirror selection retained references or unsupported objects");
+        const auto mirrored_pair = mirrored.mirror_geometry(mixed_sources, mirror_axis);
+        require(mirrored.external_references==mirror_read_only,"Mirror modified its read-only selection context");
         require(mirrored_pair.geometry_ids.size() == 2,
                 "Sketch mirror did not return two new segment identities");
         const auto mirrored_first = std::find_if(
@@ -6805,8 +6815,9 @@ int main() {
         const auto source_spline = mirrored.add_bspline(
             {{{2.0, 5.0}, {3.0, 6.0}, {4.0, 6.0}, {5.0, 5.0}}});
         const auto mirrored_curves = mirrored.mirror_geometry(
-            {source_circle, source_arc, source_ellipse,
-             source_elliptical_arc, source_spline}, mirror_axis);
+            {mirror_context.id,source_circle,source_arc,mirrored.constraints.front().id,
+             source_ellipse,source_elliptical_arc,"unsupported-object",source_spline}, mirror_axis);
+        require(mirrored.external_references==mirror_read_only,"Curve mirror modified an external reference");
         require(mirrored_curves.geometry_ids.size() == 5,
                 "Sketch mirror did not return five new curve identities");
         const auto reflected_circle = std::find_if(
@@ -6888,7 +6899,7 @@ int main() {
                 "Moving mirror axis did not regenerate its driven geometry");
         const auto mirror_source_point = mirrored.add_point(11.0, 13.0);
         const auto mirrored_point = mirrored.mirror_geometry(
-            {mirror_source_point}, "sketch_axis:x");
+            {mirror_context.id,mirror_source_point,"unsupported-object"}, "sketch_axis:x");
         require(mirrored_point.geometry_ids.empty() &&
                     mirrored_point.point_ids.size() == 1 &&
                     std::abs(mirrored.find_point(mirrored_point.point_ids.front())->x -
@@ -6908,6 +6919,12 @@ int main() {
                     loaded_mirror.elliptical_arcs == mirrored.elliptical_arcs &&
                     loaded_mirror.viewer_mesh().axes.size() == 2,
                 "Mirror symmetry or reflected ellipse orientation did not round-trip");
+        const auto mirror_before_context_only=mirrored.serialized();
+        bool context_only_rejected=false;
+        try{static_cast<void>(mirrored.mirror_geometry({mirror_context.id,"unsupported-object"},"sketch_axis:x"));}
+        catch(const std::invalid_argument&){context_only_rejected=true;}
+        require(context_only_rejected&&mirrored.serialized()==mirror_before_context_only,
+            "Reference-only mirror changed the document");
         const auto mirror_before_invalid = mirrored;
         bool mirror_axis_source_rejected = false;
         try {

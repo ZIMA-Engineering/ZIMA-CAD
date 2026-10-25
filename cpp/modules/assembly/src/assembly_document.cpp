@@ -1730,6 +1730,11 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 point.position = transform_point(point.position, component.placement);
                 scene.points.push_back(std::move(point));
             }
+            for(auto marker:source_mesh.constraint_markers) {
+                assign_instance(marker.reference,path);
+                marker.position=transform_point(marker.position,component.placement);
+                scene.constraint_markers.push_back(std::move(marker));
+            }
             for (auto axis : source_mesh.axes) {
                 assign_instance(axis.reference, path);
                 axis.point = transform_point(axis.point, component.placement);

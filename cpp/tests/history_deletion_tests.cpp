@@ -8,6 +8,8 @@
 #include <sstream>
 #include <cstdlib>
 #include <iostream>
+#include <set>
+#include <tuple>
 using namespace zima;
 static void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
 struct HistoryTrace {
@@ -22,7 +24,34 @@ struct HistoryTrace {
     }
     HistoryTrace(){flag("1");}~HistoryTrace(){std::cerr.rdbuf(old);flag(flag_before);}
 };
+static void verify_long_suffix_reference_eviction() {
+    auto doc=document::PartDocument::create_default();doc.history={test::rectangular_feature(doc,{20,20,10})};
+    auto cut=test::rectangular_feature(doc,{2,2,15});cut.combine_mode=document::CombineMode::Subtract;doc.history.push_back(cut);
+    for(int index=0;index<10;++index) {
+        auto next=test::rectangular_feature(doc,{1,1,2});next.placement.x=30+3*index;doc.history.push_back(next);
+    }
+    doc.resolve_constructions();kernel::OcctKernel initial;
+    const auto calculated=workspace::calculate_part(initial,doc);
+    std::vector<kernel::BodyResult> previous;static_cast<void>(document::PartDocument::from_serialized(doc.serialized(calculated),&previous));
+    kernel::OcctKernel editing;
+    for(double length:{1.5,2.,2.5}) {
+        auto next=doc;next.history[2].extrusion.length_forward=length;
+        std::vector<kernel::BodyResult> result;
+        {HistoryTrace trace;result=workspace::calculate_part(editing,next,&previous);
+            require(trace.log.str().find("operations=12 reused=2 calculated=10")!=std::string::npos,
+                "A long suffix evicted the input reference packet and recalculated its unchanged prefix");}
+        kernel::OcctKernel oracle;const auto expected=workspace::calculate_part(oracle,next);
+        require(std::abs(result.back().volume-(3978+2*length))<1e-7&&
+            result.back().volume==expected.back().volume&&result.back().surface_area==expected.back().surface_area&&
+            document::serialize_viewer_reference_geometry(result.back().mesh.original_references)==
+                document::serialize_viewer_reference_geometry(expected.back().mesh.original_references),
+            "Reference-packet restoration changed independent volume or exact source geometry");
+        previous=std::move(result);
+    }
+    std::cout<<"Long suffix continuation: cold and repeated prefix reuse after bounded reference-packet eviction, exact oracle and independent volumes passed\n";
+}
 static void verify_live_regeneration(const kernel::OcctKernel& kernel) {
+    verify_long_suffix_reference_eviction();
     auto doc=document::PartDocument::create_default();auto box=test::rectangular_feature(doc,{10,10,10});
     doc.history={box};const auto input=workspace::calculate_part(kernel,doc);
     auto fillet=document::PartDocument::create_fillet_container({input.back().mesh.edges.front().reference});
@@ -58,6 +87,135 @@ static void verify_live_regeneration(const kernel::OcctKernel& kernel) {
     static_cast<void>(workspace::regenerate_part(live,kernel,id));
     require(std::abs(session.calculated_boundaries().back().volume-1200)<1e-8,"Changed source reused obsolete live geometry");
 }
+static void verify_cold_history_resume() {
+    kernel::OcctKernel original_kernel;
+    auto doc=document::PartDocument::create_default();auto box=test::rectangular_feature(doc,{10,10,10});
+    doc.history={box};const auto input=workspace::calculate_part(original_kernel,doc);
+    auto fillet=document::PartDocument::create_fillet_container({input.back().mesh.edges.front().reference});
+    fillet.edge_treatment.primary_size=.5;doc.history.push_back(fillet);
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Cold native continuation"));
+    for(const auto& feature:doc.history)graph.insert({document::PartHistoryKind::Feature,feature.id});
+    doc.set_body_history(graph);const auto calculated=workspace::calculate_part(original_kernel,doc);
+    std::vector<kernel::BodyResult> loaded;
+    doc=document::PartDocument::from_serialized(doc.serialized(calculated),&loaded);
+    const auto authored=doc.serialized();
+    kernel::OcctKernel resumed_kernel;
+    require(!resumed_kernel.has_current_calculation(loaded),"Loading restored a live calculation proof");
+    const auto identities=[](const kernel::ViewerReferenceGeometry& geometry) {
+        std::set<std::tuple<int,std::string,std::string,std::string>> result;
+        for(const auto& ref:geometry.triangle_references)result.emplace(0,ref.owner_id,ref.semantic_key,ref.instance_path);
+        for(const auto& edge:geometry.edges)result.emplace(1,edge.reference.owner_id,edge.reference.semantic_key,edge.reference.instance_path);
+        for(const auto& point:geometry.points)result.emplace(2,point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path);
+        return result;
+    };
+    for(double radius:{.75,.6,.9}) {
+        auto changed=doc;changed.find_container(fillet.id)->edge_treatment.primary_size=radius;
+        std::vector<kernel::BodyResult> resumed;
+        {HistoryTrace trace;resumed=workspace::calculate_part(resumed_kernel,changed,&loaded);
+            require(trace.log.str().find("operations=2 reused=1 calculated=1")!=std::string::npos,
+                "Cold/repeated tail edit recalculated its unchanged native prefix");}
+        kernel::OcctKernel fresh;auto expected=workspace::calculate_part(fresh,changed);
+        auto actual_body=resumed.back(),expected_body=expected.back();
+        resumed_kernel.ensure_body_properties(actual_body);fresh.ensure_body_properties(expected_body);
+        require(std::abs(actual_body.volume-expected_body.volume)<1e-8&&
+            std::abs(actual_body.surface_area-expected_body.surface_area)<1e-7,"Resumed history differs from a fresh geometric calculation");
+        require(identities(actual_body.mesh.original_references)==identities(expected_body.mesh.original_references),
+            "Native continuation changed original face/edge/point identities");
+        require(resumed_kernel.has_current_calculation(resumed),"A completed incremental edit lost its current calculation proof");
+        require(doc.serialized()==authored,"Native continuation changed its read-only input document");
+        std::vector<kernel::BodyResult> reopened;
+        static_cast<void>(document::PartDocument::from_serialized(changed.serialized(resumed),&reopened));
+        loaded=std::move(resumed);
+    }
+    auto changed=doc;changed.find_container(fillet.id)->edge_treatment.primary_size=.8;
+    auto damaged=calculated;
+    for(auto& packet:damaged) {
+        packet.incremental_history.reset();
+        for(auto& [id,rows]:packet.body_boundaries) {
+            auto copy=rows.get();for(auto& row:copy)row.incremental_history.reset();rows=std::move(copy);
+        }
+    }
+    kernel::OcctKernel missing;
+    {HistoryTrace trace;static_cast<void>(workspace::calculate_part(missing,changed,&damaged));
+        require(trace.log.str().find("operations=2 reused=0 calculated=2")!=std::string::npos,
+            "Missing optional continuation data reused unverified ancestry");}
+    auto stale=calculated;
+    const auto invalidate=[](kernel::BodyResult& packet) {
+        if(packet.incremental_history) {
+            auto copy=std::make_shared<kernel::KernelHistoryCache>(*packet.incremental_history);
+            copy->algorithm="different-modeling-algorithm";packet.incremental_history=std::move(copy);
+        }
+    };
+    for(auto& packet:stale) {
+        invalidate(packet);
+        for(auto& [id,rows]:packet.body_boundaries) {
+            auto copy=rows.get();for(auto& row:copy)invalidate(row);rows=std::move(copy);
+        }
+    }
+    kernel::OcctKernel changed_algorithm;
+    {HistoryTrace trace;static_cast<void>(workspace::calculate_part(changed_algorithm,changed,&stale));
+        require(trace.log.str().find("operations=2 reused=0 calculated=2")!=std::string::npos,
+            "A different algorithm reused saved native continuation data");}
+    auto invalid_packet=document::serialize_body_result(calculated.back());
+    invalid_packet["incremental_history"]={{"algorithm",17},{"frames",false}};
+    const auto ignored=document::load_body_result(invalid_packet);
+    require(!ignored.incremental_history&&ignored.mesh.vertices==calculated.back().mesh.vertices&&
+        ignored.mesh.triangles==calculated.back().mesh.triangles,"Invalid optional continuation metadata hid valid display geometry");
+    std::cout<<"Cold native continuation: first/repeated tail edits, fresh geometry/identities, native reopen, input immutability, stale/missing cache and invalid optional metadata passed\n";
+}
+
+static void verify_recovery_prefix() {
+    auto doc=document::PartDocument::create_default();
+    auto first=test::rectangular_feature(doc,{10,10,10});
+    auto second=test::rectangular_feature(doc,{7,8,9});second.placement.x=20;
+    doc.history={first,second};doc.resolve_constructions();auto operations=doc.kernel_operations();
+    for(auto& operation:operations)operation.body={};
+    require(operations.size()==2,"Recovery fixture operation count changed");
+    kernel::OcctKernel initial;auto previous=initial.evaluate_history(operations);
+    for(auto& boundary:previous)boundary=document::load_body_result(document::serialize_body_result(boundary));
+    auto broken=operations.back();broken.owner_id="intentional-failed-suffix";broken.input_error="Intentional recovery fixture failure";
+    operations.push_back(broken);kernel::OcctKernel resumed,fresh;
+    std::vector<kernel::BodyResult> recovered;
+    {HistoryTrace trace;recovered=resumed.evaluate_history_recovering(operations,previous);
+        require(trace.log.str().find("[history recovery] unchanged_prefix=2")!=std::string::npos&&
+            trace.log.str().find("operations=1 ")==std::string::npos,
+            "Suffix failure recovery walked the known valid prefix boundary by boundary");}
+    const auto expected=fresh.evaluate_history_recovering(operations);
+    require(recovered.size()==expected.size()&&recovered.back().calculation_errors==expected.back().calculation_errors,
+        "Prefix recovery changed failure attribution");
+    const auto canonical=[](const kernel::ViewerReferenceGeometry& geometry) {
+        using Point=std::array<std::uint64_t,3>;using Triangle=std::array<Point,3>;
+        const auto bits=[](const kernel::Vec3& p){return Point{std::bit_cast<std::uint64_t>(p.x),std::bit_cast<std::uint64_t>(p.y),std::bit_cast<std::uint64_t>(p.z)};};
+        std::set<Point> vertices;for(const auto& point:geometry.vertices)vertices.insert(bits(point));
+        std::vector<std::tuple<std::string,std::string,std::string,Triangle>> triangles;
+        for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+            Triangle points{bits(geometry.vertices.at(geometry.triangles.at(i*3))),
+                bits(geometry.vertices.at(geometry.triangles.at(i*3+1))),bits(geometry.vertices.at(geometry.triangles.at(i*3+2)))};
+            auto best=points;std::rotate(points.begin(),points.begin()+1,points.end());best=std::min(best,points);
+            std::rotate(points.begin(),points.begin()+1,points.end());best=std::min(best,points);
+            const auto& ref=geometry.triangle_references[i];triangles.emplace_back(ref.owner_id,ref.semantic_key,ref.instance_path,best);
+        }
+        std::sort(triangles.begin(),triangles.end());return std::pair{vertices,triangles};
+    };
+    for(std::size_t i=0;i<recovered.size();++i) {
+        auto actual=recovered[i],baseline=expected[i];resumed.ensure_body_properties(actual);fresh.ensure_body_properties(baseline);
+        require(std::abs(actual.volume-baseline.volume)<1e-9&&std::abs(actual.surface_area-baseline.surface_area)<1e-9,
+            "Prefix recovery changed retained geometry");
+        auto actual_references=document::serialize_body_result(actual).at("original_references");
+        auto baseline_references=document::serialize_body_result(baseline).at("original_references");
+        // OCCT may enumerate mesh vertices differently after native reload.
+        // Compare exact bits and oriented triangles, never rounded positions.
+        for(auto* packet:{&actual_references,&baseline_references}){packet->erase("vertices_binary");packet->erase("triangles_binary");}
+        require(actual_references==baseline_references&&canonical(actual.mesh.original_references)==canonical(baseline.mesh.original_references),
+            "Prefix recovery changed original geometry/side identities");
+    }
+    operations.front().input_error="Changed earlier input";kernel::OcctKernel changed;
+    const auto rejected=changed.evaluate_history_recovering(operations,previous);
+    require(rejected.front().calculation_errors.contains(operations.front().owner_id)&&rejected.back().mesh.triangles.empty(),
+        "Recovery retained stale material after its earliest input changed");
+    std::cout<<"Recovery prefix: cold saved input, exact fresh geometry/references/errors and earlier-source invalidation passed\n";
+}
+
 static void verify_sheet_suppression(const kernel::OcctKernel& kernel) {
     auto doc=document::PartDocument::create_default();
     auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
@@ -87,7 +245,7 @@ static void verify_sheet_suppression(const kernel::OcctKernel& kernel) {
 int main() {
     try {
         kernel::OcctKernel kernel;
-        verify_live_regeneration(kernel);
+        verify_live_regeneration(kernel);verify_cold_history_resume();verify_recovery_prefix();
         verify_sheet_suppression(kernel);
         auto doc=document::PartDocument::create_default();
         auto source=test::rectangular_feature(doc,{10,10,10});

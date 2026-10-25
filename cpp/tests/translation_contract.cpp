@@ -140,6 +140,10 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        check(QObject::tr("Invalid compressed document data.")==
+            settings.qt_translations.value("Invalid compressed document data.")&&
+            !settings.qt_translations.value("Invalid compressed document data.").isEmpty(),
+            "Compressed document error is not localized");
         for(const auto* key:{"Body os","Zobrazit nebo skrýt body os a konstrukčních čar","Tažení","Vlastnosti tažení","Přechod","Krut","Špička","Směr tažení","Stoupání","Úhel pole","Rozteč pole","Počet instancí","Počet instancí v opačném směru","Korekce délky","Korekce úhlu"})
             check(!settings.qt_translations.value(key).isEmpty()&&QObject::tr(key)==settings.qt_translations.value(key),"Modeling name or numeric helper label is untranslated");
 
@@ -163,6 +167,8 @@ int verify_translations(QApplication& application, QWidget& parent) {
             struct ValueCase {const char* key;const char* label;double value;const char* unit;bool angle;const char* index;};
             for(const auto& item:std::vector<ValueCase>{
                 {"parameter:pitch","Stoupání",12,"mm",false,""},
+                {"parameter:thin_thickness","Tloušťka",5,"mm",false,""},
+                {"parameter:thickness","Tloušťka skořepiny",5,"mm",false,""},
                 {"parameter:pattern:count:0","Počet instancí",6,"",false," 1"},
                 {"parameter:pattern:spacing:1","Rozteč pole",15,"mm",false," 2"},
                 {"parameter:pattern:angle","Úhel pole",90,"°",true,""},

@@ -296,6 +296,18 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
         if(source && *source==reference.source_document_id)wanted.push_back(reference);
     }
     const auto geometry=collect(live,doc,sketch,wanted,draft_body_id);bool changed=false;
+    std::set<std::string> present_axes;
+    const auto remember_present_axes=[&](const auto& references,const auto& sources) {
+        if(!remove_unresolvable_after_frame_change)return;
+        for(const auto& reference:references)
+            if(reference.kind==sketcher::ExternalReferenceKind::AxisPoint&&
+                std::ranges::count_if(sources.axes,[&](const auto& axis) {
+                    return axis.reference.owner_id==reference.source_owner_id&&
+                        axis.reference.semantic_key==reference.source_semantic_key&&
+                        axis.reference.instance_path==reference.source_instance_path;
+                })==1)present_axes.insert(reference.id);
+    };
+    remember_present_axes(wanted,geometry);
     kernel::ViewerReferenceGeometry body_geometry;
     if(std::ranges::any_of(wanted,[](const auto& r){return r.body_edge;})) {
         if(const auto* part=live.open_part(doc))body_geometry=part_sketch_body_reference_geometry(part->session,sketch,draft_body_id);
@@ -325,12 +337,37 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
                 throw SketchOperationError(error.code,error.what());
         }
         current=live.open_part(doc)->session.document().sketch_reference_geometry_for(sketch,std::move(current));
+        remember_present_axes(references,current);
         kernel::ViewerReferenceGeometry body;
         if(std::ranges::any_of(references,[](const auto& r){return r.body_edge;})) {
             body=context_sketch_body_reference_geometry(live,top,assembly::InstancePath::decode(dependent),source);
             body=live.open_part(doc)->session.document().sketch_reference_geometry_for(sketch,std::move(body));
         }
         changed=sketch.refresh_external_references(source,current,false,&body,remove_unresolvable_after_frame_change)||changed;
+    }
+    if(remove_unresolvable_after_frame_change) {
+        // An unused perpendicular-axis point ceases to exist after deliberate
+        // tilting. Keeping that broken helper suppresses Sketch::solve(), even
+        // for unrelated valid projected-point contacts. Retire only unused
+        // helpers; authored dimensions/constraints retain their repairable link.
+        const auto used=[&](const std::string& id) {
+            for(const auto& c:sketch.constraints)
+                if(c.first_point_id==id||c.second_point_id==id||c.geometry_id==id||c.second_geometry_id==id)return true;
+            for(const auto& d:sketch.dimensions)
+                if(d.first_point_id==id||d.second_point_id==id||d.geometry_id==id||d.second_geometry_id==id||d.third_geometry_id==id)return true;
+            return std::ranges::any_of(sketch.import_blocks,[&](const auto& block){return block.source_path=="external-reference:"+id;});
+        };
+        const auto unused_broken_axis=[&](const auto& reference) {
+            return reference.kind==sketcher::ExternalReferenceKind::AxisPoint&&reference.broken&&
+                present_axes.contains(reference.id)&&!used(reference.id);
+        };
+        if(std::ranges::any_of(sketch.external_references,unused_broken_axis)) {
+            auto trial=sketch;std::erase_if(trial.external_references,unused_broken_axis);
+            trial.validate();const auto result=trial.solve();
+            if(result.status!=sketcher::SolveStatus::Invalid&&result.status!=sketcher::SolveStatus::Conflicting) {
+                sketch=std::move(trial);changed=true;
+            }
+        }
     }
     return changed;
 }

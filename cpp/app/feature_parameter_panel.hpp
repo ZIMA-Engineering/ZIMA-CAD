@@ -46,6 +46,8 @@ public:
         type_=feature_type_control(this,initial_.type);
         show_point_=new QCheckBox(tr("Bod"),this);show_point_->setObjectName("featureShowPoint");
         show_text_=new QCheckBox(tr("Text"),this);show_text_->setObjectName("featureShowText");
+        show_axis_3d_=new QCheckBox(tr("Zobrazovat ve 3D"),this);show_axis_3d_->setObjectName("featureShowAxis3D");
+        show_axis_3d_->setChecked(initial_.axis_visible_in_3d);
         show_point_->setChecked(initial_.show_point);show_text_->setChecked(initial_.show_text);
         plane_group_=new QGroupBox(tr("Rovina"),this);
         plane_group_->setObjectName("featurePlaneGroup");
@@ -231,6 +233,7 @@ public:
             result_->currentIndex()==2?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
         value.symmetric=symmetric_;value.origin_centerline=origin_axis_->isChecked();
         value.show_point=show_point_->isChecked();value.show_text=show_text_->isChecked();
+        value.axis_visible_in_3d=show_axis_3d_->isChecked();
         value.centroid_centerline=centroid_axis_->isChecked();
         for(int i=0;i<2;++i)value.sides[i]=capture_side(sides_[i],sides_[i].mode->currentIndex());
         return value;
@@ -239,7 +242,7 @@ public:
     QWidget* type_row() {
         auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
         type_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-        layout->addWidget(type_);layout->addWidget(show_point_);layout->addWidget(show_text_);layout->addStretch();
+        layout->addWidget(type_);layout->addWidget(show_point_);layout->addWidget(show_text_);layout->addWidget(show_axis_3d_);layout->addStretch();
         return row;
     }
     QComboBox* plane_control() const { return plane_; }
@@ -352,11 +355,13 @@ public:
         if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
         if(!isAncestorOf(show_point_))connect(show_point_,&QCheckBox::toggled,this,notify);
         if(!isAncestorOf(show_text_))connect(show_text_,&QCheckBox::toggled,this,notify);
+        if(!isAncestorOf(show_axis_3d_))connect(show_axis_3d_,&QCheckBox::toggled,this,notify);
     }
 protected:
     void changeEvent(QEvent* event) override {
         QWidget::changeEvent(event);
         if(event->type()==QEvent::LanguageChange&&draft_notice_) {
+            show_axis_3d_->setText(tr("Zobrazovat ve 3D"));
             draft_notice_->setText(tr("Exact preview"));
             for(auto& side:sides_)if(side.rows&&side.correction)
                 if(auto* label=qobject_cast<QLabel*>(side.rows->labelForField(side.correction)))label->setText(tr("Korekce"));
@@ -378,6 +383,7 @@ private:
     QVBoxLayout* content_{};
     QComboBox* type_{};
     QCheckBox *show_point_{},*show_text_{};
+    QCheckBox* show_axis_3d_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
@@ -437,6 +443,7 @@ private:
     void refresh_type() {
         const auto type=selected_type();
         const bool modeling=type==document::FeatureType::Modeling;
+        show_axis_3d_->setVisible(type==document::FeatureType::Axis);
         const bool lengths=modeling||type==document::FeatureType::Axis;
         plane_group_->setVisible(type!=document::FeatureType::Point&&type!=document::FeatureType::Axis);
         sketch_group_->setVisible(modeling||type==document::FeatureType::Sketch);

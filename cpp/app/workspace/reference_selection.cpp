@@ -2,11 +2,24 @@
 #include "../confirmed_face_hit.hpp"
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
+#include <QElapsedTimer>
+#include <cstdio>
 
 namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
+class ReferencePickProfile {
+    bool enabled_=qEnvironmentVariableIsSet("ZIMA_PROFILE_REFERENCE_PICK");
+    QElapsedTimer timer_;
+public:
+    ReferencePickProfile(){if(enabled_)timer_.start();}
+    void phase(const char* name) {
+        if(!enabled_)return;
+        const auto ns=timer_.nsecsElapsed();timer_.restart();
+        if(ns>1000000)std::fprintf(stderr,"Reference pick %s: %.3f ms\n",name,ns/1.e6);
+    }
+};
 document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog* dialog,
         std::size_t index,document::ConstructionReference ref,
         const kernel::ViewerReferenceGeometry& geometry,const kernel::Vec3& origin,
@@ -35,7 +48,7 @@ zima::assembly::MateReferenceKind AssemblyWorkspaceWindow::component_reference_k
         component_reference_kind_index_.rebuild(viewer_->mesh().original_references);
         component_reference_kind_revision_=revision;
     }
-    return component_reference_kind_index_.kind(candidate);
+    return component_reference_kind_index_.kind(placement_reference_source_candidate(candidate));
 }
 
 void AssemblyWorkspaceWindow::end_placement_branch_selection() {
@@ -1019,6 +1032,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             baseline_references, baseline_placement, baseline_dof, auto_advance,
             validation_cache,validation_revision,geometry_index,fixed_body_source](
                 const auto& offered) {
+        ReferencePickProfile profile;
         const auto candidate=placement_reference_source_candidate(offered);
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.owner_id == construction_dimension_object_id_ &&
@@ -1051,6 +1065,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             if(!fixed_body_source)*geometry_index=document::PlacementReferenceGeometryIndex(primitive_reference_geometry_);
         }
         if (!geometry_index->contains(document::ConstructionReference{local_path,candidate.owner_id,candidate.semantic_key})) return false;
+        profile.phase("source lookup");
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
@@ -1101,12 +1116,15 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         // and this scene revision. Row preparation still consumes current UI state.
         const auto* measured=cached!=validation_cache->end()&&cached->second.source==source_reference
             ? &cached->second.prepared.measured_offset:nullptr;
+        profile.phase("row eligibility");
         auto proposed = baseline_references;
         proposed.push_back(candidate_reference);
         std::optional<kernel::ViewerReferenceGeometry> proposed_geometry;
         if(!measured)proposed_geometry=geometry_index->select(proposed);
+        profile.phase("geometry selection");
         candidate_reference=prepare_placement_pick(primitive_reference_dialog_,index,
             std::move(candidate_reference),proposed_geometry?*proposed_geometry:primitive_reference_geometry_,orientation_origin,measured);
+        profile.phase("row measurement/preparation");
         // Prepared values include current row locks/side and measured offset.
         // Keep signed zero distinct even though ordinary numeric equality does not.
         if(cached!=validation_cache->end() && cached->second.prepared==candidate_reference &&
@@ -1126,6 +1144,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         auto proposed_placement = baseline_placement;
         proposed_placement.references = proposed;
         if (!zima::document::resolve_placement(proposed_placement, *proposed_geometry)) return remember(false);
+        profile.phase("placement solve");
         const zima::kernel::Vec3 proposed_origin{proposed_placement.x, proposed_placement.y, proposed_placement.z};
         const int proposed_rotation =
             zima::document::orientation_constraint_remaining_dof(
@@ -1136,6 +1155,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             : proposed_rotation +
                 zima::document::point_constraint_remaining_dof(
                     proposed, *proposed_geometry, proposed_origin);
+        profile.phase("degrees of freedom");
         return remember(proposed_dof < baseline_dof ||
             (!auto_advance && proposed_dof == baseline_dof));
     });
@@ -1192,8 +1212,11 @@ void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
 }
 
 void AssemblyWorkspaceWindow::accept_component_placement_reference(
-    const zima::viewer::ViewerCandidate& candidate) {
-    if (!component_placement_reference_candidate_allowed(candidate)) return;
+    const zima::viewer::ViewerCandidate& offered) {
+    if (!component_placement_reference_candidate_allowed(offered)) return;
+    // Keep View feedback on the exact offered fragment. Persist only its
+    // explicit original parent, as the existing Part placement path does.
+    const auto candidate=placement_reference_source_candidate(offered);
     const auto kind = component_reference_kind(candidate);
     auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
     const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
@@ -1277,6 +1300,7 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
 
 void AssemblyWorkspaceWindow::accept_primitive_reference(
     const zima::viewer::ViewerCandidate& offered, bool from_view) {
+    ReferencePickProfile profile;
     const auto candidate=placement_reference_source_candidate(offered);
     if (!placement_origin_allowed(candidate.owner_id)) return;
     if (primitive_reference_dialog_ == nullptr ||
@@ -1303,6 +1327,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
                    : !placement_reference_exists(candidate,primitive_reference_geometry_,local_path)) return;
     const std::size_t selected_index = *pending_primitive_reference_index_;
     const auto* form_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);
+    profile.phase("confirm source lookup");
     const bool form_placement=form_dialog&&form_dialog->is_sheet_form();
     const bool orientation_reference = selected_index >= 3;
     auto baseline_references =
@@ -1330,6 +1355,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         ? std::max(1, baseline_rotation_dof)
         : direction_reference ? baseline_rotation_dof
         : baseline_translation_dof + baseline_rotation_dof;
+    profile.phase("confirm baseline solve");
     if (direction_reference &&
         !placement_reference_candidate_can_define_direction(candidate)) {
         state_->setText(tr(
@@ -1356,6 +1382,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         proposed_subset=body_index->select(references);
     }
     const auto& proposed_geometry=proposed_subset?*proposed_subset:primitive_reference_geometry_;
+    profile.phase("confirm geometry selection");
     proposed_reference=prepare_placement_pick(primitive_reference_dialog_,selected_index,
         std::move(proposed_reference),proposed_geometry,orientation_origin);
     auto committed_reference = proposed_reference;
@@ -1408,6 +1435,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         viewer_->clear_selection();
         return;
     }
+    profile.phase("confirm proposed solve");
     QString reference_label;
     const auto label_from_constructions = [&](const auto& document) {
         const auto found = std::find_if(document.constructions.begin(),
@@ -1451,12 +1479,17 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     const auto bend_edge=selected_index==0&&properties_dialog_&&properties_dialog_->objectName()=="bendPropertiesDialog"
         ?viewer_->candidate_edge(candidate):std::optional<zima::kernel::ViewerEdge>{};
     const auto bend_ray=bend_edge?viewer_->ray_at(viewer_->last_pointer_position()):std::nullopt;
+    profile.phase("confirm label/measurement");
+    const auto scene_before_reference=viewer_->base_mesh_revision();
     if (!primitive_reference_dialog_->set_reference(
         selected_index, std::move(committed_reference), reference_label)) {
         state_->setText(tr("Stejná reference už je pro toto umístění zadaná."));
         viewer_->clear_selection();
         return;
     }
+    profile.phase("confirm dialog set_reference");
+    const bool sketch_preview_published=dynamic_cast<SketchPropertiesDialog*>(primitive_reference_dialog_)&&
+        viewer_->base_mesh_revision()!=scene_before_reference;
     if(bend_edge&&bend_ray&&zima::kernel::sheet_edge_role(*bend_edge)==zima::kernel::SheetEdgeRole::Boundary&&
         bend_edge->edge_treatment_endpoint_references.size()==2&&bend_edge->points.size()>=2) {
         // Choose a station on the already confirmed edge. This is not another
@@ -1481,8 +1514,10 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     // Body set_reference() synchronously publishes its complete live preview.
     // Its inspection and selection transitions below update their own overlays
     // and contracts; publishing that same Body scene again serves no consumer.
-    // Other feature dialogs retain their established follow-up initialization.
-    if(!body_dialog) {
+    // Sketch Properties also publishes its completed draft synchronously. Its
+    // callback retains all work-plane, manipulator and inspection initialization.
+    // Other dialogs and deferred previews still need this established refresh.
+    if(!body_dialog&&!sketch_preview_published) {
         preserve_view_on_refresh_ = true;
         refresh_scene();
     }

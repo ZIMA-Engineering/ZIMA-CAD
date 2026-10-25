@@ -8,6 +8,9 @@
 #include <zima/workspace/origin_display_operations.hpp>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 
 namespace zima::workspace {
 void normalize_owned_profile_front_references(
@@ -132,6 +135,13 @@ document::HistoryContainer profile_from_sketch(const document::PartDocument& par
 void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std::string& id,
     document::HistoryContainer value, ProfileEditMode mode, const std::optional<sketcher::Sketch>& owned_sketch,
     ProfileFailurePolicy failure_policy) {
+    auto phase_start=std::chrono::steady_clock::now();
+    const auto phase=[&](const char* name) {
+        const auto now=std::chrono::steady_clock::now();
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Profile commit %s: %.3f ms\n",name,
+            std::chrono::duration<double,std::milli>(now-phase_start).count());
+        phase_start=now;
+    };
     auto* state = live.open_part(id);
     if (!state) throw ProfileOperationError("unsupported_document", "Profile operations require an open Part.");
     validate_profile_definition(value);
@@ -213,7 +223,11 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
             if(!limit)continue;
             if (container.feature.symmetric && &side==&container.feature.sides[1]) continue;
             for(std::size_t row=0;row<side.targets.size();++row)try {
-                side.targets[row]=prepare_profile_end_target(next,previous,container,side.targets[row]);
+                if(side.targets[row].external_source) {
+                    if(container.feature.type!=document::FeatureType::Modeling||side.operation!=document::FeatureSideOperation::Extrusion)
+                        throw ProfileOperationError("invalid_reference","Invalid Feature definition.");
+                    side.targets[row]=prepare_skeleton_end_target(live,next,container.id,side.targets[row],&kernel);
+                } else side.targets[row]=prepare_profile_end_target(next,previous,container,side.targets[row]);
             }catch(const std::runtime_error&) {
                 if(document::feature_uses_extended_up_to(container.feature))
                     throw kernel::OrderedUpToError(kernel::OrderedUpToFailure::InvalidInput,row,row);
@@ -231,12 +245,14 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         prepare(parameters.end_condition_forward,parameters.end_targets_forward);
         if(parameters.extent_mode==document::ProfileExtentMode::TwoSides)prepare(parameters.end_condition_reverse,parameters.end_targets_reverse);
     }
+    phase("definition and limits");
     auto geometry = construction_reference_source_geometry(previous);
     append_reference_geometry(geometry, next.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry, next.construction_viewer_mesh().original_references);
     next.resolve_constructions(geometry);
     if(!next.find_container(container_id)->placement.reference_valid)
         throw ProfileOperationError("invalid_reference", "The proposed feature placement references cannot be resolved.");
+    phase("placement preflight");
     auto policy = feature_definition_calculation_policy(before, previous, container_id);
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
     if(feature&&next.find_container(container_id)->feature.type==document::FeatureType::Modeling) {
@@ -257,8 +273,16 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         if(failure_policy==ProfileFailurePolicy::KeepDefinition)policy.reject_errors=false;
     }
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
-    static_cast<void>(refresh_sketch_external_references(next, calculated));
+    phase("settled calculation");
+    // Settling returns only after Sketch references stop changing. Section
+    // placements are finalized at that return boundary, so retain their later
+    // refresh; ordinary profiles must not repeat the complete stable pass.
+    if(!next.sections.empty()) {
+        static_cast<void>(refresh_sketch_external_references(next, calculated));
+        phase("section reference refresh");
+    }
     commit_part_document(live,id,std::move(next), std::move(calculated));
+    phase("native transaction");
 }
 kernel::HistoryOperation feature_preview_operation(document::PartDocument carrier,
         const document::HistoryContainer& definition) {

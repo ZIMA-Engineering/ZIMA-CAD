@@ -17,8 +17,21 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             auto dimension=sketch.create_segment_dimension(first);dimension.locked=false;sketch.apply_dimension(dimension);
             const auto axis=axis_kind<2?std::string(axis_kind==0?"sketch_axis:x":"sketch_axis:y"):
                 sketch.add_segment(axis_kind==2?3:-20,-30,axis_kind==2?3:20,30,1e-6,true);
-            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
-            const auto body=graph.create_body("Mirror interaction");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            if(axis_kind==3) {
+                sketch.set_point_fixed(sketch.segments.back().first_point_id,true);
+                sketch.set_point_fixed(sketch.segments.back().second_point_id,true);
+            }
+            auto support=sketcher::Sketch::create_default();auto support_feature=document::PartDocument::create_sketch_container();
+            support.owner_container_id=support_feature.id;support_feature.feature.sketch_id=support.id;
+            const auto support_point=support.add_point(20,18);
+            auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+            reference.source_document_id=part.document_id;reference.source_owner_id=support.id;
+            reference.source_semantic_key="point:"+support_point;reference.cached_points={{20,18}};
+            const auto reference_id=reference.id;sketch.add_external_reference(std::move(reference));
+            part.history={support_feature,feature};part.sketches={support,sketch};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Mirror interaction");graph.insert({document::PartHistoryKind::Feature,support_feature.id});
+            graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            const auto support_before=part.sketches.front().serialized();
             const auto path=directory/("sketch-mirror-"+std::to_string(case_id)+".prtz");part.save(path);
             app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
             check(window.open_document_path(QString::fromStdString(path.string())),"Mirror fixture cannot open");flush();
@@ -46,6 +59,8 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             const auto p=screen(9,27),q=screen(31,7);
             mouse(p,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(q,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);mouse(q,QEvent::MouseButtonRelease,Qt::LeftButton);
             check(view->sketch_selection().size()>=2,"Mirror box selection did not collect a connected pair");
+            check(std::ranges::any_of(view->sketch_selection(),[&](const auto& candidate){return candidate.semantic_key.find(reference_id)!=std::string::npos;}),
+                "Mirror rectangle did not include the read-only reference");
             mirror->trigger();flush();check(!mirror->isEnabled(),"Mirror did not enter axis selection");
             const std::string axis_key=axis_kind<2?axis:"segment:"+axis;
             const auto axis_pixel=axis_kind==0?screen(-12,0):axis_kind==1?screen(0,-20):axis_kind==2?screen(3,-20):screen(-12,-18);
@@ -103,14 +118,23 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* dialog:window.findChildren<QDialog*>())if(auto* properties=dynamic_cast<app::SketchPropertiesDialog*>(dialog);properties&&properties->isVisible())properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-            const auto reopened=document::PartDocument::load(path);const auto& result=reopened.sketches.front();
+            const auto reopened=document::PartDocument::load(path);
+            const auto& result=*std::ranges::find(reopened.sketches,sketch.id,&sketcher::Sketch::id);
+            check(reopened.sketches.front().serialized()==support_before&&result.external_references.size()==1&&
+                result.external_references.front().id==reference_id,"Mixed Mirror changed or copied its read-only source");
             check(result.segments.size()==(axis_kind<2?4u:5u),"Mirror native save/reopen lost geometry");
             check(result.corner_radii.size()==(rounded?2u:0u),"Mirror GUI lost a selected rounded corner");
             if(rounded)check(std::abs(result.corner_radii[0].radius-result.corner_radii[1].radius)<1e-8,
                 "Mirror GUI lost linked corner radii after dragging and reopen");
             check(std::hypot(result.find_point(source_point)->x-12,result.find_point(source_point)->y-10)>1,"Mirror source could not be dragged after completion");
-            const auto origin=axis_kind==0?std::array{0.,0.}:axis_kind==1?std::array{0.,0.}:axis_kind==2?std::array{3.,-30.}:std::array{-20.,-30.};
-            const auto direction=axis_kind==0?std::array{1.,0.}:axis_kind==1?std::array{0.,1.}:axis_kind==2?std::array{0.,60.}:std::array{40.,60.};
+            auto origin=std::array{0.,0.};auto direction=axis_kind==0?std::array{1.,0.}:std::array{0.,1.};
+            if(axis_kind>=2) {
+                const auto line=std::ranges::find(result.segments,axis,&sketcher::SketchSegment::id);
+                check(line!=result.segments.end(),"Mirror lost its authored axis");
+                const auto* a=result.find_point(line->first_point_id);const auto* b=result.find_point(line->second_point_id);
+                origin={a->x,a->y};direction={b->x-a->x,b->y-a->y};
+                if(axis_kind==3)check(origin==std::array{-20.,-30.}&&direction==std::array{40.,60.},"Locked Mirror axis moved");
+            }
             int relations=0;
             for(const auto& relation:result.constraints)if(relation.kind==sketcher::ConstraintKind::Symmetric&&relation.geometry_id==axis) {
                 const auto* source=result.find_point(relation.first_point_id);const auto* copy=result.find_point(relation.second_point_id);

@@ -13,6 +13,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QSignalBlocker>
+#include <QScopeGuard>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -591,6 +592,7 @@ bool SketchPropertiesDialog::sheet_reference_allowed(std::size_t index,const zim
 
 void SketchPropertiesDialog::notify_preview() {
     if (!preview_) return;
+    if(reference_update_){reference_preview_pending_=true;return;}
     try {
         auto [sketch, placement] = current_values();
         if((bend_pending_&&bend_pending_->sheet_attachment)||(flat_pending_&&flat_pending_->sheet_attachment))initial_=sketch;
@@ -658,6 +660,14 @@ zima::document::ConstructionReference SketchPropertiesDialog::prepare_reference_
 bool SketchPropertiesDialog::set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label) {
+    // The shared row callback resolves placement before this command finishes
+    // choosing its automatic work plane. Keep both updates synchronous, then
+    // publish this Sketch's complete final draft only once.
+    const bool outer_update=!reference_update_;
+    const auto publish=qScopeGuard([this,outer_update] {
+        if(outer_update&&std::exchange(reference_preview_pending_,false))notify_preview();
+    });
+    const QScopedValueRollback update(reference_update_,true);
     if(!sheet_reference_allowed(index,reference))return false;
     if(flat_pending_&&index==0) {
         const auto edge=std::ranges::find_if(reference_geometry_.edges,[&](const auto& e) {

@@ -1,5 +1,32 @@
 # Refreshing references in owned Sketches
 
+## Body-local Properties preview follow-up (2026-10-25)
+
+The development candidate fixes an additional source-query ownership error.
+`PartDocument::body_document()` intentionally gives its temporary local carrier
+the Body ID. During a placed profile's work-frame edit, the preview previously
+passed that ID to the Workspace reference query, which requires the actual open
+Part ID. A valid source was consequently reported missing and an external point
+appeared with its old local coordinates and a broken marker.
+
+The query now retains the actual Part ID and supplies the owning Body separately.
+The shared projection, placement and solver implementations remain unchanged.
+During a deliberate frame edit, a now unusable perpendicular-axis point is
+retired only if its exact source axis still exists and no native constraint,
+dimension or imported profile uses the helper. Missing sources and used broken
+axis points retain their repairable identities. An unused broken helper had
+previously prevented the unrelated valid point contacts from solving.
+
+The actual rotation/tilt GUI test now passes, including the projected reference,
+dependent native point, repeated Sketcher return, Cancel, Undo/Redo, native reopen
+and unchanged source definitions. A separate 384-case native matrix covers
+length/X/Y/angle values, driving/reference and valid lock states, point selection
+orders, both source sides and frame orientations, repeated numeric edits and
+drags, independent equations and native transactions. The finite outline,
+trim/offset and nested-occurrence tests remain part of the same executable.
+The finite matrix does not claim exhaustive coverage of every external curve
+type or every Sketcher dimension kind.
+
 Part regeneration previously visited standalone Sketches and embedded Sweep2D
 Sketches, but skipped internal Sketches in Sweep3D, Helical Sweep, Hole, and Thread.
 The same gap affected context-reference refresh, context-dependency discovery

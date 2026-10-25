@@ -2,6 +2,9 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <string>
 #include <vector>
+#include <optional>
+#include <filesystem>
+#include <nlohmann/json_fwd.hpp>
 
 namespace zima::document {
 
@@ -13,6 +16,23 @@ enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
 enum class ThinMode { OneSide, OtherSide, Symmetric };
 enum class EndCondition { Length, UpTo, ThroughAll };
 enum class EndTargetKind { Point, Plane, Face };
+
+// An explicit, read-only source dependency. The small calculated face cache is
+// self-contained native data, not a copied Part/history or a required sidecar.
+// Regeneration refreshes it from the authoritative source document.
+struct ExternalProfileTarget {
+    std::string document_id;
+    std::filesystem::path source_file;
+    std::string context_assembly_id;
+    std::string dependent_instance_path;
+    std::string source_instance_path;
+    kernel::BodySnapshot source_face;
+    std::vector<kernel::KernelRigidPlacement> source_to_part;
+    std::vector<kernel::KernelRigidPlacement> source_to_body;
+    bool operator==(const ExternalProfileTarget&) const;
+};
+[[nodiscard]] nlohmann::json serialize_external_profile_target(const ExternalProfileTarget&);
+[[nodiscard]] ExternalProfileTarget load_external_profile_target(const nlohmann::json&);
 struct ExtrusionParameters {
     bool origin_centerline{};
     bool centroid_centerline{};
@@ -36,6 +56,7 @@ struct ExtrusionParameters {
         zima::kernel::Vec3 fallback_origin;
         zima::kernel::Vec3 fallback_normal{0.0, 0.0, 1.0};
         std::vector<zima::kernel::Vec3> fallback_triangles;
+        std::optional<ExternalProfileTarget> external_source;
         bool operator==(const EndTarget&) const = default;
     };
     std::vector<EndTarget> end_targets_forward;

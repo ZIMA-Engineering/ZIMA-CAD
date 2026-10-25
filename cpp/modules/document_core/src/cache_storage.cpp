@@ -8,6 +8,7 @@
 #include <utility>
 #include <algorithm>
 #include <vector>
+#include "cache_compression.inc"
 
 namespace zima::document {
 namespace {
@@ -145,7 +146,7 @@ nlohmann::json pack_cache_storage(const nlohmann::json& value) {
     storage["format"]="zima-shared-cache-v1";
     storage["root"]=std::move(root);
     storage["values"]=std::move(writer.values);
-    return storage;
+    return compress_cache_storage(std::move(storage));
 }
 
 nlohmann::json pack_cache_storage(nlohmann::json&& value) {
@@ -155,7 +156,7 @@ nlohmann::json pack_cache_storage(nlohmann::json&& value) {
     storage["format"]="zima-shared-cache-v1";
     storage["root"]=std::move(root);
     storage["values"]=std::move(writer.values);
-    return storage;
+    return compress_cache_storage(std::move(storage));
 }
 
 nlohmann::json unpack_cache_storage(const nlohmann::json& storage) {
@@ -164,6 +165,7 @@ nlohmann::json unpack_cache_storage(const nlohmann::json& storage) {
 }
 
 nlohmann::json unpack_cache_storage(nlohmann::json&& storage) {
+    storage=decompress_cache_storage(std::move(storage));
     if (!storage.is_object() || storage.value("format", "") != "zima-shared-cache-v1" ||
         !storage.contains("values") || !storage.at("values").is_array())
         throw std::runtime_error("Unsupported shared cache format");

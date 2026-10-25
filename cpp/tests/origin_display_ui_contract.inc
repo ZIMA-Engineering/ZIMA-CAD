@@ -9,6 +9,7 @@ static void verify_default_work_plane_and_frame(QWidget& parent) {
     const auto doc=document::PartDocument::create_default();
     const auto geometry=doc.origin_viewer_mesh().original_references;
     const auto whole=[&](app::PlacementReferenceDialog& dialog) {
+        const auto origin_entry=dialog.whole_origin_entry_scope();
         for(unsigned i=0;i<3;++i) {
             document::ConstructionReference ref{{},doc.document_id+":origin",
                 std::string("origin:plane:")+std::array{"xz","xy","yz"}[i],0,true};

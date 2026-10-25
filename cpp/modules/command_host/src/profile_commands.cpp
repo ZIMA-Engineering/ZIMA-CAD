@@ -16,6 +16,7 @@ using Kind = document::FeatureKind;
 using Error = workspace::ProfileOperationError;
 Json public_feature_parameters(const document::FeatureParameters& feature) {
     auto result=document::serialize_feature_parameters(feature);
+    result["axis_visible_in_3d"]=feature.axis_visible_in_3d;
     for(auto& side:result.at("sides"))if(side.at("operation")=="extrusion")side["operation"]="extrude";
     return result;
 }
@@ -32,13 +33,16 @@ void validate_feature_patch(const Json& patch,const Json& definition){
         if(!value.is_object())throw Error("invalid_arguments","Unknown profile parameter option.");
         for(const auto& [key,item]:value.items())if(!allowed(key))throw Error("invalid_arguments","Unknown profile parameter option.");
     };
-    keys(patch,[&](const auto& key){return definition.contains(key)||key=="reversed_sides";});
+    keys(patch,[&](const auto& key){return definition.contains(key)||key=="reversed_sides"||key=="axis_visible_in_3d";});
     if(!patch.contains("sides")||!patch.at("sides").is_array())return;
     for(const auto& side:patch.at("sides")){
-        keys(side,[&](const auto& key){return definition.at("sides")[0].contains(key)||key=="axis_enabled"||key=="twist_reverse"||key=="twist_smooth";});
+        keys(side,[&](const auto& key){return definition.at("sides")[0].contains(key)||key=="up_to"||key=="axis_enabled"||key=="twist_reverse"||key=="twist_smooth";});
+        if(side.contains("up_to"))keys(side.at("up_to"),[](const auto& key){
+            return key=="length_correction"||key=="angle_correction_degrees"||key=="primary_cap_source"||key=="retained_patches";
+        });
         if(!side.contains("targets")||!side.at("targets").is_array())continue;
         for(const auto& target:side.at("targets"))keys(target,[](const auto& key){
-            return key=="kind"||key=="owner"||key=="key"||key=="instance_path"||key=="label"||key=="origin"||key=="normal"||key=="triangles";
+            return key=="kind"||key=="owner"||key=="key"||key=="instance_path"||key=="label"||key=="origin"||key=="normal"||key=="triangles"||key=="external_source";
         });
     }
 }
@@ -256,6 +260,8 @@ void Host::register_profile_commands() {
                         locked(key+"_length",previous.sides[side].length,value.feature.sides[side].length);
                         locked(key+"_angle",previous.sides[side].angle_degrees,value.feature.sides[side].angle_degrees);
                         locked(key+"_draft_angle",previous.sides[side].draft_angle_degrees,value.feature.sides[side].draft_angle_degrees);
+                        locked(key+"_up_to_length_correction",previous.sides[side].up_to.length_correction,value.feature.sides[side].up_to.length_correction);
+                        locked(key+"_up_to_angle_correction",previous.sides[side].up_to.angle_correction_degrees,value.feature.sides[side].up_to.angle_correction_degrees);
                     }
                 }
                 if(args.contains("name")) {

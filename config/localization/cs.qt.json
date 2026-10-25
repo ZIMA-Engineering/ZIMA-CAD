@@ -432,6 +432,7 @@
   "Délka zobrazení": "Délka zobrazení",
   "Typ výsledku": "Typ výsledku",
   "Tloušťka": "Tloušťka",
+  "Tloušťka skořepiny": "Tloušťka skořepiny",
   "Symetricky": "Symetricky",
   "Strana tloušťky": "Strana tloušťky",
   "Text před hodnotou": "Text před hodnotou",
@@ -2636,5 +2637,7 @@
   "Korekce úhlu": "Korekce úhlu",
   "Vrtací špička": "Špička",
   "Body os": "Body os",
-  "Zobrazit nebo skrýt body os a konstrukčních čar": "Zobrazit nebo skrýt body os a konstrukčních čar"
+  "Zobrazit nebo skrýt body os a konstrukčních čar": "Zobrazit nebo skrýt body os a konstrukčních čar",
+  "Invalid compressed document data.": "Neplatná komprimovaná data dokumentu.",
+  "External extrusion targets must belong to a Skeleton Part.": "Externí cíle tažení musí patřit dílu Skeleton."
 }

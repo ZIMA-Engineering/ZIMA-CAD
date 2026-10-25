@@ -163,6 +163,45 @@ int main() {
             {"same-source-container", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
         });
+        {
+            // Source Sketch glyphs must follow the same complete occurrence
+            // transform as their geometry, including nested Assemblies.
+            using namespace zima::assembly;
+            auto marked=source.back();
+            marked.mesh.constraint_markers.push_back({{1,2,3},"C",
+                {"source-sketch","constraint:point-contact"},{"point:a","curve:b"}});
+            auto inner=AssemblyDocument::create_default();
+            auto occurrence=AssemblyDocument::create_part_occurrence(
+                "Marked source","marker-source","marker.prtz",marked);
+            const auto child_id=occurrence.occurrence_id;
+            occurrence.placement.x=10;occurrence.placement.rotation_z=90;
+            inner.components.push_back(occurrence);
+            const auto direct=inner.build_scene();
+            require(direct.constraint_markers.size()==1,"Assembly dropped source point constraints");
+            const auto& marker=direct.constraint_markers.front();
+            require(std::abs(marker.position.x-8)<1e-12&&
+                std::abs(marker.position.y-1)<1e-12&&marker.position.z==3&&
+                marker.reference.instance_path==InstancePath{}.child(child_id).encoded()&&
+                marker.reference.owner_id=="source-sketch"&&marker.label=="C"&&
+                marker.participant_semantic_keys==std::vector<std::string>{"point:a","curve:b"},
+                "Assembly changed transformed constraint geometry or native identity");
+            auto outer=AssemblyDocument::create_default();
+            auto nested=AssemblyDocument::create_assembly_occurrence(
+                "Nested","marker-assembly","marker.asmz",inner);
+            const auto parent_id=nested.occurrence_id;
+            nested.placement.y=20;nested.placement.rotation_z=90;
+            outer.components.push_back(nested);
+            const auto nested_scene=outer.build_scene();
+            require(nested_scene.constraint_markers.size()==1,"Nested Assembly dropped constraints");
+            const auto& transformed=nested_scene.constraint_markers.front();
+            require(std::abs(transformed.position.x+1)<1e-12&&
+                std::abs(transformed.position.y-28)<1e-12&&transformed.position.z==3&&
+                transformed.reference.instance_path==InstancePath{}.child(parent_id).child(child_id).encoded(),
+                "Nested constraint glyph lost its occurrence transform or path");
+            require(marked.mesh.constraint_markers.front().position.x==1&&
+                marked.mesh.constraint_markers.front().reference.instance_path.empty(),
+                "Assembly modified read-only source constraints");
+        }
         // Explicit datum axes belong to this synthetic Assembly source.
         // A profile solid does not imply three primitive-generated axes.
         for (const auto& [key,direction] : std::vector<std::pair<std::string,zima::kernel::Vec3>>{

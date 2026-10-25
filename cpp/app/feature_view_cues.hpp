@@ -32,6 +32,14 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
         direction.label_position=add(start,add(scale(sketch.resolved_x_axis,-12),scale(sketch.resolved_y_axis,-8)));
         out.dimensions.dimensions.push_back(std::move(direction));
     }
+    if(p.type==document::FeatureType::Modeling&&p.result_type==document::ProfileResultType::Thin&&p.thin_thickness!=0.) {
+        kernel::ViewerDimension thickness;
+        thickness.reference={feature.id,"parameter:thin_thickness",{}};
+        thickness.value=p.thin_thickness;thickness.label_only=true;thickness.unit_suffix="mm";
+        thickness.witness_first=thickness.witness_second=thickness.line_first=thickness.line_second=start;
+        thickness.label_position=add(start,add(scale(sketch.resolved_x_axis,-12),scale(sketch.resolved_y_axis,-16)));
+        out.dimensions.dimensions.push_back(std::move(thickness));
+    }
     const auto linear=[&](std::string key,kernel::Vec3 a,kernel::Vec3 b,double value) {
         if(std::abs(value)<1e-12)return;
         const auto witness=scale(sketch.resolved_x_axis,8);
@@ -89,7 +97,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
             correction.kind=angular?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear;
             correction.witness_first=correction.witness_second=correction.line_first=correction.line_second=start;
             correction.label_position=add(start,add(scale(sketch.resolved_x_axis,12),scale(sketch.resolved_y_axis,side==0?8:-8)));
-            out.dimensions.dimensions.push_back(std::move(correction));
+            if(correction.value!=0.)out.dimensions.dimensions.push_back(std::move(correction));
         }
         if(settings.operation==document::FeatureSideOperation::Extrusion) {
             const auto direction=scale(normal,sign);

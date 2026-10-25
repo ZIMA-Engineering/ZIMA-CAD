@@ -7,6 +7,7 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <cmath>
+#include <numbers>
 #include <iostream>
 #include <stdexcept>
 using namespace zima;
@@ -18,7 +19,142 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     auto result=host.execute({{"command",name},{"arguments",args}});
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
 }
+void verify_frame_reference_retirement() {
+    using namespace sketcher;
+    std::size_t cases=0;
+    for(const auto kind:{DimensionKind::Distance,DimensionKind::DistanceX,DimensionKind::DistanceY,DimensionKind::Angle})
+    for(bool driving:{false,true})for(bool locked:{false,true})for(bool full:{false,true})
+    for(double tilt:{-30.,30.})for(double turn:{-30.,30.})for(double side:{-1.,1.})for(bool reverse:{false,true}) {
+        auto part=document::PartDocument::create_default();
+        auto source=document::PartDocument::create_construction(document::ConstructionKind::Point);source.origin={side*12,4,0};
+        auto axis=document::PartDocument::create_construction(document::ConstructionKind::Axis);axis.origin=source.origin;axis.direction={0,0,1};
+        auto sketch=Sketch::create_default();sketch.plane_auto=false;static_cast<void>(sketch.add_circle(0,0,10));
+        const auto line=sketch.add_segment(side*12,4,side*12+14,12,1e-6,true,false,false);
+        const auto first=sketch.segments.front().first_point_id,last=sketch.segments.front().second_point_id;
+        auto feature=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=feature.id;
+        part.history={feature};part.sketches={sketch};part.constructions={source,axis};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Frame references");
+        graph.insert({document::PartHistoryKind::Construction,source.id});graph.insert({document::PartHistoryKind::Construction,axis.id});
+        graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        const auto geometry=part.construction_viewer_mesh().original_references;
+        auto& owned=part.sketches.front();
+        auto point=Sketch::create_external_reference(ExternalReferenceKind::Point);
+        point.source_document_id=part.document_id;point.source_owner_id=source.container_origin.id;point.source_semantic_key="point";
+        workspace::populate_external_reference_cache(owned,point,geometry);const auto point_id=point.id;owned.add_external_reference(point);
+        auto support=Sketch::create_external_reference(ExternalReferenceKind::AxisPoint);
+        support.source_document_id=part.document_id;support.source_owner_id=axis.entity_id;support.source_semantic_key="axis";
+        workspace::populate_external_reference_cache(owned,support,geometry);const auto axis_id=support.id;owned.add_external_reference(support);
+        static_cast<void>(owned.add_point_reference_constraint(first,point_id));
+        const auto make_dimension=[&](DimensionKind k){return k==DimensionKind::Angle?
+            owned.create_segment_dimension(line,k):owned.create_point_dimension(reverse?last:first,reverse?first:last,k);};
+        auto dimension=make_dimension(kind);dimension.driving=driving;dimension.locked=locked;
+        const auto dimension_id=dimension.id;
+        if(!driving&&locked) {
+            const auto before=owned.serialized();bool rejected=false;
+            try{owned.apply_dimension(dimension);}catch(const std::exception&){rejected=true;}
+            require(rejected&&owned.serialized()==before,"Invalid locked reference dimension changed the Sketch");
+            continue;
+        }
+        owned.apply_dimension(dimension);
+        if(full) {
+            const auto add=[&](DimensionKind k){auto d=make_dimension(k);d.locked=true;owned.apply_dimension(d);};
+            if(!driving){add(DimensionKind::DistanceX);add(DimensionKind::DistanceY);}
+            else add(kind==DimensionKind::DistanceX?DimensionKind::DistanceY:kind==DimensionKind::DistanceY?
+                DimensionKind::DistanceX:kind==DimensionKind::Distance?DimensionKind::Angle:DimensionKind::Distance);
+        }
+        const auto original=owned.serialized();const auto immutable=part.constructions;
+        workspace::Workspace live;live.add_part(part,{});const auto source_before=live.open_part(part.document_id)->session.document().serialized();
+        auto edited=part;
+        edited.history.front().placement.rotation_x=edited.history.front().placement.absolute_rotation_x=tilt;
+        edited.history.front().placement.rotation_z=edited.history.front().placement.absolute_rotation_z=turn;
+        edited.resolve_constructions(geometry);auto candidate=edited.sketches.front();
+        if(cases==0) {
+            auto retained=candidate;
+            static_cast<void>(workspace::refresh_sketch_reference_snapshot(live,part.document_id,retained,false,body));
+            require(std::ranges::any_of(retained.external_references,[&](const auto& r){return r.id==axis_id&&r.broken;}),
+                "Ordinary source refresh erased an unavailable axis-point identity");
+            workspace::Workspace unavailable;retained=candidate;
+            static_cast<void>(workspace::refresh_sketch_reference_snapshot(unavailable,part.document_id,retained,true,body));
+            require(std::ranges::any_of(retained.external_references,[&](const auto& r){return r.id==axis_id&&r.broken;}),
+                "Frame refresh erased the identity of a missing native source");
+            auto attached=part.sketches.front();const auto extra=attached.add_point(100,100);
+            static_cast<void>(attached.add_point_reference_constraint(extra,axis_id));
+            attached.resolved_origin=candidate.resolved_origin;attached.resolved_x_axis=candidate.resolved_x_axis;
+            attached.resolved_y_axis=candidate.resolved_y_axis;attached.resolved_normal=candidate.resolved_normal;
+            const auto authored_contact=attached.constraints.back();
+            static_cast<void>(workspace::refresh_sketch_reference_snapshot(live,part.document_id,attached,true,body));
+            require(std::ranges::any_of(attached.external_references,[&](const auto& r){return r.id==axis_id&&r.broken;})&&
+                std::ranges::find(attached.constraints,authored_contact.id,&SketchConstraint::id)!=attached.constraints.end(),
+                "Deliberate frame refresh removed a used axis point or its native contact");
+            const auto restored=Sketch::from_serialized(attached.serialized());
+            require(restored.external_references==attached.external_references&&restored.constraints==attached.constraints,
+                "Broken used axis-point identity did not survive native reopen");
+        }
+        require(workspace::refresh_sketch_reference_snapshot(live,part.document_id,candidate,true,body),"Frame edit did not refresh its projected inputs");
+        const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+        const kernel::Vec3 delta{source.origin.x-candidate.resolved_origin.x,source.origin.y-candidate.resolved_origin.y,source.origin.z-candidate.resolved_origin.z};
+        const double expected_x=dot(delta,candidate.resolved_x_axis),expected_y=dot(delta,candidate.resolved_y_axis);
+        const auto equations=[&](const Sketch& s) {
+            require(std::ranges::none_of(s.external_references,[&](const auto& r){return r.id==axis_id;}),"Unused tilted AxisPoint was retained");
+            const auto ref=std::ranges::find(s.external_references,point_id,&SketchExternalReference::id);
+            const auto* a=s.find_point(first);const auto* b=s.find_point(last);
+            require(ref!=s.external_references.end()&&!ref->broken&&std::hypot(a->x-expected_x,a->y-expected_y)<1e-6,
+                "Native contact did not follow the independent projected-point equation");
+            for(const auto& d:s.dimensions) {
+                const auto* p=s.find_point(d.first_point_id.empty()?first:d.first_point_id);
+                const auto* q=s.find_point(d.second_point_id.empty()?last:d.second_point_id);
+                const double actual=d.kind==DimensionKind::Distance?std::hypot(q->x-p->x,q->y-p->y):
+                    d.kind==DimensionKind::DistanceX?q->x-p->x:d.kind==DimensionKind::DistanceY?q->y-p->y:
+                    std::atan2(q->y-p->y,q->x-p->x)*180/std::numbers::pi;
+                require(std::abs(actual-d.value)<1e-6,"Frame reference refresh changed a native dimension equation");
+            }
+        };
+        equations(candidate);
+        for(double increment:{.5,1.}) {
+            const auto before=candidate.serialized();const auto value=std::ranges::find(candidate.dimensions,dimension_id,&SketchDimension::id)->value;
+            bool accepted=false;try{accepted=candidate.set_dimension_value(dimension_id,value+increment);}catch(const std::exception&){}
+            // Explicit numeric edits may change locked driving values; locks
+            // constrain dragging. Reference setters are successful no-ops.
+            require(accepted,"Frame-refreshed dimension rejected a feasible numeric edit");
+            if(!driving)require(candidate.serialized()==before,"Reference value edit changed frame-refreshed geometry");
+            equations(candidate);
+        }
+        for(int drag=0;drag<3;++drag) {
+            const auto previous=*candidate.find_point(last);
+            const bool fixed_by_locked_dimensions=full&&(!driving||locked);
+            double x=previous.x+2,y=previous.y+1;
+            const auto anchor=*candidate.find_point(first);const auto dimensions_before=candidate.dimensions;
+            if(!fixed_by_locked_dimensions)for(const auto& d:candidate.dimensions)if(d.driving&&d.locked) {
+                const double dx=previous.x-anchor.x,dy=previous.y-anchor.y;
+                if(d.kind==DimensionKind::Distance) {
+                    const double angle=std::atan2(dy,dx)+.05,radius=std::hypot(dx,dy);
+                    x=anchor.x+radius*std::cos(angle);y=anchor.y+radius*std::sin(angle);
+                } else if(d.kind==DimensionKind::DistanceX)x=previous.x;
+                else if(d.kind==DimensionKind::DistanceY)y=previous.y;
+                else {x=anchor.x+1.1*dx;y=anchor.y+1.1*dy;}
+            }
+            static_cast<void>(candidate.move_point(last,x,y));equations(candidate);
+            for(const auto& d:dimensions_before)if(d.driving&&d.locked)
+                require(std::ranges::find(candidate.dimensions,d.id,&SketchDimension::id)->value==d.value,
+                    "Dragging changed a locked dimension value");
+            const auto* moved=candidate.find_point(last);const double displacement=std::hypot(moved->x-previous.x,moved->y-previous.y);
+            require(fixed_by_locked_dimensions?displacement<1e-6:displacement>1e-6,
+                "Frame-refreshed native point has incorrect dragging mobility");
+        }
+        edited.sketches.front()=candidate;
+        document::DocumentSession transaction(part,{});transaction.commit(edited,{});
+        require(transaction.undo()&&transaction.document().sketches.front().serialized()==original,"Frame refresh Undo changed the original Sketch");
+        require(transaction.redo(),"Frame refresh Redo missing");equations(transaction.document().sketches.front());
+        const auto reopened=document::PartDocument::from_serialized(transaction.document().serialized());equations(reopened.sketches.front());
+        require(reopened.constructions==immutable&&live.open_part(part.document_id)->session.document().serialized()==source_before,
+            "Frame reference refresh modified its read-only source definitions");
+        ++cases;
+    }
+    std::cout<<"Frame reference retirement: "<<cases<<" dimension/lock/mobility/orientation cases, repeated edits/drags, equations, native reopen and Undo/Redo passed\n";
+}
+
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    verify_frame_reference_retirement();
     for(bool reverse:{false,true})
     for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::DistanceX,
             sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Angle})

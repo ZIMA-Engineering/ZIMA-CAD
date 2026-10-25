@@ -47,7 +47,7 @@ public:
         auto* help=new QLabel(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."),this);
         help->setWordWrap(true);content_layout()->addWidget(help);
         thin_form_=new QFormLayout;
-        auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
+        auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
         result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Surface?2:pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);thin_form_->addRow(tr("Typ výsledku"),result);
         thickness_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness_->setObjectName("sweep2dThickness");
         thickness_->setRange(.001,1'000'000);thickness_->setValue(pending.sweep2d.thickness);thin_form_->addRow(tr("Tloušťka"),thickness_);

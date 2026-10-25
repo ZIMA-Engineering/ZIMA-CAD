@@ -20,6 +20,7 @@ inline bool same_except_origin_display(HistoryContainer first, const HistoryCont
     first.origin_text_visible=second.origin_text_visible;
     first.feature.show_point=second.feature.show_point;
     first.feature.show_text=second.feature.show_text;
+    first.feature.axis_visible_in_3d=second.feature.axis_visible_in_3d;
     return first==second;
 }
 inline zima::kernel::ViewerPoint container_origin_marker(const HistoryContainer& value, bool editing=false) {

@@ -871,8 +871,10 @@ void AssemblyWorkspaceWindow::start_sketch_mirror() {
             ? selected_sketch_elliptical_arc_id_
         : !selected_sketch_bspline_id_.empty() ? selected_sketch_bspline_id_
         : selected_sketch_point_id_;
-    const auto selected_ids = selected_sketch_geometry_ids_;
-    if (source_id.empty() && selected_ids.empty()) {
+    std::vector<std::string> selected_ids(selected_sketch_geometry_ids_.begin(),selected_sketch_geometry_ids_.end());
+    if(selected_ids.empty()&&!source_id.empty())selected_ids.push_back(source_id);
+    selected_ids=active_sketch()->mirror_source_geometry_ids(selected_ids);
+    if (selected_ids.empty()) {
         state_->setText(tr(
             "Zrcadlení: nejprve ve Výběru označte geometrii, potom spusťte příkaz."));
         return;
@@ -880,12 +882,7 @@ void AssemblyWorkspaceWindow::start_sketch_mirror() {
     cancel_sketch_segment();
     sketch_mirror_active_ = true;
     sketch_mirror_selecting_sources_ = false;
-    if (!selected_ids.empty()) {
-        pending_mirror_geometry_ids_.assign(
-            selected_ids.begin(), selected_ids.end());
-    } else if (!source_id.empty()) {
-        pending_mirror_geometry_ids_ = {source_id};
-    }
+    pending_mirror_geometry_ids_=std::move(selected_ids);
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();
     selected_sketch_arc_id_.clear();

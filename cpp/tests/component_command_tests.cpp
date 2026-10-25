@@ -2,6 +2,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/document_dependencies.hpp>
+#include <zima/workspace/appearance_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <iostream>
 #include <cmath>
@@ -18,6 +19,22 @@ void skeleton(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"new",{{"type","assembly"},{"name","skeleton-owner"}});const auto owner=live.active_document_id();
     run(host,"component.insert",{{"source",source}});
     require(live.open_assembly(owner)->session.document().components.size()==1,"An empty reference Skeleton could not be inserted");
+    const auto& component=live.open_assembly(owner)->session.document().components.front();
+    require(!component.appearance_override&&!component.body_color_override&&
+        workspace::occurrence_appearance(live,component)==workspace::part_appearance(live.open_part(source)->session.document()),
+        "Skeleton insertion silently replaced the source appearance");
+    const auto occurrence=component.occurrence_id;
+    auto appearance_edit=workspace::prepare_appearance_edit(live,owner,occurrence,std::string{});
+    auto style=appearance_edit.initial;style.body.color="#FFCC3322";
+    require(workspace::commit_appearance(live,appearance_edit,style),"Explicit Skeleton occurrence style did not commit");
+    require(workspace::occurrence_appearance(live,*live.open_assembly(owner)->session.document().find_occurrence(occurrence))==style,
+        "Skeleton lost an explicit occurrence override");
+    run(host,"undo");run(host,"redo");
+    require(workspace::inherit_occurrence_appearance(live,workspace::prepare_appearance_edit(live,owner,occurrence,std::string{})),
+        "Skeleton source style inheritance did not commit");
+    run(host,"undo");run(host,"redo");
+    require(workspace::occurrence_appearance(live,*live.open_assembly(owner)->session.document().find_occurrence(occurrence))==
+        workspace::part_appearance(live.open_part(source)->session.document()),"Skeleton style inheritance failed after Undo/Redo");
     const auto revision=live.open_assembly(owner)->session.revision();
     const auto failed=host.execute({{"command","component.insert"},{"arguments",{{"source",source}}}});
     require(!failed.ok&&live.open_assembly(owner)->session.revision()==revision,"Duplicate Skeleton partially committed");
@@ -28,6 +45,24 @@ void skeleton(const kernel::OcctKernel& kernel,fs::path dir) {
     try {workspace::require_acyclic_document_dependency(live,source,owner);}catch(const workspace::DocumentDependencyError&){rejected=true;}
     require(rejected,"Skeleton accepted a reverse document dependency");
     run(host,"save");
+}
+void empty_part(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
+    run(host,"new",{{"type","part"},{"name","empty-native-part"}});const auto source=live.active_document_id();run(host,"save");
+    require(workspace::part_source_is_insertable(*live.open_part(source)),"Empty native Part is not insertable");
+    run(host,"new",{{"type","assembly"},{"name","empty-part-owner"}});const auto owner=live.active_document_id();
+    const auto occurrence=run(host,"component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();
+    require(live.open_assembly(owner)->session.document().components.size()==1,"Empty Part insertion failed");
+    run(host,"undo");require(live.open_assembly(owner)->session.document().components.empty(),"Empty Part Undo failed");
+    run(host,"redo");run(host,"save");
+    const auto reopened=assembly::AssemblyDocument::load(dir/"empty-part-owner.asmz");
+    require(reopened.components.size()==1&&reopened.components.front().occurrence_id==occurrence,"Empty Part native reopen lost its occurrence");
+    require(live.activate_occurrence(owner,assembly::InstancePath{}.child(occurrence)).has_value(),"Empty occurrence cannot activate its source");
+    require(live.active_document_id()==source&&live.displayed_document_id()==owner,"Empty Part activation lost Assembly context");
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    live.refresh_source_geometry();
+    require(!live.open_assembly(owner)->session.document().build_scene().triangles.empty(),"Later Part geometry did not appear in its existing occurrence");
+    std::cout<<"Empty Part insertion, native reopen, Undo/Redo, activation and later source geometry passed\n";
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
@@ -112,4 +147,4 @@ void cycles(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!failed.ok && live.open_assembly(owner)->session.revision()==revision && live.open_assembly(owner)->session.data_generation()==generation && live.open_assembly(owner)->session.document().components.size()==2,"A deferred relation error partially committed regeneration");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-component-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);cycles(kernel,dir);skeleton(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Component snapshots, exact paths, native insertion, Undo, parent isolation and dependency cycles passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-component-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);cycles(kernel,dir);skeleton(kernel,dir);empty_part(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Component snapshots, exact paths, native insertion, Undo, parent isolation and dependency cycles passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -1,4 +1,5 @@
 #include "../parameter_value_labels.hpp"
+#include "../tree_expansion_state.hpp"
 #include <zima/document/loft.hpp>
 #include <zima/document/feature_parameter_dimensions.hpp>
 #include <zima/document/bend.hpp>
@@ -23,6 +24,7 @@
 #include <zima/ui/operation_activity.hpp>
 #include "../surface_trim_dialog.hpp"
 #include <QElapsedTimer>
+#include <QScopeGuard>
 #include <cstdio>
 #include "../../common/interaction_colors.hpp"
 
@@ -150,6 +152,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     QScopedValueRollback refreshing_guard(refreshing_scene_, true);
     set_selected_component_origin({});
     update_document_area_visibility();
+    const QStringList tree_context{QString::fromStdString(workspace_.displayed_document_id()),
+        QString::fromStdString(workspace_.active_document_id()),QString::fromStdString(workspace_.active_occurrence_path())};
+    auto expansion=tree_context==tree_->property("renderedModelContext").toStringList()?capture_tree_expansion(tree_):TreeExpansionState{};
+    tree_->setProperty("renderedModelContext",tree_context);
+    const auto restore_expansion=qScopeGuard([this,expansion=std::move(expansion)]{restore_tree_expansion(tree_,expansion);});
     tree_->setRootIndex(QModelIndex{});
     tree_->clear();
     tree_->headerItem()->setIcon(0,{});
@@ -798,143 +805,14 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         }
                     }
                 } else if (container->feature_kind == FeatureKind::Shell&&container->shell.thickness!=0.) {
-                    // Shell thickness is anchored to an actual face of the
-                    // persisted input body immediately before this feature.
-                    // Prefer the first selected opening; a closed Shell uses
-                    // the first stable input face. This is viewer data only
-                    // and never asks OCCT to rebuild topology on inspection.
-                    const auto* part_state =
-                        workspace_.open_part(document.document_id);
-                    std::size_t calculated_before{};
-                    for (auto history = document.history.begin();
-                         history != stored_container; ++history) {
-                        if (history->feature_kind != FeatureKind::Sketch) {
-                            ++calculated_before;
-                        }
-                    }
-                    if (part_state != nullptr && calculated_before > 0 &&
-                        part_state->session.calculated_boundaries().size() >=
-                            calculated_before) {
-                        const auto& input_mesh =
-                            part_state->session.calculated_boundaries()
-                                [calculated_before - 1].mesh;
-                        std::optional<zima::kernel::FaceReference> anchor_face;
-                        if (!container->shell.removed_faces.empty()) {
-                            anchor_face = container->shell.removed_faces.front();
-                        } else {
-                            const auto first = std::ranges::find_if(
-                                input_mesh.triangle_references,
-                                [](const auto& reference) {
-                                    return reference.valid();
-                                });
-                            if (first != input_mesh.triangle_references.end()) {
-                                anchor_face = *first;
-                            }
-                        }
-                        const auto same_face = [&](std::size_t triangle) {
-                            return anchor_face &&
-                                triangle <
-                                    input_mesh.triangle_references.size() &&
-                                input_mesh.triangle_references[triangle].
-                                        owner_id == anchor_face->owner_id &&
-                                input_mesh.triangle_references[triangle].
-                                        semantic_key ==
-                                            anchor_face->semantic_key;
-                        };
-                        std::optional<std::size_t> anchor_triangle;
-                        for (std::size_t triangle = 0;
-                             triangle < input_mesh.triangle_references.size();
-                             ++triangle) {
-                            if (same_face(triangle) &&
-                                triangle * 3 + 2 <
-                                    input_mesh.triangles.size()) {
-                                anchor_triangle = triangle;
-                                break;
-                            }
-                        }
-                        if (anchor_triangle && !input_mesh.vertices.empty()) {
-                            const auto first_index =
-                                input_mesh.triangles[*anchor_triangle * 3];
-                            const auto second_index =
-                                input_mesh.triangles[*anchor_triangle * 3 + 1];
-                            const auto third_index =
-                                input_mesh.triangles[*anchor_triangle * 3 + 2];
-                            if (first_index < input_mesh.vertices.size() &&
-                                second_index < input_mesh.vertices.size() &&
-                                third_index < input_mesh.vertices.size()) {
-                                const auto& first =
-                                    input_mesh.vertices[first_index];
-                                const auto& second =
-                                    input_mesh.vertices[second_index];
-                                const auto& third =
-                                    input_mesh.vertices[third_index];
-                                const zima::kernel::Vec3 edge_one{
-                                    second.x - first.x,
-                                    second.y - first.y,
-                                    second.z - first.z};
-                                const zima::kernel::Vec3 edge_two{
-                                    third.x - first.x,
-                                    third.y - first.y,
-                                    third.z - first.z};
-                                zima::kernel::Vec3 normal{
-                                    edge_one.y * edge_two.z -
-                                        edge_one.z * edge_two.y,
-                                    edge_one.z * edge_two.x -
-                                        edge_one.x * edge_two.z,
-                                    edge_one.x * edge_two.y -
-                                        edge_one.y * edge_two.x};
-                                const double normal_length = std::hypot(
-                                    std::hypot(normal.x, normal.y), normal.z);
-                                if (normal_length > 1.0e-12) {
-                                    normal = {
-                                        normal.x / normal_length,
-                                        normal.y / normal_length,
-                                        normal.z / normal_length};
-                                    zima::kernel::Vec3 lower =
-                                        input_mesh.vertices.front();
-                                    zima::kernel::Vec3 upper = lower;
-                                    for (const auto& vertex :
-                                         input_mesh.vertices) {
-                                        lower.x = std::min(lower.x, vertex.x);
-                                        lower.y = std::min(lower.y, vertex.y);
-                                        lower.z = std::min(lower.z, vertex.z);
-                                        upper.x = std::max(upper.x, vertex.x);
-                                        upper.y = std::max(upper.y, vertex.y);
-                                        upper.z = std::max(upper.z, vertex.z);
-                                    }
-                                    const zima::kernel::Vec3 face_point{
-                                        (first.x + second.x + third.x) / 3.0,
-                                        (first.y + second.y + third.y) / 3.0,
-                                        (first.z + second.z + third.z) / 3.0};
-                                    const zima::kernel::Vec3 body_center{
-                                        (lower.x + upper.x) * 0.5,
-                                        (lower.y + upper.y) * 0.5,
-                                        (lower.z + upper.z) * 0.5};
-                                    const double toward_body =
-                                        normal.x *
-                                            (body_center.x - face_point.x) +
-                                        normal.y *
-                                            (body_center.y - face_point.y) +
-                                        normal.z *
-                                            (body_center.z - face_point.z);
-                                    if (toward_body < 0.0) {
-                                        normal = {-normal.x, -normal.y,
-                                            -normal.z};
-                                    }
-                                    const zima::kernel::Vec3 inner_point{
-                                        face_point.x + normal.x *
-                                            container->shell.thickness,
-                                        face_point.y + normal.y *
-                                            container->shell.thickness,
-                                        face_point.z + normal.z *
-                                            container->shell.thickness};
-                                    linear("thickness", "Tloušťka = ",
-                                        face_point, inner_point, {8,8,8},
-                                        container->shell.thickness);
-                                }
-                            }
-                        }
-                    }
+                    kernel::ViewerDimension thickness;
+                    thickness.reference={container->id,"parameter:thickness",{}};
+                    thickness.value=container->shell.thickness;thickness.label_only=true;thickness.unit_suffix="mm";
+                    thickness.witness_first=thickness.witness_second=thickness.line_first=thickness.line_second=local(0,0,0);
+                    thickness.label_position=local(12,8,0);
+                    kernel::ViewerMesh display;display.dimensions.push_back(std::move(thickness));
+                    if(const auto* body=document.body_owner_for_object(container->id))display=document.place_body_mesh(std::move(display),body->scope.id);
+                    mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                 } else if (container->feature_kind == FeatureKind::Fillet ||
                            container->feature_kind == FeatureKind::Chamfer) {
                     // Anchor the inspection dimension to the first selected
@@ -1754,9 +1632,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         }
         if (part_rollback_ &&
             part_rollback_->part_document_id == document.document_id) {
-            auto display = part_rollback_->input_body
-                ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{};
-            if (!document.body_history.bodies().empty())display=sketch_input_mesh(part->session);
+            // Body-aware rollback owns its complete context. Do not first
+            // copy the input mesh only to discard that large packet immediately.
+            auto display = !document.body_history.bodies().empty()
+                ? sketch_input_mesh(part->session)
+                : part_rollback_->input_body ? part_rollback_->input_body->mesh
+                                            : zima::kernel::ViewerMesh{};
             append_boundary_input_sketches(display, document);
             // Sketcher keeps the complete View context visible. Selection
             // tools narrow what can be confirmed through their candidate

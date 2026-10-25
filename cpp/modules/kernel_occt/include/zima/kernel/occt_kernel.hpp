@@ -55,6 +55,11 @@ public:
     // Returns exact curves/points with native ancestry; source stays read-only.
     [[nodiscard]] ViewerReferenceGeometry intersect_face_plane(
         const BodyResult&,const FacePlaneIntersectionRequest&) const;
+    // Explicit dependency calculation only. Retain the selected native face
+    // and its existing identity without copying a source Part or tessellating.
+    [[nodiscard]] BodyResult capture_reference_face(const BodyResult&,const FaceReference&) const;
+    [[nodiscard]] BodyResult capture_reference_face_history(
+        const std::vector<BodyResult>&,const FaceReference&) const;
     // Explicit, private Feature calculation for an editing preview. Reuses
     // ordinary primitive/limit algorithms without applying the Body Boolean
     // or evaluating another history row. Sources remain immutable.

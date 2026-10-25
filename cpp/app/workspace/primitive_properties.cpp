@@ -685,7 +685,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // different interpretation of the same placement and shifted the
         // preview away from the calculated solid.
     };
-    const auto update_owned_profile_context_preview = [this,dialog](
+    const auto update_owned_profile_context_preview = [this,dialog,owner_id](
             zima::document::PartDocument& preview_document,
             const zima::document::HistoryContainer& preview) {
         const bool extrusion = preview.feature_kind ==
@@ -739,9 +739,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 draft.resolved_y_axis != sketch->resolved_y_axis ||
                 draft.resolved_normal != sketch->resolved_normal;
             if (frame_changed && !sketch->external_references.empty()) {
-                const auto* profile_body=preview_document.body_owner_for_object(preview.id);
+                // body_document() gives its local carrier the Body ID. Source
+                // queries still belong to the real open Part, not that carrier.
+                const auto* source_part=workspace_.open_part(owner_id);
+                const auto* profile_body=source_part
+                    ?source_part->session.document().body_owner_for_object(preview.id):nullptr;
                 static_cast<void>(workspace::refresh_sketch_reference_snapshot(workspace_,
-                    preview_document.document_id,*sketch,true,profile_body?profile_body->scope.id:sketch_properties_body_id_));
+                    owner_id,*sketch,true,profile_body?profile_body->scope.id:sketch_properties_body_id_));
                 draft = *sketch;
             } else {
                 // Preserve the established local-draft ownership for profiles
@@ -788,7 +792,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // instead of stopping after the editing Origin frame.
         resolved_plane.reference_valid = true;
         if (preview.feature_kind == zima::document::FeatureKind::Feature) {
-            primitive_origin_preview_mesh_=preview_document.feature_result_mesh(preview);
+            primitive_origin_preview_mesh_=preview_document.feature_result_mesh(preview,true);
             for(auto& point:primitive_origin_preview_mesh_->points)
                 if(point.reference.owner_id==preview.id&&point.reference.semantic_key=="point") {
                     point.always_visible=true;point.label=preview.name;

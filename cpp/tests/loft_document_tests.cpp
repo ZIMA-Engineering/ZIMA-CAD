@@ -36,6 +36,37 @@ Fixture fixture(bool guided) {
 int main(){try {
  k::OcctKernel kernel;
  {
+  const auto empty=d::create_loft();
+  check(empty.loft.sketches.empty()&&empty.loft.profiles.empty()&&empty.loft.guides.empty(),"New Loft created unrequested Sketches");
+  auto f=fixture(false);f.loft.placement.x=17;f.loft.placement.rotation_z=90;f.loft.placement.absolute_rotation_z=90;
+  for(auto& owned:f.loft.loft.sketches) {
+   auto sketch=s::Sketch::from_serialized(owned.sketch_serialized);sketch.circles.clear();sketch.points.clear();
+   const auto a=sketch.add_segment(0,0,20,0),b=sketch.add_segment(20,0,20,10);
+   static_cast<void>(sketch.add_segment(20,10,0,10));static_cast<void>(sketch.add_segment(0,10,0,0));
+   const auto axis=sketch.add_segment(-5,-5,25,-5);sketch.set_geometry_construction(axis,true);
+   static_cast<void>(sketch.add_corner_fillet(a,b,2));owned.sketch_serialized=sketch.serialized();
+  }
+  d::resolve_loft_sketches(f.loft,{});
+  const auto before=f.loft.loft;
+  const auto preview=d::loft_definition_mesh(f.part,f.loft);
+  check(preview.edges.size()==15,"Loft preview omitted a rounded curve or included a helper/reference");
+  std::size_t index{};
+  for(const auto& owned:f.loft.loft.sketches) {
+   const auto evaluated=d::general_surface_display_sketch(f.loft,owned).evaluated_profile_sketch().viewer_mesh();
+   for(const auto& edge:evaluated.edges) {
+    if(edge.construction)continue;
+    const auto& key=edge.reference.semantic_key;
+    if(!key.starts_with("segment:")&&!key.starts_with("arc:"))continue;
+    const auto& actual=preview.edges.at(index++);
+    check(actual.points==edge.points&&!actual.construction&&actual.reference.owner_id==f.loft.id&&
+      actual.reference.semantic_key=="loft:input:from:"+edge.reference.owner_id+":"+key,
+      "Loft preview differs from its evaluated curve/parent-local frame");
+   }
+  }
+  check(index==preview.edges.size()&&f.loft.loft==before,"Loft preview changed the authored Sketches");
+  std::cout<<"Loft empty creation and exact rounded native profile preview without construction curves passed"<<std::endl;
+ }
+ {
   auto f=fixture(false);
   auto& source=f.loft.loft.sketches.front();auto sketch=s::Sketch::from_serialized(source.sketch_serialized);
   const auto radius=sketch.create_circle_radius_dimension(sketch.circles.front().id);sketch.apply_dimension(radius);source.sketch_serialized=sketch.serialized();

@@ -982,7 +982,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [this] { notify_preview(); });
         result_type_ = new QComboBox(this);
         result_type_->addItem(tr("Těleso"), "solid");
-        if (!initial.extrusion.sheet_cut) result_type_->addItem(tr("Thin"), "thin");
+        if (!initial.extrusion.sheet_cut) result_type_->addItem(tr("Tenkostěnný prvek"), "thin");
         result_type_->setObjectName("profileResultType");
         if(!assembly_cut_mode && !initial.extrusion.sheet_cut) result_type_->addItem(tr("Plocha"), "surface");
         result_type_->setCurrentIndex(result_type_->findData(
@@ -1938,6 +1938,15 @@ void PrimitivePropertiesDialog::set_edge_group_callbacks(
 
 bool PrimitivePropertiesDialog::requires_planar_end_target() const {
     return initial_.feature_kind==zima::document::FeatureKind::Thread && active_end_target_side_=="reverse";
+}
+bool PrimitivePropertiesDialog::allows_skeleton_end_target() const {
+    if(initial_.feature_kind!=zima::document::FeatureKind::Feature||assembly_targets_||!feature_panel_)return false;
+    const auto value=feature_panel_->parameters();
+    return value.type==zima::document::FeatureType::Modeling&&
+        value.effective_side(active_end_target_side_=="reverse"?1:0).operation==zima::document::FeatureSideOperation::Extrusion;
+}
+void PrimitivePropertiesDialog::set_extrusion_end_target(zima::document::ExtrusionParameters::EndTarget value) {
+    store_extrusion_target(std::move(value));
 }
 
 std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) {

@@ -149,5 +149,14 @@ separately from those checks. The finite large-import evidence is in the
   once; bound native face-classification preparation to immutable packet inputs
   and compare every classification state and full reference packet.
 
+- [Sketch face-reference confirmation](performance/20261025-sketch-reference-entry.md):
+  finish the command's work-plane update before publishing its preview, and
+  consume an already published complete preview rather than publishing it again.
+- [Native history continuation](performance/20261025-native-history-continuation.md):
+  validate an unchanged native prefix against all actual inputs, and retain
+  independent fresh-calculation equivalence checks.
+- [Adaptive native storage compression](performance/20261025-native-storage-compression.md):
+  keep exact data, validate the complete stream and measure opening as well as size.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

@@ -15,9 +15,7 @@ bool AssemblyWorkspaceWindow::has_insertable_component() const {
         const bool available = std::visit([&](const auto& item) {
             using State = std::decay_t<decltype(item)>;
             if constexpr (std::is_same_v<State, zima::workspace::PartState>) {
-                return item.session.document().document_id != owner_id &&
-                    (zima::assembly::is_skeleton_file(item.path) || (!item.session.document().history.empty() &&
-                    !item.session.calculated_boundaries().empty()));
+                return item.session.document().document_id != owner_id &&workspace::part_source_is_insertable(item);
             } else if constexpr (
                 std::is_same_v<State, zima::workspace::AssemblyState>) {
                 return item.session.document().document_id != owner_id;
@@ -49,8 +47,7 @@ void AssemblyWorkspaceWindow::rebuild_insert_menu() {
             if constexpr (std::is_same_v<State, zima::workspace::PartState>) {
                 const auto& document = item.session.document();
                 if (document.document_id == owner_id) return;
-                const bool calculated = zima::assembly::is_skeleton_file(item.path) || (!document.history.empty() &&
-                    !item.session.calculated_boundaries().empty());
+                const bool calculated = workspace::part_source_is_insertable(item);
                 auto* action = insert_menu_->addAction(
                     QString::fromStdString(document.name) +
                     (calculated ? tr(" — Part") : tr(" — Part (není vypočtený)")));

@@ -24,10 +24,17 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     document::FeatureParameters parameters;parameters.sides[0].length=12;
     parameters.sides[1].operation=document::FeatureSideOperation::Extrusion;parameters.sides[1].length=5;
     auto definition=document::serialize_feature_parameters(parameters);definition.erase("sketch_id");
+    for(auto& side:definition.at("sides"))if(side.at("operation")=="extrusion")side["operation"]="extrude";
     const auto id=run("feature.create",{{"sketch",sketch},{"parameters",definition}}).at("container").get<std::string>();
     auto* state=live.open_part(live.active_document_id());
     const auto value=[&]()->const document::HistoryContainer&{return *state->session.document().find_container(id);};
     const auto original=value();const auto& doc=state->session.document();
+    const auto profile=[&]()->const sketcher::Sketch& {
+        const auto found=std::ranges::find(state->session.document().sketches,value().feature.sketch_id,&sketcher::Sketch::id);
+        if(found==state->session.document().sketches.end())throw std::runtime_error("Feature profile Sketch is missing");
+        return *found;
+    };
+    const auto original_profile=profile().serialized();
     const auto direction=doc.dimension_identifiers.identifier(id,"parameter:direction");check(!direction.empty(),"Direction has no stable dimension identifier");
     const auto dimensions=workspace::relation_dimensions(doc);const auto& input=dimensions.at(direction);
     check(input.native_scale==1&&input.input.value.units==std::array<int,3>{}&&input.input.writable,"Direction is not a writable scalar");
@@ -43,6 +50,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         double low=1e100,high=-1e100;for(auto p:result.mesh.vertices){low=std::min(low,p.z);high=std::max(high,p.z);}
         check(std::abs(low-(reverse?-12:-5))<1e-6&&std::abs(high-(reverse?5:12))<1e-6,"Direction did not reverse physical sides");
         check(value().feature.sides==original.feature.sides&&value().feature.sketch_id==original.feature.sketch_id,"Direction exchanged panels or source identity");
+        check(profile().serialized()==original_profile,"Direction mirrored or otherwise changed the profile Sketch");
     };
     for(double sign:{-1.,1.,-1.}) {
         const auto previous=value().feature;

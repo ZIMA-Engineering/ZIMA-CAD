@@ -628,6 +628,10 @@ public:
     [[nodiscard]] RegularPolygonResult add_regular_polygon(
         double center_x, double center_y, double rim_x, double rim_y,
         unsigned sides, double snap_tolerance = 1.0e-6);
+    // Keep supported editable native sources from mixed View/Tree selections.
+    // External references and unsupported objects remain read-only context.
+    [[nodiscard]] std::vector<std::string> mirror_source_geometry_ids(
+        const std::vector<std::string>& entity_ids) const;
     [[nodiscard]] MirroredGeometryResult mirror_geometry(
         const std::vector<std::string>& entity_ids,
         const std::string& axis_id,

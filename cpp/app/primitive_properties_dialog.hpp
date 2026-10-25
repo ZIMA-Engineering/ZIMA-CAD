@@ -87,6 +87,8 @@ public:
         zima::kernel::Vec3 normal, std::string label = {},
         zima::document::EndTargetKind kind = zima::document::EndTargetKind::Plane);
     [[nodiscard]] bool allows_point_end_target() const;
+    [[nodiscard]] bool allows_skeleton_end_target() const;
+    void set_extrusion_end_target(zima::document::ExtrusionParameters::EndTarget);
     void set_extrusion_surface_target(
         zima::kernel::FaceReference reference,
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});

@@ -157,7 +157,14 @@ drawing_annotation_sources(const Workspace *workspace,
           }
         }
       }
-      append(mesh, part.construction_viewer_mesh());
+      auto datums=part.construction_viewer_mesh();
+      // Reuse the eligible, already placed native datums. Model visibility is
+      // independent of Drawing Show/Erase and cannot remove its axis source.
+      for(const auto& axis:datums.original_references.axes)
+        if(const auto* feature=part.find_container(axis.reference.owner_id);feature&&
+           feature->feature_kind==document::FeatureKind::Feature&&feature->feature.type==document::FeatureType::Axis&&
+           !feature->feature.axis_visible_in_3d)datums.axes.push_back(axis);
+      append(mesh,std::move(datums));
       append(mesh, part.origin_viewer_mesh());
       frames[{part.document_id+":origin",{}}]=envelope;
       for(const auto& body:part.body_history.bodies()) {

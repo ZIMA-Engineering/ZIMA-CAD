@@ -4,8 +4,29 @@
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
+#include <functional>
+#include <zlib.h>
+#include <openssl/evp.h>
 using nlohmann::json;
 void require(bool value,const char* message) { if(!value)throw std::runtime_error(message); }
+// Independent one-shot decoder checks the bytes of the actual storage wrapper.
+json raw_storage(const json& packed) {
+    if(!packed.contains("compression"))return packed;
+    const auto encoded=packed.at("data").get<std::string>();
+    std::string compressed(encoded.size()/4*3,'\0');
+    auto length=EVP_DecodeBlock(reinterpret_cast<unsigned char*>(compressed.data()),
+        reinterpret_cast<const unsigned char*>(encoded.data()),static_cast<int>(encoded.size()));
+    require(length>=0,"Independent base64 decoding failed");
+    length-=encoded.back()=='=';length-=encoded[encoded.size()-2]=='=';
+    compressed.resize(length);
+    auto expected=packed.at("uncompressed_bytes").get<uLongf>();
+    std::string raw(expected,'\0');
+    require(uncompress(reinterpret_cast<Bytef*>(raw.data()),&expected,
+        reinterpret_cast<const Bytef*>(compressed.data()),static_cast<uLong>(compressed.size()))==Z_OK,
+        "Independent zlib decoding failed");
+    require(expected==raw.size(),"Independent decoded length changed");
+    return json::parse(raw);
+}
 // Previous traversal is a byte-level oracle for the allocation optimization.
 // It is intentionally confined to this test, never a second product path.
 class CopyingWriter {
@@ -41,9 +62,10 @@ json recursive_decode(const json& source,const json& values,std::size_t limit,st
     return result;
 }
 void check_readers(const json& storage) {
+    const auto raw=raw_storage(storage);
     bool expected_rejected=false;
     json expected;
-    try {expected=recursive_decode(storage.at("root"),storage.at("values"),storage.at("values").size());}
+    try {expected=recursive_decode(raw.at("root"),raw.at("values"),raw.at("values").size());}
     catch(const std::exception&){expected_rejected=true;}
     for(bool consume:{false,true}) {
         auto input=storage;
@@ -86,7 +108,7 @@ int main() {
         const auto consumed=zima::document::pack_cache_storage(std::move(owned));
         require(owned.is_null(),"Consuming cache retained its original tree");
         require(consumed.dump()==packed.dump(),"Consuming cache changed stored bytes or block order");
-        require(packed.dump()==copying_pack(original).dump(),"Cache allocation optimization changed stored bytes or block order");
+        require(raw_storage(packed).dump()==copying_pack(original).dump(),"Cache allocation optimization changed stored bytes or block order");
         // Round-trip the actual on-disk representation, not only in-memory JSON.
         const auto restored=zima::document::unpack_cache_storage(json::parse(packed.dump()));
         require(restored==original,"Shared cache changed geometry, history or occurrence identity");
@@ -101,12 +123,13 @@ int main() {
             try {static_cast<void>(zima::document::unpack_cache_storage(storage));return false;}
             catch(const std::exception&){return true;}
         };
-        auto broken=packed;broken["root"]={{"$zima_cache",packed["values"].size()}};
+        const auto raw_packed=raw_storage(packed);
+        auto broken=raw_packed;broken["root"]={{"$zima_cache",raw_packed["values"].size()}};
         require(reject(broken),"Dangling cache reference accepted");
-        broken=packed;broken["values"][0]={{"$zima_cache",std::size_t(0)}};
+        broken=raw_packed;broken["values"][0]={{"$zima_cache",std::size_t(0)}};
         broken["root"]={{"$zima_cache",std::size_t(0)}};
         require(reject(broken),"Cyclic cache reference accepted");
-        broken=packed;broken["root"]={{"$zima_cache",-1}};
+        broken=raw_packed;broken["root"]={{"$zima_cache",-1}};
         require(reject(broken),"Negative cache reference accepted");
         const json empty={{"a",json::array()},{"b",nullptr},{"c",json::object()}};
         require(zima::document::unpack_cache_storage(zima::document::pack_cache_storage(empty))==empty,
@@ -126,7 +149,38 @@ int main() {
         const auto strings_packed=zima::document::pack_cache_storage(large_strings);
         auto owned_strings=large_strings;
         require(zima::document::pack_cache_storage(std::move(owned_strings)).dump()==strings_packed.dump(),"Consuming string cache lost pool lifetime or block identity");
-        require(strings_packed.dump()==copying_pack(large_strings).dump(),"Large-string indexing changed cache bytes after pool growth");
+        require(raw_storage(strings_packed).dump()==copying_pack(large_strings).dump(),"Large-string indexing changed cache bytes after pool growth");
+        require(strings_packed.contains("compression"),"Large compressible cache was not compressed");
+        std::size_t corruption_case=0;
+        for(const auto& mutate:std::vector<std::function<void(json&)>>{
+            [](json& p){p["compression"]="unknown";},
+            [](json& p){p["uncompressed_bytes"]=std::size_t(1);},
+            [](json& p){p["uncompressed_bytes"]=p.at("uncompressed_bytes").get<std::size_t>()+1;},
+            [](json& p){p["uncompressed_bytes"]=-1;},
+            [](json& p){p["data"]="!!!!";},
+            [](json& p){auto s=p.at("data").get<std::string>();s.resize(s.size()-4);p["data"]=s;},
+            [](json& p){auto s=p.at("data").get<std::string>();s[s.size()-4]=s[s.size()-4]=='A'?'B':'A';p["data"]=s;},
+            [](json& p){p["data"]=p.at("data").get<std::string>()+"AAAA";},
+            [](json& p){p["root"]=nullptr;}}) {
+            auto corrupt=strings_packed;mutate(corrupt);
+            if(!reject(corrupt))throw std::runtime_error("Compressed corruption case accepted: "+std::to_string(corruption_case));
+            ++corruption_case;
+        }
+        const json signed_sides={{"left",-0.0},{"right",0.0},{"payload",std::string(100000,'S')},
+            {"unicode","\xc3\xa1\xd0\xb6"},{"id",std::uint64_t(9007199254740993ULL)}};
+        const auto sides_packed=zima::document::pack_cache_storage(signed_sides);
+        require(sides_packed.contains("compression")&&
+            zima::document::unpack_cache_storage(sides_packed).dump()==signed_sides.dump(),
+            "Compression changed signed zero, Unicode or integer identity");
+        std::string noise;std::uint32_t random_state=19;
+        for(std::size_t i=0;i<120000;++i) {
+            random_state=random_state*1664525U+1013904223U;
+            noise.push_back(static_cast<char>(32+(random_state>>8)%95));
+        }
+        const auto noisy=zima::document::pack_cache_storage(json(noise));
+        require(!noisy.contains("compression")&&
+            zima::document::unpack_cache_storage(noisy)==json(noise),
+            "Adaptive compression enlarged incompressible data or changed its bytes");
         require(zima::document::unpack_cache_storage(strings_packed).dump()==large_strings.dump(),"Large-string pool views lost data");
         bool invalid_rejected=false;
         try {static_cast<void>(zima::document::pack_cache_storage(json(std::string(5000,'x')+char(0xff))));}

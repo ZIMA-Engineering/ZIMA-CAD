@@ -922,7 +922,7 @@ public:
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_feature_container(std::string sketch_id);
-    [[nodiscard]] zima::kernel::ViewerMesh feature_result_mesh(const HistoryContainer&) const;
+    [[nodiscard]] zima::kernel::ViewerMesh feature_result_mesh(const HistoryContainer&, bool show_hidden_axis = false) const;
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
     static void resolve_copy_reference(DerivedCopyParameters&,const std::string& container_id,

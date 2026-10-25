@@ -4,6 +4,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/document/profile_targets.hpp>
+#include "../construction_reference_candidate_policy.hpp"
 #include <limits>
 #include <QUuid>
 
@@ -652,6 +653,23 @@ void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
     const auto* part =
         workspace_.open_part(workspace_.active_document_id());
     const bool points=part&&!extrusion_target_assembly_cut_&&extrusion_target_dialog_->allows_point_end_target();
+    const bool skeleton=part&&!extrusion_target_assembly_cut_&&extrusion_target_dialog_->allows_skeleton_end_target();
+    std::set<std::string> skeleton_paths;
+    if(skeleton)if(const auto* top=workspace_.open_assembly(workspace_.displayed_document_id())) {
+        const auto visit=[&](const auto& self,const auto& nodes,const assembly::InstancePath& parent,unsigned depth)->void {
+            if(depth>256)return;
+            for(const auto& node:nodes) {
+                if constexpr(requires{node.nested_snapshot;}) {if(node.suppressed)continue;}
+                else {if(node.manually_suppressed||node.dependency_suppressed)continue;}
+                const auto path=parent.child(node.occurrence_id);
+                if(assembly::is_skeleton(node)&&node.source_document_id!=workspace_.active_document_id())
+                    skeleton_paths.insert(path.encoded());
+                if constexpr(requires{node.nested_snapshot;})self(self,node.nested_snapshot,path,depth+1);
+                else self(self,node.children,path,depth+1);
+            }
+        };
+        visit(visit,top->session.document().components,{},0);
+    }
     std::vector<zima::viewer::CandidateKind> kinds{zima::viewer::CandidateKind::Face,zima::viewer::CandidateKind::Plane};
     if(points)kinds.push_back(zima::viewer::CandidateKind::SketchPoint);
     viewer_->set_selection_contract(std::move(kinds));
@@ -659,7 +677,7 @@ void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
         ? std::optional<std::string>{}
         : resolve_active_occurrence(part->session.document().document_id);
     viewer_->set_candidate_filter(
-        [this,points,path = expected_path.value_or(std::string{}),
+        [this,points,skeleton_paths=std::move(skeleton_paths),path = expected_path.value_or(std::string{}),
          assembly_cut = extrusion_target_assembly_cut_](
             const auto& candidate) {
             bool owned_path = candidate.instance_path == path;
@@ -669,6 +687,8 @@ void AssemblyWorkspaceWindow::apply_extrusion_target_selection_contract() {
                 owned_path=decoded.occurrence_ids.size()>=prefix.occurrence_ids.size()&&
                     std::equal(prefix.occurrence_ids.begin(),prefix.occurrence_ids.end(),decoded.occurrence_ids.begin());
             }
+            if(!owned_path&&(candidate.kind==viewer::CandidateKind::Face||candidate.kind==viewer::CandidateKind::Plane))
+                owned_path=skeleton_paths.contains(candidate.instance_path);
             const bool target_kind =
                 candidate.kind == zima::viewer::CandidateKind::Face ||
                 (points&&candidate.kind==zima::viewer::CandidateKind::SketchPoint) ||
@@ -717,7 +737,7 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
     if (part != nullptr) {
         const auto active_occurrence = resolve_active_occurrence(
             part->session.document().document_id);
-        if (!active_occurrence || candidate.instance_path != *active_occurrence) {
+        if (!active_occurrence || (candidate.instance_path != *active_occurrence&&!extrusion_target_dialog_->allows_skeleton_end_target())) {
             state_->setText(tr(
                 "Vyberte plochu přesného aktivního výskytu Partu."));
             return;
@@ -738,13 +758,20 @@ void AssemblyWorkspaceWindow::accept_extrusion_target(
             const auto& native=part->session.document();const auto pending=extrusion_target_dialog_->pending_value();
             const auto frame=native.body_owner_for_object(pending.id)?pending.id:native.body_history.active_body_id();
             zima::document::ExtrusionParameters::EndTarget requested;
+            const bool external=candidate.instance_path!=resolve_active_occurrence(native.document_id).value_or(std::string{});
             if(point)requested.kind=zima::document::EndTargetKind::Point;
             requested.label=candidate.semantic_key;
-            requested.reference={candidate.owner_id,candidate.semantic_key,{}}; // Exact active occurrence was validated above; the Part stores its local identity.
+            const auto source=placement_reference_source_candidate(candidate);
+            requested.reference={source.owner_id,source.semantic_key,external?source.instance_path:std::string{}};
             if(const auto* feature=native.find_container(candidate.owner_id))requested.label=feature->name+" / "+tr("Plocha").toStdString();
             if(point)for(const auto& sketch:native.sketches)if(sketch.id==candidate.owner_id)requested.label=sketch.name+" / "+tr("Bod").toStdString();
             for(const auto& object:native.constructions)if(object.entity_id==candidate.owner_id || object.id==candidate.owner_id)requested.label=object.name;
-            const auto target=zima::workspace::resolve_profile_end_target(native,part->session.calculated_boundaries(),frame,requested);
+            const auto target=external?zima::workspace::prepare_skeleton_end_target(workspace_,native,frame,requested):
+                zima::workspace::resolve_profile_end_target(native,part->session.calculated_boundaries(),frame,requested);
+            if(external) {
+                extrusion_target_dialog_->set_extrusion_end_target(target);
+                finish_extrusion_target_selection(false);state_->setText(tr("Cíl vytažení byl nastaven."));return;
+            }
             if(target.kind!=zima::document::EndTargetKind::Face)
                 extrusion_target_dialog_->set_extrusion_target(target.reference,target.fallback_origin,target.fallback_normal,target.label,target.kind);
             else {

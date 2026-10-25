@@ -1,8 +1,49 @@
 #include <zima/document/profile_targets.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/file_path.hpp>
+#include <nlohmann/json.hpp>
 #include <cmath>
 #include <stdexcept>
 
 namespace zima::document {
+bool ExternalProfileTarget::operator==(const ExternalProfileTarget& other) const {
+    return document_id==other.document_id&&source_file==other.source_file&&
+        context_assembly_id==other.context_assembly_id&&dependent_instance_path==other.dependent_instance_path&&
+        source_instance_path==other.source_instance_path&&source_to_part==other.source_to_part&&source_to_body==other.source_to_body&&
+        (source_face.shares_with(other.source_face)||serialize_body_result(source_face,false,false)==serialize_body_result(other.source_face,false,false));
+}
+nlohmann::json serialize_external_profile_target(const ExternalProfileTarget& value) {
+    const auto placements=[](const auto& values) {
+        auto rows=nlohmann::json::array();for(const auto& p:values)rows.push_back({
+            {"translation",{p.translation.x,p.translation.y,p.translation.z}},
+            {"rotation_degrees",{p.rotation_degrees.x,p.rotation_degrees.y,p.rotation_degrees.z}}});return rows;
+    };
+    return {{"document",value.document_id},{"source_file",path_to_utf8(value.source_file)},{"assembly",value.context_assembly_id},
+        {"dependent_instance_path",value.dependent_instance_path},{"source_instance_path",value.source_instance_path},
+        {"source_face",serialize_body_result(value.source_face,false,false)},
+        {"source_to_part",placements(value.source_to_part)},{"source_to_body",placements(value.source_to_body)}};
+}
+ExternalProfileTarget load_external_profile_target(const nlohmann::json& value) {
+    ExternalProfileTarget result;
+    result.document_id=value.at("document");result.source_file=std::filesystem::u8path(value.at("source_file").get<std::string>());result.context_assembly_id=value.at("assembly");
+    result.dependent_instance_path=value.at("dependent_instance_path");result.source_instance_path=value.at("source_instance_path");
+    if(result.document_id.empty()||result.source_file.empty()||result.context_assembly_id.empty()||
+        result.dependent_instance_path.empty()||result.source_instance_path.empty())throw std::invalid_argument("Invalid Feature definition.");
+    const auto placements=[](const nlohmann::json& rows) {
+        std::vector<kernel::KernelRigidPlacement> values;
+        if(!rows.is_array()||rows.size()>1024)throw std::invalid_argument("Invalid Feature definition.");
+        const auto vector=[](const auto& v) {
+            if(!v.is_array()||v.size()!=3)throw std::invalid_argument("Invalid Feature definition.");
+            kernel::Vec3 p{v.at(0),v.at(1),v.at(2)};
+            if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z))throw std::invalid_argument("Invalid Feature definition.");return p;
+        };
+        for(const auto& row:rows)values.push_back({vector(row.at("translation")),vector(row.at("rotation_degrees"))});return values;
+    };
+    if(value.contains("source_face"))result.source_face=load_body_result(value.at("source_face"));
+    if(value.contains("source_to_part"))result.source_to_part=placements(value.at("source_to_part"));
+    if(value.contains("source_to_body"))result.source_to_body=placements(value.at("source_to_body"));
+    return result;
+}
 bool profile_target_is_datum(const kernel::FaceReference& reference) {
     return reference.semantic_key=="plane" || reference.semantic_key.starts_with("origin:plane:");
 }

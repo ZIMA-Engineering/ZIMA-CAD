@@ -32,7 +32,7 @@ public:
         precision_=precision;
         install_placement();
         result_=new QComboBox(this);result_->setObjectName("loftResultType");
-        result_->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
+        result_->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
         result_->setCurrentIndex(pending.loft.result_type==document::ProfileResultType::Surface?2:pending.loft.result_type==document::ProfileResultType::Thin?1:0);
         auto* result_form=new QFormLayout;result_form->addRow(tr("Typ výsledku"),result_);
         thin_form_=new QFormLayout;

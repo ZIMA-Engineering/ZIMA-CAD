@@ -14,11 +14,7 @@ GeneralSurfaceBoundary create_loft_sketch(const HistoryContainer& parent) {
 HistoryContainer create_loft() {
     auto feature=PartDocument::create_sketch_container();
     feature.feature_kind=FeatureKind::Loft;feature.name="Přechod";
-    for(unsigned i=0;i<2;++i) {
-        auto sketch=create_loft_sketch(feature);feature.loft.profiles.push_back(sketch.sketch_feature->id);
-        feature.loft.sketches.push_back(std::move(sketch));
-    }
-    resolve_loft_sketches(feature,{});return feature;
+    return feature;
 }
 void validate_loft(const HistoryContainer& feature) {
     const auto& p=feature.loft;
@@ -79,8 +75,26 @@ kernel::LoftRequest loft_request(const PartDocument& part,const HistoryContainer
     return result;
 }
 kernel::ViewerMesh loft_definition_mesh(const PartDocument& part,const HistoryContainer& feature,const kernel::ViewerReferenceGeometry& geometry) {
-    const auto carrier=loft_sketch_editor_carrier(feature);
+    auto carrier=loft_sketch_editor_carrier(feature);
+    reframe_general_surface(carrier);
     auto result=general_surface_definition_mesh(carrier);
+    // Keep the established owned-Sketch annotations/origin presentation, but
+    // draw exactly the same evaluated material curves as a modeling profile.
+    // The editor mesh includes construction/reference strokes and untrimmed
+    // corner legs; it is not the authored Loft creation wire.
+    result.edges.clear();
+    for(const auto& owned:carrier.general_surface.boundaries) {
+        if(!owned.sketch_feature||owned.sketch_serialized.empty())continue;
+        const auto sketch=general_surface_display_sketch(carrier,owned);
+        try {
+            auto edges=profile_preview_source_edges(sketch.evaluated_profile_sketch());
+            result.edges.insert(result.edges.end(),std::make_move_iterator(edges.begin()),std::make_move_iterator(edges.end()));
+        }catch(const std::exception&) {
+            // A partial draft still displays its supported native curves.
+            auto edges=profile_preview_source_edges(sketch);
+            result.edges.insert(result.edges.end(),std::make_move_iterator(edges.begin()),std::make_move_iterator(edges.end()));
+        }
+    }
     kernel::ViewerMesh parameters;
     for(std::size_t i=0;i<feature.loft.sketches.size();++i) {
         const auto& owned=feature.loft.sketches[i];if(!owned.sketch_feature)continue;

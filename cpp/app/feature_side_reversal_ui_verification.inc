@@ -4,10 +4,11 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
-    static_cast<void>(sketch.add_rectangle(0,0,20,10));
+    static_cast<void>(sketch.add_rectangle(3,4,23,14));
     auto feature=document::PartDocument::create_feature_container(sketch.id);
     feature.feature.sides[0].length=12;feature.feature.sides[1].length=5;
     feature.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;
+    feature.placement.x=17;feature.placement.y=-9;feature.placement.rotation_z=37;
     feature.value_locks={"side0_length"};sketch.owner_container_id=feature.id;
     document::ExtrusionParameters::EndTarget target;target.kind=document::EndTargetKind::Plane;
     target.reference={"retained-source","retained-plane","source-occurrence"};
@@ -16,6 +17,7 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
     part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
     const auto body=graph.create_body("Reversal GUI");graph.insert({document::PartHistoryKind::Feature,feature.id});
     part.set_body_history(graph);part.resolve_constructions();
+    const auto expected_sketch=part.sketches.front();
     std::filesystem::create_directories(directory);const auto path=directory/"feature-reversal.prtz";
     part.save(path,kernel::OcctKernel{}.evaluate_history(part.kernel_operations()));
     window.resize(1366,900);window.show();
@@ -43,7 +45,7 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
     auto* first=dialog->findChild<QDoubleSpinBox*>("featureSideValue0");
     auto* second=dialog->findChild<QDoubleSpinBox*>("featureSideValue1");
     check(swap&&first&&second,"Reversal GUI side controls missing");
-    const auto revision=view->base_mesh_revision();extent(-5,12);
+    extent(-5,12);
     auto* direction=dialog->findChild<QDoubleSpinBox*>("featureDirection");check(direction,"Feature scalar direction is missing");
     const auto check_live_direction=[&](double sign) {
         const auto base=view->mesh().dimensions.size();bool found=false;
@@ -66,6 +68,47 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
         check(dialog->pending_value().feature.sides==before.feature.sides,"Scalar direction exchanged panels");
         if(sign<0)extent(-12,5);else extent(-5,12);
     }
+    const auto close=[](const kernel::Vec3& a,const kernel::Vec3& b) {
+        return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)<1e-8;
+    };
+    const auto verify_sketch_frame=[&](double sign) {
+        direction->setValue(sign);flush();
+        dialog->findChild<QPushButton*>("featureSketchButton")->click();flush();
+        check(!window.findChild<QWidget*>("featurePropertiesDialog"),"Direction Sketch action did not enter the editor");
+        QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();
+        const auto axis=[&](const char* key) {
+            return std::ranges::find_if(view->mesh().axes,[&](const auto& value) {
+                return value.reference.owner_id==expected_sketch.id&&value.reference.semantic_key==key;
+            });
+        };
+        const auto x=axis("sketch_axis:x"),y=axis("sketch_axis:y");
+        check(x!=view->mesh().axes.end()&&y!=view->mesh().axes.end(),"Direction Sketch editor lost its resolved axes");
+        check(close(x->point,expected_sketch.resolved_origin)&&close(y->point,expected_sketch.resolved_origin) &&
+              close(x->direction,expected_sketch.resolved_x_axis)&&close(y->direction,expected_sketch.resolved_y_axis),
+            "Direction moved or mirrored the resolved Sketch frame");
+        const QPointF center(view->width()/2.,view->height()/2.);
+        const auto local=[&](QPointF pixel) {
+            const auto ray=view->ray_at(pixel);check(ray.has_value(),"Direction Sketch camera ray missing");
+            const auto hit=expected_sketch.intersect_ray(ray->first,ray->second);
+            check(hit.has_value(),"Direction Sketch camera is not facing its original plane");return *hit;
+        };
+        const auto origin=local(center),right=local(center+QPointF(100,0)),up=local(center-QPointF(0,100));
+        check(right[0]>origin[0]&&std::abs(right[1]-origin[1])<1e-6 &&
+              up[1]>origin[1]&&std::abs(up[0]-origin[0])<1e-6,
+            "Direction mirrored the Sketch editor into another screen quadrant");
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+        check(dialog&&dialog->pending_value().feature.sides==before.feature.sides &&
+              dialog->pending_value().feature.reversed_sides==(sign<0),
+            "Direction Sketch return changed its profile or physical sides");
+        swap=dialog->findChild<QPushButton*>("featureSwapSides");
+        first=dialog->findChild<QDoubleSpinBox*>("featureSideValue0");
+        second=dialog->findChild<QDoubleSpinBox*>("featureSideValue1");
+        direction=dialog->findChild<QDoubleSpinBox*>("featureDirection");
+        check(swap&&first&&second&&direction,"Direction Sketch return lost side controls");
+    };
+    verify_sketch_frame(-1);verify_sketch_frame(1);
+    const auto revision=view->base_mesh_revision();extent(-5,12);
     direction->setValue(0);flush();check(direction->value()==1,"Invalid scalar direction was retained");
     second->findChild<QLineEdit*>()->setText("70-100");
     {QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(second,&enter);}flush();extent(-12,30);
@@ -145,12 +188,16 @@ static void verify_feature_side_reversal(QApplication& application,AssemblyWorks
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     check(window.execute_console_command("documents").data==reopened_state,"Unchanged reversed Properties OK created a document transaction");
     const auto inline_value=[&](const char* key,const char* text) {
-        window.show_parameter_dimensions(feature.id);flush();
+        window.show_parameter_dimensions(feature.id);view->set_projection_mode(viewer::ProjectionMode::Orthographic);
+        view->set_standard_view(viewer::StandardView::Isometric);
+        {QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();}
+        view->fit_all();flush();
         const auto value=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==feature.id&&d.reference.semantic_key==std::string("parameter:")+key;});
         check(value!=view->mesh().dimensions.end(),"Feature inline parameter annotation missing");
         if(std::string_view(key)=="direction")check(value->label_only&&value->unit_suffix.empty(),"Direction annotation is not scalar");
         viewer::ViewerCandidate candidate{viewer::CandidateKind::Dimension,0,static_cast<std::size_t>(value-view->mesh().dimensions.begin()),feature.id,value->reference.semantic_key,{}};
-        const auto pixel=view->candidate_dimension_label_position(candidate);check(pixel.has_value(),"Feature inline label has no screen position");
+        const auto pixel=view->candidate_dimension_label_position(candidate);
+        if(!pixel)throw std::runtime_error(std::string("Feature inline label has no screen position: ")+key);
         QMouseEvent move(QEvent::MouseMove,QPointF(*pixel),QPointF(view->mapToGlobal(*pixel)),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);flush();
         QMouseEvent open_value(QEvent::MouseButtonDblClick,QPointF(*pixel),QPointF(view->mapToGlobal(*pixel)),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&open_value);flush();
         auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor&&editor->isVisible(),"Feature inline value editor did not open");

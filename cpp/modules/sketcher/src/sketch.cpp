@@ -6836,9 +6836,26 @@ RegularPolygonResult Sketch::add_regular_polygon(
     return result;
 }
 
+std::vector<std::string> Sketch::mirror_source_geometry_ids(
+    const std::vector<std::string>& entity_ids) const {
+    std::unordered_map<std::string_view,std::size_t> native;
+    const auto count_ids=[&](const auto& values){for(const auto& value:values)++native[value.id];};
+    count_ids(points);count_ids(segments);count_ids(circles);count_ids(arcs);
+    count_ids(ellipses);count_ids(elliptical_arcs);count_ids(bsplines);count_ids(corner_radii);
+    std::vector<std::string> result;result.reserve(entity_ids.size());
+    for(const auto& id:entity_ids) {
+        const auto found=native.find(id);
+        if(found==native.end())continue;
+        if(found->second!=1)throw std::invalid_argument("Sketch mirror source entity does not exist uniquely");
+        result.push_back(id);
+    }
+    return result;
+}
+
 MirroredGeometryResult Sketch::mirror_geometry(
-    const std::vector<std::string>& entity_ids,
+    const std::vector<std::string>& selection_ids,
     const std::string& axis_id, double snap_tolerance) {
+    const auto entity_ids=mirror_source_geometry_ids(selection_ids);
     if (entity_ids.empty() || axis_id.empty() ||
         !std::isfinite(snap_tolerance) || snap_tolerance < 0.0) {
         throw std::invalid_argument("Sketch mirror input is invalid");
@@ -6853,44 +6870,6 @@ MirroredGeometryResult Sketch::mirror_geometry(
     }
     if (std::hypot(axis->second[0], axis->second[1]) <= 1.0e-12) {
         throw std::invalid_argument("Sketch mirror axis has zero length");
-    }
-    for (const auto& entity_id : entity_ids) {
-        const std::size_t count =
-            static_cast<std::size_t>(std::count_if(
-                points.begin(), points.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                })) +
-            static_cast<std::size_t>(std::count_if(
-                segments.begin(), segments.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                })) +
-            static_cast<std::size_t>(std::count_if(
-                circles.begin(), circles.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                })) +
-            static_cast<std::size_t>(std::count_if(
-                arcs.begin(), arcs.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                })) +
-            static_cast<std::size_t>(std::count_if(
-                ellipses.begin(), ellipses.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                })) +
-            static_cast<std::size_t>(std::count_if(
-                elliptical_arcs.begin(), elliptical_arcs.end(),
-                [&](const auto& value) { return value.id == entity_id; })) +
-            static_cast<std::size_t>(std::count_if(
-                bsplines.begin(), bsplines.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                })) +
-            static_cast<std::size_t>(std::count_if(
-                corner_radii.begin(), corner_radii.end(), [&](const auto& value) {
-                    return value.id == entity_id;
-                }));
-        if (count != 1) {
-            throw std::invalid_argument(
-                "Sketch mirror source entity does not exist uniquely");
-        }
     }
 
     // A rounded corner is an authored treatment of two native legs, not the

@@ -125,6 +125,10 @@ void DocumentSession::prepare_native_file_rebase(FileRelocationEdits& edits) {
     const auto collect=[&](PartDocument& doc) {
         edits.document_name(doc.document_id,doc.name);
         doc.body_history.prepare_link_file_rebase(edits);
+        for(auto& feature:doc.history)if(feature.feature_kind==FeatureKind::Feature)
+            for(auto& side:feature.feature.sides)for(auto& target:side.targets)if(target.external_source) {
+                auto& source=*target.external_source;edits.source_reference(source.document_id,source.source_file,{});
+            }
     };
     collect(current_->document);
     const auto collect_history=[&](States& states) {

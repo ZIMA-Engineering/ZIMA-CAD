@@ -40,7 +40,7 @@ void datum_marker_visibility(QApplication& app) {
     mesh.points.push_back({{0,-30,0},{"profile-feature","profile:path-point:start:from:axis:primary",{}},{},true});
     auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
     auto axis=document::PartDocument::create_feature_container(sketch.id);
-    axis.feature.type=document::FeatureType::Axis;axis.feature.show_point=true;
+    axis.feature.type=document::FeatureType::Axis;axis.feature.show_point=true;axis.feature.axis_visible_in_3d=true;
     axis.feature.show_text=false;axis.feature.sides[0].length=14;axis.feature.sides[1].length=8;
     sketch.owner_container_id=axis.id;sketch.plane=sketcher::SketchPlane::YZ;sketch.plane_auto=false;
     part.history={axis};part.sketches={sketch};part.resolve_constructions();
@@ -107,7 +107,7 @@ int main(int argc,char** argv){
             while(entries.hasNext()){QSettings metadata(entries.next(),QSettings::IniFormat);for(const auto& language:{"cs","en","de","fr","ru"}){const auto label=metadata.value(QStringLiteral("Directory/Label/%1").arg(language));check(label.metaType().id()==QMetaType::QString&&!label.toString().trimmed().isEmpty(),"Factory library label is missing or not a scalar Qt string");}++metadata_count;
                 const QString logo=QFileInfo(metadata.fileName()).absoluteDir().filePath("logo-text.svg");if(!QFileInfo::exists(logo))continue;++logos;const QIcon icon(logo);for(const auto background:{QColor("#ffffff"),QColor("#25292e")}){QImage image(64,64,QImage::Format_ARGB32);image.fill(background);QPainter painter(&image);icon.paint(&painter,image.rect());painter.end();int visible=0;for(int y=0;y<64;++y)for(int x=0;x<64;++x)visible+=image.pixelColor(x,y)!=background;check(visible>100,"Symbol category logo vanished in a theme");}
             }
-        }check(metadata_count==34&&logos==9,"Factory library metadata/branding inventory differs");
+        }check(metadata_count==35&&logos==15,"Factory library metadata/branding inventory differs");
         QTemporaryDir fixture;check(fixture.isValid(),"Cannot create preview fixture");
         const QString independent_title=fixture.filePath("independent.tblz");check(QFile::copy(QDir(repository).filePath("config/formats/ZE-TITLE-BLOCK.tblz"),independent_title),"Cannot isolate the title block");
         const auto title=zima::document::PartDocument::load(std::filesystem::u8path(independent_title.toStdString()));int embedded_logos=0;

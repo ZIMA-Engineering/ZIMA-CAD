@@ -133,6 +133,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
                 {"instance_path",t.reference.instance_path},{"label",t.label},
                 {"origin",vector(t.fallback_origin)},{"normal",vector(t.fallback_normal)},
                 {"triangles",std::move(triangles)}});
+            if(t.external_source)targets.back()["external_source"]=serialize_external_profile_target(*t.external_source);
         }
         sides.push_back({{"operation",name(side.operation,operations)},{"length",side.length},
             {"extrusion_extent",name(side.extrusion_extent,conditions)},
@@ -162,6 +163,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
         {"sides",std::move(sides)}};
     // Neutral defaults need no stored override, just like axis_enabled above.
     if(p.reversed_sides)result["reversed_sides"]=true;
+    if(p.axis_visible_in_3d)result["axis_visible_in_3d"]=true;
     return result;
 }
 
@@ -183,6 +185,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         p.centroid_centerline=source.at("centroid_centerline").get<bool>();
         p.show_point=source.at("show_point").get<bool>();
         p.show_text=source.at("show_text").get<bool>();
+        p.axis_visible_in_3d=source.value("axis_visible_in_3d",false);
         const auto& sides=source.at("sides");
         if(!sides.is_array()||sides.size()!=2)invalid();
         for(std::size_t i=0;i<2;++i) {
@@ -207,6 +210,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
                 target.fallback_origin=vector(t.at("origin"));target.fallback_normal=vector(t.at("normal"));
                 const auto& triangles=t.at("triangles");if(!triangles.is_array())invalid();
                 for(const auto& point:triangles)target.fallback_triangles.push_back(vector(point));
+                if(t.contains("external_source"))target.external_source=load_external_profile_target(t.at("external_source"));
                 side.targets.push_back(std::move(target));
             }
             if(value.contains("up_to")) {

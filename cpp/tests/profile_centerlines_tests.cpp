@@ -986,6 +986,30 @@ void grouped_surface_history(const kernel::OcctKernel& kernel) {
     near(combined.volume,solid.volume);
     near(combined.surface_area,solid.surface_area+standalone.surface_area);
 }
+void verify_hidden_sketch_axis_drawing(const kernel::OcctKernel& kernel) {
+    auto part=fixture(false);auto& sketch=part.sketches.front();
+    const auto axis=sketch.add_segment(0,-2,0,10);sketch.set_segment_centerline(axis,true);
+    check(!sketch.geometry_visible_in_3d(axis),"Unused construction axis is visible in the model by default");
+    const auto owner=sketch.id,key="segment:"+axis;
+    const auto contains=[&](const auto& edges){return std::ranges::any_of(edges,[&](const auto& edge){return edge.reference.owner_id==owner&&edge.reference.semantic_key==key;});};
+    check(contains(sketch.viewer_mesh().edges),"Hidden model axis is unavailable while editing its Sketch");
+    check(!contains(part.construction_viewer_mesh().edges),"Non-rotation construction axis leaked into model datums");
+    const auto calculated=kernel.evaluate_history(part.kernel_operations());
+    std::vector<kernel::BodyResult> restored;
+    auto reopened=document::PartDocument::from_serialized(part.serialized(calculated),&restored);
+    check(!reopened.sketches.front().geometry_visible_in_3d(axis),"Native reopen changed model axis visibility");
+    workspace::Workspace live;const auto id=reopened.document_id;live.add_part(std::move(reopened),std::move(restored));
+    const auto sources=workspace::drawing_annotation_sources(&live,id,"hidden-axis.prtz");
+    check(std::ranges::any_of(sources,[&](const auto& source){return contains(source.construction);}),
+        "Hiding the unused axis in the model removed its Drawing source");
+    drawing::DrawingView view;view.id="hidden-axis-view";view.source_document_id=id;
+    drawing::refresh_model_annotations(view,sources);
+    const auto annotation=std::ranges::find_if(view.model_annotations,[&](const auto& item){return item.source.owner_id==owner&&item.source.semantic_id==key;});
+    check(annotation!=view.model_annotations.end()&&annotation->kind==drawing::ModelAnnotationKind::Construction&&!annotation->curves.empty(),
+        "A model-hidden construction axis cannot be projected as a Drawing annotation");
+    std::cout<<"Unused Sketch axis: hidden in model, editable in Sketcher, native reopen and Drawing annotation available passed\n";
+}
+
 int main(){try {
  coincident_revolution_endpoints();
  using E=kernel::ExtrusionRequest;E request;request.centerlines.origin={0,0,0};request.centerlines.normal={0,0,1};
@@ -1002,6 +1026,7 @@ int main(){try {
  request.outer_profile=E::CurvedProfile{{parabola,E::LineCurve{{1,0,0},{-1,0,0}}}};near(kernel::profile_centerlines::centroid(request),{0,.2,0});
  request.centerlines.origin={3,5,7};request.centerlines.normal={1,0,0};request.outer_profile=E::PolygonProfile{{{3,5,7},{3,15,7},{3,15,13},{3,5,13}}};near(kernel::profile_centerlines::centroid(request),{3,10,10});
  kernel::OcctKernel kernel;
+ verify_hidden_sketch_axis_drawing(kernel);
  axis_display_contract(kernel);
  mixed_feature_directions(kernel);
  bounded_feature_rotations(kernel);

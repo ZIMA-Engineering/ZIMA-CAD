@@ -574,7 +574,7 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     auto* thin_form = new QFormLayout;
     sweep_result_type_ = new QComboBox(this);
     sweep_result_type_->setObjectName("sweep3DResultType");
-    sweep_result_type_->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
+    sweep_result_type_->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
     sweep_result_type_->setCurrentIndex(initial_sweep_->sweep3d.result_type ==
         zima::document::ProfileResultType::Surface ? 2 : initial_sweep_->sweep3d.result_type ==
         zima::document::ProfileResultType::Thin ? 1 : 0);

@@ -659,6 +659,11 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 row["surface_result"]=ref.surface_result;row["sheet_role"]=static_cast<int>(ref.sheet_role);
                 row["sheet_thickness"]=ref.sheet_thickness;row["sheet_owner"]=ref.sheet_owner;
                 row["display_owner"]=ref.display_owner_id;
+                if(ref.surface)row["surface"]=serialize_surface(*ref.surface);
+                if(ref.contour_surface)row["contour_surface"]=serialize_surface(*ref.contour_surface);
+                if(ref.measured_area)row["measured_area"]=*ref.measured_area;
+            } else if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::EdgeReference>) {
+                row["display_owner"]=ref.display_owner_id;
             }
             rows.push_back(std::move(row));
         }
@@ -679,6 +684,29 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         auto sources=nlohmann::json::array();
         for(const auto& source:result.measurement_sources)sources.push_back(serialize_body_result(source,false,false));
         packet["measurement_sources"]=std::move(sources);
+    }
+    if(result.incremental_history&&!result.incremental_history->frames.empty()&&
+       result.incremental_history->frames.back().fingerprint==result.source_fingerprint&&result.kernel_placements.empty()&&
+       result.kernel_shape!=zima::kernel::kernel_body_compound) {
+        const auto& history=*result.incremental_history;
+        auto frames=nlohmann::json::array();
+        const auto native=[&](const zima::kernel::BodySnapshot& snapshot) {
+            if(snapshot->incremental_history)throw std::runtime_error("Invalid native topology binding");
+            return serialize_body_result(snapshot,false,false);
+        };
+        for(const auto& frame:history.frames) {
+            if(!frame.reference_delta)throw std::runtime_error("Invalid native topology binding");
+            auto layers=nlohmann::json::array();for(const auto& layer:frame.original_layers)layers.push_back(native(layer));
+            nlohmann::json row={{"fingerprint",frame.fingerprint},{"native",native(frame.native_body)},
+                {"hidden_edges",frame.hidden_edges},{"originals",std::move(layers)},
+                {"references",serialize_reference_geometry(*frame.reference_delta)},
+                {"original_edges_retained",frame.original_edges_retained}};
+            if(frame.copy_source)row["copy"]={{"operand",native(frame.copy_source->operand)},
+                {"caps",native(frame.copy_source->source_caps)},{"solid",native(frame.copy_source->solid)},
+                {"empty_material_operand",frame.copy_source->empty_material_operand},{"reference_only",frame.copy_source->reference_only}};
+            frames.push_back(std::move(row));
+        }
+        packet["incremental_history"]={{"algorithm",history.algorithm},{"frames",std::move(frames)}};
     }
     if(!result.solid_state_reference_views.empty()) {
         auto views=nlohmann::json::object();
@@ -763,6 +791,35 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         }
         result.measurement_sources=std::move(loaded);
     }
+    // Continuation metadata is a disposable calculation cache. Corruption or
+    // a stale schema must not hide the valid authored document/display packet.
+    try {
+    if(const auto cached=source.find("incremental_history");cached!=source.end()) {
+        if(!cached->is_object()||!cached->contains("algorithm")||!cached->at("algorithm").is_string()||
+            !cached->contains("frames")||!cached->at("frames").is_array()||cached->at("frames").size()>50000)
+            throw std::runtime_error("Invalid native topology binding");
+        auto history=std::make_shared<zima::kernel::KernelHistoryCache>();history->algorithm=cached->at("algorithm");
+        std::vector<zima::kernel::KernelHistoryFrame> frames;frames.reserve(cached->at("frames").size());
+        const auto native=[&](const nlohmann::json& value)->zima::kernel::BodySnapshot {
+            if(value.contains("incremental_history"))throw std::runtime_error("Invalid native topology binding");
+            return load_body_result(value);
+        };
+        for(const auto& row:cached->at("frames")) {
+            zima::kernel::KernelHistoryFrame frame;frame.fingerprint=row.at("fingerprint");
+            frame.native_body=native(row.at("native"));frame.hidden_edges=row.at("hidden_edges").get<std::vector<std::string>>();
+            frame.reference_delta=std::make_shared<const zima::kernel::ViewerReferenceGeometry>(load_reference_geometry(row.at("references")));
+            frame.original_edges_retained=row.at("original_edges_retained");
+            if(!row.at("originals").is_array()||row.at("originals").size()>50000)throw std::runtime_error("Invalid native topology binding");
+            for(const auto& layer:row.at("originals"))frame.original_layers.push_back(native(layer));
+            if(const auto copy=row.find("copy");copy!=row.end())frame.copy_source=zima::kernel::KernelHistoryCopy{
+                native(copy->at("operand")),native(copy->at("caps")),native(copy->at("solid")),
+                copy->at("empty_material_operand"),copy->at("reference_only")};
+            frames.push_back(std::move(frame));
+        }
+        history->frames=std::move(frames);result.incremental_history=std::move(history);
+    }
+    }catch(const std::bad_alloc&){throw;}
+     catch(const std::exception&){result.incremental_history.reset();}
     result.body_outputs=std::move(compound_operands);
     if(const auto views=source.find("solid_state_reference_views");views!=source.end())
         for(const auto& [owner,geometry]:views->items()) {
@@ -865,6 +922,11 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
                 if(!ref.valid()||value.locator.empty())throw std::runtime_error("Invalid native topology binding");
                 if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::FaceReference>) {
                     ref.surface_result=row.at("surface_result");load_sheet_face(ref,row);
+                    if(const auto v=row.find("surface");v!=row.end())ref.surface=std::make_shared<zima::kernel::SurfaceGeometry>(load_surface(*v));
+                    if(const auto v=row.find("contour_surface");v!=row.end())ref.contour_surface=std::make_shared<zima::kernel::SurfaceGeometry>(load_surface(*v));
+                    if(const auto v=row.find("measured_area");v!=row.end()){const double area=*v;require_finite(area,"measured area");ref.measured_area=area;}
+                } else if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::EdgeReference>) {
+                    ref.display_owner_id=row.value("display_owner",std::string{});
                 }
                 captured.push_back(std::move(value));
             }

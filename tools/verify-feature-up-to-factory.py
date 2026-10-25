@@ -5,6 +5,7 @@ checks the unchanged authored identities, source packets and physical values.
 It never installs outputs, stages Git changes or overwrites working libraries.
 """
 import argparse
+import base64
 import concurrent.futures
 import configparser
 import hashlib
@@ -15,6 +16,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = {'.prtz', '.asmz', '.frmz', '.tblz', '.symz'}
@@ -50,6 +52,14 @@ def cache(data):
     if isinstance(packet, list):
         return packet
     assert packet['format'] == 'zima-shared-cache-v1'
+    if 'compression' in packet:
+        assert packet['compression'] == 'zlib-base64'
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(base64.b64decode(packet['data'], validate=True)) + decoder.flush()
+        assert decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail
+        assert len(raw) == packet['uncompressed_bytes']
+        packet = json.loads(raw)
+        assert packet['format'] == 'zima-shared-cache-v1' and 'compression' not in packet
     values, memo = packet['values'], {}
 
     def expand(value):

@@ -6,7 +6,7 @@
 namespace zima::document {
 // Presentation and references are derived from the native work frame. These
 // datums never require a body calculation or manufacture a degenerate solid.
-zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContainer& feature) const {
+zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContainer& feature, bool show_hidden_axis) const {
     using namespace zima::kernel;
     ViewerMesh mesh;
     if(feature.feature_kind!=FeatureKind::Feature || feature.suppressed)return mesh;
@@ -73,6 +73,11 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
         mesh.original_references.vertices=corners;
         mesh.original_references.triangles={0,1,2,0,2,3};
         mesh.original_references.triangle_references.assign(2,{feature.id,"plane",{}});
+    }
+    if(feature.feature.type==FeatureType::Axis&&!feature.feature.axis_visible_in_3d&&!show_hidden_axis) {
+        // Retain the native axis and both real endpoints in original_references.
+        // Model display visibility never removes references or Drawing inputs.
+        mesh.edges.clear();mesh.axes.clear();mesh.points.resize(1);
     }
     return mesh;
 }

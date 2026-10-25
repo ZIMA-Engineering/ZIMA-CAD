@@ -60,6 +60,8 @@ static void verify_limit_localization(QApplication& application,QWidget& parent)
         app::apply_application_translations(application,settings);application.processEvents();
         for(const auto* theme:{"light","dark"}) {
             settings.theme=theme;app::apply_application_appearance(application,settings);application.processEvents();
+            check(dialog.findChild<QCheckBox*>("featureShowAxis3D")->text()==messages.value(QStringLiteral("Zobrazovat ve 3D")).toString(),
+                "Axis display checkbox did not follow the live language/theme");
             check(limits->findChild<QPushButton*>("featureLimitDown")->text()==QObject::tr("Dolů"),"Live language change missed the target ordering controls");
             check(limits->active_row()==1&&dialog.highlighted_reference_entries().size()==1,"Language/theme change lost entry or inspection identity");
             check(dialog.findChild<QLabel*>("featureUpToDraftNotice")->text()==QObject::tr(
@@ -201,6 +203,7 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
         auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
         feature.name="";feature.feature.type=type;feature.feature.show_point=true;
+        feature.feature.axis_visible_in_3d=true;
         sketch.owner_container_id=feature.id;
         sketch.plane=type==document::FeatureType::Axis?sketcher::SketchPlane::XZ:sketcher::SketchPlane::XY;
         sketch.plane_auto=false;part.history={feature};part.sketches={sketch};part.resolve_constructions();
@@ -252,6 +255,13 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
             view.set_mesh(part.feature_result_mesh(feature));flush();
         }
         if(type==document::FeatureType::Axis) {
+            auto hidden=feature;hidden.feature.axis_visible_in_3d=false;
+            hidden.feature.show_point=hidden.feature.show_text=false;
+            view.clear_selection();view.set_selection_contract({});view.set_mesh(part.feature_result_mesh(hidden));flush();
+            check(colored(view.grabFramebuffer(),interaction::axis,false)==0,
+                "Unchecked Show in 3D still paints the Axis or its endpoints");
+            check(view.mesh().original_references.axes.size()==1,"Hidden Axis lost its native reference in the View");
+            view.set_mesh(part.feature_result_mesh(feature));view.set_selection_contract({viewer::CandidateKind::Container});flush();
             const auto at=project({0,20,0});const auto candidates=view.selection_candidates_at(at);
             check(std::ranges::any_of(candidates,[&](const auto& c){return c.kind==viewer::CandidateKind::Container&&c.owner_id==feature.id;}),
                 "Axis line does not offer its Feature container");
@@ -287,6 +297,21 @@ int main(int argc,char** argv) {
     auto* type=dialog.findChild<QComboBox*>("featureType");
     try {
         flush();
+        auto* axis_display=dialog.findChild<QCheckBox*>("featureShowAxis3D");
+        auto* point_display=dialog.findChild<QCheckBox*>("featureShowPoint");
+        auto* text_display=dialog.findChild<QCheckBox*>("featureShowText");
+        if(!axis_display||!point_display||!text_display||axis_display->parentWidget()!=point_display->parentWidget()||
+           axis_display->parentWidget()!=text_display->parentWidget()||axis_display->isChecked())
+            throw std::runtime_error("Axis display checkbox is absent from the Point/Text row or has an enabled default");
+        type->setCurrentIndex(1);flush();
+        if(!axis_display->isVisible())throw std::runtime_error("Axis display checkbox is hidden for Axis type");
+        axis_display->setChecked(true);flush();
+        if(!dialog.pending_value().feature.axis_visible_in_3d)throw std::runtime_error("Axis display checkbox does not update the pending definition");
+        type->setCurrentIndex(4);flush();
+        if(axis_display->isVisible())throw std::runtime_error("Axis-only checkbox is visible for material modeling");
+        type->setCurrentIndex(1);flush();
+        if(!axis_display->isChecked())throw std::runtime_error("Changing Feature type discarded Axis display preference");
+        axis_display->setChecked(false);type->setCurrentIndex(static_cast<int>(feature.feature.type));flush();
         auto* initial_scroll=dialog.findChild<QScrollArea*>("propertiesContentScrollArea");
         if(initial_scroll->verticalScrollBar()->maximum()>0&&dialog.height()<parent.height()-30)
             throw std::runtime_error("Initial Feature properties unnecessarily hide fields: height="+

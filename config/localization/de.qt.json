@@ -432,6 +432,7 @@
   "Délka zobrazení": "Darstellungslänge",
   "Typ výsledku": "Ergebnistyp",
   "Tloušťka": "Dicke",
+  "Tloušťka skořepiny": "Wandstärke der Schale",
   "Symetricky": "Symmetrisch",
   "Strana tloušťky": "Dickenseite",
   "Text před hodnotou": "Text vor dem Wert",
@@ -2636,5 +2637,7 @@
   "Korekce úhlu": "Winkelkorrektur",
   "Vrtací špička": "Bohrerspitze",
   "Body os": "Achsenpunkte",
-  "Zobrazit nebo skrýt body os a konstrukčních čar": "Punkte von Achsen und Konstruktionskurven ein- oder ausblenden"
+  "Zobrazit nebo skrýt body os a konstrukčních čar": "Punkte von Achsen und Konstruktionskurven ein- oder ausblenden",
+  "Invalid compressed document data.": "Ungültige komprimierte Dokumentdaten.",
+  "External extrusion targets must belong to a Skeleton Part.": "Externe Austragungsziele müssen zu einem Skeleton-Teil gehören."
 }

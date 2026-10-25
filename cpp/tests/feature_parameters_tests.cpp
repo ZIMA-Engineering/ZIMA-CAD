@@ -21,6 +21,7 @@ FeatureParameters fixture() {
     p.profile_source=ProfileSource::External;p.profile_plane_offset=-0.0;
     p.thin_thickness=.75;p.thin_mode=ThinMode::OtherSide;
     p.origin_centerline=p.centroid_centerline=true;
+    p.axis_visible_in_3d=true;
     p.sides[0].length=23.456789;p.sides[0].angle_degrees=135;
     p.sides[1].length=7.25;p.sides[1].angle_degrees=37;
     p.sides[0].draft_angle_degrees=5.123456789;
@@ -88,6 +89,7 @@ int main() { try {
     for(const auto type:{FeatureType::Point,FeatureType::Axis,FeatureType::Plane,FeatureType::Sketch,FeatureType::Modeling}) {
         const FeatureParameters defaults;
         check(!defaults.show_point&&!defaults.show_text,"New Features must default to hidden Point and Text annotations");
+        check(!defaults.axis_visible_in_3d,"New Axis must default to hidden model presentation");
         auto p=fixture();const auto stored=p;p.type=type;
         const auto restored=load_feature_parameters(serialize_feature_parameters(p));
         check(restored==p,"Feature type or inactive settings did not round-trip");
@@ -119,6 +121,16 @@ int main() { try {
         check(std::abs(follower.origin.x-origin.position.x)<1e-9&&std::abs(follower.origin.y-origin.position.y)<1e-9,
             "Downstream Point lost the Feature work frame");
         if(type==FeatureType::Axis) {
+            auto hidden=part.history.front();hidden.feature.axis_visible_in_3d=false;
+            const auto hidden_mesh=part.feature_result_mesh(hidden);
+            check(hidden_mesh.edges.empty()&&hidden_mesh.axes.empty()&&hidden_mesh.points.size()==1,
+                "Hidden Axis retained visible model strokes or endpoints");
+            check(hidden_mesh.original_references.axes.size()==1&&hidden_mesh.original_references.points.size()==3&&
+                hidden_mesh.original_references.edges.size()==1&&
+                hidden_mesh.original_references.axes.front().reference==result.original_references.axes.front().reference&&
+                hidden_mesh.original_references.edges.front().points==result.original_references.edges.front().points,
+                "Axis model visibility changed its native reference geometry");
+            check(part.feature_result_mesh(hidden,true).axes.size()==1,"Hidden Axis cannot be inspected in Properties");
             auto axis=PartDocument::create_construction(ConstructionKind::Axis);axis.definition=ConstructionDefinition::AxisReference;
             axis.references={{"",feature.id,"axis"}};
             check(resolve_construction(axis,result.original_references),"Downstream Axis cannot use Feature Axis");
@@ -164,7 +176,7 @@ int main() { try {
     for(const auto plane:{zima::sketcher::SketchPlane::XY,zima::sketcher::SketchPlane::XZ,zima::sketcher::SketchPlane::YZ}) {
         auto part=PartDocument::create_default();auto sketch=zima::sketcher::Sketch::create_default();
         auto axis=PartDocument::create_feature_container(sketch.id);
-        axis.feature.type=FeatureType::Axis;sketch.owner_container_id=axis.id;
+        axis.feature.type=FeatureType::Axis;axis.feature.axis_visible_in_3d=true;sketch.owner_container_id=axis.id;
         sketch.plane=plane;sketch.plane_auto=false;part.history={axis};part.sketches={sketch};
         part.resolve_constructions();axis=part.history.front();
         const auto origin=part.sketches.front().world_point(0,0),normal=part.sketches.front().normal();

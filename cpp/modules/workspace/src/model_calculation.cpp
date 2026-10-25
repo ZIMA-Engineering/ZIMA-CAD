@@ -146,6 +146,7 @@ calculate_part_reference_state(
     const PartCalculationPolicy& policy) {
     static_cast<void>(refresh_removed_reference_states(document));
     document.synchronize_derived_copy_sources();
+    refresh_cached_external_profile_target_frames(document);
     std::vector<zima::kernel::BodyResult> calculated;
     const auto* incremental_source = previous;
     // A downstream container may reference geometry produced by another
@@ -441,6 +442,7 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     }
     apply_relation_dimensions(next,document::physical_values(previous,relation_input));
     refresh_body_links(workspace,next,part->path);
+    refresh_external_profile_targets(workspace,kernel,next);
     // Native snapshots must be recalculated by this runtime at least once.
     // Thereafter explicit regeneration uses the existing dependency-aware
     // incremental calculation, retaining only unchanged live calculations.
@@ -597,17 +599,27 @@ static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKer
                     }
                 return true;
             });
+            bool has_external_targets=false;
+            for(const auto& feature:part->session.document().history)if(feature.feature_kind==document::FeatureKind::Feature)
+                for(const auto& side:feature.feature.sides)for(const auto& target:side.targets)
+                    if(target.external_source&&target.external_source->context_assembly_id==id) {
+                        has_context=has_external_targets=true;sources.insert(target.external_source->document_id);
+                    }
             for(const auto& source:sources)regenerate_part_dependencies(source);
             part=workspace.open_part(part_id);
             auto next=part->session.document();
             if (has_context) {
+                const auto previous_history=next.history;
+                if(has_external_targets)refresh_external_profile_targets(workspace,kernel,next);
                 const auto& previous = part->session.calculated_boundaries();
-                auto calculated = calculate_part(kernel, next, &previous, policy);
+                auto calculated = has_external_targets?calculate_part_with_resolved_references(kernel,next,&previous,policy):
+                    calculate_part(kernel, next, &previous, policy);
                 const auto previous_constructions = next.constructions;
                 next.resolve_constructions(calculated.empty()
                     ? zima::kernel::ViewerReferenceGeometry{}
                     : calculated.back().mesh.original_references);
                 const bool references_changed =
+                    (next.history!=previous_history) |
                     refresh_sketch_external_references(next, calculated) |
                     workspace.refresh_context_external_references(next) |
                     refresh_context_sketch_intersections(workspace,kernel,next);

@@ -37,6 +37,14 @@ public:
             for(const auto& component:assembly->session.document().components)
                 if(!component.derived_copy && component.source_kind!=assembly::ComponentSourceKind::Pattern)dependencies.push_back(component.source_document_id);
         }
+        if(const auto* part=workspace.open_part(id))for(const auto& feature:part->session.document().history)
+            if(feature.feature_kind==document::FeatureKind::Feature)for(const auto& side:feature.feature.sides)
+                for(const auto& target:side.targets)if(target.external_source) {
+                    const auto& external=*target.external_source;auto path=external.source_file;
+                    if(path.is_relative())path=part->path.parent_path()/path;
+                    files_.try_emplace(external.document_id,SourceFile{path,assembly::ComponentSourceKind::Part});
+                    dependencies.push_back(external.document_id);
+                }
         visit_document_sketches(workspace,id,[&](const auto& sketch){
             for(const auto& reference:sketch.external_references)if(!reference.source_document_id.empty() && reference.source_document_id!=id)dependencies.push_back(reference.source_document_id);
             return true;

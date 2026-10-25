@@ -54,6 +54,12 @@ int verify_placed_sketch_reference_ui(QApplication& application,const std::files
             QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Placed Sketch View missing");
             const auto offered=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==original.id&&p.reference.semantic_key=="external_point:"+point_ref;});
+            std::cout<<"Placed point expected="<<expected_world.x<<","<<expected_world.y<<","<<expected_world.z;
+            if(offered==view->mesh().points.end())std::cout<<" offered=missing";
+            else std::cout<<" offered="<<offered->position.x<<","<<offered->position.y<<","<<offered->position.z;
+            std::cout<<" frame="<<frame.resolved_x_axis.x<<","<<frame.resolved_x_axis.y<<","<<frame.resolved_x_axis.z<<std::endl;
+            if(offered==view->mesh().points.end())for(const auto& point:view->mesh().points)
+                if(point.reference.owner_id==original.id)std::cout<<"Placed point key="<<point.reference.semantic_key<<" at="<<point.position.x<<","<<point.position.y<<","<<point.position.z<<std::endl;
             check(offered!=view->mesh().points.end()&&std::hypot(std::hypot(offered->position.x-expected_world.x,offered->position.y-expected_world.y),offered->position.z-expected_world.z)<1e-8,"Returning to Sketch displayed a floating stale external point");
             const auto dependent=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==original.id&&p.reference.semantic_key=="point:"+endpoint;});
             check(dependent!=view->mesh().points.end()&&std::hypot(std::hypot(dependent->position.x-expected_world.x,dependent->position.y-expected_world.y),dependent->position.z-expected_world.z)<1e-8,"Returning to Sketch left the anchored native point behind");

@@ -6,6 +6,11 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
     using namespace zima;
     auto source=sketcher::Sketch::create_default();
     const auto axis=source.add_segment(-20,12,20,12);source.set_segment_centerline(axis,true);
+    require(!source.geometry_visible_in_3d(axis),"An unused construction axis was not hidden by default");
+    auto hidden_default=source.viewer_mesh();source.filter_hidden_3d_geometry(hidden_default);
+    require(hidden_default.edges.empty(),"A default hidden construction axis leaked into the model");
+    // The category matrix below exercises the explicit manual Show in 3D choice.
+    source.set_geometry_visible_in_3d(axis,true);
     const auto profile=source.add_segment(-25,-18,25,-18);
     const auto axis_start=source.segments.front().first_point_id;
     const auto axis_end=source.segments.front().second_point_id;
@@ -131,7 +136,7 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
         if(kind==2)id=curve.add_ellipse(0,0,20,0,0,10);
         if(kind==3)id=curve.add_elliptical_arc(0,0,20,0,0,10,20,0,0,10);
         if(kind==4)id=curve.add_bspline({{{-20,-10}},{{-10,15}},{{10,-15}},{{20,10}}});
-        curve.set_geometry_centerline(id,true);
+        curve.set_geometry_centerline(id,true);curve.set_geometry_visible_in_3d(id,true);
         auto packet=curve.viewer_mesh();curve.filter_hidden_3d_geometry(packet);packet.axes.clear();
         packet.vertices={{-50,-50,0},{50,50,0}};view.set_mesh(packet);view.clear_selection();
         view.set_reference_visibility(viewer::ReferenceVisibility::Sketches,false);

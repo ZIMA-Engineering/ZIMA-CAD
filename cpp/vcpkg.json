@@ -12,6 +12,7 @@
     "opencascade",
     "qtbase",
     "openssl",
+    "zlib",
     "qtsvg",
     {
       "name": "qtwebengine",

@@ -81,6 +81,8 @@ struct FeatureParameters {
     bool centroid_centerline{};
     bool show_point{};
     bool show_text{};
+    // Axis presentation only; native references and Drawing sources stay available.
+    bool axis_visible_in_3d{};
     // UI Side 1 is End; Side 2 is Start. Order never changes with geometry.
     std::array<FeatureSideParameters,2> sides{{
         {FeatureSideOperation::Extrusion}, {FeatureSideOperation::None}}};

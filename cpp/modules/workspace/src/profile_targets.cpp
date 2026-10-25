@@ -1,11 +1,17 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/document/profile_targets.hpp>
+#include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/body_link_operations.hpp>
+#include <zima/workspace/document_dependencies.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 #include <algorithm>
 
 namespace zima::workspace {
+#include "external_profile_targets.inc"
 document::ExtrusionParameters::EndTarget resolve_profile_end_target(
     const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated,
     const std::string& frame_owner,const document::ExtrusionParameters::EndTarget& requested) {
+    if(requested.external_source)return resolve_cached_external_target(part,frame_owner,requested);
     if(!requested.reference.valid() || !requested.reference.instance_path.empty())
         throw ProfileOperationError("invalid_reference","The extrusion target must belong to this Part.");
     kernel::ViewerReferenceGeometry selected;
@@ -49,6 +55,11 @@ document::ExtrusionParameters::EndTarget resolve_profile_end_target(
 document::ExtrusionParameters::EndTarget prepare_profile_end_target(
     const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated,
     const document::HistoryContainer& feature,const document::ExtrusionParameters::EndTarget& requested) {
+    if(requested.external_source) {
+        if(feature.feature_kind!=document::FeatureKind::Feature)
+            throw ProfileOperationError("invalid_reference","Invalid Feature definition.");
+        return resolve_cached_external_target(part,feature.id,requested);
+    }
     if(feature.feature_kind!=document::FeatureKind::Extrusion && feature.feature_kind!=document::FeatureKind::Feature)
         throw ProfileOperationError("invalid_reference","Extrusion end references require a plane or an original face.");
     if(!requested.reference.valid() || !requested.reference.instance_path.empty())

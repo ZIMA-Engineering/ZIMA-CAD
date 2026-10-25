@@ -432,6 +432,7 @@
   "Délka zobrazení": "Longueur d’affichage",
   "Typ výsledku": "Type de résultat",
   "Tloušťka": "Épaisseur",
+  "Tloušťka skořepiny": "Épaisseur de coque",
   "Symetricky": "Symétrique",
   "Strana tloušťky": "Côté de l’épaisseur",
   "Text před hodnotou": "Texte avant la valeur",
@@ -2636,5 +2637,7 @@
   "Korekce úhlu": "Correction d’angle",
   "Vrtací špička": "Pointe de perçage",
   "Body os": "Points des axes",
-  "Zobrazit nebo skrýt body os a konstrukčních čar": "Afficher ou masquer les points des axes et des courbes de construction"
+  "Zobrazit nebo skrýt body os a konstrukčních čar": "Afficher ou masquer les points des axes et des courbes de construction",
+  "Invalid compressed document data.": "Données compressées du document non valides.",
+  "External extrusion targets must belong to a Skeleton Part.": "Les limites externes d’extrusion doivent appartenir à une pièce Skeleton."
 }

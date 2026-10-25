@@ -1,0 +1,3 @@
+#pragma once
+#include <string_view>
+namespace zima::kernel { inline constexpr std::string_view native_history_algorithm="history-v1/@ZIMA_HISTORY_ALGORITHM_HASH@"; }

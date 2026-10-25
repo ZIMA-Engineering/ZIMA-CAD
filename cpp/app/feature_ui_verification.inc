@@ -505,7 +505,7 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Axis Feature OK failed");run("save");
     auto saved=document::PartDocument::load(path,&calculated);
     const auto* axis=saved.find_container(axis_id);check(axis&&axis->placement.references.front().use_axis,"Axis mode not persisted");
-    const auto mesh=saved.feature_result_mesh(*axis);check(mesh.axes.size()==1&&std::abs(mesh.axes.front().direction.z)>1-1e-7,
+    const auto mesh=saved.feature_result_mesh(*axis);check(mesh.axes.empty()&&mesh.original_references.axes.size()==1&&std::abs(mesh.original_references.axes.front().direction.z)>1-1e-7,
         "Feature axis is not coaxial with selected cylinder");
     check(!axis->feature.show_point&&!axis->feature.show_text&&!mesh.points.front().always_visible&&mesh.points.front().label.empty(),
         "Feature visibility settings did not persist");
@@ -518,12 +518,50 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     mode=dialog()->findChild<QComboBox*>("placementReferenceType0");check(mode&&mode->currentData().toBool(),"Reopened axis mode lost");
     check(!dialog()->findChild<QCheckBox*>("featureShowPoint")->isChecked()&&
         !dialog()->findChild<QCheckBox*>("featureShowText")->isChecked(),"Reopened visibility settings lost");
+    auto* axis_display=dialog()->findChild<QCheckBox*>("featureShowAxis3D");
+    check(axis_display&&axis_display->isVisible()&&!axis_display->isChecked()&&
+        axis_display->parentWidget()==dialog()->findChild<QCheckBox*>("featureShowPoint")->parentWidget(),
+        "Axis Show in 3D is missing from the Point/Text row");
+    axis_display->click();flush();
     dialog()->findChild<QCheckBox*>("featureShowPoint")->setChecked(true);
     dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(true);
     mode->setCurrentIndex(0);flush();dialog()->reject();flush();run("save");
     check(document::PartDocument::load(path).find_container(axis_id)->placement.references.front().use_axis,"Cancel changed mode");
     check(!document::PartDocument::load(path).find_container(axis_id)->feature.show_point&&
         !document::PartDocument::load(path).find_container(axis_id)->feature.show_text,"Cancel changed visibility");
+    check(!document::PartDocument::load(path).find_container(axis_id)->feature.axis_visible_in_3d,
+        "Cancel committed Axis display visibility");
+    const auto encoded_geometry=[&] {
+        std::vector<kernel::BodyResult> results;static_cast<void>(document::PartDocument::load(path,&results));
+        commands::Json rows=commands::Json::array();
+        for(const auto& result:results)rows.push_back(document::serialize_body_result(result));return rows.dump();
+    };
+    const auto before_visibility=encoded_geometry();unsigned display_calculations=0;
+    const auto edit_axis=[&] {
+        QTreeWidgetItem* row{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==axis_id){row=*i;break;}
+        check(row,"Axis Tree row missing after visibility edit");window.show_tree_item_properties(row);flush();
+        check(dialog(),"Axis visibility editor missing");
+    };
+    {
+        workspace::CalculationExecutionScope counted([&](auto action){++display_calculations;action();});
+        edit_axis();dialog()->findChild<QCheckBox*>("featureShowAxis3D")->click();flush();
+        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+        const auto visible=document::PartDocument::load(path);
+        check(visible.find_container(axis_id)->feature.axis_visible_in_3d&&
+            visible.feature_result_mesh(*visible.find_container(axis_id)).axes.size()==1,"Axis Show in 3D OK did not persist");
+        check(encoded_geometry()==before_visibility,"Axis display edit changed calculated geometry");
+        edit_axis();check(dialog()->findChild<QCheckBox*>("featureShowAxis3D")->isChecked(),"Axis display preference lost on reopening");
+        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        run("undo");run("save");
+        check(!document::PartDocument::load(path).find_container(axis_id)->feature.axis_visible_in_3d,
+            "Axis visibility Undo failed or unchanged OK created an Undo transaction");
+        run("redo");run("save");
+        check(document::PartDocument::load(path).find_container(axis_id)->feature.axis_visible_in_3d,
+            "Axis visibility Redo failed");
+    }
+    check(display_calculations==0,"Axis visibility Properties invoked geometry calculation");
+    std::cout<<"Axis Show in 3D: top row, Cancel/OK, unchanged OK, zero calculations, exact cached geometry, Undo/Redo and native persistence passed\n";
     run("close");check(window.open_document_path(QString::fromStdString(path.string())),"Saved axis cannot reopen");flush();
     check(!window.findChild<QAction*>("cylinderAxisAction"),"Retired cylinder axis action remains");
     verify_mesh_surface_placement(application,window,directory);
@@ -820,6 +858,29 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
                 }
             check(anchored,"Draft dimension is not attached perpendicular to a profile edge");
         }
+    }
+    const auto helper=[&](const auto& definition,const char* key) {
+        const auto cues=workspace_detail::feature_view_cues(definition,profile);
+        std::optional<kernel::ViewerDimension> result;
+        for(const auto& value:cues.dimensions.dimensions)if(value.reference.semantic_key==key)result=value;
+        return result;
+    };
+    for(const auto result_type:{document::ProfileResultType::Solid,document::ProfileResultType::Surface,document::ProfileResultType::Thin})
+    for(double thickness:{0.,5.,1e-13}) {
+        feature.feature.result_type=result_type;feature.feature.thin_thickness=thickness;
+        const auto value=helper(feature,"parameter:thin_thickness");
+        const bool visible=result_type==document::ProfileResultType::Thin&&thickness!=0.;
+        check(value.has_value()==visible,"Thin thickness annotation visibility differs from the authored result");
+        if(value)check(value->label_only&&value->unit_suffix=="mm"&&value->value==thickness,"Thin thickness lost its numeric value/unit/binding");
+    }
+    for(bool angular:{false,true})for(double correction:{0.,-0.,2.,-2.,1e-13}) {
+        auto& side=feature.feature.sides[0];side.operation=angular?document::FeatureSideOperation::Revolution:document::FeatureSideOperation::Extrusion;
+        side.extrusion_extent=document::EndCondition::UpTo;side.rotation_extent=document::FeatureRotationExtent::UpTo;
+        side.up_to.length_correction=side.up_to.angle_correction_degrees=correction;
+        const auto key=angular?"parameter:side0_up_to_angle_correction":"parameter:side0_up_to_length_correction";
+        const auto value=helper(feature,key);check(value.has_value()==(correction!=0.),"Zero Up To correction is visible or a nonzero correction is hidden");
+        if(value)check(value->label_only&&value->value==correction&&value->unit_suffix==(angular?"°":"mm"),"Up To helper changed its units or signed value");
+        check(!saved.dimension_identifiers.identifier(feature.id,key).empty(),"Hidden zero correction lost its parameter identifier");
     }
 }
 

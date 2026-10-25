@@ -3,6 +3,9 @@
 #include <stdexcept>
 namespace zima::kernel { class OcctKernel; }
 namespace zima::workspace {
+// Empty native Parts are valid sources. Nonempty modeling input still requires
+// its explicitly calculated result; this query never invokes the kernel.
+[[nodiscard]] bool part_source_is_insertable(const PartState&);
 class ComponentOperationError : public std::runtime_error {
 public:
     ComponentOperationError(const char* code,const char* message):std::runtime_error(message),code(code){}

@@ -3,7 +3,7 @@
 ## Agreed behavior
 
 Part Modeling and Assembly use the same Feature Properties dialog. Its top-level type
-selector offers Point, Axis, Plane, Sketch and Extrusion. The last
+selector offers Point, Axis, Plane, Sketch and Extrude. The last
 choice retains the independent operation on each side, symmetry, Boolean
 operation, solid/surface/thin result and optional origin/centroid paths.
 
@@ -17,20 +17,28 @@ Plane selection and signed offset form a separate Plane section. The Sketch
 button has its own compact section to the right of Plane, on the same row,
 and is present only for Sketch and modeling results.
 All types use the existing OK/Cancel transaction and Sketcher-return lifecycle.
-New Features leave Point and Text unchecked; persisted reference points remain
+New Features leave Point, Text and the Axis **Show in 3D** option unchecked; persisted reference points remain
 available to commands and existing Features retain their saved display choices.
 Confirming unchanged properties preserves the calculated geometry and Undo
 boundary. The comparison includes the owned Sketch, so actual Sketch edits
 still calculate and commit. Untouched precise dimensions retain their stored
 value even when the numeric control displays fewer decimal places.
 
+The Axis-only **Show in 3D** checkbox belongs to the same top row as Type,
+Point and Text. Its native/CLI parameter is `axis_visible_in_3d`. It changes
+presentation only: native axis and endpoint identities, dependent references,
+Drawing annotations and calculated body geometry remain available. The Windows
+Properties test covers Cancel, changed and unchanged OK, save/reopen and
+Undo/Redo, with zero geometry calculations and exact unchanged calculated
+history packets. The widget test checks all five languages and both themes.
+
 | Type | Additional controls | Normal View result |
 | --- | --- | --- |
 | Point | None | Point at the Feature work-frame origin and its name |
-| Axis | Independent Length / Up to / None ends and symmetry | Axis, its origin and both endpoints, and the Feature name |
+| Axis | Independent Length / Up to / None ends, symmetry and Show in 3D | Axis line/endpoints when Show in 3D is enabled; origin/name controlled independently |
 | Plane | Work plane and offset | Offset plane, its origin and the Feature name |
 | Sketch | Work plane, offset and Sketcher entry | Sketch geometry, origin and Feature name |
-| Extrusion | Independent Extrusion/Revolution side controls | The selected result and optional authored paths |
+| Extrude | Independent Extrusion/Revolution side controls | The selected result and optional authored paths |
 
 The Axis follows its resolved native work-frame direction. Its internal Sketch
 frame remains persisted, but Axis Properties does not offer a separate default
@@ -44,6 +52,15 @@ highlights its border as well as its origin, and coincident unselected planes
 cannot cover that highlight. Selecting an Axis highlights its
 line and its three defining markers, without adding a fourth midpoint marker.
 The **Point** and **Text** checkboxes control the idle origin marker and name.
+The Axis-only **Show in 3D** checkbox is on that same top row. It controls only
+normal model presentation. Properties and explicit inspection can still show the
+complete authored axis. Its native axis and both endpoint identities remain
+available to references and Drawing Show/Erase regardless of model visibility.
+The optional native `axis_visible_in_3d` override and the matching
+`feature.get` / `feature.set` boolean preserve the setting through type changes,
+save/reopen and Undo/Redo. A display-only change uses the existing presentation
+transaction and must not calculate geometry. This addition is in the development
+candidate; its integrated GUI, factory and template verification is pending.
 Disabling an Axis end preserves its authored length, target and numerical lock.
 The effective disabled extent is zero; its endpoint retains the same native
 identity at the origin. At least one end must remain enabled. Plane and original

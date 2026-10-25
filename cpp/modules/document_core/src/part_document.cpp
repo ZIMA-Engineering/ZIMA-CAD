@@ -5856,7 +5856,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             }
         }
         if(container.feature_kind==FeatureKind::Feature) {
-            if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container));
+            if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container,editing_object_id==container.id));
             continue;
         }
         const bool basic_solid = has_origin_display_controls(container.feature_kind);
@@ -9955,7 +9955,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if (container.feature_kind == FeatureKind::Feature) {
             const auto& p=container.feature;
             validate_feature_parameters(p);
-            if(p.type==FeatureType::Axis && feature_result_mesh(container).axes.empty())
+            if(p.type==FeatureType::Axis && feature_result_mesh(container).original_references.axes.empty())
                 throw std::invalid_argument("Axis end target is missing or outside the selected direction.");
             const auto sketch=std::ranges::find_if(sketches,[&](const auto& item){return item.id==p.sketch_id;});
             if(sketch==sketches.end())throw std::runtime_error("Extrusion references a missing Sketch");
@@ -9990,7 +9990,19 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                             (allow_persisted_external_target&&!target.reference.instance_path.empty()))),
                         target.fallback_origin,target.kind==EndTargetKind::Point?direction:target.fallback_normal,target.fallback_triangles};
                     if(allow_persisted_external_target)patch.target.reference.instance_path.clear();
+                    if(source.external_source) {
+                        const auto& external=*source.external_source;
+                        patch.target.datum=profile_target_is_datum(source.reference);
+                        patch.target.reference.instance_path.clear();
+                        if(!patch.target.datum) {
+                            if(external.source_face->kernel_shape.empty())throw std::runtime_error("The original extrusion target is unavailable.");
+                            auto local=source.reference;local.instance_path.clear();
+                            patch.native_source=std::make_shared<const zima::kernel::OrderedUpToSource>(
+                                zima::kernel::OrderedUpToSource{external.source_face,local,external.source_to_body});
+                        }
+                    }
                     if(!patch.target.datum&&!allow_persisted_external_target&&
+                            !patch.native_source&&
                             std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==target.reference.owner_id;}))
                         throw std::runtime_error("Extrusion target must belong to prior history or a datum plane");
                     if(row)patch.keep_previous_positive=settings.up_to.retained_side(source.reference,settings.targets[row-1].reference);
@@ -10106,7 +10118,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     } else if(!inactive&&settings.extrusion_extent==EndCondition::UpTo) {
                         request.mirror_forward_limit=p.symmetric&&side==1;
                         if(settings.targets.empty())throw std::runtime_error("Select at least one Feature end reference.");
-                        if(settings.targets.size()>1||settings.up_to.length_correction!=0)
+                        if(settings.targets.size()>1||settings.up_to.length_correction!=0||
+                            std::ranges::any_of(settings.targets,[](const auto& t){return t.external_source.has_value();}))
                             request.ordered_end_limit=ordered_limit(settings,false,request.direction);
                         else {
                         const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),allow_persisted_external_target,true);

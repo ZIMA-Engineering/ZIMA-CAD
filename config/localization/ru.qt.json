@@ -432,6 +432,7 @@
   "Délka zobrazení": "Длина отображения",
   "Typ výsledku": "Тип результата",
   "Tloušťka": "Толщина",
+  "Tloušťka skořepiny": "Толщина оболочки",
   "Symetricky": "Симметрично",
   "Strana tloušťky": "Сторона толщины",
   "Text před hodnotou": "Текст перед значением",
@@ -2636,5 +2637,7 @@
   "Korekce úhlu": "Коррекция угла",
   "Vrtací špička": "Сверлильный кончик",
   "Body os": "Точки осей",
-  "Zobrazit nebo skrýt body os a konstrukčních čar": "Показать или скрыть точки осей и вспомогательных кривых"
+  "Zobrazit nebo skrýt body os a konstrukčních čar": "Показать или скрыть точки осей и вспомогательных кривых",
+  "Invalid compressed document data.": "Недопустимые сжатые данные документа.",
+  "External extrusion targets must belong to a Skeleton Part.": "Внешние цели вытягивания должны принадлежать детали Skeleton."
 }

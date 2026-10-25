@@ -556,6 +556,11 @@ anchored. The shared properties-window implementation owns this layout policy.
   properties, or hover code paths. A user action may invoke OCCT only when it
   explicitly requests a body calculation such as Apply, OK, or model
   regeneration.
+- The exact Feature Up To draft requested by the user on 2026-10-23 is a
+  command-local exception: an explicit change of limits/correction may calculate
+  that pending operation privately. Debounce rapid edits, discard stale results
+  and preserve the document/Undo state. Opening unchanged Properties, inspection,
+  hover and unchanged OK still consume existing data without a kernel call.
 - Explicit Measurement and scalar analysis are an exception requested by the
   user on 2026-10-14. Ordinary modeling must not precompute expensive face areas
   solely for future inspection. Integrate requested missing scalar values from
@@ -619,8 +624,12 @@ anchored. The shared properties-window implementation owns this layout policy.
   where available; never substitute the untrimmed source geometry. Persist
   this source choice and follow the same body boundary on regeneration.
   Ordinary Sketch references select individual original edges/curves, points,
-  axes and datum planes, not whole body faces. Whole-face selection belongs to
-  the separate Face × Sketch-plane intersection command. Preserve existing
+  axes and datum planes. A certified planar body face may supply its infinite
+  straight support in the Sketch plane; it must not project the entire face
+  boundary. Individual analytic silhouette/generator curves remain separate
+  finite choices for Reference and Reference → contour. General whole-face
+  intersections belong to the separate Face × Sketch-plane command. This
+  restoration was explicitly requested by the user on 2026-10-23. Preserve existing
   stored face references and their geometry; restricting new entry does not
   authorize rewriting them. This exception does not change container placement.
 - Highlight only the exact candidate geometry. Do not colour, tint, or add a

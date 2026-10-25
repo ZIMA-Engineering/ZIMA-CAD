@@ -142,6 +142,8 @@ private:
     zima::kernel::ViewerReferenceGeometry reference_geometry_;
     std::string reference_document_id_;
     PreviewCallback preview_;
+    bool reference_update_{};
+    bool reference_preview_pending_{};
     bool enter_sketch_after_commit_{};
     std::function<void()> edit_pending_sketch_;
     std::optional<zima::kernel::DimensionLayout> holes_dimension_layout_;

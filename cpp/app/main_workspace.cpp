@@ -6117,6 +6117,10 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "sketch_external_constraints_ui_verification.inc"
 
 #include "sketch_junction_ui_verification.inc"
+#include "feature_history_ui_verification.inc"
+#include "component_source_ui_verification.inc"
+#include "skeleton_limit_ui_verification.inc"
+#include "reference_pick_performance_ui_verification.inc"
 #include "sketch_hv_view_ui_verification.inc"
 #include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
@@ -9643,6 +9647,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_ENDPOINT_ONLY")) return verify_sketch_equal_endpoint_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_VALUE_ONLY"))return verify_shell_value_label_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MULTISOLID_SHELL_UI_FILE")) return verify_multisolid_shell_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_DIMENSION_FILE")) return verify_sketch_external_dimension_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROLLED_L_FILE")) return verify_rolled_l_dimension_ui(application,test_directory);
@@ -9668,6 +9673,10 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROUNDED_TANGENT_WING_ONLY")) return verify_rounded_tangent_wing_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_LIMITS_ONLY")) return verify_profile_opening_limits(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_HISTORY_ONLY"))return verify_feature_history_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPONENT_SOURCES_ONLY"))return verify_component_source_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKELETON_LIMIT_ONLY"))return verify_skeleton_limit_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_REFERENCE_PICK_ONLY"))return verify_reference_pick_performance_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DRAG_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_ONLY")) return verify_profile_on_sheet(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_FRAME_ONLY")) return verify_sketch_return_frames(application,test_directory);

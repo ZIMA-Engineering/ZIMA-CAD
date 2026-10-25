@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../tree_expansion_state.hpp"
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/body_link_operations.hpp>
 #include <zima/document/body_origin_attachment.hpp>
@@ -42,26 +43,11 @@ void AssemblyWorkspaceWindow::activate_body(const std::string& id) {
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (!part) return;
     // Activation rebuilds the tree, but must not change the user's expansion choices.
-    const auto tree_key = [](QTreeWidgetItem* item) {
-        QStringList key;
-        for (; item; item = item->parent()) {
-            key.prepend(item->data(0, Qt::UserRole + 1).toString());
-            key.prepend(item->data(0, Qt::UserRole).toString());
-            key.prepend(item->data(0, Qt::UserRole + 3).toString());
-        }
-        return key;
-    };
-    std::map<QStringList, bool> expansion;
-    for (QTreeWidgetItemIterator it(tree_); *it; ++it)
-        expansion.emplace(tree_key(*it), (*it)->isExpanded());
+    const auto expansion=capture_tree_expansion(tree_);
     if(!workspace::activate_part_body(workspace_,workspace_.active_document_id(),id))return;
     viewer_->clear_selection();
     preserve_view_on_refresh_ = true; refresh_tabs(); refresh_scene();
-    const QSignalBlocker tree_signals(tree_);
-    for (QTreeWidgetItemIterator it(tree_); *it; ++it) {
-        const auto found = expansion.find(tree_key(*it));
-        if (found != expansion.end()) (*it)->setExpanded(found->second);
-    }
+    restore_tree_expansion(tree_,expansion);
 }
 
 void AssemblyWorkspaceWindow::insert_linked_body(const QString& requested_file) {

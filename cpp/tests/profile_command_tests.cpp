@@ -5,6 +5,7 @@
 #include <zima/document/file_path.hpp>
 #include <zima/document/feature_serialization.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/workspace/drawing_sources.hpp>
 #include <chrono>
 #include <iostream>
 #include <numbers>
@@ -468,6 +469,44 @@ void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
     require(std::stod(reopened.document_precision.at("sheet_cut_tolerance"))==.0125,"Native Part lost the Sheet Cut tolerance");
     near(tolerance_cache.back().volume,1176.);
 }
+void axis_model_visibility(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","axis-model-visibility"}});
+    const auto sketch=f.rectangle(-5,-5,10,10);document::FeatureParameters p;p.type=document::FeatureType::Axis;
+    const auto id=f.create_feature(sketch,p).at("container").get<std::string>();
+    require(!f.run("feature.get",{{"container",id}}).at("parameters").at("axis_visible_in_3d").get<bool>(),
+        "New Axis is not model-hidden in the CLI contract");
+    const auto encoded_geometry=[&] {
+        auto rows=Json::array();for(const auto& body:f.part().session.calculated_boundaries())rows.push_back(document::serialize_body_result(body));
+        return rows.dump();
+    };
+    const auto native_geometry=encoded_geometry();
+    int calculations=0;
+    for(bool visible:{true,false,true}) {
+        {workspace::CalculationExecutionScope count([&](auto action){++calculations;action();});
+         f.set_feature(id,[&](auto& values){values["axis_visible_in_3d"]=visible;});}
+        require(calculations==0,"Axis display toggle calculated geometry");
+        const auto* feature=f.doc().find_container(id);const auto shown=f.doc().feature_result_mesh(*feature);
+        require(shown.axes.size()==(visible?1:0)&&shown.original_references.axes.size()==1,
+            "Axis display toggle removed its native reference or ignored visibility");
+        require(encoded_geometry()==native_geometry,
+            "Axis display toggle changed calculated history or geometry");
+    }
+    const auto drawing_sources=workspace::drawing_annotation_sources(&f.live,f.doc().document_id,{});
+    require(std::ranges::any_of(drawing_sources,[&](const auto& source){return std::ranges::any_of(source.axes,[&](const auto& axis){return axis.reference.owner_id==id;});}),
+        "Axis is unavailable to Drawing annotations");
+    f.run("undo");require(!f.doc().find_container(id)->feature.axis_visible_in_3d,"Axis visibility Undo failed");
+    const auto hidden_sources=workspace::drawing_annotation_sources(&f.live,f.doc().document_id,{});
+    require(std::ranges::any_of(hidden_sources,[&](const auto& source){return std::ranges::any_of(source.axes,[&](const auto& axis){return axis.reference.owner_id==id;});}),
+        "Model-hidden Axis was removed from Drawing sources");
+    f.run("redo");f.run("save");
+    require(document::PartDocument::load(directory/"axis-model-visibility.prtz").find_container(id)->feature.axis_visible_in_3d,
+        "Axis model visibility did not survive native save/reopen");
+    const auto revision=f.part().session.revision();
+    f.set_feature(id,[](auto& values){values["axis_visible_in_3d"]=true;});
+    require(f.part().session.revision()==revision,"Unchanged Axis visibility created a transaction");
+    std::cout<<"Axis visibility CLI: default, toggles without calculation, exact native cache, Drawing sources, Undo/Redo and reopen passed\n";
+}
+
 void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-extrusion"}});
     const auto sketch=f.rectangle(-5,-10,10,20);
@@ -536,7 +575,29 @@ void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     f.run("undo");near(f.volume(),980);f.run("redo");near(f.volume(),960);
 }
 #include "profile_point_end_verification.inc"
+void up_to_corrections(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-target-corrections"}});
+    const auto upper=f.run("construction.create",{{"kind","plane"},{"name","Correction end"},{"base_plane","xy"},{"offset_mm",7}});
+    const auto sketch=f.rectangle(0,0,10,8);document::FeatureParameters parameters;
+    document::ExtrusionParameters::EndTarget target;target.reference={upper.at("entity"),"plane",{}};
+    parameters.sides[0].extrusion_extent=document::EndCondition::UpTo;parameters.sides[0].targets={target};
+    const auto id=f.create_feature(sketch,parameters).at("container").get<std::string>();
+    for(double correction:{1.,-1.,0.}) {
+        f.set_feature(id,[&](auto& p){p["sides"][0]["up_to"]={{"length_correction",correction},{"angle_correction_degrees",0},{"retained_patches",Json::array()}};});
+        near(f.volume(),(7+correction)*80);
+        near(f.doc().find_container(id)->feature.sides[0].up_to.length_correction,correction);
+    }
+    f.reject_feature(id,[](auto& p){p["sides"][0]["up_to"]={{"unexpected",1}};},"invalid_arguments");
+    auto locked=f.doc();locked.find_container(id)->value_locks.insert("side0_up_to_length_correction");
+    f.part().session.commit(std::move(locked),f.part().session.calculated_boundaries());
+    f.reject_feature(id,[](auto& p){p["sides"][0]["up_to"]={{"length_correction",1},{"angle_correction_degrees",0},{"retained_patches",Json::array()}};},"value_locked");
+    f.run("undo");f.run("undo");near(f.volume(),480);f.run("redo");near(f.volume(),560);f.run("save");
+    std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-target-corrections.prtz",&cache);
+    near(reopened.find_container(id)->feature.sides[0].up_to.length_correction,0);near(cache.back().volume,560);
+    std::cout<<"CLI Up To corrections: zero/nonzero, both signs, locks, atomic errors, Undo/Redo and native reopen passed\n";
+}
 void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
+    up_to_corrections(kernel,directory);
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-targets"}});
     const auto upper=f.run("construction.create",{{"kind","plane"},{"name","Upper"},{"base_plane","xy"},{"offset_mm",7}});
     const auto lower=f.run("construction.create",{{"kind","plane"},{"name","Lower"},{"base_plane","xy"},{"offset_mm",-3}});
@@ -554,7 +615,8 @@ void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
     f.run("construction.set",{{"construction",upper.at("construction")},{"offset_mm",9}});near(f.volume(),250*std::numbers::pi);
     f.run("regenerate");near(f.volume(),300*std::numbers::pi);
     near(f.doc().find_container(id)->feature.sides[0].targets.front().fallback_origin.z,9);
-    f.reject_feature(id,[](auto& p){auto t=p["sides"][0]["targets"][0];p["sides"][0]["targets"].push_back(t);},"missing_reference",{{"name","partial"}});
+    // Duplicate limits fail the existing definition validation before lookup.
+    f.reject_feature(id,[](auto& p){auto t=p["sides"][0]["targets"][0];p["sides"][0]["targets"].push_back(t);},"invalid_arguments",{{"name","partial"}});
     f.reject_feature(id,[](auto& p){p["sides"][0]["targets"][0]["key"]="missing";},"missing_reference");
     f.reject_feature(id,[](auto& p){p["sides"][0]["targets"][0]["instance_path"]="/unrelated";},"invalid_reference");
     f.reject_feature(id,[](auto& p){p["sides"][0]["targets"][0]["surprise"]=true;},"invalid_arguments");
@@ -804,6 +866,7 @@ int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_direct
     require(fs::create_directory(directory),"Cannot create fixture directory");
     if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
     kernel::OcctKernel kernel;
+    axis_model_visibility(kernel,directory);
     if(argc==2&&std::string_view(argv[1])=="--symmetric-endpoints") {symmetric_endpoint_references(kernel,directory);fs::remove_all(directory);std::cout<<"Symmetric endpoint references passed\n";return 0;}
     if(argc==2&&std::string_view(argv[1])=="--public-naming") {
         retired_profile_commands(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);revolution(kernel,directory);

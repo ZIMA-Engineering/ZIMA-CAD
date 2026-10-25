@@ -4,6 +4,12 @@
 #include <zima/document/metadata.hpp>
 #include <set>
 namespace zima::workspace {
+bool part_source_is_insertable(const PartState& part) {
+    if(!part.session.calculated_boundaries().empty()||assembly::is_skeleton_file(part.path))return true;
+    try{return part.session.document().kernel_operations().empty();}
+    catch(const std::invalid_argument&){return false;}
+    catch(const std::runtime_error&){return false;}
+}
 ComponentRemovalDependencies component_removal_dependencies(const assembly::AssemblyDocument& doc,const std::string& occurrence) {
     if(!doc.find_occurrence(occurrence))throw ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
     const auto uses=[&](const assembly::InstancePath& path){return !path.occurrence_ids.empty()&&path.occurrence_ids.front()==occurrence;};

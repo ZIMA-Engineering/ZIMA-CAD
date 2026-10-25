@@ -1121,6 +1121,8 @@ struct KernelRigidPlacement {
 };
 inline constexpr const char* kernel_body_compound = "ZIMA-BODY-COMPOUND-V1";
 
+struct KernelHistoryCache;
+
 struct BodyResult {
     // Ephemeral result of accepted automatic patch-side seeding. The owning
     // Feature persists these choices, so this is never required native storage.
@@ -1182,6 +1184,35 @@ struct BodyResult {
     // subtractive profile's remote cap. Scalar analysis reads these immutable
     // sources; ordinary modeling does not integrate their face areas.
     ImmutableVector<BodySnapshot> measurement_sources;
+    // Optional derived native history state. Authoring and display do not need
+    // it; explicit calculation restores it only for an exact algorithm/input key.
+    // The complete cache lives in the native document, never in a sidecar.
+    std::shared_ptr<const KernelHistoryCache> incremental_history;
+};
+
+struct KernelHistoryCopy {
+    BodySnapshot operand;
+    BodySnapshot source_caps;
+    BodySnapshot solid;
+    bool empty_material_operand{};
+    bool reference_only{};
+};
+
+struct KernelHistoryFrame {
+    std::string fingerprint;
+    BodySnapshot native_body;
+    std::vector<std::string> hidden_edges;
+    // Ordered new original-source layers, oldest first. Native bindings retain
+    // the actual identities of all faces, edges and points, including remote caps.
+    std::vector<BodySnapshot> original_layers;
+    std::shared_ptr<const ViewerReferenceGeometry> reference_delta;
+    std::optional<KernelHistoryCopy> copy_source;
+    bool original_edges_retained{};
+};
+
+struct KernelHistoryCache {
+    std::string algorithm;
+    ImmutableVector<KernelHistoryFrame> frames;
 };
 
 inline BodySnapshot::BodySnapshot() {

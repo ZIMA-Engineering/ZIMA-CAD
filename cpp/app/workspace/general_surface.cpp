@@ -155,6 +155,10 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(SweepPlacementDialog*
         }
         viewer_->set_transient_edges(std::move(mesh.edges));
     });
+    // Label validation runs immediately when the shared rows are bound. The
+    // owned editor must already expose its pending parent's local datum;
+    // the outer scene cannot resolve references to an uncommitted Loft.
+    primitive_reference_geometry_=document::general_surface_boundary_reference_geometry(carrier(parent->pending),stage,source_geometry);
     bind_local_origin_selection(dialog);
     if(parent->pending.feature_kind==document::FeatureKind::Loft) {
         // Initialize the shared rows from the owned Sketch parent datum.

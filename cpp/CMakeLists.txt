@@ -73,6 +73,7 @@ if(NOT TARGET Qt6::CorePrivate)
     find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
 endif()
 find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+find_package(ZLIB REQUIRED)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION
     "${OpenCASCADE_MAJOR_VERSION}.${OpenCASCADE_MINOR_VERSION}.${OpenCASCADE_MAINTENANCE_VERSION}")
@@ -289,7 +290,7 @@ target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
     PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json
-    PRIVATE OpenSSL::Crypto)
+    PRIVATE OpenSSL::Crypto ZLIB::ZLIB)
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
@@ -484,8 +485,36 @@ add_library(zima_kernel_occt
     modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/step_source_document.cpp
     modules/kernel_occt/src/occt_kernel.cpp)
+# Optional native continuation data belongs to this exact shared modeling code.
+# Normalize checkout newlines so Windows/Linux and Git-exported sources agree.
+file(GLOB_RECURSE ZIMA_HISTORY_ALGORITHM_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_occt/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_occt/src/*.inc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_occt/src/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_occt/include/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_api/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_api/src/*.inc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/kernel_api/include/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../tools/dependencies/vcpkg-ports/opencascade/*")
+list(APPEND ZIMA_HISTORY_ALGORITHM_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../tools/dependencies/occt-gauss-large-spans.patch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/modules/document_core/src/viewer_packet_json.cpp")
+list(SORT ZIMA_HISTORY_ALGORITHM_SOURCES)
+set(ZIMA_HISTORY_ALGORITHM_SIGNATURE "occt-8.0.1-history-v1")
+foreach(ZIMA_HISTORY_ALGORITHM_SOURCE IN LISTS ZIMA_HISTORY_ALGORITHM_SOURCES)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ZIMA_HISTORY_ALGORITHM_SOURCE}")
+    file(READ "${ZIMA_HISTORY_ALGORITHM_SOURCE}" ZIMA_HISTORY_ALGORITHM_CONTENT)
+    string(REPLACE "\r\n" "\n" ZIMA_HISTORY_ALGORITHM_CONTENT "${ZIMA_HISTORY_ALGORITHM_CONTENT}")
+    file(RELATIVE_PATH ZIMA_HISTORY_ALGORITHM_NAME "${CMAKE_CURRENT_SOURCE_DIR}" "${ZIMA_HISTORY_ALGORITHM_SOURCE}")
+    string(SHA256 ZIMA_HISTORY_ALGORITHM_ITEM "${ZIMA_HISTORY_ALGORITHM_CONTENT}")
+    string(APPEND ZIMA_HISTORY_ALGORITHM_SIGNATURE "${ZIMA_HISTORY_ALGORITHM_NAME}:${ZIMA_HISTORY_ALGORITHM_ITEM};")
+endforeach()
+string(SHA256 ZIMA_HISTORY_ALGORITHM_HASH "${ZIMA_HISTORY_ALGORITHM_SIGNATURE}")
+configure_file(modules/kernel_occt/src/kernel_history_version.hpp.in
+    generated/kernel_history_version.hpp @ONLY)
 target_include_directories(zima_kernel_occt PUBLIC
-    modules/kernel_occt/include)
+    modules/kernel_occt/include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(zima_kernel_occt
     PUBLIC zima_kernel_api
     PRIVATE TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo
@@ -827,7 +856,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_ai_contract COMMAND zima_ai_contract_tests -platform offscreen)
     set_tests_properties(zima_ai_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_cache_storage_contract_tests tests/cache_storage_contract_tests.cpp)
-    target_link_libraries(zima_cpp_cache_storage_contract_tests PRIVATE zima_document_core nlohmann_json::nlohmann_json)
+    target_link_libraries(zima_cpp_cache_storage_contract_tests PRIVATE zima_document_core nlohmann_json::nlohmann_json ZLIB::ZLIB OpenSSL::Crypto)
     add_test(NAME zima_cpp_cache_storage_contract_tests COMMAND zima_cpp_cache_storage_contract_tests)
 
     if(WIN32)
@@ -1231,6 +1260,9 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_NATIVE_CONTACT_SOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-koule-shared-arcs.json"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_executable(zima_cpp_sketch_keypoint_contact_tests tests/sketch_keypoint_contact_tests.cpp)
+    add_executable(zima_cpp_external_profile_target_tests tests/external_profile_target_tests.cpp)
+    target_link_libraries(zima_cpp_external_profile_target_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_external_profile_target_tests COMMAND zima_cpp_external_profile_target_tests)
     target_link_libraries(zima_cpp_sketch_keypoint_contact_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_sketch_keypoint_contact_tests COMMAND zima_cpp_sketch_keypoint_contact_tests)
     add_test(NAME zima_cpp_sketch_keypoint_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)

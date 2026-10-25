@@ -12,6 +12,8 @@ template<class Translate> void localize_parameter_value_labels(
         const auto& key=dimension.reference.semantic_key;
         const char* label=nullptr;
         if(key=="parameter:direction")label="Směr tažení";
+        else if(key=="parameter:thin_thickness")label="Tloušťka";
+        else if(key=="parameter:thickness")label="Tloušťka skořepiny";
         else if(key=="parameter:pitch")label="Stoupání";
         else if(key=="parameter:pattern:angle")label="Úhel pole";
         else if(key.starts_with("parameter:pattern:spacing:"))label="Rozteč pole";

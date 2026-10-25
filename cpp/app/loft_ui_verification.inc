@@ -72,14 +72,27 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         const std::array<const char*,5> languages{"cs","en","de","fr","ru"};
         const std::array<const char*,5> titles{"Vlastnosti přechodu","Loft Properties","Loft-Eigenschaften","Propriétés du lissage / Loft","Свойства перехода / Loft"};
         const std::array<const char*,5> profile_labels{"Skici profilů","Profile sketches","Profilskizzen","Esquisses de profil","Эскизы профилей"};
+        const std::array<const char*,5> thin_labels{"Tenkostěnný prvek","Thin feature","Dünnwandiges Formelement","Fonction à paroi mince","Тонкостенный элемент"};
         for(unsigned language=0;language<languages.size();++language) {
             QSettings settings(translations.filePath("config.ini"),QSettings::IniFormat);
             settings.setValue("Application/Language",languages[language]);
             settings.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));settings.sync();
-            apply_application_translations(application,ApplicationSettings::load(translations.path()));
+            check(settings.value("Application/Language").toString()==languages[language],"Loft language fixture was not written");
+            const auto localized_settings=ApplicationSettings::load(translations.path());
+            if(localized_settings.qt_translations.value("Vlastnosti přechodu")!=QString::fromUtf8(titles[language]))
+                throw std::runtime_error("Loft title catalog is not loaded for "+std::string(languages[language])+
+                    ": loaded language='"+localized_settings.language.toStdString()+"', localization='"+
+                    localized_settings.resolved_paths.value("Localization").toStdString()+"', value='"+
+                    localized_settings.qt_translations.value("Vlastnosti přechodu").toStdString()+"', local config='"+
+                    localized_settings.local_config_path.toStdString()+"', config='"+
+                    localized_settings.config_path.toStdString()+"'");
+            apply_application_translations(application,localized_settings);
             action->trigger();flush();auto* dialog=editor();check(dialog,"Localized Loft creation did not open");
             if(language==0)check(action->text()==QString::fromUtf8("Přechod"),"Czech menu does not use Přechod");
-            check(dialog->windowTitle()==QString::fromUtf8(titles[language]),"Loft title is not translated");
+            if(dialog->windowTitle()!=QString::fromUtf8(titles[language]))throw std::runtime_error(
+                "Loft title is not translated for "+std::string(languages[language])+": expected '"+
+                titles[language]+"', got '"+dialog->windowTitle().toStdString()+"'");
+            check(dialog->findChild<QComboBox*>("loftResultType")->itemText(1)==QString::fromUtf8(thin_labels[language]),"Loft thin result is not translated");
             bool found=false;for(auto* label:dialog->findChildren<QLabel*>())found|=label->text()==QString::fromUtf8(profile_labels[language]);
             check(found,"Loft profile section is not translated");
             check(dialog->parentWidget()==&window&&dialog->windowType()==Qt::SubWindow,"Loft did not reuse internal Properties");
@@ -91,6 +104,8 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         const auto opening_scene=view->base_mesh_revision();
         action->trigger();flush();auto* dialog=editor();check(dialog,"Loft dialog missing");
         check(view->base_mesh_revision()==opening_scene+1,"Loft opening published an unused intermediate scene");
+        check(dialog->pending.loft.profiles.empty()&&dialog->pending.loft.guides.empty()&&dialog->pending.loft.sketches.empty(),
+            "Loft creation inserted unrequested owned Sketches");
         for(const auto& owned:dialog->pending.loft.sketches)for(const auto& ref:owned.sketch_feature->placement.references)
             check(ref.owner_id==dialog->pending.container_origin.id,"New profile defaults to Body Origin");
         const auto id=dialog->pending.id;auto* profile_table=dialog->findChild<QTableWidget*>("loftProfiles");
@@ -102,6 +117,15 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
         check(output_type->mapTo(dialog,QPoint(0,0)).y()>guide_table->mapTo(dialog,QPoint(0,guide_table->height())).y()&&
               output_type->mapTo(dialog,QPoint(0,0)).y()<operation->mapTo(dialog,QPoint(0,0)).y(),"Loft output type is not above operation below the lists");
         check(operation&&operation->mapTo(dialog,QPoint(0,0)).y()>guide_table->mapTo(dialog,QPoint(0,guide_table->height())).y(),"Loft operation is not below both Sketch lists");
+        field(profile_table,0,3);flush();
+        auto* initial_child=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("generalSurfaceSketchProperties"));
+        check(initial_child&&initial_child->first_empty_position_index()==3,"New owned Sketch lacks its default Loft Origin");
+        for(auto* table:initial_child->findChildren<QTableWidget*>())for(int row=0;row<table->rowCount();++row)
+            for(int column=0;column<table->columnCount();++column)
+                if(auto* item=dynamic_cast<ui::ReferenceCellItem*>(table->item(row,column)))
+                    check(!item->is_missing(),"New owned Sketch marks its available pending parent datum as missing");
+        initial_child->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(window.execute_console_command("documents").data==initial,"Adding/canceling an owned Sketch committed the Part");
         dialog->pending.loft.profiles.clear();dialog->pending.loft.guides.clear();dialog->pending.loft.sketches.clear();
         for(unsigned i=0;i<5;++i) {
             auto value=document::create_general_surface_sketch(dialog->pending);

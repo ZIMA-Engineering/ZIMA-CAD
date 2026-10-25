@@ -65,6 +65,7 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
                     target.reference = {value.at("owner"), value.at("key"),
                                         value.at("instance_path")};
                     target.label = value.at("label");
+                    if(value.contains("external_source"))target.external_source=load_external_profile_target(value.at("external_source"));
                     target.fallback_origin = {value.at("origin").at(0),
                         value.at("origin").at(1), value.at("origin").at(2)};
                     target.fallback_normal = {value.at("normal").at(0),
@@ -273,6 +274,7 @@ void save_profile_parameters(const HistoryContainer& container, nlohmann::json& 
                         {"normal", {target.fallback_normal.x,
                             target.fallback_normal.y, target.fallback_normal.z}},
                         {"triangles", std::move(triangles)}});
+                    if(target.external_source)result.back()["external_source"]=serialize_external_profile_target(*target.external_source);
                 }
                 return result;
             };

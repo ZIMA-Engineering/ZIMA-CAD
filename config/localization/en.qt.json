@@ -432,6 +432,7 @@
   "Délka zobrazení": "Display length",
   "Typ výsledku": "Result type",
   "Tloušťka": "Thickness",
+  "Tloušťka skořepiny": "Shell thickness",
   "Symetricky": "Symmetric",
   "Strana tloušťky": "Thickness side",
   "Text před hodnotou": "Text before value",
@@ -2636,5 +2637,7 @@
   "Korekce úhlu": "Angle correction",
   "Vrtací špička": "Drill Point",
   "Body os": "Axis points",
-  "Zobrazit nebo skrýt body os a konstrukčních čar": "Show or hide points of axes and construction curves"
+  "Zobrazit nebo skrýt body os a konstrukčních čar": "Show or hide points of axes and construction curves",
+  "Invalid compressed document data.": "Invalid compressed document data.",
+  "External extrusion targets must belong to a Skeleton Part.": "External extrusion targets must belong to a Skeleton Part."
 }

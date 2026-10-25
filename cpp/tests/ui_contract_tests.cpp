@@ -634,10 +634,11 @@ void verify_container_frame_dialog(QWidget& parent) {
     const document::ConstructionReference f{{},doc.document_id+":origin","origin:plane:xy",0,true};
     const document::ConstructionReference g{{},doc.document_id+":origin","origin:plane:xz",0,true};
     const document::ConstructionReference n{{},doc.document_id+":origin","origin:plane:yz",0,true};
-    for (const auto& sequence : {std::vector{e,f,p},std::vector{f,e,p},std::vector{p,e,f},std::vector{f,g,n}}) {
+    for (const auto& sequence : {std::vector{e,f,p},std::vector{f,e,p},std::vector{p,e,f},std::vector{g,f,n}}) {
         auto sketch=sketcher::Sketch::create_default();
         app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
         dialog.set_reference_geometry(geometry);
+        const auto enter_references=[&] {
         for(std::size_t i=0;i<sequence.size();++i) {
             auto baseline=dialog.placement_seed();baseline.references=dialog.references_without(i);
             require(document::resolve_placement(baseline,geometry),"Dialog baseline lost its frame");
@@ -647,11 +648,15 @@ void verify_container_frame_dialog(QWidget& parent) {
             else if(ref.semantic_key!=p.semantic_key)document::assign_container_orientation_role(ref,baseline.references);
             require(dialog.set_reference(i,ref,"Source"),"Dialog rejected ordered reference");
         }
+        };
+        if(sequence==std::vector{g,f,n}) {
+            const auto origin_entry=dialog.whole_origin_entry_scope();enter_references();
+        } else enter_references();
         const auto pending=dialog.pending_value();auto solved=pending.second;
         require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
         require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
             "Sketch/Bend/Flat/Holes dialog lost TOP");
-        const auto expected_plane=sequence==std::vector{f,g,n}
+        const auto expected_plane=sequence==std::vector{g,f,n}
             ?sketcher::SketchPlane::XY:sketcher::SketchPlane::XZ;
         require(pending.first.plane_auto&&pending.first.plane==expected_plane,"Dialog lost the automatic FRONT/whole-Origin work plane");
         // A positional replacement must remove its own automatic twin from
@@ -729,12 +734,15 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     references.push_back({"straight",kernel::solid_state_child_key("feature","generated:vertex:from:profile"),{}});
     for(std::size_t i=0;i<references.size();++i) {
         kernel::ViewerMesh mesh;mesh.vertices={{-1,-1,0},{1,1,0}};
-        mesh.points.push_back({{0,0,0},references[i]});mesh.original_references.points=mesh.points;
-        mesh.points.back().construction=i==5;
-        view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
+        mesh.points.push_back({{0,0,0},references[i]});mesh.points.back().construction=i==5;
+        mesh.original_references.points=mesh.points;
+        view.clear_selection();view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
         application.processEvents();
-        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
-            (i==0||i==references.size()-1)?QColor(0,0,0):(i==4||i==5)?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
+        const auto frame=view.grabFramebuffer();
+        const auto expected=(i==0||i==references.size()-1)?QColor(0,0,0):i==4?viewer::view_theme(view.palette()).foreground:QColor(173,110,46);
+        const bool correct=framebuffer_contains_color_near(frame,view.size(),{250,180},expected,8);
+        if(!correct)std::cerr<<"Point colour fixture index="<<i<<" reference="<<references[i].semantic_key<<" expected="<<expected.name().toStdString()<<" framebuffer="<<frame.width()<<"x"<<frame.height()<<'\n';
+        require(correct,
             "Main Origin and construction/feature/occurrence points have incorrect base colours");
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
