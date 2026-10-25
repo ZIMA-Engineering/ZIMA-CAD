@@ -79,11 +79,11 @@ def notes(v,lang):
     texts=[dict(text=v['standard']+' · '+v['names'][lang],x_mm=190,y_mm=height-22,height_mm=2.3)]
     for j,(symbol,values) in enumerate(labels):
         texts.append(dict(text=symbol+' — '+values[i],x_mm=190 if j%2==0 else 103,y_mm=height-28-5*(j//2),height_mm=2.1))
-    detail=('Jmenovitý CAD tvar · nezadané úhly 70° · schematický závit.',
-        'Nominal CAD shape · unspecified angles selected as 70° · schematic thread.',
-        'Nennmaß-CAD-Form · nicht angegebene Winkel mit 70° gewählt · schematisches Gewinde.',
-        'Forme CAO nominale · angles non spécifiés choisis à 70° · filetage schématique.',
-        'Номинальная форма САПР · неуказанные углы приняты 70° · условная резьба.')
+    detail=('Jmenovitý CAD tvar · horní sklon 70° · tečný kořenový oblouk · schematický závit.',
+        'Nominal CAD shape · 70° upper flank · tangent root arc · schematic thread.',
+        'Nennmaß-CAD-Form · obere Flanke 70° · tangentialer Wurzelbogen · schematisches Gewinde.',
+        'Forme CAO nominale · flanc supérieur 70° · arc de pied tangent · filetage schématique.',
+        'Номинальная форма САПР · верхний наклон 70° · касательная корневая дуга · условная резьба.')
     texts.append(dict(text=detail[i],x_mm=190,y_mm=height-42,height_mm=2.1))
     return dict(locale=lang,texts=texts)
 

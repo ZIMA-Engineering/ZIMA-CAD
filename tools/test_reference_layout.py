@@ -103,10 +103,10 @@ class LogicalReferences(unittest.TestCase):
                     self.assertIn(f'<html lang="{lang}">',text)
                     for figure in topic.get('figures',[]):
                         self.assertLess(text.index('<figure'),text.index('<table>'))
-        # 281 original logical tables, three special cap-screw families and
-        # the separate DIN 1587 cap-nut family. Two reviewed weld-nut families
-        # replace one retired historical table in the visible library.
-        self.assertEqual(pages,286)
+        # Keep the finite count synchronized with every reviewed visible topic,
+        # including the later cap, coupling, flange, wheel, insert-lock,
+        # pressed-wing, formed-nose and spherical-washer additions.
+        self.assertEqual(pages,293)
         self.assertGreater(sections,pages)
 
     def test_analytical_examples_and_unit_factors(self):

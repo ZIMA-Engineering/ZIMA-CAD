@@ -76,16 +76,19 @@ int verify_spring_washer_ui(QApplication& application,const std::filesystem::pat
             for(std::size_t i=0;i<view->mesh().dimensions.size();++i)if(view->mesh().dimensions[i].reference.owner_id==candidate.owner_id&&view->mesh().dimensions[i].reference.semantic_key==candidate.semantic_key)candidate.geometry_index=i;
             auto label=view->candidate_dimension_label_position(candidate);check(label.has_value(),"Washer diameter label missing");
             if(cap_nut||weld||shaped) {
-                // The crown's H glyph overlaps the lower end of the rotated
-                // R label. Exercise an exposed part of the same visible text,
-                // without bypassing the ordinary shared picking order.
+                // Nearby profile dimensions can overlap either end of a
+                // rotated label. Exercise an exposed part of the same visible
+                // text without bypassing the ordinary shared picking order.
                 const auto center=*label;bool exposed=false;
-                for(int dy:{0,-3,-6,-9,-12}) {
-                    const auto point=center+QPoint(0,dy);
-                    const auto offered=view->selection_candidates_at(point);
-                    if(!offered.empty()&&offered.front().kind==candidate.kind&&
-                        offered.front().owner_id==candidate.owner_id&&offered.front().semantic_key==candidate.semantic_key) {
-                        label=point;exposed=true;break;
+                for(int distance:{0,3,6,9,12,15}) {
+                    for(int dx=-distance;dx<=distance&&!exposed;dx+=3)for(int dy=-distance;dy<=distance&&!exposed;dy+=3) {
+                        if(distance&&std::max(std::abs(dx),std::abs(dy))!=distance)continue;
+                        const auto point=center+QPoint(dx,dy);
+                        const auto offered=view->selection_candidates_at(point);
+                        if(!offered.empty()&&offered.front().kind==candidate.kind&&
+                            offered.front().owner_id==candidate.owner_id&&offered.front().semantic_key==candidate.semantic_key) {
+                            label=point;exposed=true;
+                        }
                     }
                 }
                 check(exposed,"Cap dimension text has no directly selectable exposed position");

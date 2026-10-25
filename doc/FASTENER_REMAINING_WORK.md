@@ -72,12 +72,13 @@ or move its source tag.
   256-case native matrix, 64 additional base-centre drag cases and actual-file
   GUI checks pass. See [verification](verification/20261020-equal-circle-dimension-edits.md)
   for independent equations, repeated edits, persistence and coverage gaps.
-- The user remodeled `PWN-CSN021665-M10.0.prtz` interactively: symmetric wing
-  placement and inward root rounding, contained by the central hub. Preserve the
-  user's changed asset and compare its authored history against Git before
-  revising the generator or restoring dimension-dependent Relations. The user
-  removed the driving dimension Relations because deleting an Fx dimension
-  prevented Save; the saved copy retains its mass and stock expressions.
+- The user's interactively remodeled `PWN-CSN021665-M10.0.prtz` is the accepted
+  reference for all six pressed-wing sizes: symmetric wing placement, inward
+  root rounding contained by the hub, and only valid mass/stock Relations. The
+  generated suite preserves that geometry and adds a construction-only tangent
+  driver so every profile is fully constrained and repeatedly editable. Windows
+  native geometry, drag, Undo/Redo and save/reopen verification is recorded in
+  [the pressed-wing verification](verification/20261026-pressed-wing-symmetric-roots.md).
 - Approved desired missing-Relations behavior: preserve authored source, skip
   unavailable dimension assignments and dependent expressions, identify affected
   rows, and still evaluate independent valid physical parameters during Save.

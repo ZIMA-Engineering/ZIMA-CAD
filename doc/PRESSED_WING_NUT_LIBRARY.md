@@ -9,8 +9,9 @@ The source archive and facsimile identities are recorded in
 R1 is the wing's crown arc. The hub meridian uses the excerpt's R2, called R5
 in the combined archived table. The new table uses the excerpt's h for overall
 height and p for hub height; the combined archived table remains unchanged.
-Unspecified upper and lower flank angles are selected as 70 degrees. The
-lower concave wing arc is derived from the retained native tangent contact.
+The upper flank angle omitted by the table is selected as 70 degrees. The
+lower concave wing arc is tangent and follows the user's accepted symmetric
+M10 root pattern; its exact tangent direction is retained per size.
 These nominal CAD choices are documented in all five localized reference pages;
 they do not establish a complete manufacturing specification.
 
@@ -23,9 +24,10 @@ The wing's two arcs share one native point and a tangent constraint, without a
 duplicate coincidence. A construction tangent controls the lower flank angle.
 The hub has a distinct native centerline for the Revolution.
 
-Relations retain dependent hub/wing contact dimensions, extrusion position and
-thickness, cutter extents, opening length and derived stock. Explicit Regenerate
-calculates `mass = model.mass`. Steel density is 7,850 kg/m3; indicative archive
+Only the valid derived expressions remain: `mass = model.mass` and stock from
+the thread designation and pitch. Removed Fx dimensions are not recreated by
+stale dependent Relations. The authored wing, hub, taper and opening dimensions
+remain independently editable. Steel density is 7,850 kg/m3; indicative archive
 weights are not copied or used to tune geometry/density.
 
 ## Periodic seam investigation
@@ -52,9 +54,10 @@ positive-landing experiment remain rejected and are not factory assets.
 ## Finite Windows verification
 
 - All six baseline Parts contain one connected valid solid with expected seat,
-  span, height, bore and crown cylinders. Adaptive BRep volume agrees with the
-  physical cache at 1e-8 relative; an independent nominal-section integral uses
-  the established one-ppm factory criterion.
+  span, height, bore and crown cylinders. The physical cache agrees with the
+  Gauss-Kronrod BRep integral at 1e-10 relative; the adaptive and Gauss-Kronrod
+  integrals agree at 2e-8. An independent nominal-section integral retains the
+  established one-ppm factory criterion on the final nominal assets.
 - All six sizes passed 35 successive edits each: eleven drivers changed twice
   and restored, then a fine thread and the original thread. Every step checks
   Undo/Redo, explicit Regenerate, reference identity, dependent equations,
@@ -72,8 +75,10 @@ positive-landing experiment remain rejected and are not factory assets.
 - Five localized HTML/image pages, A4 selectable-text output, printable bounds
   and the unchanged combined historical table passed the reference tools.
 
-Receipts are under `build/pressed-wing-seam-reviewed-*`,
-`build/pressed-wing-drawing-check-v1` and `build/pressed-wing-page-render.log`.
+Current conversion and edit receipts are under
+`build/pressed-wing-user-pattern-all-v1` and
+`build/pressed-wing-user-pattern-all-verify-v4`; drawing, GUI and page receipts
+are generated beside them before promotion.
 The installer validates their source hashes, GUI results, Drawing identities,
 projection directions and thumbnails before adding factory files. It refuses
 different existing assets and does not overwrite custom user libraries.

@@ -306,11 +306,13 @@ static int run_fastener_contract_tests(int argc,char** argv) {
                 near(x0,-span/2,"Pressed wing negative span");near(x1,span/2,"Pressed wing positive span");
                 near(y0,-base/2,"Pressed hub negative radius");near(y1,base/2,"Pressed hub positive radius");
                 near(z0,0,"Pressed wing seating plane");near(z1,h,"Pressed wing overall height");
-                GProp_GProps volume;BRepGProp::VolumeProperties(shape,volume,1e-12);
+                GProp_GProps volume,gk;BRepGProp::VolumeProperties(shape,volume,1e-12);
+                BRepGProp::VolumePropertiesGK(shape,gk,1e-12,false,true);
                 require(volume.Mass()>0&&result.physical_properties_current,"Pressed wing physical properties missing");
-                require(std::abs(result.volume-volume.Mass())<1e-8*volume.Mass(),"Pressed wing cached mass integral differs from adaptive BRep integral");
-                near(volume.Mass(),expected.at("independent_volume_mm3"),"Pressed wing independent nominal-section integral");
-                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-volume.Mass()*expected.at("density_kg_mm3").get<double>())<=.50001e-6,
+                require(std::abs(result.volume-gk.Mass())<1e-10*gk.Mass(),"Pressed wing cached mass integral differs from Gauss-Kronrod BRep integral");
+                require(std::abs(volume.Mass()-gk.Mass())<2e-8*gk.Mass(),"Pressed wing adaptive and Gauss-Kronrod BRep integrals diverge");
+                near(gk.Mass(),expected.at("independent_volume_mm3"),"Pressed wing independent nominal-section integral");
+                require(std::abs(std::stod(doc.user_parameter_values.at("mass").at(""))-gk.Mass()*expected.at("density_kg_mm3").get<double>())<=.50001e-6,
                     "Pressed wing BOM mass is stale");
                 bool bore=false,crown=false;
                 for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {

@@ -286,10 +286,10 @@ evidence; do not restart them as new features. Follow the point-junction and
 dimension/edit/drag matrix rules in AGENTS.md.
 
 The user data in `1000.prtz` and `L30X30X3` must be re-identified from current
-files before further reproduction; use private test copies. Preserve the user's
-modified `PWN-CSN021665-M10.0.prtz`, its artwork, `ZE-TEXT.symz`, metadata and
-other uncommitted work. The release factory verification uses the accepted Git
-definitions separately. Interoperability bookmarks are in
+files before further reproduction; use private test copies. The pressed-wing
+M3–M10 factory suite now follows the user's accepted symmetric M10 root pattern.
+Continue to preserve unrelated `ZE-TEXT.symz`, metadata and other uncommitted
+work. Interoperability bookmarks are in
 [external resources](EXTERNAL_RESOURCES.md).
 
 Disk space is limited. The 2026-10-22 cleanup removed only two superseded unsigned
