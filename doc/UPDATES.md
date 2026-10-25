@@ -1,5 +1,17 @@
 # Application updates
 
+
+Signed Windows [2026102501](releases/2026102501.md#windows-publication-acceptance)
+was published on 2026-10-25 from immutable source
+`3546e4dc108aa52e929b53534d493e5c7f581843`. Feature-Origin coordinate values,
+view-relative H/V, Sketch hover/construction points, authored copy wires and
+Mirror completion are verified with the converted native libraries. Candidate
+and signed native smoke each load 1,185 factory assets; all 20 packaged GUI
+suites, 7,355 resource comparisons, 17,345 signed checksums, production trust and
+three anonymous public downloads pass. Trusted 2403 offers 2501 without installing
+it during verification. Shared C++, OCCT 8.0.1, Qt 6.11.0 and the development BAT
+remain. The linked finite interaction, diagnostic-path and Linux gaps are explicit.
+
 Signed Windows [2026102403](releases/2026102403.md#windows-publication-acceptance)
 was published at `2026-10-24T15:43:25Z` from immutable source
 `033f709d00e43c2a0a7a84a433a3561b6590a464`, using OCCT 8.0.1 and Qt 6.11.0.

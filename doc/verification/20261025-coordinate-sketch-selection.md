@@ -96,3 +96,16 @@ have not been repeated here. Existing broad OCCT upgrade baseline failures
 recorded in the preceding release are not claimed as repaired. Windows packaging,
 portable GUI/native smoke, committed resource identity, signatures and public
 publication are separate release gates.
+
+## Packaged Windows publication
+
+Signed Windows [2026102501](../releases/2026102501.md#windows-publication-acceptance)
+passes the separate archive, dependency, native smoke, production-trust,
+20 packaged GUI-suite, exact source/resource, public-download and previous-version
+update-discovery gates. Private source files are not published or overwritten by
+these acceptance checks.
+
+The extended Sketch mouse diagnostic fixtures use ASCII work directories.
+Their older `path.string()`/UTF-8 conversions prevented the complete matrix in
+Unicode fixture directories; that variant is explicitly unverified. Unicode
+package extraction, native CLI/model/export smoke and ordinary GUI startup pass.

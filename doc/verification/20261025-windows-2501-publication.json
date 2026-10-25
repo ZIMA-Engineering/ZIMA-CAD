@@ -1,0 +1,170 @@
+{
+  "version": "2026102501",
+  "source_commit": "3546e4dc108aa52e929b53534d493e5c7f581843",
+  "published_at": "2026-10-25T01:25:56Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102501",
+  "archive_sha256": "ef1162fa81a0393adecd1f2fa5de02e91e5870c847b091b55ad80cd4e2fa1c25",
+  "archive_size": 1071588934,
+  "native_factory_authoring_roundtrips": 1185,
+  "native_regression_fixture_roundtrips": 36,
+  "native_factory_loads_per_package_smoke": 1185,
+  "candidate_gui": [
+    {
+      "name": "hv",
+      "exit": 0,
+      "seconds": 69.06299999999464
+    },
+    {
+      "name": "coordinate-editor",
+      "exit": 0,
+      "seconds": 35.875
+    },
+    {
+      "name": "copy-save",
+      "exit": 0,
+      "seconds": 2.235000000000582
+    },
+    {
+      "name": "axes",
+      "exit": 0,
+      "seconds": 12.171000000002095
+    },
+    {
+      "name": "selection",
+      "exit": 0,
+      "seconds": 2.8910000000032596
+    },
+    {
+      "name": "hover",
+      "exit": 0,
+      "seconds": 54.671999999991385
+    },
+    {
+      "name": "loft",
+      "exit": 0,
+      "seconds": 5.48399999999674
+    },
+    {
+      "name": "templates",
+      "exit": 0,
+      "seconds": 2.0780000000086147
+    },
+    {
+      "name": "corner-form",
+      "exit": 0,
+      "seconds": 35.5
+    },
+    {
+      "name": "form",
+      "exit": 0,
+      "seconds": 79.67199999999139
+    }
+  ],
+  "signed_gui": [
+    {
+      "name": "hv",
+      "exit": 0,
+      "seconds": 70.0
+    },
+    {
+      "name": "coordinate-editor",
+      "exit": 0,
+      "seconds": 36.921999999991385
+    },
+    {
+      "name": "copy-save",
+      "exit": 0,
+      "seconds": 2.625
+    },
+    {
+      "name": "axes",
+      "exit": 0,
+      "seconds": 13.75
+    },
+    {
+      "name": "selection",
+      "exit": 0,
+      "seconds": 3.3280000000086147
+    },
+    {
+      "name": "hover",
+      "exit": 0,
+      "seconds": 62.625
+    },
+    {
+      "name": "loft",
+      "exit": 0,
+      "seconds": 7.4689999999973224
+    },
+    {
+      "name": "templates",
+      "exit": 0,
+      "seconds": 2.202999999994063
+    },
+    {
+      "name": "corner-form",
+      "exit": 0,
+      "seconds": 37.65700000000652
+    },
+    {
+      "name": "form",
+      "exit": 0,
+      "seconds": 81.2960000000021
+    }
+  ],
+  "immutable_signed_checksums": 17345,
+  "exact_signed_factory_resource_comparisons": 7355,
+  "native_production_trust": true,
+  "authenticated_draft_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102501.zip",
+      "size": 1071588934,
+      "sha256": "ef1162fa81a0393adecd1f2fa5de02e91e5870c847b091b55ad80cd4e2fa1c25"
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "d89f8c3fef3f511cd3358903e7baaa1935ed61adec5b6d8fe8e38ce794a8234e"
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "a388d045a09ed99224c99270da71e3750fd516e80f4a68f3d45442de73471bdd"
+    }
+  ],
+  "anonymous_public_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102501.zip",
+      "size": 1071588934,
+      "sha256": "ef1162fa81a0393adecd1f2fa5de02e91e5870c847b091b55ad80cd4e2fa1c25",
+      "anonymous_public_download": true
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "d89f8c3fef3f511cd3358903e7baaa1935ed61adec5b6d8fe8e38ce794a8234e",
+      "anonymous_public_download": true
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "a388d045a09ed99224c99270da71e3750fd516e80f4a68f3d45442de73471bdd",
+      "anonymous_public_download": true
+    }
+  ],
+  "previous_update_check": {
+    "installedVersion": "2026102403",
+    "availableVersion": "2026102501",
+    "installable": true,
+    "installation_performed": false,
+    "launcher_and_settings_unchanged": true
+  },
+  "development_gui_cli_updater_identical_to_signed": true,
+  "development_launcher": "zima-cad.bat",
+  "verification_limits": [
+    "Native Linux execution not performed on this Windows host.",
+    "Previously documented broad OCCT baseline failures are not claimed fixed.",
+    "Complete nested Assembly and trim interaction matrices not repeated.",
+    "Legacy extended GUI diagnostic helpers prevented the complete Sketch mouse matrix in Unicode fixture directories; ASCII fixture directories were used. Unicode archive extraction, native CLI/model/export smoke and GUI startup passed."
+  ]
+}
