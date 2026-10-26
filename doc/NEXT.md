@@ -1,6 +1,6 @@
 # Development follow-ups and historical design notes
 
-## Current work index - 2026-10-22
+## Current work index - 2026-10-26
 
 Use [current project status](PROJECT_STATUS.md) for implemented capabilities,
 development changes awaiting release and the actual remaining queue. Family Table,
@@ -10,18 +10,24 @@ and document Undo/Redo already exist. Their former foundation requests are not
 new TODOs. Detailed dated notes below preserve design context and verification
 ideas; they do not override the current contracts or newer user instructions.
 
-Finish current corrections and verified Windows release first. The user's
-2026-10-22 next-session order is recorded below and takes precedence over older
-queue notes. The ordered Up To surface chain and signed correction, surface projection, File
-Manager prototypes, remaining library studies, FEM, direct meshes and voice/pointer
-context retain the scope and order in the [current queue](FASTENER_REMAINING_WORK.md).
-Two-part locking nuts and STEP-derived Sketch offsets are outside that scope.
+Finish committed-source packaging, signing and public verification for Windows
+2026102601 first. Its current scope is the unpublished 2502 correction batch,
+native history/storage work, external-Skeleton limits, corrected pressed wing
+nuts and the measured Skeleton-edit optimization. The warm changed confirmation
+is 4.627 seconds and is not presented as the requested one-second target; see
+the [current status](PROJECT_STATUS.md) and
+[measurement](performance/20261026-skeleton-history-edit.md).
+
+After release, newly reported product defects retain priority. Remaining library
+studies, Sketch Projection, File Manager prototypes, FEM, direct meshes and
+voice/pointer context retain their documented scope. Two-part locking nuts and
+STEP-derived Sketch offsets remain outside that scope.
 
 These accumulated design notes include historical stages. Check current focused
 contracts and [ROADMAP.md](../ROADMAP.md) before selecting work; newer explicit
 user instructions and completed native features supersede older pending items.
 
-## Latest correction checkpoint - 2026-10-22
+## Historical correction checkpoint - 2026-10-22
 
 The reported `0101.prtz` objects remain native circles. The
 [reference-circle picking correction](verification/20261022-coincident-reference-circle-picking.md)
@@ -37,7 +43,7 @@ The current Windows archive remains unchanged until committed-source package
 acceptance. Continue ordered multi-face Up To/correction after its separately
 required native-contract approval, then the recorded Projection/H/V queue.
 
-## Restart handoff - 2026-10-22
+## Historical restart handoff - 2026-10-22
 
 Windows 2026102201 is now [public and accepted](releases/2026102201.md#windows-publication-acceptance)
 from `a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. The final signed/archive/public-download and previous-updater

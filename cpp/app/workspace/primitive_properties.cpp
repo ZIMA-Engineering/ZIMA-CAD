@@ -687,7 +687,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     };
     const auto update_owned_profile_context_preview = [this,dialog,owner_id](
             zima::document::PartDocument& preview_document,
-            const zima::document::HistoryContainer& preview) {
+            const zima::document::HistoryContainer& preview,
+            bool resolve_now = true) {
         const bool extrusion = preview.feature_kind ==
             zima::document::FeatureKind::Extrusion;
         const auto sketch_id = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.sketch_id : extrusion ? preview.extrusion.sketch_id
@@ -723,7 +724,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         plane.offset = sketch->plane_offset;
         plane.reference_valid = true;
         preview_document.constructions.push_back(plane);
-        preview_document.resolve_constructions(primitive_reference_geometry_);
+        if(resolve_now)
+            preview_document.resolve_constructions(primitive_reference_geometry_);
         // Body resolution replaces the document, including the Sketch vector.
         sketch = std::find_if(preview_document.sketches.begin(), preview_document.sketches.end(),
             [&](const auto& value) { return value.id == sketch_id; });
@@ -1522,6 +1524,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 const auto* original=owner?owner->session.document().find_container(pending.id):
                     assembly_owner->session.document().find_cut(pending.id)?&assembly_owner->session.document().find_cut(pending.id)->definition:nullptr;
                 bool unchanged=original&&pending==*original;
+                const bool frame_unchanged=original&&
+                    original->feature_kind==zima::document::FeatureKind::Feature&&
+                    original->placement==preview.placement&&
+                    original->feature.profile_source==preview.feature.profile_source&&
+                    original->feature.sketch_id==preview.feature.sketch_id&&
+                    original->feature.profile_plane_offset==preview.feature.profile_plane_offset;
                 if(unchanged&&property_owned_sketch_draft_) {
                     const auto saved=std::ranges::find(document.sketches,property_owned_sketch_draft_->id,&zima::sketcher::Sketch::id);
                     unchanged=saved!=document.sketches.end()&&saved->serialized()==property_owned_sketch_draft_->serialized();
@@ -1533,10 +1541,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     if(found==document.sketches.end())document.sketches.push_back(*property_owned_sketch_draft_);
                     else *found=*property_owned_sketch_draft_;
                 }
-                prepare_owned_profile_preview(document,preview);
+                // Register the pending profile and its display plane first,
+                // then resolve their common reference inputs once below.
+                prepare_owned_profile_preview(document,preview,false);
                 const auto profile=std::ranges::find(document.sketches,preview.feature.sketch_id,&zima::sketcher::Sketch::id);
                 if(profile!=document.sketches.end())extent_drag_baseline->profile_plane=profile->plane;
-                update_owned_profile_context_preview(document,preview);
+                // Length, thickness and operation changes do not move the
+                // already resolved owned Sketch. Reuse that exact persisted
+                // frame; placement/profile-frame edits still run the complete
+                // resolver before publishing their preview.
+                update_owned_profile_context_preview(document,preview,!frame_unchanged);
                 const zima::kernel::ViewerMesh* input=nullptr;
                 if(part_rollback_ && part_rollback_->part_document_id==owner_id && part_rollback_->input_body)
                     input=&part_rollback_->input_body->mesh;

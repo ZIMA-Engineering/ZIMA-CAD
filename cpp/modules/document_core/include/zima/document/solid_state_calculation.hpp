@@ -6,8 +6,8 @@
 
 namespace zima::document {
 inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_operations(
-        const document::PartDocument& doc,const std::vector<kernel::BodyResult>* previous,bool recover_errors=true) {
-    auto operations=doc.kernel_operations(false,recover_errors);
+        const document::PartDocument& doc,const std::vector<kernel::BodyResult>* previous,
+        std::vector<kernel::HistoryOperation> operations,bool recover_errors=true) {
     if(!std::ranges::any_of(operations,[](const auto& op) {
         return std::holds_alternative<kernel::FeatureGroupRequest>(op.primitive)&&kernel::solid_state_candidate(op);
     }))return operations;
@@ -51,15 +51,29 @@ inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_op
     }
     return operations;
 }
+inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_operations(
+        const document::PartDocument& doc,const std::vector<kernel::BodyResult>* previous,bool recover_errors=true) {
+    return combined_solid_state_calculation_operations(
+        doc,previous,doc.kernel_operations(false,recover_errors),recover_errors);
+}
 // Resolve a state's earlier dependencies in an isolated document. The public
 // history keeps the frames valid at their original boundaries; only the state's
 // kernel replay receives these target-frame primitives.
 inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
-        const document::PartDocument& document,const std::vector<kernel::BodyResult>* calculated,bool recover_errors=true) {
-    auto operations=document.kernel_operations(false,recover_errors);
+        const document::PartDocument& document,const std::vector<kernel::BodyResult>* calculated,
+        std::vector<kernel::HistoryOperation> operations,bool recover_errors=true) {
     if(std::ranges::any_of(operations,[](const auto& op) {
         return std::holds_alternative<kernel::FeatureGroupRequest>(op.primitive)&&kernel::solid_state_candidate(op);
-    }))return combined_solid_state_calculation_operations(document,calculated,recover_errors);
+    })) {
+        // Combined profile sides alone do not need a second identical
+        // kernel-operation build. Only an actual solid-state replay can add
+        // calculated reference views or replacement placements.
+        if(std::ranges::none_of(operations,[](const auto& op) {
+            return std::holds_alternative<kernel::SolidStateRequest>(op.primitive);
+        }))return operations;
+        return combined_solid_state_calculation_operations(
+            document,calculated,std::move(operations),recover_errors);
+    }
     if(!calculated||calculated->empty()||calculated->back().solid_state_reference_views.empty())return operations;
     const auto authored=calculated->back().mesh.original_references;
     for(auto& state:operations) {
@@ -112,6 +126,11 @@ inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
             std::make_shared<const std::vector<kernel::HistoryOperation>>(std::move(replacements));
     }
     return operations;
+}
+inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
+        const document::PartDocument& document,const std::vector<kernel::BodyResult>* calculated,bool recover_errors=true) {
+    return solid_state_calculation_operations(document,calculated,
+        document.kernel_operations(false,recover_errors),recover_errors);
 }
 
 

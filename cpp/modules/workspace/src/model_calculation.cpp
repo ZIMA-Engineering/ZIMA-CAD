@@ -149,6 +149,8 @@ calculate_part_reference_state(
     refresh_cached_external_profile_target_frames(document);
     std::vector<zima::kernel::BodyResult> calculated;
     const auto* incremental_source = previous;
+    bool may_reuse_local_sketch_references=
+        policy.reuse_unchanged_local_sketch_references;
     // A downstream container may reference geometry produced by another
     // downstream container.  Each pass advances that dependency chain by one
     // history boundary; the final unchanged pass proves that the calculated
@@ -177,6 +179,11 @@ calculate_part_reference_state(
         return frames;
     };
     for (std::size_t pass = 0; pass < pass_limit; ++pass) {
+        const auto history_before = document.history;
+        const auto constructions_before = document.constructions;
+        const auto bodies_before = document.body_history.bodies();
+        const auto flat_profiles_before=attached_flat_profiles();
+        const auto sketch_frames_before=sketch_frames();
         auto phase_start=std::chrono::steady_clock::now();
         const auto phase=[&](const char* name) {
             const auto now=std::chrono::steady_clock::now();
@@ -191,11 +198,6 @@ calculate_part_reference_state(
         for(const auto& boundary:calculated)if(!boundary.resolved_up_to_limits.empty())for(auto& feature:document.history)
             if(feature.feature_kind==document::FeatureKind::Feature&&!boundary.calculation_errors.contains(feature.id))
                 static_cast<void>(document::resolve_feature_up_to_choices(feature.feature,feature.id,feature.feature_id,boundary.resolved_up_to_limits));
-        const auto history_before = document.history;
-        const auto constructions_before = document.constructions;
-        const auto bodies_before = document.body_history.bodies();
-        const auto flat_profiles_before=attached_flat_profiles();
-        const auto sketch_frames_before=sketch_frames();
         // Saved centroids use this pass's actual input boundary, before any
         // downstream placement consumes the refreshed frame. No kernel call.
         // Persist the native retained boundary only after successful explicit
@@ -210,33 +212,70 @@ calculate_part_reference_state(
                 if(keys.size()==1)feature.surface_trim.retained_region_key=*keys.begin();
             }
         document::refresh_body_properties(document,calculated);
-        auto reference_geometry=construction_resolution_geometry(document,calculated);
-        const auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
-            document::solid_state_reference_views(document,calculated.back(),reference_geometry);
-        phase("reference preparation");
-        document.resolve_constructions(std::move(reference_geometry),state_views);
-        phase("reference resolution");
+        bool unchanged_source_prefix=(policy.reuse_unchanged_local_sketch_references ||
+            policy.reuse_unchanged_reference_resolution) && previous&&
+            calculated.size()==previous->size()&&!calculated.empty()&&
+            policy.edited_history_limit&&*policy.edited_history_limit+1==document.history.size();
+        for(std::size_t index=0;unchanged_source_prefix&&index+1<calculated.size();++index)
+            unchanged_source_prefix=calculated[index].source_fingerprint==
+                previous->at(index).source_fingerprint;
+        std::optional<std::vector<kernel::HistoryOperation>> unchanged_operations;
+        const bool last_operation_proven=unchanged_source_prefix&&
+            !policy.unchanged_last_operation_owner.empty()&&
+            document.history[*policy.edited_history_limit].id==
+                policy.unchanged_last_operation_owner;
+        if(unchanged_source_prefix&&!last_operation_proven) {
+            auto operations=group_solid_state_cached_operations(document,&calculated);
+            unchanged_source_prefix=operations.size()==calculated.size()&&
+                operations.back().owner_id==document.history[*policy.edited_history_limit].id;
+            if(unchanged_source_prefix)unchanged_operations=std::move(operations);
+        }
+        const bool unchanged_reference_inputs = document.history==history_before &&
+            document.constructions==constructions_before &&
+            document.body_history.bodies()==bodies_before &&
+            attached_flat_profiles()==flat_profiles_before &&
+            sketch_frames()==sketch_frames_before;
+        const bool reuse_reference_resolution=
+            policy.reuse_unchanged_reference_resolution &&
+            unchanged_source_prefix && unchanged_reference_inputs;
+        if(!reuse_reference_resolution) {
+            auto reference_geometry=construction_resolution_geometry(document,calculated);
+            const auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
+                document::solid_state_reference_views(document,calculated.back(),reference_geometry);
+            phase("reference preparation");
+            document.resolve_constructions(std::move(reference_geometry),state_views);
+            phase("reference resolution");
+        }
         // A changed placement describes the next geometry pass. Projecting
         // this pass's old source mesh into that new Sketch frame can create
         // a false constraint conflict while the dependency chain is settling.
         if(document.history!=history_before||document.constructions!=constructions_before||
             document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before||
             sketch_frames()!=sketch_frames_before) {
+            may_reuse_local_sketch_references=false;
             incremental_source=&calculated;continue;
         }
-        const bool external_references_changed =
+        const bool reuse_local_sketch_references=
+            may_reuse_local_sketch_references&&unchanged_source_prefix;
+        const bool external_references_changed = reuse_local_sketch_references?false:
             refresh_sketch_external_references(document, calculated,&kernel);
         const bool drill_points_changed =
             prune_missing_drill_point_references(document, calculated);
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
+        const auto current_fingerprint=[&] {
+            if(unchanged_operations)
+                return kernel::history_fingerprint(*unchanged_operations,calculated.size());
+            return kernel::history_fingerprint(
+                group_solid_state_cached_operations(document,&calculated),calculated.size());
+        };
         if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed &&
             attached_flat_profiles()==flat_profiles_before && sketch_frames()==sketch_frames_before &&
             document.history == history_before &&
             document.constructions == constructions_before &&
             document.body_history.bodies() == bodies_before &&
-            (calculated.empty() || calculated.back().source_fingerprint ==
-                kernel::history_fingerprint(group_solid_state_cached_operations(document,&calculated),calculated.size()))) {
+            (calculated.empty() || reuse_reference_resolution || calculated.back().source_fingerprint ==
+                current_fingerprint())) {
             if(!document.sections.empty()){
                 auto geometry=construction_reference_source_geometry(calculated);
                 append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);

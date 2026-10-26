@@ -1,5 +1,15 @@
 # C++ performance measurements
 
+The 2026-10-26 [Skeleton history-edit investigation](performance/20261026-skeleton-history-edit.md)
+measures the reported final Thin Feature on a 26-operation user Skeleton. It
+confirms that the native history cache is useful: a warm edit restores 25
+unchanged operations and calculates one. The current Windows Release sample
+opens Properties in 1.46--1.61 s, updates the draft in 134--139 ms and confirms
+the repeated thickness edit in 4.63 s. A cold first confirmation after the
+calculation identity changed took 32.03 s. Exact reference invalidation,
+Undo/Redo and save/reopen remain enabled; the linked record identifies the
+remaining OCCT and scene-publication costs and the separate Linux gap.
+
 The October 14 follow-ups are included in signed Windows
 [2026101401](releases/2026101401.md#signed-windows-publication), with fresh
 committed-source packaging, signed-package GUI/native checks and public/update

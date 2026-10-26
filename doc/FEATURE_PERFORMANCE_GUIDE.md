@@ -157,6 +157,10 @@ separately from those checks. The finite large-import evidence is in the
   independent fresh-calculation equivalence checks.
 - [Adaptive native storage compression](performance/20261025-native-storage-compression.md):
   keep exact data, validate the complete stream and measure opening as well as size.
+- [Skeleton history editing](performance/20261026-skeleton-history-edit.md):
+  retain the exact native prefix, skip reference work only after comparing all
+  actual projection and dependency inputs, and measure cold invalidation,
+  repeated confirmation, draft interaction, Undo/Redo and native reopen.
 
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

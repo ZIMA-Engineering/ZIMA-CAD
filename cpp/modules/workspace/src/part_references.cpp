@@ -169,10 +169,12 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
 bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries,const kernel::OcctKernel* explicit_kernel) {
-    bool has_sketches=!document.sketches.empty()||!document.sections.empty();
-    if(!has_sketches)for(const auto& feature:document.history)
-        document::visit_feature_sketches(feature,[&](const auto&,std::size_t){has_sketches=true;});
-    if(!has_sketches) {
+    bool has_external_references=false;
+    visit_document_sketches(document,[&](const auto& sketch) {
+        has_external_references=!sketch.external_references.empty();
+        return !has_external_references;
+    });
+    if(!has_external_references) {
         // Preserve retirement of stale errors, but do not copy a complete body
         // reference packet when no native or embedded Sketch can consume it.
         const bool changed=!document.reference_errors.empty();
@@ -236,6 +238,7 @@ bool refresh_sketch_external_references(
     const auto before=document.reference_errors;
     std::map<std::string,std::string> errors;
     const bool changed=update_document_sketches(document,[&](auto& sketch) {
+        if(sketch.external_references.empty())return false;
         // Refresh is transactional per Sketch. A failed later profile must not
         // invalidate the successfully calculated predecessors that drive it.
         try {
@@ -257,6 +260,9 @@ bool refresh_sketch_external_references(
 bool prune_missing_drill_point_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& boundaries) {
+    if(std::ranges::none_of(document.history,[](const auto& feature) {
+            return feature.feature_kind==zima::document::FeatureKind::DrillPoint;
+        }))return false;
     bool changed = false;
     const auto operations = document.kernel_operations(false,true);
     for (std::size_t index = 0; index < operations.size(); ++index) {

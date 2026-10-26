@@ -119,7 +119,7 @@ const auto restore_native_prefix=[&](std::size_t count) {
         while(live_cache_->copy_source_order.size()>kLiveShapeCacheLimit) {
             live_cache_->copy_sources.erase(live_cache_->copy_source_order.front());live_cache_->copy_source_order.pop_front();
         }
-        while(live_cache_->copy_reference_order.size()>8) {
+        while(live_cache_->copy_reference_order.size()>kLiveShapeCacheLimit) {
             live_cache_->copy_references.erase(live_cache_->copy_reference_order.front());live_cache_->copy_reference_order.pop_front();
         }
         while(live_cache_->insertion_order.size()>kLiveShapeCacheLimit) {

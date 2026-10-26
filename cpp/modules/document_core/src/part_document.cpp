@@ -196,6 +196,31 @@ void append_reference_geometry(
     target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
 }
 
+void append_reference_geometry(
+    zima::kernel::ViewerReferenceGeometry& target,
+    zima::kernel::ViewerReferenceGeometry&& source) {
+    const auto vertex_offset = static_cast<std::uint32_t>(target.vertices.size());
+    target.vertices.insert(target.vertices.end(),
+        std::make_move_iterator(source.vertices.begin()),
+        std::make_move_iterator(source.vertices.end()));
+    target.triangles.reserve(target.triangles.size() + source.triangles.size());
+    for (const auto index : source.triangles) {
+        target.triangles.push_back(vertex_offset + index);
+    }
+    target.triangle_references.insert(target.triangle_references.end(),
+        std::make_move_iterator(source.triangle_references.begin()),
+        std::make_move_iterator(source.triangle_references.end()));
+    target.edges.insert(target.edges.end(),
+        std::make_move_iterator(source.edges.begin()),
+        std::make_move_iterator(source.edges.end()));
+    target.points.insert(target.points.end(),
+        std::make_move_iterator(source.points.begin()),
+        std::make_move_iterator(source.points.end()));
+    target.axes.insert(target.axes.end(),
+        std::make_move_iterator(source.axes.begin()),
+        std::make_move_iterator(source.axes.end()));
+}
+
 zima::kernel::ViewerReferenceGeometry reference_geometry_delta(
     const zima::kernel::ViewerReferenceGeometry& current,
     const zima::kernel::ViewerReferenceGeometry& previous) {
@@ -5948,6 +5973,8 @@ void PartDocument::resolve_constructions(
         append_reference_geometry(source_geometry, origin_viewer_mesh().original_references);
         append_reference_geometry(source_geometry, body_origin_reference_geometry());
         for (const auto& original_body : body_history.bodies()) {
+            const bool final_body = original_body.scope.id ==
+                body_history.bodies().back().scope.id;
             auto body = *next.body_history.find(original_body.scope.id);
             boundary_references.enter(body.scope.id,source_geometry);
             auto carrier = next.body_document(body.scope.id);
@@ -6039,9 +6066,10 @@ void PartDocument::resolve_constructions(
             // the full source packet for Body placement and later branches,
             // but do not transform/copy it into a carrier with no consumers.
             if (!independent_imports) {
-                auto local_geometry = transform_reference_geometry(source_geometry,
+                auto local_geometry = transform_reference_geometry(
+                    final_body ? std::move(source_geometry) : source_geometry,
                     body.scope.translation(), body.scope.rotation_degrees());
-                append_reference_geometry(local_origin,local_geometry);
+                append_reference_geometry(local_origin,std::move(local_geometry));
                 local_views=boundary_views;
                 for(auto& [entry,view]:local_views)view.geometry=transform_reference_geometry(
                     std::move(view.geometry),body.scope.translation(),body.scope.rotation_degrees());
@@ -6067,7 +6095,7 @@ void PartDocument::resolve_constructions(
             // The final branch has no subsequent reference consumer. Its
             // resolved definitions are already stored in next; do not assemble
             // an unused full reference packet solely to discard it on return.
-            if(original_body.scope.id==body_history.bodies().back().scope.id)continue;
+            if(final_body)continue;
             // Publish freshly resolved datum frames for the next branch.
             // They precede older snapshots of the same frame during lookup.
             auto resolved = next.body_document(body.scope.id);

@@ -28,6 +28,19 @@ struct PartCalculationPolicy {
     std::string edited_document_id;
     std::optional<std::size_t> edited_history_limit;
     bool refresh_physical_properties{};
+    // The editing command proved that every local Sketch projection frame and
+    // its persisted external-reference state are unchanged. The settling
+    // calculation still verifies an identical calculated source prefix before
+    // reusing those projections.
+    bool reuse_unchanged_local_sketch_references{};
+    // The editing command proved that no persisted placement, construction,
+    // Sketch or later history object consumes the edited last feature. Once
+    // the calculation also proves an identical source prefix, the document's
+    // already resolved reference state remains current.
+    bool reuse_unchanged_reference_resolution{};
+    // Nonempty only when the command proved that the edited last definition
+    // still produces the same single native operation owner.
+    std::string unchanged_last_operation_owner;
 };
 
 // Validated new definitions and already failed features retain their native

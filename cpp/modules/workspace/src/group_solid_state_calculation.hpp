@@ -19,7 +19,8 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
     const bool grouped=std::ranges::any_of(operations,[](const auto& op) {
         return std::holds_alternative<kernel::FeatureGroupRequest>(op.primitive)&&kernel::solid_state_candidate(op);
     });
-    if(!grouped)return document::solid_state_calculation_operations(doc,previous);
+    if(!grouped)return document::solid_state_calculation_operations(
+        doc,previous,std::move(operations));
     if(!std::ranges::any_of(operations,[](const auto& op) {
         return !op.suppressed&&std::holds_alternative<kernel::SolidStateRequest>(op.primitive);
     }))return operations;

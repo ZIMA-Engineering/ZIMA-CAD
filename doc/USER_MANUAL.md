@@ -406,6 +406,15 @@ calculation. OK replaces the existing definition and evaluates following history
 Cancel restores the unchanged state. Both remove transient overlays and return
 normal selection/full-history display while preserving the camera.
 
+Native Parts store exact calculated history boundaries in the document. When an
+edit leaves an earlier boundary unchanged, the calculation can continue from
+that validated boundary instead of replaying the whole Body. A changed source,
+placement, external reference or calculation implementation invalidates reuse.
+The first confirmation after such a change may therefore be slower; later edits
+can reuse the newly calculated prefix. No required model data lives in an
+external cache. See [cache storage](CACHE_STORAGE.md) and the measured
+[Skeleton edit record](performance/20261026-skeleton-history-edit.md).
+
 ### Solid operations
 
 Feature Properties expose **+ Add** and **− Subtract** where the feature supports

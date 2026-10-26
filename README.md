@@ -33,7 +33,7 @@ OpenCASCADE 8.0+, and nlohmann_json 3.11+. On Windows, use the pinned vcpkg setu
 ./zima-cad.bat -w Projects
 ```
 
-Linux `linux-runtime-*` presets use the native SDK under `build/native-sdk/occt-8.0.0`;
+Linux `linux-runtime-*` presets use the native SDK under `build/native-sdk/occt-8.0.1`;
 the historical preset names do not imply a Python runtime. Provision the native
 Qt/OCCT dependencies on the supported Linux host before configuring. Follow the [Linux handoff](doc/LINUX_RELEASE_HANDOFF.md)
 on Linux to select compatible native Qt/OCCT dependencies and verify the build.
@@ -56,11 +56,13 @@ a Linux runtime. User configuration and projects live outside version directorie
 See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
-The latest accepted signed Windows release is
-[2026102401](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102401).
-It upgrades the shared OCCT kernel to 8.0.1; Windows package, signature, GUI,
-public downloads and trusted updater discovery are verified.
-See its [verification and limits](doc/releases/2026102401.md).
+The latest published signed Windows release before the current candidate is
+[2026102501](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102501).
+Its Windows package, signature, GUI, public downloads and trusted updater
+discovery are verified. The current `2026102601` candidate retains the shared
+OCCT 8.0.1 pin and is described in its
+[release record](doc/releases/2026102601.md); that record does not claim
+publication until the signed assets and public downloads pass.
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

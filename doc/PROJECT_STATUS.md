@@ -1,59 +1,32 @@
 # Current project status
 
-The 2026-10-24 Loft follow-up completes parent-local owned Sketch placement,
-missing-reference snapshots, owned parameter identifiers and numeric helper
-labels. See [the follow-up verification](verification/20261024-loft-parent-origin.md)
-and [Windows 2403](releases/2026102403.md) for finite acceptance and publication.
+Reviewed on 2026-10-26 against the current shared C++ implementation, focused
+native/GUI contracts and the live GitHub release list. Dated proposals and
+historical release records remain evidence for their original scope; they are
+not the current feature backlog.
 
-## OCCT 8.0.1 Windows release — 2026-10-24
+## Current release boundary
 
-The shared kernel pin is updated to 8.0.1. Windows Debug/Release SDK and complete
-application/test builds pass. The 317-case run has 275 passes and 42 failures;
-all 42 reproduce on the current implementation with OCCT 8.0.0. They remain
-open. Analytical integration, selected GUI and representative timing checks pass;
-see [the finite upgrade record](verification/20261024-occt-801-upgrade.md).
-Windows 2026102401 portable/signing/publication acceptance passes; native
-Linux verification requires its host. No document format or factory asset is
-changed for the kernel upgrade.
+Signed Windows [2026102501](releases/2026102501.md#windows-publication-acceptance)
+is the latest published stable build before the current candidate. It was
+published from immutable source `3546e4dc108aa52e929b53534d493e5c7f581843`
+with Qt 6.11.0 and OCCT 8.0.1. Candidate and signed smoke, all 1,185 factory
+native assets, the finite packaged GUI matrix, production trust, public asset
+digests and trusted updater discovery passed. Native Linux execution remains a
+separate host requirement.
 
-After that Windows release, the requested standalone **Loft** command uses
-planar 2D Sketch inputs only: profiles in the upper list, guide Sketches below.
-The native implementation and GUI now use owned 2D Sketches with shared Sketch
-Properties, Solid/Thin/Surface results, persistence and Undo/Redo. It remains
-distinct from the existing Sweep profile transitions and is not included in the
-immutable 2401 package. See [Loft](LOFT.md) and its
-[finite verification](verification/20261024-loft.md).
+Build `2026102601` is the current Windows candidate. It includes the previously
+tagged but unpublished 2502 junction/selection batch, native history
+continuation and adaptive lossless native storage, external-Skeleton limits,
+corrected pressed wing nuts and the measured Skeleton edit optimization. See
+the [release record](releases/2026102601.md) and
+[performance evidence](performance/20261026-skeleton-history-edit.md). The
+record does not claim publication until signed packaging and public verification
+pass.
 
-Reviewed on 2026-10-24 against the current C++ implementation, focused feature
-guides, verification records and public GitHub release. This is the current
-capability index. Dated design proposals in the roadmap and development notes
-must not be read as a list of features still missing today.
-
-Signed Windows [2026102401](releases/2026102401.md#windows-publication-acceptance)
-was published at `2026-10-24T07:47:19Z` from immutable source
-`2bbbb08b02f09c7880753a5f90ff5ba9e289e057`, using OCCT 8.0.1 and Qt 6.11.0.
-All 20 candidate and 16 fresh signed GUI scenarios pass. Both native smoke runs
-load all 1,185 factory native documents. Exact source/resources,
-17,305 immutable installed checksums, all 28 packaged OCCT DLL
-hashes, production trust, complete authenticated and anonymous downloads, and
-trusted 2303 updater discovery pass. No update installation is claimed.
-The broader upgrade matrix retains 42 failures reproduced with OCCT 8.0.0;
-see [the finite upgrade evidence](verification/20261024-occt-801-upgrade.md).
-Native Linux execution remains unverified on this Windows host.
-
-Signed Windows [2026102303](releases/2026102303.md#windows-publication-acceptance)
-was published at `2026-10-23T22:45:07Z` from immutable source `96c89fd2e73ad04b64327ac6b0c648aec6b99443`.
-It includes linked corner-radius editing and zero collapse, planar Reference
-and straight Intersection dimensions, multi-solid Shell, consistent mirrored
-Thin profiles, copied construction axes/centerlines, camera/text orientation
-and transparency-independent hidden-edge display. All 20 candidate and
-16 fresh signed GUI scenarios pass. Both native smoke runs load 1,185
-factory documents; 7,353 exact resource comparisons and
-17,301 immutable checksums pass. Production trust, all authenticated
-and anonymous downloads and trusted 2301 update discovery pass. No update
-installation is claimed. Native formats, private user data and the development
-BAT are preserved; native Linux execution remains separate host work. Linked
-finite coverage limits apply.
+Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
+This candidate changes neither the native format version nor the protected
+container-placement, geometry-side, reference-identity or precision contracts.
 
 ## Available implementation
 
@@ -82,124 +55,58 @@ Linux verification. The linked guides give supported cases and finite checks.
 
 Family Table is therefore an existing feature, not a future implementation task.
 
-Windows 2026102301 also provides **Intersection → reference** and
-**Intersection → contour** in Sketcher. They select bounded native face/Sketch-plane
-branches and persist their exact source/branch definitions. Certified circles and
-arcs remain native conics. See the [finite editor matrix and limits](verification/20261022-sketch-intersection-editor.md).
-The approved curve/Sketch-plane extension adds isolated associative points from
-native Sketch and authored 3D curves, with conservative branch validation and
-authoritative unsaved Assembly sources. Rounded Sketch Mirror and intrinsic
-radius annotation deletion are included in signed Windows 2026102301; see the
-[point/mirror record](verification/20261023-curve-plane-points-and-rounded-mirror.md).
-Windows portable acceptance is recorded above. Sketch Projection and
-view-relative H/V remain separate queued work.
-The [2000.prtz follow-up](verification/20261023-2000-reference-and-up-to-corrections.md)
-records correction-wire, tangent-chain and intersection-reference fixes
-included in signed Windows 2026102301 after native and GUI verification.
-Its linked editing and single-parent-file workflow were already included in
-[Windows 2026091508](releases/2026091508.md); later work extends and verifies it.
-Six old standalone primitives are removed; current modeling uses the Feature
-and profile workflows rather than the former primitive commands.
+Current Sketcher includes the signed Intersection reference/contour, associative
+curve/Sketch-plane points, view-relative H/V, rounded Mirror and junction work
+described by the linked verification records. Six old standalone primitives
+remain removed; current Part modeling uses the unified Feature and profile
+workflows. Historical acceptance details remain in their immutable release
+records rather than being repeated here.
 
-## Latest released correction batch
+## Current correction batch
 
-Signed Windows [2026102201](releases/2026102201.md#windows-publication-acceptance)
-was published at `2026-10-22T13:49:48Z` from immutable source
-`a49735ec42d3442a5d1bb0c29a0eb94c7c568e04`. It includes original preview-wire selection, aligned profile/Origin
-entry, stable side reversal and numeric Direction/Relations, negative arithmetic
-length/angle input, Revolution grip limits, Sketch entry/inspection corrections,
-axis-based Opening direction, partial-bottom Drill Points and the accepted Sketch
-command grouping/icons. Candidate and signed native smoke load all 1,185 factory
-assets. Fourteen candidate and seven fresh signed GUI scenarios,
-7,353 exact factory resource comparisons,
-17,224 signed immutable checksums, production trust,
-all authenticated draft downloads and all anonymous public downloads pass.
-Trusted 2004 offers the update without installation. The native factory/template
-refresh is included; private user files and the development BAT are preserved.
-Linked diagnostic-path, finite geometry/GUI and native Linux limits remain explicit.
+The 2601 candidate's Skeleton work is deliberately narrow. A pure last-Feature
+thickness edit can reuse an exact 25-operation prefix and unchanged local
+reference state. Placement, profile-frame, external-document, multi-Body,
+Boolean, Section and downstream-reference cases keep the complete resolution
+path. The final GUI test passed two edits, draft isolation, Undo/Redo and native
+save/reopen. The warm confirmation is 4.627 seconds, so the desired one-second
+confirmation target is not claimed. See the
+[measured limits](performance/20261026-skeleton-history-edit.md).
 
-The preceding [2026102004](releases/2026102004.md) release remains immutable;
-its accepted library/mass and other historical verification are preserved in
-that release record. Newer verification does not erase earlier rejected probes.
-
-Post-release development restricts [ordinary Sketch Reference entry](verification/20261022-individual-sketch-reference-entry.md)
-to individual geometry and repairs [Fillet on connected segments of one original curve](verification/20261022-connected-fillet-curves.md),
-verified on isolated copies of `2000.prtz`. These corrections are in the current
-local build and source, not retroactively in the immutable 2201 archive.
-The subsequent [symmetric Feature endpoint correction](verification/20261022-symmetric-feature-endpoints.md)
-completes shared operational junctions through existing Boolean ancestry and
-repairs the variable Fillet radius law across a complete multi-edge rail.
-Focused native, real mouse/GUI, FORM GUI and localization checks pass. An older
-standalone FORM test has separate archive-reader/fixture assumptions under audit;
-the verification record preserves that failure and release-baseline comparison.
-
-The approved [native source-binding extension](verification/20261022-sketch-intersection-source-bindings.md)
-now supplies cold open-solid intersection ancestry and preserves bindings through
-rigid placement and derived copies. Its 108-case matrix, factory refresh and all
-1,185 read-only native loads pass. All 137 Drawings pass reference/regeneration
-comparison against the released runtime without rewriting their factory files.
-The subsequent editor commands, native branch association and manipulation checks are implemented; see the [finite editor matrix](verification/20261022-sketch-intersection-editor.md). Windows portable publication is accepted in 2026102301.
-The subsequent [coincident reference-circle picking correction](verification/20261022-coincident-reference-circle-picking.md)
-removes artificial display-chord crossings while retaining native circles/arcs.
-Its 392-case native matrix, reported `0101.prtz` pairs, mouse checks and all five
-languages in both themes pass. A separate [preselected circular C input fix](verification/20261022-preselected-circle-coincidence.md)
-passes the existing saved-equation GUI regression. Both are local post-release
-changes; the immutable 2201 archive is unchanged.
+The 2502 source tag was not published as a GitHub release. Its changes are
+superseded by 2601; the historical [2502 record](releases/2026102502.md) remains
+the finite junction/selection evidence. Published 2501 and every older signed
+release remain immutable.
 
 ## Still unfinished or planned
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Completed in Windows 2026102301 with English documentation, all five UI languages, commit/push and verified signed publication. Further new defects retain priority. |
+| Current correction/release batch | Build, sign and publish Windows 2026102601 only after its committed-source, factory, archive, trust and public-download gates pass. Linux remains separate. |
+| Skeleton interaction | Properties opening is 1.46--1.61 s and draft editing 0.134--0.139 s in the measured fixture. Warm changed OK is 4.627 s, not the requested one second. Further work must preserve exact output and likely requires immutable/shared viewer packets rather than weaker calculation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
-| Sketch intersection references | Native source/branch association and both editor commands are implemented and verified in the documented finite matrix, including repeated edits, native persistence and GUI entry. Windows portable publication is accepted in 2026102301; arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
-| View-relative H/V | Requested display/input mapping for 90-degree turns and view flips; retain the internal geometric constraints and persisted meanings. |
-| Multiple Up To faces and correction | Approved native extension and shared Feature tables are implemented. Convex/concave limits, directed retained patches, signed length/angle corrections, native Part/Assembly cuts, Relations/locks and GUI entry pass focused regressions. Factory refresh and signed Windows portable acceptance are complete in 2026102301. See [scope and checkpoint](FEATURE_ORDERED_UP_TO_PLAN.md). |
+| Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |
 | File Manager directory prototypes | Discuss ordinary/linked metadata types and configurable prototype `0000-index` folders before implementation. |
 | Direct mesh/Surface editing | Design ideas: independent meshes, point groups, primitives, subdivision, deformation, optional explicit point-to-model bindings and conversion to suitable shells/solids. No implemented Blender-style mesh editor is claimed. |
 | FEM | Requested analysis as an additional Body type within a Part; supported materials, boundary conditions, meshing, persistence and independently checked results remain to be designed/implemented. |
 | Voice and pointer context | Requested speech input and lightweight semantic mouse context for AI; design and integration pending. |
 | Further modeling extensions | Dedicated spring/pipe workflows, additional pattern variants and individual unsupported surface/solid cases remain scoped follow-ups, not missing foundations. |
-| Continuing verification | Real-project geometry/reference recovery, larger Assemblies, solver edge cases, production Drawing workflows and a later comprehensive Undo/Redo audit. Undo/Redo itself is already implemented. |
+| Continuing verification | Real-project geometry/reference recovery, larger Assemblies, solver edge cases, production Drawing workflows and a later comprehensive Undo/Redo audit. Undo/Redo itself is implemented. |
 | Linux | Each new change/release requires native build and GUI/package verification on the Linux host. Windows results do not establish that acceptance. |
 
-This correction/release batch is complete. Resume the agreed remaining library
-and modeling follow-ups; newly reported program defects retain priority. FEM, voice and direct mesh brainstorming
-do not interrupt the current work. Native Sketch offsets already exist;
-STEP-derived offsets are outside the requested scope.
+Newly reported product defects retain priority over speculative extensions.
+Native Sketch offsets already exist; STEP-derived offsets remain outside the
+requested scope.
 
 ## Maintaining this index
 
 User-selected interoperability bookmarks are retained in
-[External resources](EXTERNAL_RESOURCES.md). The approved next Sketch reference
-extension is scoped in [Sketch-plane intersection references](SKETCH_INTERSECTION_REFERENCE_PLAN.md).
-The [external trim and cap-reference corrections](verification/20261021-external-reference-trim.md)
-pass their Windows native and Solid/Thin fixture mouse matrices. After changing
-face picking to current visible fragments, the actual `1000.prtz` final-feature
-start cap passes; its end cap has no matching offered Face candidate and remains
-unresolved. The former original-geometry cap test is not acceptance of this
-changed visible-face behavior. The new intersection calculation has a
-[51-case native foundation matrix](verification/20261021-sketch-face-plane-foundation.md);
-the new Sketch command and persisted branch definition remain in progress.
-The current [command-preview selection correction](verification/20261022-command-preview-selection.md)
-uses the actual analytical creation/Properties wire for Modeling Features,
-Extrusions and Revolutions, shared by hover, click and inspection. Exact current
-Face boundaries for placement are retained. Direct GUI segment comparisons pass
-for the synthetic and both L30X30X3 snapshots, along with Sheet/Solid state
-inspection. The user accepted the L30X30X3 experiment. The broader
-[factory origin/preview audit](verification/20261022-factory-origin-preview-audit.md)
-passes all 1,185 native factory loads, existing frames/native Sketch data in
-1,034 Parts, 21 finite preview GUI cases and fifteen dependent contracts.
-The separately approved [Feature side reversal](verification/20261022-feature-side-reversal.md)
-retains the original panels, locks, references and logical Start/End while
-reversing physical direction; its focused native and actual GUI matrices pass.
-Factory integration and Windows 2026102201 publication are complete. Linux
-execution remains unverified. The preceding
-[GPU-wire investigation](verification/20261021-feature-selection-gpu-wire.md)
-retains historical `1000.prtz` feature 003 measurements. The
-[endpoint equality and rounded-corner annotation correction](verification/20261021-sketch-equal-endpoint-corner-markers.md)
-records the native dimension/drag matrix and actual mouse interaction cases.
+[External resources](EXTERNAL_RESOURCES.md). Active design proposals must state
+whether their command already exists, is implemented but unreleased, or is only
+planned. Verification records preserve finite evidence and known limits; release
+records preserve immutable package/publication acceptance. Do not copy a dated
+"pending" statement into this index after a later release has completed it.
 
 Update this page, the root README and the corresponding active roadmap entry
 when a capability changes status. Link implementation/verification evidence and

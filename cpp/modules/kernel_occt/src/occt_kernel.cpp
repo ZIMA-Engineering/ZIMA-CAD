@@ -8386,7 +8386,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 auto [packet,inserted]=live_cache_->copy_references.insert_or_assign(fingerprint,original_references);
                 static_cast<void>(packet);
                 if(inserted)live_cache_->copy_reference_order.push_back(fingerprint);
-                while(live_cache_->copy_reference_order.size()>8) {
+                while(live_cache_->copy_reference_order.size()>kLiveShapeCacheLimit) {
                     live_cache_->copy_references.erase(live_cache_->copy_reference_order.front());
                     live_cache_->copy_reference_order.pop_front();
                 }

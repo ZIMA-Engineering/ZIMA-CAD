@@ -4,6 +4,8 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/history_policy.hpp>
 #include "ordered_up_to_assembly_sources.hpp"
 #include <zima/workspace/origin_display_operations.hpp>
 #include <algorithm>
@@ -13,6 +15,59 @@
 #include <cstdlib>
 
 namespace zima::workspace {
+namespace {
+struct SketchReferenceProjectionState {
+    std::string id;
+    sketcher::SketchPlane plane;
+    bool plane_auto;
+    double plane_offset;
+    kernel::Vec3 origin;
+    kernel::Vec3 x_axis;
+    kernel::Vec3 y_axis;
+    kernel::Vec3 normal;
+    std::vector<sketcher::SketchExternalReference> references;
+    bool operator==(const SketchReferenceProjectionState&) const = default;
+};
+
+std::optional<std::vector<SketchReferenceProjectionState>>
+local_sketch_reference_projection_state(const document::PartDocument& document) {
+    std::vector<SketchReferenceProjectionState> result;
+    bool local=true;
+    visit_document_sketches(document,[&](const auto& sketch) {
+        for(const auto& reference:sketch.external_references)
+            if(reference.source_document_id!=document.document_id ||
+                !reference.source_instance_path.empty() ||
+                !reference.context_assembly_document_id.empty() ||
+                !reference.context_instance_path.empty()) {
+                local=false;return false;
+            }
+        result.push_back({sketch.id,sketch.plane,sketch.plane_auto,sketch.plane_offset,
+            sketch.resolved_origin,sketch.resolved_x_axis,
+            sketch.resolved_y_axis,sketch.resolved_normal,sketch.external_references});
+        return true;
+    });
+    if(!local)return std::nullopt;
+    std::ranges::sort(result,{},&SketchReferenceProjectionState::id);
+    return result;
+}
+
+bool last_profile_has_no_reference_consumers(
+    const document::PartDocument& document, const std::string& container_id) {
+    // This fast path deliberately covers the common independent Part case.
+    // Multiple Bodies, body Booleans, saved analysis frames and Sections have
+    // additional reference consumers which retain the complete resolver.
+    if (document.body_history.bodies().size() != 1 ||
+        !document.body_history.booleans().empty() ||
+        !document.body_properties.empty() || !document.sections.empty()) {
+        return false;
+    }
+    const auto dependencies = part_history_dependency_graph(document).edges;
+    return std::ranges::none_of(dependencies, [&](const auto& edge) {
+        return edge.first == container_id && edge.second != container_id;
+    });
+}
+}
+
 void normalize_owned_profile_front_references(
         std::vector<zima::document::ConstructionReference>& references) {
     document::normalize_container_front_references(references);
@@ -246,15 +301,49 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         if(parameters.extent_mode==document::ProfileExtentMode::TwoSides)prepare(parameters.end_condition_reverse,parameters.end_targets_reverse);
     }
     phase("definition and limits");
-    auto geometry = construction_reference_source_geometry(previous);
-    append_reference_geometry(geometry, next.origin_viewer_mesh().original_references);
-    append_reference_geometry(geometry, next.construction_viewer_mesh().original_references);
-    next.resolve_constructions(geometry);
+    const auto before_projection_state=local_sketch_reference_projection_state(before);
+    auto next_projection_state=local_sketch_reference_projection_state(next);
+    const auto* pending_container=next.find_container(container_id);
+    const bool reuse_resolved_profile_frame=existing&&pending_container&&
+        existing->feature_kind==document::FeatureKind::Feature&&
+        pending_container->feature_kind==document::FeatureKind::Feature&&
+        existing->placement==pending_container->placement&&
+        existing->feature.profile_source==pending_container->feature.profile_source&&
+        existing->feature.sketch_id==pending_container->feature.sketch_id&&
+        existing->feature.profile_plane_offset==pending_container->feature.profile_plane_offset&&
+        before_projection_state&&next_projection_state&&
+        *before_projection_state==*next_projection_state;
+    if(!reuse_resolved_profile_frame) {
+        auto geometry = construction_reference_source_geometry(previous);
+        append_reference_geometry(geometry, next.origin_viewer_mesh().original_references);
+        append_reference_geometry(geometry, next.construction_viewer_mesh().original_references);
+        next.resolve_constructions(geometry);
+        next_projection_state=local_sketch_reference_projection_state(next);
+    }
     if(!next.find_container(container_id)->placement.reference_valid)
         throw ProfileOperationError("invalid_reference", "The proposed feature placement references cannot be resolved.");
     phase("placement preflight");
     auto policy = feature_definition_calculation_policy(before, previous, container_id);
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
+    if(existing && policy.edited_history_limit &&
+        *policy.edited_history_limit+1==before.history.size()) {
+        policy.reuse_unchanged_local_sketch_references=
+            before_projection_state&&next_projection_state&&
+            *before_projection_state==*next_projection_state;
+        auto normalized_pending=*next.find_container(container_id);
+        if(existing->feature_kind==document::FeatureKind::Feature&&
+            normalized_pending.feature_kind==document::FeatureKind::Feature)
+            normalized_pending.feature.thin_thickness=existing->feature.thin_thickness;
+        const bool pure_thickness_edit=
+            existing->feature_kind==document::FeatureKind::Feature&&
+            normalized_pending==*existing;
+        policy.reuse_unchanged_reference_resolution=
+            pure_thickness_edit && reuse_resolved_profile_frame &&
+            policy.reuse_unchanged_local_sketch_references &&
+            last_profile_has_no_reference_consumers(next, container_id);
+        if(policy.reuse_unchanged_reference_resolution)
+            policy.unchanged_last_operation_owner=container_id;
+    }
     if(feature&&next.find_container(container_id)->feature.type==document::FeatureType::Modeling) {
         const auto& parameters=next.find_container(container_id)->feature;
         for(std::size_t i=0;i<(parameters.symmetric?1u:2u);++i) {
