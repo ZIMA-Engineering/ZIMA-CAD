@@ -1,0 +1,79 @@
+{
+  "version": "2026102601",
+  "source_commit": "75a2fa2870d00a0ce2ea924ca39d3e9abb991bfa",
+  "published_at": "2026-10-26T02:43:31Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102601",
+  "archive_sha256": "3ca8a6893b3ad079126f9ec9775cd4d48ed5cfcefed11abe8d001b4d8c01fc4c",
+  "archive_size": 1073331539,
+  "archive_file_count": 17384,
+  "archive_unpacked_size": 5946629583,
+  "checksums_sha256": "1c4a548f94077e08ba460d4b614b35bb387c1919d3ec4dd5953c21eac1785d30",
+  "source_tree_sha256": "c3d5c96711853c08815273027a0b523aea3ee8794f86a99463b20861f1c37c05",
+  "native_factory_loads_per_package_smoke": 1185,
+  "candidate_windows_smoke": "passed",
+  "signed_windows_smoke": "passed",
+  "factory_font_cwd_check": "passed",
+  "authenticated_draft_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102601.zip",
+      "size": 1073331539,
+      "sha256": "3ca8a6893b3ad079126f9ec9775cd4d48ed5cfcefed11abe8d001b4d8c01fc4c"
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "2944b31afeb46af44f996d0d9e38c51b7e897ad59033c842ef0d672308ee90a9"
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "80da6a795031d1b69dbf75faddabf8f5ea16b034c3ab82f06aa7fa5c4697b63f"
+    }
+  ],
+  "anonymous_public_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102601.zip",
+      "size": 1073331539,
+      "sha256": "3ca8a6893b3ad079126f9ec9775cd4d48ed5cfcefed11abe8d001b4d8c01fc4c",
+      "anonymous_public_download": true
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "2944b31afeb46af44f996d0d9e38c51b7e897ad59033c842ef0d672308ee90a9",
+      "anonymous_public_download": true
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "80da6a795031d1b69dbf75faddabf8f5ea16b034c3ab82f06aa7fa5c4697b63f",
+      "anonymous_public_download": true
+    }
+  ],
+  "previous_update_check": {
+    "installedVersion": "2026102501",
+    "availableVersion": "2026102601",
+    "installable": true,
+    "download_performed": false,
+    "installation_performed": false,
+    "launcher_and_installation_metadata_unchanged": true,
+    "user_config_created": false
+  },
+  "localization_review": {
+    "new_user_visible_text": false,
+    "catalogs": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "translation_contract": "passed"
+  },
+  "verification_limits": [
+    "Native Linux execution was not performed on this Windows host.",
+    "No update download or installation was performed; updater discovery only was verified.",
+    "No complete packaged GUI interaction matrix was repeated for this performance release; the focused local Skeleton GUI scenario and native package smoke were performed.",
+    "Previously documented broad baseline failures are not claimed fixed."
+  ]
+}

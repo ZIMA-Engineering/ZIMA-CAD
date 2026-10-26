@@ -1,6 +1,19 @@
 # Native versioned distribution
 
 
+Signed Windows [2026102601](releases/2026102601.md#windows-publication-acceptance)
+was published at `2026-10-26T02:43:31Z` from immutable source
+`75a2fa2870d00a0ce2ea924ca39d3e9abb991bfa`. It includes exact Skeleton-history
+reuse and the current junction, selection, axis-point, reference-visibility and
+pressed-wing-nut corrections. Candidate and fresh signed smoke each load all
+1,185 factory native assets; production signature/trust, 17,384 archive entries,
+all three authenticated draft and anonymous public downloads, and trusted 2501
+updater discovery pass. The discovery check offered 2601 as installable without
+downloading or installing it and left the previous launcher/installation
+metadata unchanged. Shared C++, OCCT 8.0.1 and Qt 6.11.0 remain; native Linux
+execution is a separate host acceptance requirement. See the
+[publication evidence](verification/20261026-windows-2601-publication.json).
+
 Signed Windows [2026102501](releases/2026102501.md#windows-publication-acceptance)
 was published on 2026-10-25 from immutable source
 `3546e4dc108aa52e929b53534d493e5c7f581843`. Feature-Origin coordinate values,

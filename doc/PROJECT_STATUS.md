@@ -7,25 +7,25 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026102501](releases/2026102501.md#windows-publication-acceptance)
-is the latest published stable build before the current candidate. It was
-published from immutable source `3546e4dc108aa52e929b53534d493e5c7f581843`
-with Qt 6.11.0 and OCCT 8.0.1. Candidate and signed smoke, all 1,185 factory
-native assets, the finite packaged GUI matrix, production trust, public asset
-digests and trusted updater discovery passed. Native Linux execution remains a
-separate host requirement.
+Signed Windows [2026102601](releases/2026102601.md#windows-publication-acceptance)
+is the latest published stable build. It was published at
+`2026-10-26T02:43:31Z` from immutable source
+`75a2fa2870d00a0ce2ea924ca39d3e9abb991bfa` with Qt 6.11.0 and OCCT 8.0.1.
+Candidate and signed native smoke each pass with all 1,185 factory assets;
+signature/trust, 17,384 immutable archive entries, authenticated draft and
+anonymous public downloads, and trusted 2026102501 updater discovery pass.
+Native Linux execution remains a separate host requirement.
 
-Build `2026102601` is the current Windows candidate. It includes the previously
-tagged but unpublished 2502 junction/selection batch, native history
-continuation and adaptive lossless native storage, external-Skeleton limits,
-corrected pressed wing nuts and the measured Skeleton edit optimization. See
-the [release record](releases/2026102601.md) and
-[performance evidence](performance/20261026-skeleton-history-edit.md). The
-record does not claim publication until signed packaging and public verification
-pass.
+The release includes the previously tagged but unpublished 2502
+junction/selection batch, native history continuation and adaptive lossless
+native storage, external-Skeleton limits, corrected pressed wing nuts and the
+measured Skeleton edit optimization. See the
+[release record](releases/2026102601.md),
+[performance evidence](performance/20261026-skeleton-history-edit.md) and
+[publication evidence](verification/20261026-windows-2601-publication.json).
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
-This candidate changes neither the native format version nor the protected
+This release changes neither the native format version nor the protected
 container-placement, geometry-side, reference-identity or precision contracts.
 
 ## Available implementation
@@ -64,7 +64,7 @@ records rather than being repeated here.
 
 ## Current correction batch
 
-The 2601 candidate's Skeleton work is deliberately narrow. A pure last-Feature
+The published 2601 Skeleton work is deliberately narrow. A pure last-Feature
 thickness edit can reuse an exact 25-operation prefix and unchanged local
 reference state. Placement, profile-frame, external-document, multi-Body,
 Boolean, Section and downstream-reference cases keep the complete resolution
@@ -74,15 +74,15 @@ confirmation target is not claimed. See the
 [measured limits](performance/20261026-skeleton-history-edit.md).
 
 The 2502 source tag was not published as a GitHub release. Its changes are
-superseded by 2601; the historical [2502 record](releases/2026102502.md) remains
-the finite junction/selection evidence. Published 2501 and every older signed
-release remain immutable.
+superseded by published 2601; the historical
+[2502 record](releases/2026102502.md) remains the finite junction/selection
+evidence. Published 2501 and every older signed release remain immutable.
 
 ## Still unfinished or planned
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Build, sign and publish Windows 2026102601 only after its committed-source, factory, archive, trust and public-download gates pass. Linux remains separate. |
+| Current correction/release batch | Windows 2026102601 is published and accepted. Further Skeleton performance work must start from measured 2601 behavior and preserve its exact-output gates. Linux remains separate. |
 | Skeleton interaction | Properties opening is 1.46--1.61 s and draft editing 0.134--0.139 s in the measured fixture. Warm changed OK is 4.627 s, not the requested one second. Further work must preserve exact output and likely requires immutable/shared viewer packets rather than weaker calculation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

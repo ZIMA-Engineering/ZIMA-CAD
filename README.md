@@ -56,13 +56,14 @@ a Linux runtime. User configuration and projects live outside version directorie
 See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
-The latest published signed Windows release before the current candidate is
-[2026102501](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102501).
-Its Windows package, signature, GUI, public downloads and trusted updater
-discovery are verified. The current `2026102601` candidate retains the shared
-OCCT 8.0.1 pin and is described in its
-[release record](doc/releases/2026102601.md); that record does not claim
-publication until the signed assets and public downloads pass.
+The latest published signed Windows release is
+[2026102601](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102601).
+Its clean committed-source package, signature, both native smoke runs, all
+1,185 factory native assets, authenticated draft downloads, anonymous public
+downloads and trusted 2026102501 updater discovery are verified. The shared
+Windows/Linux source remains pinned to OCCT 8.0.1; see the
+[release record](doc/releases/2026102601.md) and
+[publication evidence](doc/verification/20261026-windows-2601-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

@@ -1,6 +1,18 @@
 # Application updates
 
 
+Signed Windows [2026102601](releases/2026102601.md#windows-publication-acceptance)
+was published at `2026-10-26T02:43:31Z` from immutable source
+`75a2fa2870d00a0ce2ea924ca39d3e9abb991bfa`. Candidate and signed native smoke
+each load all 1,185 factory native assets. The signed manifest binds 17,384
+archive entries, the exact source commit, stable channel and Windows runtime;
+all three authenticated draft and anonymous public downloads match their
+accepted sizes and SHA-256 digests. The production updater from trusted 2501
+reports 2601 as installable without downloading or installing it, and its root
+launcher and installation metadata remain unchanged. Native Linux execution is
+not established by this Windows acceptance. See the
+[publication evidence](verification/20261026-windows-2601-publication.json).
+
 Signed Windows [2026102501](releases/2026102501.md#windows-publication-acceptance)
 was published on 2026-10-25 from immutable source
 `3546e4dc108aa52e929b53534d493e5c7f581843`. Feature-Origin coordinate values,
