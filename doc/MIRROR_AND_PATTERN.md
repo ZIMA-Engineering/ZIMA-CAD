@@ -13,8 +13,9 @@ The copied construction keeps an explicit parent reference to the source axis or
 centerline rather than becoming an unrelated snapshot. Changing a profile axis,
 enabled Origin axis, centroid axis or its defining source geometry therefore
 moves the Mirror/Pattern construction on explicit Regenerate. Axis endpoint
-markers follow the transformed parent and survive native save/reopen. Hiding
-endpoint markers affects only those markers, not face or feature selection.
+markers follow the transformed parent, use the same brown construction colour
+as their axis and survive native save/reopen. Hiding endpoint markers affects
+only those markers, not face or feature selection.
 
 - **Mirror Properties** offers only XY/YZ/XZ planes of its own Origin for the
   reflection plane, through both the View and Tree. Other Origins and planar

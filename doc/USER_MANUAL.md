@@ -1466,7 +1466,8 @@ Origin/centroid centerlines and associated points at each transformed position.
 The ordinary Axes and Points visibility controls apply to these copies. Their
 axes and endpoints remain linked to the source profile, Origin or centroid, so
 changing the parent definition updates their transformed positions through
-explicit regeneration and retains that relation after save/reopen.
+explicit regeneration and retains that relation after save/reopen. Idle copied
+endpoint markers use the same brown construction colour as their parent axis.
 
 Activating an earlier source body shows its calculated geometry before downstream
 operations; later bodies, Booleans, Mirrors and Patterns become passive in the

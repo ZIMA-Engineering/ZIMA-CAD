@@ -39,6 +39,7 @@
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/view_theme.hpp>
+#include <zima/kernel/mirror_geometry.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
@@ -910,16 +911,26 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
     mesh.vertices={{-50,-50,0},{50,50,0},{-35,-35,0},{-30,-35,0},{-30,35,0},{-35,35,0}};
     mesh.triangles={2,3,4,2,4,5};
     mesh.triangle_references.assign(2,{"feature","side",{}});
-    const std::array<std::string,6> keys{"axis:profile:1","axis:profile:from:ellipse",
+    const auto mirrored_axis=kernel::mirror_source_key("axis-source","axis:primary");
+    const auto patterned_axis=std::string("pattern:copy-x1-y0-z0:")+mirrored_axis;
+    const std::array<std::string,8> keys{"axis:profile:1","axis:profile:from:ellipse",
         "centerline:from:origin:profile","centerline:from:centroid:profile",
+        mirrored_axis,patterned_axis,
         "axis:profile:1","axis:profile:1"};
+    const auto axis_y=[](std::size_t index) {return -35.+10.*double(index);};
     for(std::size_t i=0;i<keys.size();++i) {
-        const double y=-30+12*double(i);
-        const std::string owner=i==4?"other-feature":"feature",path=i==5?"other-instance":"";
+        const double y=axis_y(i);
+        const std::string owner=i==6?"other-feature":"feature",path=i==7?"other-instance":"";
         mesh.axes.push_back({{0,y,0},{1,0,0},40,{owner,keys[i],path}});
         for(const double x:{-20.,20.}) {
             kernel::ViewerPoint point;point.position={x,y,0};
-            point.reference={owner,"profile:path-point:"+std::string(x<0?"start:from:":"end:from:")+keys[i],path};
+            const auto source_point="profile:path-point:"+
+                std::string(x<0?"start:from:":"end:from:")+"axis:primary";
+            const auto key=i==4?kernel::mirror_source_key("axis-source",source_point):
+                i==5?std::string("pattern:copy-x1-y0-z0:")+
+                    kernel::mirror_source_key("axis-source",source_point):
+                "profile:path-point:"+std::string(x<0?"start:from:":"end:from:")+keys[i];
+            point.reference={owner,key,path};
             point.display_owner_id=owner;mesh.points.push_back(point);
         }
     }
@@ -933,8 +944,8 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
     };
     const auto check_lines=[&](int selected) {
         const auto frame=view.grabFramebuffer();
-        for(int i=0;i<6;++i) {
-            const auto center=project(0,-30+12*i);
+        for(int i=0;i<8;++i) {
+            const auto center=project(0,axis_y(i));
             const double scale=double(frame.width())/view.width();int azure=0,brown=0;
             // Inspect the middle of each line, never its endpoint markers.
             for(int y=qRound((center.y()-2)*scale);y<=qRound((center.y()+2)*scale);++y)
@@ -943,18 +954,22 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
                     if(color.red()<35&&color.green()>170&&color.blue()>210)++azure;
                     if(std::abs(color.red()-173)<25&&std::abs(color.green()-110)<25&&std::abs(color.blue()-46)<25)++brown;
                 }
-            const bool expected=selected==1?i<4:selected==2?i==0:false;
+            const bool expected=selected==1?i<6:selected==2?i==0:false;
             require(expected?azure>5:azure==0,"Whole-feature selection did not highlight exactly its own axis lines");
+            if(!expected&&brown<=5) {
+                std::cerr<<"Axis row "<<i<<" key="<<keys[i]<<" has brown pixels="<<brown<<'\n';
+                frame.save("feature-axis-color-failure.png");
+            }
             if(!expected)require(brown>5,"Unselected profile axis line lost its normal presentation");
             for(const double x:{-20.,20.})
-                require(framebuffer_contains_color_near(frame,view.size(),project(x,-30+12*i),expected?QColor("#00D1FF"):QColor(173,110,46),3),
+                require(framebuffer_contains_color_near(frame,view.size(),project(x,axis_y(i)),expected?QColor("#00D1FF"):QColor(173,110,46),3),
                     "Automatic/origin/centroid axis endpoint does not follow its axis color");
         }
         // Labels sit beyond the endpoint-marker radius, so a marker or
         // centerline stroke cannot satisfy this independent pixel check.
         const QColor centroid_color=selected==1?QColor("#00D1FF"):QColor(173,110,46);
         for(double x:{-19.,19.})
-            require(framebuffer_contains_color_near(frame,view.size(),project(x,6)+QPointF(11,-11),centroid_color,4),
+            require(framebuffer_contains_color_near(frame,view.size(),project(x,axis_y(3))+QPointF(11,-11),centroid_color,4),
                 "Centroid axis lost T at one of its actual endpoints");
     };
     check_lines(0);view.confirm_container("feature");application.processEvents();check_lines(1);

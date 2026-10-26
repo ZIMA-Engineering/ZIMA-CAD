@@ -5548,7 +5548,11 @@ if (impl_->show_origins) {
                     // State-owned datums keep the presentation of their
                     // authored point type through every persisted parent.
                     std::string parent_marker_key;
-                    const auto marker_key = kernel::solid_state_source_key(point.reference.semantic_key,parent_marker_key);
+                    const auto state_marker_key = kernel::solid_state_source_key(
+                        point.reference.semantic_key, parent_marker_key);
+                    std::string construction_marker_key;
+                    const auto marker_key = kernel::construction_source_key(
+                        state_marker_key, construction_marker_key);
                     const QColor marker_color = plane_offset_preview
                         ? interaction::selected
                         : selected
