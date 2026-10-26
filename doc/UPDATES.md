@@ -1,11 +1,17 @@
 # Application updates
 
-The current source identifies Windows candidate `2026102603`; it is not yet a
-published updater target. Its exact-output native workflow, Sketcher, unit-entry,
-naming, sheet-conversion and Skeleton export changes are listed in the
-[candidate record](releases/2026102603.md). Existing `2026102602` installations
-remain on the signed stable channel until candidate signing, publication and
-trusted-updater discovery pass.
+Signed Windows [2026102603](releases/2026102603.md#windows-publication-acceptance)
+was published at `2026-10-26T22:44:52Z` from immutable source
+`c3c52247c601312be405476c2ec2694f137563dc`. It includes the exact-output native
+workflow, Sketcher, unit-entry, naming, sheet-conversion and Skeleton export
+changes listed in the release record. Candidate and signed native smoke each
+load all 1,185 factory native assets. The signed manifest binds 17,398 archive
+entries, exact source, stable channel and Windows runtime; all authenticated and
+anonymous public downloads match. Trusted 2602 offers 2603 as installable
+without download or installation and its root files, launcher selection and
+`.updates` state remain unchanged. Native Linux execution is not established by
+this Windows acceptance. See the
+[publication evidence](verification/20261026-windows-2603-publication.json).
 
 Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
 was published at `2026-10-26T09:12:53Z` from immutable source

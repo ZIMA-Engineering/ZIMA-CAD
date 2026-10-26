@@ -7,35 +7,36 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
+Signed Windows [2026102603](releases/2026102603.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-10-26T09:12:53Z` from immutable source
-`a14d57a4d8bf21d93180f1f0d9120811ccf774fc` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-10-26T22:44:52Z` from immutable source
+`c3c52247c601312be405476c2ec2694f137563dc` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,386 immutable archive entries, authenticated draft and
-anonymous public downloads, and trusted 2026102601 updater discovery pass.
+signature/trust, 17,398 immutable archive entries, authenticated and anonymous
+public downloads, and trusted 2026102602 updater discovery pass.
 Native Linux execution remains a separate host requirement.
 
-The release includes direct Flat-to-Flat attachment, numbered Flat/Bend/Pattern
-defaults, reliable face selection independent of axis endpoint markers, and
-parent-driven Mirror/Pattern construction axes and endpoints. It also retains
-the published 2601 Skeleton history optimization and preceding correction batch.
-See the [release record](releases/2026102602.md),
+The release includes the exact-output native workflow improvements, automatic
+new-dimension entry, mixed unit expressions, two-digit feature naming,
+parallel-reference rectangle symmetry, Sheet-from-Body Origin alignment,
+Skeleton export control and revised Sketcher icons. It retains the published
+2602 Flat/selection/copied-axis corrections. See the
+[release record](releases/2026102603.md),
 [performance evidence](performance/20261026-skeleton-history-edit.md) and
-[publication evidence](verification/20261026-windows-2602-publication.json).
+[publication evidence](verification/20261026-windows-2603-publication.json).
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 This release changes neither the native format version nor the protected
 container-placement, geometry-side, reference-identity or precision contracts.
 
-The current source is the `2026102603` Windows release candidate. It includes
+The published `2026102603` source includes
 exact-output native cache/load/save improvements, adaptive complex-Boolean
 parallelism, automatic new-dimension entry, mixed unit expressions, two-digit
 feature naming, parallel-reference rectangle symmetry, Sheet-from-Body Origin
 alignment, Assembly Skeleton export control and revised Sketcher icons. Existing
 current-format native files remain directly readable. Resaving rewrites only
 their disposable calculated cache; it does not migrate authored model data.
-See the [candidate record](releases/2026102603.md).
+See the [release record](releases/2026102603.md).
 
 ## Available implementation
 
@@ -91,7 +92,7 @@ release changes no native format, container-placement contract, calculation
 precision or shared OCCT 8.0.1 pin. Native Linux acceptance is not claimed. See
 the [release record](releases/2026102602.md).
 
-Candidate `2026102603` retains the exact 25-of-26 Skeleton history-prefix reuse
+Published `2026102603` retains the exact 25-of-26 Skeleton history-prefix reuse
 and adds compact final-result cache reconstruction plus in-place cache expansion.
 On the protected 51,025,383-byte copy, accepted samples observed
 18.206--18.464 s old-cache load, 15.975--16.237 s save and 13.204--13.579 s
@@ -99,8 +100,8 @@ rewritten-cache reopen. Complete authored definitions and every calculated
 history packet match. No precision was reduced and the authored native format
 version did not change. The candidate also contains the Sketcher, unit-entry,
 naming, sheet-conversion and export changes listed in its
-[release record](releases/2026102603.md). Windows signing/publication and Linux
-native verification are still pending at this source boundary.
+[release record](releases/2026102603.md). Windows publication acceptance passed;
+native Linux verification remains pending on the Linux host.
 
 The 2502 source tag was not published as a GitHub release. Its changes are
 superseded by published 2601; the historical
@@ -111,7 +112,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102602 remains the latest published build. Candidate 2026102603 contains the exact-output performance, Sketcher, unit, naming, sheet-conversion and export work and still requires signed Windows publication acceptance. Linux remains separate. |
+| Current correction/release batch | Windows 2026102603 is published and accepted with the exact-output performance, Sketcher, unit, naming, sheet-conversion and export work. Linux remains separate. |
 | Skeleton interaction | Properties opening is 1.46--1.61 s, draft editing 0.134--0.139 s and warm changed OK approximately 4.6 s in the measured fixture. Rewritten-cache reopen is 13.204--13.579 s and save 15.975--16.237 s. The one-second confirmation target is not claimed; further work must preserve exact output rather than weaken calculation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

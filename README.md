@@ -57,27 +57,20 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026102602](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102602).
+[2026102603](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102603).
 Its clean committed-source package, signature, both native smoke runs, all
-1,185 factory native assets, authenticated draft downloads, anonymous public
-downloads and trusted 2026102601 updater discovery are verified. The release
-adds direct Flat-to-Flat attachment, reliable sheet/axis-point selection,
-numbered Flat/Bend/Pattern names and parent-driven copied axes. The shared
-Windows/Linux source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026102602.md) and
-[publication evidence](doc/verification/20261026-windows-2602-publication.json).
+1,185 factory native assets, authenticated and anonymous public downloads,
+production bootstrap trust and trusted 2026102602 updater discovery are verified.
+It adds measured exact-output native-cache and history workflow improvements,
+automatic new-dimension value entry, mixed unit expressions, two-digit feature
+names, parallel-reference rectangle symmetry, Sheet-from-Body Origin alignment,
+Skeleton export control and revised Sketcher icons. The shared Windows/Linux
+source remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026102603.md),
+[performance evidence](doc/performance/20261026-skeleton-history-edit.md) and
+[publication evidence](doc/verification/20261026-windows-2603-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
-
-The current source is the `2026102603` Windows release candidate. It adds the
-measured exact-output native-cache and history workflow improvements, automatic
-new-dimension value entry, mixed unit expressions, two-digit feature names,
-parallel-reference rectangle symmetry, Sheet-from-Body Origin alignment,
-Skeleton export control and revised Sketcher icons. See the
-[candidate record](doc/releases/2026102603.md) and
-[performance evidence](doc/performance/20261026-skeleton-history-edit.md).
-`2026102602` remains the latest published signed build until candidate signing,
-publication and updater acceptance finish.
 
 ## Command line
 

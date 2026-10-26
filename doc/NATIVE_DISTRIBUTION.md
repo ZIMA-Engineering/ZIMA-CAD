@@ -1,13 +1,17 @@
 # Native versioned distribution
 
-The current source identifies Windows candidate `2026102603`. Its exact-output
-cache/history improvements, adaptive complex-Boolean parallelism and associated
-Sketcher/modeling corrections are described in the
-[candidate record](releases/2026102603.md). The compact representation changes
-only disposable calculated cache inside a native document: it does not change
-the authored native format version, require a sidecar or reduce geometry
-precision. Signed publication and updater acceptance are not claimed until the
-candidate passes the gates below.
+Signed Windows [2026102603](releases/2026102603.md#windows-publication-acceptance)
+was published at `2026-10-26T22:44:52Z` from immutable source
+`c3c52247c601312be405476c2ec2694f137563dc`. It adds exact-output cache/history
+improvements, adaptive complex-Boolean parallelism and the associated
+Sketcher/modeling corrections. Candidate and signed smoke each load all 1,185
+factory assets; production trust, 17,398 archive entries, all authenticated and
+anonymous public downloads, and trusted 2602 updater discovery pass. The compact
+representation changes only disposable calculated cache inside a native
+document: it does not change the authored native format version, require a
+sidecar or reduce geometry precision. Native Linux execution remains a separate
+host acceptance requirement. See the
+[publication evidence](verification/20261026-windows-2603-publication.json).
 
 
 Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
