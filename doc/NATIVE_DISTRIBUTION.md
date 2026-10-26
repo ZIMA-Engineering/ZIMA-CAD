@@ -1,6 +1,20 @@
 # Native versioned distribution
 
 
+Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
+was published at `2026-10-26T09:12:53Z` from immutable source
+`a14d57a4d8bf21d93180f1f0d9120811ccf774fc`. It adds direct Flat-to-Flat
+attachment, numbered Flat/Bend/Pattern defaults, sheet and cylindrical-face
+selection independent of axis endpoint markers, and parent-driven copied
+Mirror/Pattern axes with matching brown endpoint presentation. Candidate and
+fresh signed smoke each load all 1,185 factory native assets; production trust,
+17,386 archive entries, all three authenticated draft and anonymous public
+downloads, and trusted 2601 updater discovery pass. Discovery offered 2602 as
+installable without downloading or installing it and left the previous
+launcher/installation metadata unchanged. Shared C++, OCCT 8.0.1 and Qt 6.11.0
+remain; native Linux execution is a separate host acceptance requirement. See
+the [publication evidence](verification/20261026-windows-2602-publication.json).
+
 Signed Windows [2026102601](releases/2026102601.md#windows-publication-acceptance)
 was published at `2026-10-26T02:43:31Z` from immutable source
 `75a2fa2870d00a0ce2ea924ca39d3e9abb991bfa`. It includes exact Skeleton-history

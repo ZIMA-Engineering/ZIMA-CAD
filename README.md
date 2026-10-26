@@ -57,16 +57,15 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026102601](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102601).
+[2026102602](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102602).
 Its clean committed-source package, signature, both native smoke runs, all
 1,185 factory native assets, authenticated draft downloads, anonymous public
-downloads and trusted 2026102501 updater discovery are verified. The shared
-Windows/Linux source remains pinned to OCCT 8.0.1. The current `2026102602`
-candidate adds direct Flat-to-Flat attachment, reliable sheet/axis-point
-selection, numbered Flat/Bend/Pattern names and parent-driven copied axes; see
-its [candidate record](doc/releases/2026102602.md), the published 2601
-[release record](doc/releases/2026102601.md) and
-[publication evidence](doc/verification/20261026-windows-2601-publication.json).
+downloads and trusted 2026102601 updater discovery are verified. The release
+adds direct Flat-to-Flat attachment, reliable sheet/axis-point selection,
+numbered Flat/Bend/Pattern names and parent-driven copied axes. The shared
+Windows/Linux source remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026102602.md) and
+[publication evidence](doc/verification/20261026-windows-2602-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 

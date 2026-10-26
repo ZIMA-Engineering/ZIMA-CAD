@@ -7,22 +7,22 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026102601](releases/2026102601.md#windows-publication-acceptance)
+Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-10-26T02:43:31Z` from immutable source
-`75a2fa2870d00a0ce2ea924ca39d3e9abb991bfa` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-10-26T09:12:53Z` from immutable source
+`a14d57a4d8bf21d93180f1f0d9120811ccf774fc` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,384 immutable archive entries, authenticated draft and
-anonymous public downloads, and trusted 2026102501 updater discovery pass.
+signature/trust, 17,386 immutable archive entries, authenticated draft and
+anonymous public downloads, and trusted 2026102601 updater discovery pass.
 Native Linux execution remains a separate host requirement.
 
-The release includes the previously tagged but unpublished 2502
-junction/selection batch, native history continuation and adaptive lossless
-native storage, external-Skeleton limits, corrected pressed wing nuts and the
-measured Skeleton edit optimization. See the
-[release record](releases/2026102601.md),
+The release includes direct Flat-to-Flat attachment, numbered Flat/Bend/Pattern
+defaults, reliable face selection independent of axis endpoint markers, and
+parent-driven Mirror/Pattern construction axes and endpoints. It also retains
+the published 2601 Skeleton history optimization and preceding correction batch.
+See the [release record](releases/2026102602.md),
 [performance evidence](performance/20261026-skeleton-history-edit.md) and
-[publication evidence](verification/20261026-windows-2601-publication.json).
+[publication evidence](verification/20261026-windows-2602-publication.json).
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 This release changes neither the native format version nor the protected
@@ -73,14 +73,14 @@ save/reopen. The warm confirmation is 4.627 seconds, so the desired one-second
 confirmation target is not claimed. See the
 [measured limits](performance/20261026-skeleton-history-edit.md).
 
-The current `2026102602` candidate adds direct Flat-to-Flat attachment on every
+Published `2026102602` adds direct Flat-to-Flat attachment on every
 outer perimeter edge, numbered Flat/Bend/Pattern defaults, sheet and cylindrical
 face selection independent of axis endpoint-marker visibility, and parent-driven
 Mirror/Pattern construction axes and endpoints. Focused native/UI contracts and
 read-only copies of the reported Skeleton and sheet Part pass on Windows. The
-candidate changes no native format, container-placement contract, calculation
-precision or shared OCCT 8.0.1 pin; publication and native Linux acceptance are
-not claimed yet. See the [candidate record](releases/2026102602.md).
+release changes no native format, container-placement contract, calculation
+precision or shared OCCT 8.0.1 pin. Native Linux acceptance is not claimed. See
+the [release record](releases/2026102602.md).
 
 The 2502 source tag was not published as a GitHub release. Its changes are
 superseded by published 2601; the historical
@@ -91,7 +91,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102601 is published and accepted. Windows 2026102602 is a local candidate for Flat attachment, selection and copied-axis corrections; signed publication is still pending. Further Skeleton performance work must start from measured 2601 behavior and preserve its exact-output gates. Linux remains separate. |
+| Current correction/release batch | Windows 2026102602 is published and accepted with the Flat attachment, selection and copied-axis corrections. Further Skeleton performance work starts from the measured 2601 behavior and must preserve its exact-output gates; the 0.001 versus 0.01 precision comparison is diagnostic only and must not weaken geometry or references. Linux remains separate. |
 | Skeleton interaction | Properties opening is 1.46--1.61 s and draft editing 0.134--0.139 s in the measured fixture. Warm changed OK is 4.627 s, not the requested one second. Further work must preserve exact output and likely requires immutable/shared viewer packets rather than weaker calculation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

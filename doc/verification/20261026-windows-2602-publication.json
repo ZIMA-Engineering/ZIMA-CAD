@@ -1,0 +1,88 @@
+{
+  "version": "2026102602",
+  "source_commit": "a14d57a4d8bf21d93180f1f0d9120811ccf774fc",
+  "published_at": "2026-10-26T09:12:53Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102602",
+  "archive_sha256": "7405be8bf529fe028843c14f86991810f4cfd59785cb878ad70b6a282edd8510",
+  "archive_size": 1073340208,
+  "archive_file_count": 17386,
+  "archive_unpacked_size": 5946675613,
+  "checksums_sha256": "d91422f038fc931e94ca8021b1a9e2cf43d70b02dfbc8381323bb641ff98eb16",
+  "source_tree_sha256": "58f150ff889ca941bb34a9d2d6776b89c5e234b2ca9faca999cba4596507ef31",
+  "native_factory_loads_per_package_smoke": 1185,
+  "candidate_windows_smoke": "passed",
+  "signed_windows_smoke": "passed",
+  "factory_font_cwd_check": "passed",
+  "fresh_signed_bootstrap": {
+    "installedVersion": "2026102602",
+    "trusted": true,
+    "commit": "a14d57a4d8bf21d93180f1f0d9120811ccf774fc",
+    "source_modified": false,
+    "qt": "6.11.0",
+    "occt": "8.0.1"
+  },
+  "authenticated_draft_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102602.zip",
+      "size": 1073340208,
+      "sha256": "7405be8bf529fe028843c14f86991810f4cfd59785cb878ad70b6a282edd8510"
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "0c70a5b7c2df53cce861f3499c89ae56b937c5872288281306d581fd5ea505e2"
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "15c48c5c8470ccfe869c3184a3fd0c8f3e947452d7397930826ab63419d60be9"
+    }
+  ],
+  "anonymous_public_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102602.zip",
+      "size": 1073340208,
+      "sha256": "7405be8bf529fe028843c14f86991810f4cfd59785cb878ad70b6a282edd8510",
+      "anonymous_public_download": true
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "0c70a5b7c2df53cce861f3499c89ae56b937c5872288281306d581fd5ea505e2",
+      "anonymous_public_download": true
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "15c48c5c8470ccfe869c3184a3fd0c8f3e947452d7397930826ab63419d60be9",
+      "anonymous_public_download": true
+    }
+  ],
+  "previous_update_check": {
+    "installedVersion": "2026102601",
+    "availableVersion": "2026102602",
+    "installable": true,
+    "download_performed": false,
+    "installation_performed": false,
+    "launcher_and_installation_metadata_unchanged": true,
+    "user_config_created": false,
+    "updates_state_created": false
+  },
+  "localization_review": {
+    "new_user_visible_text": false,
+    "catalogs": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "translation_contract": "passed"
+  },
+  "verification_limits": [
+    "Native Linux execution was not performed on this Windows host.",
+    "No update download or installation was performed; updater discovery only was verified.",
+    "No complete packaged GUI interaction matrix was repeated for this focused correction release; focused local native/UI and user-model read-only checks plus both native package smoke runs were performed.",
+    "Previously documented broad baseline failures are not claimed fixed."
+  ]
+}

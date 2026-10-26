@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
+was published at `2026-10-26T09:12:53Z` from immutable source
+`a14d57a4d8bf21d93180f1f0d9120811ccf774fc`. It includes direct Flat-to-Flat
+attachment, numbered Flat/Bend/Pattern defaults, reliable sheet/cylindrical-face
+selection when axis endpoints are hidden, and source-driven Mirror/Pattern
+construction axes with matching brown endpoints. Candidate and signed native
+smoke each load all 1,185 factory native assets. The signed manifest binds
+17,386 archive entries, exact source, stable channel and Windows runtime; all
+three authenticated draft and anonymous public downloads match. Trusted 2601
+offers 2602 as installable without download or installation and its launcher,
+installation metadata and user config remain unchanged. Native Linux execution
+is not established by this Windows acceptance. See the
+[publication evidence](verification/20261026-windows-2602-publication.json).
 
 Signed Windows [2026102601](releases/2026102601.md#windows-publication-acceptance)
 was published at `2026-10-26T02:43:31Z` from immutable source
