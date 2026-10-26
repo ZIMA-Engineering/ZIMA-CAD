@@ -210,6 +210,14 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         };
         find_hit(view->mesh().edges);find_hit(view->mesh().original_references.edges);
         check(position.has_value(),"Selection Feature absent from ordinary common picker");
+        view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);flush();
+        const auto without_axis_points=view->selection_candidates_at(*position);
+        check(std::ranges::any_of(without_axis_points,[&](const auto& candidate) {
+            return candidate.kind==viewer::CandidateKind::Container&&
+                (candidate.owner_id==feature.id||candidate.owner_id==feature.feature.sketch_id)&&
+                !candidate.marker_derived;
+        }),"Hiding axis endpoints suppressed the visible Feature candidate");
+        view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);flush();
         const auto wanted=[&] {
             const auto candidate=view->offered_candidate();
             return candidate&&candidate->kind==viewer::CandidateKind::Container&&
@@ -278,6 +286,36 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         check(!window.findChild<QWidget*>(dialog_name),"Ordinary selection opened Properties");
         check(window.execute_console_command("documents").data==state&&view->base_mesh_revision()==revision,
             "Ordinary selection changed the document or republished geometry");
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_PICK_ONLY")) {
+            if(flat) {
+                const auto& references=view->mesh().original_references;
+                bool surface_pick{};view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);flush();
+                for(std::size_t triangle=0;triangle<references.triangle_references.size()&&!surface_pick;++triangle) {
+                    const auto& reference=references.triangle_references[triangle];
+                    if(reference.sheet_owner!=feature.id||
+                        (reference.sheet_role!=kernel::SheetFaceRole::SideA&&
+                         reference.sheet_role!=kernel::SheetFaceRole::SideB)||
+                        triangle*3+2>=references.triangles.size())continue;
+                    kernel::Vec3 center{};bool valid=true;
+                    for(std::size_t corner=0;corner<3;++corner) {
+                        const auto index=references.triangles[triangle*3+corner];
+                        if(index>=references.vertices.size()){valid=false;break;}
+                        const auto& point=references.vertices[index];center.x+=point.x/3;center.y+=point.y/3;center.z+=point.z/3;
+                    }
+                    if(!valid)continue;
+                    const auto screen=project(center);
+                    if(!view->rect().contains(screen.toPoint()))continue;
+                    const auto candidates=view->selection_candidates_at(screen);
+                    surface_pick=std::ranges::any_of(candidates,[&](const auto& candidate) {
+                        return candidate.kind==viewer::CandidateKind::Container&&candidate.owner_id==feature.id&&
+                            !candidate.marker_derived;
+                    });
+                }
+                check(surface_pick,"A visible authored Flat area cannot be selected from its surface");
+                view->set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);flush();
+            }
+            continue;
+        }
         QMouseEvent double_click(QEvent::MouseButtonDblClick,*position,QPointF(view->mapToGlobal(position->toPoint())),
             Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&double_click);flush();
         const auto* inspected=tree->currentItem();

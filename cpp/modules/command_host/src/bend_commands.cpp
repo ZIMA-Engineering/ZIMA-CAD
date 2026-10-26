@@ -72,7 +72,8 @@ void Host::register_bend_commands() {
                 auto feature=create?document::PartDocument::create_sketch_container():bend(state,args.at("container"));
                 sketcher::Sketch sketch;
                 if(create) {
-                    feature.feature_kind=document::FeatureKind::Bend;feature.name=tr("Ohyb");
+                    feature.feature_kind=document::FeatureKind::Bend;
+                    feature.name=state->session.document().next_numbered_name(tr("Ohyb"),feature.id);
                     sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;feature.bend.sketch_id=sketch.id;
                     const auto defaults=document::sheet_metal_defaults(state->session.document());
                     feature.bend.thickness=defaults.thickness_mm.value_or(1);feature.bend.k_factor=defaults.k_factor;

@@ -966,6 +966,8 @@ public:
         std::string component_name = {});
     [[nodiscard]] HistoryContainer* find_container(const std::string& id);
     [[nodiscard]] const HistoryContainer* find_container(const std::string& id) const;
+    [[nodiscard]] std::string next_numbered_name(
+        std::string_view prefix, std::string_view excluded_id = {}) const;
     [[nodiscard]] std::optional<std::size_t> history_index(
         const std::string& id) const;
     [[nodiscard]] std::vector<zima::kernel::HistoryOperation> kernel_operations(

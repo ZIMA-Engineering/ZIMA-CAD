@@ -643,6 +643,14 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 check(app::next_feature_name(part,static_cast<document::FeatureType>(type),"")==
                     (settings.qt_translations.value(sources[type])+" 001").toStdString(),
                     "Automatic Feature name is not localized");
+            for(const auto* source:{"Tabule","Ohyb","Pole"}) {
+                auto feature=document::PartDocument::create_sketch_container();
+                feature.name=(settings.qt_translations.value(source)+" 001").toStdString();
+                part.history.push_back(std::move(feature));
+                check(part.next_numbered_name(settings.qt_translations.value(source).toStdString())==
+                    (settings.qt_translations.value(source)+" 002").toStdString(),
+                    "Automatic sheet or Pattern name is not localized");
+            }
         }
         {
             app::UserParameterData parameters;parameters.order={"test"};parameters.values["test"][""]="1";

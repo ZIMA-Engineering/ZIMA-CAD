@@ -191,7 +191,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(std::ranges::any_of(part->session.document().sketches,[&](const auto& sketch){return sketch.id==owner;}))return true;
             if(const auto* feature=part->session.document().find_container(owner))
                 if(authored_sketch_profile(*feature)||feature->feature_kind==document::FeatureKind::Feature||
-                    feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft)return true;
+                    feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft||
+                    feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend)return true;
         }
         if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
             if(const auto* cut=assembly->session.document().find_cut(owner))

@@ -91,7 +91,8 @@ inline ViewerMesh pattern_copy_mesh(ViewerMesh mesh,PatternRequest p,unsigned in
             if(!owner.empty()&&!occurrence){e.display_owner_id=owner;e.edge_treatment_owner_ids.clear();}
             for(auto& side:e.edge_treatment_side_directions)for(auto& v:side)v=pattern_vector(v,p,index);
             for(auto& r:e.edge_treatment_side_references)face(r);for(auto& r:e.edge_treatment_endpoint_references)ref(r);}
-        for(auto& v:g.points){v.position=pattern_point(v.position,p,index);ref(v.reference);}
+        for(auto& v:g.points){v.position=pattern_point(v.position,p,index);ref(v.reference);
+            if(!owner.empty()&&!occurrence)v.display_owner_id=owner;}
         for(auto& a:g.axes){a.point=pattern_point(a.point,p,index);a.direction=pattern_vector(a.direction,p,index);ref(a.reference);}};
     std::map<ObjectEnvelopeKey,ModelEnvelope> frames;
     for(auto [key,frame]:mesh.annotation_frames){frame.origin=pattern_point(frame.origin,p,index);for(auto& axis:frame.axes)axis=pattern_vector(axis,p,index);

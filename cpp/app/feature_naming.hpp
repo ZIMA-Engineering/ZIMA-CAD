@@ -18,14 +18,6 @@ inline QString feature_name_prefix(document::FeatureType type) {
 }
 inline std::string next_feature_name(const document::PartDocument& part,
         document::FeatureType type,const std::string& excluded_id) {
-    const auto prefix=feature_name_prefix(type);
-    for(std::size_t number=1;;++number) {
-        const auto name=(prefix+" "+QString::number(number).rightJustified(3,'0')).toStdString();
-        if(std::ranges::none_of(part.history,[&](const auto& item) {
-            return item.id!=excluded_id && item.name==name;
-        }) && std::ranges::none_of(part.constructions,[&](const auto& item) {
-            return item.id!=excluded_id && item.name==name;
-        }))return name;
-    }
+    return part.next_numbered_name(feature_name_prefix(type).toStdString(),excluded_id);
 }
 } // namespace zima::app

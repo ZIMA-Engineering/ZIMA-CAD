@@ -20,6 +20,7 @@
 #include <zima/kernel/curve_plane_intersection.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
 #include <zima/kernel/scale_geometry.hpp>
 #include <BRepOffsetAPI_MakeOffset.hxx>
@@ -11874,16 +11875,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             boundaries.back().mesh.original_references =
                 std::move(original_references);
             for(const auto& edge:boundaries.back().mesh.original_references.edges) {
-                if(edge.reference.semantic_key.starts_with("centerline:from:") &&
+                std::string source_key;
+                if(construction_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:") &&
                     std::none_of(boundaries.back().mesh.edges.begin(),boundaries.back().mesh.edges.end(),
                         [&](const auto& existing){return existing.reference==edge.reference;}))
                     boundaries.back().mesh.edges.push_back(edge);
             }
             for (const auto& point : boundaries.back().mesh.original_references.points) {
-                if ((point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("helical:axis-point:")) &&
+                std::string source_key;
+                const auto key=construction_source_key(point.reference.semantic_key,source_key);
+                if (!axis_endpoint_parent_key(key).empty() &&
                     std::none_of(boundaries.back().mesh.points.begin(), boundaries.back().mesh.points.end(),
-                        [&](const auto& existing) { return existing.reference == point.reference; }))
-                    boundaries.back().mesh.points.push_back(point);
+                        [&](const auto& existing) { return existing.reference == point.reference; })) {
+                    auto visible=point;
+                    if(visible.display_owner_id.empty())
+                        visible.display_owner_id=visible.reference.owner_id;
+                    boundaries.back().mesh.points.push_back(std::move(visible));
+                }
             }
             // Feature-generated axes are both persisted references and
             // ordinary visible construction geometry. Keeping them only in
@@ -11891,8 +11899,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             // user saw no axis in normal View.
             for (const auto& axis :
                  boundaries.back().mesh.original_references.axes) {
-                if ((axis.reference.semantic_key == "axis:primary" ||
-                     axis.reference.semantic_key.starts_with("axis:profile:") || axis.reference.semantic_key.starts_with("centerline:from:") || axis.reference.semantic_key.starts_with("helical:rotation-axis:")) &&
+                std::string source_key;
+                const auto key=construction_source_key(axis.reference.semantic_key,source_key);
+                if ((key == "axis:primary" || key.starts_with("axis:profile:") ||
+                     key.starts_with("centerline:from:") || key.starts_with("helical:rotation-axis:")) &&
                     std::none_of(boundaries.back().mesh.axes.begin(),
                         boundaries.back().mesh.axes.end(), [&](const auto& existing) {
                             return existing.reference == axis.reference;

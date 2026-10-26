@@ -109,6 +109,77 @@ void verify_default_attached_profile() {
         }
     }
 }
+void verify_flat_to_flat_attachment(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;
+    const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const auto subtract=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+    const auto normalized=[&](kernel::Vec3 value) {
+        const auto length=std::sqrt(dot(value,value));
+        check(length>1e-8,"Flat attachment direction is degenerate");
+        return kernel::Vec3{value.x/length,value.y/length,value.z/length};
+    };
+    for(std::size_t edge_index=0;edge_index<4;++edge_index)for(bool origin_last:{false,true}) {
+        workspace::Workspace live;command_host::Options options;
+        options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
+        command_host::Host host(live,kernel,directory,options);
+        const auto document_name="flat-on-flat-"+std::to_string(edge_index)+(origin_last?"-last":"-first");
+        run(host,"new",{{"type","part"},{"name",document_name}});
+        const auto document_id=live.active_document_id();
+        const auto base=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.}}).data;
+        const auto base_id=base.at("container").get<std::string>();
+        auto* state=live.open_part(document_id);
+        const auto& base_sketch=workspace::document_sketch(live,document_id,base.at("sketch").get<std::string>());
+        const auto base_center=base_sketch.world_point(20,15);
+        const auto base_normal=base_sketch.resolved_normal;
+        std::vector<kernel::ViewerEdge> edges;
+        for(const auto& edge:state->session.calculated_boundaries().back().mesh.original_references.edges) {
+            if(edge.reference.owner_id!=base_id)continue;
+            try {static_cast<void>(document::flat_sheet_references(edge));edges.push_back(edge);}
+            catch(const std::exception&) {}
+        }
+        std::ranges::sort(edges,{},[](const auto& edge){return edge.reference.semantic_key;});
+        check(edges.size()==4,"A rectangular Flat does not expose four attachable Side A boundaries");
+        const auto edge=edges[edge_index];
+        const auto along=normalized(subtract(edge.points.back(),edge.points.front()));
+        const kernel::Vec3 midpoint{(edge.points.front().x+edge.points.back().x)*.5,
+            (edge.points.front().y+edge.points.back().y)*.5,(edge.points.front().z+edge.points.back().z)*.5};
+        const auto inward=normalized(subtract(base_center,midpoint));
+        const auto edge_length=edge.measured_length.value_or(std::sqrt(dot(subtract(edge.points.back(),edge.points.front()),subtract(edge.points.back(),edge.points.front()))));
+        const auto attached=run(host,"flat.create",{{"edge_owner",base_id},{"edge_key",edge.reference.semantic_key},
+            {"height_mm",12.},{"origin_last",origin_last}}).data;
+        check(attached.at("sheet_attachment").get<bool>(),"Flat-on-Flat creation did not use sheet attachment");
+        check(attached.at("name")=="Tabule 002","Attached Flat did not receive the next numbered name");
+        const auto attached_id=attached.at("container").get<std::string>();
+        const auto* feature=state->session.document().find_container(attached_id);
+        check(feature&&feature->placement.reference_valid,"Flat-on-Flat placement is invalid");
+        const auto& profile=workspace::document_sketch(live,document_id,attached.at("sketch").get<std::string>());
+        check(std::abs(dot(profile.resolved_normal,base_normal))>1-1e-7,
+            "Flat-on-Flat rotated the Sketch plane by 90 degrees");
+        check(std::abs(dot(profile.resolved_x_axis,along))>1-1e-7,
+            "Flat-on-Flat did not keep Sketch X on the selected edge");
+        check(dot(profile.resolved_y_axis,inward)<-1+1e-7,
+            "Flat-on-Flat profile extends into the source plate instead of away from its edge");
+        double low=INFINITY,high=-INFINITY;
+        for(const auto& point:profile.points){low=std::min(low,point.y);high=std::max(high,point.y);}
+        near(high-low,12);
+        check(profile.external_references.size()==2&&std::ranges::all_of(profile.external_references,[](const auto& ref) {
+            return !ref.broken&&ref.cached_points.size()==1&&std::abs(ref.cached_points.front()[1])<1e-7;
+        }),"Flat-on-Flat endpoints do not remain on the selected boundary");
+        const auto& result=state->session.calculated_boundaries().back();
+        check(result.calculation_errors.empty(),"Flat-on-Flat created a calculation error");
+        near(measured_volume(kernel,result),1200+edge_length*12);
+        if(edge_index==3&&origin_last) {
+            run(host,"save");std::vector<kernel::BodyResult> saved;
+            const auto reopened=document::PartDocument::load(directory/(document_name+".prtz"),&saved);
+            const auto* reopened_feature=reopened.find_container(attached_id);
+            check(reopened_feature&&reopened_feature->flat.sheet_attachment&&
+                reopened_feature->placement.reference_valid&&!saved.empty(),
+                "Flat-on-Flat attachment did not survive save/reopen");
+            near(measured_volume(kernel,saved.back()),1200+edge_length*12);
+        }
+    }
+    std::cout<<"Flat-on-Flat: all four edges, both endpoint origins and coplanar orientation passed\n";
+}
 void verify_bend_attachment(const std::filesystem::path& directory) {
     kernel::OcctKernel kernel;
     const auto close=[](kernel::Vec3 a,kernel::Vec3 b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-6;};
@@ -448,6 +519,6 @@ void verify_ellipse_regions() {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-flat-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_default_attached_profile();verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
+    try{verify_default_attached_profile();verify_flat_to_flat_attachment(directory);verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

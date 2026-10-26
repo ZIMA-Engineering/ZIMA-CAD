@@ -52,7 +52,15 @@ static void compare_calculation(const kernel::BodyResult& a,const kernel::BodyRe
     auto packet=[](auto body) {
         // OCCT archive addresses are private to an individual calculation.
         body.kernel_shape.clear();body.kernel_faces.clear();body.kernel_edges.clear();body.kernel_vertices.clear();
-        return document::serialize_body_result(body,false,false);
+        auto value=document::serialize_body_result(body,false,false);
+        const auto scrub=[](auto&& self,nlohmann::json& item)->void {
+            if(item.is_object()) {
+                for(const auto* key:{"kernel_shape","kernel_faces","kernel_edges","kernel_vertices"})item.erase(key);
+                for(auto& [key,child]:item.items())self(self,child);
+            } else if(item.is_array())for(auto& child:item)self(self,child);
+        };
+        scrub(scrub,value);
+        return value;
     };
     same_packet(packet(a),packet(b));
 }
@@ -137,6 +145,8 @@ static void copied_construction_axes() {
                 "Pattern changed the original axis");
             require(std::ranges::count_if(axes,[](const auto& a){return a.reference.owner_id=="axis-pattern";})==2*source_axes,
                 "Pattern omitted or duplicated copied axes");
+            require(std::ranges::count_if(body.mesh.axes,[](const auto& a){return a.reference.owner_id=="axis-pattern";})==2*source_axes,
+                "Pattern copied its axes only as hidden references instead of normal View geometry");
             for(unsigned index=1;index<3;++index) {
                 const auto expected=kernel::pattern_point({12,0,4},scope.pattern,index);
                 const auto found=std::ranges::find_if(axes,[&](const auto& a){
@@ -152,10 +162,14 @@ static void copied_construction_axes() {
                 const auto parent=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
                 if(!parent.empty())require(std::ranges::any_of(axes,[&](const auto& a){return a.reference.owner_id==copy.owner_id&&a.reference.semantic_key==parent;}),
                     "Copied endpoint lost its parent axis identity");
+                if(!parent.empty())require(std::ranges::any_of(body.mesh.points,[&](const auto& shown){return shown.reference==point.reference&&shown.display_owner_id==copy.owner_id;}),
+                    "Pattern copied an axis endpoint only as a hidden reference");
             }
             const auto source_edges=std::ranges::count_if(body.mesh.original_references.edges,[](const auto& e){return e.construction&&e.reference.owner_id=="axis-source";});
             const auto copied_edges=std::ranges::count_if(body.mesh.original_references.edges,[](const auto& e){return e.construction&&e.reference.owner_id=="axis-pattern";});
             require(copied_edges==2*source_edges,"Pattern lost enabled origin/centroid centerlines");
+            require(std::ranges::count_if(body.mesh.edges,[](const auto& e){return e.construction&&e.reference.owner_id=="axis-pattern";})==copied_edges,
+                "Pattern copied a centerline only as a hidden reference");
         };
         verify(result.back());
         verify(document::load_body_result(document::serialize_body_result(result.back())));
@@ -177,9 +191,72 @@ static void copied_construction_axes() {
     }
     std::cout<<"Linear/circular and nested Pattern construction axes passed\n";
 }
+static void mirrored_construction_axes() {
+    kernel::OcctKernel engine;
+    auto profile=static_cast<kernel::ExtrusionRequest>(test::CircularExtrusion{2,8});
+    std::get<kernel::ExtrusionRequest::CircleProfile>(profile.outer_profile).center={12,0,0};
+    profile.centerlines.origin_enabled=profile.centerlines.centroid_enabled=true;
+    profile.centerlines.origin={12,0,0};profile.centerlines.profile_id="profile";profile.centerlines.origin_id="origin";
+    kernel::HistoryOperation source{"mirror-axis-source",profile};
+    kernel::HistoryOperation copy;copy.owner_id="axis-mirror";
+    kernel::BodyHistoryScope scope;scope.source_feature_id=source.owner_id;
+    scope.combination=kernel::BodyCombination::Mirror;scope.mirror_plane={{5,0,0},{1,0,0}};
+    copy.feature_copy=scope;
+    const std::vector<kernel::HistoryOperation> operations{source,copy};
+    const auto verify=[&](const kernel::BodyResult& body) {
+        const auto& references=body.mesh.original_references;
+        const auto source_axes=std::ranges::count_if(references.axes,[](const auto& axis) {
+            return axis.reference.owner_id=="mirror-axis-source";
+        });
+        require(source_axes>0,"Mirror axis fixture has no source axes");
+        require(std::ranges::count_if(references.axes,[](const auto& axis) {
+            return axis.reference.owner_id=="axis-mirror";
+        })==source_axes,"Mirror omitted or duplicated copied axes");
+        require(std::ranges::count_if(body.mesh.axes,[](const auto& axis) {
+            return axis.reference.owner_id=="axis-mirror";
+        })==source_axes,"Mirror copied its axes only as hidden references instead of normal View geometry");
+        for(const auto& axis:references.axes)if(axis.reference.owner_id=="axis-mirror") {
+            const auto parent=kernel::mirror_parent_reference(axis.reference.semantic_key);
+            require(parent&&parent->owner_id=="mirror-axis-source","Mirror axis lost its source identity");
+            const auto original=std::ranges::find_if(references.axes,[&](const auto& candidate) {
+                return candidate.reference.owner_id==parent->owner_id&&
+                    candidate.reference.semantic_key==parent->semantic_key&&
+                    candidate.reference.instance_path==parent->instance_path;
+            });
+            require(original!=references.axes.end(),"Mirror axis source is missing");
+            const auto point=kernel::mirrored_point(original->point,scope.mirror_plane);
+            const auto direction=kernel::mirrored_vector(original->direction,scope.mirror_plane);
+            close(axis.point.x,point.x);close(axis.point.y,point.y);close(axis.point.z,point.z);
+            close(axis.direction.x,direction.x);close(axis.direction.y,direction.y);close(axis.direction.z,direction.z);
+        }
+        for(const auto& point:references.points)if(point.reference.owner_id==copy.owner_id&&
+                !kernel::axis_endpoint_parent_key(point.reference.semantic_key).empty())
+            require(std::ranges::any_of(body.mesh.points,[&](const auto& shown){return shown.reference==point.reference&&shown.display_owner_id==copy.owner_id;}),
+                "Mirror copied an axis endpoint only as a hidden reference");
+    };
+    const auto calculated_history=engine.evaluate_history(operations);
+    const auto& calculated=calculated_history.back();verify(calculated);
+    verify(document::load_body_result(document::serialize_body_result(calculated)));
+    kernel::OcctKernel cold;verify(cold.evaluate_history(operations).back());
+    auto changed=operations;
+    auto& changed_profile=std::get<kernel::ExtrusionRequest>(changed.front().primitive);
+    std::get<kernel::ExtrusionRequest::CircleProfile>(changed_profile.outer_profile).center.x=14;
+    changed_profile.centerlines.origin.x=14;
+    const auto incremental=engine.evaluate_history_incremental(changed,calculated_history);
+    kernel::OcctKernel fresh;
+    const auto expected=fresh.evaluate_history(changed);
+    compare_calculation(incremental.back(),expected.back());
+    const auto moved_axis=std::ranges::find_if(incremental.back().mesh.axes,[](const auto& axis) {
+        return axis.reference.owner_id=="axis-mirror"&&axis.reference.semantic_key.ends_with("axis:primary");
+    });
+    require(moved_axis!=incremental.back().mesh.axes.end(),"Mirror lost its axis after the source changed");
+    close(moved_axis->point.x,-4);
+    std::cout<<"Mirror construction axes and endpoints passed\n";
+}
 int main(){try{
     copied_construction_axes();
     incremental_copy_sources();
+    mirrored_construction_axes();
     kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;
     // Profile direction carries modeling intent; test only placement zero here.

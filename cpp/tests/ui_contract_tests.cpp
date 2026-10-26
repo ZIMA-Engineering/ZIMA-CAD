@@ -1026,8 +1026,66 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
         }
     }
     view.grabFramebuffer().save("build/axis-endpoints-brown.png");
+    view.hide();
+    {
+        viewer::MeshView filter_view(&parent);filter_view.setGeometry(0,0,600,500);
+        filter_view.set_mesh(mesh);auto filter_camera=filter_view.camera_state();
+        filter_camera[0]=1;filter_camera[1]=filter_camera[2]=filter_camera[3]=0;
+        filter_view.set_camera_state(filter_camera);filter_view.show();filter_view.raise();application.processEvents();
+        const auto filter_project=[&](double x,double y) {
+            const double unit=filter_view.world_tolerance_for_pixels(1);
+            return QPointF(filter_view.width()/2.+x/unit,filter_view.height()/2.-y/unit);
+        };
+        filter_view.set_selection_contract({viewer::CandidateKind::Container});
+        filter_view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+        const auto face_without_axis_points=filter_view.selection_candidates_at(filter_project(-32,0));
+        require(std::ranges::any_of(face_without_axis_points,[](const auto& candidate) {
+            return candidate.owner_id=="feature"&&!candidate.marker_derived;
+        }),"Hiding axis endpoints suppressed the feature candidate from its visible face");
+        filter_view.hide();
+    }
+    {
+        viewer::MeshView sheet_view(&parent);sheet_view.setGeometry(0,0,600,500);
+        kernel::ViewerMesh sheet;
+        sheet.vertices={{-40,-20,0},{40,-20,0},{40,20,0},{-40,20,0}};
+        sheet.triangles={0,1,2,0,2,3};
+        sheet.triangle_references.assign(2,{"old-flat","merged-side",{}});
+        const auto append_region=[&](double low,double high,const std::string& owner) {
+            auto& refs=sheet.original_references;
+            const auto base=static_cast<std::uint32_t>(refs.vertices.size());
+            refs.vertices.insert(refs.vertices.end(),{{low,-20,0},{high,-20,0},{high,20,0},{low,20,0}});
+            refs.triangles.insert(refs.triangles.end(),{base,base+1,base+2,base,base+2,base+3});
+            kernel::FaceReference face{owner,"authored-sheet-side",{}};
+            face.sheet_owner=owner;face.sheet_role=kernel::SheetFaceRole::SideA;
+            refs.triangle_references.push_back(face);refs.triangle_references.push_back(face);
+        };
+        append_region(-40,0,"old-flat");append_region(0,40,"new-flat");
+        append_region(45,60,"consumed-flat");
+        sheet.axes.push_back({{20,0,0},{1,0,0},20,{"new-flat","axis:profile:1",{}}});
+        kernel::ViewerPoint marker;marker.position={20,0,0};marker.display_owner_id="new-flat";
+        marker.reference={"new-flat","profile:path-point:start:from:axis:profile:1",{}};
+        sheet.points.push_back(marker);
+        sheet_view.set_mesh(std::move(sheet));auto sheet_camera=sheet_view.camera_state();
+        sheet_camera[0]=1;sheet_camera[1]=sheet_camera[2]=sheet_camera[3]=0;
+        sheet_view.set_camera_state(sheet_camera);sheet_view.set_selection_contract({viewer::CandidateKind::Container});
+        sheet_view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+        sheet_view.show();sheet_view.raise();application.processEvents();
+        const auto sheet_project=[&](double x,double y) {
+            const double unit=sheet_view.world_tolerance_for_pixels(1);
+            return QPointF(sheet_view.width()/2.+x/unit,sheet_view.height()/2.-y/unit);
+        };
+        const auto newer=sheet_view.selection_candidates_at(sheet_project(20,0));
+        require(!newer.empty()&&newer.front().owner_id=="new-flat"&&!newer.front().marker_derived,
+            "A coplanar merged sheet area cannot select its authored Flat");
+        const auto older=sheet_view.selection_candidates_at(sheet_project(-20,0));
+        require(!older.empty()&&older.front().owner_id=="old-flat",
+            "Sheet operational picking changed the older visible Flat region");
+        require(sheet_view.selection_candidates_at(sheet_project(52,0)).empty(),
+            "A consumed authored sheet region remained selectable without a visible result surface");
+        sheet_view.hide();
+    }
     std::cout<<"Feature axis lines and grips retain colors, native persistence and instance/reference isolation\n";
-    view.hide();verify_sketch_axis_visibility(application,parent);
+    verify_sketch_axis_visibility(application,parent);
 }
 
 #include "interaction_color_verification.inc"

@@ -180,7 +180,8 @@ void verify_sheet_attachment(std::filesystem::path directory) {
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sheet-attachment"}});
-    run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}});
+    const auto flat=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}}).data;
+    check(flat.at("name")=="Tabule 001","Flat automatic name is not numbered");
     const auto* state=live.open_part(live.active_document_id());
     const auto source=state->session.document();
     const auto original=analyzed_body(kernel,state->session.calculated_boundaries().back());
@@ -542,6 +543,7 @@ void verify(std::filesystem::path directory) {
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","bend-test"}});
     const auto id=live.active_document_id();
     const auto created=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data;
+    check(created.at("name")=="Ohyb 001","Bend automatic name is not numbered");
     const auto owner=created.at("container").get<std::string>();auto* state=live.open_part(id);
     const auto volume=[&]{return analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;};
     const double pi=std::numbers::pi;

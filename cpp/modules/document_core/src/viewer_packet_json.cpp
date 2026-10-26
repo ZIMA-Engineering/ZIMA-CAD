@@ -1,4 +1,5 @@
 #include <zima/kernel/bspline_json.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -22,9 +23,15 @@ namespace {
 
 void restore_reference_curve_style(zima::kernel::ViewerEdge& edge) {
     std::string source_key;
-    if(!zima::kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:"))return;
+    if(!zima::kernel::construction_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:"))return;
     edge.construction=true;edge.overlay=true;edge.dash_dot=true;
     edge.display_owner_id=edge.reference.owner_id;
+}
+
+bool axis_endpoint(std::string_view semantic_key) {
+    std::string source_key;
+    return !zima::kernel::axis_endpoint_parent_key(
+        zima::kernel::construction_source_key(semantic_key,source_key)).empty();
 }
 
 void require_finite(double value, const char* field) {
@@ -483,7 +490,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             {reference.owner_id, reference.semantic_key,
              reference.instance_path}});
         result.points.back().surface_result=source.at("point_surfaces").at(index).get<bool>();
-        if ((reference.semantic_key.starts_with("sweep:path-point:") || reference.semantic_key.starts_with("profile:path-point:") || reference.semantic_key.starts_with("helical:axis-point:")))
+        if (axis_endpoint(reference.semantic_key))
             result.points.back().display_owner_id = reference.owner_id;
     }
     for (const auto& value : source.at("axes")) {
@@ -1067,7 +1074,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         // after cache loading instead of accepting ViewerPoint's general
         // purpose always-visible default.
         loaded.always_visible = false;
-        if ((loaded.reference.semantic_key.starts_with("sweep:path-point:") || loaded.reference.semantic_key.starts_with("profile:path-point:") || loaded.reference.semantic_key.starts_with("helical:axis-point:"))) {
+        if (axis_endpoint(loaded.reference.semantic_key)) {
             loaded.always_visible = true;
             loaded.display_owner_id = loaded.reference.owner_id;
         }

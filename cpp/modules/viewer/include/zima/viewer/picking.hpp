@@ -87,6 +87,10 @@ struct ViewerCandidate {
     std::string semantic_key;
     std::string instance_path;
     CandidateGeometry geometry{CandidateGeometry::Display};
+    // True only when the whole-container offer was created by a point marker.
+    // Visibility toggles may hide that offer without suppressing an unrelated
+    // face- or edge-derived offer for the same feature.
+    bool marker_derived{};
 
     bool operator==(const ViewerCandidate&) const = default;
 };

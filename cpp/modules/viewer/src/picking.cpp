@@ -1009,7 +1009,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             const auto& display_owner = source.points[vertex.point].display_owner_id;
             if (!display_owner.empty()) {
                 result.push_back({CandidateKind::Container, vertex.distance,
-                    vertex.point, display_owner, {}, vertex.reference.instance_path, geometry});
+                    vertex.point, display_owner, {}, vertex.reference.instance_path, geometry, true});
             } else if (vertex.reference.semantic_key == "point" &&
                 vertex.reference.owner_id.ends_with(origin_suffix)) {
                 result.push_back({CandidateKind::Container, vertex.distance,

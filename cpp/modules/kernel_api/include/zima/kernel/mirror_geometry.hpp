@@ -62,7 +62,7 @@ inline ViewerMesh mirrored_viewer_mesh(ViewerMesh mesh,MirrorPlane plane,const s
             for(auto& row:edge.edge_treatment_side_directions)for(auto& v:row)vector(v);
             for(auto& ref:edge.edge_treatment_side_references)face(ref);
             for(auto& ref:edge.edge_treatment_endpoint_references)reference(ref);}
-        for(auto& p:value.points){point(p.position);reference(p.reference);}
+        for(auto& p:value.points){point(p.position);reference(p.reference);if(!owner.empty())p.display_owner_id=owner;}
         for(auto& axis:value.axes){point(axis.point);vector(axis.direction);reference(axis.reference);}
     };
     geometry(mesh);geometry(mesh.original_references);mark_copy_display(mesh,owner);

@@ -8271,9 +8271,12 @@ std::vector<ConstructionReference> flat_sheet_references(const kernel::ViewerEdg
         std::string_view key=face.semantic_key;
         const auto parent="sheet-state:from:"+face.sheet_owner+":";
         if(!face.sheet_owner.empty())if(const auto at=key.rfind(parent);at!=std::string_view::npos)key.remove_prefix(at+parent.size());
+        // Bend ends are explicit caps. A closed Flat profile has no sweep cap
+        // at its perimeter; OCCT generates one thickness wall per profile edge.
         return face.sheet_role==kernel::SheetFaceRole::ThicknessFace&&
             (key.starts_with("sweep:cap:end:from:")||key.starts_with("sweep:cap:start:from:")||
-             key.starts_with("end:from:")||key.starts_with("start:from:"));
+             key.starts_with("end:from:")||key.starts_with("start:from:")||
+             key.starts_with("generated:"));
     });
     if(!outer||!cap)throw std::invalid_argument("Flat attachment requires a straight Side A boundary of a sheet end face.");
     return bend_sheet_references(edge,start);
@@ -9399,6 +9402,30 @@ const HistoryContainer* PartDocument::find_container(const std::string& id) cons
     const auto found = std::find_if(history.begin(), history.end(),
         [&](const HistoryContainer& container) { return container.id == id; });
     return found == history.end() ? nullptr : &*found;
+}
+
+std::string PartDocument::next_numbered_name(
+    std::string_view prefix, std::string_view excluded_id) const {
+    const auto used = [&](const std::string& candidate) {
+        return std::ranges::any_of(history, [&](const auto& item) {
+                   return item.id != excluded_id && item.name == candidate;
+               }) ||
+            std::ranges::any_of(constructions, [&](const auto& item) {
+                return item.id != excluded_id && item.name == candidate;
+            }) ||
+            std::ranges::any_of(body_history.bodies(), [&](const auto& item) {
+                return item.scope.id != excluded_id && item.name == candidate;
+            }) ||
+            std::ranges::any_of(body_history.booleans(), [&](const auto& item) {
+                return item.id != excluded_id && item.name == candidate;
+            });
+    };
+    for (std::size_t number = 1;; ++number) {
+        auto suffix = std::to_string(number);
+        if (suffix.size() < 3) suffix.insert(0, 3 - suffix.size(), '0');
+        auto candidate = std::string(prefix) + " " + suffix;
+        if (!used(candidate)) return candidate;
+    }
 }
 
 std::optional<std::size_t> PartDocument::history_index(

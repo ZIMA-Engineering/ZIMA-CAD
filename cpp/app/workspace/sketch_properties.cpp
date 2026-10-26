@@ -74,7 +74,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if(owner && owner->feature_kind!=zima::document::FeatureKind::Flat)return;
             auto value=owner?*owner:*new_sketch_container;
             if(!owner) {
-                value.feature_kind=zima::document::FeatureKind::Flat;value.name=tr("Tabule").toStdString();value.flat.sketch_id=initial.id;
+                value.feature_kind=zima::document::FeatureKind::Flat;
+                value.name=part->session.document().next_numbered_name(tr("Tabule").toStdString(),value.id);
+                value.flat.sketch_id=initial.id;
                 value.flat.thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
             }
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
@@ -82,7 +84,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if(owner && owner->feature_kind!=zima::document::FeatureKind::Bend)return;
             auto value=owner?*owner:*new_sketch_container;
             if(!owner) {
-                value.feature_kind=zima::document::FeatureKind::Bend;value.name=tr("Ohyb").toStdString();value.bend.sketch_id=initial.id;
+                value.feature_kind=zima::document::FeatureKind::Bend;
+                value.name=part->session.document().next_numbered_name(tr("Ohyb").toStdString(),value.id);
+                value.bend.sketch_id=initial.id;
                 const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
                 value.bend.thickness=defaults.thickness_mm.value_or(1);value.bend.k_factor=defaults.k_factor;
                 value.bend.radius_follows_thickness=true;

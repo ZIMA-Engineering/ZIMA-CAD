@@ -89,6 +89,34 @@ void validate(const DerivedCopyEdit& edit,const DerivedCopyDefinition& value) {
     }
 }
 }
+std::string next_derived_copy_name(const Workspace& live,const std::string& id,
+        const std::string& prefix,const std::string& excluded_id) {
+    if(const auto* part=live.open_part(id))
+        return part->session.document().next_numbered_name(prefix,excluded_id);
+    const auto* assembly=live.open_assembly(id);
+    if(!assembly)throw DerivedCopyError("unsupported_document","Derived copies require an open Part or Assembly.");
+    const auto& document=assembly->session.document();
+    const auto used=[&](const std::string& candidate) {
+        return std::ranges::any_of(document.components,[&](const auto& item) {
+                   return item.occurrence_id!=excluded_id&&item.name==candidate;
+               })||
+            std::ranges::any_of(document.sketch_containers,[&](const auto& item) {
+                return item.id!=excluded_id&&item.name==candidate;
+            })||
+            std::ranges::any_of(document.cuts,[&](const auto& item) {
+                return item.definition.id!=excluded_id&&item.definition.name==candidate;
+            })||
+            std::ranges::any_of(document.constructions,[&](const auto& item) {
+                return item.id!=excluded_id&&item.name==candidate;
+            });
+    };
+    for(std::size_t number=1;;++number) {
+        auto suffix=std::to_string(number);
+        if(suffix.size()<3)suffix.insert(0,3-suffix.size(),'0');
+        const auto candidate=prefix+" "+suffix;
+        if(!used(candidate))return candidate;
+    }
+}
 DerivedCopyEdit prepare_derived_copy_edit(Workspace& live,const std::string& id,const std::string& object,bool pattern) {
     // CLI has no scene refresh. Use the same current-source sharing that GUI
     // already performs before opening Properties; never regenerate a source.

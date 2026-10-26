@@ -35,6 +35,8 @@ struct DerivedCopyDefinition {
 [[nodiscard]] CopySources derived_copy_sources(const Workspace&,const std::string& document,const std::string& object={});
 [[nodiscard]] kernel::ViewerMesh derived_copy_source_mesh(const document::DocumentSession&,const CopySource&);
 [[nodiscard]] DerivedCopyDefinition derived_copy_definition(const Workspace&,const std::string& document,const std::string& object);
+[[nodiscard]] std::string next_derived_copy_name(const Workspace&,const std::string& document,
+    const std::string& prefix,const std::string& excluded_id={});
 struct DerivedCopyEdit {
     std::string document_id;
     std::uint64_t revision{};

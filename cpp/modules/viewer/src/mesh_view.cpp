@@ -159,8 +159,13 @@ struct MeshView::Impl {
     // when the scene changes instead of copying all persisted geometry for
     // every hover sample.
     zima::kernel::ViewerMesh persisted_reference_mesh;
+    // Pick-only authored sheet regions. Later coplanar Boolean merging keeps
+    // the oldest face identity, so these source skins preserve which Flat or
+    // Bend produced a visible area without changing topology or rendering it.
+    zima::kernel::ViewerMesh sheet_container_pick_mesh;
     std::optional<PickingIndex> display_picking_index;
     std::optional<PickingIndex> reference_picking_index;
+    std::optional<PickingIndex> sheet_container_picking_index;
     struct FaceBoundarySegment {
         kernel::Vec3 first,second;
         std::size_t uses{};
@@ -599,6 +604,40 @@ struct MeshView::Impl {
             sketch_interaction_mesh.constraint_markers.push_back(
                 mesh.constraint_markers[index]);
         }
+    }
+
+    void rebuild_sheet_container_pick_mesh() {
+        auto& target=sheet_container_pick_mesh;target={};
+        const auto& source=mesh.original_references;
+        std::size_t count{};
+        for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
+            const auto& reference=source.triangle_references[triangle];
+            if(!reference.sheet_owner.empty()&&
+                (reference.sheet_role==kernel::SheetFaceRole::SideA||
+                 reference.sheet_role==kernel::SheetFaceRole::SideB)&&
+                triangle*3+2<source.triangles.size())++count;
+        }
+        target.vertices.reserve(count*3);target.triangles.reserve(count*3);
+        target.triangle_references.reserve(count);
+        for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
+            const auto& reference=source.triangle_references[triangle];
+            if(reference.sheet_owner.empty()||
+                (reference.sheet_role!=kernel::SheetFaceRole::SideA&&
+                 reference.sheet_role!=kernel::SheetFaceRole::SideB)||
+                triangle*3+2>=source.triangles.size())continue;
+            const auto base=static_cast<std::uint32_t>(target.vertices.size());
+            bool valid=true;
+            for(std::size_t corner=0;corner<3;++corner) {
+                const auto index=source.triangles[triangle*3+corner];
+                if(index>=source.vertices.size()){valid=false;break;}
+                target.vertices.push_back(source.vertices[index]);
+            }
+            if(!valid){target.vertices.resize(base);continue;}
+            target.triangles.insert(target.triangles.end(),{base,base+1,base+2});
+            target.triangle_references.push_back(reference);
+        }
+        if(target.triangle_references.empty())sheet_container_picking_index.reset();
+        else sheet_container_picking_index.emplace(target);
     }
 
     [[nodiscard]] bool has_authored_container_wire(const ViewerCandidate& candidate) const {
@@ -1061,6 +1100,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     ++impl_->base_mesh_revision;
     phase("presentation");
     impl_->display_picking_index.emplace(impl_->mesh);
+    impl_->rebuild_sheet_container_pick_mesh();
     phase("picking index");
     impl_->face_boundaries.clear();
     const auto index_faces=[](const auto& faces,auto& target) {
@@ -1405,6 +1445,31 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             impl_->display_picking_index?&*impl_->display_picking_index:nullptr,
             impl_->reference_picking_index?&*impl_->reference_picking_index:nullptr,
             [this](const auto& edge){return !impl_->passive_sketch_axis(edge)||impl_->sketch_axis_visible(edge);});
+    if(!sketch_only&&impl_->sheet_container_picking_index&&
+            std::ranges::find(impl_->allowed_kinds,CandidateKind::Container)!=impl_->allowed_kinds.end()) {
+        const auto visible=ordered_ray_candidates(impl_->mesh,ray_origin,ray_direction,true,
+            impl_->display_picking_index?&*impl_->display_picking_index:nullptr);
+        const auto sheets=ordered_ray_candidates(impl_->sheet_container_pick_mesh,ray_origin,ray_direction,false,
+            &*impl_->sheet_container_picking_index);
+        for(const auto& hit:sheets) {
+            const double tolerance=1e-8*std::max(1.,std::abs(hit.distance));
+            if(std::ranges::none_of(visible,[&](const auto& face) {
+                    return std::abs(face.distance-hit.distance)<=tolerance;
+                }))continue;
+            const auto duplicate=std::ranges::find_if(candidates,[&](const auto& candidate) {
+                return candidate.kind==CandidateKind::Container&&
+                    candidate.owner_id==hit.reference.sheet_owner&&
+                    candidate.instance_path==hit.reference.instance_path;
+            });
+            if(duplicate!=candidates.end()) {
+                if(!duplicate->marker_derived)continue;
+                candidates.erase(duplicate);
+            }
+            candidates.insert(candidates.begin(),ViewerCandidate{CandidateKind::Container,
+                hit.distance,hit.triangle,hit.reference.sheet_owner,{},
+                hit.reference.instance_path,CandidateGeometry::Display});
+        }
+    }
     if (sketch_only) {
         for (auto& candidate : candidates) {
             const std::vector<std::size_t>* indices = nullptr;
@@ -1578,13 +1643,9 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         return !impl_->origin_visible({candidate.owner_id,candidate.semantic_key,candidate.instance_path});
     });
     std::erase_if(candidates,[&](const auto& candidate){
-        if(candidate.kind==CandidateKind::Container&&candidate.semantic_key.empty()) {
-            const auto parent=impl_->marker_parents.find({candidate.owner_id,candidate.instance_path});
-            if(parent!=impl_->marker_parents.end()) {
-                const auto& points=candidate.geometry==CandidateGeometry::OriginalReference?impl_->persisted_reference_mesh.points:impl_->mesh.points;
-                const auto point=std::ranges::find_if(points,[&](const auto& value){return value.display_owner_id==candidate.owner_id&&value.reference.instance_path==candidate.instance_path;});
-                if(point!=points.end())return !impl_->helper_point_visible(*point);
-            }
+        if(candidate.kind==CandidateKind::Container&&candidate.marker_derived) {
+            const auto& points=candidate.geometry==CandidateGeometry::OriginalReference?impl_->persisted_reference_mesh.points:impl_->mesh.points;
+            if(candidate.geometry_index<points.size())return !impl_->helper_point_visible(points[candidate.geometry_index]);
         }
         if(candidate.kind!=CandidateKind::Vertex&&candidate.kind!=CandidateKind::SketchPoint&&
             !(candidate.kind==CandidateKind::Container&&(candidate.semantic_key=="point"||
