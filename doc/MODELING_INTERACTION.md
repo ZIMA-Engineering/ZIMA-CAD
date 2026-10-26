@@ -5,6 +5,18 @@ five display modes so an entire hole and its internal subfeatures can be inspect
 Only the selected container, subfeature, or exact component occurrence is highlighted;
 other instances of the same source Part are unaffected. Hover uses orange wire.
 
+Auxiliary visibility is not a model-selection filter. In particular, hiding
+axis endpoint points removes only their markers. It must not suppress a face,
+feature or cylindrical cut that shares the same owner or screen position.
+When a marker and an operational face are coincident, the visible operational
+candidate remains available to hover/RMB cycling/LMB while the marker follows
+the **Points** visibility state.
+
+Thin sheet regions are picked against the actually displayed authored surface,
+including a later Flat whose persistent planar ancestry is shared with an older
+coplanar contributor. This presentation-only picking mesh neither changes the
+persisted oldest-face identity nor makes a consumed source region selectable.
+
 Double-clicking a container keeps its cyan wire visible with its dimensions.
 This inspection state is separate from input selection, so dimensions remain
 selectable and repeatedly editable. Clicking empty View space clears confirmed

@@ -207,6 +207,13 @@ degrees-of-freedom filter must not reject that edge before the sheet command can
 construct this complete reference set. Changing the endpoint reverses the span
 along the same physical edge without changing the joining plane.
 
+The **Points** visibility switch controls auxiliary axis endpoint markers only.
+Hiding those markers does not remove an overlapping sheet face, feature or
+cylindrical cut from the picking stream. Sheet-face confirmation is limited to
+the actually displayed authored region, then resolves to its persisted face
+identity; it does not expose consumed coplanar source regions or create a new
+topology identity.
+
 Unbend and Bend Back remain history-state operations rather than ordinary
 selectable model features. Their calculated topology carries the authored sheet
 feature as its display owner, so ordinary hover, LMB confirmation and cyan
@@ -229,21 +236,24 @@ menu, before Bend. It creates one additive history container with one owned
 Sketch, using the existing container placement and work-plane selection. The
 Sketch lies on the container plane; this feature has no separate profile-plane
 offset. Container XYZ and reference offsets retain their usual behavior.
+Automatic names are localized and numbered (`Tabule 001`, `Tabule 002`, ...);
+an existing name is never reused while it is present in the Part.
 
 Draw a closed outline through the green **SKETCH** button. Closed inner loops
 make openings. The feature uses the same exact profile extrusion calculation as
 Extrusion; an open or empty outline cannot be committed. The cyan wire previews
 the pending sheet without invoking the solid kernel.
 
-### Automatic Flat attachment to sheet end faces
+### Automatic Flat attachment to sheet boundaries
 
 Flat retains ordinary free placement. Selecting a straight outer boundary of a
-Bend or Revolved Sheet Start or End cap in the first reference field
-activates automatic attachment. The boundary must belong to the persisted
-Side A skin and a terminal thickness face. This includes straight generators
-at the ends of cylindrical and conical Revolved Sheets. Inner boundaries,
-curved rim edges and thickness edges are excluded from this shortcut. Hover
-and confirmation use the same eligibility check and still obey the user's
+Bend or Revolved Sheet Start/End cap, or any straight outer perimeter edge of a
+Flat, in the first reference field activates automatic attachment. The boundary
+must belong to the persisted Side A skin and either a terminal thickness face or
+the generated thickness wall beside a Flat profile edge. This includes straight
+generators at the ends of cylindrical and conical Revolved Sheets. Inner
+boundaries, curved rim edges and thickness edges are excluded from this shortcut.
+Hover and confirmation use the same eligibility check and still obey the user's
 selection filters.
 
 The edge, its joining cap and a native endpoint fill the placement references.
@@ -252,6 +262,11 @@ the cap. Thickness defaults to **Second side**, toward the inner radius, and
 inherits the source sheet thickness. The profile remains an ordinary editable
 closed Sketch; the command does not prescribe its outline. Direction remains
 editable, but changing it can intentionally remove the full-thickness connection.
+
+On a Flat perimeter, the tangent plane is the source Flat plane. Sketch X follows
+the selected edge and positive Y points outward from the source panel, so the
+prepared rectangle is coplanar rather than rotated by 90 degrees. This holds for
+all perimeter sides and for either endpoint used as the placement origin.
 
 Both edge endpoints are supplied as external Point references in the owned
 Sketch. Their stable IDs can be used by Sketch constraints and dimensions;
@@ -457,6 +472,7 @@ use those versions; there is no legacy-format migration path.
 Creation and editing use the same internal properties window, OK/Cancel and
 middle-button double-click confirmation. Changes remain transient until OK.
 Editing evaluates the existing history boundary before the Bend.
+Automatic names are localized and numbered (`Ohyb 001`, `Ohyb 002`, ...).
 
 - The command consumes ordinary container placement. In manual reference mode,
   selecting a straight outer edge and its narrow planar attachment face puts the

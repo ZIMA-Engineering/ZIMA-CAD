@@ -73,6 +73,15 @@ save/reopen. The warm confirmation is 4.627 seconds, so the desired one-second
 confirmation target is not claimed. See the
 [measured limits](performance/20261026-skeleton-history-edit.md).
 
+The current `2026102602` candidate adds direct Flat-to-Flat attachment on every
+outer perimeter edge, numbered Flat/Bend/Pattern defaults, sheet and cylindrical
+face selection independent of axis endpoint-marker visibility, and parent-driven
+Mirror/Pattern construction axes and endpoints. Focused native/UI contracts and
+read-only copies of the reported Skeleton and sheet Part pass on Windows. The
+candidate changes no native format, container-placement contract, calculation
+precision or shared OCCT 8.0.1 pin; publication and native Linux acceptance are
+not claimed yet. See the [candidate record](releases/2026102602.md).
+
 The 2502 source tag was not published as a GitHub release. Its changes are
 superseded by published 2601; the historical
 [2502 record](releases/2026102502.md) remains the finite junction/selection
@@ -82,7 +91,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102601 is published and accepted. Further Skeleton performance work must start from measured 2601 behavior and preserve its exact-output gates. Linux remains separate. |
+| Current correction/release batch | Windows 2026102601 is published and accepted. Windows 2026102602 is a local candidate for Flat attachment, selection and copied-axis corrections; signed publication is still pending. Further Skeleton performance work must start from measured 2601 behavior and preserve its exact-output gates. Linux remains separate. |
 | Skeleton interaction | Properties opening is 1.46--1.61 s and draft editing 0.134--0.139 s in the measured fixture. Warm changed OK is 4.627 s, not the requested one second. Further work must preserve exact output and likely requires immutable/shared viewer packets rather than weaker calculation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

@@ -9,7 +9,12 @@ Feature copies transform the source's construction axes, enabled Origin/centroid
 centerlines and associated points together with its material geometry. This also
 applies when a source is another feature copy. Ordinary global visibility switches
 remain in control; a copy does not force hidden construction geometry to appear.
-After changing source display-generation options, use explicit Regenerate.
+The copied construction keeps an explicit parent reference to the source axis or
+centerline rather than becoming an unrelated snapshot. Changing a profile axis,
+enabled Origin axis, centroid axis or its defining source geometry therefore
+moves the Mirror/Pattern construction on explicit Regenerate. Axis endpoint
+markers follow the transformed parent and survive native save/reopen. Hiding
+endpoint markers affects only those markers, not face or feature selection.
 
 - **Mirror Properties** offers only XY/YZ/XZ planes of its own Origin for the
   reflection plane, through both the View and Tree. Other Origins and planar
@@ -28,6 +33,9 @@ After changing source display-generation options, use explicit Regenerate.
   switching to circular mode.
 - Pattern counts include the source; its container adds remaining copies while the
   original remains independent.
+
+New Pattern containers receive localized numbered names (`Pole 001`,
+`Pole 002`, ...). Part and Assembly use the same collision-free numbering rule.
 
 Place the copy container first, then select its own local plane or axis. The same
 rule applies in Part, Assembly, and an active nested occurrence. GUI selection,
@@ -98,6 +106,12 @@ Verification: `zima_cpp_derived_copy_contract_tests`; GUI
 The command/query regressions also cover independent solid volume, placed Bodies,
 linear and circular subtraction, source changes, native reload, cold regeneration,
 Undo/Redo and rejection of foreign or downstream sources.
+
+The 2026-10-26 construction regression additionally covers linear, circular and
+nested Pattern axes, Mirror axes and their endpoint markers, native save/reopen,
+cold calculation and an incremental source-profile move compared with a fresh
+calculation. Moving the source circle from X=12 to X=14 across a plane at X=5
+moves the mirrored primary axis to X=-4, confirming parent-driven regeneration.
 
 ### Body ownership regression coverage
 
