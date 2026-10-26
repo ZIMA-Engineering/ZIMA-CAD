@@ -1,5 +1,12 @@
 # Application updates
 
+The current source identifies Windows candidate `2026102603`; it is not yet a
+published updater target. Its exact-output native workflow, Sketcher, unit-entry,
+naming, sheet-conversion and Skeleton export changes are listed in the
+[candidate record](releases/2026102603.md). Existing `2026102602` installations
+remain on the signed stable channel until candidate signing, publication and
+trusted-updater discovery pass.
+
 Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
 was published at `2026-10-26T09:12:53Z` from immutable source
 `a14d57a4d8bf21d93180f1f0d9120811ccf774fc`. It includes direct Flat-to-Flat

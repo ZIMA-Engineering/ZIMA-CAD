@@ -5342,6 +5342,19 @@ int main(int argc, char* argv[]) {
                 "Unchanged Extrusion parameters skipped calculation after its "
                 "owned Sketch profile changed");
 
+        int unchanged_profile_commits = 0;
+        auto* unchanged_profile_dialog =
+            new zima::app::PrimitivePropertiesDialog(
+                committed_extrusion, true, false,
+                [&](zima::document::HistoryContainer) {
+                    ++unchanged_profile_commits;
+                }, &parent);
+        unchanged_profile_dialog->show();
+        application.processEvents();
+        unchanged_profile_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        require(unchanged_profile_commits == 0,
+                "Unchanged Extrusion Properties requested a calculation");
+
         auto revolution_initial =
             zima::document::PartDocument::create_revolution_container(
                 "sketch-revolution");

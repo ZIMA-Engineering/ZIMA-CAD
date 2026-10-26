@@ -975,7 +975,7 @@ public:
     [[nodiscard]] static PartDocument load(
         const std::filesystem::path& path,
         std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);
-    [[nodiscard]] nlohmann::json serialized(const std::vector<zima::kernel::BodyResult>& calculated = {}, const DocumentCopyIdentity& copy = {}) const;
+    [[nodiscard]] nlohmann::json serialized(const std::vector<zima::kernel::BodyResult>& calculated = {}, const DocumentCopyIdentity& copy = {}, bool compact_cache = false) const;
     [[nodiscard]] static PartDocument from_serialized(const nlohmann::json&, std::vector<zima::kernel::BodyResult>* calculated = nullptr);
     void save(
         const std::filesystem::path& path,

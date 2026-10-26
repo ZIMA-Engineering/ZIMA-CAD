@@ -61,23 +61,34 @@ void identify_assembly(kernel::StepProduct& product) {
     product.definition_id=identity.str();
 }
 std::optional<kernel::StepProduct> snapshot_product(const assembly::OccurrenceSnapshot& node,
-        const kernel::BodyResult& body) {
+        const kernel::BodyResult& body, bool include_skeletons) {
     if(!node.visible||node.manually_suppressed||node.dependency_suppressed)return std::nullopt;
+    if(!include_skeletons&&assembly::is_skeleton(node))return std::nullopt;
     kernel::StepProduct product;product.name=node.name;product.definition_id=node.source_document_id;
     product.translation={node.placement.x,node.placement.y,node.placement.z};
     product.rotation_degrees={node.placement.rotation_x,node.placement.rotation_y,node.placement.rotation_z};
-    if(node.source_kind==assembly::ComponentSourceKind::Assembly) {
+    // An Assembly-owned body operation publishes the final compound here.
+    // That result is authoritative; recursing would resurrect its uncut
+    // children in STEP/IGES.
+    if(node.source_kind==assembly::ComponentSourceKind::Assembly&&
+       body.kernel_shape.empty()) {
+        if(node.children.empty())throw StepProductError(
+            StepProductError::Code::CalculationRequired,
+            "Podsestava nema ulozenou geometrii ani snimek komponent pro STEP. Provedte Regenerovat.");
         for(const auto& child:node.children) {
             if(!child.visible||child.manually_suppressed||child.dependency_suppressed)continue;
             const auto found=body.body_outputs.find(child.occurrence_id);
-            if(found==body.body_outputs.end())throw std::runtime_error(
+            if(found==body.body_outputs.end())throw StepProductError(
+                StepProductError::Code::CalculationRequired,
                 "Podsestava nemá uloženou geometrii komponent pro STEP. Proveďte Regenerovat.");
-            if(auto value=snapshot_product(child,found->second))product.children.push_back(std::move(*value));
+            if(auto value=snapshot_product(child,found->second,include_skeletons))product.children.push_back(std::move(*value));
         }
         if(product.children.empty())return std::nullopt;
         identify_assembly(product);
     } else {
-        if(body.kernel_shape.empty())throw std::runtime_error("STEP díl nemá vypočtené těleso. Proveďte Regenerovat.");
+        if(body.kernel_shape.empty())throw StepProductError(
+            StepProductError::Code::CalculationRequired,
+            "STEP díl nemá vypočtené těleso. Proveďte Regenerovat.");
         product.body=body;product.definition_id+=':'+shape_key(body);
     }
     return product;
@@ -230,13 +241,15 @@ kernel::StepProduct step_product(const document::PartDocument& doc,const std::ve
     if(root.children.empty()&&root.body.kernel_shape.empty())throw std::runtime_error("Part nemá viditelné těleso pro STEP");
     return root;
 }
-kernel::StepProduct step_product(const assembly::AssemblyDocument& doc) {
+kernel::StepProduct step_product(const assembly::AssemblyDocument& doc,bool include_skeletons) {
     kernel::StepProduct root;root.name=doc.name;root.definition_id=doc.document_id;
     for(const auto& node:doc.occurrence_snapshot()) {
         const auto* component=doc.find_occurrence(node.occurrence_id);
-        if(auto product=snapshot_product(node,component->calculated_source))root.children.push_back(std::move(*product));
+        if(auto product=snapshot_product(node,component->calculated_source,include_skeletons))root.children.push_back(std::move(*product));
     }
-    if(root.children.empty())throw std::runtime_error("Sestava nemá viditelné díly pro STEP");
+    if(root.children.empty())throw StepProductError(
+        StepProductError::Code::EmptyGeometry,
+        "Sestava nemá viditelné díly pro STEP");
     identify_assembly(root);return root;
 }
 }

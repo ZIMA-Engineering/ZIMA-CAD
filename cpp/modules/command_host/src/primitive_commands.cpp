@@ -66,7 +66,9 @@ void Host::register_primitive_commands() {
                         std::string container_id;
                         bool changed;
                         if(create) {
-                            auto container = definition.create();container.name=tr(definition.display_name);
+                            auto container = definition.create();
+                            container.name=state->session.document().next_numbered_name(
+                                tr(definition.display_name),container.id);
                             workspace::assign_primitive_dimensions(container,patch);container_id=container.id;
                             changed=workspace::commit_primitive(workspace_,kernel_,id,std::move(container),workspace::PrimitiveEditMode::Create);
                         } else {

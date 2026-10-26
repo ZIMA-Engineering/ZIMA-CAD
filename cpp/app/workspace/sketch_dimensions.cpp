@@ -20,6 +20,51 @@ std::optional<bool> external_dimension_line_kind(
 }
 }
 
+void AssemblyWorkspaceWindow::edit_created_sketch_dimension_inline(
+    const std::string& sketch_id, const std::string& semantic_key) {
+    if(!application_settings_.edit_new_sketch_dimension||
+        sketch_id!=active_sketch_id_||semantic_key.empty())return;
+    // Creation is confirmed by an LMB press.  Wait for its release so the
+    // editor receives focus without the same gesture immediately dismissing
+    // it, while leaving the active repeated-dimension command intact.
+    QTimer::singleShot(10,this,[this,sketch_id,semantic_key] {
+        if(QApplication::mouseButtons()&Qt::LeftButton) {
+            edit_created_sketch_dimension_inline(sketch_id,semantic_key);
+            return;
+        }
+        if(!application_settings_.edit_new_sketch_dimension||
+            sketch_id!=active_sketch_id_)return;
+        const auto* sketch=active_sketch();
+        if(!sketch)return;
+        bool editable{};
+        if(semantic_key.starts_with("dimension:")) {
+            const auto found=std::ranges::find(sketch->dimensions,
+                semantic_key.substr(10),&zima::sketcher::SketchDimension::id);
+            editable=found!=sketch->dimensions.end()&&found->driving&&
+                !found->locked;
+        } else if(semantic_key.starts_with("corner_dimension:")) {
+            const auto found=std::ranges::find(sketch->corner_radii,
+                semantic_key.substr(17),&zima::sketcher::SketchCornerRadius::id);
+            editable=found!=sketch->corner_radii.end()&&
+                found->dimension_visible;
+        }
+        if(!editable)return;
+        const auto& dimensions=viewer_->mesh().dimensions;
+        const auto shown=std::ranges::find_if(dimensions,[&](const auto& value) {
+            return value.reference.owner_id==sketch_id&&
+                value.reference.semantic_key==semantic_key;
+        });
+        if(shown==dimensions.end())return;
+        zima::viewer::ViewerCandidate candidate;
+        candidate.kind=zima::viewer::CandidateKind::Dimension;
+        candidate.owner_id=sketch_id;
+        candidate.semantic_key=semantic_key;
+        candidate.instance_path=shown->reference.instance_path;
+        candidate.geometry_index=static_cast<std::size_t>(shown-dimensions.begin());
+        edit_dimension_inline(candidate);
+    });
+}
+
 void AssemblyWorkspaceWindow::start_sketch_universal_dimension() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return;
     cancel_sketch_segment();
@@ -521,6 +566,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_universal_dimension_ray(
     const auto cursor = sketch->intersect_ray(origin, direction);
     if (!cursor) return true;
     bool completed_symmetric_dimension = false;
+    std::string created_dimension_key;
     try {
         if (!universal_corner_radius_dimension_id_.empty()) {
             const auto radius_id = universal_corner_radius_dimension_id_;
@@ -534,6 +580,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_universal_dimension_ray(
                     radius->dimension_visible = true;
                     radius->dimension_placement = *cursor;
                 })) throw std::runtime_error("Sketch is no longer active");
+            created_dimension_key="corner_dimension:"+radius_id;
             universal_corner_radius_dimension_id_.clear();
         } else {
             auto dimension = *universal_pending_dimension_;
@@ -582,6 +629,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_universal_dimension_ray(
             if (!mutate_active_sketch([&](auto& target) {
                     target.apply_dimension(dimension);
                 })) throw std::runtime_error("Sketch is no longer active");
+            created_dimension_key="dimension:"+dimension.id;
         }
     } catch (const std::exception& error) {
         state_->setText(tr("Univerzální kótu nelze uložit: %1")
@@ -592,6 +640,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_universal_dimension_ray(
     preserve_view_on_refresh_ = true;
     refresh_tabs();
     refresh_scene();
+    edit_created_sketch_dimension_inline(active_sketch_id_,created_dimension_key);
     state_->setText(completed_symmetric_dimension
         ? tr("Symetrická kóta byla vytvořena; lze ji editovat a geometrii táhnout.")
         : tr("Univerzální kóta byla vytvořena. Vyberte první referenci další kóty."));
@@ -1095,6 +1144,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
+        edit_created_sketch_dimension_inline(
+            active_sketch_id_,"corner_dimension:"+radius_id);
         start_sketch_point_dimension(zima::sketcher::DimensionKind::Distance);
         return true;
     }
@@ -1123,6 +1174,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
                 .arg(QObject::tr(error.what())));
             return true;
         }
+        const auto created_dimension_key="dimension:"+dimension.id;
         pending_sketch_dimension_.reset();
     universal_dimension_layout_={};
         pending_point_dimension_cursor_.reset();
@@ -1135,6 +1187,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();
+        edit_created_sketch_dimension_inline(active_sketch_id_,created_dimension_key);
         if (resume_unified_dimension) {
             start_sketch_point_dimension(
                 zima::sketcher::DimensionKind::Distance);
@@ -1541,6 +1594,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         }
         refresh_tabs();
         refresh_scene();
+        edit_created_sketch_dimension_inline(sketch_id,"dimension:"+initial.id);
         return;
     }
     auto* dialog = new SketchDimensionPropertiesDialog(

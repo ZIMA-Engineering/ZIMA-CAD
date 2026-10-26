@@ -710,6 +710,11 @@ completion of the agreed features.
   Additional inference/constraint feedback and optional automatic reference
   dimensions for remaining degrees of freedom remain follow-up ideas beyond
   the existing Sketcher foundation; scope them before implementation.
+- Candidate `2026102603` adds optional immediate inline value entry for newly
+  created dimensions, mixed-unit arithmetic and symmetry inference when a
+  rectangle spans two parallel external references. Its finite matrix and
+  remaining limits are recorded in the
+  [candidate release record](doc/releases/2026102603.md).
 
 ## 3. Protrusion / Extrusion
 

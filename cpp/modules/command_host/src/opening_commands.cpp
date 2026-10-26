@@ -263,7 +263,8 @@ void Host::register_opening_commands() {
                 if(!state||interaction().template_document)throw ShaftError("unsupported_document","Shaft threading requires an open Part.");
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw ShaftError("invalid_arguments","Specify at least one shaft thread parameter.");
                 auto feature=create?document::PartDocument::create_shaft_thread_container():shaft_thread(state,args.at("container"));
-                if(create)feature.name=tr("Vnější závit");
+                if(create)feature.name=state->session.document().next_numbered_name(
+                    tr("Vnější závit"),feature.id);
                 const auto* body=create?state->session.document().body_history.find(state->session.document().body_history.active_body_id()):state->session.document().body_owner_for_object(feature.id);
                 if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw ShaftError("inactive_body","Activate the owning Body before editing its shaft thread.");
                 shaft_properties(feature,args,create);const auto container=feature.id;
@@ -290,7 +291,8 @@ void Host::register_opening_commands() {
                 if(!state||interaction().template_document)throw Error("unsupported_document","Opening operations require an open Part.");
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one opening parameter.");
                 auto value=create?document::PartDocument::create_thread_container():opening(state,args.at("container"));
-                if(create)value.name=tr("Otvor");
+                if(create)value.name=state->session.document().next_numbered_name(
+                    tr("Otvor"),value.id);
                 const auto* body=create?state->session.document().body_history.find(state->session.document().body_history.active_body_id()):state->session.document().body_owner_for_object(value.id);
                 if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its opening.");
                 opening_properties(value,args,workspace_,id,create);const auto container=value.id;

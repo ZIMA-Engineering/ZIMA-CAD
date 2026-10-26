@@ -38,15 +38,21 @@ void verify_parameter_inspection(const fs::path& directory) {
         const document::UserParameterData expected{full.user_parameters,full.user_parameter_order,full.user_parameter_labels,full.user_parameter_values};
         require(document::read_native_user_parameters(path)==expected,"Parameter inspection differs from full native loading");
     };
+    const auto compare_path=[&](const fs::path& path) {
+        try {
+            if(path.extension()==".asmz")compare(assembly::AssemblyDocument::load(path,{},false),path);
+            else compare(document::PartDocument::load(path),path);
+        } catch(const std::exception& error) {
+            throw std::runtime_error("Parameter inspection failed for "+path.generic_string()+": "+error.what());
+        }
+    };
     for(const auto& entry:fs::directory_iterator(directory)){
         const auto extension=entry.path().extension();
-        if(extension==".prtz")compare(document::PartDocument::load(entry.path()),entry.path());
-        else if(extension==".asmz")compare(assembly::AssemblyDocument::load(entry.path(),{},false),entry.path());
+        if(extension==".prtz"||extension==".asmz")compare_path(entry.path());
     }
     for(const auto* relative:{"config/templates/START_PART_mm.prtz","config/templates/START_ASSEMBLY_mm.asmz","config/formats/ZE-TITLE-BLOCK.tblz","config/formats/ZE-DRAWING-FRAME.frmz","config/symbols/annotations/ZE-TEXT.symz"}){
         const fs::path path(relative);
-        if(path.extension()==".asmz")compare(assembly::AssemblyDocument::load(path,{},false),path);
-        else compare(document::PartDocument::load(path),path);
+        compare_path(path);
     }
     const auto path=directory/"metadata-buffer.prtz";
     {
@@ -147,7 +153,9 @@ template<class Doc> void binding_unit_matrix(Doc source) {
                 "Relation catalog changed identity, quantity, access or canonical value across units");
             // Assign through the real evaluator, not directly through a field setter.
             if(dimension.input.writable) {
-                auto changed=doc;const double expected=slot->quantity==Quantity::Scalar?4.:
+                auto changed=doc;const bool feature_direction=
+                    binding.semantic_key=="parameter:direction";
+                const double expected=feature_direction?-1.:slot->quantity==Quantity::Scalar?4.:
                     slot->quantity==Quantity::Angle?30.:2.54;
                 changed.relations=name+" = "+Json(expected/scale).dump();
                 workspace::apply_relation_dimensions(changed,{});
@@ -504,9 +512,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
 int main(int argc,char** argv){try{
 if(argc==4&&std::string_view(argv[1])=="--save-native-assembly-definition")return save_native_assembly_definition(fs::u8path(argv[2]),fs::u8path(argv[3]));
 if(argc==4&&std::string_view(argv[1])=="--refresh-native-factory")return refresh_native_factory(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
+if(argc==4&&std::string_view(argv[1])=="--resave-native-part")return resave_native_part(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
 if(argc==3&&std::string_view(argv[1])=="--native-io-performance")return benchmark_native_io(fs::absolute(fs::u8path(argv[2])));
 if(argc==3&&std::string_view(argv[1])=="--native-last-add-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])),true);
 if(argc==3&&std::string_view(argv[1])=="--native-last-add-cold-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])),true,true);
 if(argc==3&&std::string_view(argv[1])=="--native-last-operation-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])));
+if(argc==3&&std::string_view(argv[1])=="--native-last-operation-description")return describe_native_last_operation(fs::absolute(fs::u8path(argv[2])));
+if(argc==3&&std::string_view(argv[1])=="--native-loaded-last-operation-performance")return benchmark_native_loaded_last_operation(fs::absolute(fs::u8path(argv[2])));
 if(argc==4&&std::string_view(argv[1])=="--compare-native-properties")return compare_native_properties(fs::u8path(argv[2]),fs::u8path(argv[3]));
 kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify_failed_sheet_settings(kernel,dir);verify(kernel,dir);verify_parameter_inspection(dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

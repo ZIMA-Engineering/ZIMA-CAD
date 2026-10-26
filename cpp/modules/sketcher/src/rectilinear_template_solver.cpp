@@ -8,8 +8,7 @@
 
 namespace zima::sketcher {
 bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool allow_nonlinear_distances,bool allow_constraint_only) {
-    if((!allow_constraint_only&&!sketch.external_references.empty()) || sketch.points.empty() ||
-       !sketch.arcs.empty() || !sketch.ellipses.empty() ||
+    if(sketch.points.empty() || !sketch.arcs.empty() || !sketch.ellipses.empty() ||
        !sketch.elliptical_arcs.empty() || !sketch.bsplines.empty() ||
        !sketch.curve_trims.empty() ||
        !sketch.offsets.empty())return false;
@@ -79,6 +78,24 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     };
     const auto axis_coordinate=[](const std::string& id)->int {
         return id=="sketch_axis:y"?0:id=="sketch_axis:x"?1:-1;
+    };
+    const auto reference_line=[&](const std::string& id)
+        ->std::optional<std::pair<std::array<double,2>,std::array<double,2>>> {
+        if(id=="sketch_axis:x")return std::pair{std::array{0.,0.},std::array{1.,0.}};
+        if(id=="sketch_axis:y")return std::pair{std::array{0.,0.},std::array{0.,1.}};
+        const auto ref=std::ranges::find(sketch.external_references,id,&SketchExternalReference::id);
+        return ref==sketch.external_references.end()?std::nullopt:external_reference_line(*ref);
+    };
+    const auto point_line_distance_row=[&](const std::string& point_id,
+            const std::pair<std::array<double,2>,std::array<double,2>>& line,
+            double signed_distance)->bool {
+        const auto x=coordinate(point_id,0),y=coordinate(point_id,1);
+        const double length=std::hypot(line.second[0],line.second[1]);
+        if(!x||!y||length<=1e-12)return false;
+        const double nx=-line.second[1]/length,ny=line.second[0]/length;
+        Row row(count);row[*x]=nx;row[*y]=ny;
+        add(std::move(row),nx*line.first[0]+ny*line.first[1]+signed_distance);
+        return true;
     };
     for(const auto& c:sketch.constraints)if(!c.suppressed) {
         if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
@@ -162,15 +179,15 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
                 nonlinear_distances.push_back({*a,*b,d.value});
             }
         } else if(d.kind==DimensionKind::DistancePointLine||d.kind==DimensionKind::DistanceLine) {
-            const int axis=axis_coordinate(d.geometry_id);if(axis<0)return false;
-            const double target=d.value*d.solution_side*(axis==0?-1:1);
+            const auto line=reference_line(d.geometry_id);if(!line)return false;
+            const double signed_distance=d.value*d.solution_side;
             if(d.kind==DimensionKind::DistancePointLine) {
-                if(!pair("sketch_origin",d.first_point_id,axis,target))return false;
+                if(!point_line_distance_row(d.first_point_id,*line,signed_distance))return false;
             } else {
-                const auto line=std::ranges::find(sketch.segments,d.second_geometry_id,&SketchSegment::id);
-                if(line==sketch.segments.end() ||
-                   !pair("sketch_origin",line->first_point_id,axis,target) ||
-                   !pair("sketch_origin",line->second_point_id,axis,target))return false;
+                const auto driven=std::ranges::find(sketch.segments,d.second_geometry_id,&SketchSegment::id);
+                if(driven==sketch.segments.end() ||
+                   !point_line_distance_row(driven->first_point_id,*line,signed_distance) ||
+                   !point_line_distance_row(driven->second_point_id,*line,signed_distance))return false;
             }
         } else if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
             const auto corner=std::ranges::find(sketch.corner_radii,d.geometry_id,&SketchCornerRadius::id);

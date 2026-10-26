@@ -1183,6 +1183,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             root->setExpanded(true);
             tree_->setRootIndex(QModelIndex{});
         }
+        phase("Part tree");
         const bool sketch_placement_active = sketch_point_active_ ||
             sketch_segment_active_ || sketch_rectangle_active_ || sketch_slot_active_ ||
             sketch_polygon_active_ || sketch_circle_active_ ||

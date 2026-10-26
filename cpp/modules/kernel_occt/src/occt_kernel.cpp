@@ -1323,6 +1323,24 @@ void set_boolean_inputs(Algorithm& algorithm, const TopoDS_Shape& argument,
     TopTools_ListOfShape arguments, tools;
     arguments.Append(argument); tools.Append(tool);
     algorithm.SetArguments(arguments); algorithm.SetTools(tools);
+    // OCCT's worker scheduler follows the hardware available on this host.
+    // Its setup cost is measurable on ordinary small Features, so enable it
+    // only once the input topology is large enough to amortize that work.
+    // The test overrides compare both execution modes on identical geometry;
+    // neither setting changes tolerance, history capture or ZIMA identities.
+    constexpr std::size_t parallel_face_threshold=256;
+    bool parallel=std::getenv("ZIMA_CPP_TEST_FORCE_PARALLEL_BOOLEANS")!=nullptr;
+    if(!parallel&&std::getenv("ZIMA_CPP_TEST_FORCE_SERIAL_BOOLEANS")==nullptr&&
+            std::thread::hardware_concurrency()>1) {
+        std::size_t faces{};
+        const auto complex=[&](const TopoDS_Shape& shape) {
+            for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next())
+                if(++faces>=parallel_face_threshold)return true;
+            return false;
+        };
+        parallel=complex(argument)||complex(tool);
+    }
+    algorithm.SetRunParallel(parallel);
 }
 
 PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const std::string& owner_id,
@@ -4278,6 +4296,10 @@ struct ProvenanceUnifyResult {
     std::vector<OwnedEdge> edges;
     std::vector<OwnedVertex> vertices;
     std::vector<TopoDS_Shape> hidden_display_edges;
+    // True only when this exact shape passed BRepCheck_Analyzer here. A caller
+    // that receives an unmodified fallback can then validate the published
+    // input once, without also validating a discarded unification probe.
+    bool validated{};
 };
 
 std::string encoded_topology_ancestry(
@@ -4289,6 +4311,15 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
     const std::vector<OwnedEdge>& edges,
     const std::vector<OwnedVertex>& vertices,
     double tolerance,bool merge_coplanar=false) {
+    const bool trace=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
+    auto stamp=trace?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    const auto phase=[&](const char* name,std::size_t count=0) {
+        if(!trace)return;
+        const auto now=std::chrono::steady_clock::now();
+        std::fprintf(stderr,"Kernel unify %s count=%zu: %.6f s\n",name,count,
+            std::chrono::duration<double>(now-stamp).count());
+        stamp=now;
+    };
     ShapeUpgrade_UnifySameDomain probe(shape, true, true, false);
     probe.SetLinearTolerance(tolerance);
     // Sweep cap frames can differ by sub-nanoradian roundoff despite the
@@ -4296,9 +4327,16 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
     // cross-source nonplanar boundaries remain protected below.
     if(merge_coplanar)probe.SetAngularTolerance(1e-9);
     probe.Build();
-    if (probe.Shape().IsNull() ||
-        !BRepCheck_Analyzer(probe.Shape()).IsValid()) {
+    phase("probe-build");
+    if (probe.Shape().IsNull()) {
         return {shape, faces, edges, vertices, {}};
+    }
+    const bool baseline_probe_validation=
+        std::getenv("ZIMA_CPP_TEST_VALIDATE_UNIFY_PROBE")!=nullptr;
+    if(baseline_probe_validation) {
+        if(!BRepCheck_Analyzer(probe.Shape()).IsValid())
+            return {shape, faces, edges, vertices, {}};
+        phase("probe-validate");
     }
 
     TopTools_IndexedMapOfShape probe_edges;
@@ -4309,12 +4347,21 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
             protected_edges.push_back(edge);
         }
     }
+    phase("protection-scan",protected_edges.size());
 
     if (protected_edges.empty()) {
+        // This is the result that will be published, so it must be validated.
+        // When protected edges require a second build below, validating this
+        // discarded probe would duplicate the same expensive whole-BRep pass.
+        if(!baseline_probe_validation) {
+            if(!BRepCheck_Analyzer(probe.Shape()).IsValid())
+                return {shape, faces, edges, vertices, {}};
+            phase("probe-validate");
+        }
         return {probe.Shape(),
             propagate_topology(probe.History(), faces),
             propagate_topology(probe.History(), edges),
-            propagate_topology(probe.History(), vertices), {}};
+            propagate_topology(probe.History(), vertices), {}, true};
     }
 
     ShapeUpgrade_UnifySameDomain protected_unifier(shape, true, true, false);
@@ -4324,16 +4371,18 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
         protected_unifier.KeepShape(edge);
     }
     protected_unifier.Build();
+    phase("protected-build",protected_edges.size());
     if (protected_unifier.Shape().IsNull() ||
         !BRepCheck_Analyzer(protected_unifier.Shape()).IsValid()) {
         return {shape, faces, edges, vertices, protected_edges};
     }
+    phase("protected-validate",protected_edges.size());
     const auto history = protected_unifier.History();
     return {protected_unifier.Shape(),
         propagate_topology(history, faces),
         propagate_topology(history, edges),
         propagate_topology(history, vertices),
-        propagate_display_edges(history, protected_edges)};
+        propagate_display_edges(history, protected_edges), true};
 }
 
 template <typename Algorithm>
@@ -5526,7 +5575,12 @@ std::string serialize_kernel_shape(const TopoDS_Shape& shape) {
 
 void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedFace>& faces,
         const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& vertices,BodyResult& result,
-        const std::vector<TopoDS_Shape>* hidden=nullptr,std::vector<std::string>* hidden_locators=nullptr) {
+        const std::vector<TopoDS_Shape>* hidden=nullptr,std::vector<std::string>* hidden_locators=nullptr,
+        bool clean_unused_pcurves=false) {
+    // Repeated Boolean edits can leave p-curves that refer to faces no longer
+    // present in the result.  They are neither geometry nor topology identity,
+    // but OCCT would otherwise copy them into every following native snapshot.
+    if(clean_unused_pcurves)BRepTools::RemoveUnusedPCurves(shape);
     BRepTools_ShapeSet archive(false,false);
     archive.SetFormatNb(TopTools_FormatVersion_CURRENT);archive.Add(shape);
     const auto bind=[&](const auto& owned,TopAbs_ShapeEnum kind,auto& bindings) {
@@ -6160,7 +6214,8 @@ BodyResult make_result(
         // identify the endpoints of a bounded face/Sketch-plane intersection.
         // Reuse one archive for all owned kinds; inspection never rebuilds it.
         if(!owned_faces.empty())
-            persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result);
+            persist_surface_topology(shape,owned_faces,owned_edges,owned_vertices,result,
+                nullptr,nullptr,persist_kernel_shape);
         else result.kernel_shape = serialize_kernel_shape(shape);
     }
     profile("BRep persistence");
@@ -7374,6 +7429,15 @@ BodyResult OcctKernel::subtract_bodies(
     const BodyResult& cutter,
     Vec3 target_translation,
     Vec3 target_rotation_degrees, double linear_tolerance, double mesh_deflection) const {
+    const bool trace=std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr;
+    auto phase_stamp=trace?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    const auto phase=[&](const char* name) {
+        if(!trace)return;
+        const auto now=std::chrono::steady_clock::now();
+        std::fprintf(stderr,"Assembly cut %s: %.3f ms\n",name,
+            std::chrono::duration<double,std::milli>(now-phase_stamp).count());
+        phase_stamp=now;
+    };
     if(!std::isfinite(linear_tolerance)||linear_tolerance<=0||!std::isfinite(mesh_deflection)||mesh_deflection<=0)
         throw std::invalid_argument("Invalid assembly cut precision");
     if (target.kernel_shape.empty() || cutter.kernel_shape.empty()) {
@@ -7382,6 +7446,7 @@ BodyResult OcctKernel::subtract_bodies(
     }
     const auto target_shape = read_kernel_shape(target);
     const auto cutter_shape = read_kernel_shape(cutter);
+    phase("read-shapes");
     const gp_Trsf placement = primitive_transform(
         target_translation, target_rotation_degrees);
     BRepBuilderAPI_Transform placed_target(target_shape, placement, true);
@@ -7389,12 +7454,16 @@ BodyResult OcctKernel::subtract_bodies(
     if (!placed_target.IsDone()) {
         throw std::runtime_error("Assembly cut target placement failed");
     }
+    phase("place-target");
     BRepAlgoAPI_Cut cut;
     set_boolean_inputs(cut, placed_target.Shape(), cutter_shape);
     cut.SetFuzzyValue(linear_tolerance);
     cut.Build();
-    if (!cut.IsDone() || cut.Shape().IsNull() ||
-        !BRepCheck_Analyzer(cut.Shape()).IsValid()) {
+    phase("boolean");
+    const bool basic_result=cut.IsDone()&&!cut.Shape().IsNull();
+    const bool valid=basic_result&&BRepCheck_Analyzer(cut.Shape()).IsValid();
+    phase("validate");
+    if (!valid) {
         throw std::runtime_error("Assembly cut failed or produced an invalid solid");
     }
     BRepBuilderAPI_Transform local_result(cut.Shape(), placement.Inverted(), true);
@@ -7402,7 +7471,9 @@ BodyResult OcctKernel::subtract_bodies(
     if (!local_result.IsDone() || local_result.Shape().IsNull()) {
         throw std::runtime_error("Assembly cut result placement failed");
     }
+    phase("restore-placement");
     auto result = make_result(local_result.Shape(), {}, {}, {}, false, true, false, {}, mesh_deflection);
+    phase("packet");
     // Stable references remain owned by the original component objects. The
     // boolean result topology itself is deliberately not a reference owner.
     result.mesh.original_references = target.mesh.original_references;
@@ -8702,6 +8773,15 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
                 }
             } operation_profile{operation,operations.size(),operation_index};
+            auto operation_phase_stamp=operation_profile.start;
+            const auto operation_phase=[&](const char* phase) {
+                if(!operation_profile.active)return;
+                const auto now=std::chrono::steady_clock::now();
+                std::fprintf(stderr,"Kernel operation phase count=%zu index=%zu owner=%s %s=%.6f s\n",
+                    operations.size(),operation_index,operation.owner_id.c_str(),phase,
+                    std::chrono::duration<double>(now-operation_phase_stamp).count());
+                operation_phase_stamp=now;
+            };
             const auto* feature_group=std::get_if<FeatureGroupRequest>(&operation.primitive);
             const bool reference_only=feature_group && feature_group->children.empty() &&
                 (feature_group->allow_empty || !feature_group->reference_profiles.empty());
@@ -11407,6 +11487,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     throw std::logic_error("Body treatment reached primitive builder");
                 }
             }, operation.primitive);
+            operation_phase("operand");
             if(operation.sheet_operation!=SheetOperation::None) {
                 // Roles follow authored semantic ancestry. OCCT only locates
                 // the descendants; neither face order nor curvature names them.
@@ -11501,6 +11582,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if(!canonical_operations)canonical_operations=operations;
                 resolve_ordered_up_to_operation((*canonical_operations)[operation_index],resolved_up_to);
             }
+            operation_phase("source-retention");
             const std::string reference_cache_key = fingerprint(
                 std::vector<HistoryOperation>{operation}, 1);
             const auto* extrusion_request =
@@ -11621,6 +11703,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
                 append_original_reference_geometry(original_references,std::move(cap_mesh));
             }
+            operation_phase("reference-packets");
             if(reference_only || operand.empty_material_operand) {
                 // Reference-only history boundaries leave material untouched.
             } else if (result_shape.IsNull() && operation.operation == BooleanOperation::Subtract) {
@@ -11662,9 +11745,19 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 algorithm.SetFuzzyValue(
                     std::max(1.0e-7, operation.boolean_tolerance));
                 algorithm.Build();
-                if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
-                    !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                operation_phase("add-boolean-build");
+                if (!algorithm.IsDone() || algorithm.Shape().IsNull()) {
                     throw std::runtime_error("OCCT fuse failed");
+                }
+                // The same-domain result below is the shape that is actually
+                // published and it performs its own complete B-Rep check.
+                // Retain an A/B baseline for representative performance and
+                // exact-packet tests, but do not validate this discarded
+                // intermediate by default.
+                if(std::getenv("ZIMA_CPP_TEST_VALIDATE_ADD_BEFORE_UNIFY")) {
+                    if(!BRepCheck_Analyzer(algorithm.Shape()).IsValid())
+                        throw std::runtime_error("OCCT fuse failed");
+                    operation_phase("add-boolean-validate");
                 }
                 auto fused_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{
@@ -11676,6 +11769,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             operand.vertices),
                         propagate_display_edges(
                             algorithm, owned_topology->hidden_display_edges)});
+                operation_phase("add-propagate");
                 result_shape = algorithm.Shape();
                 if(has_surfaces) {
                     TopoDS_Compound combined;split_builder.MakeCompound(combined);
@@ -11702,6 +11796,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     fused_topology->faces, fused_topology->edges,
                     fused_topology->vertices,
                     std::max(1.0e-7, operation.boolean_tolerance),true);
+                operation_phase("add-unify");
+                // A failed/unavailable unifier deliberately returns the exact
+                // Boolean input. Validate that fallback here. Successful
+                // unification has already validated this exact output.
+                if(!unified.validated) {
+                    if(unified.shape.IsNull()||
+                        !BRepCheck_Analyzer(unified.shape).IsValid())
+                        throw std::runtime_error("OCCT fuse failed");
+                    operation_phase("add-result-validate");
+                }
                 result_shape = std::move(unified.shape);
                 unified.faces = complete_boolean_faces(result_shape, unified.faces,
                     unified.edges, unified.vertices, operation.owner_id, "add", operations);
@@ -11714,6 +11818,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     LiveCache::Topology{std::move(unified.faces),
                         std::move(unified.edges), std::move(unified.vertices),
                         std::move(unified.hidden_display_edges)});
+                operation_phase("add-complete");
             } else {
                 // OCCT Boolean operands must have homogeneous dimensions.
                 // Trim independent sheets and the solid collection separately.
@@ -11773,6 +11878,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     surface.shape = trim.Shape();
                 }
             }
+            operation_phase("body-boolean");
             if (reference_only && !boundaries.empty()) {
                 auto retained = boundaries.back();
                 if (persist_boundary_shape && retained.kernel_shape.empty() && !result_shape.IsNull())
@@ -11803,6 +11909,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if (!cold_reference_tail)
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology);
+            operation_phase("final-packet");
         }
         if (!boundaries.empty()) {
             std::set<std::string> subtract_owner_ids;

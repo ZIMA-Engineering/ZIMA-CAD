@@ -24,7 +24,10 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         const auto prefix = kind == zima::document::ConstructionKind::Point ? tr("Bod")
             : kind == zima::document::ConstructionKind::Curve3D ? tr("3D křivka")
             : kind == zima::document::ConstructionKind::Axis ? tr("Osa") : tr("Rovina");
-        initial.name = (prefix + "001").toStdString();
+        initial.name = part != nullptr
+            ? part->session.document().next_numbered_name(prefix.toStdString(),initial.id)
+            : assembly->session.document().feature_document().next_numbered_name(
+                prefix.toStdString(),initial.id);
     }
     const std::string document_id = workspace_.active_document_id();
     const int decimal_places = part != nullptr

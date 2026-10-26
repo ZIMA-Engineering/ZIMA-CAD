@@ -139,6 +139,32 @@ static void verify_cold_history_resume() {
     {HistoryTrace trace;static_cast<void>(workspace::calculate_part(missing,changed,&damaged));
         require(trace.log.str().find("operations=2 reused=0 calculated=2")!=std::string::npos,
             "Missing optional continuation data reused unverified ancestry");}
+    auto compatible=calculated;
+    const auto set_algorithm=[](kernel::BodyResult& packet,const std::string& algorithm) {
+        if(packet.incremental_history) {
+            auto copy=std::make_shared<kernel::KernelHistoryCache>(*packet.incremental_history);
+            copy->algorithm=algorithm;packet.incremental_history=std::move(copy);
+        }
+    };
+    for(auto& packet:compatible) {
+        set_algorithm(packet,"history-v1/compatible-rebuild");
+        for(auto& [id,rows]:packet.body_boundaries) {
+            auto copy=rows.get();for(auto& row:copy)set_algorithm(row,"history-v1/compatible-rebuild");rows=std::move(copy);
+        }
+    }
+    kernel::OcctKernel compatible_kernel,fresh_compatible_kernel;
+    std::vector<kernel::BodyResult> compatible_result;
+    {HistoryTrace trace;compatible_result=workspace::calculate_part(compatible_kernel,changed,&compatible);
+        require(trace.log.str().find("operations=2 reused=1 calculated=1")!=std::string::npos,
+            "A compatible history-v1 producer rebuild discarded the saved prefix");}
+    auto compatible_expected=workspace::calculate_part(fresh_compatible_kernel,changed);
+    auto compatible_body=compatible_result.back(),compatible_expected_body=compatible_expected.back();
+    compatible_kernel.ensure_body_properties(compatible_body);
+    fresh_compatible_kernel.ensure_body_properties(compatible_expected_body);
+    require(std::abs(compatible_body.volume-compatible_expected_body.volume)<1e-8&&
+        std::abs(compatible_body.surface_area-compatible_expected_body.surface_area)<1e-7&&
+        identities(compatible_body.mesh.original_references)==identities(compatible_expected_body.mesh.original_references),
+        "Compatible history-v1 continuation differs from a fresh calculation");
     auto stale=calculated;
     const auto invalidate=[](kernel::BodyResult& packet) {
         if(packet.incremental_history) {

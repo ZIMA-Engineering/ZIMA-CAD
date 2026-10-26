@@ -259,10 +259,14 @@ calculate_part_reference_state(
             may_reuse_local_sketch_references&&unchanged_source_prefix;
         const bool external_references_changed = reuse_local_sketch_references?false:
             refresh_sketch_external_references(document, calculated,&kernel);
+        phase("Sketch external references");
         const bool drill_points_changed =
             prune_missing_drill_point_references(document, calculated);
+        phase("Drill Point references");
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
+        phase("profile targets");
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
+        phase("opening targets");
         const auto current_fingerprint=[&] {
             if(unchanged_operations)
                 return kernel::history_fingerprint(*unchanged_operations,calculated.size());

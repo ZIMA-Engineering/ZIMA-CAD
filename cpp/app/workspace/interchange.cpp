@@ -194,9 +194,40 @@ void AssemblyWorkspaceWindow::export_file() {
             tr("Aktuální 3D pohled exportován: %1").arg(path));
         return;
     }
+    if (context == zima::interchange::Context::Assembly &&
+        (format == zima::interchange::Format::Step || format == zima::interchange::Format::Iges)) {
+        auto* dialog = new ExportOptionsDialog(path, this);
+        properties_dialog_ = dialog;
+        const auto target_id = workspace_.active_document_id();
+        connect(dialog, &QDialog::accepted, this, [this, dialog, path, target_id] {
+            const bool include_skeletons = dialog->include_skeletons();
+            QTimer::singleShot(0, this, [this, path, target_id, include_skeletons] {
+                if (workspace_.active_document_id() != target_id ||
+                    workspace_.open_assembly(target_id) == nullptr || !active_sketch_id_.empty()) {
+                    QMessageBox::warning(this, tr("Export nelze provést"),
+                        tr("Cílový dokument se během nastavení exportu změnil."));
+                    return;
+                }
+                export_selected_model_file(path, include_skeletons);
+            });
+        });
+        connect(dialog, &QObject::destroyed, this, [this, dialog] {
+            if (properties_dialog_ == dialog) properties_dialog_ = nullptr;
+        });
+        dialog->show();
+        return;
+    }
+    export_selected_model_file(path, false);
+}
+
+void AssemblyWorkspaceWindow::export_selected_model_file(const QString& path, bool include_skeletons) {
     begin_status_operation(tr("Exportuji %1…").arg(QFileInfo(path).fileName()));
     try {
-        const zima::workspace::ExportOptions options{active_sketch_id_,true};
+        const zima::workspace::ExportOptions options{
+            .sketch_id = active_sketch_id_,
+            .overwrite = true,
+            .include_skeletons = include_skeletons,
+        };
         // QFileDialog has already obtained confirmation for an existing file.
         static_cast<void>(zima::workspace::export_file(workspace_,workspace_.active_document_id(),
             std::filesystem::u8path(path.toStdString()),options,

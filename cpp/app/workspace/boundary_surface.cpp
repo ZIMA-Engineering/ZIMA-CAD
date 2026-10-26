@@ -11,7 +11,8 @@ void AssemblyWorkspaceWindow::show_boundary_surface_properties(const std::string
         if(!occurrence)throw std::invalid_argument("Activate the exact Part occurrence first.");
         const auto* stored=part->session.document().find_container(id);
         auto feature=stored?*stored:document::create_boundary_surface();
-        if(!stored)feature.name=tr("Zaplnit plochu").toStdString();
+        if(!stored)feature.name=part->session.document().next_numbered_name(
+            tr("Zaplnit plochu").toStdString(),feature.id);
         const auto rollback=stored?part->session.rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         auto* dialog=new BoundarySurfaceDialog(feature,[this,document_id](auto pending){

@@ -62,10 +62,21 @@ real changed geometry was not.
   required reference resolution. Length, thickness or operation-only changes
   reuse the unchanged frame; placement or profile-frame changes still run the
   established resolver.
+- Native Part saves use the final self-contained Body result as the single cache
+  root when its complete local Body histories can reconstruct every document
+  boundary. The loader restores those exact immutable packets, their document
+  prefix fingerprints and the evaluator's non-final reference compaction without
+  running OCCT. Unsupported layouts retain the previous complete boundary array.
+- Cache references expand in place. Ordinary scalar, array and object nodes keep
+  their existing allocations instead of being self-move-assigned while traversing
+  approximately 1.5 million nodes in this file. Reference order, depth checks,
+  exact sharing and malformed-input rejection are unchanged.
 
-No calculation precision, topology identity, reference side, document schema or
-Undo transaction rule changes. The shared Windows/Linux C++ implementation is
-unchanged by platform branches.
+No calculation precision, authored model data, topology identity, reference side
+or Undo transaction rule changes. The native file's disposable calculated-cache
+encoding gained a compact variant; the existing complete-array encoding remains
+readable and is still the fallback. The shared Windows/Linux C++ implementation
+is unchanged by platform branches.
 
 ## Final measured interaction
 
@@ -113,3 +124,55 @@ isolation, two changed confirmations, Undo/Redo and native save/reopen.
 Native Linux compilation, GUI execution and timing remain unverified on this
 Windows host. The portable Windows package has its own release gates; this local
 measurement alone is not package or publication acceptance.
+
+## Native persistence and repeated-edit follow-up
+
+The same protected Skeleton copy was measured after the cache writer, viewer
+packet and native-load changes. A complete verified native round trip observed
+approximately 23.1 s load, 37.1 s save and 24.0 s reopen for the 51,025,383-byte
+input. Save validation includes reopening and comparing definitions and complete
+calculated packets. The source project file remained untouched. These values are
+still too high for the intended workflow, but the save path is materially below
+the earlier approximately 54 s baseline without reducing precision.
+
+The last-operation probe independently recalculates the 26th operation from its
+persisted prefix, then performs two successive valid draft edits and restores the
+original value after each. One measured run observed 39.99 s for the deliberately
+cold last-operation reconstruction and 5.79/5.64 s then 5.98/6.22 s for the two
+warm edit/restore pairs. Each restore retained an identical viewer/reference
+packet, reference identity multiset and bounding box.
+
+OCCT initially accumulated obsolete face p-curves in the opaque final BRep:
+4,329,238 bytes became 4,526,391 and then 4,723,595 bytes across two edit/restore
+cycles. Cleaning only unused p-curves of the definitive persisted result reduced
+and stabilized all three archives at 2,710,680 bytes. Applying that cleanup to
+intermediate results was rejected because a later history operation still needed
+one of those representations. The accepted final-only path completed both warm
+cycles with identical geometry and references. The separate save/reopen probe
+persisted the current calculated model in 27.1 s as a 43,530,847-byte file and
+reopened it with exact definitions, history packets, geometry and references.
+
+An attempted shortcut that skipped a coincident end-plane Boolean was also
+rejected: although it reduced work, the representative model changed its original
+reference identity set and tessellation. No precision setting was relaxed.
+
+## Compact native cache follow-up
+
+The final cache-root encoding was measured on the same protected 51,025,383-byte
+Skeleton copy. Two accepted post-optimization runs observed 18.206--18.464 s
+initial load of the old cache, 15.975--16.237 s save and 13.204--13.579 s reopen;
+the saved file was 51,019,537 bytes. Compared with the earlier approximately
+30.4-second save sample, save time fell by about 47%. In-place cache expansion
+also reduced reopen by approximately 17% from the preceding 16.423-second compact
+cache observation. Timings remain machine- and cache-state-dependent, so the
+structural work counts and exact round-trip checks are the primary acceptance
+evidence.
+
+The native I/O oracle hashes the complete authored definition and every expanded
+calculated history packet before and after save/reopen. The SHA-256 values matched.
+The multi-Body contract additionally compares every reconstructed packet exactly
+for ordinary histories, a suppressed last Feature and a Body Boolean. Mirror and
+Scale persistence retained their complete reference databases and oriented side
+choices. Existing files using the previous cache encoding open directly; saving
+them rewrites only the disposable calculated cache. No project conversion is
+required for correctness, but resaving with this build enables the faster path.

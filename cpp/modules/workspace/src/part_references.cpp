@@ -7,12 +7,54 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <ranges>
 #include <set>
+#include <stdexcept>
 #include <tuple>
 
 namespace zima::workspace {
+
+namespace {
+zima::kernel::ViewerReferenceGeometry reference_geometry_for_owners(
+    const zima::kernel::ViewerReferenceGeometry& source,
+    const std::set<std::string>& owners) {
+    zima::kernel::ViewerReferenceGeometry selected;
+    for(const auto& edge:source.edges)
+        if(owners.contains(edge.reference.owner_id))selected.edges.push_back(edge);
+    for(const auto& point:source.points)
+        if(owners.contains(point.reference.owner_id))selected.points.push_back(point);
+    for(const auto& axis:source.axes)
+        if(owners.contains(axis.reference.owner_id))selected.axes.push_back(axis);
+    const auto selected_triangle_count=static_cast<std::size_t>(std::ranges::count_if(
+        source.triangle_references,[&](const auto& reference) {
+            return owners.contains(reference.owner_id);
+        }));
+    selected.triangle_references.reserve(selected_triangle_count);
+    selected.triangles.reserve(selected_triangle_count*3);
+    selected.vertices.reserve(selected_triangle_count*3);
+    for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
+        const auto& reference=source.triangle_references[triangle];
+        if(!owners.contains(reference.owner_id))continue;
+        const auto source_offset=triangle*3;
+        if(source_offset+2>=source.triangles.size())
+            throw std::runtime_error("Reference face triangle packet is incomplete");
+        const auto selected_offset=static_cast<std::uint32_t>(selected.vertices.size());
+        for(std::size_t corner=0;corner<3;++corner) {
+            const auto vertex=source.triangles[source_offset+corner];
+            if(vertex>=source.vertices.size())
+                throw std::runtime_error("Reference face triangle index is invalid");
+            selected.vertices.push_back(source.vertices[vertex]);
+            selected.triangles.push_back(selected_offset+static_cast<std::uint32_t>(corner));
+        }
+        selected.triangle_references.push_back(reference);
+    }
+    return selected;
+}
+}
 
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
@@ -180,44 +222,37 @@ bool refresh_sketch_external_references(
         const bool changed=!document.reference_errors.empty();
         document.reference_errors.clear();return changed;
     }
+    const bool profile_enabled=std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr;
+    auto profile_start=profile_enabled?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    const auto profile=[&](const std::string& sketch,const char* phase) {
+        if(!profile_enabled)return;
+        const auto now=std::chrono::steady_clock::now();
+        std::fprintf(stderr,"Sketch reference refresh sketch=%s %s: %.3f ms\n",sketch.c_str(),phase,
+            std::chrono::duration<double,std::milli>(now-profile_start).count());
+        profile_start=now;
+    };
     const auto source = sketch_external_reference_source_geometry(
         document, calculated_boundaries);
+    profile({},"source geometry");
     // The input boundaries and resolved placement frames are fixed for this
     // settling pass. Share one private query context across its Sketches.
-    std::optional<document::DocumentSession> intersection_context;
+    std::optional<document::DocumentSession> query_context;
     const auto refresh=[&](zima::sketcher::Sketch& sketch) {
         const auto allowed_owners = sketch_external_reference_source_owners(
             document, sketch.id);
-        zima::kernel::ViewerReferenceGeometry allowed_source;
-        for (const auto& edge : source.edges) {
-            if (allowed_owners.contains(edge.reference.owner_id)) {
-                allowed_source.edges.push_back(edge);
-            }
-        }
-        for (const auto& point : source.points) {
-            if (allowed_owners.contains(point.reference.owner_id)) {
-                allowed_source.points.push_back(point);
-            }
-        }
-        for (const auto& axis : source.axes) {
-            if (allowed_owners.contains(axis.reference.owner_id)) {
-                allowed_source.axes.push_back(axis);
-            }
-        }
-        allowed_source.vertices = source.vertices;
-        for (std::size_t triangle = 0;
-             triangle < source.triangle_references.size(); ++triangle) {
-            const auto& face = source.triangle_references[triangle];
-            if (!allowed_owners.contains(face.owner_id)) continue;
-            allowed_source.triangle_references.push_back(face);
-            allowed_source.triangles.insert(allowed_source.triangles.end(), {
-                source.triangles[triangle * 3],
-                source.triangles[triangle * 3 + 1],
-                source.triangles[triangle * 3 + 2]});
-        }
+        profile(sketch.id,"allowed owners");
+        std::set<std::string> referenced_owners;
+        for(const auto& reference:sketch.external_references)
+            if(!reference.body_edge&&allowed_owners.contains(reference.source_owner_id))
+                referenced_owners.insert(reference.source_owner_id);
+        auto allowed_source=reference_geometry_for_owners(source,referenced_owners);
+        profile(sketch.id,"filtered geometry");
         kernel::ViewerReferenceGeometry body;
-        if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;}))
-            body=part_sketch_body_reference_geometry(document::DocumentSession(document,calculated_boundaries),sketch);
+        if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;})) {
+            if(!query_context)query_context.emplace(document,calculated_boundaries);
+            body=part_sketch_body_reference_geometry(*query_context,sketch);
+        }
+        profile(sketch.id,"Body geometry");
         auto geometry=document.sketch_reference_geometry_for(sketch,std::move(allowed_source));
         // Owned Sketch frames are stored relative to their owning feature.
         // Body reference packets have already been converted to Body-local space.
@@ -227,13 +262,17 @@ bool refresh_sketch_external_references(
                     geometry=document::general_surface_local_reference_geometry(parent,std::move(geometry));
                     body=document::general_surface_local_reference_geometry(parent,std::move(body));
                 }
+        profile(sketch.id,"local geometry");
         std::vector<sketcher::SketchExternalReference> intersections;
         if(explicit_kernel && std::ranges::any_of(sketch.external_references,[](const auto& r){return sketcher::is_intersection_reference(r);})) {
-            if(!intersection_context)intersection_context.emplace(document,calculated_boundaries);
-            intersections=calculate_part_sketch_intersections(*explicit_kernel,*intersection_context,sketch);
+            if(!query_context)query_context.emplace(document,calculated_boundaries);
+            intersections=calculate_part_sketch_intersections(*explicit_kernel,*query_context,sketch);
         }
-        return sketch.refresh_external_references(
+        profile(sketch.id,"intersections");
+        const auto changed=sketch.refresh_external_references(
             document.document_id,geometry,false,&body,false,explicit_kernel?&intersections:nullptr);
+        profile(sketch.id,"projection");
+        return changed;
     };
     const auto before=document.reference_errors;
     std::map<std::string,std::string> errors;

@@ -6,6 +6,7 @@
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <type_traits>
@@ -28,15 +29,65 @@ inline double quantity_expression_value(QString text,ui::InputQuantity quantity,
     const Unit units[]={{"inches",length,25.4},{"inch",length,25.4},{"mm",length,1},
         {"cm",length,10},{"in",length,25.4},{"m",length,1000},{"\"",length,25.4},
         {"deg",angle,1},{"°",angle,1},{"rad",angle,180./std::numbers::pi}};
+    // Preserve the established postfix contract: one unit at the end applies
+    // to the complete expression, e.g. (1/2 + .125)in.  If another unit is
+    // present earlier, parse units on individual numeric terms below.
     for(const auto& unit:units) {
         const auto suffix=QString::fromUtf8(unit.name);
         if(!text.endsWith(suffix,Qt::CaseInsensitive))continue;
+        auto expression=text;expression.chop(suffix.size());expression=expression.trimmed();
+        const bool has_earlier_unit=std::ranges::any_of(expression,[](QChar c) {
+            return (c.isLetter()&&c!='e'&&c!='E')||c==QChar('"')||c==QChar(0x00b0);
+        });
+        if(has_earlier_unit)break;
         if(quantity!=unit.quantity)throw std::invalid_argument("Unit does not match the dimension.");
-        text.chop(suffix.size());text=text.trimmed();native_per_unit=unit.scale;break;
+        const double value=numeric_expression_value(expression)*unit.scale;
+        if(!std::isfinite(value))throw std::invalid_argument("Value is outside the allowed range.");
+        return value;
+    }
+    text.replace(',', '.');
+    QString normalized;
+    normalized.reserve(text.size()*2);
+    for(qsizetype at=0;at<text.size();) {
+        const auto c=text[at];
+        if(c.isSpace()||QStringLiteral("+-*/()").contains(c)) {
+            normalized+=c;++at;continue;
+        }
+        const auto start=at;
+        bool digit=false;
+        while(at<text.size()&&text[at].isDigit()){digit=true;++at;}
+        if(at<text.size()&&text[at]=='.') {
+            ++at;while(at<text.size()&&text[at].isDigit()){digit=true;++at;}
+        }
+        if(!digit)throw std::invalid_argument("Invalid numeric expression.");
+        if(at<text.size()&&(text[at]=='e'||text[at]=='E')) {
+            ++at;if(at<text.size()&&(text[at]=='+'||text[at]=='-'))++at;
+            const auto exponent=at;while(at<text.size()&&text[at].isDigit())++at;
+            if(at==exponent)throw std::invalid_argument("Invalid numeric expression.");
+        }
+        const auto number=text.mid(start,at-start);
+        while(at<text.size()&&text[at].isSpace())++at;
+        const Unit* explicit_unit{};
+        qsizetype unit_length{};
+        for(const auto& unit:units) {
+            const auto name=QString::fromUtf8(unit.name);
+            if(name.size()<=unit_length||text.mid(at,name.size()).compare(name,Qt::CaseInsensitive))continue;
+            explicit_unit=&unit;unit_length=name.size();
+        }
+        double ratio=1.;
+        if(explicit_unit) {
+            if(quantity!=explicit_unit->quantity)throw std::invalid_argument("Unit does not match the dimension.");
+            at+=unit_length;ratio=explicit_unit->scale/native_per_unit;
+            if(at<text.size()&&(text[at].isLetter()||text[at]==QChar('"')||text[at]==QChar(0x00b0)))
+                throw std::invalid_argument("Invalid numeric expression.");
+        }
+        normalized+='(';normalized+=number;
+        if(ratio!=1.){normalized+='*';normalized+=QString::number(ratio,'g',17);}
+        normalized+=')';
     }
     // Like existing expression entry, both comma and dot are decimal marks.
     // In particular 0,254 must never be interpreted as a thousands grouping.
-    const double value=numeric_expression_value(text)*native_per_unit;
+    const double value=numeric_expression_value(normalized)*native_per_unit;
     if(!std::isfinite(value))throw std::invalid_argument("Value is outside the allowed range.");
     return value;
 }

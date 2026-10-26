@@ -61,6 +61,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <fstream>
@@ -144,6 +145,65 @@ std::string calculation_definition_fingerprint(const nlohmann::json& root) {
     result << std::hex << std::setfill('0');
     for (unsigned int i = 0; i < size; ++i) result << std::setw(2) << static_cast<unsigned>(digest[i]);
     return result.str();
+}
+
+constexpr std::string_view final_body_cache_format{"zima-final-body-result-v1"};
+
+bool supports_final_body_cache(
+        const std::vector<zima::kernel::HistoryOperation>& operations,
+        const zima::kernel::BodyResult& final) {
+    if(operations.empty())return false;
+    std::size_t operation_index{};
+    while(operation_index<operations.size()) {
+        const auto& scope=operations[operation_index].body;
+        if(scope.id.empty())return false;
+        std::size_t end=operation_index+1;
+        while(end<operations.size()&&operations[end].body.id==scope.id)++end;
+        if(scope.source_id.empty()) {
+            const auto found=final.body_boundaries.find(scope.id);
+            if(found==final.body_boundaries.end()||found->second.size()!=end-operation_index)
+                return false;
+        } else if(end!=operation_index+1||!final.body_outputs.contains(scope.id))return false;
+        operation_index=end;
+    }
+    return true;
+}
+
+std::vector<zima::kernel::BodyResult> restore_final_body_cache(
+        zima::kernel::BodyResult final,
+        const std::vector<zima::kernel::HistoryOperation>& operations) {
+    if(!supports_final_body_cache(operations,final))
+        throw std::runtime_error("Final calculated Body cache does not match document history");
+    std::vector<zima::kernel::BodyResult> restored;
+    restored.reserve(operations.size());
+    std::size_t operation_index{};
+    while(operation_index<operations.size()) {
+        const auto& scope=operations[operation_index].body;
+        std::size_t end=operation_index+1;
+        while(end<operations.size()&&operations[end].body.id==scope.id)++end;
+        if(scope.source_id.empty()) {
+            const auto& local=final.body_boundaries.at(scope.id);
+            restored.insert(restored.end(),local.begin(),local.end());
+        } else restored.push_back(final.body_outputs.at(scope.id).get());
+        operation_index=end;
+    }
+    if(restored.size()!=operations.size())
+        throw std::runtime_error("Final calculated Body cache has invalid boundary count");
+    const auto fingerprints=zima::kernel::history_fingerprints(operations);
+    for(std::size_t index=0;index<restored.size();++index)
+        restored[index].source_fingerprint=fingerprints.at(index+1);
+    // The document-level evaluator deliberately compacts every non-final
+    // boundary after assembling the Body branches.  A branch's final local
+    // packet can therefore contain its full original-reference database even
+    // when the corresponding document boundary does not.  Reapply that
+    // deterministic compaction so the reconstructed cache is byte-for-byte
+    // equivalent to the evaluator output without invoking OCCT.
+    for(std::size_t index=0;index+1<restored.size();++index) {
+        restored[index].mesh.original_references={};
+        restored[index].incremental_history.reset();
+    }
+    restored.back()=std::move(final);
+    return restored;
 }
 
 ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument&,
@@ -837,9 +897,11 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         !cursor.empty()) {
         root["history_cursor"] = std::stoull(cursor);
     }
-    if (const auto found = ini.find("CachedBodies"); found != ini.end() &&
-        ini_value(ini, "CachedBodies", "encoding") ==
-            "zima-shared-body-results-v1") {
+    if (const auto found = ini.find("CachedBodies"); found != ini.end() && [&] {
+        const auto encoding=ini_value(ini,"CachedBodies","encoding");
+        return encoding=="zima-shared-body-results-v1"||
+            encoding=="zima-final-body-result-v1";
+    }()) {
         const auto& cache=ini.at("CachedBodies");const auto stored=cache.find("data");
         const std::string empty;const auto& data=stored==cache.end()?empty:stored->second;
         profile.phase("definition decode");
@@ -1057,7 +1119,8 @@ void write_part_ini(
     ini["Sketches"]["items"] = sketch_items;
     if (!root.at("calculated_boundaries").empty()) {
         auto& cache=ini["CachedBodies"];
-        cache["encoding"]="zima-shared-body-results-v1";
+        cache["encoding"]=root.at("calculated_boundaries").is_object()
+            ?"zima-final-body-result-v1":"zima-shared-body-results-v1";
         cache["definition_fingerprint"]=root.at("calculation_definition_fingerprint").get<std::string>();
         auto storage=pack_cache_storage(std::move(root.at("calculated_boundaries")));profile.phase("cache packing");
         cache["data"]=storage.dump();profile.phase("cache text encoding");
@@ -9406,25 +9469,39 @@ const HistoryContainer* PartDocument::find_container(const std::string& id) cons
 
 std::string PartDocument::next_numbered_name(
     std::string_view prefix, std::string_view excluded_id) const {
-    const auto used = [&](const std::string& candidate) {
+    const auto has_number = [&](const std::string& name, std::size_t number) {
+        if (!name.starts_with(prefix) || name.size() <= prefix.size() + 1 ||
+            name[prefix.size()] != ' ') return false;
+        const auto suffix = std::string_view(name).substr(prefix.size() + 1);
+        std::size_t parsed{};
+        const auto [end, error] = std::from_chars(
+            suffix.data(), suffix.data() + suffix.size(), parsed);
+        return error == std::errc{} && end == suffix.data() + suffix.size() &&
+            parsed == number;
+    };
+    const auto used = [&](const std::string& candidate, std::size_t number) {
         return std::ranges::any_of(history, [&](const auto& item) {
-                   return item.id != excluded_id && item.name == candidate;
+                   return item.id != excluded_id &&
+                       (item.name == candidate || has_number(item.name, number));
                }) ||
             std::ranges::any_of(constructions, [&](const auto& item) {
-                return item.id != excluded_id && item.name == candidate;
+                return item.id != excluded_id &&
+                    (item.name == candidate || has_number(item.name, number));
             }) ||
             std::ranges::any_of(body_history.bodies(), [&](const auto& item) {
-                return item.scope.id != excluded_id && item.name == candidate;
+                return item.scope.id != excluded_id &&
+                    (item.name == candidate || has_number(item.name, number));
             }) ||
             std::ranges::any_of(body_history.booleans(), [&](const auto& item) {
-                return item.id != excluded_id && item.name == candidate;
+                return item.id != excluded_id &&
+                    (item.name == candidate || has_number(item.name, number));
             });
     };
     for (std::size_t number = 1;; ++number) {
         auto suffix = std::to_string(number);
-        if (suffix.size() < 3) suffix.insert(0, 3 - suffix.size(), '0');
+        if (suffix.size() < 2) suffix.insert(0, 2 - suffix.size(), '0');
         auto candidate = std::string(prefix) + " " + suffix;
-        if (!used(candidate)) return candidate;
+        if (!used(candidate, number)) return candidate;
     }
 }
 
@@ -11133,15 +11210,22 @@ PartDocument PartDocument::load(
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
-    if (!root.at("calculated_boundaries").empty() && root.at("calculation_definition_fingerprint") !=
+    NativeIoProfile profile("Part reconstruction");
+    const auto& calculated_cache=root.at("calculated_boundaries");
+    if (!calculated_cache.empty() && root.at("calculation_definition_fingerprint") !=
             calculation_definition_fingerprint(root)) {
         throw std::runtime_error("Calculated history boundary does not match its parameters");
     }
+    profile.phase("definition fingerprint");
     PartDocument document;
     std::set<std::string> failed_containers;
-    for(const auto& boundary:root.at("calculated_boundaries"))
+    const auto collect_failed=[&](const nlohmann::json& boundary) {
         for(const auto& [owner,error]:boundary.value("calculation_errors",std::map<std::string,std::string>{}))
             failed_containers.insert(owner);
+    };
+    if(calculated_cache.is_array())for(const auto& boundary:calculated_cache)collect_failed(boundary);
+    else if(calculated_cache.is_object()&&calculated_cache.value("format","")==final_body_cache_format)
+        collect_failed(calculated_cache.at("final"));
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
     document.reference_errors=root.at("reference_errors").get<decltype(document.reference_errors)>();
@@ -12015,9 +12099,25 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         throw std::runtime_error("Part history cursor is outside history");
     }
     const auto expected_operations = document.kernel_operations(false, true);
+    profile.phase("authored model");
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
     std::size_t loaded_boundary_index{};
-    for (const auto& boundary : root.at("calculated_boundaries")) {
+    const auto load_boundary=[&](const nlohmann::json& boundary) {
+        if(std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")) {
+            std::size_t frames{},body_boundaries{},body_inputs{},body_outputs{};
+            if(const auto history=boundary.find("incremental_history");history!=boundary.end()&&history->is_object())
+                frames=history->value("frames",nlohmann::json::array()).size();
+            if(const auto histories=boundary.find("body_histories");histories!=boundary.end()&&histories->is_object()) {
+                if(const auto rows=histories->find("boundaries");rows!=histories->end()&&rows->is_object())
+                    for(const auto& [id,values]:rows->items())body_boundaries+=values.size();
+                body_inputs=histories->value("inputs",nlohmann::json::object()).size();
+                body_outputs=histories->value("outputs",nlohmann::json::object()).size();
+            }
+            std::fprintf(stderr,"Native IO boundary %zu frames=%zu body_boundaries=%zu inputs=%zu outputs=%zu kernel=%zu vertices=%zu edges=%zu\n",
+                loaded_boundary_index,frames,body_boundaries,body_inputs,body_outputs,
+                boundary.value("kernel_shape",std::string{}).size(),boundary.value("vertices_binary",std::string{}).size(),
+                boundary.value("edges",nlohmann::json::array()).size());
+        }
         const bool previous_body =
             boundary.value("body_source", "") == "previous_boundary";
         if (previous_body && loaded_boundaries.empty()) {
@@ -12051,13 +12151,27 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         }
         loaded_boundaries.push_back(std::move(loaded));
         ++loaded_boundary_index;
-    }
+        profile.phase("boundary load");
+    };
+    if(calculated_cache.is_array())for (const auto& boundary : calculated_cache) {
+        load_boundary(boundary);
+    } else if(calculated_cache.is_object()) {
+        if(calculated_cache.value("format","")!=final_body_cache_format||
+            calculated_cache.value("operation_count",std::size_t{})!=expected_operations.size()||
+            !calculated_cache.contains("final")||!calculated_cache.at("final").is_object())
+            throw std::runtime_error("Unsupported calculated Body cache format");
+        auto final=load_body_result(calculated_cache.at("final"));
+        loaded_boundaries=restore_final_body_cache(std::move(final),expected_operations);
+        loaded_boundary_index=loaded_boundaries.size();
+        profile.phase("final Body cache reconstruction");
+    } else throw std::runtime_error("Calculated Body cache must be an array or object");
     if (!loaded_boundaries.empty() &&
         loaded_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
     const auto loaded_fingerprints=loaded_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(solid_state_calculation_operations(document,&loaded_boundaries));
+    profile.phase("history fingerprints");
     std::unordered_set<std::string> available_owners;
     for (std::size_t boundary_index = 0;
          boundary_index < loaded_boundaries.size(); ++boundary_index) {
@@ -12120,13 +12234,16 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     if (calculated_boundaries != nullptr) {
         *calculated_boundaries = std::move(loaded_boundaries);
     }
+    profile.phase("boundary validation");
     document.synchronize_dimension_identifiers();
+    profile.phase("dimension identifiers");
     return document;
 }
 
 nlohmann::json PartDocument::serialized(
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
-    const zima::document::DocumentCopyIdentity& copy) const {
+    const zima::document::DocumentCopyIdentity& copy,
+    bool compact_cache) const {
     validate_general_surface_document_ownership(*this);
     // Recoverable model errors must not prevent saving the authored document.
     // Structural ownership is checked independently below, including failed
@@ -13010,11 +13127,18 @@ nlohmann::json PartDocument::serialized(
                 "Calculated history boundary does not match its parameters");
         }
     }
-    nlohmann::json serialized_boundaries = nlohmann::json::array();
+    nlohmann::json serialized_boundaries;
+    const bool final_cache=compact_cache&&!calculated_boundaries.empty()&&
+        supports_final_body_cache(expected_operations,calculated_boundaries.back());
+    if(final_cache) {
+        serialized_boundaries={{"format",final_body_cache_format},
+            {"operation_count",calculated_boundaries.size()},
+            {"final",serialize_body_result(calculated_boundaries.back())}};
+    } else serialized_boundaries=nlohmann::json::array();
     const zima::kernel::ViewerReferenceGeometry empty_references;
     const zima::kernel::ViewerReferenceGeometry* previous_references =
         &empty_references;
-    for (std::size_t boundary_index = 0;
+    for (std::size_t boundary_index = 0; !final_cache&&
          boundary_index < calculated_boundaries.size(); ++boundary_index) {
         const auto& boundary = calculated_boundaries[boundary_index];
         const bool reuses_previous_body = boundary_index > 0 &&
@@ -13148,7 +13272,7 @@ void PartDocument::save(const std::filesystem::path& path,
     const std::vector<zima::kernel::BodyResult>& calculated, const DocumentCopyIdentity& copy) const {
     if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
     NativeIoProfile profile("Part save");
-    auto root=serialized(calculated,copy);profile.phase("document serialization");
+    auto root=serialized(calculated,copy,true);profile.phase("document serialization");
     write_part_ini(std::move(root),path);profile.phase("write and commit");
 }
 

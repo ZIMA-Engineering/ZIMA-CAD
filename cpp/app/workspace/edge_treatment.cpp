@@ -37,8 +37,9 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
     initial.feature_parent_id=initial.id;
     initial.container_origin=zima::document::create_container_origin(initial.id);
     initial.feature_kind = kind;
-    initial.name = kind == zima::document::FeatureKind::Fillet
-        ? tr("Zaoblení").toStdString() : tr("Sražení").toStdString();
+    initial.name = part->session.document().next_numbered_name(
+        (kind == zima::document::FeatureKind::Fillet
+            ? tr("Zaoblení") : tr("Sražení")).toStdString(), initial.id);
     initial.edge_treatment.routes.clear();
     edge_treatment_preview_parameters_ = initial.edge_treatment;
     edge_treatment_preview_owner_id_ = initial.id;
@@ -373,7 +374,8 @@ void AssemblyWorkspaceWindow::start_shell(bool surface_only) {
     }
 
     auto initial = zima::document::PartDocument::create_shell_container();
-    initial.name = tr(surface_only?"Plochy z tělesa":"Shell").toStdString();
+    initial.name = part->session.document().next_numbered_name(
+        tr(surface_only?"Plochy z tělesa":"Shell").toStdString(),initial.id);
     if(surface_only)initial.shell.thickness=0.;
     const std::string part_id = part->session.document().document_id;
     pending_shell_faces_.clear();

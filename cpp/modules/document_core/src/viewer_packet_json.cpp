@@ -7,19 +7,70 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <bit>
 #include <cstdint>
 #include <cmath>
+#include <exception>
+#include <future>
 #include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <thread>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 namespace zima::document {
 namespace {
+
+thread_local bool processing_parallel_row = false;
+
+template<class Result, class Function>
+std::vector<Result> process_rows(std::size_t count, Function&& function) {
+    std::vector<Result> rows(count);
+    // These immutable rows are allocator- and memory-bandwidth-bound. On the
+    // representative 31-frame model four workers reduced complete Open/Save
+    // time, while using every logical CPU made later cache traversal slower.
+    const auto available = std::min(4u, std::max(1u, std::thread::hardware_concurrency()));
+    const auto worker_count = processing_parallel_row || count < available * 2u
+        ? std::size_t{1}
+        : std::min(count, static_cast<std::size_t>(available));
+    if (worker_count == 1) {
+        for (std::size_t index = 0; index < count; ++index) rows[index] = function(index);
+        return rows;
+    }
+
+    std::atomic_size_t next{0};
+    const auto work = [&] {
+        const bool previous = processing_parallel_row;
+        processing_parallel_row = true;
+        try {
+            for (;;) {
+                const auto index = next.fetch_add(1, std::memory_order_relaxed);
+                if (index >= count) break;
+                rows[index] = function(index);
+            }
+        } catch (...) {
+            processing_parallel_row = previous;
+            throw;
+        }
+        processing_parallel_row = previous;
+    };
+    std::vector<std::future<void>> workers;
+    workers.reserve(worker_count);
+    for (std::size_t index = 0; index < worker_count; ++index)
+        workers.push_back(std::async(std::launch::async, work));
+    std::exception_ptr failure;
+    for (auto& worker : workers) {
+        try { worker.get(); }
+        catch (...) { if (!failure) failure = std::current_exception(); }
+    }
+    if (failure) std::rethrow_exception(failure);
+    return rows;
+}
 
 void restore_reference_curve_style(zima::kernel::ViewerEdge& edge) {
     std::string source_key;
@@ -696,12 +747,12 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
        result.incremental_history->frames.back().fingerprint==result.source_fingerprint&&result.kernel_placements.empty()&&
        result.kernel_shape!=zima::kernel::kernel_body_compound) {
         const auto& history=*result.incremental_history;
-        auto frames=nlohmann::json::array();
         const auto native=[&](const zima::kernel::BodySnapshot& snapshot) {
             if(snapshot->incremental_history)throw std::runtime_error("Invalid native topology binding");
             return serialize_body_result(snapshot,false,false);
         };
-        for(const auto& frame:history.frames) {
+        auto serialized_frames=process_rows<nlohmann::json>(history.frames.size(),[&](std::size_t index) {
+            const auto& frame=history.frames[index];
             if(!frame.reference_delta)throw std::runtime_error("Invalid native topology binding");
             auto layers=nlohmann::json::array();for(const auto& layer:frame.original_layers)layers.push_back(native(layer));
             nlohmann::json row={{"fingerprint",frame.fingerprint},{"native",native(frame.native_body)},
@@ -711,8 +762,10 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             if(frame.copy_source)row["copy"]={{"operand",native(frame.copy_source->operand)},
                 {"caps",native(frame.copy_source->source_caps)},{"solid",native(frame.copy_source->solid)},
                 {"empty_material_operand",frame.copy_source->empty_material_operand},{"reference_only",frame.copy_source->reference_only}};
-            frames.push_back(std::move(row));
-        }
+            return row;
+        });
+        auto frames=nlohmann::json::array();
+        for(auto& frame:serialized_frames)frames.push_back(std::move(frame));
         packet["incremental_history"]={{"algorithm",history.algorithm},{"frames",std::move(frames)}};
     }
     if(!result.solid_state_reference_views.empty()) {
@@ -752,8 +805,11 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         auto inputs = nlohmann::json::object();
         auto outputs = nlohmann::json::object();
         for (const auto& [id, boundaries] : result.body_boundaries) {
+            auto serialized_rows=process_rows<nlohmann::json>(boundaries.size(),[&](std::size_t index) {
+                return serialize_body_result(boundaries[index]);
+            });
             auto rows = nlohmann::json::array();
-            for (const auto& boundary : boundaries) rows.push_back(serialize_body_result(boundary));
+            for (auto& row:serialized_rows) rows.push_back(std::move(row));
             histories[id] = std::move(rows);
         }
         for (const auto& [id, body] : result.body_inputs) inputs[id] = serialize_body_result(body);
@@ -806,12 +862,13 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             !cached->contains("frames")||!cached->at("frames").is_array()||cached->at("frames").size()>50000)
             throw std::runtime_error("Invalid native topology binding");
         auto history=std::make_shared<zima::kernel::KernelHistoryCache>();history->algorithm=cached->at("algorithm");
-        std::vector<zima::kernel::KernelHistoryFrame> frames;frames.reserve(cached->at("frames").size());
+        const auto& source_frames=cached->at("frames");
         const auto native=[&](const nlohmann::json& value)->zima::kernel::BodySnapshot {
             if(value.contains("incremental_history"))throw std::runtime_error("Invalid native topology binding");
             return load_body_result(value);
         };
-        for(const auto& row:cached->at("frames")) {
+        auto frames=process_rows<zima::kernel::KernelHistoryFrame>(source_frames.size(),[&](std::size_t index) {
+            const auto& row=source_frames.at(index);
             zima::kernel::KernelHistoryFrame frame;frame.fingerprint=row.at("fingerprint");
             frame.native_body=native(row.at("native"));frame.hidden_edges=row.at("hidden_edges").get<std::vector<std::string>>();
             frame.reference_delta=std::make_shared<const zima::kernel::ViewerReferenceGeometry>(load_reference_geometry(row.at("references")));
@@ -821,8 +878,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             if(const auto copy=row.find("copy");copy!=row.end())frame.copy_source=zima::kernel::KernelHistoryCopy{
                 native(copy->at("operand")),native(copy->at("caps")),native(copy->at("solid")),
                 copy->at("empty_material_operand"),copy->at("reference_only")};
-            frames.push_back(std::move(frame));
-        }
+            return frame;
+        });
         history->frames=std::move(frames);result.incremental_history=std::move(history);
     }
     }catch(const std::bad_alloc&){throw;}
@@ -865,8 +922,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
     result.calculation_errors = source.value("calculation_errors", std::map<std::string, std::string>{});
     if (const auto caches = source.find("body_histories"); caches != source.end()) {
         for (const auto& [id, rows] : caches->at("boundaries").items()) {
-            std::vector<zima::kernel::BodyResult> loaded;loaded.reserve(rows.size());
-            for (const auto& row : rows) loaded.push_back(load_body_result(row));
+            auto loaded=process_rows<zima::kernel::BodyResult>(rows.size(),[&](std::size_t index) {
+                return load_body_result(rows.at(index));
+            });
             result.body_boundaries[id]=std::move(loaded);
         }
         for (const auto& [id, body] : caches->at("inputs").items())

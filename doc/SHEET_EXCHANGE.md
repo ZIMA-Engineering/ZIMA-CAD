@@ -31,6 +31,15 @@ cylinders become native Sheet Profiles; subsequent planar walls become native
 Flats attached to those new profiles. Terminal bends are supported. The complete
 batch is one Undo/Redo transaction. A separate source Body is unchanged.
 
+The initial Flat frame is aligned to the Part Origin where the selected bounded
+face permits it. The command first looks for an in-face point lying on two Part
+Origin planes, then on one plane; otherwise it uses the stable projection/fallback
+inside the actual face boundary. Its X direction follows the closest projected
+Part axis while preserving the selected material side. This gives symmetric
+source solids a useful root on one or two Origin planes without inventing a
+source association. Holes and trimmed boundaries cannot pull the root outside
+the selected material region.
+
 The entry and exit generatrices of a cylinder need not have equal lengths.
 Conversion measures the exit endpoints in the generated Bend's end-profile
 frame and sets its ordinary, editable endpoint extensions. A widening or

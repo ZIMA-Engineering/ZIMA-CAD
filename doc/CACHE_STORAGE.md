@@ -9,13 +9,29 @@ create fresh imports when comparing this format with previous builds.
 
 The wrapper contains a root and a table of values. Identical JSON blocks of
 at least 256 serialized bytes share one table entry. Blocks are compared by
-complete serialized content, including their child references, not by a hash
-alone. A `{"$zima_cache": N}` record references an earlier table entry.
+complete structure, including their child references, not by a hash alone. The
+writer uses a recursive fingerprint only to select possible matches and then
+checks exact structural equality; it no longer serializes every nested subtree
+repeatedly while discovering duplicates. A `{"$zima_cache": N}` record references an earlier table entry.
 The reader rejects invalid, forward and cyclic references. References are
 storage-local addresses, never persistent topology or occurrence identities.
+Expansion mutates the owned decoded tree in place. Only a cache-reference node
+is replaced by its pooled value; ordinary JSON nodes retain their allocation.
+This avoids millions of redundant self-move assignments in large Part caches
+without changing the expanded value or the validation rules.
 
 The native history payload retains the exact calculated operation boundaries,
 source fingerprints, stable identities and kernel archives inside the `.prtz`.
+For a validated Body graph, the `zima-final-body-result-v1` encoding stores the
+self-contained final document packet once. That packet already owns every
+Body's immutable local boundary sequence and every derived Body output. The
+loader reconstructs the document-level boundary vector from those exact packets,
+rebinds its prefix fingerprints and applies the same deterministic non-final
+reference compaction as the evaluator. It does not invoke OCCT. The writer uses
+this encoding only when every operation maps unambiguously to the final packet;
+otherwise it retains the complete boundary-array encoding. Both encodings are
+file-local disposable caches, not authored model data.
+
 On reopen, a matching prefix can therefore be restored without recalculating it.
 Any changed definition, source geometry, placement, reference choice or kernel
 history identity invalidates the affected reuse. A first calculation after an
@@ -33,6 +49,13 @@ complete reference packets for repeated operations. Both use the established
 256-entry live-history limit. Entries are exact derived data and may be evicted;
 they never replace persisted document information and do not weaken input or
 reference validation.
+
+Before persisting the final calculated BRep, the kernel removes only p-curves
+whose supporting faces are no longer present. Intermediate operation shapes are
+not cleaned because later operations may still consume their representations.
+This prevents repeated parameter edits from accumulating obsolete OCCT curve
+records while preserving final topology bindings, viewer/reference packets and
+the exact save/reopen contract.
 
 Assembly occurrence containers retain metadata only. Their authoritative
 component data is stored once in the assembly root, rather than duplicated

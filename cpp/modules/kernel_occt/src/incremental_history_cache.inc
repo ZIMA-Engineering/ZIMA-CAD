@@ -7,7 +7,20 @@ bool native_history_enabled=!context.preview_wire&&!has_forms&&std::ranges::none
 std::vector<KernelHistoryFrame> native_frames;
 if(native_history_enabled&&!previous_boundaries.empty()) {
     const auto& saved=previous_boundaries.back().incremental_history;
-    if(saved&&saved->algorithm==native_history_algorithm)native_frames=saved->frames.get();
+    // The suffix hash records the exact producer build for diagnostics.  The
+    // persisted continuation representation itself is versioned by the
+    // history-vN family.  Ordinary kernel implementation changes must not
+    // discard a valid saved prefix: every frame still has to match the exact
+    // authored-operation fingerprint and pass the native binding checks below.
+    // Bump the family when that representation or its identity semantics
+    // become incompatible (for example together with an OCCT/schema update).
+    constexpr std::string_view compatible_history_family{"history-v1/"};
+    const bool compatible=saved&&saved->algorithm.starts_with(compatible_history_family);
+    if(compatible)native_frames=saved->frames.get();
+    if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
+        std::fprintf(stderr,"[native history loaded] enabled=%d saved=%d algorithm=%d frames=%zu previous=%zu\n",
+            int(native_history_enabled),int(bool(saved)),int(compatible),
+            native_frames.size(),previous_boundaries.size());
 }
 if(native_history_enabled)native_frames.resize(operations.size());
 std::shared_ptr<const OriginalFaces> native_original_before;
@@ -58,7 +71,16 @@ const auto capture_native_frame=[&](const std::string& key,const TopoDS_Shape& s
     native_frames[current_operation]=std::move(frame);
 };
 const auto restore_native_prefix=[&](std::size_t count) {
-    if(!native_history_enabled||!count||count>native_frames.size()||count>previous_boundaries.size())return false;
+    const auto fail=[&](const char* reason) {
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
+            std::fprintf(stderr,"[native history restore] prefix=%zu failed=%s frames=%zu previous=%zu\n",
+                count,reason,native_frames.size(),previous_boundaries.size());
+        return false;
+    };
+    if(!native_history_enabled)return fail("disabled");
+    if(!count)return fail("empty-prefix");
+    if(count>native_frames.size())return fail("missing-frames");
+    if(count>previous_boundaries.size())return fail("missing-boundaries");
     const auto& prefix_key=previous_boundaries[count-1].source_fingerprint;
     const bool references_available=(context.requested_solids.empty()&&!has_subtractions)||
         live_cache_->copy_references.contains(prefix_key);
@@ -79,10 +101,12 @@ const auto restore_native_prefix=[&](std::size_t count) {
         std::vector<std::pair<std::string,LiveCache::CopySource>> copies;
         for(std::size_t index=0;index<count;++index) {
             const auto& frame=native_frames[index];const auto& boundary=previous_boundaries[index];
-            if(frame.fingerprint!=boundary.source_fingerprint||!frame.reference_delta||!boundary.calculation_errors.empty())return false;
+            if(frame.fingerprint!=boundary.source_fingerprint)return fail("fingerprint");
+            if(!frame.reference_delta)return fail("reference-delta");
+            if(!boundary.calculation_errors.empty())return fail("calculation-error");
             if(!frame.native_body->kernel_shape.empty()) {
-                if(frame.native_body->source_fingerprint!=frame.fingerprint)return false;
-                if(!boundary.kernel_shape.empty()&&boundary.kernel_shape.get()!=frame.native_body->kernel_shape.get())return false;
+                if(frame.native_body->source_fingerprint!=frame.fingerprint)return fail("native-fingerprint");
+                if(!boundary.kernel_shape.empty()&&boundary.kernel_shape.get()!=frame.native_body->kernel_shape.get())return fail("native-archive");
             }
             for(const auto& layer:frame.original_layers) {
                 auto data=restore_native_history_data(layer);
@@ -103,7 +127,7 @@ const auto restore_native_prefix=[&](std::size_t count) {
         const auto& frame=native_frames[count-1];std::vector<TopoDS_Shape> hidden;
         const auto& snapshot=frame.native_body->kernel_shape.empty()?previous_boundaries[count-1]:frame.native_body.get();
         auto body=restore_native_history_data(snapshot,&frame.hidden_edges,&hidden);
-        if(body.shape.IsNull())return false;
+        if(body.shape.IsNull())return fail("empty-shape");
         auto topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
             std::move(body.faces),std::move(body.edges),std::move(body.vertices),std::move(hidden)});
         for(auto& [key,copy]:copies) {

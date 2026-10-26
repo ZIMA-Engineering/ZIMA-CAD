@@ -1,5 +1,6 @@
 #include "../app/sketch_offset_dialog.hpp"
 #include "../app/import_options_dialog.hpp"
+#include "../app/export_options_dialog.hpp"
 #include <QTemporaryDir>
 #include <QFile>
 #include <QLabel>
@@ -74,5 +75,16 @@ int main(int argc,char** argv){QApplication app(argc,argv);try{
  bool imported=false;QObject::connect(canceled,&QDialog::accepted,[&]{imported=true;});
  canceled->buttons()->button(QDialogButtonBox::Cancel)->click();
  if(imported)throw std::runtime_error("Cancel accepted import settings");
+ auto* exported=new zima::app::ExportOptionsDialog(temp.path()+"/assembly.step",&owner);
+ if(exported->include_skeletons() ||
+    exported->findChild<QLabel*>("exportFileName")->text()!="assembly.step" ||
+    exported->findChild<QLabel*>("exportFormat")->text()!="STEP")
+   throw std::runtime_error("Assembly export defaults or metadata are wrong");
+ auto* include_skeleton=exported->findChild<QCheckBox*>("exportIncludeSkeleton");
+ include_skeleton->setChecked(true);
+ bool export_accepted=false;QObject::connect(exported,&QDialog::accepted,[&]{export_accepted=true;});
+ exported->buttons()->button(QDialogButtonBox::Ok)->click();
+ if(!export_accepted||!exported->include_skeletons())
+   throw std::runtime_error("Assembly Skeleton export option was not accepted");
  std::cout<<"Exact spline dialog retains precision and linked ownership\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

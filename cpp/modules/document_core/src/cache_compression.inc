@@ -14,6 +14,7 @@ constexpr std::size_t compression_chunk=48*1024;
 
 std::string cache_base64_encode(std::string_view bytes) {
     std::string result;
+    result.reserve((bytes.size()+2)/3*4);
     for(std::size_t at=0;at<bytes.size();) {
         const auto count=std::min(compression_chunk,bytes.size()-at);
         std::array<unsigned char,compression_chunk/3*4+1> buffer;
@@ -28,6 +29,7 @@ std::string cache_base64_encode(std::string_view bytes) {
 std::string cache_base64_decode(std::string_view text) {
     if(text.empty()||text.size()%4)invalid_compressed_cache();
     std::string result;
+    result.reserve(text.size()/4*3);
     for(std::size_t at=0;at<text.size();) {
         const auto count=std::min(compression_chunk,text.size()-at);
         const auto part=text.substr(at,count);
@@ -68,6 +70,7 @@ std::string cache_zlib(std::string_view input,bool encode,std::size_t expected=0
     CacheZlibStream owner(encode);
     auto& stream=owner.stream;
     std::string result;
+    if(!encode)result.reserve(expected);
     std::array<char,compression_chunk> output;
     std::size_t at=0;
     for(;;) {
@@ -100,12 +103,27 @@ CacheJson compress_cache_storage(CacheJson&& storage) {
     // Tiny inputs retain the same current raw representation. Estimate first
     // to avoid serializing a small template twice merely to reject compression.
     if(storage.at("values").empty())return std::move(storage);
+    const auto profile=std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")!=nullptr;
+    const auto started=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     const auto raw=storage.dump();
+    const auto dumped=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     if(raw.size()<64*1024)return std::move(storage);
     const auto compressed=cache_zlib(raw,true);
+    const auto deflated=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     if(compressed.size()>(raw.size()-raw.size()/10)/4*3)return std::move(storage);
+    auto encoded=cache_base64_encode(compressed);
+    if(profile) {
+        const auto finished=std::chrono::steady_clock::now();
+        const auto milliseconds=[](auto from,auto to) {
+            return std::chrono::duration<double,std::milli>(to-from).count();
+        };
+        std::fprintf(stderr,
+            "Native IO cache compression dump: %.3f ms; zlib: %.3f ms; base64: %.3f ms; raw=%zu compressed=%zu\n",
+            milliseconds(started,dumped),milliseconds(dumped,deflated),
+            milliseconds(deflated,finished),raw.size(),compressed.size());
+    }
     return {{"format","zima-shared-cache-v1"},{"compression","zlib-base64"},
-        {"uncompressed_bytes",raw.size()},{"data",cache_base64_encode(compressed)}};
+        {"uncompressed_bytes",raw.size()},{"data",std::move(encoded)}};
 }
 
 CacheJson decompress_cache_storage(CacheJson&& storage) {
@@ -116,9 +134,20 @@ CacheJson decompress_cache_storage(CacheJson&& storage) {
        !storage.at("uncompressed_bytes").is_number_unsigned())invalid_compressed_cache();
     const auto expected=storage.at("uncompressed_bytes").get<std::uint64_t>();
     if(expected>std::numeric_limits<std::size_t>::max())invalid_compressed_cache();
+    const auto profile=std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")!=nullptr;
+    const auto started=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     const auto compressed=cache_base64_decode(storage.at("data").get_ref<const std::string&>());
+    const auto decoded_base64=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     const auto raw=cache_zlib(compressed,false,static_cast<std::size_t>(expected));
+    const auto inflated=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     auto decoded=CacheJson::parse(raw,nullptr,false);
+    if(profile) {
+        const auto parsed=std::chrono::steady_clock::now();
+        std::fprintf(stderr,"Native IO cache decompression base64: %.3f ms; zlib: %.3f ms; JSON: %.3f ms\n",
+            std::chrono::duration<double,std::milli>(decoded_base64-started).count(),
+            std::chrono::duration<double,std::milli>(inflated-decoded_base64).count(),
+            std::chrono::duration<double,std::milli>(parsed-inflated).count());
+    }
     if(decoded.is_discarded()||!decoded.is_object()||decoded.contains("compression"))
         invalid_compressed_cache();
     return decoded;

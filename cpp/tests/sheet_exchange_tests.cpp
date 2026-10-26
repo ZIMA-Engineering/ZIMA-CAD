@@ -77,10 +77,18 @@ void contract() {
         }
         check(document::profile_status(part.sketches.front())==document::ProfileStatus::Closed,"Slot profile is not editable as a closed profile");
         check(!document::flat_preview(part.history.front(),part.sketches.front(),document::sheet_metal_defaults(part)).edges.empty(),"Multi-slot Flat lacks an edit preview");
-        const auto seed=*std::ranges::max_element(cache.back().mesh.original_references.triangle_references,{},[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane?f.measured_area.value_or(0):0;});
+        const auto stable_seed=std::ranges::find_if(cache.back().mesh.original_references.triangle_references,[](const auto& face) {
+            return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                face.sheet_role==kernel::SheetFaceRole::SideA;
+        });
+        check(stable_seed!=cache.back().mesh.original_references.triangle_references.end(),"Flat fixture has no stable Side A seed");
+        const auto seed=*stable_seed;
         near(workspace::suggest_sheet_thickness(cache.back().mesh,seed),3);
         if(!reverse) {
-            QTemporaryDir directory;check(directory.isValid(),"Cannot create STEP fixture directory");
+            // OCCT's native STEP writer cannot access the packaged-process
+            // redirection used by QTemporaryDir's system default on Windows.
+            // Keep this disposable fixture under the repository build tree.
+            QTemporaryDir directory(QStringLiteral("build/sheet-exchange-XXXXXX"));check(directory.isValid(),"Cannot create STEP fixture directory");
             const auto path=std::filesystem::u8path(directory.path().toStdString())/"source.step";
             kernel.export_step(std::vector<kernel::PlacedBody>{{cache.back().body_outputs.at(source).get(),{},{}}},path.string());
             auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},path);
@@ -148,6 +156,37 @@ void contract() {
         near(recalculated.back().body_outputs.at(target)->volume,expected,.001);
         bool rejected=false;try{static_cast<void>(workspace::prepare_sheet_from_body(reopened,recalculated,seed,3,kernel));}catch(const std::invalid_argument&){rejected=true;}
         check(rejected,"Conversion accepted a non-empty target Body");
+    }
+    {
+        // A centred source face should seed the new root Flat at the Part
+        // Origin planes, not at an arbitrary OCCT face-frame origin/edge.
+        auto part=document::PartDocument::create_default();
+        const auto source=part.body_history.create_body("Centred source");
+        auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+        auto profile=sketcher::Sketch::create_default();profile.owner_container_id=flat.id;flat.flat.sketch_id=profile.id;
+        flat.flat.thickness_override=true;flat.flat.thickness=2;
+        static_cast<void>(profile.add_rectangle(-40,-20,40,20));
+        part.insert_history_entry(document::PartHistoryKind::Feature,flat.id);part.history.push_back(flat);part.sketches.push_back(profile);
+        const auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
+        const auto& faces=cache.back().body_outputs.at(source)->mesh.original_references.triangle_references;
+        const auto seed=std::ranges::find_if(faces,[](const auto& face) {
+            return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                face.sheet_role==kernel::SheetFaceRole::SideA;
+        });
+        check(seed!=faces.end(),"Centred sheet fixture has no planar face");
+        const auto target=part.body_history.create_body("Centred conversion");
+        const auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
+        const auto& root=converted.document.sketches.back();
+        near(root.resolved_origin.x,0);near(root.resolved_origin.y,0);
+        check(std::abs(std::abs(root.resolved_x_axis.x)+std::abs(root.resolved_x_axis.y)-1)<1e-7&&
+              std::abs(root.resolved_x_axis.z)<1e-7,
+            "Sheet from Body did not align its root X axis with a Part Origin plane");
+        check(converted.created.size()==1&&converted.document.body_history.owner(converted.created.front())->scope.id==target,
+            "Centred Sheet from Body changed its target ownership");
+        const auto reopened=document::PartDocument::from_serialized(converted.document.serialized());
+        const auto& persisted=reopened.sketches.back();
+        near(persisted.resolved_origin.x,0);near(persisted.resolved_origin.y,0);
+        near(persisted.resolved_x_axis.x,root.resolved_x_axis.x);near(persisted.resolved_x_axis.y,root.resolved_x_axis.y);
     }
     {
         auto part=document::PartDocument::create_default();const auto source=part.body_history.create_body("Bent source");

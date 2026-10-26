@@ -1,5 +1,14 @@
 # Native versioned distribution
 
+The current source identifies Windows candidate `2026102603`. Its exact-output
+cache/history improvements, adaptive complex-Boolean parallelism and associated
+Sketcher/modeling corrections are described in the
+[candidate record](releases/2026102603.md). The compact representation changes
+only disposable calculated cache inside a native document: it does not change
+the authored native format version, require a sidecar or reduce geometry
+precision. Signed publication and updater acceptance are not claimed until the
+candidate passes the gates below.
+
 
 Signed Windows [2026102602](releases/2026102602.md#windows-publication-acceptance)
 was published at `2026-10-26T09:12:53Z` from immutable source

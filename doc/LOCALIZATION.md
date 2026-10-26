@@ -34,9 +34,11 @@ Installed portable configuration retains its layered ownership rules.
 New feature defaults follow the selected application language, including
 primitives, Extrusion/Revolution, Sketches, construction objects, sweeps,
 patterns, mirrors and sheet-metal features. New Bodies and drawing sheets use
-localized default names. Creation uses translation before the property dialog
-opens; edits retain the stored name. Explicit names supplied by users or command
-arguments are never translated. Imported source names are retained.
+localized default names. Created modeling and construction objects use a
+two-digit localized sequence suffix (`01`, `02`, ...); old numeric suffixes such
+as `001` reserve the same number. Creation uses translation before the property
+dialog opens; edits retain the stored name. Explicit names supplied by users or
+command arguments are never translated. Imported source names are retained.
 
 Changing application language does not rewrite existing document names,
 parameters, metadata, object names or title-block labels. Persisted Origin

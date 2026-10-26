@@ -232,7 +232,14 @@ void Host::register_profile_commands() {
                 auto value=create?(part?workspace::profile_from_sketch(part->session.document(),args.at("sketch"),Kind::Feature):
                     workspace::profile_from_sketch(assembly->session.document(),args.at("sketch"),Kind::Feature)):
                     profile(workspace_,id,args.at("container"),Kind::Feature);
-                if(create){value.name=tr(value.name.c_str());value.feature.automatic_name=value.name;}
+                if(create){
+                    value.name=tr(value.name.c_str());
+                    value.name=part
+                        ? part->session.document().next_numbered_name(value.name,value.id)
+                        : assembly->session.document().feature_document().next_numbered_name(
+                            value.name,value.id);
+                    value.feature.automatic_name=value.name;
+                }
                 if(part) {
                     const auto* body=part->session.document().body_owner_for_object(value.id);
                     if(body&&body->scope.id!=part->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
@@ -412,6 +419,8 @@ void Host::register_profile_commands() {
                         }
                         if(create) {
                             value.name=tr(kind==Kind::Extrusion?"Řez plechem":"Rotace plechu");
+                            value.name=state->session.document().next_numbered_name(
+                                value.name,value.id);
                             if(kind==Kind::Extrusion){value.extrusion.sheet_cut=true;value.combine_mode=document::CombineMode::Subtract;value.extrusion.result_type=document::ProfileResultType::Solid;}
                             else {value.revolution.sheet_metal=true;value.combine_mode=document::CombineMode::Add;value.revolution.result_type=document::ProfileResultType::Thin;}
                         }

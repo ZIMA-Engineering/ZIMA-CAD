@@ -69,6 +69,16 @@ Windows/Linux source remains pinned to OCCT 8.0.1. See the
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 
+The current source is the `2026102603` Windows release candidate. It adds the
+measured exact-output native-cache and history workflow improvements, automatic
+new-dimension value entry, mixed unit expressions, two-digit feature names,
+parallel-reference rectangle symmetry, Sheet-from-Body Origin alignment,
+Skeleton export control and revised Sketcher icons. See the
+[candidate record](doc/releases/2026102603.md) and
+[performance evidence](doc/performance/20261026-skeleton-history-edit.md).
+`2026102602` remains the latest published signed build until candidate signing,
+publication and updater acceptance finish.
+
 ## Command line
 
 The `zima-cad-cli` executable runs the shared CAD commands without a desktop window.

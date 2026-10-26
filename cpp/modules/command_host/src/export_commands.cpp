@@ -78,6 +78,8 @@ void Host::register_export_commands() {
         const bool dxf=format==interchange::Format::Dxf;
         std::vector<commands::Argument> args={{"path",true}};
         if(dxf)args.push_back({"sketch",false});
+        if(format==interchange::Format::Step||format==interchange::Format::Iges)
+            args.push_back({"include_skeletons",false,commands::ArgumentType::Boolean});
         args.push_back({"overwrite",false,commands::ArgumentType::Boolean});args.push_back({"document",false});
         if(dxf)args.push_back({"sheet",false});
         dispatcher_.add({dxf?"export.dxf":format==interchange::Format::Step?"export.step":format==interchange::Format::Iges?"export.iges":"export.stl",
@@ -102,7 +104,10 @@ void Host::register_export_commands() {
                     }
                     if(options_.progress)options_.progress(Activity::Export,path);
                     const auto report=workspace::export_file(workspace_,doc,path,
-                        {args.value("sketch",std::string{}),args.value("overwrite",false)},[this](auto task){io(std::move(task));});
+                        {.sketch_id=args.value("sketch",std::string{}),
+                         .overwrite=args.value("overwrite",false),
+                         .include_skeletons=args.value("include_skeletons",false)},
+                        [this](auto task){io(std::move(task));});
                     return Result::success({{"document",report.document_id},{"path",document::path_to_utf8(report.path)},
                         {"source_revision",report.revision},{"bytes",report.bytes},{"model_changed",false}});
                 } catch(const workspace::ExportOperationError& e){return Result::failure(e.code,tr(e.what()));}

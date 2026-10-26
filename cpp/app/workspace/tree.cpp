@@ -558,7 +558,15 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             ? &part->session.calculated_boundaries().back().mesh.original_references : nullptr;
         add_history_container_tree_children(item, container, construction_path,
             owned_sketch == document.sketches.end() ? nullptr : &*owned_sketch,false,calculated_references);
-        const auto boundary=part ? part->session.rollback_boundary(container.id) : std::nullopt;
+        // Only edge treatments validate operational edge identities against
+        // their exact pre-feature body. Building a rollback boundary copies a
+        // potentially large mesh, so do not create one for the other feature
+        // kinds whose reference diagnostics consume only the shared index.
+        const bool needs_input_geometry =
+            container.feature_kind == zima::document::FeatureKind::Fillet ||
+            container.feature_kind == zima::document::FeatureKind::Chamfer;
+        const auto boundary=part && needs_input_geometry
+            ? part->session.rollback_boundary(container.id) : std::nullopt;
         const auto issue=feature_reference_issue(container,document,references,
             boundary && boundary->input_body ? &boundary->input_body->mesh : nullptr);
         tree_reference_state_.apply(item,document.document_id,container.id,issue);

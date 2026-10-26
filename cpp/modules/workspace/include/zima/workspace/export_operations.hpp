@@ -9,7 +9,11 @@ public:
     ExportOperationError(const char* code, const char* message) : std::runtime_error(message), code(code) {}
     const char* code;
 };
-struct ExportOptions { std::string sketch_id; bool overwrite{}; };
+struct ExportOptions {
+    std::string sketch_id;
+    bool overwrite{};
+    bool include_skeletons{};
+};
 struct ExportReport { std::string document_id; std::uint64_t revision{}, bytes{}; std::filesystem::path path; };
 // Write into a sibling staging directory, then atomically publish a complete file.
 [[nodiscard]] std::uint64_t write_export_file(const std::filesystem::path&,bool overwrite,

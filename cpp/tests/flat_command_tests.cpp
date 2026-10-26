@@ -148,7 +148,7 @@ void verify_flat_to_flat_attachment(std::filesystem::path directory) {
         const auto attached=run(host,"flat.create",{{"edge_owner",base_id},{"edge_key",edge.reference.semantic_key},
             {"height_mm",12.},{"origin_last",origin_last}}).data;
         check(attached.at("sheet_attachment").get<bool>(),"Flat-on-Flat creation did not use sheet attachment");
-        check(attached.at("name")=="Tabule 002","Attached Flat did not receive the next numbered name");
+        check(attached.at("name")=="Tabule 02","Attached Flat did not receive the next numbered name");
         const auto attached_id=attached.at("container").get<std::string>();
         const auto* feature=state->session.document().find_container(attached_id);
         check(feature&&feature->placement.reference_valid,"Flat-on-Flat placement is invalid");

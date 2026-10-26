@@ -470,9 +470,9 @@ int main(int argc,char** argv) {
         name->setText("My reference");type->setCurrentIndex(1);flush();
         if(dialog.pending_value().name!="My reference"||!dialog.pending_value().feature.automatic_name.empty())
             throw std::runtime_error("Type switch overwrote a custom name");
-        part.history.push_back(feature);part.history.back().name=zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 001";
+        part.history.push_back(feature);part.history.back().name=zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 01";
         if(zima::app::next_feature_name(part,zima::document::FeatureType::Axis,"")!=
-            zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 002")
+            zima::app::feature_name_prefix(zima::document::FeatureType::Axis).toStdString()+" 02")
             throw std::runtime_error("Automatic name collides with an existing object");
     dialog.hide();verify_ordered_limits(application,parent);verify_limit_localization(application,parent);verify_rendering(application,parent);
     }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;return 1;}

@@ -21,7 +21,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto* part=live.open_part(source);const auto body=part->session.document().body_history.active_body_id();
     const auto revision=part->session.revision();const auto* allocation=part->session.calculated_boundaries().data();
     const auto faces=run(host,"appearance.faces").data;
-    require(faces.at("total")==6,"Box appearance query did not offer six result faces");
+    require(faces.at("total")==10,
+        "Symmetric box appearance query did not preserve its ten authored result-face identities");
     const auto original=run(host,"appearance.get").data;
     require(part->session.revision()==revision&&part->session.calculated_boundaries().data()==allocation,"Appearance queries calculated geometry");
     const auto blue=Json{{"color","#225FC2"},{"roughness",.123456789},{"metallic",.75}};
@@ -57,7 +58,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto source_revision=live.open_part(source)->session.revision();
     auto* owner=live.open_assembly(assembly_id);const auto snapshot=owner->session.document().find_occurrence(first)->calculated_source;
     run(host,"appearance.set",{{"instance_path",path},{"body",body},{"style",{{"color","#AA2200"}}}});
-    const auto& first_value=*owner->session.document().find_occurrence(first);
+    const auto first_value=*owner->session.document().find_occurrence(first);
     require(first_value.appearance_override&&first_value.appearance_override->bodies.at(body).color=="#AA2200","Occurrence body override missing");
     require(!owner->session.document().find_occurrence(second)->appearance_override&&live.open_part(source)->session.revision()==source_revision,"Occurrence style leaked into sibling or source");
     require(first_value.calculated_source.shares_with(snapshot),"Appearance copied or recalculated component geometry");
@@ -79,7 +80,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"body.activate"); // Whole-Body sources are offered at the Part boundary.
     const auto mirrored=run(host,"mirror.create",{{"source",source_body},{"local_plane","yz"},{"placement",{{"x",30}}}}).data.at("object").get<std::string>();
     const auto copied_faces=run(host,"appearance.faces",{{"body",mirrored}}).data;
-    require(copied_faces.at("total")==6,"Mirrored Body appearance lost its result-face owners");
+    require(copied_faces.at("total")==10,
+        "Mirrored Body appearance lost its authored result-face owners");
     const auto mirrored_packet=live.open_part(copy_part)->session.calculated_boundaries().back().body_outputs.at(mirrored);
     const auto active_before_color=live.open_part(copy_part)->session.document().body_history.active_body_id();
     run(host,"appearance.set",{{"body",mirrored},{"style",blue}});
@@ -92,7 +94,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto copied_path=assembly::InstancePath{}.child(copied_occurrence).encoded();
     run(host,"close",{{"document",copy_part}});
     require(live.active_document_id()==copied_owner,"Closing inactive source changed active Assembly");
-    require(run(host,"appearance.faces",{{"instance_path",copied_path},{"body",mirrored}}).data.at("total")==6,"Closed source lost mirrored face ownership");
+    require(run(host,"appearance.faces",{{"instance_path",copied_path},{"body",mirrored}}).data.at("total")==10,"Closed source lost mirrored face ownership");
     require(run(host,"appearance.get",{{"instance_path",copied_path},{"body",mirrored}}).data.at("style").at("color")=="#225FC2","Closed source lost mirrored body style");
 
 

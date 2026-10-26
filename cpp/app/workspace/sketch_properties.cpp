@@ -49,7 +49,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     if (!edit_mode) {
         new_sketch_container = zima::document::PartDocument::create_sketch_container();
         initial.owner_container_id = new_sketch_container->id;
-        initial.name = tr("Skica").toStdString();
+        initial.name = part != nullptr
+            ? part->session.document().next_numbered_name(
+                tr("Skica").toStdString(),new_sketch_container->id)
+            : assembly->session.document().feature_document().next_numbered_name(
+                tr("Skica").toStdString(),new_sketch_container->id);
         new_sketch_container->name = initial.name;
     }
     std::shared_ptr<zima::document::HistoryContainer> sketch_feature;
@@ -66,7 +70,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (!owner) {
                 value.feature_kind = zima::document::FeatureKind::Holes;
                 value.combine_mode = zima::document::CombineMode::Subtract;
-                value.name = tr("Otvory").toStdString(); value.holes.sketch_id = initial.id;
+                value.name = part->session.document().next_numbered_name(
+                    tr("Otvory").toStdString(), value.id);
+                value.holes.sketch_id = initial.id;
             }
             initial.name = value.name;
             sketch_feature = std::make_shared<zima::document::HistoryContainer>(std::move(value));

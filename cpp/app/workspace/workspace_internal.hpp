@@ -14,6 +14,7 @@
 #include "sketch_offset_dialog.hpp"
 #include <zima/sketcher/curve_geometry.hpp>
 #include "import_options_dialog.hpp"
+#include "export_options_dialog.hpp"
 #include <zima/document/object_annotation_frames.hpp>
 #include "dimension_properties_fields.hpp"
 #include <QSaveFile>

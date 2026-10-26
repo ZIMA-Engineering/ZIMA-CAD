@@ -135,7 +135,8 @@ void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std:
         const auto* stored=part->session.document().find_container(container_id);
         auto feature=stored?*stored:document::PartDocument::create_sketch_container();
         feature.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
-        if(!stored)feature.name=(unfold?tr("Rozvinout"):tr("Ohnout zpět")).toStdString();
+        if(!stored)feature.name=part->session.document().next_numbered_name(
+            (unfold?tr("Rozvinout"):tr("Ohnout zpět")).toStdString(),feature.id);
         std::map<std::string,QString> available;
         std::map<std::string,std::string> feature_owners;
         for(const auto& region:workspace::sheet_state_regions(part->session.document(),container_id)) {
@@ -195,7 +196,8 @@ void AssemblyWorkspaceWindow::show_solid_state_properties(bool restore,const std
         if(!input)throw std::invalid_argument("Solid state requires a calculated input body.");
         const auto* stored=part->session.document().find_container(container_id);
         auto feature=stored?*stored:document::PartDocument::create_solid_state_container(restore);
-        if(!stored)feature.name=(restore?tr("Restore shape"):tr("Straighten")).toStdString();
+        if(!stored)feature.name=part->session.document().next_numbered_name(
+            (restore?tr("Restore shape"):tr("Straighten")).toStdString(),feature.id);
         const auto sources=workspace::solid_state_sources(part->session.document(),restore,container_id);
         std::map<std::string,QString> available;
         for(const auto& owner:sources)if(const auto* source=part->session.document().find_container(owner))

@@ -59,7 +59,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(part->session.revision()==revision && part->session.data_generation()==generation && part->session.calculated_boundaries().back().kernel_shape==shape,"Export changed document or calculated state");
     const auto original=bytes(step);
     require(host.execute({{"command","export.step"},{"arguments",{{"path",document::path_to_utf8(step)}}}}).code=="file_exists" && bytes(step)==original,"Unrequested export overwrote a file");
-    auto stale=part->session.document();zima::test::profile_dimension(stale,*stale.find_container(box),0)=20;part->session.commit(std::move(stale),part->session.calculated_boundaries());const auto stale_revision=part->session.revision();
+    auto stale=part->session.document();
+    const auto stale_profile=std::ranges::find(stale.sketches,box,&sketcher::Sketch::owner_container_id);
+    require(stale_profile!=stale.sketches.end(),"Export fixture lost its owned profile Sketch");
+    for(auto& point:stale_profile->points)point.x*=2;
+    part->session.commit(std::move(stale),part->session.calculated_boundaries());const auto stale_revision=part->session.revision();
     run(host,"export.step",{{"path",document::path_to_utf8(step)},{"overwrite",true}});require(std::abs(step_volume(step)-6000)<1e-5 && part->session.revision()==stale_revision,"Export implicitly regenerated pending model data");
     run(host,"export.iges",{{"path",document::path_to_utf8(iges)},{"overwrite",true}});
     require(std::abs(iges_volume(iges)-6000)<1e-5&&part->session.revision()==stale_revision,"IGES implicitly regenerated pending geometry");
@@ -88,6 +92,34 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(std::ranges::count_if(corner_entities,[](const auto& e){return e.type=="ARC";})==2&&part->session.revision()==corner_revision&&bytes(dxf)!=dxf_before,"DXF command lost corner geometry or changed the document");
     require(!host.execute({{"command","export.step"},{"arguments",{{"path","wrong.igs"}}}}).ok && !fs::exists(dir/"wrong.igs"),"Mismatched export extension wrote a file");
     require(!host.execute({{"command","export.iges"},{"arguments",{{"path","wrong.step"}}}}).ok&&!fs::exists(dir/"wrong.step"),"Mismatched IGES export extension wrote a file");
+    {
+        auto nested_source=assembly::AssemblyDocument::create_default();
+        nested_source.components.push_back(assembly::AssemblyDocument::create_part_occurrence(
+            "Physical Part",part_id,"physical.prtz",part->session.calculated_boundaries().back()));
+        nested_source.components.push_back(assembly::AssemblyDocument::create_part_occurrence(
+            "Reference layout",part_id,"reference_skeleton.prtz",part->session.calculated_boundaries().back()));
+        auto export_source=assembly::AssemblyDocument::create_default();
+        export_source.components.push_back(assembly::AssemblyDocument::create_assembly_occurrence(
+            "Nested source",nested_source.document_id,"nested-source.asmz",nested_source));
+        workspace::Workspace isolated;const auto export_id=export_source.document_id;
+        isolated.add_assembly(std::move(export_source),dir/"skeleton-export.asmz");
+        isolated.activate(export_id);isolated.display_top_level(export_id);
+        const auto revision=isolated.open_assembly(export_id)->session.revision();
+        const auto without_step=dir/"without-skeleton.step",with_step=dir/"with-skeleton.step";
+        static_cast<void>(workspace::export_file(isolated,export_id,without_step));
+        static_cast<void>(workspace::export_file(isolated,export_id,with_step,
+            {.include_skeletons=true}));
+        require(std::abs(step_volume(without_step)-12000)<1e-5&&std::abs(step_volume(with_step)-24000)<1e-5,
+            "Nested STEP Skeleton option did not exclude by default and include on request");
+        const auto without_iges=dir/"without-skeleton.iges",with_iges=dir/"with-skeleton.iges";
+        static_cast<void>(workspace::export_file(isolated,export_id,without_iges));
+        static_cast<void>(workspace::export_file(isolated,export_id,with_iges,
+            {.include_skeletons=true}));
+        require(std::abs(iges_volume(without_iges)-12000)<1e-5&&std::abs(iges_volume(with_iges)-24000)<1e-5,
+            "Nested IGES Skeleton option did not exclude by default and include on request");
+        require(isolated.open_assembly(export_id)->session.revision()==revision,
+            "Skeleton export option changed the Assembly revision");
+    }
     // The nested source is intentionally never saved. Export must consume its
     // persisted occurrence snapshot, not reopen dependencies or refresh them.
     auto flat=assembly::AssemblyDocument::create_default();const auto flat_id=flat.document_id;live.add_assembly(std::move(flat),dir/"missing-flat.asmz");static_cast<void>(live.insert_open_part(flat_id,part_id,"Inserted"));

@@ -4,7 +4,12 @@
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
 #include <numbers>
+#include <optional>
 
 namespace zima::workspace {
 namespace {
@@ -79,6 +84,100 @@ void numeric_frame(document::HistoryContainer& feature,sketcher::Sketch& sketch,
     p.absolute_rotation_z=p.rotation_z=rz*180/std::numbers::pi;
     sketch.plane=sketcher::SketchPlane::XY;sketch.plane_auto=false;
     sketch.resolved_origin=origin;sketch.resolved_x_axis=x;sketch.resolved_y_axis=y;sketch.resolved_normal=z;
+}
+struct RootSheetFrame {V origin,x,y,normal;};
+RootSheetFrame root_sheet_frame(const document::PartDocument& source,
+        const sketcher::Sketch& local_context,const kernel::ViewerMesh& mesh,const Face& face) {
+    const auto n=unit(normal(face,face.surface->origin));
+    auto fallback_x=unit(face.surface->radial);
+    // The Part Origin is document geometry. Convert it through the same public
+    // Body-local path as the selected source packet; no placement references or
+    // general placement equations are changed by this conversion-only seed.
+    auto origin_geometry=source.sketch_reference_geometry_for(
+        local_context,source.origin_viewer_mesh().original_references);
+    if(origin_geometry.points.empty()||origin_geometry.axes.size()<3)
+        return {face.surface->origin,fallback_x,cross(n,fallback_x),n};
+    const auto part_origin=origin_geometry.points.front().position;
+    std::array<V,3> part_axes;
+    for(std::size_t i=0;i<part_axes.size();++i)part_axes[i]=unit(origin_geometry.axes[i].direction);
+    const auto inside=[&](V p) {
+        for(std::size_t triangle=0;triangle<mesh.triangle_references.size();++triangle) {
+            if(key(mesh.triangle_references[triangle])!=key(face)||3*triangle+2>=mesh.triangles.size())continue;
+            const auto a=mesh.vertices.at(mesh.triangles[3*triangle]);
+            const auto b=mesh.vertices.at(mesh.triangles[3*triangle+1]);
+            const auto c=mesh.vertices.at(mesh.triangles[3*triangle+2]);
+            const auto v0=sub(b,a),v1=sub(c,a),v2=sub(p,a);
+            const double d00=dot(v0,v0),d01=dot(v0,v1),d11=dot(v1,v1);
+            const double d20=dot(v2,v0),d21=dot(v2,v1),denominator=d00*d11-d01*d01;
+            if(std::abs(denominator)<=1e-20)continue;
+            const double v=(d11*d20-d01*d21)/denominator;
+            const double w=(d00*d21-d01*d20)/denominator;
+            const double u=1-v-w;
+            if(u>=-1e-8&&v>=-1e-8&&w>=-1e-8&&
+               std::abs(dot(sub(p,a),n))<=1e-6)return true;
+        }
+        return false;
+    };
+    const auto plane_count=[&](V p) {
+        unsigned count{};
+        for(const auto axis:part_axes)if(std::abs(dot(sub(p,part_origin),axis))<=1e-6)++count;
+        return count;
+    };
+    struct Candidate {V point;unsigned planes{};double distance{};};
+    std::vector<Candidate> candidates;
+    const auto offer=[&](V p) {
+        if(!inside(p))return;
+        const auto delta=sub(p,part_origin);
+        candidates.push_back({p,plane_count(p),dot(delta,delta)});
+    };
+    // Orthogonal projection is the least-surprising fallback whenever the
+    // selected bounded face contains it.
+    offer(add(part_origin,mul(n,dot(sub(face.surface->origin,part_origin),n))));
+    // Intersections with a Part axis lie in two Origin planes at once.
+    for(const auto axis:part_axes) {
+        const double denominator=dot(n,axis);
+        if(std::abs(denominator)>1e-10)
+            offer(add(part_origin,mul(axis,dot(n,sub(face.surface->origin,part_origin))/denominator)));
+    }
+    // Otherwise use an actual bounded intersection with one Origin plane.
+    // Triangle edges preserve holes and concave outlines without an untrimmed
+    // supporting-plane shortcut.
+    for(const auto plane_normal:part_axes)
+        for(std::size_t triangle=0;triangle<mesh.triangle_references.size();++triangle) {
+            if(key(mesh.triangle_references[triangle])!=key(face)||3*triangle+2>=mesh.triangles.size())continue;
+            const std::array vertices{mesh.vertices.at(mesh.triangles[3*triangle]),
+                mesh.vertices.at(mesh.triangles[3*triangle+1]),mesh.vertices.at(mesh.triangles[3*triangle+2])};
+            for(std::size_t edge=0;edge<3;++edge) {
+                const auto a=vertices[edge],b=vertices[(edge+1)%3];
+                const double da=dot(sub(a,part_origin),plane_normal);
+                const double db=dot(sub(b,part_origin),plane_normal);
+                if(std::abs(da)<=1e-10)offer(a);
+                if((da<0&&db>0)||(da>0&&db<0))offer(add(a,mul(sub(b,a),da/(da-db))));
+            }
+        }
+    V chosen_origin=face.surface->origin;
+    if(!candidates.empty()) {
+        const auto chosen=std::ranges::max_element(candidates,[](const auto& a,const auto& b) {
+            if(a.planes!=b.planes)return a.planes<b.planes;
+            return a.distance>b.distance;
+        });
+        chosen_origin=chosen->point;
+    }
+    // Keep the selected face normal/material side.  Within that plane prefer
+    // a projected Part axis closest to the source face's established radial
+    // direction, so XY/XZ/YZ faces receive their natural local axes without
+    // an arbitrary 90-degree turn.
+    double best_alignment=-1;
+    for(const auto axis:part_axes) {
+        const auto projected=sub(axis,mul(n,dot(axis,n)));
+        const double length=std::sqrt(dot(projected,projected));
+        if(length<=1e-10)continue;
+        auto direction=mul(projected,1/length);
+        double alignment=dot(direction,fallback_x);
+        if(alignment<0){direction=mul(direction,-1);alignment=-alignment;}
+        if(alignment>best_alignment){best_alignment=alignment;fallback_x=direction;}
+    }
+    return {chosen_origin,fallback_x,cross(n,fallback_x),n};
 }
 void outline(sketcher::Sketch& sketch,const kernel::ViewerMesh& mesh,const Face& face) {
     const auto surfaces=faces(mesh);
@@ -179,8 +278,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     feature.flat.replaces_body=replaces_body;
     feature.flat.thickness_override=true;feature.flat.thickness=thickness;feature.flat.direction=document::ExtrusionDirection::Reverse;
     sketch.owner_container_id=feature.id;sketch.name=feature.name;
-    const auto n=normal(root->second,root->second.surface->origin);const auto x=root->second.surface->radial;
-    numeric_frame(feature,sketch,root->second.surface->origin,x,cross(n,x),n);outline(sketch,mesh,root->second);
+    const auto frame=root_sheet_frame(source,local_context,mesh,root->second);
+    numeric_frame(feature,sketch,frame.origin,frame.x,frame.y,frame.normal);outline(sketch,mesh,root->second);
     result.document.insert_history_entry(document::PartHistoryKind::Feature,feature.id);result.created.push_back(feature.id);
     result.document.history.push_back(std::move(feature));result.document.sketches.push_back(std::move(sketch));
     result.document.resolve_constructions(construction_reference_source_geometry(cache));

@@ -7,6 +7,7 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <iostream>
 #include <stdexcept>
@@ -259,6 +260,17 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             "Repeated external refresh drifted a settled projection");
         auto reopened=sketcher::Sketch::from_serialized(stable);
         require(!reopened.refresh_external_references("fixed-document",source),"Reopened external projection was stale");
+        auto jittered=reopened;auto numerical_noise=source;
+        for(int step=0;step<4;++step)numerical_noise.edges.front().points.back().x=
+            std::nextafter(numerical_noise.edges.front().points.back().x,
+                std::numeric_limits<double>::infinity());
+        const auto jittered_stable=jittered.serialized();
+        require(!jittered.refresh_external_references("fixed-document",numerical_noise)&&
+            jittered.serialized()==jittered_stable,
+            "Floating-point reprojection noise invalidated an unchanged external reference cache");
+        numerical_noise.edges.front().points.back().x+=1e-8;
+        require(jittered.refresh_external_references("fixed-document",numerical_noise),
+            "A real sub-micron external source movement was hidden as numerical noise");
         for(int constraints=0;constraints<3;++constraints) {
             auto part=document::PartDocument::create_default();part.body_history={};
             auto source_sketch=sketcher::Sketch::create_default();

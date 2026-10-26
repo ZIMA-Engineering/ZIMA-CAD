@@ -40,7 +40,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
 
     auto feature=stored?*stored:document::create_loft();
     if(!stored) {
-        feature.name=tr("Přechod").toStdString();
+        feature.name=source.next_numbered_name(tr("Přechod").toStdString(),feature.id);
         for(auto& value:feature.loft.sketches) {
             auto sketch=sketcher::Sketch::from_serialized(value.sketch_serialized);sketch.name=tr("Skica").toStdString();
             value.sketch_serialized=sketch.serialized();value.sketch_feature->name=sketch.name;value.sketch_feature->feature.automatic_name=sketch.name;

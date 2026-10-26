@@ -390,6 +390,11 @@ field without closing the dialog. **OK** validates, calculates, commits one
 transaction and closes. **Cancel** discards pending edits. Short MMB never accepts
 the dialog; MMB drag navigates and MMB double-click invokes OK.
 
+New modeling, construction, sheet-metal, Pattern and Mirror objects receive a
+localized two-digit sequence suffix (`01`, `02`, ...). Numbering is independent
+for each localized base name, skips existing legacy suffixes such as `001`, and
+never rewrites a name entered by the user.
+
 Parametric dimensions follow the resolved local frame, including offsets,
 FRONT/BACK, quarter-turn orientation and `RX/RY/RZ`. Their text is the ordinary
 hover/edit target, so extension lines do not steal geometry selection. Purple
@@ -780,15 +785,21 @@ comma; `5+4*4` evaluates to `21`. Division by zero and nonnumeric expressions ar
 rejected. Use context **Lock/Unlock** for the selected value; dimension appearance
 and value locking are separate properties.
 
-Dimension value entry also accepts a trailing length unit (`mm`, `cm`, `m`,
-`in`, `inch`, `inches` or `"`) or angular unit (`deg`, `°`, `rad`). The suffix
-applies to the whole expression: `(1/2 + .125)in` means 15.875 mm. Without a
-suffix, the current document unit applies. For example, entering `0,254inch`
-in a millimetre document gives 6.4516 mm; entering `25,4mm` in an inch document
-gives 1 inch. The document's unit setting does not change. Length units cannot
-be used for angles or dimensionless counts. Mixed-unit terms inside one
-expression are not supported. Confirming an unchanged displayed value retains
-the exact stored value, even if the display shows fewer decimal places.
+Dimension input accepts length units (`mm`, `cm`, `m`, `in`, `inch`, `inches`
+or `"`) and angular units (`deg`, `°`, `rad`) on individual terms. A trailing
+unit applies to the complete preceding expression, so `(1/2 + .125)in` means
+15.875 mm. Mixed expressions such as `11 mm + 1` and `10 mm + 0.25 in` are
+valid; an unsuffixed term uses the current document unit. The document's unit
+setting does not change. Length units cannot be mixed with angles or
+dimensionless counts. Confirming an unchanged displayed value retains the exact
+stored value, even if the display shows fewer decimal places.
+
+After a new driving Sketch dimension is placed, its inline value editor opens
+by default with the complete value selected. Type the required value and press
+Enter; the Dimension command remains active for the next dimension. Disable
+**Edit the value immediately after creating a dimension** on the General
+page of Global Settings if this is not desired. Reference and locked dimensions
+remain read-only and do not open automatically.
 
 **Normal View** realigns the camera with the active Sketch. **Select** ends the
 drawing command. Hover is orange, confirmed selection cyan. Delete removes selected
@@ -949,6 +960,11 @@ ZIMA history, constraints or Assembly mates. Regenerate first when updated
 Assembly operations are required. A Drawing exports model geometry through its
 source Part/Assembly. Supported entity details are in
 [STEP import/export](STEP_IMPORT_EXPORT.md) and [IGES/DXF import](IGES_DXF_IMPORT.md).
+
+For Assembly STEP/IGES, the export-options window excludes Skeleton occurrences
+by default. Enable **Skeleton** when construction geometry is intentionally part
+of the exchange. The choice is recursive; final calculated Assembly cuts remain
+authoritative and are not replaced by their uncut child geometry.
 
 **File → Export → IGES** writes visible calculated Part bodies or current
 calculated Assembly geometry as exact surfaces/BRep in millimetres. Select

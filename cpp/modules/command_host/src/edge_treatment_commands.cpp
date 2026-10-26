@@ -114,7 +114,8 @@ void Host::register_edge_treatment_commands() {
                     if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one edge treatment parameter.");
                     const auto selected=args.contains("routes")?parse_routes(args.at("routes")):Parameters{};
                     auto feature=create?(fillet?document::PartDocument::create_fillet_container(selected.flattened_edges()):document::PartDocument::create_chamfer_container(selected.flattened_edges())):treatment(state,args.at("container"),fillet);
-                    if(create)feature.name=fillet?tr("Zaoblení"):tr("Sražení");
+                    if(create)feature.name=state->session.document().next_numbered_name(
+                        fillet?tr("Zaoblení"):tr("Sražení"),feature.id);
                     const auto* body=create?state->session.document().body_history.find(state->session.document().body_history.active_body_id()):state->session.document().body_owner_for_object(feature.id);
                     if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its edge treatment.");
                     if(args.contains("name")) {

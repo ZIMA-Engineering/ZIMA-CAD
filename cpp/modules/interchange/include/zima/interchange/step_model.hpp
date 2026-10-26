@@ -2,7 +2,14 @@
 #include <zima/document/part_document.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/geometry_kernel.hpp>
+#include <stdexcept>
 namespace zima::interchange {
+class StepProductError : public std::runtime_error {
+public:
+    enum class Code { EmptyGeometry, CalculationRequired };
+    StepProductError(Code code,const char* message):std::runtime_error(message),code(code){}
+    Code code;
+};
 struct StepImportedPart {
     document::PartDocument document;
     std::vector<kernel::BodyResult> calculated;
@@ -25,5 +32,6 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
     const std::filesystem::path& directory, const std::map<std::string,std::string>& precision, std::optional<double> mesh_deflection = {});
 kernel::StepProduct step_product(const document::PartDocument& document,
     const std::vector<kernel::BodyResult>& calculated);
-kernel::StepProduct step_product(const assembly::AssemblyDocument& document);
+kernel::StepProduct step_product(const assembly::AssemblyDocument& document,
+    bool include_skeletons = true);
 }

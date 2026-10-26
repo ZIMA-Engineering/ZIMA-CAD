@@ -353,6 +353,14 @@ void sketch_inputs(QApplication& application,QWidget& parent,double scale,double
         near(field.expression_value(),quantity==ui::InputQuantity::Length?6.4516:.5*180./std::numbers::pi);
         field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"25,4mm":"90deg");
         near(field.expression_value(),quantity==ui::InputQuantity::Length?25.4:90.);
+        field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"11 mm + 1":"90 deg + 1");
+        near(field.expression_value(),quantity==ui::InputQuantity::Length?11.+factor:90.+factor);
+        field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"(1 cm + 2 mm) / 2":"90 deg + .5 rad");
+        near(field.expression_value(),quantity==ui::InputQuantity::Length?6.:90.+.5*180./std::numbers::pi);
+        if(quantity==ui::InputQuantity::Length) {
+            field.findChild<QLineEdit*>()->setText("10 mm + 0.25 in");
+            near(field.expression_value(),16.35);
+        }
         field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"1rad":"1mm");
         rejected=false;try{static_cast<void>(field.expression_value());}catch(const std::exception&){rejected=true;}
         check(rejected,"Incompatible dimension unit was accepted");

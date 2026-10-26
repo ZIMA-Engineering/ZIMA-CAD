@@ -28,6 +28,15 @@ Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 This release changes neither the native format version nor the protected
 container-placement, geometry-side, reference-identity or precision contracts.
 
+The current source is the `2026102603` Windows release candidate. It includes
+exact-output native cache/load/save improvements, adaptive complex-Boolean
+parallelism, automatic new-dimension entry, mixed unit expressions, two-digit
+feature naming, parallel-reference rectangle symmetry, Sheet-from-Body Origin
+alignment, Assembly Skeleton export control and revised Sketcher icons. Existing
+current-format native files remain directly readable. Resaving rewrites only
+their disposable calculated cache; it does not migrate authored model data.
+See the [candidate record](releases/2026102603.md).
+
 ## Available implementation
 
 "Implemented" means the documented command and native workflow exist. It does
@@ -82,6 +91,17 @@ release changes no native format, container-placement contract, calculation
 precision or shared OCCT 8.0.1 pin. Native Linux acceptance is not claimed. See
 the [release record](releases/2026102602.md).
 
+Candidate `2026102603` retains the exact 25-of-26 Skeleton history-prefix reuse
+and adds compact final-result cache reconstruction plus in-place cache expansion.
+On the protected 51,025,383-byte copy, accepted samples observed
+18.206--18.464 s old-cache load, 15.975--16.237 s save and 13.204--13.579 s
+rewritten-cache reopen. Complete authored definitions and every calculated
+history packet match. No precision was reduced and the authored native format
+version did not change. The candidate also contains the Sketcher, unit-entry,
+naming, sheet-conversion and export changes listed in its
+[release record](releases/2026102603.md). Windows signing/publication and Linux
+native verification are still pending at this source boundary.
+
 The 2502 source tag was not published as a GitHub release. Its changes are
 superseded by published 2601; the historical
 [2502 record](releases/2026102502.md) remains the finite junction/selection
@@ -91,8 +111,8 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102602 is published and accepted with the Flat attachment, selection and copied-axis corrections. Further Skeleton performance work starts from the measured 2601 behavior and must preserve its exact-output gates; the 0.001 versus 0.01 precision comparison is diagnostic only and must not weaken geometry or references. Linux remains separate. |
-| Skeleton interaction | Properties opening is 1.46--1.61 s and draft editing 0.134--0.139 s in the measured fixture. Warm changed OK is 4.627 s, not the requested one second. Further work must preserve exact output and likely requires immutable/shared viewer packets rather than weaker calculation. |
+| Current correction/release batch | Windows 2026102602 remains the latest published build. Candidate 2026102603 contains the exact-output performance, Sketcher, unit, naming, sheet-conversion and export work and still requires signed Windows publication acceptance. Linux remains separate. |
+| Skeleton interaction | Properties opening is 1.46--1.61 s, draft editing 0.134--0.139 s and warm changed OK approximately 4.6 s in the measured fixture. Rewritten-cache reopen is 13.204--13.579 s and save 15.975--16.237 s. The one-second confirmation target is not claimed; further work must preserve exact output rather than weaken calculation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |

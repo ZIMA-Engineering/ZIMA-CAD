@@ -555,22 +555,24 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_external_reference_action_->setCheckable(true);
     sketch_external_reference_action_->setEnabled(false);
     sketch_external_profile_action_ = make_action(
-        tr("Reference → obrys"), "sketch-segment");
+        tr("Reference → obrys"), "sketch-reference-outline");
     sketch_external_profile_action_->setObjectName(
         "sketchExternalProfileAction");
     sketch_external_profile_action_->setCheckable(true);
     sketch_external_profile_action_->setEnabled(false);
-    sketch_intersection_reference_action_=make_action(tr("Intersection"),"sketch-reference");
+    sketch_intersection_reference_action_=make_action(tr("Intersection"),"sketch-intersection");
     sketch_intersection_reference_action_->setObjectName("sketchIntersectionReferenceAction");
     sketch_intersection_reference_action_->setCheckable(true);
     sketch_intersection_reference_action_->setEnabled(false);
-    sketch_intersection_profile_action_=make_action(tr("Intersection → contour"),"sketch-segment");
+    sketch_intersection_profile_action_=make_action(tr("Intersection → contour"),"sketch-intersection-outline");
     sketch_intersection_profile_action_->setObjectName("sketchIntersectionProfileAction");
     sketch_intersection_profile_action_->setCheckable(true);
     sketch_intersection_profile_action_->setEnabled(false);
     sketch_intersection_reference_action_->setToolTip(tr("Create an associative intersection curve or point from a face or curve and the Sketch plane."));
     sketch_intersection_profile_action_->setToolTip(tr("Create linked native Sketch geometry from the selected intersection curve or point."));
-    sketch_point_action_ = make_action(tr("Bod"), "point");
+    // Sketch geometry uses a white point mark in the View; keep the brown
+    // construction/Tree point icon unchanged outside Sketcher.
+    sketch_point_action_ = make_action(tr("Bod"), "sketch-point");
     sketch_point_action_->setObjectName("sketchPointAction");
     sketch_point_action_->setEnabled(false);
     sketch_construction_action_ = make_action(

@@ -158,6 +158,8 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     result.document_naming.replace_spaces=value("DocumentNames/ReplaceSpaces","false").toLower()=="true";
     result.use_iso_application_font = value("Application/UseISOFont", "false").toLower() == "true";
     result.stacked_tolerances = value("Dimensions/ToleranceLayout", "inline") == "stacked";
+    result.edit_new_sketch_dimension =
+        value("Sketcher/EditNewDimension", "true").compare("false", Qt::CaseInsensitive) != 0;
     result.vladimir = value("Application/Vladimir", "YES").compare("NO", Qt::CaseInsensitive) != 0;
     try {
         result.sheet_cut_tolerance=zima::document::sheet_cut_tolerance({
@@ -449,6 +451,7 @@ bool ApplicationSettings::save(QString* error) const {
         {"Application/UseISOFont", use_iso_application_font},
         {"Application/Vladimir", vladimir ? "YES" : "NO"},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
+        {"Sketcher/EditNewDimension", edit_new_sketch_dimension},
         {"DocumentNames/Uppercase", document_naming.uppercase},
         {"DocumentNames/RemoveDiacritics", document_naming.remove_diacritics},
         {"DocumentNames/ReplaceSpaces", document_naming.replace_spaces},

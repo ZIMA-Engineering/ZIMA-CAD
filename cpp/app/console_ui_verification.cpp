@@ -254,7 +254,8 @@ Q_NEVER_INLINE static int verify_feature_axis_ends(QApplication& application,Ass
         };
         window.showMaximized();flush();
         for(const auto* kind:{"part","assembly"}) {
-            const auto name=std::string("feature-axis-")+kind;
+            const auto name=std::string("feature-axis-")+kind+"-"+
+                QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
             const auto created=run("new",{{"type",kind},{"name",name}});flush();
             const auto active=std::ranges::find_if(created,[](const auto& row){return row.at("active").template get<bool>();});
             check(active!=created.end(),"New Feature document is inactive");

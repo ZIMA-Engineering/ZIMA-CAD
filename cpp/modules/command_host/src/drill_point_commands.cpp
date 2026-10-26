@@ -43,7 +43,8 @@ void Host::register_drill_point_commands() {
                 if(!state||interaction().template_document)throw Error("unsupported_document","Drill points require an open Part.");
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one drill-point parameter.");
                 auto feature=create?document::PartDocument::create_drill_point_container():drill_point(state,args.at("container"));
-                if(create)feature.name=tr("Špička");
+                if(create)feature.name=state->session.document().next_numbered_name(
+                    tr("Špička"),feature.id);
                 const auto* body=create?state->session.document().body_history.find(state->session.document().body_history.active_body_id()):state->session.document().body_owner_for_object(feature.id);
                 if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its drill point.");
                 if(args.contains("name")) {

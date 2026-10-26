@@ -21,6 +21,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <random>
 #include <set>
@@ -8592,6 +8593,27 @@ bool Sketch::refresh_external_references(
     }
     auto next = *this;
     bool changed = false;
+    const auto same_projected_points = [](const auto& left, const auto& right) {
+        if (left.size() != right.size()) return false;
+        constexpr double ulps = 32.0;
+        for (std::size_t index = 0; index < left.size(); ++index)
+            for (std::size_t coordinate = 0; coordinate < 2; ++coordinate) {
+                const double a = left[index][coordinate];
+                const double b = right[index][coordinate];
+                if (a == b) continue;
+                if (!std::isfinite(a) || !std::isfinite(b)) return false;
+                const double scale = std::max({1.0, std::abs(a), std::abs(b)});
+                if (std::abs(a - b) > ulps * std::numeric_limits<double>::epsilon() * scale)
+                    return false;
+            }
+        return true;
+    };
+    const auto same_projected_paths = [&](const auto& left, const auto& right) {
+        if (left.size() != right.size()) return false;
+        for (std::size_t index = 0; index < left.size(); ++index)
+            if (!same_projected_points(left[index], right[index])) return false;
+        return true;
+    };
     const auto same_source = [](const auto& reference, const auto& candidate) {
         return candidate.owner_id == reference.source_owner_id &&
             candidate.semantic_key == face_curve_source_key(reference.source_semantic_key) &&
@@ -8617,6 +8639,10 @@ bool Sketch::refresh_external_references(
                 updated.cached_points=found->cached_points;
                 updated.cached_paths=found->cached_paths;
                 updated.exact_spline=found->exact_spline;
+                if(same_projected_points(reference.cached_points,updated.cached_points))
+                    updated.cached_points=reference.cached_points;
+                if(same_projected_paths(reference.cached_paths,updated.cached_paths))
+                    updated.cached_paths=reference.cached_paths;
             }
             if(updated!=reference){reference=std::move(updated);changed=true;}
             continue;
@@ -8710,7 +8736,8 @@ bool Sketch::refresh_external_references(
                         projected.cached_points={line->first,{line->first[0]+line->second[0],line->first[1]+line->second[1]}};
                         projected.cached_paths.clear();projected.infinite=true;
                     }
-                    if(reference.cached_paths!=projected.cached_paths || reference.cached_points!=projected.cached_points ||
+                    if(!same_projected_paths(reference.cached_paths,projected.cached_paths) ||
+                        !same_projected_points(reference.cached_points,projected.cached_points) ||
                         reference.infinite!=projected.infinite) {
                         reference.cached_paths=std::move(projected.cached_paths);
                         reference.cached_points=std::move(projected.cached_points);
@@ -8721,7 +8748,12 @@ bool Sketch::refresh_external_references(
         }
         const bool broken = !resolved.has_value() &&
             !face_projection_resolved;
-        if (resolved && reference.cached_points != *resolved) {
+        // Reprojecting an unchanged source through the same rigid frames can
+        // differ by a few floating-point ULPs after native save/reopen. Keep
+        // the already persisted cache in that case: a real source movement,
+        // even far below modeling tolerance, still exceeds this numerical
+        // roundoff bound and refreshes normally.
+        if (resolved && !same_projected_points(reference.cached_points, *resolved)) {
             reference.cached_points = std::move(*resolved);
             changed = true;
         }

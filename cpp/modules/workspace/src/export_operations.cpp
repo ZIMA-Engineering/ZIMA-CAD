@@ -91,9 +91,17 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
         try{interchange::validate_dxf_export(sketch);}
         catch(const interchange::DxfExportError& error){throw ExportOperationError("unsupported_geometry",error.what());}
         data=std::move(sketch);
-    } else if(format==interchange::Format::Step||(format==interchange::Format::Iges&&part)) {
-        data=part?interchange::step_product(part->session.document(),part->session.calculated_boundaries())
-                 :interchange::step_product(assembly->session.document());
+    } else if(format==interchange::Format::Step||format==interchange::Format::Iges) {
+        try {
+            data=part?interchange::step_product(part->session.document(),part->session.calculated_boundaries())
+                     :interchange::step_product(assembly->session.document(),options.include_skeletons);
+        } catch(const interchange::StepProductError& error) {
+            if(error.code==interchange::StepProductError::Code::EmptyGeometry)
+                throw ExportOperationError("empty_geometry",
+                    "There are no visible calculated bodies to export.");
+            throw ExportOperationError("calculation_required",
+                "An exported component has no calculated body; invoke Regenerate first.");
+        }
     } else {
         if(part) {
             if(part->session.calculated_boundaries().empty())throw ExportOperationError("calculation_required", "The Part has no calculated body; invoke Regenerate first.");

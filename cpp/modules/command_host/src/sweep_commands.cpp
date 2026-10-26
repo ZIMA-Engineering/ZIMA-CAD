@@ -274,6 +274,8 @@ void Host::register_sweep_commands() {
                 auto feature = kind == Kind::Sweep2D ? workspace::sweep2d_from_sources(state->session.document(), path, profiles)
                     : workspace::sweep3d_from_sources(state->session.document(), path,
                         workspace::read_placement(workspace_, id, path).placement, profiles);
+                feature.name=state->session.document().next_numbered_name(
+                    tr(feature.name.c_str()),feature.id);
                 const auto defaults=options_.settings?options_.settings().sweep_precision_defaults:document::SweepPrecisionDefaults{};
                 feature.sweep_precision.default_tolerance=kind==Kind::Sweep2D?defaults.sweep2d:defaults.sweep3d;
                 const auto placement_owner = kind == Kind::Sweep2D
@@ -304,6 +306,8 @@ void Host::register_sweep_commands() {
                 const workspace::HelicalSources inputs{{args.at("base_sketch"), args.at("guide_sketch"), args.at("profile_sketch")},
                     args.at("circle"), args.at("start_point"), args.at("guide_start_point")};
                 auto feature = workspace::helical_from_sources(state->session.document(), inputs);
+                feature.name=state->session.document().next_numbered_name(
+                    tr(feature.name.c_str()),feature.id);
                 feature.sweep_precision.default_tolerance=options_.settings?options_.settings().sweep_precision_defaults.helical:.1;
                 const auto owner = std::ranges::find(state->session.document().sketches, inputs.sketches[0], &sketcher::Sketch::id)->owner_container_id;
                 sweep_properties(feature, args, workspace_, id, owner); const auto container = feature.id;

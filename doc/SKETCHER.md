@@ -17,6 +17,11 @@ the selected native branch; missing or ambiguous branches stay broken with their
 last usable geometry. See [ownership, persistence and finite verification](verification/20261022-sketch-intersection-editor.md)
 for supported cases and remaining limits.
 
+The Sketch point tool uses a filled white point icon. Reference and Intersection
+tools use brown lines and filled brown points; their outline variants retain the
+same brown point language. These toolbar colors distinguish read-only external
+geometry from newly authored Sketch points without changing View colors.
+
 The Drawing shortcut above the Tree is hidden while editing a Sketch. Finish
 the Sketch to restore ordinary document navigation. See the
 [visibility verification](verification/20261021-sketch-drawing-shortcut.md).
@@ -224,15 +229,22 @@ still must satisfy the dimension's geometry and limits. Incomplete expressions,
 division by zero and non-finite results cannot commit or silently restore an
 old value. Only the numeric result is stored, not a persistent relation.
 
-Dimension value entry also accepts a trailing length unit (`mm`, `cm`, `m`,
-`in`, `inch`, `inches` or `"`) or angular unit (`deg`, `°`, `rad`). The suffix
-applies to the whole expression: `(1/2 + .125)in` means 15.875 mm. Without a
-suffix, the current document unit applies. For example, entering `0,254inch`
-in a millimetre document gives 6.4516 mm; entering `25,4mm` in an inch document
-gives 1 inch. The document's unit setting does not change. Length units cannot
-be used for angles or dimensionless counts. Mixed-unit terms inside one
-expression are not supported. Confirming an unchanged displayed value retains
+Dimension value entry accepts length units (`mm`, `cm`, `m`, `in`, `inch`,
+`inches` or `"`) and angular units (`deg`, `°`, `rad`) on individual terms.
+A trailing unit still applies to the complete preceding expression, so
+`(1/2 + .125)in` means 15.875 mm. Mixed input such as `11 mm + 1`,
+`10 mm + 0.25 in` or `(1 cm + 2 mm)/2` is also valid; an unsuffixed term uses
+the current document unit. Thus `11 mm + 1` evaluates to 12 mm in an mm document.
+The document's unit setting does not change. Length units cannot be mixed with
+angles or dimensionless counts. Confirming an unchanged displayed value retains
 the exact stored value, even if the display shows fewer decimal places.
+
+By default, placing a new driving dimension immediately opens the same inline
+value editor with its complete value selected, so typing replaces the measured
+value directly. **Global Settings → General → Edit the value immediately
+after creating a dimension** disables this behavior when placement without
+immediate numeric entry is preferred. Reference and locked dimensions remain
+read-only and never open this automatic editor.
 
 Placing a dimension keeps Dimension active for another one. Quick MMB
 double-click returns to Select; double-clicking an existing dimension edits its
@@ -242,8 +254,9 @@ reference restores the ordinary Sketch picker and keeps that exact dimension
 confirmed. Command cleanup must not clear this newer selection asynchronously.
 
 Regression coverage: `zima_cpp_sketch_dimension_entry_ui_contract` exercises
-both point-pick orders, immediate editing and MMB completion, repeated edits,
-expression errors on Enter/focus-out, Properties, and native save/reload.
+both point-pick orders, default and disabled automatic value entry, focused
+selection, immediate editing and MMB completion, repeated edits, expression
+errors on Enter/focus-out, Properties, and native save/reload.
 `zima_cpp_sketch_dimension_command_tests` additionally checks matching origin
 and axis distances on both sides of X/Y, both origin pick orders, aligned and
 projected direction reversal, magnitude limits, fixed-point rejection, native
@@ -350,6 +363,15 @@ the anchor, subsequent corners are driven; the last closes against both previous
 and first corners. During entry, orange circles show the emerging horizontal/
 vertical arm ends from the first corner. Confirm size with LMB under the current
 Tool confirmation contract; earlier descriptions used MMB.
+
+When the first rectangle corner is confirmed on one straight external reference
+and the opposite corner reaches a distinct parallel external reference, the two
+contacts stay ordinary read-only point-on-line constraints. If the rectangle
+crosses the perpendicular Sketch origin axis, the preview offers and confirmation
+stores symmetry of the corresponding rectangle sides about that axis. It does
+not make the two external references symmetric and does not modify them. The
+result remains editable through driving/reference dimensions, repeated drags,
+Undo/Redo and native save/reopen.
 
 After the first corner, RMB in empty space enters axis selection. RMB over
 geometry retains normal candidate cycling. A construction line hovers orange;

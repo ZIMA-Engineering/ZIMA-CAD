@@ -8,8 +8,8 @@ or Undo steps. Source-geometry ownership is described in
 
 ## Commands
 
-- `export.step path [overwrite] [document]`
-- `export.iges path [overwrite] [document]`
+- `export.step path [include_skeletons] [overwrite] [document]`
+- `export.iges path [include_skeletons] [overwrite] [document]`
 - `export.stl path [overwrite] [document]`
 - `export.dxf path [sketch] [overwrite] [document] [sheet]`
 - `export.pdf path [overwrite] [document]`
@@ -17,12 +17,14 @@ or Undo steps. Source-geometry ownership is described in
   `overwrite`, `document`
 
 Optional `document` verifies the active document. Boolean `overwrite` defaults to
-`false`. Relative paths use the console working directory. Extensions must match;
+`false`. Boolean `include_skeletons` is available for Assembly STEP/IGES export
+and defaults to `false`. Relative paths use the console working directory. Extensions must match;
 STEP accepts `.step`/`.stp`; IGES accepts `.igs`/`.iges`. Parent directories must exist. GUI uses its file dialog's
 overwrite confirmation.
 
 ```json
 {"command":"export.step","arguments":{"path":"results/assembly.step"}}
+{"command":"export.step","arguments":{"path":"results/assembly-with-skeleton.step","include_skeletons":true}}
 {"command":"export.iges","arguments":{"path":"results/part.iges"}}
 {"command":"export.stl","arguments":{"path":"results/part.stl","overwrite":true}}
 {"command":"export.dxf","arguments":{"path":"results/outline.dxf","sketch":"SKETCH_ID"}}
@@ -70,6 +72,16 @@ occurrence results in the open document. The initial implementation required par
 regeneration to obtain source changes. Current shared-source display follows
 [Assembly geometry sharing](ASSEMBLY_GEOMETRY_SHARING.md); Assembly-owned operations
 and mates still require explicit regeneration.
+
+Assembly STEP and IGES export omit Skeleton occurrences recursively by default.
+The GUI shows an internal export-options window after the destination is chosen;
+its **Skeleton** checkbox is initially clear. Enable it only when construction
+geometry is intentionally required in the exchange file. The command-layer
+`include_skeletons` option provides the same choice. An Assembly-owned calculated
+cut/body remains authoritative and is exported once instead of recursing into and
+resurrecting its uncut child occurrences. A visible incomplete occurrence returns
+`calculation_required`; a hierarchy containing no exportable visible body returns
+`empty_geometry`. Export still performs no regeneration or document transaction.
 
 STL supports Parts and nested/repeated Assembly occurrences, flattening them into
 one mesh without names/product hierarchy. Sketch DXF supports segments, axes,

@@ -263,8 +263,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto directions=Json::array({Json{{"axis","x"},{"spacing_mm",30},{"count",3},{"distribution","symmetric"}},
         Json{{"axis","y"},{"spacing_mm",20},{"count",2},{"reverse_count",2},{"distribution","both"}}});
     const auto pattern=run(host,"pattern.create",{{"source",box},{"linear",directions}}).data.at("object").get<std::string>();
-    require(workspace::derived_copy_definition(live,id,pattern).name=="Pole 001"&&
-        workspace::next_derived_copy_name(live,id,"Pole")=="Pole 002","Part Pattern automatic names are not numbered");
+    require(workspace::derived_copy_definition(live,id,pattern).name=="Pole 01"&&
+        workspace::next_derived_copy_name(live,id,"Pole")=="Pole 02","Part Pattern automatic names are not numbered");
     near(body(pattern).volume,11*48);near(extent(body(pattern),0).first,-13);near(extent(body(pattern),0).second,53);
     near(extent(body(pattern),1).first,-42);near(extent(body(pattern),1).second,22);
     const auto keys=y_copy_faces(body(pattern));require(!keys.empty(),"Grid has no source-derived Y copy faces");
@@ -318,8 +318,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!retained->visible&&retained->body_color_override=="#123456","Editing a copy replaced its own presentation with source properties");
     near(extent(retained->calculated_source,0).first,-9);
     const auto ring=run(host,"pattern.create",{{"source",first},{"mode","circular"},{"count",3}}).data.at("object").get<std::string>();
-    require(workspace::derived_copy_definition(live,assembly_id,ring).name=="Pole 001"&&
-        workspace::next_derived_copy_name(live,assembly_id,"Pole")=="Pole 002","Assembly Pattern automatic names are not numbered");
+    require(workspace::derived_copy_definition(live,assembly_id,ring).name=="Pole 01"&&
+        workspace::next_derived_copy_name(live,assembly_id,"Pole")=="Pole 02","Assembly Pattern automatic names are not numbered");
     near(assembly->session.document().find_occurrence(ring)->calculated_source->volume,2000);
     require(assembly->session.document().find_occurrence(ring)->nested_snapshot.size()==2&&live.open_part(simple_id)->session.revision()==simple_revision,
         "Assembly Pattern lost exact copies or edited its source Part");

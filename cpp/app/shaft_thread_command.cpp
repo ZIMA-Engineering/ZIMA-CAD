@@ -14,7 +14,8 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);
     if (!occurrence) return;
     auto initial=document::PartDocument::create_shaft_thread_container();
-    initial.name=tr("Závit").toStdString();
+    initial.name=part->session.document().next_numbered_name(
+        tr("Závit").toStdString(),initial.id);
     if (!id.empty()) {
         const auto* stored=part->session.document().find_container(id);
         if (!stored || stored->feature_kind!=document::FeatureKind::ShaftThread) return;

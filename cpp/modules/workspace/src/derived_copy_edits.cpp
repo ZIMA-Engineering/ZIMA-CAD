@@ -4,6 +4,7 @@
 #include <zima/kernel/stable_id.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cctype>
 namespace zima::workspace {
@@ -96,25 +97,31 @@ std::string next_derived_copy_name(const Workspace& live,const std::string& id,
     const auto* assembly=live.open_assembly(id);
     if(!assembly)throw DerivedCopyError("unsupported_document","Derived copies require an open Part or Assembly.");
     const auto& document=assembly->session.document();
-    const auto used=[&](const std::string& candidate) {
+    const auto has_number=[&](const std::string& name,std::size_t number) {
+        if(!name.starts_with(prefix)||name.size()<=prefix.size()+1||name[prefix.size()]!=' ')return false;
+        const auto suffix=std::string_view(name).substr(prefix.size()+1);std::size_t parsed{};
+        const auto [end,error]=std::from_chars(suffix.data(),suffix.data()+suffix.size(),parsed);
+        return error==std::errc{}&&end==suffix.data()+suffix.size()&&parsed==number;
+    };
+    const auto used=[&](const std::string& candidate,std::size_t number) {
         return std::ranges::any_of(document.components,[&](const auto& item) {
-                   return item.occurrence_id!=excluded_id&&item.name==candidate;
+                   return item.occurrence_id!=excluded_id&&(item.name==candidate||has_number(item.name,number));
                })||
             std::ranges::any_of(document.sketch_containers,[&](const auto& item) {
-                return item.id!=excluded_id&&item.name==candidate;
+                return item.id!=excluded_id&&(item.name==candidate||has_number(item.name,number));
             })||
             std::ranges::any_of(document.cuts,[&](const auto& item) {
-                return item.definition.id!=excluded_id&&item.definition.name==candidate;
+                return item.definition.id!=excluded_id&&(item.definition.name==candidate||has_number(item.definition.name,number));
             })||
             std::ranges::any_of(document.constructions,[&](const auto& item) {
-                return item.id!=excluded_id&&item.name==candidate;
+                return item.id!=excluded_id&&(item.name==candidate||has_number(item.name,number));
             });
     };
     for(std::size_t number=1;;++number) {
         auto suffix=std::to_string(number);
-        if(suffix.size()<3)suffix.insert(0,3-suffix.size(),'0');
+        if(suffix.size()<2)suffix.insert(0,2-suffix.size(),'0');
         const auto candidate=prefix+" "+suffix;
-        if(!used(candidate))return candidate;
+        if(!used(candidate,number))return candidate;
     }
 }
 DerivedCopyEdit prepare_derived_copy_edit(Workspace& live,const std::string& id,const std::string& object,bool pattern) {

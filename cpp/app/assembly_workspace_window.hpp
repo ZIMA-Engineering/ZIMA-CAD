@@ -872,6 +872,7 @@ private:
     void import_file();
     void import_selected_file(const QString& path, std::optional<double> mesh_deflection = {});
     void export_file();
+    void export_selected_model_file(const QString& path, bool include_skeletons);
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {}, bool sheet_metal = false,
@@ -1074,7 +1075,9 @@ private:
     };
     [[nodiscard]] std::optional<SketchRectangleMidpointSnap>
     inferred_sketch_rectangle_midpoint_snap(
-        const std::array<double, 2>& opposite) const;
+        const std::array<double, 2>& opposite,
+        const std::string& current_snap_geometry_id = {},
+        std::optional<zima::sketcher::ConstraintKind> current_snap_kind = {}) const;
     void accept_sketch_rectangle_axis(
         const zima::viewer::ViewerCandidate& candidate);
     bool accept_sketch_polygon_ray(
@@ -1222,6 +1225,8 @@ private:
         const std::string& first_geometry_id = {},
         const std::string& second_geometry_id = {},
         std::optional<std::array<double, 2>> placement = std::nullopt);
+    void edit_created_sketch_dimension_inline(
+        const std::string& sketch_id, const std::string& semantic_key);
     void regenerate_active_part();
     void undo();
     void redo();

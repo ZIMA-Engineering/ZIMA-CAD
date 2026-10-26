@@ -9,12 +9,18 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <Bnd_Box.hxx>
 #include <gp_Cylinder.hxx>
+#include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <gp_Pln.hxx>
 #include <sstream>
@@ -165,6 +171,72 @@ void check_changed_source(kernel::OcctKernel& kernel,const std::filesystem::path
 int main(int argc,char** argv) {
     try {
         kernel::OcctKernel kernel;
+        if(argc==4&&(std::string_view(argv[1])=="--raw-step-cut-performance"||
+                std::string_view(argv[1])=="--raw-step-zima-cut-performance")) {
+            const bool product=std::string_view(argv[1])=="--raw-step-zima-cut-performance";
+            const auto mode=std::string_view(argv[3]);
+            require(mode=="parallel"||mode=="serial"||(product&&mode=="auto"),
+                "Unknown STEP Boolean mode");
+            const auto input=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
+            STEPControl_Reader reader;
+            auto started=std::chrono::steady_clock::now();
+            require(reader.ReadFile(document::path_to_utf8(input).c_str())==IFSelect_RetDone,
+                "Cannot read STEP Boolean input");
+            const auto read_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+            started=std::chrono::steady_clock::now();
+            require(reader.TransferRoots()>0,"Cannot transfer STEP Boolean input");
+            const auto shape=reader.OneShape();
+            require(!shape.IsNull(),"STEP Boolean input is empty");
+            const auto transfer_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+            Bnd_Box bounds;BRepBndLib::AddOptimal(shape,bounds,false,false);
+            Standard_Real xmin{},ymin{},zmin{},xmax{},ymax{},zmax{};bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+            const double margin=std::max({xmax-xmin,ymax-ymin,zmax-zmin})*.02+1.;
+            const double split=xmin+(xmax-xmin)*.5;
+            const auto tool=BRepPrimAPI_MakeBox(gp_Pnt(split,ymin-margin,zmin-margin),
+                gp_Pnt(xmax+margin,ymax+margin,zmax+margin)).Shape();
+            if(product) {
+                qunsetenv("ZIMA_CPP_TEST_FORCE_SERIAL_BOOLEANS");
+                qunsetenv("ZIMA_CPP_TEST_FORCE_PARALLEL_BOOLEANS");
+                if(mode=="serial")qputenv("ZIMA_CPP_TEST_FORCE_SERIAL_BOOLEANS","1");
+                if(mode=="parallel")qputenv("ZIMA_CPP_TEST_FORCE_PARALLEL_BOOLEANS","1");
+                std::ostringstream target_archive,tool_archive;
+                BRepTools::Write(shape,target_archive);BRepTools::Write(tool,tool_archive);
+                kernel::BodyResult target,cutter;
+                target.kernel_shape=target_archive.str();cutter.kernel_shape=tool_archive.str();
+                kernel::AggregatePropertyScope ordinary_edit(kernel::AggregatePropertyDemand::Deferred);
+                kernel::FaceMeasurementScope deferred_faces(false);
+                started=std::chrono::steady_clock::now();
+                const auto result=kernel.subtract_bodies(target,cutter,{},{},.001,.1);
+                const auto cut_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+                const auto packet=document::serialize_body_result(result).dump();
+                const auto digest=QCryptographicHash::hash(QByteArrayView(packet.data(),packet.size()),QCryptographicHash::Sha256);
+                std::cout<<"ZIMA STEP cut mode="<<mode<<" read_ms="<<read_ms
+                    <<" transfer_ms="<<transfer_ms<<" cut_packet_ms="<<cut_ms
+                    <<" vertices="<<result.mesh.vertices.size()<<" triangles="<<result.mesh.triangles.size()/3
+                    <<" edges="<<result.mesh.edges.size()<<" packet="<<digest.toHex().constData()<<std::endl;
+                return 0;
+            }
+            const bool parallel=mode=="parallel";
+            BRepAlgoAPI_Cut cut;TopTools_ListOfShape arguments,tools;
+            arguments.Append(shape);tools.Append(tool);cut.SetArguments(arguments);cut.SetTools(tools);
+            cut.SetToFillHistory(true);cut.SetFuzzyValue(.001);cut.SetRunParallel(parallel);
+            started=std::chrono::steady_clock::now();cut.Build();
+            const auto cut_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+            require(cut.IsDone()&&!cut.Shape().IsNull(),"STEP Boolean cut failed");
+            started=std::chrono::steady_clock::now();
+            const bool valid=BRepCheck_Analyzer(cut.Shape()).IsValid();
+            const auto validation_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+            require(valid,"STEP Boolean result is invalid");
+            std::size_t input_solids{},output_solids{},output_faces{};
+            for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++input_solids;
+            for(TopExp_Explorer it(cut.Shape(),TopAbs_SOLID);it.More();it.Next())++output_solids;
+            for(TopExp_Explorer it(cut.Shape(),TopAbs_FACE);it.More();it.Next())++output_faces;
+            std::cout<<"Raw STEP cut mode="<<argv[3]<<" read_ms="<<read_ms
+                <<" transfer_ms="<<transfer_ms<<" cut_ms="<<cut_ms
+                <<" validation_ms="<<validation_ms<<" input_solids="<<input_solids
+                <<" output_solids="<<output_solids<<" output_faces="<<output_faces<<std::endl;
+            return 0;
+        }
         if(argc==3&&std::string_view(argv[1])=="--recalculate-native-equivalence") {
             std::vector<kernel::BodyResult> stored;
             const auto native=document::PartDocument::load(std::filesystem::u8path(argv[2]),&stored);

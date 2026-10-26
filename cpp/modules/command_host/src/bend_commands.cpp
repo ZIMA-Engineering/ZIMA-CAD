@@ -42,7 +42,9 @@ void Host::register_bend_commands() {
                     const auto kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
                     if(!create&&(!stored||stored->feature_kind!=kind))throw std::invalid_argument("Sheet state container does not exist.");
                     auto feature=stored?*stored:document::PartDocument::create_sketch_container();feature.feature_kind=kind;
-                    feature.name=args.value("name",stored?stored->name:tr(unfold?"Rozvinout":"Ohnout zpět"));
+                    const auto automatic=create?part->session.document().next_numbered_name(
+                        tr(unfold?"Rozvinout":"Ohnout zpět"),feature.id):stored->name;
+                    feature.name=args.value("name",automatic);
                     if(args.contains("owners"))feature.sheet_state.owners=args.at("owners").get<std::vector<std::string>>();
                     feature.sheet_state.all=args.value("all",args.contains("owners")?false:feature.sheet_state.all);
                     const auto owner=feature.id;const bool changed=workspace::commit_sheet_state(workspace_,kernel_,id,std::move(feature));

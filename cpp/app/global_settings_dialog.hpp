@@ -73,6 +73,7 @@ private:
     QCheckBox* application_font_{};
     QCheckBox* vladimir_{};
     QComboBox* tolerance_layout_{};
+    QCheckBox* edit_new_sketch_dimension_{};
     QCheckBox* names_uppercase_{};
     QCheckBox* names_diacritics_{};
     QCheckBox* names_spaces_{};

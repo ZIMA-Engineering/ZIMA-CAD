@@ -71,7 +71,8 @@ void Host::register_shell_commands() {
                 if(!state||interaction().template_document)throw Error("unsupported_document","Shell operations require an open Part.");
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one Shell parameter.");
                 auto feature=create?document::PartDocument::create_shell_container():shell(state,args.at("container"));
-                if(create){feature.name=surface_only?tr("Plochy z tělesa"):tr("Shell");if(surface_only)feature.shell.thickness=0.;}
+                if(create){feature.name=state->session.document().next_numbered_name(
+                    surface_only?tr("Plochy z tělesa"):tr("Shell"),feature.id);if(surface_only)feature.shell.thickness=0.;}
                 if(!create&&(feature.shell.thickness==0.)!=surface_only)
                     throw Error("wrong_feature","Use the command belonging to this shell type.");
                 if(args.contains("source_body"))feature.shell.source_body=args.at("source_body").get<std::string>();

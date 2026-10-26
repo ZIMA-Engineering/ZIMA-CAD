@@ -105,6 +105,8 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     auto initial=general?zima::document::create_general_surface():transition?zima::document::create_sheet_transition(rectangular):planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
     if(!transition&&!general)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
     initial.name=tr(initial.name.c_str()).toStdString();
+    if(id.empty())initial.name=part->session.document().next_numbered_name(
+        initial.name,initial.id);
     const auto localize_sketch = [](std::string& data) {
         auto sketch=zima::sketcher::Sketch::from_serialized(data);
         sketch.name=QObject::tr(sketch.name.c_str()).toStdString();data=sketch.serialized();
@@ -379,6 +381,8 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     if (!edit_mode) {
         initial.sweep_precision.default_tolerance=application_settings_.sweep_precision_defaults.sweep3d;
         initial.name=tr(initial.name.c_str()).toStdString();
+        initial.name=part->session.document().next_numbered_name(
+            initial.name,initial.id);
         initial.sweep3d.path.name=tr(initial.sweep3d.path.name.c_str()).toStdString();
     }
     const std::string document_id = part->session.document().document_id;

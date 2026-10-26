@@ -117,6 +117,15 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     tolerance_layout_->addItem(tr("Nad sebou"), true);
     tolerance_layout_->setCurrentIndex(settings_.stacked_tolerances ? 1 : 0);
     form->addRow(tr("Zobrazení tolerancí"), tolerance_layout_);
+    edit_new_sketch_dimension_ = new QCheckBox(
+        tr("Po vytvoření kóty ihned upravit její hodnotu"), this);
+    edit_new_sketch_dimension_->setObjectName(
+        "globalEditNewSketchDimension");
+    edit_new_sketch_dimension_->setChecked(
+        settings_.edit_new_sketch_dimension);
+    edit_new_sketch_dimension_->setToolTip(tr(
+        "Po umístění nové řídicí kóty otevře její hodnotu pro okamžité zadání."));
+    form->addRow(edit_new_sketch_dimension_);
 
     auto* naming_page = new QWidget(sections_);
     auto* naming_layout = new QVBoxLayout(naming_page);
@@ -441,6 +450,8 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 bool GlobalSettingsDialog::submit() {
     settings_.document_naming = {names_uppercase_->isChecked(), names_diacritics_->isChecked(), names_spaces_->isChecked()};
     settings_.stacked_tolerances = tolerance_layout_->currentData().toBool();
+    settings_.edit_new_sketch_dimension =
+        edit_new_sketch_dimension_->isChecked();
     settings_.vladimir = vladimir_->isChecked();
     settings_.browser.home=browser_home_->text().trimmed();
     if(!settings_.browser.home.isEmpty()&&!browser::allowed_url(QUrl(settings_.browser.home))){

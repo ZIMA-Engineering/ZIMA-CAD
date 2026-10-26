@@ -5636,7 +5636,20 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        check(app::ApplicationSettings{}.edit_new_sketch_dimension,
+            "Automatic dimension value entry is not enabled by default");
         for(const bool reverse:{false,true})for(const bool finish:{false,true}) {
+            const bool automatic_value_entry=!(reverse&&finish);
+            const auto settings_path=directory/(std::string("dimension-entry-settings-")+
+                std::to_string(reverse)+std::to_string(finish));
+            check(QDir().mkpath(QString::fromStdString(settings_path.string())),
+                "Cannot create dimension-entry settings directory");
+            QSettings settings(QString::fromStdString((settings_path/"config.ini").string()),QSettings::IniFormat);
+            settings.setValue("Sketcher/EditNewDimension",automatic_value_entry);settings.sync();
+            check(settings.status()==QSettings::NoError,
+                "Cannot write automatic dimension-entry test setting");
+            check(app::ApplicationSettings::load(QString::fromStdString(settings_path.string())).edit_new_sketch_dimension==automatic_value_entry,
+                "Automatic dimension-entry setting did not load from its configuration layer");
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             static_cast<void>(sketch.add_segment(12,8,32,15));
@@ -5646,7 +5659,7 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Dimension test");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             const auto path=directory/(std::string("dimension-entry-")+std::to_string(reverse)+std::to_string(finish)+".prtz");part.save(path);
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()),QString::fromStdString(settings_path.string()));window.resize(1200,900);window.show();
             check(window.open_document_path(QString::fromStdString(path.string())),"Dimension fixture failed to open");flush();
             check(activate_test_body(application,window,body),"Cannot activate dimension fixture Body");flush();
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
@@ -5703,6 +5716,16 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             mouse(*placement,QEvent::MouseButtonPress,Qt::RightButton);mouse(*placement,QEvent::MouseButtonRelease,Qt::RightButton);
             click(*placement);
             check(view->mesh().dimensions.size()==1&&std::abs(view->mesh().dimensions.front().value-20)<1e-7,"Created point distance has wrong magnitude");
+            QEventLoop automatic_editor_wait;QTimer::singleShot(35,&automatic_editor_wait,&QEventLoop::quit);automatic_editor_wait.exec();flush();
+            auto* automatic_editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            if(automatic_value_entry) {
+                check(automatic_editor&&automatic_editor->isVisible()&&automatic_editor->hasFocus()&&
+                    !automatic_editor->selectedText().isEmpty(),
+                    "New driving dimension did not open a focused selected value editor");
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+                QApplication::sendEvent(automatic_editor,&escape);flush();
+            } else check(!automatic_editor||!automatic_editor->isVisible(),
+                "Disabled automatic dimension value entry still opened an editor");
             const auto key=view->mesh().dimensions.front().reference.semantic_key;
             if(finish) {
                 mouse(QPointF(40,40),QEvent::MouseButtonPress,Qt::MiddleButton);mouse(QPointF(40,40),QEvent::MouseButtonRelease,Qt::MiddleButton);
@@ -5848,7 +5871,7 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             check(sketch.dimensions.front().solution_side==side,"Unchanged zero coordinate Properties reversed its contact side");
         }
-        std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
+        std::cout<<"Sketch dimension creation/editing, default/disabled automatic value entry, MMB finish, signed direction and arithmetic input passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
@@ -6095,7 +6118,128 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
             }
             check(std::ranges::any_of(result.constraints,[&](const auto& value){return value.first_point_id==binding->first_point_id && value.kind==(midpoint?sketcher::ConstraintKind::Midpoint:sketcher::ConstraintKind::PointOnLine);}),"Offered rectangle C/M was not committed");
         }
-        std::cout<<"Twelve rectangle external corner C, edge C/M and axis S variants passed through preview, mouse confirmation, dragging and save/reopen\n";return 0;
+        {
+            // The first and opposite corners lie on two parallel read-only
+            // references.  Near the perpendicular Origin axis, the rectangle
+            // sides (not the references) acquire S about that axis.
+            auto part=document::PartDocument::create_default();
+            auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            auto lower=document::PartDocument::create_construction(document::ConstructionKind::Axis);
+            auto upper=document::PartDocument::create_construction(document::ConstructionKind::Axis);
+            lower.origin={0,-12,0};lower.direction={1,0,0};lower.name="Lower reference";
+            upper.origin={0,12,0};upper.direction={1,0,0};upper.name="Upper reference";
+            part.constructions={lower,upper};part.history={feature};part.sketches={sketch};
+            document::BodyHistoryGraph graph;const auto body=graph.create_body("Parallel reference rectangle");
+            graph.insert({document::PartHistoryKind::Construction,lower.id});
+            graph.insert({document::PartHistoryKind::Construction,upper.id});
+            graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            auto& owned=part.sketches.front();const auto source_geometry=part.construction_viewer_mesh().original_references;
+            std::array<std::string,2> reference_ids;
+            for(std::size_t i=0;i<2;++i) {
+                const auto& axis=part.constructions[i];
+                auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Axis);
+                reference.source_document_id=part.document_id;reference.source_owner_id=axis.entity_id;reference.source_semantic_key="axis";
+                workspace::populate_external_reference_cache(owned,reference,source_geometry);
+                check(sketcher::external_reference_line(reference).has_value(),"Parallel rectangle fixture did not resolve its straight reference");
+                reference_ids[i]=reference.id;owned.add_external_reference(std::move(reference));
+            }
+            const auto immutable_references=owned.external_references;
+            const auto path=directory/"rectangle-parallel-reference-symmetry.prtz";part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open parallel-reference rectangle fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate parallel-reference rectangle Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)
+                if((*i)->data(0,Qt::UserRole).toString().toStdString()==owned.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Cannot locate parallel-reference rectangle Sketch");window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Parallel-reference rectangle View missing");
+            auto camera=view->camera_state();camera[4]=40;camera[5]=camera[6]=0;camera[7]=40;view->set_camera_state(camera);flush();
+            const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"Parallel rectangle camera ray missing");const auto q=owned.intersect_ray(ray->first,ray->second);check(q.has_value(),"Parallel rectangle camera not facing Sketch");return *q;};
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](std::array<double,2> p){return QPointF(((p[0]-a[0])*vy-(p[1]-a[1])*vx)/det,(ux*(p[1]-a[1])-uy*(p[0]-a[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto click=[&](std::array<double,2> p){const auto at=screen(p);mouse(at,QEvent::MouseMove,Qt::NoButton);mouse(at,QEvent::MouseButtonPress,Qt::LeftButton);mouse(at,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            auto* rectangle=window.findChild<QAction*>("sketchRectangleAction");check(rectangle&&rectangle->isEnabled(),"Parallel-reference Rectangle unavailable");rectangle->trigger();flush();
+            click({-16,-12});
+            const std::array raw_opposite{15.65,12.};mouse(screen(raw_opposite),QEvent::MouseMove,Qt::NoButton);
+            check(std::ranges::any_of(view->transient_labels(),[](const auto& label){return label.second=="S";}),
+                "Parallel-reference rectangle did not offer perpendicular-axis symmetry");
+            click(raw_opposite);
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            app::SketchPropertiesDialog* properties{};
+            for(auto* d:window.findChildren<QDialog*>())if(auto* candidate=dynamic_cast<app::SketchPropertiesDialog*>(d);candidate&&candidate->isVisible())properties=candidate;
+            check(properties,"Parallel-reference rectangle did not return to Sketch Properties");
+            const auto result=properties->pending_value().first;
+            check(result.external_references==immutable_references,"Rectangle symmetry modified a read-only reference");
+            for(const auto& id:reference_ids)check(std::ranges::any_of(result.constraints,[&](const auto& constraint) {
+                return constraint.kind==sketcher::ConstraintKind::PointOnLine&&constraint.geometry_id==id;
+            }),"Parallel-reference rectangle lost a corner contact");
+            check(std::ranges::any_of(result.constraints,[](const auto& constraint) {
+                return constraint.kind==sketcher::ConstraintKind::Symmetric&&constraint.geometry_id=="sketch_axis:y";
+            }),"Parallel-reference rectangle did not commit symmetry to the perpendicular axis");
+            const auto equations=[&](const auto& candidate) {
+                check(candidate.external_references==immutable_references,"Rectangle edit modified its reference definitions");
+                for(const auto& constraint:candidate.constraints) {
+                    if(constraint.kind==sketcher::ConstraintKind::PointOnLine&&
+                       std::ranges::find(reference_ids,constraint.geometry_id)!=reference_ids.end()) {
+                        const auto* point=candidate.find_point(constraint.first_point_id);
+                        const auto reference=std::ranges::find(candidate.external_references,constraint.geometry_id,&sketcher::SketchExternalReference::id);
+                        const auto line=sketcher::external_reference_line(*reference);
+                        check(point&&line&&std::abs((point->x-line->first[0])*line->second[1]-(point->y-line->first[1])*line->second[0])<1e-7,
+                            "Rectangle corner escaped its parallel reference");
+                    }
+                    if(constraint.kind==sketcher::ConstraintKind::Symmetric&&constraint.geometry_id=="sketch_axis:y") {
+                        const auto* first=candidate.find_point(constraint.first_point_id);const auto* second=candidate.find_point(constraint.second_point_id);
+                        check(first&&second&&std::abs(first->x+second->x)<1e-7&&std::abs(first->y-second->y)<1e-7,
+                            "Rectangle side pair is not symmetric about the perpendicular axis");
+                    }
+                }
+            };
+            equations(result);
+            const auto horizontal=std::ranges::find_if(result.segments,[&](const auto& segment) {
+                const auto* first=result.find_point(segment.first_point_id);const auto* second=result.find_point(segment.second_point_id);
+                return first&&second&&std::abs(first->y-second->y)<1e-7;
+            });
+            check(horizontal!=result.segments.end(),"Parallel-reference rectangle has no width side");
+            for(bool pair:{false,true})for(bool reverse:{false,true})
+            for(auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::DistanceX})
+            for(bool driving:{false,true})for(bool locked:{false,true}) {
+                auto candidate=result;
+                auto dimension=pair?candidate.create_point_dimension(reverse?horizontal->second_point_id:horizontal->first_point_id,
+                    reverse?horizontal->first_point_id:horizontal->second_point_id,kind):candidate.create_segment_dimension(horizontal->id,kind);
+                dimension.driving=driving;dimension.locked=locked;
+                if(!driving&&locked) {
+                    const auto before=candidate.serialized();bool rejected=false;
+                    try{candidate.apply_dimension(dimension);}catch(const std::runtime_error&){rejected=true;}
+                    check(rejected&&candidate.serialized()==before,"Locked reference width changed the parallel-reference rectangle");continue;
+                }
+                candidate.apply_dimension(dimension);equations(candidate);
+                if(driving)for(const double width:{36.,28.,34.}) {
+                    check(candidate.set_dimension_value(dimension.id,width),"Parallel-reference rectangle width edit failed");equations(candidate);
+                }
+                const auto positive=std::ranges::find_if(candidate.points,[](const auto& point){return point.x>1;});
+                check(positive!=candidate.points.end(),"Parallel-reference rectangle has no movable width point");
+                const auto before=candidate.serialized();const auto positive_id=positive->id;
+                const auto original_x=positive->x,original_y=positive->y;
+                const bool moved=candidate.move_point(positive_id,original_x+3,original_y);
+                if(driving&&locked)check(!moved&&candidate.serialized()==before,"Locked symmetric rectangle escaped during dragging");
+                else check(moved&&std::abs(candidate.find_point(positive_id)->x-original_x)>1e-4,"Editable symmetric rectangle did not move");
+                equations(candidate);
+                equations(sketcher::Sketch::from_serialized(candidate.serialized()));
+            }
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            check(document::PartDocument::load(path).sketches.front().serialized()==result.serialized(),"Parallel-reference rectangle changed during save/reopen");
+            check(window.execute_console_command("undo").ok&&window.execute_console_command("save").ok,"Parallel-reference rectangle Undo failed");
+            check(document::PartDocument::load(path).sketches.front().segments.empty(),"Parallel-reference rectangle Undo retained geometry");
+            check(window.execute_console_command("redo").ok&&window.execute_console_command("save").ok,"Parallel-reference rectangle Redo failed");
+            check(document::PartDocument::load(path).sketches.front().serialized()==result.serialized(),"Parallel-reference rectangle Redo changed geometry");
+        }
+        std::cout<<"Rectangle external corner C, edge C/M, axis S and parallel-reference perpendicular-axis S variants passed through preview, mouse confirmation, dimensions, dragging, Undo/Redo and save/reopen\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 

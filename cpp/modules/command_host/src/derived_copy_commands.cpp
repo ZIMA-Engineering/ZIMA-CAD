@@ -127,7 +127,8 @@ void Host::register_derived_copy_commands() {
                 const auto edit=workspace::prepare_derived_copy_edit(workspace_,id,create?std::string{}:args.at("object").get<std::string>(),pattern);
                 if(edit.initial.parameters.pattern.has_value()!=pattern)throw Error("wrong_feature","The requested copy type does not match this object.");
                 auto value=edit.initial;
-                if(create)value.name=pattern?workspace::next_derived_copy_name(workspace_,id,tr("Pole")):tr("Zrcadlo");
+                if(create)value.name=workspace::next_derived_copy_name(
+                    workspace_,id,tr(pattern?"Pole":"Zrcadlo"));
                 parameters(value,edit,args,pattern);
                 const bool changed=workspace::commit_derived_copy(workspace_,kernel_,edit,std::move(value));
                 auto data=derived_copy_details(workspace_,id,edit.initial.id,pattern);data["changed"]=changed;

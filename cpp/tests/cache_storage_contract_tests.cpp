@@ -95,7 +95,7 @@ int main() {
         if(body.kernel_shape.get().back()!='B'||different.kernel_shape.shares_with(body.kernel_shape))
             throw std::runtime_error("Replacing an opaque archive changed its original snapshot");
         auto aggregate=body;
-        aggregate.body_boundaries["body"]={body,different};
+        aggregate.body_boundaries["body"]={body,different,body,different,body,different,body,different};
         aggregate.body_inputs["body"]=body;
         aggregate.body_outputs["body"]=different;
         const auto packet=zima::document::serialize_body_result(aggregate);
@@ -114,7 +114,7 @@ int main() {
         require(restored==original,"Shared cache changed geometry, history or occurrence identity");
         require(packed.dump().size()<original.dump().size()/4,"Identical cache blocks were not shared");
         const auto loaded=zima::document::load_body_result(restored["components"][0]["calculated_source"]);
-        require(loaded.body_boundaries.at("body").size()==2 &&
+        require(loaded.body_boundaries.at("body").size()==8 &&
             loaded.body_inputs.at("body")->kernel_shape==body.kernel_shape &&
             loaded.body_outputs.at("body")->kernel_shape==different.kernel_shape,
             "Distinct history states were merged or lost");

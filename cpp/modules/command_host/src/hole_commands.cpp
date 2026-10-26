@@ -134,7 +134,8 @@ void Host::register_hole_commands() {
                 if(!state||interaction().template_document)throw Error("unsupported_document","Hole operations require an open Part.");
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one Hole parameter.");
                 auto feature=create?document::PartDocument::create_hole_container():hole(state,args.at("container"));
-                if(create)feature.name=tr("Otvor");
+                if(create)feature.name=state->session.document().next_numbered_name(
+                    tr("Otvor"),feature.id);
                 properties(feature,args,workspace_,id,create);const auto container=feature.id;
                 const bool changed=workspace::commit_hole(workspace_,kernel_,id,std::move(feature),create?workspace::HoleEditMode::Create:workspace::HoleEditMode::Replace);
                 if(changed)change_=Change{ChangeKind::Model,id};

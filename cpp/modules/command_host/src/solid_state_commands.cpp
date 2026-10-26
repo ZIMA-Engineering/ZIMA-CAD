@@ -35,7 +35,9 @@ void Host::register_solid_state_commands() {
                     if(!create&&(!stored||stored->feature_kind!=kind))
                         throw std::invalid_argument("Solid state container does not exist.");
                     auto feature=stored?*stored:document::PartDocument::create_solid_state_container(restore);
-                    feature.name=args.value("name",stored?stored->name:tr(restore?"Restore shape":"Straighten"));
+                    const auto automatic=create?part->session.document().next_numbered_name(
+                        tr(restore?"Restore shape":"Straighten"),feature.id):stored->name;
+                    feature.name=args.value("name",automatic);
                     if(args.contains("owners"))feature.solid_state.owners=args.at("owners").get<std::vector<std::string>>();
                     feature.solid_state.all=args.value("all",args.contains("owners")?false:feature.solid_state.all);
                     if(!restore)feature.solid_state.coefficient=args.value("coefficient",feature.solid_state.coefficient);

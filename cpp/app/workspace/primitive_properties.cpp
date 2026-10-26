@@ -350,6 +350,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         initial.twisted_sheet.thickness=
             zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
     }
+    if(!edit_mode&&!resuming_profile&&!pending_profile_edit&&
+       feature_kind!=zima::document::FeatureKind::Feature) {
+        const auto automatic_prefix=initial.name;
+        initial.name=part
+            ? part->session.document().next_numbered_name(automatic_prefix,initial.id)
+            : assembly->session.document().feature_document().next_numbered_name(
+                automatic_prefix,initial.id);
+        if(property_owned_sketch_draft_&&
+           property_owned_sketch_draft_->name==automatic_prefix)
+            property_owned_sketch_draft_->name=initial.name;
+    }
     if(initial.revolution.sheet_metal&&!initial.revolution.sheet_attachment&&!initial.revolution.thickness_override)
         initial.revolution.thin_thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
     if (!edit_mode && ((feature_kind == zima::document::FeatureKind::Extrusion ||
@@ -594,10 +605,26 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     primitive_parameter_owner_id_ = initial.id;
     profile_phase("dialog setup");
-    // Extrusion/Revolution OK always means validate + calculate. Their owned
-    // Sketch is stored separately from the parameter object, so numeric
-    // equality cannot prove that the operation is a no-op.
-    dialog->set_commit_required(pending_profile_edit || profile_feature);
+    // An ordinary unchanged Properties OK is a true no-op.  An owned profile
+    // is stored separately from its container, however, so returning from the
+    // embedded Sketcher may leave unchanged numeric fields with a pending
+    // Sketch edit.  Compare that draft with the live definition instead of
+    // forcing every Extrusion/Revolution OK through OCCT.
+    bool pending_profile_definition = pending_profile_edit;
+    if (edit_mode && profile_feature) {
+        pending_profile_definition = initial != *edited;
+        if (!pending_profile_definition && property_owned_sketch_draft_) {
+            const auto& sketches = assembly_cut
+                ? assembly->session.document().sketches
+                : part->session.document().sketches;
+            const auto saved = std::ranges::find(sketches,
+                property_owned_sketch_draft_->id,
+                &zima::sketcher::Sketch::id);
+            pending_profile_definition = saved == sketches.end() ||
+                saved->serialized() != property_owned_sketch_draft_->serialized();
+        }
+    }
+    dialog->set_commit_required(pending_profile_definition);
     std::function<zima::document::HistoryContainer(
         const zima::document::HistoryContainer&)> placement_preview;
     const auto prepare_owned_profile_preview = [this](

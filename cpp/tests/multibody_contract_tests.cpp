@@ -537,6 +537,22 @@ int main() {
         std::filesystem::remove(part_path);
         require(loaded.body_history.serialized() == session.document().body_history.serialized(),
             "Part file did not persist body histories and active body");
+        require(loaded_boundaries.size()==session.calculated_boundaries().size(),
+            "Compact native Body cache changed the history boundary count");
+        for(std::size_t boundary_index=0;boundary_index<loaded_boundaries.size();++boundary_index) {
+            const auto restored_packet=document::serialize_body_result(loaded_boundaries[boundary_index]);
+            const auto original_packet=document::serialize_body_result(session.calculated_boundaries()[boundary_index]);
+            if(restored_packet!=original_packet) {
+                std::cerr<<"Compact cache mismatch at boundary "<<boundary_index<<":\n";
+                for(const auto& [key,value]:original_packet.items()) {
+                    const auto found=restored_packet.find(key);
+                    if(found==restored_packet.end()||*found!=value)
+                        std::cerr<<"  "<<key<<" original_bytes="<<value.dump().size()
+                            <<" restored_bytes="<<(found==restored_packet.end()?0:found->dump().size())<<'\n';
+                }
+                require(false,"Compact native Body cache changed a calculated history boundary");
+            }
+        }
         document::DocumentSession loaded_session(loaded, loaded_boundaries);
         volume(*loaded_session.rollback_boundary(added.id)->input_body, 1000);
         auto unrelated_invalid = loaded;
@@ -562,6 +578,12 @@ int main() {
         std::vector<kernel::BodyResult> suppressed_loaded;
         static_cast<void>(document::PartDocument::load(part_path, &suppressed_loaded));
         std::filesystem::remove(part_path);
+        require(suppressed_loaded.size()==suppressed_result.size(),
+            "Compact native Body cache changed the suppressed history boundary count");
+        for(std::size_t boundary_index=0;boundary_index<suppressed_loaded.size();++boundary_index)
+            require(document::serialize_body_result(suppressed_loaded[boundary_index])==
+                document::serialize_body_result(suppressed_result[boundary_index]),
+                "Compact native Body cache changed a suppressed history boundary");
         require(suppressed_loaded.back().body_boundaries.size() == 2,
             "Suppressed final feature discarded document body snapshots during persistence");
         volume(suppressed_loaded.back(), 2000);
@@ -576,6 +598,12 @@ int main() {
         std::vector<kernel::BodyResult> boolean_loaded;
         auto loaded_boolean_part = document::PartDocument::load(part_path, &boolean_loaded);
         std::filesystem::remove(part_path);
+        require(boolean_loaded.size()==boolean_result.size(),
+            "Compact native Body cache changed the Boolean history boundary count");
+        for(std::size_t boundary_index=0;boundary_index<boolean_loaded.size();++boundary_index)
+            require(document::serialize_body_result(boolean_loaded[boundary_index])==
+                document::serialize_body_result(boolean_result[boundary_index]),
+                "Compact native Body cache changed a Boolean history boundary");
         volume(boolean_loaded.back(), 500);
         require(loaded_boolean_part.body_history.find_boolean(boolean_id)->target_id == first_body,
             "Part roundtrip lost the explicit Boolean target");
