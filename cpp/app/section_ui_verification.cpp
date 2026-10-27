@@ -105,7 +105,10 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
                 const QPointF start=middle+QPointF(100*((tx-c[0])*e-(ty-c[1])*b)/det,100*((ty-c[1])*a-(tx-c[0])*d)/det),end=start+QPointF(30,0);
                 check(std::ranges::any_of(view->selection_candidates_at(start),[&](const auto& candidate){return candidate.semantic_key==endpoint->first;}),"Drag endpoint is not offered by the common picker");
                 const auto mouse=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
-                mouse(QEvent::MouseMove,start,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
+                mouse(QEvent::MouseMove,start,Qt::NoButton,Qt::NoButton);mouse(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,end,Qt::NoButton,Qt::LeftButton);
+                check(view->property("paintedTransientSketchEdgeCount").toULongLong()>=1,
+                    "Section sketch geometry disappeared during point drag");
+                mouse(QEvent::MouseButtonRelease,end,Qt::LeftButton,Qt::NoButton);
                 check(positions()!=before,"Dragging a point in Section sketch did not change its draft");undo->trigger();flush();check(positions()==before,"Point drag Undo escaped the Section draft");
             }
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog()->isVisible()&&dialog()->values().sketch.segments.size()==(bent?2:1),"Finishing Section sketch lost the line");

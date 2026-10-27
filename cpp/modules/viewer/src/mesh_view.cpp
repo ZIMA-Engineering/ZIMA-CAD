@@ -4621,9 +4621,14 @@ if (impl_->show_origins) {
         std::any_of(impl_->mesh.axes.begin(),impl_->mesh.axes.end(),[&](const auto& axis){
             return impl_->constraint_reference_edges.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path});
         });
-    const bool sketch_geometry_visible = std::any_of(
-        impl_->mesh.edges.begin(), impl_->mesh.edges.end(),[&](const auto& edge){
-            return is_sketch_wire_edge(edge)&&impl_->sketch_wire_visible(edge);});
+    const auto has_visible_sketch_wire = [&](const auto& edges) {
+        return std::any_of(edges.begin(), edges.end(), [&](const auto& edge) {
+            return is_sketch_wire_edge(edge) && impl_->sketch_wire_visible(edge);
+        });
+    };
+    const bool sketch_geometry_visible =
+        has_visible_sketch_wire(impl_->mesh.edges) ||
+        has_visible_sketch_wire(impl_->transient_context_mesh.edges);
     const bool curve3d_geometry_visible = std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
         [](const auto& edge) {
@@ -5103,11 +5108,14 @@ if (impl_->show_origins) {
                              center + QPointF(4.0, -4.0));
         }
         if (sketch_geometry_visible) {
+            qulonglong painted_transient_sketch_edges{};
             // All references first; native construction/profile strokes retain
             // their existing relative order above read-only reference strokes.
             for (const bool reference_pass : {true, false})
             for (const bool construction_pass : {false, true})
-            for (const auto& edge : impl_->mesh.edges) {
+            for (const auto* sketch_edges : {&impl_->mesh.edges,
+                                             &impl_->transient_context_mesh.edges})
+            for (const auto& edge : *sketch_edges) {
                 if (!is_sketch_wire_edge(edge)) continue;
                 if (edge.construction != construction_pass) continue;
                 if(!impl_->sketch_wire_visible(edge))continue;
@@ -5119,6 +5127,8 @@ if (impl_->show_origins) {
                 const bool external_face = edge.reference.semantic_key.starts_with(
                     "external_face:");
                 if ((external || external_face) != reference_pass) continue;
+                if (sketch_edges == &impl_->transient_context_mesh.edges)
+                    ++painted_transient_sketch_edges;
                 const bool ordinary_sketch_highlight=ordinary_preview_candidate&&!external&&!external_face&&
                     candidate_recolors_wire_edge(*ordinary_preview_candidate,edge);
                 const QColor text_color = edge.reference.semantic_key.ends_with(":red") ? QColor(255,0,0)
@@ -5208,6 +5218,13 @@ if (impl_->show_origins) {
                     painter.drawPath(path);
                 }
             }
+            if (property("paintedTransientSketchEdgeCount").toULongLong() !=
+                painted_transient_sketch_edges)
+                setProperty("paintedTransientSketchEdgeCount",
+                    painted_transient_sketch_edges);
+        } else {
+            if (property("paintedTransientSketchEdgeCount").toULongLong() != 0)
+                setProperty("paintedTransientSketchEdgeCount", qulonglong{});
         }
         if (curve3d_geometry_visible || axes_visible) {
             // 3D Curves share Sketch's screen-space stroke contract. Their

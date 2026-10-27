@@ -530,7 +530,10 @@ points and related constraints.
 
 Point/dimension dragging operates on a transient document copy. Preview shows
 only the active Sketch and the same passive model context as ordinary Sketcher;
-other Part Sketches must not temporarily appear while the button is held.
+other Part Sketches must not temporarily appear while the button is held. The
+lightweight drag overlay retains the complete active Sketch wire, construction
+geometry, points and dimensions throughout the gesture; releasing the button
+must not be the first moment at which its geometry becomes visible again.
 
 Point dragging respects geometric meaning. Circle/arc centers translate the
 curve without changing radius. An arc endpoint is a radial handle: distance

@@ -77,7 +77,10 @@ int verify_sketch_rectangle_drag_ui(QApplication& application,const std::filesys
                 const auto to=from+delta;
                 const auto candidates=view->selection_candidates_at(from);check(!candidates.empty()&&candidates.front().owner_id==sketch_id&&candidates.front().semantic_key=="point:"+vertex.id,"Common picker did not offer the exact rectangle point");
                 mouse(from,QEvent::MouseMove,Qt::NoButton);mouse(from,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
-                mouse(to,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);mouse(to,QEvent::MouseButtonRelease,Qt::LeftButton);
+                mouse(to,QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+                check(view->property("paintedTransientSketchEdgeCount").toULongLong()>=4,
+                    "Rectangle geometry disappeared while its point was being dragged");
+                mouse(to,QEvent::MouseButtonRelease,Qt::LeftButton);
                 const auto after=snapshot();verify(after);const auto& after_sketch=*std::ranges::find(after.sketches,sketch_id,&sketcher::Sketch::id);const auto* moved=after_sketch.find_point(vertex.id);
                 if(std::hypot(moved->x-point.x,moved->y-point.y)<=.1) {
                     std::cerr<<"Unmoved rectangle vertex "<<vertex.id<<" from "<<point.x<<','<<point.y
