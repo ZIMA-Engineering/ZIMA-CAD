@@ -338,6 +338,7 @@ struct MeshView::Impl {
     bool middle_double_clicked{};
     QPoint middle_press_position;
     std::vector<zima::kernel::ViewerEdge> transient_edges;
+    zima::kernel::ViewerMesh transient_context_mesh;
     std::vector<zima::kernel::ViewerDimension> transient_dimensions;
     std::vector<zima::kernel::ViewerPoint> command_snap_points;
     std::function<std::vector<kernel::ViewerPoint>(const kernel::Vec3&,const kernel::Vec3&)> command_snap_point_provider;
@@ -473,7 +474,10 @@ struct MeshView::Impl {
     bool show_origins{true};
     bool show_points{true};
     bool show_axes{true};
-    bool show_axis_points{true};
+    // Axis endpoints are command helpers, not permanent model markers.  They
+    // remain available through the exact persisted references when a command
+    // explicitly requests vertices/axes, but ordinary View never shows them.
+    bool show_axis_points{false};
     bool show_planes{true};
     bool show_sketches{true};
     bool show_dimensions{true};
@@ -2384,6 +2388,45 @@ const std::vector<zima::kernel::ViewerEdge>& MeshView::transient_edges() const {
     return impl_->transient_edges;
 }
 
+void MeshView::set_transient_context_mesh(zima::kernel::ViewerMesh mesh) {
+    // Dimensions have their own editable transient channel. Keeping them out
+    // of this visual-only carrier preserves the existing candidate indices.
+    mesh.dimensions.clear();
+    if (impl_->transient_point_transform) {
+        const auto transform=impl_->transient_point_transform;
+        for(auto& point:mesh.vertices)point=transform(point);
+        for(auto& edge:mesh.edges) {
+            if(edge.annotation)kernel::transform_annotation(*edge.annotation,transform);
+            for(auto& point:edge.points)point=transform(point);
+        }
+        for(auto& point:mesh.points)point.position=transform(point.position);
+        for(auto& axis:mesh.axes) {
+            const auto origin=transform(axis.point);
+            const auto endpoint=transform({
+                axis.point.x+axis.direction.x,
+                axis.point.y+axis.direction.y,
+                axis.point.z+axis.direction.z});
+            axis.point=origin;
+            axis.direction={endpoint.x-origin.x,endpoint.y-origin.y,
+                endpoint.z-origin.z};
+        }
+        for(auto& marker:mesh.constraint_markers)
+            marker.position=transform(marker.position);
+    }
+    impl_->transient_context_mesh=std::move(mesh);
+    setProperty("transientContextEdgeCount",
+        static_cast<qulonglong>(impl_->transient_context_mesh.edges.size()));
+    setProperty("transientContextPointCount",
+        static_cast<qulonglong>(impl_->transient_context_mesh.points.size()));
+    setProperty("transientContextAxisCount",
+        static_cast<qulonglong>(impl_->transient_context_mesh.axes.size()));
+    update();
+}
+
+const zima::kernel::ViewerMesh& MeshView::transient_context_mesh() const {
+    return impl_->transient_context_mesh;
+}
+
 const std::vector<zima::kernel::Vec3>& MeshView::transient_points() const {
     return impl_->transient_points;
 }
@@ -3700,6 +3743,11 @@ void MeshView::paintGL() {
             edge.reference.semantic_key.starts_with("origin:plane:"))
             plane_edges.push_back(&edge);
     }
+    for(const auto& edge:impl_->transient_context_mesh.edges)
+        if(edge.reference.semantic_key=="border" ||
+           edge.reference.semantic_key=="plane:end" ||
+           edge.reference.semantic_key.starts_with("origin:plane:"))
+            plane_edges.push_back(&edge);
     auto highlighted_plane = impl_->confirmed_candidate;
     if (!highlighted_plane && !impl_->candidates.empty() &&
         impl_->active_candidate < impl_->candidates.size())
@@ -4562,7 +4610,8 @@ if (impl_->show_origins) {
             CandidateKind::Axis) != impl_->allowed_kinds.end() ||
         std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
             CandidateKind::SketchAxis) != impl_->allowed_kinds.end();
-    const bool axes_visible = impl_->show_axes || impl_->show_origins ||
+    const bool axes_visible = !impl_->transient_context_mesh.axes.empty() ||
+        impl_->show_axes || impl_->show_origins ||
         impl_->editing_origin_visible || axes_selectable ||
         std::any_of(impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [&](const auto& edge) {
             std::string source_key;
@@ -4606,7 +4655,7 @@ if (impl_->show_origins) {
         impl_->mesh.points.begin(), impl_->mesh.points.end(),
         [](const auto& point) { return point.always_visible ||
             (!point.label.empty() && point.display_owner_id==point.reference.owner_id); });
-    const bool points_visible =
+    const bool points_visible = !impl_->transient_context_mesh.points.empty() ||
         ((impl_->show_points || points_selectable || point_containers_selectable ||
           always_visible_point_present) &&
          !impl_->mesh.points.empty()) ||
@@ -4615,11 +4664,12 @@ if (impl_->show_origins) {
     const bool planes_selectable = std::find(
         impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
         CandidateKind::Plane) != impl_->allowed_kinds.end();
-    const bool planes_visible = (impl_->show_planes || impl_->show_origins ||
+    const bool planes_visible = (!impl_->transient_context_mesh.edges.empty() ||
+        impl_->show_planes || impl_->show_origins ||
         planes_selectable || impl_->editing_origin_visible) && std::any_of(
-        impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
-            return edge.reference.semantic_key == "border" || edge.reference.semantic_key == "plane:end" ||
-                edge.reference.semantic_key.starts_with("origin:plane:");
+        plane_edges.begin(),plane_edges.end(), [](const auto* edge) {
+            return edge->reference.semantic_key == "border" || edge->reference.semantic_key == "plane:end" ||
+                edge->reference.semantic_key.starts_with("origin:plane:");
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
@@ -4826,20 +4876,27 @@ if (impl_->show_origins) {
             if (!impl_->active_sketch_owner_id.empty()) painter.save();
             // Coincident document and Body axes must not cover the offered axis.
             for (const bool highlight_pass : {false, true}) {
-                for (const auto& axis : impl_->mesh.axes) {
-                if (!impl_->origin_visible({axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) continue;
+                for(const auto* axes:{&impl_->mesh.axes,
+                                      &impl_->transient_context_mesh.axes})
+                for (const auto& axis : *axes) {
+                const bool transient_context=axes==&impl_->transient_context_mesh.axes;
+                if (!transient_context&&!impl_->origin_visible({axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) continue;
                     const bool origin = axis.reference.semantic_key.starts_with(
                         "origin:axis:");
                     const bool inspected = impl_->constraint_reference_edges.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path});
-                    if (!inspected && ((origin && !impl_->show_origins && !axes_selectable &&
+                    if (!transient_context&&!inspected && ((origin && !impl_->show_origins && !axes_selectable &&
                             !impl_->editing_origin_visible) ||
                         (!origin && !impl_->show_axes && !axes_selectable))) continue;
                     const bool feature_axis = axis.reference.semantic_key == "axis" &&
-                        std::ranges::any_of(impl_->mesh.points,[&](const auto& point) {
+                        (std::ranges::any_of(impl_->mesh.points,[&](const auto& point) {
                             return point.display_owner_id == axis.reference.owner_id &&
                                 point.reference.owner_id == axis.reference.owner_id &&
                                 point.reference.semantic_key == "point";
-                        });
+                        }) || std::ranges::any_of(impl_->transient_context_mesh.points,[&](const auto& point) {
+                            return point.display_owner_id == axis.reference.owner_id &&
+                                point.reference.owner_id == axis.reference.owner_id &&
+                                point.reference.semantic_key == "point";
+                        }));
                     const bool whole_feature_axis = highlighted && !origin &&
                         highlighted->kind == CandidateKind::Container &&
                         highlighted->semantic_key.empty() &&
@@ -5240,16 +5297,19 @@ if (impl_->show_origins) {
             painter.setPen(QPen(interaction::axis, 1.5));
             for (const auto* plane_edge : plane_edges) {
                 const auto& edge = *plane_edge;
+                const bool transient_context=std::ranges::any_of(
+                    impl_->transient_context_mesh.edges,
+                    [&](const auto& candidate){return &candidate==plane_edge;});
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
                 if (edge.reference.semantic_key != "border" && edge.reference.semantic_key != "plane:end" && !origin) continue;
                 const bool creation_preview = !origin &&
                     impl_->feature_preview_owner_ids.contains(
                         edge.reference.owner_id);
-                if ((origin && !impl_->show_origins && !planes_selectable &&
+                if (!transient_context&&((origin && !impl_->show_origins && !planes_selectable &&
                         !impl_->editing_origin_visible) ||
                     (!origin && !impl_->show_planes && !planes_selectable &&
-                        !creation_preview)) continue;
+                        !creation_preview))) continue;
                 const bool exact_highlight = highlighted &&
                     ((highlighted->kind == CandidateKind::Container &&
                       !edge.display_owner_id.empty() &&
@@ -5467,9 +5527,12 @@ if (impl_->show_origins) {
         // even later, right below) is never hidden either.
         std::vector<QPointF> ordinary_sketch_markers;
         if (points_visible) {
-            for (const auto& point : impl_->mesh.points) {
-                if(!impl_->helper_point_visible(point))continue;
-                if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
+            for(const auto* points:{&impl_->mesh.points,
+                                    &impl_->transient_context_mesh.points})
+            for (const auto& point : *points) {
+                const bool transient_context=points==&impl_->transient_context_mesh.points;
+                if(!transient_context&&!impl_->helper_point_visible(point))continue;
+                if (!transient_context&&!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 // In an inactive Sketch this point is deliberately visible
                 // only together with the whole-container hover/selection
                 // overlay below.  Construction/profile points retain their
@@ -5506,7 +5569,7 @@ if (impl_->show_origins) {
                     const bool plane_offset_preview =
                         point.reference.semantic_key ==
                             "preview:plane-offset-point";
-                    const bool creation_preview =
+                    const bool creation_preview = transient_context ||
                         impl_->feature_preview_owner_ids.contains(
                             point.reference.owner_id);
                     const auto parent_axis=kernel::axis_endpoint_parent_key(point.reference.semantic_key);

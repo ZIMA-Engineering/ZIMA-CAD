@@ -376,11 +376,13 @@ double-click to edit its value; dimension presentation has its own context actio
 During an active selection command, its filter and RMB cycling remain in force
 until the command finishes or is canceled.
 
-The View's **Points** switch hides auxiliary axis endpoint markers only. Faces,
-features and cylindrical cuts remain hoverable and selectable even when they
-overlap one of those markers. On sheet models, the selectable face is limited to
-the visible authored panel region; a later coplanar Flat remains selectable as
-its own feature without reviving material already consumed by following history.
+Axis endpoint points are hidden in the ordinary View and have no toolbar filter.
+A command that can use an endpoint reveals the real persisted point until the
+command ends. Faces, features and cylindrical cuts remain hoverable and
+selectable independently of those transient markers. On sheet models, the
+selectable face is limited to the visible authored panel region; a later
+coplanar Flat remains selectable as its own feature without reviving material
+already consumed by following history.
 
 ## Live edits in Properties
 
@@ -1487,11 +1489,12 @@ its other saved axis settings.
 
 Feature copies also retain the source's generated construction axes, enabled
 Origin/centroid centerlines and associated points at each transformed position.
-The ordinary Axes and Points visibility controls apply to these copies. Their
-axes and endpoints remain linked to the source profile, Origin or centroid, so
-changing the parent definition updates their transformed positions through
-explicit regeneration and retains that relation after save/reopen. Idle copied
-endpoint markers use the same brown construction colour as their parent axis.
+The ordinary Axes visibility control applies to the copied lines. Their axes and
+endpoints remain linked to the source profile, Origin or centroid, so changing
+the parent definition updates their transformed positions through explicit
+regeneration and retains that relation after save/reopen. An explicit command
+that accepts an endpoint displays it transiently in the same brown construction
+colour as its parent axis.
 
 Activating an earlier source body shows its calculated geometry before downstream
 operations; later bodies, Booleans, Mirrors and Patterns become passive in the

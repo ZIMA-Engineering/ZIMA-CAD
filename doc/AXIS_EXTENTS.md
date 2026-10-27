@@ -17,13 +17,13 @@ window and shared placement contract as Part features.
 
 ## Viewer helper-point visibility
 
-The Axes visibility switch hides the associated finite endpoints and defining
-point markers, including generated profile/sweep/helix axis endpoints. The
-Planes switch similarly hides a native Plane's defining-point marker. Ordinary
-hidden helper points are removed from the common candidate offer; independent
-Point containers remain visible. Explicit point/axis/plane reference entry and
-reference inspection retain their existing exceptions. Origin visibility keeps
-its separate established rules.
+Finite axis endpoints and defining helper points, including generated profile,
+Sweep and H-Sweep endpoints, are hidden in the ordinary View and have no
+independent toolbar filter. Explicit point/axis/plane reference entry and
+reference inspection reveal the real persisted helpers through the transient
+command context. Independent Point containers remain visible. The Axes switch
+controls parent lines, the Planes switch controls planes and Origin visibility
+keeps its separate established rules.
 
 These switches filter already calculated viewer data. They do not remove native
 points, change identities, calculate geometry or move the camera. The shared
@@ -33,9 +33,8 @@ inspection, visibility restoration, unchanged camera and an exact framebuffer
 comparison against a fresh packet without the hidden helper geometry.
 It additionally uses the production Feature Axis packet and its real Start/End
 point ancestry in a nested occurrence, including an Assembly packet whose hidden
-Axis line has already been omitted. Original reference ownership remains available
-to hide its center and endpoint markers together. Explicit point entry can still
-select those same persisted identities.
+Axis line has already been omitted. Explicit point entry can still select those
+same persisted identities without making them permanent View markers.
 
 ## Construction-reference data
 

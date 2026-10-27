@@ -243,6 +243,12 @@ public:
         std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
     [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& transient_edges() const;
+    // Read-only command context (Origin axes/planes and draft markers) is
+    // painted above the already uploaded model. It deliberately contributes
+    // no picking geometry; command inputs continue to use the persisted base
+    // scene and their explicit selection contracts.
+    void set_transient_context_mesh(zima::kernel::ViewerMesh mesh);
+    [[nodiscard]] const zima::kernel::ViewerMesh& transient_context_mesh() const;
     // Live feature dimensions are a lightweight overlay. Updating them must
     // not invalidate or upload the (potentially very large) base body mesh.
     void set_transient_dimensions(

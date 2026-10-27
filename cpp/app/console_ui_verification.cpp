@@ -280,8 +280,12 @@ Q_NEVER_INLINE static int verify_feature_axis_ends(QApplication& application,Ass
             first->setCurrentIndex(1);
             dialog->set_extrusion_target({target.at("entity").get<std::string>(),"plane",{}},{0,0,25},{0,0,1},"Axis target");flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Axis View missing");
-            const auto axis=std::ranges::find_if(view->mesh().axes,[&](const auto& value){return value.reference.owner_id==id&&value.reference.semantic_key=="axis";});
-            check(axis!=view->mesh().axes.end()&&std::abs(axis->display_length-25)<1e-8,"Axis Up-to preview did not update");
+            const auto find_axis=[&](const auto& axes){return std::ranges::find_if(axes,[&](const auto& value){return value.reference.owner_id==id&&value.reference.semantic_key=="axis";});};
+            const auto base_axis=find_axis(view->mesh().axes);
+            const auto context_axis=find_axis(view->transient_context_mesh().axes);
+            check((base_axis!=view->mesh().axes.end()&&std::abs(base_axis->display_length-25)<1e-8)||
+                  (context_axis!=view->transient_context_mesh().axes.end()&&std::abs(context_axis->display_length-25)<1e-8),
+                "Axis Up-to preview did not update");
             check(run("documents")==revision,"Axis draft changed the document");
             dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"Axis OK did not commit and close");
             run("save");

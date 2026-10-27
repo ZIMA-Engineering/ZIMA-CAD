@@ -107,7 +107,8 @@ public:
     void add_part(
         zima::document::PartDocument document,
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {},
-        std::filesystem::path path = {});
+        std::filesystem::path path = {},
+        zima::document::NativeCalculatedCachePtr native_cache = {});
     void add_assembly(
         zima::assembly::AssemblyDocument document,
         std::filesystem::path path = {});

@@ -176,7 +176,8 @@ const std::string& Workspace::id_of(const DocumentState& state) {
 void Workspace::add_part(
     zima::document::PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries,
-    std::filesystem::path path) {
+    std::filesystem::path path,
+    zima::document::NativeCalculatedCachePtr native_cache) {
     if (document.document_id.empty() || find(document.document_id) != nullptr) {
         throw std::invalid_argument("Workspace document ID must be non-empty and unique");
     }
@@ -184,7 +185,8 @@ void Workspace::add_part(
     reserve_file(path);
     documents_.push_back(PartState{
         zima::document::DocumentSession(
-            std::move(document), std::move(calculated_boundaries)),
+            std::move(document), std::move(calculated_boundaries),
+            std::move(native_cache)),
         std::move(path)});
     if (active_document_id_.empty()) active_document_id_ = id;
     if (displayed_document_id_.empty()) displayed_document_id_ = id;
@@ -272,7 +274,10 @@ DocumentState* Workspace::find(const std::string& document_id) {
     const auto found = std::find_if(documents_.begin(), documents_.end(),
         [&](const DocumentState& state) { return id_of(state) == document_id; });
     if(found==documents_.end())return nullptr;
-    if(auto* part=std::get_if<PartState>(&*found))part->session.commit_interceptor=[this,id=document_id](auto& next,auto& calculated){return commit_family_part(*this,id,next,calculated);};
+    if(auto* part=std::get_if<PartState>(&*found)) {
+        part->session.commit_interceptor=[this,id=document_id](auto& next,auto& calculated){return commit_family_part(*this,id,next,calculated);};
+        part->session.metadata_commit_interceptor=[this,id=document_id](auto& next){return commit_family_part_metadata(*this,id,next);};
+    }
     else if(auto* assembly=std::get_if<AssemblyState>(&*found))assembly->session.commit_interceptor=[this,id=document_id](auto& next){return commit_family_assembly(*this,id,next);};
     return &*found;
 }

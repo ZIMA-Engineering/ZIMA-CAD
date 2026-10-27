@@ -280,10 +280,6 @@ void AssemblyWorkspaceWindow::create_actions() {
         tr("Body"), "point", zima::viewer::ReferenceVisibility::Points);
     show_axes_action_ = reference_action(
         tr("Osy"), "axis", zima::viewer::ReferenceVisibility::Axes);
-    show_axis_points_action_ = reference_action(
-        tr("Body os"), "axis-points", zima::viewer::ReferenceVisibility::AxisPoints);
-    show_axis_points_action_->setObjectName("showAxisPointsAction");
-    show_axis_points_action_->setToolTip(tr("Zobrazit nebo skrýt body os a konstrukčních čar"));
     show_planes_action_ = reference_action(
         tr("Roviny"), "plane", zima::viewer::ReferenceVisibility::Planes);
     show_surfaces_action_ = reference_action(tr("Plochy"), "surface", zima::viewer::ReferenceVisibility::Surfaces);
@@ -339,7 +335,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         view->addAction(action);
     }
     view->addSeparator();
-    for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_, show_axis_points_action_,
+    for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
                          show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_, show_symbols_action_}) {
         view->addAction(action);
     }
@@ -1107,7 +1103,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         view_toolbar_->addAction(action);
     }
     view_toolbar_->addSeparator();
-    for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_, show_axis_points_action_,
+    for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
                          show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_, show_symbols_action_}) {
         view_toolbar_->addAction(action);
     }

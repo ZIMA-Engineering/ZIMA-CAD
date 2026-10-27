@@ -1,5 +1,12 @@
 # Application updates
 
+The current source identifies Windows candidate `2026102702`; it is not yet a
+published updater target. Exact native reuse, responsive editing, command-only
+axis endpoints and calculation-time View navigation are listed in the
+[candidate record](releases/2026102702.md). Existing `2026102701` installations
+remain on the signed stable channel until signing, publication and trusted-updater
+discovery pass.
+
 Signed Windows [2026102701](releases/2026102701.md#windows-publication-acceptance)
 was published at `2026-10-27T12:12:44Z` from immutable source
 `21466680c6c065ee9b2defea6735338fd7229ded`. Exact viewer-cache v2, responsive

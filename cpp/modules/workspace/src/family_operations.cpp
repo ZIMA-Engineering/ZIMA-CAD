@@ -543,6 +543,18 @@ bool commit_family_part(Workspace& live,const std::string& id,document::PartDocu
     }
     return true;
 }
+bool commit_family_part_metadata(Workspace& live,const std::string& id,
+    document::PartDocument& candidate) {
+    if(live.family_transaction_active)return false;
+    const auto owner=family_owner(live,id);
+    const auto* source=std::as_const(live).open_part(id);
+    const auto* parent=std::as_const(live).open_part(owner);
+    if(!source||!parent)throw std::invalid_argument(
+        "The owning family document is not open.");
+    if(owner==id&&parent->session.document().family.evaluated.empty())return false;
+    auto calculated=source->session.calculated_boundaries();
+    return commit_family_part(live,id,candidate,calculated);
+}
 bool commit_family_assembly(Workspace& live,const std::string& id,assembly::AssemblyDocument& candidate) {
     if(live.family_transaction_active)return false;
     const auto owner=family_owner(live,id);

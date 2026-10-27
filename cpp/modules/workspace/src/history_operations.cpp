@@ -156,7 +156,7 @@ bool set_part_history_cursor(Workspace& live,const std::string& document_id,std:
     if (index>next.history_order.size()) throw HistoryOperationError("invalid_arguments", "The history index is outside the document history.");
     if (next.effective_history_cursor()==index) return false;
     next.set_history_cursor(index);
-    commit_part_document(live,document_id,std::move(next),part.session.calculated_boundaries());
+    commit_part_document_metadata(live,document_id,std::move(next));
     return true;
 }
 }

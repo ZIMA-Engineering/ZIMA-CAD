@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <QElapsedTimer>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -232,6 +233,15 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
 
 void AssemblyWorkspaceWindow::update_sketch_point_drag(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
+    QElapsedTimer profile_timer;
+    profile_timer.start();
+    const auto profile_phase = [&](const char* name) {
+        if (qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_SKETCH_DRAG")) {
+            std::fprintf(stderr, "Sketch drag %s: %.3f ms\n", name,
+                profile_timer.nsecsElapsed() / 1e6);
+        }
+        profile_timer.restart();
+    };
     if (!sketch_drag_document_ && !assembly_sketch_drag_document_ && section_drag_sketches_.empty()) return;
     auto& sketches = !section_drag_sketches_.empty() ? section_drag_sketches_ : sketch_drag_document_
         ? sketch_drag_document_->sketches
@@ -323,12 +333,14 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
     bool moved = false;
     moved = next_sketch->move_point(
         sketch_drag_point_id_, (*position)[0], (*position)[1]);
+    profile_phase("solver");
     if (!moved) {
         state_->setText(tr("Bod nelze přesunout mimo vazby nebo absolutní meze."));
         return;
     }
     sketch_drag_changed_ = true;
     show_sketch_drag_preview(*next_sketch);
+    profile_phase("view");
     state_->setText(tr("Tažení bodu: poloha je pouze transientní do puštění LMB."));
 }
 
@@ -360,6 +372,7 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
     sketch_corner_drag_first_segment_id_.clear();
     sketch_corner_drag_second_segment_id_.clear();
     sketch_corner_drag_vertex_id_.clear();
+    clear_sketch_drag_preview();
     // A SketchPoint press arms a possible drag before the ordinary selection
     // callback runs. Releasing it without a mouse move is therefore an
     // ordinary one-click selection, not a scene-changing operation. Rebuilding
@@ -580,6 +593,7 @@ void AssemblyWorkspaceWindow::end_sketch_dimension_drag() {
     sketch_drag_dimension_id_.clear();
     const bool changed = sketch_drag_changed_;
     sketch_drag_changed_ = false;
+    clear_sketch_drag_preview();
     if (changed) {
         if(!section_drag_sketches_.empty()) { const auto draft=section_drag_sketches_.front();mutate_active_sketch([&](auto& target){target=draft;}); }
         else if (auto* part = workspace_.open_part(workspace_.active_document_id());

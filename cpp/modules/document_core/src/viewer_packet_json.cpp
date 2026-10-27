@@ -28,6 +28,36 @@ namespace {
 
 thread_local bool processing_parallel_row = false;
 
+const std::shared_ptr<const std::string>& shared_cache_string(
+        const nlohmann::json& value,
+        const CacheStorageSharedStrings* shared_strings) {
+    static const std::shared_ptr<const std::string> empty;
+    if(value.is_string())return empty;
+    if(!shared_strings||!value.is_object()||value.size()!=1||
+            !value.contains("$zima_cache")||
+            !value.at("$zima_cache").is_number_unsigned())
+        throw std::runtime_error("Invalid cache reference");
+    const auto index=value.at("$zima_cache").get<std::size_t>();
+    if(index>=shared_strings->size()||!shared_strings->at(index))
+        throw std::runtime_error("Invalid cache reference");
+    return shared_strings->at(index);
+}
+
+const std::string& stored_string(const nlohmann::json& value,
+        const CacheStorageSharedStrings* shared_strings) {
+    if(value.is_string())return value.get_ref<const std::string&>();
+    return *shared_cache_string(value,shared_strings);
+}
+
+std::shared_ptr<const std::string> stored_shared_string(
+        const nlohmann::json& value,
+        const CacheStorageSharedStrings* shared_strings) {
+    if(value.is_string())
+        return std::make_shared<const std::string>(
+            value.get_ref<const std::string&>());
+    return shared_cache_string(value,shared_strings);
+}
+
 template<class Result, class Function>
 std::vector<Result> process_rows(std::size_t count, Function&& function) {
     std::vector<Result> rows(count);
@@ -164,15 +194,18 @@ nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
         ends.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}});
     return {{"sides",sides},{"endpoints",ends}};
 }
-void load_sheet_edge(zima::kernel::ViewerEdge& edge,const nlohmann::json& value) {
+void load_sheet_edge(zima::kernel::ViewerEdge& edge,const nlohmann::json& value,
+        const CacheStorageSharedStrings* shared_strings = nullptr) {
     if(value.is_null())return;
     for(const auto& r:value.at("sides")) {
-        zima::kernel::FaceReference face{r.at("owner"),r.at("key"),r.at("instance_path")};
+        zima::kernel::FaceReference face{r.at("owner"),
+            stored_string(r.at("key"),shared_strings),r.at("instance_path")};
         load_sheet_face(face,r);if(!face.valid())throw std::runtime_error("Invalid sheet side identity");
         edge.edge_treatment_side_references.push_back(std::move(face));
     }
     for(const auto& r:value.at("endpoints")) {
-        zima::kernel::VertexReference point{r.at("owner"),r.at("key"),r.at("instance_path")};
+        zima::kernel::VertexReference point{r.at("owner"),
+            stored_string(r.at("key"),shared_strings),r.at("instance_path")};
         if(!point.valid())throw std::runtime_error("Invalid sheet endpoint identity");
         edge.edge_treatment_endpoint_references.push_back(std::move(point));
     }
@@ -421,7 +454,8 @@ nlohmann::json serialize_reference_geometry(
 }
 
 zima::kernel::ViewerReferenceGeometry load_reference_geometry(
-    const nlohmann::json& source) {
+    const nlohmann::json& source,
+    const CacheStorageSharedStrings* shared_strings = nullptr) {
     if (source.at("encoding").get<std::string>() !=
             "f64le-u32le-base64-v1") {
         throw std::runtime_error("Unsupported original reference encoding");
@@ -431,7 +465,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
     for (const auto& value : source.at("references")) {
         zima::kernel::FaceReference reference{
             value.at("owner").get<std::string>(),
-            value.at("key").get<std::string>(),
+            stored_string(value.at("key"),shared_strings),
             value.at("instance_path").get<std::string>()};
         if (!reference.valid()) {
             throw std::runtime_error("Persisted original reference is invalid");
@@ -456,17 +490,17 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
     };
 
     result.vertices = unpack_vertices(
-        source.at("vertices_binary").get_ref<const std::string&>());
+        stored_string(source.at("vertices_binary"),shared_strings));
     result.triangles = unpack_indices(
-        source.at("triangles_binary").get_ref<const std::string&>());
+        stored_string(source.at("triangles_binary"),shared_strings));
     for (const auto index : result.triangles) {
         if (index >= result.vertices.size()) {
             throw std::runtime_error("Reference triangle index is out of range");
         }
     }
     const auto triangle_runs = unpack_indices(
-        source.at("triangle_reference_runs_binary")
-            .get_ref<const std::string&>());
+        stored_string(source.at("triangle_reference_runs_binary"),
+            shared_strings));
     if (triangle_runs.size() % 2 != 0) {
         throw std::runtime_error("Reference triangle runs are invalid");
     }
@@ -486,11 +520,11 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
     }
 
     const auto edge_points = unpack_vertices(
-        source.at("edge_points_binary").get_ref<const std::string&>());
+        stored_string(source.at("edge_points_binary"),shared_strings));
     const auto edge_offsets = unpack_indices(
-        source.at("edge_offsets_binary").get_ref<const std::string&>());
+        stored_string(source.at("edge_offsets_binary"),shared_strings));
     const auto edge_references = unpack_indices(
-        source.at("edge_references_binary").get_ref<const std::string&>());
+        stored_string(source.at("edge_references_binary"),shared_strings));
     if (edge_offsets.size() != edge_references.size() + 1 ||
         edge_offsets.empty() || edge_offsets.front() != 0 ||
         edge_offsets.back() != edge_points.size()) {
@@ -523,15 +557,15 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             throw std::runtime_error("Invalid exact reference curves");
         edge.exact_spline = zima::kernel::spline_from_json(source.at("edge_splines").at(index));
         edge.surface_result=source.at("edge_surfaces").at(index).get<bool>();
-        load_sheet_edge(edge,source.at("edge_sheets").at(index));
+        load_sheet_edge(edge,source.at("edge_sheets").at(index),shared_strings);
         restore_reference_curve_style(edge);
         result.edges.push_back(std::move(edge));
     }
 
     const auto point_positions = unpack_vertices(
-        source.at("point_positions_binary").get_ref<const std::string&>());
+        stored_string(source.at("point_positions_binary"),shared_strings));
     const auto point_references = unpack_indices(
-        source.at("point_references_binary").get_ref<const std::string&>());
+        stored_string(source.at("point_references_binary"),shared_strings));
     if (point_positions.size() != point_references.size()) {
         throw std::runtime_error("Persisted reference point arrays are invalid");
     }
@@ -570,7 +604,8 @@ zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value)
 namespace {
 
 void load_viewer_edge_details(const nlohmann::json& source,
-        zima::kernel::ViewerEdge& edge, bool points_are_json) {
+        zima::kernel::ViewerEdge& edge, bool points_are_json,
+        const CacheStorageSharedStrings* shared_strings = nullptr) {
     edge.color=source.value("color",std::string{});
     edge.exact_spline=zima::kernel::spline_from_json(source.at("exact_spline"));
     if(source.contains("measured_length")&&!source.at("measured_length").is_null()) {
@@ -595,7 +630,7 @@ void load_viewer_edge_details(const nlohmann::json& source,
     for(const auto& reference:source.at("edge_treatment_side_references")) {
         zima::kernel::FaceReference loaded_reference{
             reference.at("owner").get<std::string>(),
-            reference.at("key").get<std::string>(),
+            stored_string(reference.at("key"),shared_strings),
             reference.at("instance_path").get<std::string>()};
         if(!loaded_reference.valid())
             throw std::runtime_error("Persisted viewer treatment side reference is invalid");
@@ -605,7 +640,7 @@ void load_viewer_edge_details(const nlohmann::json& source,
     for(const auto& reference:source.at("edge_treatment_endpoint_references")) {
         zima::kernel::VertexReference loaded_reference{
             reference.at("owner").get<std::string>(),
-            reference.at("key").get<std::string>(),
+            stored_string(reference.at("key"),shared_strings),
             reference.at("instance_path").get<std::string>()};
         if(!loaded_reference.valid())
             throw std::runtime_error("Persisted viewer treatment endpoint reference is invalid");
@@ -1028,13 +1063,14 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
 }
 
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
-        std::map<std::string,zima::kernel::BodySnapshot> compound_operands) {
+        std::map<std::string,zima::kernel::BodySnapshot> compound_operands,
+        const CacheStorageSharedStrings* shared_strings) {
     zima::kernel::BodyResult result;
     if(const auto sources=source.find("measurement_sources");sources!=source.end()) {
         if(!sources->is_array())throw std::runtime_error("Invalid native topology binding");
         std::vector<zima::kernel::BodySnapshot> loaded;loaded.reserve(sources->size());
         for(const auto& snapshot:*sources) {
-            auto native=load_body_result(snapshot);
+            auto native=load_body_result(snapshot,{},shared_strings);
             if(native.kernel_shape.empty()||native.kernel_faces.empty()||!native.measurement_sources.empty())
                 throw std::runtime_error("Invalid native topology binding");
             loaded.emplace_back(std::move(native));
@@ -1052,13 +1088,14 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         const auto& source_frames=cached->at("frames");
         const auto native=[&](const nlohmann::json& value)->zima::kernel::BodySnapshot {
             if(value.contains("incremental_history"))throw std::runtime_error("Invalid native topology binding");
-            return load_body_result(value);
+            return load_body_result(value,{},shared_strings);
         };
         auto frames=process_rows<zima::kernel::KernelHistoryFrame>(source_frames.size(),[&](std::size_t index) {
             const auto& row=source_frames.at(index);
             zima::kernel::KernelHistoryFrame frame;frame.fingerprint=row.at("fingerprint");
             frame.native_body=native(row.at("native"));frame.hidden_edges=row.at("hidden_edges").get<std::vector<std::string>>();
-            frame.reference_delta=std::make_shared<const zima::kernel::ViewerReferenceGeometry>(load_reference_geometry(row.at("references")));
+            frame.reference_delta=std::make_shared<const zima::kernel::ViewerReferenceGeometry>(
+                load_reference_geometry(row.at("references"),shared_strings));
             frame.original_edges_retained=row.at("original_edges_retained");
             if(!row.at("originals").is_array()||row.at("originals").size()>50000)throw std::runtime_error("Invalid native topology binding");
             for(const auto& layer:row.at("originals"))frame.original_layers.push_back(native(layer));
@@ -1076,7 +1113,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         for(const auto& [owner,geometry]:views->items()) {
             if(owner.empty())throw std::invalid_argument("History reference view is invalid.");
             result.solid_state_reference_views.emplace(owner,
-                std::make_shared<const zima::kernel::ViewerReferenceGeometry>(load_reference_geometry(geometry)));
+                std::make_shared<const zima::kernel::ViewerReferenceGeometry>(
+                    load_reference_geometry(geometry,shared_strings)));
         }
     for(const auto& row:source.value("sheet_cuts",nlohmann::json::array())) {
         zima::kernel::SheetCutRegion region;region.cut_owner=row.at("cut_owner");
@@ -1110,7 +1148,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
     if (const auto caches = source.find("body_histories"); caches != source.end()) {
         for (const auto& [id, rows] : caches->at("boundaries").items()) {
             auto loaded=process_rows<zima::kernel::BodyResult>(rows.size(),[&](std::size_t index) {
-                return load_body_result(rows.at(index));
+                return load_body_result(rows.at(index),{},shared_strings);
             });
             bool compact_measurement_sources=rows.size()>1;
             if(compact_measurement_sources)for(std::size_t index=0;index+1<rows.size();++index)
@@ -1135,15 +1173,18 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             result.body_boundaries[id]=std::move(loaded);
         }
         for (const auto& [id, body] : caches->at("inputs").items())
-            result.body_inputs.emplace(id, load_body_result(body));
+            result.body_inputs.emplace(id, load_body_result(body,{},shared_strings));
         for (const auto& [id, body] : caches->at("outputs").items())
-            result.body_outputs.emplace(id, load_body_result(body));
+            result.body_outputs.emplace(id, load_body_result(body,{},shared_strings));
     }
     for(const auto& row:source.value("images",nlohmann::json::array())) {
         zima::kernel::ViewerImage image;
         if(row.at("corners").size()!=4)throw std::runtime_error("Invalid image corners");
         for(std::size_t i=0;i<4;++i)image.corners[i]=load_vec3(row.at("corners").at(i));
-        image.reference={row.at("owner"),row.at("key"),row.at("instance_path")};image.data_base64=row.at("data_base64");image.format=row.at("format");
+        image.reference={row.at("owner"),
+            stored_string(row.at("key"),shared_strings),row.at("instance_path")};
+        image.data_base64=stored_string(row.at("data_base64"),shared_strings);
+        image.format=row.at("format");
         result.mesh.images.push_back(std::move(image));
     }
     result.mesh.annotation_frames=annotation_frames_from_json(source.value("annotation_frames",nlohmann::json::array()));
@@ -1168,7 +1209,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         result.volume_integrals=p;
     }
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
-    result.kernel_shape = source.at("kernel_shape").get<std::string>();
+    result.kernel_shape = stored_shared_string(
+        source.at("kernel_shape"),shared_strings);
     for (const auto& placement : source.value("kernel_placements", nlohmann::json::array()))
         result.kernel_placements.push_back({load_vec3(placement.at("translation")),
             load_vec3(placement.at("rotation_degrees"))});
@@ -1190,7 +1232,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             std::vector<Binding> captured;captured.reserve(bindings->at(kind).size());
             for(const auto& row:bindings->at(kind)) {
                 Binding value;value.locator=row.at("locator");
-                auto& ref=value.reference;ref={row.at("owner"),row.at("key"),row.at("instance_path")};
+                auto& ref=value.reference;ref={row.at("owner"),
+                    stored_string(row.at("key"),shared_strings),row.at("instance_path")};
                 if(!ref.valid()||value.locator.empty())throw std::runtime_error("Invalid native topology binding");
                 if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::FaceReference>) {
                     ref.surface_result=row.at("surface_result");load_sheet_face(ref,row);
@@ -1207,7 +1250,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         load("faces",result.kernel_faces);load("edges",result.kernel_edges);load("vertices",result.kernel_vertices);
     }
     result.mesh.original_references = load_reference_geometry(
-        source.at("original_references"));
+        source.at("original_references"),shared_strings);
     require_finite(result.volume, "calculated volume");
     require_finite(result.surface_area, "calculated surface area");
     const auto viewer_encoding=source.value("viewer_binary_encoding",std::string{});
@@ -1216,9 +1259,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         throw std::runtime_error("Unsupported calculated viewer mesh encoding");
     }
     result.mesh.vertices = unpack_vertices(
-        source.at("vertices_binary").get_ref<const std::string&>());
+        stored_string(source.at("vertices_binary"),shared_strings));
     result.mesh.triangles = unpack_indices(
-        source.at("triangles_binary").get_ref<const std::string&>());
+        stored_string(source.at("triangles_binary"),shared_strings));
     for (const auto index : result.mesh.triangles) {
         if (index >= result.mesh.vertices.size()) {
             throw std::runtime_error("Viewer triangle index is out of range");
@@ -1229,7 +1272,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         for(const auto& reference:source.at("face_references")) {
             zima::kernel::FaceReference loaded{
                 reference.at("owner").get<std::string>(),
-                reference.at("key").get<std::string>(),
+                stored_string(reference.at("key"),shared_strings),
                 reference.at("instance_path").get<std::string>()};
             loaded.surface_result=reference.at("surface_result").get<bool>();
             load_sheet_face(loaded,reference);
@@ -1237,8 +1280,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
                 throw std::runtime_error("Persisted viewer triangle tag is invalid");
             face_references.push_back(std::move(loaded));
         }
-        const auto runs=unpack_indices(source.at("triangle_reference_runs_binary")
-            .get_ref<const std::string&>());
+        const auto runs=unpack_indices(stored_string(
+            source.at("triangle_reference_runs_binary"),shared_strings));
         if(runs.size()!=face_references.size())
             throw std::runtime_error("Viewer triangle reference runs are invalid");
         for(std::size_t run=0;run<runs.size();++run) {
@@ -1260,7 +1303,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         for(const auto& reference:source.at("edge_references")) {
             zima::kernel::EdgeReference loaded{
                 reference.at("owner").get<std::string>(),
-                reference.at("key").get<std::string>(),
+                stored_string(reference.at("key"),shared_strings),
                 reference.at("instance_path").get<std::string>(),
                 reference.at("display_owner").get<std::string>()};
             if(loaded.owner_id.empty()!=loaded.semantic_key.empty())
@@ -1268,9 +1311,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             edge_references.push_back(std::move(loaded));
         }
         const auto edge_points=unpack_vertices(
-            source.at("edge_points_binary").get_ref<const std::string&>());
+            stored_string(source.at("edge_points_binary"),shared_strings));
         const auto edge_offsets=unpack_indices(
-            source.at("edge_offsets_binary").get_ref<const std::string&>());
+            stored_string(source.at("edge_offsets_binary"),shared_strings));
         const auto& edge_details=source.at("edges");
         if(edge_references.size()!=edge_details.size()||
             edge_offsets.size()!=edge_details.size()+1||edge_offsets.empty()||
@@ -1286,7 +1329,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             loaded.points.insert(loaded.points.end(),
                 edge_points.begin()+edge_offsets[index],
                 edge_points.begin()+edge_offsets[index+1]);
-            load_viewer_edge_details(edge_details.at(index),loaded,false);
+            load_viewer_edge_details(edge_details.at(index),loaded,false,
+                shared_strings);
             result.mesh.edges.push_back(std::move(loaded));
         }
 
@@ -1294,13 +1338,13 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         for(const auto& reference:source.at("point_references")) {
             zima::kernel::VertexReference loaded{
                 reference.at("owner").get<std::string>(),
-                reference.at("key").get<std::string>(),
+                stored_string(reference.at("key"),shared_strings),
                 reference.at("instance_path").get<std::string>()};
             if(!loaded.valid())throw std::runtime_error("Persisted viewer point is invalid");
             point_references.push_back(std::move(loaded));
         }
         const auto point_positions=unpack_vertices(
-            source.at("point_positions_binary").get_ref<const std::string&>());
+            stored_string(source.at("point_positions_binary"),shared_strings));
         const auto& point_surfaces=source.at("point_surfaces");
         if(point_references.size()!=point_positions.size()||
             point_surfaces.size()!=point_positions.size())
@@ -1321,7 +1365,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
     for (const auto& reference : source.at("triangle_references")) {
         result.mesh.triangle_references.push_back({
             reference.at("owner").get<std::string>(),
-            reference.at("key").get<std::string>(),
+            stored_string(reference.at("key"),shared_strings),
             reference.at("instance_path").get<std::string>(),
         });
         result.mesh.triangle_references.back().surface_result=reference.at("surface_result").get<bool>();
@@ -1342,18 +1386,20 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
     for (const auto& edge : source.at("edges")) {
         zima::kernel::ViewerEdge loaded;
         loaded.reference = {
-            edge.at("owner").get<std::string>(), edge.at("key").get<std::string>(),
+            edge.at("owner").get<std::string>(),
+            stored_string(edge.at("key"),shared_strings),
             edge.at("instance_path").get<std::string>(),
             edge.value("display_owner",std::string{})};
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
-        load_viewer_edge_details(edge,loaded,true);
+        load_viewer_edge_details(edge,loaded,true,shared_strings);
         result.mesh.edges.push_back(std::move(loaded));
     }
     for (const auto& point : source.at("points")) {
         zima::kernel::ViewerPoint loaded;
         loaded.reference = {
-            point.at("owner").get<std::string>(), point.at("key").get<std::string>(),
+            point.at("owner").get<std::string>(),
+            stored_string(point.at("key"),shared_strings),
             point.at("instance_path").get<std::string>()};
         loaded.position = load_vec3(point.at("position"));
         loaded.surface_result=point.at("surface_result").get<bool>();
@@ -1376,7 +1422,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
     for (const auto& axis : source.at("axes")) {
         zima::kernel::ViewerAxis loaded;
         loaded.reference = {
-            axis.at("owner").get<std::string>(), axis.at("key").get<std::string>(),
+            axis.at("owner").get<std::string>(),
+            stored_string(axis.at("key"),shared_strings),
             axis.at("instance_path").get<std::string>()};
         loaded.point = load_vec3(axis.at("point"));
         loaded.direction = load_vec3(axis.at("direction"));
@@ -1396,7 +1443,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         zima::kernel::ViewerDimension loaded;
         loaded.reference = {
             dimension.at("owner").get<std::string>(),
-            dimension.at("key").get<std::string>(),
+            stored_string(dimension.at("key"),shared_strings),
             dimension.at("instance_path").get<std::string>()};
         loaded.witness_first = load_vec3(dimension.at("witness_first"));
         loaded.witness_second = load_vec3(dimension.at("witness_second"));

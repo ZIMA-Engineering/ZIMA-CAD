@@ -26,12 +26,14 @@ centerline curves once. Repaint and drawing projection consume native curves
 without OCCT. Reference coordinates, constraint geometry and picking samples
 remain unchanged.
 
-Idle axis/path points use the same brown as their axes. Sketch points belonging
-only to auxiliary curves also use brown, including the authored Revolution axis
-in active and passive Sketch views. A point shared with ordinary profile
-geometry keeps its profile presentation. Hover, confirmation and inspection
-retain their established interaction colors. Existing axis labels apply;
-the shared disconnected-centerline error is localized in all five languages.
+Axis/path points use the same brown as their axes when an explicit command or
+inspection presents them. They are otherwise hidden as ordinary auxiliary
+markers. Sketch points belonging only to auxiliary curves use brown when
+presented, including the authored Revolution axis in active and passive Sketch
+contexts. A point shared with ordinary profile geometry keeps its profile
+presentation. Hover, confirmation and inspection retain their established
+interaction colors. Existing axis labels apply; the shared
+disconnected-centerline error is localized in all five languages.
 
 Previously calculated documents require explicit **Regenerate** to acquire new
 automatic-axis points and exact Sweep centerline curves. Opening alone never

@@ -12,6 +12,7 @@
     "opencascade",
     "qtbase",
     "openssl",
+    "zstd",
     "zlib",
     "qtsvg",
     {

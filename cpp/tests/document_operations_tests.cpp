@@ -133,6 +133,9 @@ int main() {
         require(loaded.document_id==id && loaded.name=="saved snapshot" && loaded.history.size()==1,"Part identity/parameters lost");
         require(loaded_boundaries.size()==boundaries.size() && loaded_boundaries.back().volume==boundaries.back().volume &&
             loaded_boundaries.back().mesh.original_references.triangle_references.size()==boundaries.back().mesh.original_references.triangle_references.size(),"Calculated geometry/references lost");
+        const auto native_cache=state->session.native_calculated_cache();
+        require(native_cache&&native_cache->operation_count==boundaries.size(),
+            "Successful Part save did not retain its exact native cache");
         const auto& original_faces=boundaries.back().mesh.original_references.triangle_references;
         const auto& saved_faces=loaded_boundaries.back().mesh.original_references.triangle_references;
         require(!original_faces.empty(),"Fixture has no persisted face references");
@@ -147,6 +150,39 @@ int main() {
             "Unchanged Part scheduled another native write");
         require(bytes(part_path)==saved_bytes&&fs::last_write_time(part_path)==saved_time,
             "No-op Part Save changed the native file");
+
+        auto metadata=state->session.document();metadata.body_color="#A1B2C3";
+        state->session.commit_metadata(std::move(metadata));
+        require(state->session.native_calculated_cache()==native_cache,
+            "Metadata edit discarded unchanged calculated cache text");
+        saved=prepare_document_save(workspace,id,part_path).write();
+        require(complete_document_save(workspace,saved),
+            "Metadata save completion failed");
+        const auto retagged_cache=state->session.native_calculated_cache();
+        require(retagged_cache&&retagged_cache!=native_cache&&
+            retagged_cache->data==native_cache->data&&
+            retagged_cache->final_source_fingerprint==
+                native_cache->final_source_fingerprint,
+            "Metadata save rebuilt or discarded unchanged calculated bytes");
+        loaded_boundaries.clear();loaded=document::PartDocument::load(part_path,&loaded_boundaries);
+        require(loaded.body_color=="#A1B2C3"&&loaded_boundaries.size()==boundaries.size()&&
+            loaded_boundaries.back().source_fingerprint==boundaries.back().source_fingerprint,
+            "Native cache reuse lost metadata or exact calculated geometry");
+        auto resized=state->session.document();
+        zima::test::resize_rectangular_feature(
+            resized,resized.history.front(),{21,10,6});
+        const auto resized_boundaries=kernel.evaluate_history(resized.kernel_operations());
+        const auto fallback_path=directory/"changed-cache.prtz";
+        const auto fresh_cache=resized.save_with_native_cache(
+            fallback_path,resized_boundaries,native_cache);
+        require(fresh_cache&&fresh_cache!=native_cache,
+            "Changed geometry reused a stale native calculated cache");
+        std::vector<kernel::BodyResult> fallback_boundaries;
+        const auto fallback=document::PartDocument::load(
+            fallback_path,&fallback_boundaries);
+        require(fallback.serialized(fallback_boundaries)==
+                resized.serialized(resized_boundaries),
+            "Stale-cache fallback changed geometry, properties or references");
 
         job=prepare_document_save(workspace,id,part_path);
         edited=state->session.document();edited.name="newer edit";state->session.commit(edited,boundaries);

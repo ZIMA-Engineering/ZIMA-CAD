@@ -24,6 +24,7 @@ class SavedDocument {
     std::filesystem::path original_path_, target_;
     std::size_t kind_{};
     std::uint64_t revision_{}, generation_{}, allocations_{};
+    document::NativeCalculatedCachePtr native_cache_;
     std::vector<SavedDocument> sources_;
     std::variant<std::monostate,SavedPartAnalysis,SavedAssemblyAnalysis> analysis_;
     SavedDocument() = default;
@@ -37,7 +38,11 @@ public:
 private:
     friend DocumentSave prepare_document_save(const Workspace&, const std::string&,
                                               const std::filesystem::path&);
-    struct Part { document::PartDocument document; std::vector<kernel::BodyResult> boundaries; };
+    struct Part {
+        document::PartDocument document;
+        std::vector<kernel::BodyResult> boundaries;
+        document::NativeCalculatedCachePtr native_cache;
+    };
     std::variant<Part, assembly::AssemblyDocument, drawing::DrawingDocument, symbols::Definition> snapshot_;
     SavedDocument receipt_;
     std::vector<DocumentSave> sources_;

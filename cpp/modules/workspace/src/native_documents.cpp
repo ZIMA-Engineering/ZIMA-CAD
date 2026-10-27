@@ -105,7 +105,9 @@ void PreparedNativeDocument::write(const std::filesystem::path& target,
         throw std::invalid_argument("Document type does not match target path");
     std::visit([&](const auto& value) {
         using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, Part>) value.document.save(target, value.boundaries);
+        if constexpr (std::is_same_v<T, Part>)
+            static_cast<void>(value.document.save_with_native_cache(
+                target, value.boundaries, value.native_cache));
         else if constexpr (std::is_same_v<T, assembly::AssemblyDocument>) value.save(target, {}, reference_file);
         else value.save(target);
     }, document_);
@@ -190,7 +192,8 @@ PreparedNativeDocument read_native_document(const std::filesystem::path& path, c
     switch(native_document_type(path)) {
         case NativeDocumentType::Part: {
             PreparedNativeDocument::Part part;
-            part.document=document::PartDocument::load(path,&part.boundaries);
+            part.document=document::PartDocument::load(
+                path,&part.boundaries,&part.native_cache);
             prepared.document_=std::move(part);break;
         }
         case NativeDocumentType::Assembly: prepared.document_=assembly::AssemblyDocument::load(path,resolver,resolve_sources);break;
@@ -223,7 +226,8 @@ PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, cons
         case NativeDocumentType::Part: {
             auto selected=settings;
             if(assembly::is_skeleton_file(target))selected.part_template=settings.skeleton_template;
-            prepared.document_=PreparedNativeDocument::Part{part_from_template(selected),{}};break;
+            prepared.document_=PreparedNativeDocument::Part{
+                part_from_template(selected),{}, {}};break;
         }
         case NativeDocumentType::Assembly: prepared.document_=assembly_from_template(settings);break;
         case NativeDocumentType::Drawing: {
@@ -251,7 +255,8 @@ std::string insert_native_document(Workspace& workspace, PreparedNativeDocument 
     const auto id=prepared.id();
     std::visit([&](auto& value) {
         if constexpr(std::is_same_v<std::decay_t<decltype(value)>,PreparedNativeDocument::Part>)
-            workspace.add_part(std::move(value.document),std::move(value.boundaries),prepared.path_);
+            workspace.add_part(std::move(value.document),std::move(value.boundaries),
+                prepared.path_,std::move(value.native_cache));
         else if constexpr(std::is_same_v<std::decay_t<decltype(value)>,assembly::AssemblyDocument>)
             workspace.add_assembly(std::move(value),prepared.path_);
         else {

@@ -3,6 +3,9 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/pattern_dimensions.hpp>
@@ -11,6 +14,19 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <future>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <BOPAlgo_BOP.hxx>
+#include <BOPAlgo_CellsBuilder.hxx>
+#include <BOPAlgo_Operation.hxx>
+#include <BOPAlgo_PaveFiller.hxx>
+#include <GProp_GProps.hxx>
+#include <TopAbs_ShapeEnum.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <QCryptographicHash>
 #include <chrono>
 #include <zima/document/viewer_packet_json.hpp>
@@ -508,12 +524,20 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
+// Native-file performance, prefix-identity and storage-map probes share this test host.
 #include "native_io_performance_probe.inc"
 int main(int argc,char** argv){try{
 if(argc==4&&std::string_view(argv[1])=="--save-native-assembly-definition")return save_native_assembly_definition(fs::u8path(argv[2]),fs::u8path(argv[3]));
 if(argc==4&&std::string_view(argv[1])=="--refresh-native-factory")return refresh_native_factory(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
 if(argc==4&&std::string_view(argv[1])=="--resave-native-part")return resave_native_part(fs::absolute(fs::u8path(argv[2])),fs::absolute(fs::u8path(argv[3])));
 if(argc==3&&std::string_view(argv[1])=="--native-io-performance")return benchmark_native_io(fs::absolute(fs::u8path(argv[2])));
+if(argc==3&&std::string_view(argv[1])=="--native-close-performance")return benchmark_native_close(fs::absolute(fs::u8path(argv[2])));
+if(argc==3&&std::string_view(argv[1])=="--native-history-description")return describe_native_history(fs::absolute(fs::u8path(argv[2])));
+if(argc==3&&std::string_view(argv[1])=="--native-kernel-plan-description")return describe_native_kernel_plan(fs::absolute(fs::u8path(argv[2])));
+if(argc==4&&std::string_view(argv[1])=="--native-dependency-envelopes")return describe_native_dependency_envelopes(fs::absolute(fs::u8path(argv[2])),argv[3]);
+if(argc==5&&std::string_view(argv[1])=="--native-local-delta-performance")return benchmark_native_local_delta(fs::absolute(fs::u8path(argv[2])),argv[3],argv[4]);
+if(argc==4&&std::string_view(argv[1])=="--native-operation-description")return describe_native_operation(fs::absolute(fs::u8path(argv[2])),argv[3]);
+if(argc==5&&std::string_view(argv[1])=="--native-operation-edit-performance")return benchmark_native_operation_edit(fs::absolute(fs::u8path(argv[2])),argv[3],argv[4]);
 if(argc==3&&std::string_view(argv[1])=="--native-last-add-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])),true);
 if(argc==3&&std::string_view(argv[1])=="--native-last-add-cold-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])),true,true);
 if(argc==3&&std::string_view(argv[1])=="--native-last-operation-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])));

@@ -12,10 +12,11 @@ remain in control; a copy does not force hidden construction geometry to appear.
 The copied construction keeps an explicit parent reference to the source axis or
 centerline rather than becoming an unrelated snapshot. Changing a profile axis,
 enabled Origin axis, centroid axis or its defining source geometry therefore
-moves the Mirror/Pattern construction on explicit Regenerate. Axis endpoint
-markers follow the transformed parent, use the same brown construction colour
-as their axis and survive native save/reopen. Hiding endpoint markers affects
-only those markers, not face or feature selection.
+moves the Mirror/Pattern construction on explicit Regenerate. Transformed axis
+endpoints retain their parent, brown construction presentation and native
+save/reopen identity. They are shown only by an explicit command that can consume
+them, not as permanent ordinary-View markers. Face and feature selection remains
+independent of those command helpers.
 
 - **Mirror Properties** offers only XY/YZ/XZ planes of its own Origin for the
   reflection plane, through both the View and Tree. Other Origins and planar
@@ -109,7 +110,7 @@ linear and circular subtraction, source changes, native reload, cold regeneratio
 Undo/Redo and rejection of foreign or downstream sources.
 
 The 2026-10-26 construction regression additionally covers linear, circular and
-nested Pattern axes, Mirror axes and their endpoint markers, native save/reopen,
+nested Pattern axes, Mirror axes and their persisted endpoint points, native save/reopen,
 cold calculation and an incremental source-profile move compared with a fresh
 calculation. Moving the source circle from X=12 to X=14 across a plane at X=5
 moves the mirrored primary axis to X=-4, confirming parent-driven regeneration.

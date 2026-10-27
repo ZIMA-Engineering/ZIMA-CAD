@@ -81,6 +81,21 @@
 namespace zima::document {
 namespace {
 
+thread_local const CacheStorageSharedStrings* active_cache_storage_strings{};
+
+class CacheStorageStringScope {
+public:
+    explicit CacheStorageStringScope(const CacheStorageSharedStrings* strings)
+        : previous_(active_cache_storage_strings) {
+        active_cache_storage_strings=strings;
+    }
+    ~CacheStorageStringScope() { active_cache_storage_strings=previous_; }
+    CacheStorageStringScope(const CacheStorageStringScope&)=delete;
+    CacheStorageStringScope& operator=(const CacheStorageStringScope&)=delete;
+private:
+    const CacheStorageSharedStrings* previous_{};
+};
+
 // A persisted calculation belongs to the exact authored document, not to the
 // last bits of temporary coordinates reconstructed by a platform math library.
 // Stream the definition so a large frozen STEP is not duplicated for hashing.
@@ -196,9 +211,6 @@ std::vector<zima::kernel::BodyResult> restore_final_body_cache(
     }
     if(restored.size()!=operations.size())
         throw std::runtime_error("Final calculated Body cache has invalid boundary count");
-    const auto fingerprints=zima::kernel::history_fingerprints(operations);
-    for(std::size_t index=0;index<restored.size();++index)
-        restored[index].source_fingerprint=fingerprints.at(index+1);
     // The document-level evaluator deliberately compacts every non-final
     // boundary after assembling the Body branches.  A branch's final local
     // packet can therefore contain its full original-reference database even
@@ -732,7 +744,9 @@ void add_json_parameters(
     }
 }
 
-nlohmann::json read_part_ini(const std::filesystem::path& path) {
+nlohmann::json read_part_ini(const std::filesystem::path& path,
+        std::optional<NativeCalculatedCache>* native_cache = nullptr,
+        CacheStorageSharedStrings* shared_strings = nullptr) {
     NativeIoProfile profile("Part read");
     const auto ini = read_ini(path);
     profile.phase("INI scan");
@@ -911,20 +925,30 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             encoding==legacy_final_body_cache_format||
             encoding==final_body_cache_format;
     }()) {
-        const auto& cache=ini.at("CachedBodies");const auto stored=cache.find("data");
+        auto& cache=ini.at("CachedBodies");const auto stored=cache.find("data");
         const std::string empty;const auto& data=stored==cache.end()?empty:stored->second;
         profile.phase("definition decode");
         if (!data.empty()) {
             auto storage=nlohmann::json::parse(data);profile.phase("cache JSON parse");
-            root["calculated_boundaries"] = unpack_cache_storage(std::move(storage));profile.phase("cache expansion");
+            root["calculated_boundaries"] = shared_strings
+                ?unpack_cache_storage(std::move(storage),shared_strings)
+                :unpack_cache_storage(std::move(storage));
+            profile.phase("cache expansion");
         }
         root["calculation_definition_fingerprint"] = ini_required(ini, "CachedBodies", "definition_fingerprint");
+        if(native_cache&&stored!=cache.end()&&!stored->second.empty())
+            *native_cache=NativeCalculatedCache{
+                ini_value(ini,"CachedBodies","encoding"),
+                ini_required(ini,"CachedBodies","definition_fingerprint"),
+                std::make_shared<const std::string>(std::move(stored->second))};
     }
     return root;
 }
 
-void write_part_ini(
-    nlohmann::json root, const std::filesystem::path& path) {
+NativeCalculatedCachePtr write_part_ini(
+    nlohmann::json root, const std::filesystem::path& path,
+    NativeCalculatedCachePtr reuse = {},std::size_t operation_count = 0,
+    std::string final_source_fingerprint = {}) {
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
@@ -1126,13 +1150,30 @@ void write_part_ini(
         ini["Sketch." + sketch_id]["data"] = sketch.dump();
     }
     ini["Sketches"]["items"] = sketch_items;
-    if (!root.at("calculated_boundaries").empty()) {
+    NativeCalculatedCachePtr written_cache;
+    if (reuse) {
+        if(reuse->definition_fingerprint!=
+                root.at("calculation_definition_fingerprint").get<std::string>())
+            throw std::runtime_error("Reusable calculated cache does not match its parameters");
+        auto& cache=ini["CachedBodies"];
+        cache["encoding"]=reuse->encoding;
+        cache["definition_fingerprint"]=reuse->definition_fingerprint;
+        if(!reuse->data)throw std::runtime_error(
+            "Reusable calculated cache has no encoded data");
+        cache["data"]=*reuse->data;
+        written_cache=std::move(reuse);
+        profile.phase("cache reuse");
+    } else if (!root.at("calculated_boundaries").empty()) {
         auto& cache=ini["CachedBodies"];
         cache["encoding"]=root.at("calculated_boundaries").is_object()
             ?final_body_cache_format:"zima-shared-body-results-v2";
         cache["definition_fingerprint"]=root.at("calculation_definition_fingerprint").get<std::string>();
         auto storage=pack_cache_storage(std::move(root.at("calculated_boundaries")));profile.phase("cache packing");
         cache["data"]=storage.dump();profile.phase("cache text encoding");
+        written_cache=std::make_shared<const NativeCalculatedCache>(
+            NativeCalculatedCache{cache["encoding"],cache["definition_fingerprint"],
+                std::make_shared<const std::string>(cache["data"]),operation_count,
+                std::move(final_source_fingerprint)});
     }
     profile.phase("INI/cache preparation");
     // The lossless INI/cache text now owns everything needed for one write.
@@ -1166,6 +1207,7 @@ void write_part_ini(
     profile.phase("release encoded text");
     archive_existing_file(path);
     std::filesystem::rename(temporary, native_file_io_path(path));
+    return written_cache;
 }
 
 void require_positive(double value, const char* field) {
@@ -11210,11 +11252,27 @@ std::string serialize_construction_objects(
 
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
-    std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
+    std::vector<zima::kernel::BodyResult>* calculated_boundaries,
+    NativeCalculatedCachePtr* native_cache) {
     NativeIoProfile profile("Part load");
     NativeReadCapture::observe(path);profile.phase("read capture");
-    auto root=read_part_ini(path);profile.phase("read native data");
-    auto document=from_serialized(root,calculated_boundaries);profile.phase("reconstruction and validation");
+    std::optional<NativeCalculatedCache> cached;
+    CacheStorageSharedStrings shared_strings;
+    auto root=read_part_ini(path,native_cache?&cached:nullptr,&shared_strings);
+    profile.phase("read native data");
+    std::vector<zima::kernel::BodyResult> private_boundaries;
+    auto* loaded=calculated_boundaries?calculated_boundaries:
+        native_cache?&private_boundaries:nullptr;
+    const CacheStorageStringScope cache_strings_scope(&shared_strings);
+    auto document=from_serialized(root,loaded);profile.phase("reconstruction and validation");
+    if(native_cache) {
+        if(cached&&loaded&&!loaded->empty()) {
+            cached->operation_count=loaded->size();
+            cached->final_source_fingerprint=loaded->back().source_fingerprint;
+            *native_cache=std::make_shared<const NativeCalculatedCache>(
+                std::move(*cached));
+        } else native_cache->reset();
+    }
     return document;
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
@@ -12115,6 +12173,18 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     const auto load_boundary=[&](const nlohmann::json& boundary) {
         if(std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")) {
             std::size_t frames{},body_boundaries{},body_inputs{},body_outputs{};
+            const auto stored_bytes=[&](const char* key) {
+                const auto found=boundary.find(key);
+                if(found==boundary.end())return std::size_t{};
+                if(found->is_string())return found->get_ref<const std::string&>().size();
+                if(!active_cache_storage_strings||!found->is_object()||
+                        found->size()!=1||!found->contains("$zima_cache")||
+                        !found->at("$zima_cache").is_number_unsigned())return std::size_t{};
+                const auto index=found->at("$zima_cache").get<std::size_t>();
+                return index<active_cache_storage_strings->size()&&
+                    active_cache_storage_strings->at(index)
+                    ?active_cache_storage_strings->at(index)->size():std::size_t{};
+            };
             if(const auto history=boundary.find("incremental_history");history!=boundary.end()&&history->is_object())
                 frames=history->value("frames",nlohmann::json::array()).size();
             if(const auto histories=boundary.find("body_histories");histories!=boundary.end()&&histories->is_object()) {
@@ -12125,7 +12195,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             }
             std::fprintf(stderr,"Native IO boundary %zu frames=%zu body_boundaries=%zu inputs=%zu outputs=%zu kernel=%zu vertices=%zu edges=%zu\n",
                 loaded_boundary_index,frames,body_boundaries,body_inputs,body_outputs,
-                boundary.value("kernel_shape",std::string{}).size(),boundary.value("vertices_binary",std::string{}).size(),
+                stored_bytes("kernel_shape"),stored_bytes("vertices_binary"),
                 boundary.value("edges",nlohmann::json::array()).size());
         }
         const bool previous_body =
@@ -12135,7 +12205,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 "First calculated boundary cannot reuse a previous body");
         }
         auto loaded = previous_body
-            ? loaded_boundaries.back() : load_body_result(boundary);
+            ? loaded_boundaries.back()
+            : load_body_result(boundary,{},active_cache_storage_strings);
         if (previous_body) {
             loaded.source_fingerprint =
                 boundary.at("source_fingerprint").get<std::string>();
@@ -12171,17 +12242,21 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             calculated_cache.value("operation_count",std::size_t{})!=expected_operations.size()||
             !calculated_cache.contains("final")||!calculated_cache.at("final").is_object())
             throw std::runtime_error("Unsupported calculated Body cache format");
-        auto final=load_body_result(calculated_cache.at("final"));
+        auto final=load_body_result(calculated_cache.at("final"),{},
+            active_cache_storage_strings);
+        profile.phase("final Body packet load");
         loaded_boundaries=restore_final_body_cache(std::move(final),expected_operations);
         loaded_boundary_index=loaded_boundaries.size();
-        profile.phase("final Body cache reconstruction");
+        profile.phase("final Body history restoration");
     } else throw std::runtime_error("Calculated Body cache must be an array or object");
     if (!loaded_boundaries.empty() &&
         loaded_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
-    const auto loaded_fingerprints=loaded_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(solid_state_calculation_operations(document,&loaded_boundaries));
+    const auto loaded_fingerprints=loaded_boundaries.empty()?std::vector<std::string>{}:
+        zima::kernel::history_fingerprints(solid_state_calculation_operations(
+            document,&loaded_boundaries,expected_operations));
     profile.phase("history fingerprints");
     std::unordered_set<std::string> available_owners;
     for (std::size_t boundary_index = 0;
@@ -13130,7 +13205,9 @@ nlohmann::json PartDocument::serialized(
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
-    const auto saved_fingerprints=calculated_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(solid_state_calculation_operations(*this,&calculated_boundaries));
+    const auto saved_fingerprints=calculated_boundaries.empty()?std::vector<std::string>{}:
+        zima::kernel::history_fingerprints(solid_state_calculation_operations(
+            *this,&calculated_boundaries,expected_operations));
     for (std::size_t index = 0; index < calculated_boundaries.size(); ++index) {
         if (calculated_boundaries[index].source_fingerprint !=
             saved_fingerprints.at(index+1)) {
@@ -13281,10 +13358,47 @@ nlohmann::json PartDocument::serialized(
 }
 void PartDocument::save(const std::filesystem::path& path,
     const std::vector<zima::kernel::BodyResult>& calculated, const DocumentCopyIdentity& copy) const {
+    static_cast<void>(save_with_native_cache(path,calculated,{},copy));
+}
+
+NativeCalculatedCachePtr PartDocument::save_with_native_cache(
+    const std::filesystem::path& path,
+    const std::vector<zima::kernel::BodyResult>& calculated,
+    NativeCalculatedCachePtr reuse,const DocumentCopyIdentity& copy,
+    const NativeCalculatedCacheReuse reuse_policy) const {
     if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
     NativeIoProfile profile("Part save");
-    auto root=serialized(calculated,copy,true);profile.phase("document serialization");
-    write_part_ini(std::move(root),path);profile.phase("write and commit");
+    if(reuse&&(reuse->operation_count!=calculated.size()||calculated.empty()||
+            reuse->final_source_fingerprint!=calculated.back().source_fingerprint))
+        reuse.reset();
+    auto root=reuse
+        ?serialized({},copy,true)
+        :serialized(calculated,copy,true);
+    profile.phase("document serialization");
+    if(reuse&&reuse->definition_fingerprint!=
+            root.at("calculation_definition_fingerprint").get<std::string>()) {
+        if(reuse_policy==NativeCalculatedCacheReuse::UnchangedCalculatedPacket) {
+            // DocumentSession grants this policy only while it still owns the
+            // exact immutable calculated packet. Retag the same derived bytes
+            // for metadata such as visibility, appearance or history focus.
+            reuse=std::make_shared<const NativeCalculatedCache>(
+                NativeCalculatedCache{reuse->encoding,
+                    root.at("calculation_definition_fingerprint").get<std::string>(),
+                    reuse->data,reuse->operation_count,
+                    reuse->final_source_fingerprint});
+        } else reuse.reset();
+    }
+    if(!reuse&&root.at("calculated_boundaries").empty()&&!calculated.empty()) {
+        // A definition mismatch invalidates reuse; serialize and validate the
+        // current immutable packet through the ordinary exact path.
+        root=serialized(calculated,copy,true);
+        profile.phase("cache fallback serialization");
+    }
+    auto written=write_part_ini(std::move(root),path,std::move(reuse),
+        calculated.size(),calculated.empty()?std::string{}:
+            calculated.back().source_fingerprint);
+    profile.phase("write and commit");
+    return written;
 }
 
 }  // namespace zima::document

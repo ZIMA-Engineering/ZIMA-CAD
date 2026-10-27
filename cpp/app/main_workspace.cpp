@@ -8046,6 +8046,10 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
     using namespace zima::document;
     auto fixture=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_DIMENSION_FILE");
     const bool capsule_only=qEnvironmentVariableIsSet("ZIMA_VERIFY_CAPSULE_DIMENSION_ONLY");
+    const bool new_feature_open_only=
+        qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_FEATURE_OPEN_ONLY");
+    const bool sketch_drag_profile_only=
+        qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DRAG_PROFILE_ONLY");
     if(capsule_only) {
         std::ifstream input(std::filesystem::path(__FILE__).parent_path()/"../tests/fixtures/sketch/capsule-line-distance.json");
         auto profile=zima::sketcher::Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(input),{}));
@@ -8093,6 +8097,83 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             body_id=body->scope.id;
         }
         const auto initial_value=sketch.dimensions.front().value;
+        if(sketch_drag_profile_only) {
+            if(!verify(!fixture.isEmpty(),
+                    "Sketch drag profiling requires a representative native fixture"))return 1;
+            QElapsedTimer timer;
+            zima::document::DocumentSession session(document,calculated);
+            timer.start();
+            const auto context=session.body_context_mesh();
+            std::cout<<"Sketch drag body_context_ms="<<timer.nsecsElapsed()/1e6
+                <<" edges="<<context.edges.size()<<" triangles="
+                <<context.triangles.size()/3<<std::endl;
+            std::size_t movable_sketches{};
+            double worst_solver_ms{};
+            double worst_mesh_ms{};
+            std::size_t sketch_index{};
+            for(const auto& source:document.sketches) {
+                timer.restart();
+                const auto source_mesh=source.viewer_mesh();
+                const double source_mesh_ms=timer.nsecsElapsed()/1e6;
+                bool moved{};
+                double solver_ms{};
+                double moved_mesh_ms{};
+                double lightweight_mesh_ms{};
+                for(const auto& point:source.points) {
+                    for(const auto delta:std::array<std::array<double,2>,4>{
+                            std::array<double,2>{.25,0.}, {-.25,0.},
+                            {0.,.25}, {0.,-.25}}) {
+                        auto candidate=source;
+                        timer.restart();
+                        const bool accepted=candidate.move_point(point.id,
+                            point.x+delta[0],point.y+delta[1]);
+                        const double elapsed=timer.nsecsElapsed()/1e6;
+                        if(!accepted)continue;
+                        solver_ms=elapsed;
+                        timer.restart();
+                        const auto mesh=candidate.viewer_mesh();
+                        moved_mesh_ms=timer.nsecsElapsed()/1e6;
+                        timer.restart();
+                        const auto lightweight_mesh=candidate.viewer_mesh(false);
+                        lightweight_mesh_ms=timer.nsecsElapsed()/1e6;
+                        moved=true;
+                        break;
+                    }
+                    if(moved)break;
+                }
+                std::size_t cached_reference_points{};
+                for(const auto& reference:source.external_references) {
+                    cached_reference_points+=reference.cached_points.size();
+                    for(const auto& path:reference.cached_paths)
+                        cached_reference_points+=path.size();
+                }
+                std::cout<<"Sketch drag index="<<sketch_index++
+                    <<" sketch="<<source.name
+                    <<" points="<<source.points.size()<<" segments="
+                    <<source.segments.size()<<" circles="<<source.circles.size()
+                    <<" arcs="<<source.arcs.size()<<" corner_radii="
+                    <<source.corner_radii.size()<<" constraints="
+                    <<source.constraints.size()<<" dimensions="
+                    <<source.dimensions.size()<<" external_references="
+                    <<source.external_references.size()<<" cached_reference_points="
+                    <<cached_reference_points<<" source_mesh_ms="
+                    <<source_mesh_ms;
+                if(moved) {
+                    ++movable_sketches;
+                    worst_solver_ms=std::max(worst_solver_ms,solver_ms);
+                    worst_mesh_ms=std::max(worst_mesh_ms,moved_mesh_ms);
+                    std::cout<<" solver_ms="<<solver_ms
+                        <<" moved_mesh_ms="<<moved_mesh_ms
+                        <<" lightweight_mesh_ms="<<lightweight_mesh_ms;
+                } else std::cout<<" fully_constrained=1";
+                std::cout<<std::endl;
+            }
+            std::cout<<"Sketch drag summary movable="<<movable_sketches
+                <<" worst_solver_ms="<<worst_solver_ms
+                <<" worst_mesh_ms="<<worst_mesh_ms<<std::endl;
+            return verify(movable_sketches>0,
+                "Representative fixture has no movable Sketch geometry")?0:1;
+        }
         const double first_edit=fixture.isEmpty()?3.:std::ceil(initial_value)+1.;
         const double accepted_value=fixture.isEmpty()?4.:std::ceil(initial_value)+9.;
         const double sketch_edit=fixture.isEmpty()?5.:std::ceil(initial_value)+19.;
@@ -8105,6 +8186,46 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
         flush();if(!verify(activate_test_body(application,window,body_id),"Cannot activate dimension fixture body"))return 1;
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        if(new_feature_open_only) {
+            const auto revision=view->base_mesh_revision();
+            QElapsedTimer timer;timer.start();
+            auto* action=window.findChild<QAction*>("featurePrototypeAction");
+            if(!verify(action&&action->isEnabled(),"New Feature command is unavailable"))return 1;
+            action->trigger();flush();
+            zima::app::PrimitivePropertiesDialog* opened{};
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* candidate=dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child);
+                    candidate&&candidate->isVisible()){opened=candidate;break;}
+            if(!verify(opened!=nullptr,"New Feature Properties did not open"))return 1;
+            std::cout<<"New Feature opening_ms="<<timer.nsecsElapsed()/1e6
+                <<" publications="<<view->base_mesh_revision()-revision<<std::endl;
+            if(!verify(view->base_mesh_revision()==revision,
+                "Opening a new empty Feature republished the base scene"))return 1;
+            if(!verify(view->property("transientContextAxisCount").toULongLong()>=3&&
+                    view->property("transientContextEdgeCount").toULongLong()>=4&&
+                    view->property("transientContextPointCount").toULongLong()>=1,
+                "New Feature did not publish its lightweight Origin/work-plane context"))return 1;
+            auto* origin=opened->findChild<QPushButton*>("containerDefaultOriginButton");
+            if(!verify(origin!=nullptr,"New Feature has no Default Origin button"))return 1;
+            const auto preview_count=opened->property("primitivePreviewCalculations").toULongLong();
+            const auto origin_revision=view->base_mesh_revision();timer.restart();
+            origin->click();flush();
+            std::cout<<"New Feature default_origin_ms="<<timer.nsecsElapsed()/1e6
+                <<" publications="<<view->base_mesh_revision()-origin_revision
+                <<" previews="<<opened->property("primitivePreviewCalculations").toULongLong()-preview_count<<std::endl;
+            if(!verify(opened->property("primitivePreviewCalculations").toULongLong()==preview_count+1,
+                "Default Origin recalculated intermediate Feature previews"))return 1;
+            if(!verify(view->base_mesh_revision()==origin_revision,
+                "Default Origin republished the base Feature scene"))return 1;
+            const auto origin_value=opened->pending_value();
+            if(!verify(zima::document::placement_references_use_whole_origin(
+                    origin_value.placement.references),
+                "Default Origin did not assign the complete Origin triad"))return 1;
+            if(!verify(origin_value.placement.reference_valid,
+                "Default Origin did not resolve a valid final placement"))return 1;
+            opened->reject();flush();
+            return 0;
+        }
         const auto open=[&]() -> QDialog* {
             QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator i(tree);*i;++i) {

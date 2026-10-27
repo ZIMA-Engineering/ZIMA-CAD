@@ -1,10 +1,12 @@
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
 #include <functional>
+#include <zstd.h>
 #include <zlib.h>
 #include <openssl/evp.h>
 using nlohmann::json;
@@ -19,12 +21,27 @@ json raw_storage(const json& packed) {
     require(length>=0,"Independent base64 decoding failed");
     length-=encoded.back()=='=';length-=encoded[encoded.size()-2]=='=';
     compressed.resize(length);
-    auto expected=packed.at("uncompressed_bytes").get<uLongf>();
-    std::string raw(expected,'\0');
-    require(uncompress(reinterpret_cast<Bytef*>(raw.data()),&expected,
-        reinterpret_cast<const Bytef*>(compressed.data()),static_cast<uLong>(compressed.size()))==Z_OK,
-        "Independent zlib decoding failed");
-    require(expected==raw.size(),"Independent decoded length changed");
+    const auto raw_size=packed.at("uncompressed_bytes").get<std::size_t>();
+    std::string raw(raw_size,'\0');
+    if(packed.at("compression")=="zstd-base64") {
+        require(packed.at("format")=="zima-shared-cache-v2",
+            "Zstd cache has an unexpected format");
+        require(ZSTD_getFrameContentSize(compressed.data(),compressed.size())==raw_size,
+            "Independent Zstd frame size changed");
+        const auto decoded=ZSTD_decompress(raw.data(),raw.size(),
+            compressed.data(),compressed.size());
+        require(!ZSTD_isError(decoded)&&decoded==raw.size(),
+            "Independent Zstd decoding failed");
+    } else {
+        require(packed.at("compression")=="zlib-base64"&&
+            packed.at("format")=="zima-shared-cache-v1",
+            "Compressed cache has an unexpected format");
+        auto expected=static_cast<uLongf>(raw_size);
+        require(uncompress(reinterpret_cast<Bytef*>(raw.data()),&expected,
+            reinterpret_cast<const Bytef*>(compressed.data()),static_cast<uLong>(compressed.size()))==Z_OK,
+            "Independent zlib decoding failed");
+        require(expected==raw.size(),"Independent decoded length changed");
+    }
     return json::parse(raw);
 }
 // Previous traversal is a byte-level oracle for the allocation optimization.
@@ -37,7 +54,7 @@ public:
         json encoded=source;
         if(encoded.is_structured())for(auto& child:encoded)child=encode(child);
         if(!encoded.is_structured()&&!encoded.is_string())return encoded;
-        auto key=encoded.dump();if(key.size()<256)return encoded;
+        auto key=encoded.dump();if(key.size()<1024)return encoded;
         if(const auto found=indices.find(key);found!=indices.end())return {{"$zima_cache",found->second}};
         const auto index=values.size();indices.emplace(std::move(key),index);
         values.push_back(std::move(encoded));return {{"$zima_cache",index}};
@@ -115,6 +132,31 @@ int main() {
         const auto body_roundtrip=zima::document::load_body_result(body_packet);
         require(zima::document::serialize_body_result(body_roundtrip,false,false)==body_packet,
             "Viewer v2 changed exact topology identities, sheet sides, edge metadata or points");
+        auto shared_body=body;
+        const std::string large_identity=std::string(5000,'I')+":side:+0";
+        for(auto& reference:shared_body.mesh.triangle_references)
+            reference.semantic_key=large_identity;
+        shared_body.mesh.edges.front().reference.semantic_key=large_identity+":edge";
+        for(auto& reference:shared_body.mesh.edges.front().edge_treatment_side_references)
+            reference.semantic_key=large_identity+":face";
+        for(auto& reference:shared_body.mesh.edges.front().edge_treatment_endpoint_references)
+            reference.semantic_key=large_identity+":vertex";
+        shared_body.mesh.points.front().reference.semantic_key=large_identity+":point";
+        const auto shared_body_packet=
+            zima::document::serialize_body_result(shared_body,false,false);
+        auto shared_storage=zima::document::pack_cache_storage(
+            json{{"body",shared_body_packet}});
+        zima::document::CacheStorageSharedStrings shared_strings;
+        auto shared_root=zima::document::unpack_cache_storage(
+            std::move(shared_storage),&shared_strings);
+        const auto shared_roundtrip=zima::document::load_body_result(
+            shared_root.at("body"),{},&shared_strings);
+        require(zima::document::serialize_body_result(
+                shared_roundtrip,false,false)==shared_body_packet,
+            "Shared native strings changed B-Rep bytes or long topology identities");
+        require(std::ranges::any_of(shared_strings,[](const auto& value) {
+                return value&&value->size()>=4096;
+            }),"Part cache did not retain large native strings for direct loading");
         auto different=body;different.volume=18.5;
         if(!different.kernel_shape.shares_with(body.kernel_shape))
             throw std::runtime_error("Calculated snapshots copied opaque archive bytes");

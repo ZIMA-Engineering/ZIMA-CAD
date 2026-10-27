@@ -37,7 +37,11 @@ private:
     friend PreparedNativeDocument prepare_new_native_document(NativeDocumentType, const std::string&,
         const std::filesystem::path&, const NativeTemplateSettings&, const std::map<std::string,std::string>&);
     friend std::string insert_native_document(Workspace&, PreparedNativeDocument);
-    struct Part { document::PartDocument document; std::vector<kernel::BodyResult> boundaries; };
+    struct Part {
+        document::PartDocument document;
+        std::vector<kernel::BodyResult> boundaries;
+        document::NativeCalculatedCachePtr native_cache;
+    };
     std::variant<Part,assembly::AssemblyDocument,drawing::DrawingDocument> document_;
     std::filesystem::path path_;
     bool new_document_{};

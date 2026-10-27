@@ -27,7 +27,8 @@ class DocumentSession {
 public:
     explicit DocumentSession(
         PartDocument document,
-        std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
+        std::vector<zima::kernel::BodyResult> calculated_boundaries = {},
+        NativeCalculatedCachePtr native_cache = {});
 
     DocumentSession(const DocumentSession&);
     // Private read/calculation snapshot only; never publish over a live Undo session.
@@ -44,6 +45,9 @@ public:
     [[nodiscard]] bool can_redo() const;
     [[nodiscard]] const std::vector<zima::kernel::BodyResult>&
         calculated_boundaries() const;
+    [[nodiscard]] NativeCalculatedCachePtr native_calculated_cache() const {
+        return current_->native_cache;
+    }
     [[nodiscard]] std::optional<zima::kernel::BodyResult>
         calculated_boundary(std::size_t operation_count) const;
     [[nodiscard]] std::optional<zima::kernel::BodyResult> calculated_body_boundary(
@@ -56,6 +60,9 @@ public:
 
     // Workspace-owned transaction routing; copied sessions deliberately omit it.
     std::function<bool(PartDocument&, std::vector<zima::kernel::BodyResult>&)> commit_interceptor;
+    // Metadata commits preserve the immutable calculated packet. Family
+    // workspaces may still redirect them through their shared transaction.
+    std::function<bool(PartDocument&)> metadata_commit_interceptor;
     void update_family_evaluated(FamilyDocument);
     void replace(
         PartDocument document,
@@ -63,11 +70,19 @@ public:
     void commit(
         PartDocument document,
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
+    // Commit document-only state such as visibility or a history cursor. The
+    // calculated geometry is immutable and shared with the new Undo revision.
+    void commit_metadata(PartDocument document);
     void update_calculated_boundaries(
         std::vector<zima::kernel::BodyResult> calculated_boundaries);
     // Publish the derived physical analysis of a matching save snapshot only.
     // Preserves authored geometry, revision and both Undo/Redo stacks.
     void update_save_analysis(PartDocument, std::vector<zima::kernel::BodyResult>);
+    // Attach only the cache produced by a successful save of this exact state.
+    // This is disposable serialization data and does not change dirty state.
+    void update_saved_native_cache(NativeCalculatedCachePtr value) {
+        current_->native_cache=std::move(value);
+    }
     // Borrowed candidate for validation before a cross-document history step.
     [[nodiscard]] const PartDocument* history_document(bool redo) const noexcept;
     bool undo();
@@ -86,7 +101,8 @@ private:
     DocumentSession(const DocumentSession&, bool include_history);
     struct State {
         PartDocument document;
-        std::vector<zima::kernel::BodyResult> calculated_boundaries;
+        std::shared_ptr<const std::vector<zima::kernel::BodyResult>> calculated_boundaries;
+        NativeCalculatedCachePtr native_cache;
         std::uint64_t revision{};
         bool calculated_state_dirty{};
         bool externally_mutable{};

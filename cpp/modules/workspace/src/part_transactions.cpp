@@ -284,6 +284,17 @@ void commit_part_document(Workspace& live,const std::string& document_id,documen
     Publication publication(live,&next);prepare_change(publication,before,after,false);
     live.open_part(id)->session.commit(std::move(next),std::move(calculated));publication.publish();
 }
+void commit_part_document_metadata(Workspace& live,const std::string& document_id,
+    document::PartDocument next) {
+    static_cast<void>(refresh_removed_reference_states(next));
+    const auto id=document_id;const auto* part=live.open_part(id);
+    if(!part)throw std::invalid_argument("Part document is not open");
+    const auto before=signatures(part->session.document()),after=signatures(next);
+    if(before==after){live.open_part(id)->session.commit_metadata(std::move(next));return;}
+    validate_new_references(live,id,before,after,false);
+    Publication publication(live,&next);prepare_change(publication,before,after,false);
+    live.open_part(id)->session.commit_metadata(std::move(next));publication.publish();
+}
 bool step_part_document_history(Workspace& live,const std::string& document_id,bool redo) {
     const auto id=document_id;const auto* part=live.open_part(id);if(!part)return false;
     const auto* candidate=part->session.history_document(redo);if(!candidate)return false;

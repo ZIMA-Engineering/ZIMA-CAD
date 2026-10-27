@@ -1,6 +1,7 @@
 // Included by the shared native cache codec. Compression changes storage only;
 // the existing JSON DAG reader remains the sole expansion implementation.
 #include <openssl/evp.h>
+#include <zstd.h>
 #include <zlib.h>
 #include <array>
 #include <limits>
@@ -99,6 +100,38 @@ std::string cache_zlib(std::string_view input,bool encode,std::size_t expected=0
     }
 }
 
+struct CacheZstdContext {
+    ZSTD_CCtx* context{ZSTD_createCCtx()};
+    CacheZstdContext() { if(!context)throw std::bad_alloc(); }
+    ~CacheZstdContext() { ZSTD_freeCCtx(context); }
+};
+
+std::string cache_zstd_compress(std::string_view input) {
+    CacheZstdContext owner;
+    if(ZSTD_isError(ZSTD_CCtx_setParameter(owner.context,
+            ZSTD_c_compressionLevel,1)) ||
+       ZSTD_isError(ZSTD_CCtx_setParameter(owner.context,
+            ZSTD_c_checksumFlag,1)))invalid_compressed_cache();
+    std::string result(ZSTD_compressBound(input.size()),'\0');
+    const auto size=ZSTD_compress2(owner.context,result.data(),result.size(),
+        input.data(),input.size());
+    if(ZSTD_isError(size))invalid_compressed_cache();
+    result.resize(size);
+    return result;
+}
+
+std::string cache_zstd_decompress(std::string_view input,std::size_t expected) {
+    if(input.empty() ||
+       ZSTD_getFrameContentSize(input.data(),input.size())!=expected ||
+       ZSTD_findFrameCompressedSize(input.data(),input.size())!=input.size())
+        invalid_compressed_cache();
+    std::string result(expected,'\0');
+    const auto size=ZSTD_decompress(result.data(),result.size(),
+        input.data(),input.size());
+    if(ZSTD_isError(size)||size!=expected)invalid_compressed_cache();
+    return result;
+}
+
 CacheJson compress_cache_storage(CacheJson&& storage) {
     // Tiny inputs retain the same current raw representation. Estimate first
     // to avoid serializing a small template twice merely to reject compression.
@@ -108,7 +141,7 @@ CacheJson compress_cache_storage(CacheJson&& storage) {
     const auto raw=storage.dump();
     const auto dumped=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     if(raw.size()<64*1024)return std::move(storage);
-    const auto compressed=cache_zlib(raw,true);
+    const auto compressed=cache_zstd_compress(raw);
     const auto deflated=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     if(compressed.size()>(raw.size()-raw.size()/10)/4*3)return std::move(storage);
     auto encoded=cache_base64_encode(compressed);
@@ -118,18 +151,21 @@ CacheJson compress_cache_storage(CacheJson&& storage) {
             return std::chrono::duration<double,std::milli>(to-from).count();
         };
         std::fprintf(stderr,
-            "Native IO cache compression dump: %.3f ms; zlib: %.3f ms; base64: %.3f ms; raw=%zu compressed=%zu\n",
+            "Native IO cache compression dump: %.3f ms; zstd: %.3f ms; base64: %.3f ms; raw=%zu compressed=%zu\n",
             milliseconds(started,dumped),milliseconds(dumped,deflated),
             milliseconds(deflated,finished),raw.size(),compressed.size());
     }
-    return {{"format","zima-shared-cache-v1"},{"compression","zlib-base64"},
+    return {{"format","zima-shared-cache-v2"},{"compression","zstd-base64"},
         {"uncompressed_bytes",raw.size()},{"data",std::move(encoded)}};
 }
 
 CacheJson decompress_cache_storage(CacheJson&& storage) {
     if(!storage.is_object()||!storage.contains("compression"))return std::move(storage);
-    if(storage.size()!=4||storage.value("format","")!="zima-shared-cache-v1"||
-       storage.at("compression")!="zlib-base64"||!storage.contains("data")||
+    const auto format=storage.value("format",std::string{});
+    const auto compression=storage.value("compression",std::string{});
+    const bool zstd=format=="zima-shared-cache-v2"&&compression=="zstd-base64";
+    const bool legacy_zlib=format=="zima-shared-cache-v1"&&compression=="zlib-base64";
+    if(storage.size()!=4||(!zstd&&!legacy_zlib)||!storage.contains("data")||
        !storage.at("data").is_string()||!storage.contains("uncompressed_bytes")||
        !storage.at("uncompressed_bytes").is_number_unsigned())invalid_compressed_cache();
     const auto expected=storage.at("uncompressed_bytes").get<std::uint64_t>();
@@ -138,13 +174,16 @@ CacheJson decompress_cache_storage(CacheJson&& storage) {
     const auto started=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     const auto compressed=cache_base64_decode(storage.at("data").get_ref<const std::string&>());
     const auto decoded_base64=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
-    const auto raw=cache_zlib(compressed,false,static_cast<std::size_t>(expected));
+    const auto raw=zstd
+        ? cache_zstd_decompress(compressed,static_cast<std::size_t>(expected))
+        : cache_zlib(compressed,false,static_cast<std::size_t>(expected));
     const auto inflated=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     auto decoded=CacheJson::parse(raw,nullptr,false);
     if(profile) {
         const auto parsed=std::chrono::steady_clock::now();
-        std::fprintf(stderr,"Native IO cache decompression base64: %.3f ms; zlib: %.3f ms; JSON: %.3f ms\n",
+        std::fprintf(stderr,"Native IO cache decompression base64: %.3f ms; %s: %.3f ms; JSON: %.3f ms\n",
             std::chrono::duration<double,std::milli>(decoded_base64-started).count(),
+            zstd?"zstd":"zlib",
             std::chrono::duration<double,std::milli>(inflated-decoded_base64).count(),
             std::chrono::duration<double,std::milli>(parsed-inflated).count());
     }

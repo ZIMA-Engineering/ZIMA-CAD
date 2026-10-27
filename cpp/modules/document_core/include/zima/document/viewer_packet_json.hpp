@@ -1,5 +1,6 @@
 #pragma once
 
+#include <zima/document/cache_storage.hpp>
 #include <zima/kernel/geometry_kernel.hpp>
 
 #include <nlohmann/json_fwd.hpp>
@@ -23,6 +24,7 @@ load_viewer_reference_geometry(const nlohmann::json& source);
 // Resolve those entries before loading/validating the compound recipe.
 [[nodiscard]] zima::kernel::BodyResult load_body_result(
     const nlohmann::json& source,
-    std::map<std::string,zima::kernel::BodySnapshot> compound_operands = {});
+    std::map<std::string,zima::kernel::BodySnapshot> compound_operands = {},
+    const CacheStorageSharedStrings* shared_strings = nullptr);
 
 }  // namespace zima::document

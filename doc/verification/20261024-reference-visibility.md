@@ -1,5 +1,10 @@
 # Reference visibility and numeric helper labels — 2026-10-24
 
+> Historical verification record. The later 2026102702 interaction policy
+> removes the Axis points toolbar action and hides auxiliary endpoints in the
+> ordinary View; explicit commands reveal the same persisted points transiently.
+> The 2026-10-24 results below describe the behavior verified for that release.
+
 ## Scope
 
 - Complete scenes and live Feature Properties overlays share the same localized

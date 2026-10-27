@@ -40,6 +40,24 @@ void verify(){
     part.history.push_back(box);part.relations+="capacity = 1 / (2000 - round(model.volume))\n";
     kernel::OcctKernel kernel;const auto original=kernel.evaluate_history(part.kernel_operations());
     require(std::abs(original.back().volume-1000)<1e-7,"Fixture must have independently known volume 1000 mm3");
+    const auto native_cache=std::make_shared<const document::NativeCalculatedCache>(
+        document::NativeCalculatedCache{"test-cache","definition",
+            std::make_shared<const std::string>("payload"),
+            original.size(),original.back().source_fingerprint});
+    document::DocumentSession cached(part,original,native_cache);
+    auto metadata=cached.document();metadata.name="Metadata only";
+    cached.commit_metadata(std::move(metadata));
+    require(cached.native_calculated_cache()==native_cache,
+        "Metadata commit discarded an exact native calculated cache");
+    auto geometry_edit=cached.document();
+    cached.commit(std::move(geometry_edit),original);
+    require(!cached.native_calculated_cache(),
+        "Geometry commit retained a potentially stale native cache");
+    require(cached.undo()&&cached.native_calculated_cache()==native_cache,
+        "Undo did not restore the exact cache owned by its immutable state");
+    cached.update_calculated_boundaries(original);
+    require(!cached.native_calculated_cache(),
+        "Calculated packet replacement retained a stale native cache");
     document::DocumentSession session(part,original);
     {
         auto packets=original;
@@ -104,8 +122,13 @@ void verify(){
     }
     require(session.redo() && session.calculated_boundaries().data()==allocations[1],"Redo copied retained geometry");
     document::DocumentSession copied(session);const auto copied_name=copied.document().name;
-    require(copied.calculated_boundaries().data()!=session.calculated_boundaries().data(),"Explicit session copy aliases mutable calculated state");
+    require(copied.calculated_boundaries().data()==session.calculated_boundaries().data(),"Explicit session copy duplicated immutable calculated state");
     require(copied.document().name==copied_name && copied.can_undo(),"Undo changed an independent session copy");
+    copied.update_calculated_boundaries(changed);
+    require(copied.calculated_boundaries().data()!=session.calculated_boundaries().data() &&
+        copied.calculated_boundaries().back().volume==changed.back().volume &&
+        session.calculated_boundaries().back().volume==original.back().volume,
+        "Calculated-state replacement mutated an immutable shared session cache");
     document::DocumentSession assigned(part,original);assigned=copied;
     require(copied.undo() && assigned.document().name==copied_name,"Copy assignment shares mutable history");
     assigned=assigned;require(assigned.document().name==copied_name,"Self-assignment lost history");

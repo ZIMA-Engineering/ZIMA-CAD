@@ -73,6 +73,7 @@ if(NOT TARGET Qt6::CorePrivate)
     find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
 endif()
 find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+find_package(zstd CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION
@@ -290,7 +291,7 @@ target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
     PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json
-    PRIVATE OpenSSL::Crypto ZLIB::ZLIB)
+    PRIVATE OpenSSL::Crypto ZLIB::ZLIB zstd::libzstd)
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
@@ -747,7 +748,7 @@ add_executable(zima_cpp_performance_benchmark
     tests/performance_benchmark.cpp)
 target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer
-    zima_sketcher)
+    zima_sketcher TKBO TKBool TKTopAlgo TKShHealing TKBRep)
 
 add_executable(zima_cpp_assembly_view_benchmark tests/assembly_view_benchmark.cpp)
 target_link_libraries(zima_cpp_assembly_view_benchmark PRIVATE
@@ -857,7 +858,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_ai_contract COMMAND zima_ai_contract_tests -platform offscreen)
     set_tests_properties(zima_ai_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_cache_storage_contract_tests tests/cache_storage_contract_tests.cpp)
-    target_link_libraries(zima_cpp_cache_storage_contract_tests PRIVATE zima_document_core nlohmann_json::nlohmann_json ZLIB::ZLIB OpenSSL::Crypto)
+    target_link_libraries(zima_cpp_cache_storage_contract_tests PRIVATE zima_document_core nlohmann_json::nlohmann_json ZLIB::ZLIB zstd::libzstd OpenSSL::Crypto)
     add_test(NAME zima_cpp_cache_storage_contract_tests COMMAND zima_cpp_cache_storage_contract_tests)
 
     if(WIN32)

@@ -256,6 +256,11 @@ markers use the shared brown axis colour (`#AD6E2E`). Pending Properties uses
 the ordinary axis/point renderer too, instead of anonymous green preview dots.
 The guide-start marker keeps its existing distinct preview behaviour.
 
+The current ordinary-View policy hides those auxiliary endpoint markers after
+the command ends. Their persisted geometry and brown presentation remain
+available to explicit point/reference entry; the parent rotation axis follows
+the ordinary Axes control.
+
 Loading a cached Body restores these visible datums from its persisted original
 references if its display lists omit them. Endpoint visibility and display
 ownership survive native save/reopen. This requires neither an OCCT calculation

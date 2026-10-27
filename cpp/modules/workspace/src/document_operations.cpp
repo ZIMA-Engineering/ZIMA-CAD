@@ -40,8 +40,12 @@ DocumentSave prepare_document_save(const Workspace& workspace,
                     auto extension=target.extension().string();
                     std::ranges::transform(extension,extension.begin(),[](unsigned char c){return std::tolower(c);});
                     if(extension!=".symz")throw std::invalid_argument("A symbol document requires the symz extension");
-                    job.snapshot_=DocumentSave::Part{value.session.document(),value.session.calculated_boundaries()};
-                } else job.snapshot_=DocumentSave::Part{value.session.document(),value.session.calculated_boundaries()};
+                    job.snapshot_=DocumentSave::Part{value.session.document(),
+                        value.session.calculated_boundaries(),
+                        value.session.native_calculated_cache()};
+                } else job.snapshot_=DocumentSave::Part{value.session.document(),
+                    value.session.calculated_boundaries(),
+                    value.session.native_calculated_cache()};
             }
             else job.snapshot_=value.session.document();
         }
@@ -94,7 +98,12 @@ SavedDocument DocumentSave::write() const {
         if constexpr(std::is_same_v<Snapshot, Part>) {
             auto candidate=snapshot;
             const bool changed=refresh_save_properties(candidate.document,candidate.boundaries);
-            candidate.document.save(receipt_.target_,candidate.boundaries);
+            result.native_cache_=candidate.document.save_with_native_cache(
+                receipt_.target_,candidate.boundaries,
+                changed?document::NativeCalculatedCachePtr{}:
+                    std::move(candidate.native_cache),{},
+                document::NativeCalculatedCacheReuse::
+                    UnchangedCalculatedPacket);
             if(changed)result.analysis_=SavedPartAnalysis{std::move(candidate.document),std::move(candidate.boundaries)};
         } else if constexpr(std::is_same_v<Snapshot,assembly::AssemblyDocument>) {
             auto context=*context_;
@@ -140,6 +149,7 @@ bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
                 if constexpr(std::is_same_v<State,PartState>) {
                     if(const auto* analysis=std::get_if<SavedPartAnalysis>(&saved.analysis_))
                         value.session.update_save_analysis(analysis->document,analysis->boundaries);
+                    value.session.update_saved_native_cache(saved.native_cache_);
                 } else if(const auto* analysis=std::get_if<SavedAssemblyAnalysis>(&saved.analysis_))
                     value.session.update_dependency_snapshots(analysis->document);
                 // Family edits route through their owning session. A matching

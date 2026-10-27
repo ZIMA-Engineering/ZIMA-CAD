@@ -1596,8 +1596,16 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
         }
         }
         if(accepted_any&&publish_at_end) {
-            preserve_view_on_refresh_=true;
-            refresh_scene();
+            // Primitive Properties deferred all intermediate draft work, not
+            // only scene publication.  Resolve and publish the completed
+            // three-plane frame once.  Other placement dialogs retain their
+            // established final scene path.
+            if(auto* primitive=dynamic_cast<PrimitivePropertiesDialog*>(primitive_reference_dialog_))
+                primitive->refresh_sketch_preview();
+            else {
+                preserve_view_on_refresh_=true;
+                refresh_scene();
+            }
             set_primitive_properties_dimension_selection();
         }
         return accepted_any;

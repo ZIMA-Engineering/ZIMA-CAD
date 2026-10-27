@@ -14,13 +14,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+// Storage compression is compiled here so Part and Assembly use one codec.
 #include "cache_compression.inc"
 
 namespace zima::document {
 namespace {
 using Json = nlohmann::json;
 constexpr auto reference_key = "$zima_cache";
-constexpr std::size_t minimum_block_size = 256;
+constexpr std::size_t minimum_block_size = 1024;
 constexpr std::size_t maximum_depth = 256;
 
 // Cache block identity is the exact JSON text produced by nlohmann::json.
@@ -380,23 +381,36 @@ private:
 
 class Reader {
 public:
-    explicit Reader(Json& values) : values_(values), uses_(values.size()),
-        heights_(values.size(), unknown_height), expanded_(values.size()) {}
+    explicit Reader(Json& values, CacheStorageSharedStrings* shared_strings = nullptr)
+        : values_(values), uses_(values.size()),
+        heights_(values.size(), unknown_height), expanded_(values.size()),
+        profile_(std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")!=nullptr),
+        shared_strings_(shared_strings) {
+        if(!shared_strings_)return;
+        shared_strings_->resize(values_.size());
+        for(std::size_t index=0;index<values_.size();++index) {
+            auto& value=values_.at(index);
+            if(value.is_string())(*shared_strings_)[index]=
+                std::make_shared<const std::string>(
+                    std::move(value.get_ref<Json::string_t&>()));
+        }
+    }
 
     Json read(Json& root) {
         // Validate the reachable DAG before consuming it. Track subtree height,
         // so reuse cannot bypass the original expanded-tree nesting limit.
-        const bool profile=std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")!=nullptr;
-        const auto started=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+        const auto started=profile_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         inspect(root, values_.size(), 0);
-        const auto inspected=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+        const auto inspected=profile_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         consume(root);
         auto result=std::move(root);
-        if(profile) {
+        if(profile_) {
             const auto finished=std::chrono::steady_clock::now();
-            std::fprintf(stderr,"Native IO cache reader inspect: %.3f ms; consume: %.3f ms; values=%zu\n",
+            std::fprintf(stderr,"Native IO cache reader inspect: %.3f ms; consume: %.3f ms; values=%zu; copies=%zu (strings=%zu/%zu bytes, compounds=%zu); moves=%zu; shared-string references=%zu/%zu bytes\n",
                 std::chrono::duration<double,std::milli>(inspected-started).count(),
-                std::chrono::duration<double,std::milli>(finished-inspected).count(),values_.size());
+                std::chrono::duration<double,std::milli>(finished-inspected).count(),values_.size(),
+                copied_references_,copied_strings_,copied_string_bytes_,copied_compounds_,moved_references_,
+                shared_string_references_,shared_string_bytes_);
         }
         return result;
     }
@@ -405,6 +419,11 @@ private:
     Json& values_;
     std::vector<std::size_t> uses_, heights_;
     std::vector<bool> expanded_;
+    bool profile_{};
+    CacheStorageSharedStrings* shared_strings_{};
+    std::size_t copied_references_{}, copied_strings_{}, copied_string_bytes_{},
+        copied_compounds_{}, moved_references_{}, shared_string_references_{},
+        shared_string_bytes_{};
 
     std::size_t inspect(const Json& source, std::size_t limit, std::size_t depth) {
         if(depth>maximum_depth)throw std::runtime_error("Cache nesting is too deep");
@@ -429,6 +448,14 @@ private:
     void consume(Json& source) {
         if(source.is_object()&&source.contains(reference_key)) {
             const auto index=source.at(reference_key).get<std::size_t>();
+            if(shared_strings_&&index<shared_strings_->size()&&
+                    (*shared_strings_)[index]) {
+                if(profile_) {
+                    ++shared_string_references_;
+                    shared_string_bytes_+=(*shared_strings_)[index]->size();
+                }
+                return;
+            }
             auto& value=values_.at(index);
             if(!expanded_[index]) {
                 consume(value);
@@ -436,8 +463,19 @@ private:
             }
             // Decode a pooled block once. Retain it while another block needs
             // it, then transfer its allocations to its final consumer.
-            if(--uses_[index]==0)source=std::move(value);
-            else source=value;
+            if(--uses_[index]==0) {
+                if(profile_)++moved_references_;
+                source=std::move(value);
+            } else {
+                if(profile_) {
+                    ++copied_references_;
+                    if(value.is_string()) {
+                        ++copied_strings_;
+                        copied_string_bytes_+=value.get_ref<const Json::string_t&>().size();
+                    } else if(value.is_structured())++copied_compounds_;
+                }
+                source=value;
+            }
             return;
         }
         // Non-reference nodes already own their final allocation. Expand their
@@ -490,6 +528,11 @@ nlohmann::json unpack_cache_storage(const nlohmann::json& storage) {
 }
 
 nlohmann::json unpack_cache_storage(nlohmann::json&& storage) {
+    return unpack_cache_storage(std::move(storage),nullptr);
+}
+
+nlohmann::json unpack_cache_storage(
+        nlohmann::json&& storage, CacheStorageSharedStrings* shared_strings) {
     const bool profile=std::getenv("ZIMA_CPP_PROFILE_NATIVE_IO")!=nullptr;
     const auto started=profile?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
     storage=decompress_cache_storage(std::move(storage));
@@ -497,7 +540,7 @@ nlohmann::json unpack_cache_storage(nlohmann::json&& storage) {
     if (!storage.is_object() || storage.value("format", "") != "zima-shared-cache-v1" ||
         !storage.contains("values") || !storage.at("values").is_array())
         throw std::runtime_error("Unsupported shared cache format");
-    Reader reader(storage.at("values"));
+    Reader reader(storage.at("values"),shared_strings);
     auto result=reader.read(storage.at("root"));
     if(profile)
         std::fprintf(stderr,"Native IO cache reader decompression: %.3f ms; expansion: %.3f ms\n",

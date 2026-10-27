@@ -4334,7 +4334,7 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
     const bool baseline_probe_validation=
         std::getenv("ZIMA_CPP_TEST_VALIDATE_UNIFY_PROBE")!=nullptr;
     if(baseline_probe_validation) {
-        if(!BRepCheck_Analyzer(probe.Shape()).IsValid())
+        if(!BRepCheck_Analyzer(probe.Shape(),true,true,false).IsValid())
             return {shape, faces, edges, vertices, {}};
         phase("probe-validate");
     }
@@ -4354,7 +4354,10 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
         // When protected edges require a second build below, validating this
         // discarded probe would duplicate the same expensive whole-BRep pass.
         if(!baseline_probe_validation) {
-            if(!BRepCheck_Analyzer(probe.Shape()).IsValid())
+            // OCCT's parallel analyzer performs the same complete geometric
+            // checks. Large unified Bodies otherwise leave independent faces
+            // on one core after the Boolean has already completed.
+            if(!BRepCheck_Analyzer(probe.Shape(),true,true,false).IsValid())
                 return {shape, faces, edges, vertices, {}};
             phase("probe-validate");
         }
@@ -4373,7 +4376,8 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
     protected_unifier.Build();
     phase("protected-build",protected_edges.size());
     if (protected_unifier.Shape().IsNull() ||
-        !BRepCheck_Analyzer(protected_unifier.Shape()).IsValid()) {
+        !BRepCheck_Analyzer(
+            protected_unifier.Shape(),true,true,false).IsValid()) {
         return {shape, faces, edges, vertices, protected_edges};
     }
     phase("protected-validate",protected_edges.size());
@@ -5354,14 +5358,43 @@ resolve_edge_treatment_contours(
             }
             if (actual_shapes.Contains(edge)) continue;
             const auto reference = references.reference_for(edge);
-            if (!reference.valid()) {
+            if (reference.valid()) {
+                actual_shapes.Add(edge);
+                resolved.emplace_back(edge, reference);
+                continue;
+            }
+            std::vector<EdgeReference> aliases;
+            for (const auto& candidate : available) {
+                if (!candidate.shape.IsSame(edge) ||
+                    std::ranges::find(aliases, candidate.reference) !=
+                        aliases.end()) {
+                    continue;
+                }
+                aliases.push_back(candidate.reference);
+            }
+            // A batched Boolean can remove an intermediate split while all
+            // persisted identities of that physical contour remain selected.
+            // Accept that explicit complete alias set and retain every parent
+            // for generated Fillet/Chamfer topology. An unrequested alias (or
+            // an ambiguous contour expansion) remains an error.
+            const bool all_aliases_requested = aliases.size() > 1 &&
+                std::ranges::all_of(aliases, [&](const auto& alias) {
+                    return std::ranges::any_of(requested,
+                        [&](const auto& selected) {
+                            return selected.first.IsSame(edge) &&
+                                selected.second == alias;
+                        });
+                });
+            if (!all_aliases_requested) {
                 throw std::runtime_error(std::string("The ") +
                     std::string(operation_name) + " feature " +
                     std::string(feature_id) +
                     " contains a contour edge without an unambiguous persisted ZIMA identity");
             }
             actual_shapes.Add(edge);
-            resolved.emplace_back(edge, reference);
+            for (const auto& alias : aliases) {
+                resolved.emplace_back(edge, alias);
+            }
         }
     }
 
@@ -9020,10 +9053,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             std::fprintf(stderr,"FORM faulty contour=%d status=%d edges=%d\n",contour,int(algorithm.StripeStatus(contour)),algorithm.NbEdges(contour));
                         }
                     }
-                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
-                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull()) {
                         throw std::runtime_error(
-                            "OCCT Fillet failed or produced an invalid body");
+                            "OCCT Fillet failed");
                     }
                     auto treatment_faces = propagate_topology(
                         algorithm, owned_topology->faces,
@@ -9060,6 +9092,18 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         treatment_topology->vertices,
                         std::max(1.0e-7, operation.boolean_tolerance));
                     treatment_phase("unify");
+                    // The same-domain result is the exact shape published by
+                    // this operation and validates itself. If unification is
+                    // unavailable, validate its unchanged Fillet fallback
+                    // here. Do not run the same whole-B-Rep check once on the
+                    // discarded Fillet result and again on the published one.
+                    if(!unified.validated&&
+                       (unified.shape.IsNull()||
+                        !BRepCheck_Analyzer(unified.shape).IsValid())) {
+                        throw std::runtime_error(
+                            "OCCT Fillet produced an invalid body");
+                    }
+                    treatment_phase("fallback validation");
                     result_shape = std::move(unified.shape);
                     auto completed_edges = complete_edge_treatment_edges(
                         result_shape, unified.faces, unified.edges,
@@ -9141,10 +9185,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         algorithm, selected, owned_topology->edges,
                         "Chamfer", operation.owner_id);
                     algorithm.Build();
-                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
-                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull()) {
                         throw std::runtime_error(
-                            "OCCT Chamfer failed or produced an invalid body");
+                            "OCCT Chamfer failed");
                     }
                     auto treatment_faces = propagate_topology(
                         algorithm, owned_topology->faces,
@@ -9176,6 +9219,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         treatment_topology->faces, treatment_topology->edges,
                         treatment_topology->vertices,
                         std::max(1.0e-7, operation.boolean_tolerance));
+                    if(!unified.validated&&
+                       (unified.shape.IsNull()||
+                        !BRepCheck_Analyzer(unified.shape).IsValid())) {
+                        throw std::runtime_error(
+                            "OCCT Chamfer produced an invalid body");
+                    }
                     result_shape = std::move(unified.shape);
                     auto completed_edges = complete_edge_treatment_edges(
                         result_shape, unified.faces, unified.edges,

@@ -777,7 +777,13 @@ public:
         const std::string& ellipse_id, bool major) const;
     [[nodiscard]] SketchDimension create_ellipse_rotation_dimension(
         const std::string& ellipse_id) const;
-    [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
+    // Interaction keypoints and curve intersections are required for ordinary
+    // picking, but not while an already selected handle is being dragged.
+    // Omitting only those derived candidates keeps the authored geometry,
+    // references, constraints and dimensions visually identical while the
+    // mouse is captured.
+    [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh(
+        bool include_interaction_points = true) const;
     [[nodiscard]] zima::kernel::ViewerReferenceGeometry placement_reference_geometry() const;
     // Recomputes resolved_origin/resolved_x_axis/resolved_y_axis/
     // resolved_normal from `plane`/`plane_offset`. Call after changing

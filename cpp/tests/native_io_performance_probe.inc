@@ -59,7 +59,7 @@ int save_native_assembly_definition(const fs::path& input,const fs::path& output
 int benchmark_native_io(const std::filesystem::path& source) {
     using namespace zima;namespace fs=std::filesystem;
     const auto parent=fs::canonical(fs::temp_directory_path());const auto directory=parent/("zima-native-io-"+document::PartDocument::create_default().document_id);fs::create_directory(directory);
-    const auto input=directory/"input.prtz",output=directory/"roundtrip.prtz";fs::copy_file(source,input);
+    const auto input=directory/"input.prtz",output=directory/"roundtrip.prtz",stripped_output=directory/"without-native-history.prtz";fs::copy_file(source,input);
     const auto digest=[](const auto& json){const auto text=json.dump();return QCryptographicHash::hash(QByteArrayView(text.data(),text.size()),QCryptographicHash::Sha256);};
     const auto packet_digest=[&](const auto& boundaries){QCryptographicHash hash(QCryptographicHash::Sha256);for(const auto& body:boundaries)hash.addData(digest(document::serialize_body_result(body)));return hash.result();};
     auto started=std::chrono::steady_clock::now();std::vector<kernel::BodyResult> calculated;auto model=document::PartDocument::load(input,&calculated);const auto load_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
@@ -69,7 +69,625 @@ int benchmark_native_io(const std::filesystem::path& source) {
     started=std::chrono::steady_clock::now();std::vector<kernel::BodyResult> reopened;const auto restored=document::PartDocument::load(output,&reopened);const auto reopen_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
     require(digest(restored.serialized())==definition&&packet_digest(reopened)==packet,"Native roundtrip changed exact definitions, geometry, properties, references or sides");
     std::cout<<"Native IO verified input_bytes="<<fs::file_size(input)<<" saved_bytes="<<fs::file_size(output)<<" load_ms="<<load_ms<<" save_ms="<<save_ms<<" reopen_ms="<<reopen_ms<<std::endl;
+    // The continuation cache is explicitly disposable. Measure its real file
+    // and latency cost without changing authored data or any calculated viewer,
+    // reference, property or native final-body packet.
+    std::function<void(kernel::BodyResult&)> strip_history;
+    strip_history=[&](kernel::BodyResult& body) {
+        body.incremental_history.reset();
+        for(auto& [id,rows]:body.body_boundaries) {
+            auto copy=rows.get();for(auto& row:copy)strip_history(row);rows=std::move(copy);
+        }
+        for(auto* snapshots:{&body.body_inputs,&body.body_outputs})for(auto& [id,snapshot]:*snapshots) {
+            auto copy=snapshot.get();strip_history(copy);snapshot=std::move(copy);
+        }
+        if(!body.measurement_sources.empty()) {
+            std::vector<kernel::BodySnapshot> copies;copies.reserve(body.measurement_sources.size());
+            for(const auto& snapshot:body.measurement_sources) {
+                auto copy=snapshot.get();strip_history(copy);copies.emplace_back(std::move(copy));
+            }
+            body.measurement_sources=std::move(copies);
+        }
+    };
+    auto without_history=calculated;for(auto& body:without_history)strip_history(body);
+    const auto stripped_packet=packet_digest(without_history);
+    started=std::chrono::steady_clock::now();model.save(stripped_output,without_history);
+    const auto stripped_save_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+    started=std::chrono::steady_clock::now();std::vector<kernel::BodyResult> stripped_reopened;
+    const auto stripped_model=document::PartDocument::load(stripped_output,&stripped_reopened);
+    const auto stripped_reopen_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+    require(digest(stripped_model.serialized())==definition&&packet_digest(stripped_reopened)==stripped_packet,
+        "Removing disposable native history changed authored data or the retained calculated packet");
+    std::cout<<"Native IO without continuation bytes="<<fs::file_size(stripped_output)
+        <<" save_ms="<<stripped_save_ms<<" reopen_ms="<<stripped_reopen_ms<<std::endl;
     require(fs::canonical(directory).parent_path()==parent,"Unsafe native IO probe cleanup");fs::remove_all(directory);return 0;
+}
+
+int benchmark_native_close(const std::filesystem::path& source) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> calculated;
+    auto model=document::PartDocument::load(source,&calculated);
+    const auto id=model.document_id;
+    workspace::Workspace live;
+    live.add_part(std::move(model),std::move(calculated),source);
+    std::future<void> disposal;
+    const auto start=std::chrono::steady_clock::now();
+    require(live.remove(id,[&](workspace::DocumentState&& state) {
+        disposal=std::async(std::launch::async,
+            [retired=std::make_shared<workspace::DocumentState>(std::move(state))] {});
+    }),"Native close probe could not remove the loaded Part");
+    const auto detach_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-start).count();
+    require(live.size()==0,"Native close probe retained the removed Part");
+    require(disposal.valid(),"Native close probe did not retire the removed Part");
+    disposal.get();
+    const auto total_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-start).count();
+    std::cout<<"Native close detach_ms="<<detach_ms
+        <<" disposal_ms="<<(total_ms-detach_ms)<<std::endl;
+    return 0;
+}
+
+int describe_native_history(const std::filesystem::path& source) {
+    using namespace zima;
+    const auto packet_digest=[](const auto& value) {
+        const auto text=value.dump();
+        return QCryptographicHash::hash(
+            QByteArrayView(text.data(),text.size()),QCryptographicHash::Sha256);
+    };
+    std::vector<kernel::BodyResult> calculated;
+    const auto model=document::PartDocument::load(source,&calculated);
+    std::size_t index{};
+    for(const auto& container:model.history) {
+        std::cout<<index++<<'\t'<<container.name<<'\t'<<container.id<<'\t'
+            <<static_cast<int>(container.feature_kind)<<'\t'
+            <<static_cast<int>(container.feature.type)<<'\t'
+            <<container.feature.sketch_id<<'\n';
+    }
+    if(!calculated.empty()) {
+        std::map<std::string,std::size_t> field_bytes;
+        const auto& active=calculated.back().body_boundaries.at(
+            model.body_history.active_body_id());
+        std::vector<const kernel::BodySnapshot*> unique_measurement_sources;
+        std::map<std::string,std::size_t> measurement_source_fingerprints;
+        std::map<std::string,std::set<QByteArray>> measurement_source_digests;
+        std::optional<nlohmann::json> previous_packet;
+        const auto prefix=[](const auto& before,const auto& after) {
+            return before.size()<=after.size()&&std::equal(before.begin(),before.end(),after.begin());
+        };
+        std::size_t boundary_index{};
+        for(const auto& boundary:active) {
+            const auto packet=document::serialize_body_result(boundary,false,false);
+            for(const auto& [name,value]:packet.items())field_bytes[name]+=value.dump().size();
+            std::size_t new_measurement_sources{};
+            for(const auto& source:boundary.measurement_sources) {
+                ++measurement_source_fingerprints[source->source_fingerprint];
+                measurement_source_digests[source->source_fingerprint].insert(
+                    packet_digest(document::serialize_body_result(source,false,false)));
+                if(std::ranges::none_of(unique_measurement_sources,[&](const auto* known) {
+                        return source.shares_with(*known);
+                    })) {
+                    unique_measurement_sources.push_back(&source);
+                    ++new_measurement_sources;
+                }
+            }
+            std::cout<<"Native history boundary="<<boundary_index
+                <<" packet_bytes="<<packet.dump().size()
+                <<" vertices="<<boundary.mesh.vertices.size()
+                <<" triangles="<<boundary.mesh.triangles.size()/3
+                <<" edges="<<boundary.mesh.edges.size()
+                <<" points="<<boundary.mesh.points.size()
+                <<" measurement_sources="<<boundary.measurement_sources.size()
+                <<" new_shared_sources="<<new_measurement_sources
+                <<" history_frames="<<(boundary.incremental_history
+                    ?boundary.incremental_history->frames.size():0);
+            if(previous_packet)std::cout
+                <<" prefix_vertices="<<prefix(active[boundary_index-1].mesh.vertices,boundary.mesh.vertices)
+                <<" prefix_triangles="<<prefix(active[boundary_index-1].mesh.triangles,boundary.mesh.triangles)
+                <<" prefix_faces="<<prefix(previous_packet->at("triangle_references"),packet.at("triangle_references"))
+                <<" prefix_edges="<<prefix(previous_packet->at("edges"),packet.at("edges"))
+                <<" prefix_points="<<prefix(previous_packet->at("points"),packet.at("points"))
+                <<" prefix_measurements="<<prefix(previous_packet->at("measurement_sources"),packet.at("measurement_sources"));
+            std::cout<<'\n';
+            previous_packet=packet;
+            ++boundary_index;
+        }
+        const auto& final=calculated.back();
+        std::size_t shared_input_outputs{};
+        for(const auto& [id,input]:final.body_inputs) {
+            const auto output=final.body_outputs.find(id);
+            if(output!=final.body_outputs.end()&&input.shares_with(output->second))
+                ++shared_input_outputs;
+        }
+        std::cout<<"Native history unique_shared_measurement_sources="
+            <<unique_measurement_sources.size()<<" final_inputs="<<final.body_inputs.size()
+            <<" final_outputs="<<final.body_outputs.size()
+            <<" shared_input_outputs="<<shared_input_outputs<<'\n';
+        const auto conflicting_fingerprints=std::ranges::count_if(
+            measurement_source_digests,[](const auto& item) { return item.second.size()>1; });
+        std::size_t measurement_source_occurrences{};
+        for(const auto& [fingerprint,count]:measurement_source_fingerprints)
+            measurement_source_occurrences+=count;
+        std::cout<<"Native history measurement_source_occurrences="
+            <<measurement_source_occurrences<<" unique_fingerprints="
+            <<measurement_source_fingerprints.size()<<" conflicting_fingerprints="
+            <<conflicting_fingerprints<<'\n';
+        std::vector<std::pair<std::size_t,std::string>> ordered;
+        for(const auto& [name,bytes]:field_bytes)ordered.emplace_back(bytes,name);
+        std::ranges::sort(ordered,std::greater{});
+        std::cout<<"Native history local_boundaries="<<active.size()<<" field_bytes:\n";
+        for(const auto& [bytes,name]:ordered)std::cout<<bytes<<'\t'<<name<<'\n';
+    }
+    return 0;
+}
+
+std::set<std::string> native_operation_reference_owners(
+        const zima::kernel::HistoryOperation& operation) {
+    using namespace zima;
+    std::set<std::string> references;
+    const auto face=[&](const auto& reference) {
+        if(!reference.owner_id.empty())references.insert(reference.owner_id);
+    };
+    const auto extrusion=[&](const kernel::ExtrusionRequest& request) {
+        face(request.target_face);
+        if(request.reverse_limit)face(request.reverse_limit->reference);
+        if(request.ordered_end_limit)for(const auto& patch:request.ordered_end_limit->patches) {
+            face(patch.source_reference);face(patch.target.reference);
+        }
+    };
+    std::visit([&](const auto& request) {
+        using Request=std::decay_t<decltype(request)>;
+        if constexpr(std::is_same_v<Request,kernel::ExtrusionRequest>)extrusion(request);
+        else if constexpr(std::is_same_v<Request,kernel::FeatureGroupRequest>) {
+            for(const auto& child:request.children)std::visit([&](const auto& value) {
+                using Child=std::decay_t<decltype(value)>;
+                if constexpr(std::is_same_v<Child,kernel::ExtrusionRequest>)extrusion(value);
+            },child);
+        } else if constexpr(std::is_same_v<Request,kernel::FilletRequest>||
+                std::is_same_v<Request,kernel::ChamferRequest>)
+            for(const auto& edge:request.edges)
+                if(!edge.owner_id.empty())references.insert(edge.owner_id);
+        else if constexpr(std::is_same_v<Request,kernel::ShellRequest>)
+            for(const auto& removed:request.removed_faces)face(removed);
+    },operation.primitive);
+    if(operation.feature_copy&&!operation.feature_copy->source_feature_id.empty())
+        references.insert(operation.feature_copy->source_feature_id);
+    return references;
+}
+
+int describe_native_kernel_plan(const std::filesystem::path& source) {
+    using namespace zima;
+    const auto model=document::PartDocument::load(source);
+    const auto operations=model.kernel_operations(false,true);
+    for(std::size_t index=0;index<operations.size();++index) {
+        const auto& operation=operations[index];
+        const auto references=native_operation_reference_owners(operation);
+        std::cout<<index<<'\t'<<operation.owner_id<<" primitive="<<operation.primitive.index()
+            <<" boolean="<<static_cast<int>(operation.operation)
+            <<" body="<<static_cast<int>(operation.body.combination)
+            <<" source="<<operation.body.source_id
+            <<" feature="<<operation.body.source_feature_id<<" refs=";
+        bool first=true;for(const auto& reference:references) {
+            if(!first)std::cout<<',';std::cout<<reference;first=false;
+        }
+        std::cout<<'\n';
+    }
+    return 0;
+}
+
+int describe_native_dependency_envelopes(const std::filesystem::path& source,
+        const std::string& changed_owner) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> calculated;
+    const auto model=document::PartDocument::load(source,&calculated);
+    require(!calculated.empty(),"Native dependency probe has no calculated result");
+    const auto operations=model.kernel_operations(false,true);
+    std::set<std::string> affected{changed_owner};
+    bool grew=true;
+    while(grew) {
+        grew=false;
+        for(const auto& operation:operations)if(!affected.contains(operation.owner_id)) {
+            const auto references=native_operation_reference_owners(operation);
+            if(std::ranges::any_of(references,[&](const auto& owner){return affected.contains(owner);})) {
+                affected.insert(operation.owner_id);grew=true;
+            }
+        }
+    }
+    std::map<std::string,kernel::ModelEnvelope> bounds;
+    const auto& geometry=calculated.back().mesh.original_references;
+    for(std::size_t triangle=0;triangle<geometry.triangle_references.size();++triangle) {
+        const auto& owner=geometry.triangle_references[triangle].owner_id;
+        if(owner.empty())continue;
+        for(std::size_t corner=0;corner<3;++corner) {
+            const auto index=geometry.triangles.at(3*triangle+corner);
+            bounds[owner].include(geometry.vertices.at(index));
+        }
+    }
+    for(const auto& edge:geometry.edges)if(!edge.reference.owner_id.empty())
+        for(const auto& point:edge.points)bounds[edge.reference.owner_id].include(point);
+    for(const auto& point:geometry.points)if(!point.reference.owner_id.empty())
+        bounds[point.reference.owner_id].include(point.position);
+    kernel::ModelEnvelope changed;
+    for(const auto& owner:affected)if(const auto found=bounds.find(owner);found!=bounds.end()&&found->second.valid) {
+        changed.include(found->second.minimum);changed.include(found->second.maximum);
+    }
+    require(changed.valid,"Native dependency probe has no changed-owner envelope");
+    const auto overlaps=[&](const kernel::ModelEnvelope& other) {
+        constexpr double tolerance=.001;
+        return other.valid&&!(other.maximum.x+tolerance<changed.minimum.x||
+            changed.maximum.x+tolerance<other.minimum.x||
+            other.maximum.y+tolerance<changed.minimum.y||
+            changed.maximum.y+tolerance<other.minimum.y||
+            other.maximum.z+tolerance<changed.minimum.z||
+            changed.maximum.z+tolerance<other.minimum.z);
+    };
+    std::set<std::string> spatial;
+    for(const auto& [owner,envelope]:bounds)
+        if(!affected.contains(owner)&&overlaps(envelope))spatial.insert(owner);
+    std::cout<<"Native dependency changed="<<changed_owner<<" logical=";
+    bool first=true;for(const auto& owner:affected){if(!first)std::cout<<',';std::cout<<owner;first=false;}
+    std::cout<<" spatial_candidates=";
+    first=true;for(const auto& owner:spatial){if(!first)std::cout<<',';std::cout<<owner;first=false;}
+    std::cout<<" logical_count="<<affected.size()<<" spatial_count="<<spatial.size()<<'\n';
+    return 0;
+}
+
+int benchmark_native_local_delta(const std::filesystem::path& source,
+        const std::string& changed_owner,const std::string& dependent_owner) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> previous;
+    auto original=document::PartDocument::load(source,&previous);
+    const auto changed_index=original.history_index(changed_owner);
+    const auto dependent_index=original.history_index(dependent_owner);
+    require(changed_index&&dependent_index&&*changed_index<*dependent_index&&
+        *dependent_index<previous.size(),"Native delta owners are outside calculated history");
+    auto changed=original;
+    auto* definition=changed.find_container(changed_owner);
+    require(definition&&definition->feature.result_type==document::ProfileResultType::Thin,
+        "Native delta source is not a Thin Feature");
+    definition->feature.thin_thickness+=.1;
+    const auto old_operations=original.kernel_operations(false,true);
+    const auto new_operations=changed.kernel_operations(false,true);
+    require(old_operations.size()==new_operations.size()&&
+        std::holds_alternative<kernel::FeatureGroupRequest>(old_operations[*changed_index].primitive)&&
+        std::holds_alternative<kernel::FeatureGroupRequest>(old_operations[*dependent_index].primitive),
+        "Native delta probe needs ordinary Feature operations");
+    const auto solid=[](const TopoDS_Shape& shape) {
+        return !shape.IsNull()&&TopExp_Explorer(shape,TopAbs_SOLID).More();
+    };
+    const auto run_boolean=[&](auto& algorithm,const TopoDS_Shape& argument,
+            const TopoDS_Shape& tool,const char* failure) {
+        TopTools_ListOfShape arguments,tools;arguments.Append(argument);tools.Append(tool);
+        algorithm.SetArguments(arguments);algorithm.SetTools(tools);
+        algorithm.SetFuzzyValue(.001);algorithm.SetToFillHistory(false);algorithm.Build();
+        require(algorithm.IsDone()&&!algorithm.Shape().IsNull()&&
+            BRepCheck_Analyzer(algorithm.Shape()).IsValid(),failure);
+        return algorithm.Shape();
+    };
+    kernel::AggregatePropertyScope properties(kernel::AggregatePropertyDemand::Final);
+    kernel::FaceMeasurementScope measurements(false);
+    kernel::OcctKernel local_kernel;
+    const auto restore_started=std::chrono::steady_clock::now();
+    const auto restored=local_kernel.evaluate_history_incremental(old_operations,previous);
+    const auto restore_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-restore_started).count();
+    require(restored.size()==previous.size()&&restored.back().calculation_errors.empty(),
+        "Native delta could not restore the old contact history");
+    const auto started=std::chrono::steady_clock::now();
+    auto phase_started=started;
+    const auto phase=[&](const char* name) {
+        const auto now=std::chrono::steady_clock::now();
+        std::cerr<<"Native delta phase "<<name<<"="
+            <<std::chrono::duration<double,std::milli>(now-phase_started).count()<<" ms\n";
+        phase_started=now;
+    };
+    const auto empty=kernel::BodyResult{};
+    const auto& changed_input=*changed_index?previous[*changed_index-1]:empty;
+    const auto& dependent_input=previous[*dependent_index-1];
+    std::cerr<<"Native delta: old changed tool\n";
+    const auto old_changed_tool=local_kernel.calculate_feature_tool(
+        old_operations[*changed_index],changed_input,{},changed_input,{});
+    std::cerr<<"Native delta: new changed tool\n";
+    const auto new_changed_tool=local_kernel.calculate_feature_tool(
+        new_operations[*changed_index],changed_input,{},changed_input,{});
+    std::cerr<<"Native delta: old dependent tool\n";
+    const auto old_dependent_tool=local_kernel.calculate_feature_tool(
+        old_operations[*dependent_index],old_changed_tool,{},dependent_input,{});
+    std::cerr<<"Native delta: new dependent tool\n";
+    const auto new_dependent_tool=local_kernel.calculate_feature_tool(
+        new_operations[*dependent_index],new_changed_tool,{},dependent_input,{});
+    phase("feature-tools");
+    auto old_branch=kernel::read_calculated_body_shape(old_changed_tool);
+    auto new_branch=kernel::read_calculated_body_shape(new_changed_tool);
+    {
+        BRepAlgoAPI_Fuse fuse;
+        old_branch=run_boolean(fuse,old_branch,
+            kernel::read_calculated_body_shape(old_dependent_tool),
+            "Native delta old branch fuse failed");
+    }
+    {
+        BRepAlgoAPI_Fuse fuse;
+        new_branch=run_boolean(fuse,new_branch,
+            kernel::read_calculated_body_shape(new_dependent_tool),
+            "Native delta new branch fuse failed");
+    }
+    phase("branch-fuses");
+    const auto old_final=kernel::read_calculated_body_shape(previous.back());
+    const auto cells_started=std::chrono::steady_clock::now();
+    TopoDS_Shape cell_patched;
+    {
+        NCollection_List<TopoDS_Shape> arguments;
+        arguments.Append(old_final);arguments.Append(old_branch);arguments.Append(new_branch);
+        BOPAlgo_PaveFiller filler;filler.SetArguments(arguments);filler.SetFuzzyValue(.001);filler.Perform();
+        require(!filler.HasErrors(),"Native delta cell intersection failed");
+        BOPAlgo_CellsBuilder cells;cells.SetArguments(arguments);cells.SetFuzzyValue(.001);
+        cells.SetToFillHistory(true);cells.PerformWithFiller(filler);
+        require(!cells.HasErrors(),"Native delta cell split failed");
+        NCollection_List<TopoDS_Shape> take,avoid;
+        take.Append(old_final);avoid.Append(old_branch);
+        cells.AddToResult(take,avoid,1,false);
+        take.Clear();avoid.Clear();take.Append(new_branch);
+        cells.AddToResult(take,avoid,1,false);
+        cells.RemoveInternalBoundaries();
+        require(!cells.HasErrors()&&!cells.Shape().IsNull()&&
+            BRepCheck_Analyzer(cells.Shape()).IsValid(),"Native delta cell result failed");
+        cell_patched=cells.Shape();
+    }
+    const auto cells_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-cells_started).count();
+    phase("contact-cells");
+    TopoDS_Shape removed,added;
+    {
+        NCollection_List<TopoDS_Shape> both;both.Append(old_branch);both.Append(new_branch);
+        BOPAlgo_PaveFiller filler;filler.SetArguments(both);filler.SetFuzzyValue(.001);filler.Perform();
+        require(!filler.HasErrors(),"Native delta shared intersection failed");
+        const auto cut=[&](const TopoDS_Shape& argument,const TopoDS_Shape& tool,const char* failure) {
+            NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(argument);tools.Append(tool);
+            BOPAlgo_BOP algorithm;algorithm.SetArguments(arguments);algorithm.SetTools(tools);
+            algorithm.SetOperation(BOPAlgo_CUT);algorithm.PerformWithFiller(filler);
+            require(!algorithm.HasErrors()&&!algorithm.Shape().IsNull()&&
+                BRepCheck_Analyzer(algorithm.Shape()).IsValid(),failure);
+            return algorithm.Shape();
+        };
+        removed=cut(old_branch,new_branch,"Native delta removal failed");
+        added=cut(new_branch,old_branch,"Native delta addition failed");
+    }
+    phase("shared-differences");
+    auto patched=old_final;
+    if(solid(removed)) {
+        BRepAlgoAPI_Cut cut;patched=run_boolean(cut,patched,removed,
+            "Native delta final removal failed");
+    }
+    if(solid(added)) {
+        BRepAlgoAPI_Fuse fuse;patched=run_boolean(fuse,patched,added,
+            "Native delta final addition failed");
+    }
+    phase("final-patch");
+    const auto local_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-started).count();
+    std::vector<kernel::BodyResult> warmed_old;
+    double warm_ms{};
+    const auto body_id=old_operations[*changed_index].body.id;
+    require(body_id==old_operations[*dependent_index].body.id,
+        "Native delta owners do not share one Body");
+    const auto contact_body=[&](const std::vector<kernel::BodyResult>& boundaries)
+            ->const kernel::BodyResult& {
+        if(body_id.empty())return boundaries.back();
+        const auto local=boundaries.back().body_boundaries.find(body_id);
+        if(local!=boundaries.back().body_boundaries.end()&&!local->second.empty())
+            return local->second.back();
+        const auto found=boundaries.back().body_outputs.find(body_id);
+        require(found!=boundaries.back().body_outputs.end(),
+            "Native delta Body output is unavailable");
+        return found->second.get();
+    };
+    const auto contact_packet_for=[&](const kernel::BodyResult& current) {
+        return local_kernel.replace_additive_contact_region(current,
+            {old_changed_tool,old_dependent_tool},{new_changed_tool,new_dependent_tool},
+            new_operations,{changed_owner,dependent_owner},.001,
+            new_operations.back().mesh_deflection);
+    };
+    const auto packet_started=std::chrono::steady_clock::now();
+    std::optional<kernel::BodyResult> contact_packet;
+    try {contact_packet=contact_packet_for(contact_body(previous));}
+    catch(const std::runtime_error& error) {
+        if(std::string_view(error.what())!="Contact-region ancestry is unavailable")throw;
+        const auto warm_started=std::chrono::steady_clock::now();
+        warmed_old=local_kernel.evaluate_history(old_operations);
+        warm_ms=std::chrono::duration<double,std::milli>(
+            std::chrono::steady_clock::now()-warm_started).count();
+        require(warmed_old.size()==previous.size()&&warmed_old.back().calculation_errors.empty(),
+            "Native delta could not warm the old contact history");
+        contact_packet=contact_packet_for(contact_body(warmed_old));
+    }
+    const auto packet_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-packet_started).count()-warm_ms;
+    phase("contact-packet");
+    kernel::OcctKernel baseline_kernel;
+    const auto baseline_started=std::chrono::steady_clock::now();
+    const auto correct=baseline_kernel.evaluate_history_incremental(new_operations,previous);
+    const auto baseline_ms=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-baseline_started).count();
+    require(correct.size()==previous.size()&&correct.back().calculation_errors.empty(),
+        "Native delta baseline failed");
+    const auto& expected_packet=contact_body(correct);
+    const auto reference_key=[](const auto& reference) {
+        return reference.owner_id+'\x1f'+reference.semantic_key+'\x1f'+reference.instance_path;
+    };
+    const auto report_reference_delta=[&](std::string_view kind,const auto& before,const auto& after) {
+        const auto reference_of=[](const auto& value)->const auto& {
+            if constexpr(requires{value.reference;})return value.reference;
+            else return value;
+        };
+        std::set<std::string> old_keys,new_keys;
+        std::map<std::string,std::size_t> old_owners,new_owners;
+        for(const auto& value:before) {
+            const auto& reference=reference_of(value);
+            if(!reference.valid())continue;
+            if(old_keys.insert(reference_key(reference)).second)
+                ++old_owners[reference.owner_id];
+        }
+        for(const auto& value:after) {
+            const auto& reference=reference_of(value);
+            if(!reference.valid())continue;
+            if(new_keys.insert(reference_key(reference)).second)
+                ++new_owners[reference.owner_id];
+        }
+        std::vector<std::string> removed,added;
+        std::ranges::set_difference(old_keys,new_keys,std::back_inserter(removed));
+        std::ranges::set_difference(new_keys,old_keys,std::back_inserter(added));
+        std::cout<<"Native reference delta kind="<<kind
+            <<" old="<<old_keys.size()<<" new="<<new_keys.size()
+            <<" retained="<<(old_keys.size()-removed.size())
+            <<" removed="<<removed.size()<<" added="<<added.size()<<" owners=";
+        std::set<std::string> owners;
+        for(const auto& [owner,count]:old_owners)owners.insert(owner);
+        for(const auto& [owner,count]:new_owners)owners.insert(owner);
+        bool first=true;
+        for(const auto& owner:owners) {
+            const auto old_count=old_owners[owner],new_count=new_owners[owner];
+            if(old_count==new_count)continue;
+            if(!first)std::cout<<',';
+            std::cout<<owner<<':'<<old_count<<"->"<<new_count;
+            first=false;
+        }
+        std::cout<<'\n';
+    };
+    report_reference_delta("face",previous.back().mesh.triangle_references,
+        correct.back().mesh.triangle_references);
+    report_reference_delta("edge",previous.back().mesh.edges,correct.back().mesh.edges);
+    report_reference_delta("point",previous.back().mesh.points,correct.back().mesh.points);
+    report_reference_delta("source-face",previous.back().mesh.original_references.triangle_references,
+        correct.back().mesh.original_references.triangle_references);
+    report_reference_delta("source-edge",previous.back().mesh.original_references.edges,
+        correct.back().mesh.original_references.edges);
+    report_reference_delta("source-point",previous.back().mesh.original_references.points,
+        correct.back().mesh.original_references.points);
+    report_reference_delta("source-axis",previous.back().mesh.original_references.axes,
+        correct.back().mesh.original_references.axes);
+    report_reference_delta("patched-face",contact_packet->mesh.triangle_references,
+        expected_packet.mesh.triangle_references);
+    report_reference_delta("patched-edge",contact_packet->mesh.edges,expected_packet.mesh.edges);
+    report_reference_delta("patched-point",contact_packet->mesh.points,expected_packet.mesh.points);
+    report_reference_delta("patched-source-face",contact_packet->mesh.original_references.triangle_references,
+        expected_packet.mesh.original_references.triangle_references);
+    report_reference_delta("patched-source-edge",contact_packet->mesh.original_references.edges,
+        expected_packet.mesh.original_references.edges);
+    report_reference_delta("patched-source-point",contact_packet->mesh.original_references.points,
+        expected_packet.mesh.original_references.points);
+    report_reference_delta("patched-source-axis",contact_packet->mesh.original_references.axes,
+        expected_packet.mesh.original_references.axes);
+    const auto expected=kernel::read_calculated_body_shape(expected_packet);
+    const auto difference_volume=[&](const TopoDS_Shape& left,const TopoDS_Shape& right) {
+        BRepAlgoAPI_Cut cut;const auto difference=run_boolean(cut,left,right,
+            "Native delta equivalence cut failed");
+        GProp_GProps volume;BRepGProp::VolumeProperties(difference,volume);
+        return std::abs(volume.Mass());
+    };
+    const auto missing=difference_volume(expected,patched);
+    const auto excess=difference_volume(patched,expected);
+    const auto cell_missing=difference_volume(expected,cell_patched);
+    const auto cell_excess=difference_volume(cell_patched,expected);
+    const auto contact_shape=kernel::read_calculated_body_shape(*contact_packet);
+    const auto packet_missing=difference_volume(expected,contact_shape);
+    const auto packet_excess=difference_volume(contact_shape,expected);
+    GProp_GProps patched_volume,expected_volume;
+    BRepGProp::VolumeProperties(patched,patched_volume);
+    BRepGProp::VolumeProperties(expected,expected_volume);
+    std::cout<<"Native local delta_ms="<<local_ms<<" restore_ms="<<restore_ms
+        <<" warm_ms="<<warm_ms<<" packet_ms="<<packet_ms<<" baseline_ms="<<baseline_ms
+        <<" missing_volume="<<missing<<" excess_volume="<<excess
+        <<" cells_ms="<<cells_ms<<" cell_missing="<<cell_missing
+        <<" cell_excess="<<cell_excess
+        <<" packet_missing="<<packet_missing<<" packet_excess="<<packet_excess
+        <<" volume_difference="<<std::abs(patched_volume.Mass()-expected_volume.Mass())
+        <<" patched_volume="<<patched_volume.Mass()<<" expected_volume="<<expected_volume.Mass()
+        <<std::endl;
+    return 0;
+}
+
+int describe_native_operation(const std::filesystem::path& source,
+        const std::string& name) {
+    using namespace zima;
+    const auto model=document::PartDocument::load(source);
+    const auto feature=std::ranges::find_if(model.history,[&](const auto& value) {
+        return value.name==name||value.id==name;
+    });
+    require(feature!=model.history.end(),"Named native history operation is missing");
+    const auto root=model.serialized();
+    const auto definition=std::ranges::find_if(root.at("history"),[&](const Json& value) {
+        return value.value("id",std::string{})==feature->id;
+    });
+    require(definition!=root.at("history").end(),"Named native operation definition is missing");
+    std::cout<<"Feature\n"<<definition->dump(2)<<std::endl;
+    if(feature->feature.sketch_id.empty())return 0;
+    const auto sketch=std::ranges::find(model.sketches,feature->feature.sketch_id,&sketcher::Sketch::id);
+    require(sketch!=model.sketches.end(),"Named native operation Sketch is missing");
+    std::cout<<"Sketch\n"<<Json::parse(sketch->serialized()).dump(2)<<std::endl;
+    return 0;
+}
+
+int benchmark_native_operation_edit(const std::filesystem::path& source,
+        const std::string& id,const std::string& edit_kind) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> calculated;
+    auto model=document::PartDocument::load(source,&calculated);
+    const auto* stored=model.find_container(id);
+    require(stored&&stored->feature_kind==document::FeatureKind::Feature,
+        "Named native edit operation is not a Feature");
+    const auto history_index=model.history_index(id);
+    require(history_index.has_value(),"Named native edit operation has no history index");
+    const auto original_feature=stored->feature;
+    const auto document_id=model.document_id;
+    workspace::Workspace live;
+    live.add_part(std::move(model),std::move(calculated),source);
+    auto value=*live.open_part(document_id)->session.document().find_container(id);
+    std::optional<sketcher::Sketch> changed_sketch;
+    if(edit_kind=="thickness") {
+        require(value.feature.result_type==document::ProfileResultType::Thin,
+            "Native thickness edit needs a thin Feature");
+        value.feature.thin_thickness+=.1;
+    } else if(edit_kind=="sketch-dimension") {
+        const auto& document=live.open_part(document_id)->session.document();
+        const auto sketch=std::ranges::find(document.sketches,value.feature.sketch_id,&sketcher::Sketch::id);
+        require(sketch!=document.sketches.end(),"Native Sketch dimension edit has no owned Sketch");
+        changed_sketch=*sketch;
+        const auto dimension=std::ranges::find_if(changed_sketch->dimensions,[](const auto& candidate) {
+            return candidate.driving&&!candidate.locked&&!candidate.suppressed;
+        });
+        require(dimension!=changed_sketch->dimensions.end(),"Native Sketch dimension edit has no editable dimension");
+        require(changed_sketch->set_dimension_value(dimension->id,dimension->value+1.0),
+            "Native Sketch dimension edit was rejected by the solver");
+    } else throw std::runtime_error("Unknown native operation edit kind");
+    const auto& before=live.open_part(document_id)->session.calculated_boundaries();
+    std::vector<std::string> prefix;
+    for(std::size_t index=0;index<std::min(*history_index,before.size());++index)
+        prefix.push_back(document::serialize_body_result(before[index]).dump());
+    kernel::OcctKernel kernel;
+    const auto start=std::chrono::steady_clock::now();
+    workspace::commit_profile(live,kernel,document_id,std::move(value),
+        workspace::ProfileEditMode::Replace,changed_sketch,
+        workspace::ProfileFailurePolicy::KeepDefinition);
+    const auto milliseconds=std::chrono::duration<double,std::milli>(
+        std::chrono::steady_clock::now()-start).count();
+    auto* edited=live.open_part(document_id);
+    require(edited,"Native operation edit closed its Part");
+    const auto& after=edited->session.calculated_boundaries();
+    require(after.size()==before.size(),"Native operation edit changed the boundary count");
+    for(std::size_t index=0;index<prefix.size();++index)
+        require(document::serialize_body_result(after[index]).dump()==prefix[index],
+            "Native operation edit changed a preceding history boundary");
+    const auto errors=after.empty()?0u:after.back().calculation_errors.size();
+    if(std::getenv("ZIMA_CPP_TEST_PRINT_CALCULATION_ERRORS")&&!after.empty())
+        for(const auto& [owner,message]:after.back().calculation_errors)
+            std::cerr<<"Native operation error owner="<<owner<<" message="<<message<<'\n';
+    require(edited->session.undo(),"Native operation edit did not create an Undo transaction");
+    require(edited->session.document().find_container(id)->feature==original_feature,
+        "Undo did not restore the native Feature definition");
+    std::cout<<"Native operation edit_ms="<<milliseconds
+        <<" history_index="<<*history_index<<" boundaries="<<after.size()
+        <<" errors="<<errors<<" kind="<<edit_kind<<std::endl;
+    return 0;
 }
 
 int resave_native_part(const std::filesystem::path& source,

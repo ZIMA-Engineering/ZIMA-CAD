@@ -146,11 +146,14 @@ void DocumentSession::prepare_native_file_rebase(FileRelocationEdits& edits) {
 
 DocumentSession::DocumentSession(
     PartDocument document,
-    std::vector<zima::kernel::BodyResult> calculated_boundaries)
-    : current_(std::make_shared<State>(State{std::move(document), std::move(calculated_boundaries), 0, false})) {
+    std::vector<zima::kernel::BodyResult> calculated_boundaries,
+    NativeCalculatedCachePtr native_cache)
+    : current_(std::make_shared<State>(State{std::move(document),
+          std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+              std::move(calculated_boundaries)),std::move(native_cache),0,false})) {
     validate_physical_units(current_->document);
-    refresh_body_properties(current_->document,current_->calculated_boundaries);
-    retain_shaft_reference_geometry(current_->document,current_->calculated_boundaries);
+    refresh_body_properties(current_->document,*current_->calculated_boundaries);
+    retain_shaft_reference_geometry(current_->document,*current_->calculated_boundaries);
     current_->document.synchronize_dimension_identifiers();
     saved_dimension_allocations_ = current_->document.dimension_identifiers.allocation_count();
 }
@@ -187,16 +190,16 @@ bool DocumentSession::can_undo() const { return !undo_.empty(); }
 bool DocumentSession::can_redo() const { return !redo_.empty(); }
 const std::vector<zima::kernel::BodyResult>&
 DocumentSession::calculated_boundaries() const {
-    return current_->calculated_boundaries;
+    return *current_->calculated_boundaries;
 }
 
 std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
     const std::size_t operation_count) const {
     if (operation_count == 0 ||
-        current_->calculated_boundaries.size() < operation_count) {
+        current_->calculated_boundaries->size() < operation_count) {
         return std::nullopt;
     }
-    auto result = current_->calculated_boundaries[operation_count - 1];
+    auto result = (*current_->calculated_boundaries)[operation_count - 1];
     const auto operations = current_->document.kernel_operations();
     std::unordered_set<std::string> owners;
     for (std::size_t operation = 0;
@@ -207,17 +210,17 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
         }
     }
     result.mesh.original_references = references_for_owners(
-        current_->calculated_boundaries.back().mesh.original_references, owners);
+        current_->calculated_boundaries->back().mesh.original_references, owners);
     publish_profile_axes(result.mesh);
     return result;
 }
 
 zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGraph* context) const {
     zima::kernel::ViewerMesh result;
-    if (current_->calculated_boundaries.empty()) return result;
+    if (current_->calculated_boundaries->empty()) return result;
     const auto& document = current_->document;
     const auto& graph = context ? *context : document.body_history;
-    const auto& outputs = current_->calculated_boundaries.back().body_outputs;
+    const auto& outputs = current_->calculated_boundaries->back().body_outputs;
     for (const auto& id : graph.visible_context()) {
         zima::kernel::ViewerMesh mesh;
         if (id == graph.active_body_id()) {
@@ -263,8 +266,8 @@ zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGra
 
 std::optional<BooleanEditInputs> DocumentSession::boolean_edit_inputs(const std::string& id) const {
     const auto* operation = current_->document.body_history.find_boolean(id);
-    if (!operation || current_->calculated_boundaries.empty()) return std::nullopt;
-    const auto& outputs = current_->calculated_boundaries.back().body_outputs;
+    if (!operation || current_->calculated_boundaries->empty()) return std::nullopt;
+    const auto& outputs = current_->calculated_boundaries->back().body_outputs;
     const auto target = outputs.find(operation->target_id);
     const auto tool = outputs.find(operation->tool_id);
     if (target == outputs.end() || tool == outputs.end()) return std::nullopt;
@@ -273,8 +276,8 @@ std::optional<BooleanEditInputs> DocumentSession::boolean_edit_inputs(const std:
 
 std::optional<zima::kernel::BodyResult> DocumentSession::calculated_body_boundary(
     const std::string& body_id, const std::size_t operation_count) const {
-    if (operation_count == 0 || current_->calculated_boundaries.empty()) return std::nullopt;
-    const auto& caches = current_->calculated_boundaries.back().body_boundaries;
+    if (operation_count == 0 || current_->calculated_boundaries->empty()) return std::nullopt;
+    const auto& caches = current_->calculated_boundaries->back().body_boundaries;
     const auto found = caches.find(body_id);
     if (found == caches.end() || found->second.size() < operation_count) return std::nullopt;
     auto result = found->second[operation_count - 1];
@@ -344,7 +347,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
             }
         }
     }
-    if (current_->calculated_boundaries.size() < calculated_before) {
+    if (current_->calculated_boundaries->size() < calculated_before) {
         return std::nullopt;
     }
     HistoryRollbackBoundary result{*index, std::nullopt};
@@ -362,7 +365,9 @@ void DocumentSession::replace(
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.synchronize_dimension_identifiers();
     const auto allocations=document.dimension_identifiers.allocation_count();
-    auto next=std::make_shared<State>(State{std::move(document), std::move(calculated_boundaries), 0, false});
+    auto next=std::make_shared<State>(State{std::move(document),
+        std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+            std::move(calculated_boundaries)),{},0,false});
     current_=std::move(next);
     undo_.clear();
     redo_.clear();
@@ -386,8 +391,30 @@ void DocumentSession::commit(
     document.synchronize_dimension_identifiers();
     // Finish validation and allocation before publishing either document or
     // history. Consumers must never observe a rejected edit as a new generation.
-    auto next=std::make_shared<State>(State{
-        std::move(document),std::move(calculated_boundaries),next_revision_,false});
+    auto next=std::make_shared<State>(State{std::move(document),
+        std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+            std::move(calculated_boundaries)),{},next_revision_,false});
+    undo_.push_back(std::move(current_));
+    current_=std::move(next);
+    ++next_revision_;
+    redo_.clear();
+    ++data_generation_;
+}
+
+void DocumentSession::commit_metadata(PartDocument document) {
+    validate_physical_units(document);
+    const auto intercept=metadata_commit_interceptor;
+    if(intercept&&intercept(document))return;
+    const auto& calculated=*current_->calculated_boundaries;
+    static_assert(std::is_nothrow_move_assignable_v<PartDocument>);
+    refresh_body_properties(document,calculated);
+    retain_shaft_reference_geometry(document,calculated);
+    document.dimension_identifiers.retain(current_->document.dimension_identifiers);
+    refresh_symbol_contacts(document,calculated);
+    document.synchronize_dimension_identifiers();
+    auto next=std::make_shared<State>(State{std::move(document),
+        current_->calculated_boundaries,current_->native_cache,
+        next_revision_,false});
     undo_.push_back(std::move(current_));
     current_=std::move(next);
     ++next_revision_;
@@ -403,7 +430,10 @@ void DocumentSession::update_calculated_boundaries(
     retain_shaft_reference_geometry(document,calculated_boundaries);
     refresh_symbol_contacts(document,calculated_boundaries);
     current_->document=std::move(document);
-    current_->calculated_boundaries = std::move(calculated_boundaries);
+    current_->calculated_boundaries =
+        std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+            std::move(calculated_boundaries));
+    current_->native_cache.reset();
     current_->calculated_state_dirty = true;
     ++data_generation_;
 }
@@ -419,7 +449,10 @@ void DocumentSession::update_save_analysis(PartDocument document,
     current.family.evaluated=std::move(document.family.evaluated);
     refresh_body_properties(current,calculated_boundaries);
     current_->document=std::move(current);
-    current_->calculated_boundaries=std::move(calculated_boundaries);
+    current_->calculated_boundaries=
+        std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+            std::move(calculated_boundaries));
+    current_->native_cache.reset();
     current_->calculated_state_dirty=true;
     ++data_generation_;
 }

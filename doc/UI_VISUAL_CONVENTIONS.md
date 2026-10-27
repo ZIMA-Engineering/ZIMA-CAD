@@ -245,8 +245,9 @@ font default.
   The displayed document's main Origin point stays black. Construction Point
   markers and all feature, Body and occurrence Origin points use the same brown
   as planes. Marker sizes and hover/confirmation colours are unchanged.
-  Sweep path endpoint markers also use brown in their ordinary state, with
-  green hover and azure confirmation/reference colours.
+  Sweep path endpoint markers use brown when an explicit command presents
+  them, with green hover and azure confirmation/reference colours. They are not
+  permanent ordinary-View markers.
 - Confirmed 3D Curve strokes and their owned point markers use the same theme
   foreground as ordinary Sketch geometry: light in Dark mode and dark in Light
   mode. Point-entry frames in 3D Curve Properties retain their brown datum

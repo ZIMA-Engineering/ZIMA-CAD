@@ -5,6 +5,10 @@ namespace zima::workspace {
 // does not calculate geometry or create independent Assembly Undo items.
 void commit_part_document(Workspace&,const std::string& document,
     document::PartDocument,std::vector<kernel::BodyResult> calculated_boundaries);
+// Publish a document-only transaction while retaining the exact immutable
+// calculated geometry packet in the current and Undo revisions.
+void commit_part_document_metadata(Workspace&,const std::string& document,
+    document::PartDocument);
 [[nodiscard]] bool step_part_document_history(Workspace&,const std::string& document,bool redo);
 [[nodiscard]] bool step_assembly_document_history(Workspace&,const std::string& document,bool redo);
 // Reconcile owners in the requested hierarchy (or all open roots), reading

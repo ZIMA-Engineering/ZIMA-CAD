@@ -1381,7 +1381,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const auto publish_profile_preview_scene =
         [this, profile_scene_signature, profile_scene_name, defer_profile_preview](
             const zima::document::PartDocument* preview_document,
-            const zima::document::HistoryContainer& preview) {
+            const zima::document::HistoryContainer& preview,
+            bool lightweight_context) {
         std::vector<zima::kernel::ViewerDimension> live_dimensions;
         if (primitive_origin_preview_mesh_) {
             live_dimensions =
@@ -1393,6 +1394,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
 
         const auto& placement = preview.placement;
         std::vector<double> signature{
+            lightweight_context ? 1.0 : 0.0,
             placement.x, placement.y, placement.z,
             placement.rotation_x, placement.rotation_y, placement.rotation_z,
             placement.absolute_rotation_x, placement.absolute_rotation_y,
@@ -1445,6 +1447,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const bool first_scene = !*profile_scene_signature;
         *profile_scene_signature = std::move(signature);
         *profile_scene_name=preview.name;
+        if(lightweight_context) {
+            // A brand-new empty Feature adds only its local Origin/work-plane
+            // context. Keep the already uploaded body and its picking index;
+            // this read-only overlay follows every live placement update.
+            viewer_->set_transient_context_mesh(
+                primitive_origin_preview_mesh_.value_or(
+                    zima::kernel::ViewerMesh{}));
+            return;
+        }
+        viewer_->set_transient_context_mesh({});
         // The base body and static work-plane frame change only when the
         // placement/profile frame changes. Length/angle edits update the
         // transient wire, manipulators and live dimensions without sending
@@ -1496,8 +1508,19 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     std::function<void(const zima::document::HistoryContainer&)> deferred_profile_preview;
     const auto install_profile_preview = [&](std::function<void(const zima::document::HistoryContainer&)> callback) {
-        if (defer_profile_preview) deferred_profile_preview = std::move(callback);
-        else dialog->set_preview_callback(std::move(callback));
+        auto batched_callback = [this, dialog, callback=std::move(callback)](
+                const zima::document::HistoryContainer& pending) {
+            // Whole-Origin entry validates and assigns its three ordered
+            // planes synchronously.  Only their completed frame has a View
+            // consumer; rebuilding the pending Part and profile after every
+            // intermediate row made one button press scale with model size.
+            if (defer_reference_scene_refresh_) return;
+            dialog->setProperty("primitivePreviewCalculations",
+                dialog->property("primitivePreviewCalculations").toULongLong()+1);
+            callback(pending);
+        };
+        if (defer_profile_preview) deferred_profile_preview = std::move(batched_callback);
+        else dialog->set_preview_callback(std::move(batched_callback));
     };
     if (feature_kind == zima::document::FeatureKind::Feature) {
         if(part) {
@@ -1542,14 +1565,34 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         install_profile_preview([this,owner_id,placement_preview,prepare_owned_profile_preview,extent_drag_baseline,
                 update_owned_profile_context_preview,publish_profile_preview_scene,assembly_input,assembly_cut_index,
                 exact_preview,source_generation,preview_sources,dialog](const auto& pending) {
+            QElapsedTimer preview_timer;preview_timer.start();
+            const auto preview_phase=[&](const char* name) {
+                if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
+                    std::fprintf(stderr,"Feature preview %s: %.3f ms\n",name,
+                        preview_timer.nsecsElapsed()/1e6);
+                preview_timer.restart();
+            };
             const auto preview=placement_preview?placement_preview(pending):pending;
+            preview_phase("placement");
             try {
                 const auto* owner=workspace_.open_part(owner_id);
                 const auto* assembly_owner=workspace_.open_assembly(owner_id);
                 if(!owner&&!assembly_owner)return;
-                auto document=owner?owner->session.document():assembly_owner->session.document().feature_document();
                 const auto* original=owner?owner->session.document().find_container(pending.id):
                     assembly_owner->session.document().find_cut(pending.id)?&assembly_owner->session.document().find_cut(pending.id)->definition:nullptr;
+                // A new Feature has no committed history state to edit.  Its
+                // placement and owned Sketch resolve entirely from the command
+                // reference packet; copying the complete Part (and then its
+                // active Body again) made opening an empty command scale with
+                // every preceding feature.  Keep edits on the established full
+                // carrier, but give creation only the definitions it consumes.
+                zima::document::PartDocument document;
+                if(owner&&original==nullptr) {
+                    document.document_id=owner->session.document().document_id;
+                    document.name=owner->session.document().name;
+                } else document=owner?owner->session.document():
+                    assembly_owner->session.document().feature_document();
+                preview_phase("carrier");
                 bool unchanged=original&&pending==*original;
                 const bool frame_unchanged=original&&
                     original->feature_kind==zima::document::FeatureKind::Feature&&
@@ -1568,9 +1611,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     if(found==document.sketches.end())document.sketches.push_back(*property_owned_sketch_draft_);
                     else *found=*property_owned_sketch_draft_;
                 }
+                preview_phase("draft");
                 // Register the pending profile and its display plane first,
                 // then resolve their common reference inputs once below.
                 prepare_owned_profile_preview(document,preview,false);
+                preview_phase("prepare profile");
                 const auto profile=std::ranges::find(document.sketches,preview.feature.sketch_id,&zima::sketcher::Sketch::id);
                 if(profile!=document.sketches.end())extent_drag_baseline->profile_plane=profile->plane;
                 // Length, thickness and operation changes do not move the
@@ -1578,6 +1623,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // frame; placement/profile-frame edits still run the complete
                 // resolver before publishing their preview.
                 update_owned_profile_context_preview(document,preview,!frame_unchanged);
+                preview_phase("resolve context");
                 const zima::kernel::ViewerMesh* input=nullptr;
                 if(part_rollback_ && part_rollback_->part_document_id==owner_id && part_rollback_->input_body)
                     input=&part_rollback_->input_body->mesh;
@@ -1660,6 +1706,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     auto wire=document.feature_preview_edges(preview,input?*input:empty_input,references);
                     viewer_->set_transient_edges(std::move(wire));
                     }
+                    preview_phase("wire");
                 } catch(const std::exception& error) {
                     exact_preview->clear();
                     // An empty or unfinished profile cannot supply a body wire,
@@ -1669,12 +1716,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     viewer_->set_transient_edges({});
                     state_->setText(tr(error.what()));
                 }
-                publish_profile_preview_scene(&document,preview);
+                const bool lightweight_context=owner&&original==nullptr&&
+                    profile!=document.sketches.end()&&
+                    profile->points.empty()&&profile->segments.empty()&&
+                    profile->circles.empty()&&profile->arcs.empty()&&
+                    profile->ellipses.empty()&&profile->elliptical_arcs.empty()&&
+                    profile->bsplines.empty()&&profile->import_blocks.empty()&&
+                    profile->offsets.empty()&&profile->texts.empty()&&
+                    profile->symbols.empty()&&profile->external_references.empty();
+                publish_profile_preview_scene(&document,preview,
+                    lightweight_context);
+                preview_phase("publish");
             } catch(const std::exception& error) {
                 exact_preview->clear();
                 if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_FEATURE_PREVIEW"))
                     std::fprintf(stderr,"Feature preview failed: %s\n",error.what());
-                viewer_->set_transient_edges({});publish_profile_preview_scene(nullptr,preview);
+                viewer_->set_transient_edges({});publish_profile_preview_scene(nullptr,preview,false);
                 state_->setText(tr(error.what()));
             }
         });
@@ -1770,7 +1827,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                                 resolved_preview));
                     }
                     publish_profile_preview_scene(
-                        &preview_document, resolved_preview);
+                        &preview_document, resolved_preview, false);
                 } else {
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
@@ -1820,7 +1877,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                             owner->session.data_generation(),profile_wire);
                     viewer_->set_transient_edges(std::move(profile_wire));
                     publish_profile_preview_scene(
-                        &preview_document, resolved_preview);
+                        &preview_document, resolved_preview, false);
                 }
                 state_->setText(resolved_preview.extrusion.sheet_cut
                     ? tr("Azurový drát zobrazuje rozsah řezu a orientační hranice v plechu. Výsledné těleso se vypočítá až po OK.")
@@ -1833,7 +1890,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // frame. Skipping this refresh was why a new Extrusion did
                 // not react until after returning from Sketcher.
                 viewer_->set_transient_edges({});
-                publish_profile_preview_scene(nullptr, resolved_preview);
+                publish_profile_preview_scene(nullptr, resolved_preview, false);
                 state_->setText(QObject::tr(error.what()));
             }
         });
@@ -1869,7 +1926,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         preview_document.revolution_preview_edges(
                             resolved_preview));
                     publish_profile_preview_scene(
-                        &preview_document, resolved_preview);
+                        &preview_document, resolved_preview, false);
                 } else {
                     const auto* owner = workspace_.open_part(owner_id);
                     if (owner == nullptr) return;
@@ -1890,7 +1947,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         preview_document.revolution_preview_edges(
                             resolved_preview));
                     publish_profile_preview_scene(
-                        &preview_document, resolved_preview);
+                        &preview_document, resolved_preview, false);
                 }
                 state_->setText(tr("Azurový drát zobrazuje náhled rotace."));
             } catch (const std::exception& error) {
@@ -1898,7 +1955,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // Extrusion: a missing closed profile/axis may suppress the
                 // operation wire, never its live work plane and dimensions.
                 viewer_->set_transient_edges({});
-                publish_profile_preview_scene(nullptr, resolved_preview);
+                publish_profile_preview_scene(nullptr, resolved_preview, false);
                 state_->setText(QObject::tr(error.what()));
             }
         });
@@ -2290,6 +2347,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         primitive_translation_dof_ = 3;
         tree_->setProperty("commandSelectionActive", false);
         viewer_->set_transient_edges({});
+        viewer_->set_transient_context_mesh({});
         viewer_->set_transient_dimensions({});
         viewer_->set_extent_manipulator(std::nullopt);
         viewer_->set_operation_direction_indicator(std::nullopt);

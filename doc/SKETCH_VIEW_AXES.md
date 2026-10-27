@@ -18,15 +18,14 @@ also applies after Escape or a command resets its selection contract. Explicit
 command priorities retain precedence; eligibility, tolerances and right-button
 candidate cycling are unchanged. Construction wires retain their dash gaps.
 
-The Axis points visibility control also governs permanent point markers on
-construction curves in the active Sketch. Hidden markers keep their real native
-point identity for picking, snapping and dragging, with hover/selection feedback
-when needed. Shared profile vertices retain their ordinary profile presentation.
-The localized tooltip explains this scope in all five supported languages.
-When a modeled feature publishes only construction curves outside Sketcher,
-their endpoints follow Axis points even if a native vertex also belongs to a
-hidden profile. This changes only the displayed packet: editing the Sketch
-retains the real shared profile vertex and its ordinary picking behavior.
+Construction-curve endpoint markers are not permanent ordinary-View geometry
+and the former Axis points toolbar control is removed. Explicit Sketch commands
+that accept a point or axis reveal the real native endpoints in their transient
+context and retain normal snapping, dragging and hover/selection feedback.
+Ending the command hides those auxiliary markers again. Shared profile vertices
+retain their ordinary profile presentation. This is a viewer policy only:
+editing retains the native point, incidence, persisted identity and ordinary
+profile picking behavior.
 
 Newly assigned construction curves default to hidden outside Sketcher. Their
 individual Show in 3D setting remains available and existing saved choices are

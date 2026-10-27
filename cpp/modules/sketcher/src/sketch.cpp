@@ -3715,21 +3715,59 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         const double original_angle = std::atan2(
             original_y - center->y, original_x - center->x);
         const double requested_angle = std::atan2(y - center->y, x - center->x);
-        const double rotation = requested_angle - original_angle;
+        const bool direction_constrained = std::ranges::any_of(
+            next.constraints, [&](const auto& candidate) {
+                if (candidate.suppressed) return false;
+                if ((candidate.kind == ConstraintKind::Horizontal ||
+                     candidate.kind == ConstraintKind::Vertical) &&
+                    ring_segment_ids.contains(candidate.geometry_id)) {
+                    return true;
+                }
+                if (candidate.kind != ConstraintKind::Parallel &&
+                    candidate.kind != ConstraintKind::Perpendicular) {
+                    return false;
+                }
+                const bool first_ring =
+                    ring_segment_ids.contains(candidate.geometry_id);
+                const bool second_ring =
+                    ring_segment_ids.contains(candidate.second_geometry_id);
+                return first_ring != second_ring;
+            });
+        const bool radius_locked = std::ranges::any_of(
+            next.dimensions, [&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    dimension.locked && dimension.geometry_id == circle->id &&
+                    (dimension.kind == DimensionKind::Radius ||
+                     dimension.kind == DimensionKind::Diameter);
+            });
+        // H/V or an external direction relation owns the polygon orientation.
+        // In that case a rim drag can only change its size; rotating the ring
+        // first and asking the nonlinear solver to restore the direction lets
+        // it select folded equal-chord branches.  Scale the complete regular
+        // graph analytically about its unchanged centre instead.
+        if (direction_constrained && radius_locked) return false;
+        const double rotation = direction_constrained
+            ? 0.0 : requested_angle - original_angle;
+        const double scale = direction_constrained
+            ? requested_radius / circle->radius : 1.0;
         const double cosine = std::cos(rotation);
         const double sine = std::sin(rotation);
         for (const auto& vertex_id : vertex_ids) {
-            if (vertex_id == point_id) continue;
             auto* vertex = next.find_point(vertex_id);
             if (vertex == nullptr || vertex->fixed ||
                 externally_linked.contains(vertex_id)) return false;
             const double relative_x = vertex->x - center->x;
             const double relative_y = vertex->y - center->y;
-            vertex->x = center->x + relative_x * cosine - relative_y * sine;
-            vertex->y = center->y + relative_x * sine + relative_y * cosine;
+            vertex->x = center->x + scale *
+                (relative_x * cosine - relative_y * sine);
+            vertex->y = center->y + scale *
+                (relative_x * sine + relative_y * cosine);
         }
-        x = center->x + circle->radius * std::cos(requested_angle);
-        y = center->y + circle->radius * std::sin(requested_angle);
+        if (direction_constrained) circle->radius = requested_radius;
+        const auto* moved = next.find_point(point_id);
+        if (moved == nullptr) return false;
+        x = moved->x;
+        y = moved->y;
         break;
     }
     point->x = x;
@@ -5142,7 +5180,65 @@ std::string Sketch::add_segment_pair_constraint(
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Segment-pair constraint conflicts with existing geometry");
     }
-    require_constraint_dof_reduction(
+    const bool regular_polygon_direction = kind != ConstraintKind::EqualLength && [&] {
+        const auto driven = std::ranges::find(
+            segments, second_segment_id, &SketchSegment::id);
+        if (driven == segments.end()) return false;
+        for (const auto& circle : circles) {
+            if (!circle.construction) continue;
+            std::set<std::string> vertices;
+            for (const auto& relation : constraints) {
+                if (!relation.suppressed &&
+                    relation.kind == ConstraintKind::PointOnCircle &&
+                    relation.geometry_id == circle.id) {
+                    vertices.insert(relation.first_point_id);
+                }
+            }
+            if (vertices.size() < 4 ||
+                !vertices.contains(driven->first_point_id) ||
+                !vertices.contains(driven->second_point_id)) continue;
+            std::set<std::string> ring;
+            std::map<std::string, unsigned> degree;
+            for (const auto& segment : segments) {
+                if (!vertices.contains(segment.first_point_id) ||
+                    !vertices.contains(segment.second_point_id)) continue;
+                ring.insert(segment.id);
+                ++degree[segment.first_point_id];
+                ++degree[segment.second_point_id];
+            }
+            const auto equal_count = std::count_if(
+                constraints.begin(), constraints.end(), [&](const auto& relation) {
+                    return !relation.suppressed &&
+                        relation.kind == ConstraintKind::EqualLength &&
+                        ring.contains(relation.geometry_id) &&
+                        ring.contains(relation.second_geometry_id);
+                });
+            const bool closed = ring.size() == vertices.size() &&
+                std::ranges::all_of(vertices, [&](const auto& vertex) {
+                    return degree[vertex] == 2;
+                });
+            if (!closed ||
+                equal_count + 1 < static_cast<std::ptrdiff_t>(vertices.size())) {
+                continue;
+            }
+            // A circle/equal-chord polygon has a real continuous rotation DOF,
+            // but the generic numerical rank can classify a direction row as
+            // redundant at an already aligned branch.  The persisted relation
+            // is what selects that branch and prevents later folding.
+            return std::ranges::none_of(constraints, [&](const auto& relation) {
+                if (relation.suppressed) return false;
+                if ((relation.kind == ConstraintKind::Horizontal ||
+                     relation.kind == ConstraintKind::Vertical) &&
+                    ring.contains(relation.geometry_id)) return true;
+                if (relation.kind != ConstraintKind::Parallel &&
+                    relation.kind != ConstraintKind::Perpendicular) return false;
+                return ring.contains(relation.geometry_id) !=
+                    ring.contains(relation.second_geometry_id);
+            });
+        }
+        return false;
+    }();
+    if (!regular_polygon_direction) require_constraint_dof_reduction(
         *this, result, "Segment-pair constraint is redundant");
     *this = std::move(next);
     return id;
@@ -6835,15 +6931,28 @@ RegularPolygonResult Sketch::add_regular_polygon(
             first[0], first[1], second[0], second[1], snap_tolerance));
     }
     for (const auto& vertex_id : result.vertex_ids) {
-        static_cast<void>(next.add_point_on_circle_constraint(
-            vertex_id, result.support_circle_id));
+        SketchConstraint support;
+        support.id = make_id();
+        support.kind = ConstraintKind::PointOnCircle;
+        support.first_point_id = vertex_id;
+        support.geometry_id = result.support_circle_id;
+        next.constraints.push_back(std::move(support));
     }
     for (std::size_t index = 1; index < result.segment_ids.size(); ++index) {
-        static_cast<void>(next.add_segment_pair_constraint(
-            result.segment_ids.front(), result.segment_ids[index],
-            ConstraintKind::EqualLength));
+        SketchConstraint equality;
+        equality.id = make_id();
+        equality.kind = ConstraintKind::EqualLength;
+        equality.geometry_id = result.segment_ids.front();
+        equality.second_geometry_id = result.segment_ids[index];
+        next.constraints.push_back(std::move(equality));
     }
     next.validate();
+    const auto solved = next.solve();
+    if (solved.status == SolveStatus::Conflicting ||
+        solved.status == SolveStatus::Invalid) {
+        throw std::runtime_error(
+            "Regular polygon conflicts with existing Sketch geometry");
+    }
     *this = std::move(next);
     return result;
 }
@@ -7235,7 +7344,8 @@ static CornerFilletResult materialize_corner_fillet(
     Sketch& source,
     const std::string& first_segment_id,
     const std::string& second_segment_id,
-    double radius, double snap_tolerance) {
+    double radius, double snap_tolerance,
+    bool analytically_derived = false) {
     require_finite(radius, "corner fillet radius");
     require_finite(snap_tolerance, "corner fillet snap tolerance");
     if (radius <= 1.0e-12 || snap_tolerance < 0.0 ||
@@ -7411,13 +7521,37 @@ static CornerFilletResult materialize_corner_fillet(
         : next.add_arc(center[0], center[1],
             first_tangent[0], first_tangent[1],
             second_tangent[0], second_tangent[1], false, snap_tolerance);
-    static_cast<void>(next.add_tangent_constraint(first_segment_id, result.arc_id));
-    static_cast<void>(next.add_tangent_constraint(second_segment_id, result.arc_id));
+    if (analytically_derived) {
+        // The construction above computes the two tangent points and the arc
+        // centre analytically.  A materialized profile is a disposable view of
+        // the already solved authored graph, so asking the general solver to
+        // rediscover each of these two exact tangencies only repeats work.  A
+        // rounded rectangle used to run three complete solves per corner on
+        // every drag frame.  Keep the same native C+T topology while deferring
+        // one structural validation until the complete derived profile exists.
+        const auto append_tangent = [&](const std::string& segment_id,
+                                        const std::string& contact_id) {
+            SketchConstraint tangent;
+            tangent.id = make_id();
+            tangent.kind = ConstraintKind::Tangent;
+            tangent.first_point_id = contact_id;
+            tangent.geometry_id = segment_id;
+            tangent.second_geometry_id = result.arc_id;
+            next.constraints.push_back(std::move(tangent));
+        };
+        append_tangent(first_segment_id, result.first_tangent_point_id);
+        append_tangent(second_segment_id, result.second_tangent_point_id);
+    } else {
+        static_cast<void>(next.add_tangent_constraint(first_segment_id, result.arc_id));
+        static_cast<void>(next.add_tangent_constraint(second_segment_id, result.arc_id));
+    }
     next.validate();
-    const auto solved = next.solve();
-    if (solved.status == SolveStatus::Conflicting ||
-        solved.status == SolveStatus::Invalid) {
-        throw std::runtime_error("Corner fillet conflicts with existing Sketch geometry");
+    if (!analytically_derived) {
+        const auto solved = next.solve();
+        if (solved.status == SolveStatus::Conflicting ||
+            solved.status == SolveStatus::Invalid) {
+            throw std::runtime_error("Corner fillet conflicts with existing Sketch geometry");
+        }
     }
     source = std::move(next);
     return result;
@@ -7545,7 +7679,7 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
         if (record.suppressed || record.radius <= 1.0e-9) continue;
         const auto materialized = materialize_corner_fillet(result,
             record.first_segment_id, record.second_segment_id, record.radius,
-            1.0e-7);
+            1.0e-7, true);
         const auto arc = std::find_if(result.arcs.begin(), result.arcs.end(),
             [&](const auto& value) { return value.id == materialized.arc_id; });
         const auto rename_point = [&](const std::string& old_id,
@@ -10125,7 +10259,48 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         dimension_kind != DimensionKind::EllipseMajorRadius &&
         dimension_kind != DimensionKind::EllipseMinorRadius &&
         dimension_kind != DimensionKind::EllipseRotation) {
-        require_constraint_dof_reduction(
+        const bool regular_polygon_size =
+            (dimension_kind == DimensionKind::Radius ||
+             dimension_kind == DimensionKind::Diameter) && [&] {
+                const auto circle = std::ranges::find(
+                    circles, dimension_geometry_id, &SketchCircle::id);
+                if (circle == circles.end() || !circle->construction) return false;
+                std::set<std::string> vertices;
+                for (const auto& relation : constraints) {
+                    if (!relation.suppressed &&
+                        relation.kind == ConstraintKind::PointOnCircle &&
+                        relation.geometry_id == circle->id) {
+                        vertices.insert(relation.first_point_id);
+                    }
+                }
+                if (vertices.size() < 4) return false;
+                std::set<std::string> ring;
+                std::map<std::string, unsigned> degree;
+                for (const auto& segment : segments) {
+                    if (!vertices.contains(segment.first_point_id) ||
+                        !vertices.contains(segment.second_point_id)) continue;
+                    ring.insert(segment.id);
+                    ++degree[segment.first_point_id];
+                    ++degree[segment.second_point_id];
+                }
+                const auto equal_count = std::count_if(
+                    constraints.begin(), constraints.end(), [&](const auto& relation) {
+                        return !relation.suppressed &&
+                            relation.kind == ConstraintKind::EqualLength &&
+                            ring.contains(relation.geometry_id) &&
+                            ring.contains(relation.second_geometry_id);
+                    });
+                return ring.size() == vertices.size() &&
+                    equal_count + 1 >= static_cast<std::ptrdiff_t>(vertices.size()) &&
+                    std::ranges::all_of(vertices, [&](const auto& vertex) {
+                        return degree[vertex] == 2;
+                    });
+            }();
+        // An exact circle/equal-chord polygon owns one real scale DOF.  Near
+        // the aligned octagon branch the generic numerical rank can miss it;
+        // the radius/diameter equation is nevertheless the first size owner
+        // and the solved residual above has already validated the geometry.
+        if (!regular_polygon_size) require_constraint_dof_reduction(
             *this, result, "Sketch dimension is redundant");
     }
     next.refresh_curve_dependencies();
@@ -14065,7 +14240,8 @@ SolveResult Sketch::solve_impl(
     return solved;
 }
 
-zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
+zima::kernel::ViewerMesh Sketch::viewer_mesh(
+    bool include_interaction_points) const {
     validate();
     if (std::any_of(corner_radii.begin(), corner_radii.end(),
             [](const auto& value) {
@@ -14110,7 +14286,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             if(displayed_constraints.insert(constraint.id).second)
                 evaluated.constraints.push_back(constraint);
         }
-        auto result = evaluated.viewer_mesh();
+        auto result = evaluated.viewer_mesh(include_interaction_points);
         // Publish one midpoint for the authored endpoints, never another
         // midpoint for the tangent-trimmed display leg.
         for(auto& point:result.points) {
@@ -14271,6 +14447,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto text=std::ranges::find_if(texts,[&](const auto& value){return value.anchor_point_id==point.id;});
         if(text!=texts.end())result.points.back().sketch_text_key="text:"+text->id+":"+text_color_name(text->color);
     }
+    if (include_interaction_points) {
     for (const auto& segment : segments) {
         const auto* first = find_point(segment.first_point_id);
         const auto* second = find_point(segment.second_point_id);
@@ -14461,6 +14638,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                     {}, false});
             }
         }
+    }
     }
     for (const auto& reference : external_references) {
         if(const auto center=external_reference_center(reference))

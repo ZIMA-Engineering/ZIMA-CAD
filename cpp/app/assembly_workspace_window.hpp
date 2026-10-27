@@ -299,7 +299,6 @@ private:
     QAction* show_origins_action_{};
     QAction* show_points_action_{};
     QAction* show_axes_action_{};
-    QAction* show_axis_points_action_{};
     QAction* show_planes_action_{};
     QAction* show_surfaces_action_{};
     QAction* show_sketches_action_{};
@@ -695,6 +694,10 @@ private:
     std::map<std::string, std::array<float, 8>> document_camera_states_;
     std::optional<zima::document::PartDocument> sketch_drag_document_;
     std::optional<zima::assembly::AssemblyDocument> assembly_sketch_drag_document_;
+    // Point/dimension dragging owns only a lightweight Sketch overlay.  The
+    // calculated Part/Assembly context is published once at the first mouse
+    // movement instead of being rebuilt for every pointer event.
+    bool sketch_drag_overlay_active_{};
     std::string sketch_drag_point_id_;
     std::string sketch_drag_dimension_id_;
     bool sketch_drag_changed_{};
@@ -771,6 +774,7 @@ private:
     [[nodiscard]] zima::kernel::ViewerMesh sketch_input_mesh(
         const zima::document::DocumentSession& session) const;
     void show_sketch_drag_preview(const zima::sketcher::Sketch& sketch);
+    void clear_sketch_drag_preview();
     [[nodiscard]] zima::kernel::ViewerMesh sketch_viewer_mesh(
         const zima::sketcher::Sketch& sketch) const;
     bool mutate_active_sketch(

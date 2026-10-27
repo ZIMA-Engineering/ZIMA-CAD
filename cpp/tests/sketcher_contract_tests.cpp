@@ -6808,6 +6808,97 @@ int main() {
                         "Regular polygon orientation matrix accumulated drift");
             }
         }
+        for (const unsigned side_count : {4U, 6U, 8U})
+        for (const bool vertical : {false, true})
+        for (const bool direction_pair : {false, true}) {
+            auto directed = zima::sketcher::Sketch::create_default();
+            constexpr double center_x = 3.0;
+            constexpr double center_y = -2.0;
+            constexpr double initial_radius = 12.0;
+            const double start_angle = vertical
+                ? -std::numbers::pi / static_cast<double>(side_count)
+                : -std::numbers::pi * 0.5 -
+                    std::numbers::pi / static_cast<double>(side_count);
+            const auto result = directed.add_regular_polygon(
+                center_x, center_y,
+                center_x + initial_radius * std::cos(start_angle),
+                center_y + initial_radius * std::sin(start_angle), side_count);
+            directed.find_point(
+                directed.circles.front().center_point_id)->fixed = true;
+            if (direction_pair) {
+                const auto axis = vertical
+                    ? directed.add_segment(-40.0, -10.0, -40.0, 10.0,
+                        1.0e-6, true)
+                    : directed.add_segment(-50.0, 20.0, -30.0, 20.0,
+                        1.0e-6, true);
+                const auto support = std::ranges::find(
+                    directed.segments, axis, &zima::sketcher::SketchSegment::id);
+                directed.find_point(support->first_point_id)->fixed = true;
+                directed.find_point(support->second_point_id)->fixed = true;
+                static_cast<void>(directed.add_segment_pair_constraint(
+                    axis, result.segment_ids.front(),
+                    zima::sketcher::ConstraintKind::Parallel));
+            } else {
+                static_cast<void>(directed.add_segment_constraint(
+                    result.segment_ids.front(), vertical
+                        ? zima::sketcher::ConstraintKind::Vertical
+                        : zima::sketcher::ConstraintKind::Horizontal));
+            }
+            const auto orientation = [&](const auto& value) {
+                double twice_area{};
+                for (std::size_t index = 0; index < result.vertex_ids.size(); ++index) {
+                    const auto* first = value.find_point(result.vertex_ids[index]);
+                    const auto* second = value.find_point(
+                        result.vertex_ids[(index + 1) % result.vertex_ids.size()]);
+                    twice_area += first->x * second->y - first->y * second->x;
+                }
+                return twice_area;
+            };
+            const double original_orientation = orientation(directed);
+            for (const double radius : {18.0, 7.0, 19.0, 11.0}) {
+                require(directed.move_point(result.vertex_ids.front(),
+                            center_x + radius * std::cos(0.37),
+                            center_y + radius * std::sin(0.37)),
+                    "Direction-constrained regular polygon rejected radial drag");
+                const auto* center = directed.find_point(
+                    directed.circles.front().center_point_id);
+                const auto* first = directed.find_point(
+                    directed.segments.front().first_point_id);
+                const auto* second = directed.find_point(
+                    directed.segments.front().second_point_id);
+                require(center != nullptr &&
+                        std::abs(directed.circles.front().radius - radius) < 1.0e-7 &&
+                        std::abs(vertical ? second->x - first->x
+                                          : second->y - first->y) < 1.0e-7 &&
+                        original_orientation * orientation(directed) > 0.0 &&
+                        directed.solve().maximum_residual < 1.0e-7,
+                    "Direction-constrained regular polygon folded or lost H/V");
+                const double side = 2.0 * radius * std::sin(
+                    std::numbers::pi / static_cast<double>(side_count));
+                for (std::size_t index = 0; index < result.vertex_ids.size(); ++index) {
+                    const auto* vertex = directed.find_point(result.vertex_ids[index]);
+                    const auto* next = directed.find_point(
+                        result.vertex_ids[(index + 1) % result.vertex_ids.size()]);
+                    require(std::abs(std::hypot(vertex->x - center->x,
+                                        vertex->y - center->y) - radius) < 1.0e-7 &&
+                                std::abs(std::hypot(next->x - vertex->x,
+                                        next->y - vertex->y) - side) < 1.0e-7,
+                        "Direction-constrained regular polygon lost its regular shape");
+                }
+                directed = zima::sketcher::Sketch::from_serialized(
+                    directed.serialized());
+            }
+            auto locked = directed;
+            auto size = locked.create_circle_radius_dimension(
+                result.support_circle_id);
+            size.locked = true;
+            locked.apply_dimension(std::move(size));
+            const auto unchanged = locked.serialized();
+            require(!locked.move_point(result.vertex_ids.front(),
+                        center_x + 14.0, center_y + 14.0) &&
+                    locked.serialized() == unchanged,
+                "Locked direction-constrained polygon accepted an impossible drag");
+        }
         const auto polygon_before_invalid = polygon;
         bool invalid_polygon_rejected = false;
         try {

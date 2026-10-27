@@ -57,28 +57,24 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026102603](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102603).
+[2026102701](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102701).
 Its clean committed-source package, signature, both native smoke runs, all
 1,185 factory native assets, authenticated and anonymous public downloads,
-production bootstrap trust and trusted 2026102602 updater discovery are verified.
-It adds measured exact-output native-cache and history workflow improvements,
-automatic new-dimension value entry, mixed unit expressions, two-digit feature
-names, parallel-reference rectangle symmetry, Sheet-from-Body Origin alignment,
-Skeleton export control and revised Sketcher icons. The shared Windows/Linux
-source remains pinned to OCCT 8.0.1. See the
-[release record](doc/releases/2026102603.md),
-[performance evidence](doc/performance/20261026-skeleton-history-edit.md) and
-[publication evidence](doc/verification/20261026-windows-2603-publication.json).
+production bootstrap trust and trusted 2026102603 updater discovery are verified.
+It adds compact exact viewer-cache packets, responsive saved-tab close and
+focused Sketcher corrections. The shared Windows/Linux source remains pinned to
+OCCT 8.0.1. See the [release record](doc/releases/2026102701.md) and
+[publication evidence](doc/verification/20261027-windows-2701-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 
-The current source identifies Windows candidate `2026102701`. It adds exact
-viewer-cache v2 storage, immediate detachment when closing large saved documents,
-the restored oriented-Rectangle RMB axis gesture and safe rounded-Mirror deletion.
-The [candidate record](doc/releases/2026102701.md) and
+The current source identifies Windows candidate `2026102702`. It adds exact
+unchanged-cache save reuse, direct pooled-string loading, immutable metadata
+history packets, responsive New Feature/Sketch interaction, command-only axis
+endpoints and View navigation during calculation. The
+[candidate record](doc/releases/2026102702.md) and
 [performance record](doc/performance/20261027-native-cache-close-and-redesign-gate.md)
-state the measured improvement and the separate tenfold adoption gate for any
-future internal redesign. `2026102603` remains the latest published stable build
+future internal redesign. `2026102701` remains the latest published stable build
 until signing, publication and updater acceptance finish.
 
 ## Command line

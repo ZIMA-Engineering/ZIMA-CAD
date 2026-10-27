@@ -31,6 +31,22 @@
 
 namespace zima::document {
 
+// Opaque, already validated calculated-cache text from a native Part. A
+// DocumentSession may retain it only while it retains the exact immutable
+// calculated packet. It is disposable derived data, never authored state.
+struct NativeCalculatedCache {
+    std::string encoding;
+    std::string definition_fingerprint;
+    std::shared_ptr<const std::string> data;
+    std::size_t operation_count{};
+    std::string final_source_fingerprint;
+};
+using NativeCalculatedCachePtr = std::shared_ptr<const NativeCalculatedCache>;
+enum class NativeCalculatedCacheReuse {
+    ExactDefinition,
+    UnchangedCalculatedPacket,
+};
+
 enum class CombineMode { Add, Subtract };
 enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
@@ -974,13 +990,24 @@ public:
         bool allow_persisted_external_target = false, bool recover_errors = false) const;
     [[nodiscard]] static PartDocument load(
         const std::filesystem::path& path,
-        std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);
+        std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr,
+        NativeCalculatedCachePtr* native_cache = nullptr);
     [[nodiscard]] nlohmann::json serialized(const std::vector<zima::kernel::BodyResult>& calculated = {}, const DocumentCopyIdentity& copy = {}, bool compact_cache = false) const;
     [[nodiscard]] static PartDocument from_serialized(const nlohmann::json&, std::vector<zima::kernel::BodyResult>* calculated = nullptr);
     void save(
         const std::filesystem::path& path,
         const std::vector<zima::kernel::BodyResult>& calculated_boundaries = {},
         const zima::document::DocumentCopyIdentity& copy = {}) const;
+    // Returns the exact packed cache written to disk. Strict callers require
+    // the same definition; a live session may explicitly prove that only
+    // metadata changed while it retained the same immutable calculated packet.
+    [[nodiscard]] NativeCalculatedCachePtr save_with_native_cache(
+        const std::filesystem::path& path,
+        const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
+        NativeCalculatedCachePtr reuse,
+        const zima::document::DocumentCopyIdentity& copy = {},
+        NativeCalculatedCacheReuse reuse_policy =
+            NativeCalculatedCacheReuse::ExactDefinition) const;
 };
 
 // Bounding-box diagonal of a mesh's vertices/edges/points, matching Python's

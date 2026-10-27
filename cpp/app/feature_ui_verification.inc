@@ -31,17 +31,17 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
             check(tree&&view,"Profile axes workspace missing");
             auto* show=window.findChild<QAction*>("showAxesAction");check(show,"Axes visibility action missing");show->setChecked(true);flush();
-            auto* show_axis_points=window.findChild<QAction*>("showAxisPointsAction");
-            check(show_axis_points&&show_axis_points->isChecked()&&!show_axis_points->icon().isNull(),"Axis points action/default/icon missing");
-            check(show_axis_points->text()==translations.value(QStringLiteral("Body os"))&&
-                show_axis_points->toolTip()==translations.value(QStringLiteral("Zobrazit nebo skrýt body os a konstrukčních čar")),"Axis points controls are not localized");
+            check(window.findChild<QAction*>("showAxisPointsAction")==nullptr,
+                "Ordinary View still exposes the obsolete axis-endpoint filter");
             const auto visibility_revision=view->base_mesh_revision();
-            show_axis_points->setChecked(false);flush();
-            check(!view->reference_visible(viewer::ReferenceVisibility::AxisPoints)&&view->reference_visible(viewer::ReferenceVisibility::Axes),"Axis points switch hid its parent axes");
+            check(!view->reference_visible(viewer::ReferenceVisibility::AxisPoints)&&
+                view->reference_visible(viewer::ReferenceVisibility::Axes),
+                "Ordinary View does not start with permanent axis endpoints hidden");
             show->setChecked(false);show->setChecked(true);flush();
-            check(!show_axis_points->isChecked(),"Parent axis switch discarded the points preference");
-            show_axis_points->setChecked(true);flush();
-            check(view->base_mesh_revision()==visibility_revision,"Axis point visibility republished/calculated the base scene");
+            check(!view->reference_visible(viewer::ReferenceVisibility::AxisPoints),
+                "Parent axis visibility exposed permanent endpoint markers");
+            check(view->base_mesh_revision()==visibility_revision,
+                "Axis visibility republished/calculated the base scene");
             if(language=="cs"&&!ellipse&&reopen==0) {
                 viewer::MeshView probe;probe.resize(640,480);probe.show();flush();
                 kernel::ViewerMesh support;
@@ -51,18 +51,23 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 support.points.push_back({{0,10,0},{"ordinary-point","point",{}},{},true});
                 probe.set_mesh(support);probe.set_camera_state({1,0,0,0,10,0,0,10});
                 const auto image=[&]{flush();return probe.grabFramebuffer();};
-                const auto visible=image();probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
-                const auto hidden=image();check(hidden!=visible,"Axis points switch did not change real View pixels");
+                const auto hidden=image();
+                check(!probe.reference_visible(viewer::ReferenceVisibility::AxisPoints),
+                    "Standalone View exposed axis endpoints by default");
                 probe.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);
-                check(image()!=hidden,"Axis points switch also hid its parent axis wire");
+                check(image()!=hidden,"Hidden axis endpoints also hid their parent axis wire");
                 probe.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);
-                check(image()==hidden,"Reenabling axes ignored hidden axis points");
-                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
-                check(image()==visible,"Axis point visibility was not reversible");
-                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                check(image()==hidden,"Reenabling axes exposed permanent axis endpoints");
+                probe.set_selection_contract({viewer::CandidateKind::Vertex});
+                const auto command_visible=image();
+                check(command_visible!=hidden,
+                    "Explicit command entry did not reveal transient axis endpoints");
+                probe.set_selection_contract({});
+                check(image()==hidden,
+                    "Ending command entry left axis endpoints in ordinary View");
                 support.points.erase(support.points.begin(),support.points.begin()+2);probe.set_mesh(support,false);
                 check(image()==hidden,"Hidden endpoints affected ordinary point rendering");
-                std::cout<<"Axis point View pixels: independent points/axes, off/on preference and exact ordinary-point control passed"<<std::endl;
+                std::cout<<"Axis endpoints: ordinary View hidden, command-only entry visible and parent axes independent passed"<<std::endl;
                 auto construction=sketcher::Sketch::create_default();
                 static_cast<void>(construction.add_segment(-10,0,10,0,1e-6,true));
                 static_cast<void>(construction.add_segment(-10,0,-10,10));
@@ -76,11 +81,10 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 probe.set_geometry_editing_presentation(true,construction.id);
                 probe.set_selection_contract({viewer::CandidateKind::SketchPoint,viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve});
                 probe.set_mesh(support);
-                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
-                const auto construction_visible=image();const auto revision=probe.base_mesh_revision();
-                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
-                const auto construction_hidden=image();
-                check(construction_hidden!=construction_visible&&probe.base_mesh_revision()==revision,"Active construction points ignored visibility or republished the scene");
+                const auto construction_hidden=image();const auto revision=probe.base_mesh_revision();
+                check(!probe.reference_visible(viewer::ReferenceVisibility::AxisPoints)&&
+                    probe.base_mesh_revision()==revision,
+                    "Active Sketch exposed permanent construction endpoints");
                 const auto hidden_point=std::ranges::find_if(support.points,[](const auto& point){return point.construction;});
                 check(hidden_point!=support.points.end(),"Construction fixture lost its exclusive endpoint");
                 // Find the real point through the ordinary screen picker while
@@ -106,11 +110,14 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 check(support.points.size()==2&&std::ranges::all_of(support.points,[](const auto& point){return point.construction;}),
                     "A construction-only display retained a shared profile marker outside the axis-points switch");
                 probe.set_active_sketch_owner({});probe.set_geometry_editing_presentation(false);probe.set_selection_contract({});
-                probe.set_mesh(support);probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                probe.set_mesh(support);
                 const auto passive_hidden=image();const auto passive_revision=probe.base_mesh_revision();
-                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
-                check(image()!=passive_hidden&&probe.base_mesh_revision()==passive_revision,"Shared passive axis endpoint ignored the point preference or republished the scene");
-                probe.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,false);
+                probe.set_selection_contract({viewer::CandidateKind::SketchPoint});
+                check(image()!=passive_hidden&&probe.base_mesh_revision()==passive_revision,
+                    "Explicit Sketch command did not reveal its real passive axis endpoint");
+                probe.set_selection_contract({});
+                check(image()==passive_hidden,
+                    "Ending Sketch command left passive axis endpoints visible");
                 support.points.clear();probe.set_mesh(support,false);
                 check(image()==passive_hidden,"Hidden shared axis endpoint left a white marker");
                 check(construction.serialized()==definition,"Axis display classification modified native Sketch incidence");

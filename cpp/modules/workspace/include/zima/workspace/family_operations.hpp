@@ -26,6 +26,8 @@ std::string open_family_instance(Workspace&, const kernel::OcctKernel&,
 std::string family_owner(const Workspace&, const std::string&);
 bool commit_family_part(Workspace&, const std::string&, document::PartDocument&,
     std::vector<kernel::BodyResult>&);
+bool commit_family_part_metadata(Workspace&, const std::string&,
+    document::PartDocument&);
 bool commit_family_assembly(Workspace&, const std::string&, assembly::AssemblyDocument&);
 // Republish persisted evaluation packets after Undo/Redo; never calculates.
 void restore_family_tabs(Workspace&, const std::string& generic);

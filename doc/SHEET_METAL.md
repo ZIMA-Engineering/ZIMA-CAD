@@ -207,10 +207,11 @@ degrees-of-freedom filter must not reject that edge before the sheet command can
 construct this complete reference set. Changing the endpoint reverses the span
 along the same physical edge without changing the joining plane.
 
-The **Points** visibility switch controls auxiliary axis endpoint markers only.
-Hiding those markers does not remove an overlapping sheet face, feature or
-cylindrical cut from the picking stream. Sheet-face confirmation is limited to
-the actually displayed authored region, then resolves to its persisted face
+Auxiliary axis endpoints are not shown permanently in the ordinary View. An
+explicit command that accepts them reveals their real persisted points
+transiently. This presentation never removes an overlapping sheet face, feature
+or cylindrical cut from the picking stream. Sheet-face confirmation is limited
+to the actually displayed authored region, then resolves to its persisted face
 identity; it does not expose consumed coplanar source regions or create a new
 topology identity.
 

@@ -141,8 +141,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     {
         const auto original=state->session.document().body_history;
         const auto calculated=state->session.calculated_boundaries();
+        const auto* calculated_allocation=
+            state->session.calculated_boundaries().data();
         const auto unchanged_geometry=[&]{
             const auto& current=state->session.calculated_boundaries();
+            require(current.data()==calculated_allocation,
+                "Body display metadata copied the immutable calculated cache");
             require(current.size()==calculated.size(),"Body display metadata changed history boundaries");
             for(std::size_t i=0;i<current.size();++i)
                 require(current[i].kernel_shape==calculated[i].kernel_shape &&
@@ -168,6 +172,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             "Native save lost visibility, placement or calculated geometry");
         run(host,"undo");require(state->session.document().body_history==original,"Visibility Undo changed more than visibility");
         run(host,"redo");require(state->session.document().body_history==expected,"Visibility Redo failed");
+        // Save analysis may replace the calculated packet with an equivalent
+        // immutable snapshot. Metadata commits after that point must share it.
+        calculated_allocation=state->session.calculated_boundaries().data();
         run(host,"body.set",{{"body",first},{"visible",true}});
         const auto cursor=original.insertion_cursor();
         const auto cursor_revision=state->session.revision();

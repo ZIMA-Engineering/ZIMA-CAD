@@ -94,13 +94,13 @@ bool set_part_body_visibility(Workspace& workspace,const std::string& id,const s
     if(body->visible==visible)return false;
     auto next=state.session.document();auto value=*body;value.visible=visible;
     next.body_history.update_body(std::move(value));
-    state.session.commit(std::move(next),state.session.calculated_boundaries());return true;
+    state.session.commit_metadata(std::move(next));return true;
 }
 bool activate_part_body(Workspace& workspace,const std::string& id,const std::string& body_id) {
     auto& state=part(workspace,id);
     if(state.session.document().body_history.active_body_id()==body_id)return false;
     auto next=state.session.document();next.body_history.activate(body_id);
-    state.session.commit(std::move(next),state.session.calculated_boundaries());return true;
+    state.session.commit_metadata(std::move(next));return true;
 }
 bool set_part_body_suppressed(Workspace& workspace,const kernel::OcctKernel& kernel,
     const std::string& id,const std::string& body_id,bool suppressed) {
@@ -130,6 +130,6 @@ bool set_body_history_cursor(Workspace& workspace,const std::string& id,std::siz
         if(body->cursor==index)return false;
         next.body_history.set_history_cursor(body_id,index);
     }
-    state.session.commit(std::move(next),state.session.calculated_boundaries());return true;
+    state.session.commit_metadata(std::move(next));return true;
 }
 } // namespace zima::workspace

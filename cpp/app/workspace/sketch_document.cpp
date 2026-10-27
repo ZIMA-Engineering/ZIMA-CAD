@@ -1,5 +1,6 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include "workspace_internal.hpp"
+#include <QElapsedTimer>
 #include <zima/document/bend.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
@@ -414,6 +415,64 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_input_mesh(
 }
 
 void AssemblyWorkspaceWindow::show_sketch_drag_preview(const zima::sketcher::Sketch& sketch) {
+    const bool interactive_drag = sketch_drag_document_ ||
+        assembly_sketch_drag_document_ || !section_drag_sketches_.empty();
+    if (interactive_drag) {
+        QElapsedTimer timer;
+        timer.start();
+        const auto phase = [&](const char* name) {
+            if (qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_SKETCH_DRAG")) {
+                std::fprintf(stderr, "Sketch drag preview %s: %.3f ms\n",
+                    name, timer.nsecsElapsed() / 1e6);
+            }
+            timer.restart();
+        };
+        if (!sketch_drag_overlay_active_) {
+            zima::kernel::ViewerMesh base;
+            if (section_dialog_ && sweep_profile_sketch_draft_) {
+                base = section_preview_source_;
+            } else if (const auto* part =
+                           workspace_.open_part(workspace_.active_document_id())) {
+                base = sketch_input_mesh(part->session);
+                if (workspace_.open_assembly(workspace_.displayed_document_id())) {
+                    const auto occurrence = resolve_active_occurrence(
+                        part->session.document().document_id);
+                    if (!occurrence || occurrence->empty()) return;
+                    zima::kernel::BodyResult source;
+                    source.mesh = std::move(base);
+                    base = workspace_.build_scene_with_part_override(
+                        workspace_.displayed_document_id(),
+                        zima::assembly::InstancePath::decode(*occurrence),
+                        std::move(source));
+                }
+            } else if (assembly_sketch_drag_document_) {
+                base = assembly_sketch_drag_document_->build_scene();
+                if (workspace_.active_document_id() !=
+                        workspace_.displayed_document_id() &&
+                    !workspace_.active_occurrence_path().empty()) {
+                    base = workspace::build_scene_with_assembly_override(
+                        workspace_, workspace_.displayed_document_id(),
+                        zima::assembly::InstancePath::decode(
+                            workspace_.active_occurrence_path()),
+                        *assembly_sketch_drag_document_, &base);
+                }
+            }
+            phase("base scene");
+            viewer_->set_mesh(std::move(base), false);
+            sketch_drag_overlay_active_ = true;
+            phase("publish base");
+        }
+        // MeshView's transient transform already maps Sketch-local geometry
+        // through its Body placement and active Assembly occurrence.  Feeding
+        // raw Sketch coordinates here avoids applying either transform twice.
+        auto overlay = sketch.viewer_mesh(false);
+        auto dimensions = overlay.dimensions;
+        phase("sketch mesh");
+        viewer_->set_transient_context_mesh(std::move(overlay));
+        viewer_->set_transient_dimensions(std::move(dimensions));
+        phase("publish overlay");
+        return;
+    }
     zima::kernel::ViewerMesh display;
     if(section_dialog_&&sweep_profile_sketch_draft_){display=section_preview_source_;append_mesh(display,sketch.viewer_mesh());}
     else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
@@ -438,6 +497,13 @@ void AssemblyWorkspaceWindow::show_sketch_drag_preview(const zima::sketcher::Ske
         }
     }
     viewer_->set_mesh(std::move(display), false);
+}
+
+void AssemblyWorkspaceWindow::clear_sketch_drag_preview() {
+    if (!sketch_drag_overlay_active_) return;
+    viewer_->set_transient_context_mesh({});
+    viewer_->set_transient_dimensions({});
+    sketch_drag_overlay_active_ = false;
 }
 
 zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_viewer_mesh(
