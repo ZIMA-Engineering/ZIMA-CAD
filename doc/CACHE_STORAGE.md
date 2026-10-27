@@ -22,7 +22,7 @@ without changing the expanded value or the validation rules.
 
 The native history payload retains the exact calculated operation boundaries,
 source fingerprints, stable identities and kernel archives inside the `.prtz`.
-For a validated Body graph, the `zima-final-body-result-v1` encoding stores the
+For a validated Body graph, the `zima-final-body-result-v2` encoding stores the
 self-contained final document packet once. That packet already owns every
 Body's immutable local boundary sequence and every derived Body output. The
 loader reconstructs the document-level boundary vector from those exact packets,
@@ -31,6 +31,17 @@ reference compaction as the evaluator. It does not invoke OCCT. The writer uses
 this encoding only when every operation maps unambiguously to the final packet;
 otherwise it retains the complete boundary-array encoding. Both encodings are
 file-local disposable caches, not authored model data.
+
+Viewer packet v2 stores vertex and polyline coordinates in validated little-endian
+binary arrays. Consecutive identical triangle identities use run lengths, while
+edge/point identities and all sheet-side, display-owner, treatment-side,
+endpoint and measured-value metadata remain exact aligned arrays. A Body history
+may store a complete final measurement-source list once and earlier exact
+prefix lengths only when every source packet and binding equals the corresponding
+final prefix. Any unsupported packet falls back to the complete representation.
+The reader retains temporary v1 conversion support, but all new calculated
+caches are written as v2. The authored Part format remains INI 46 / JSON 70;
+no project conversion or sidecar is required.
 
 On reopen, a matching prefix can therefore be restored without recalculating it.
 Any changed definition, source geometry, placement, reference choice or kernel

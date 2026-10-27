@@ -147,7 +147,14 @@ std::string calculation_definition_fingerprint(const nlohmann::json& root) {
     return result.str();
 }
 
-constexpr std::string_view final_body_cache_format{"zima-final-body-result-v1"};
+constexpr std::string_view legacy_final_body_cache_format{"zima-final-body-result-v1"};
+constexpr std::string_view final_body_cache_format{"zima-final-body-result-v2"};
+
+bool known_final_body_cache_format(std::string_view value) {
+    // The v1 reader is temporary conversion support for the current authored
+    // library and user projects. Newly written caches are always v2.
+    return value==legacy_final_body_cache_format||value==final_body_cache_format;
+}
 
 bool supports_final_body_cache(
         const std::vector<zima::kernel::HistoryOperation>& operations,
@@ -900,7 +907,9 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
     if (const auto found = ini.find("CachedBodies"); found != ini.end() && [&] {
         const auto encoding=ini_value(ini,"CachedBodies","encoding");
         return encoding=="zima-shared-body-results-v1"||
-            encoding=="zima-final-body-result-v1";
+            encoding=="zima-shared-body-results-v2"||
+            encoding==legacy_final_body_cache_format||
+            encoding==final_body_cache_format;
     }()) {
         const auto& cache=ini.at("CachedBodies");const auto stored=cache.find("data");
         const std::string empty;const auto& data=stored==cache.end()?empty:stored->second;
@@ -1120,7 +1129,7 @@ void write_part_ini(
     if (!root.at("calculated_boundaries").empty()) {
         auto& cache=ini["CachedBodies"];
         cache["encoding"]=root.at("calculated_boundaries").is_object()
-            ?"zima-final-body-result-v1":"zima-shared-body-results-v1";
+            ?final_body_cache_format:"zima-shared-body-results-v2";
         cache["definition_fingerprint"]=root.at("calculation_definition_fingerprint").get<std::string>();
         auto storage=pack_cache_storage(std::move(root.at("calculated_boundaries")));profile.phase("cache packing");
         cache["data"]=storage.dump();profile.phase("cache text encoding");
@@ -11224,7 +11233,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             failed_containers.insert(owner);
     };
     if(calculated_cache.is_array())for(const auto& boundary:calculated_cache)collect_failed(boundary);
-    else if(calculated_cache.is_object()&&calculated_cache.value("format","")==final_body_cache_format)
+    else if(calculated_cache.is_object()&&known_final_body_cache_format(
+            calculated_cache.value("format",std::string{})))
         collect_failed(calculated_cache.at("final"));
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
@@ -12156,7 +12166,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     if(calculated_cache.is_array())for (const auto& boundary : calculated_cache) {
         load_boundary(boundary);
     } else if(calculated_cache.is_object()) {
-        if(calculated_cache.value("format","")!=final_body_cache_format||
+        if(!known_final_body_cache_format(
+                calculated_cache.value("format",std::string{}))||
             calculated_cache.value("operation_count",std::size_t{})!=expected_operations.size()||
             !calculated_cache.contains("final")||!calculated_cache.at("final").is_object())
             throw std::runtime_error("Unsupported calculated Body cache format");

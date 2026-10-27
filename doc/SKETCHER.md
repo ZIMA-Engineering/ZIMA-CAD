@@ -373,14 +373,14 @@ not make the two external references symmetric and does not modify them. The
 result remains editable through driving/reference dimensions, repeated drags,
 Undo/Redo and native save/reopen.
 
-After the first corner, RMB in empty space enters axis selection. RMB over
-geometry retains normal candidate cycling. A construction line hovers orange;
-LMB selects it as a blue axis. Cursor movement determines rectangle length along
-that axis; LMB confirms under the shared contract. First corner remains the
-reference; its counterpart and both far corners are driven. Persist two symmetry
-constraints and one necessary longitudinal parallel constraint. The second
-parallel and transverse perpendicular conditions follow from symmetry and are
-not duplicated.
+After the first corner, RMB enters axis selection even when the pointer remains
+over that corner or another overlapping candidate. A construction line hovers
+orange; LMB selects it as a blue axis. Cursor movement determines rectangle
+length along that axis; LMB confirms under the shared contract. First corner
+remains the reference; its counterpart and both far corners are driven. Persist
+two symmetry constraints and one necessary longitudinal parallel constraint.
+The second parallel and transverse perpendicular conditions follow from
+symmetry and are not duplicated.
 
 Likewise, omit `H/V` when both new segment/construction-line points have `C` on
 the same horizontal/vertical segment: their support already fixes direction.

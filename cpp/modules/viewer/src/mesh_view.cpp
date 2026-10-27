@@ -47,6 +47,7 @@
 #include <QWheelEvent>
 #include <QElapsedTimer>
 #include <QCryptographicHash>
+#include <QThreadPool>
 #include <cstdio>
 
 #include <algorithm>
@@ -69,6 +70,30 @@
 namespace zima::viewer {
 
 namespace {
+
+struct RetiredViewerGeometry {
+    zima::kernel::ViewerMesh display;
+    std::optional<zima::kernel::ViewerMesh> surface_source;
+    zima::kernel::ViewerMesh persisted_references;
+    zima::kernel::ViewerMesh sheet_container_pick;
+    zima::kernel::ViewerMesh sketch_interaction;
+    std::optional<zima::viewer::PickingIndex> display_index;
+    std::optional<zima::viewer::PickingIndex> reference_index;
+    std::optional<zima::viewer::PickingIndex> sheet_index;
+};
+
+bool has_viewer_storage(const zima::kernel::ViewerMesh& mesh) {
+    return !mesh.vertices.empty() || !mesh.triangles.empty() ||
+        !mesh.triangle_references.empty() || !mesh.edges.empty() ||
+        !mesh.points.empty() || !mesh.axes.empty() ||
+        !mesh.dimensions.empty() || !mesh.constraint_markers.empty() ||
+        !mesh.images.empty() || !mesh.annotation_frames.empty() ||
+        !mesh.original_references.vertices.empty() ||
+        !mesh.original_references.triangles.empty() ||
+        !mesh.original_references.edges.empty() ||
+        !mesh.original_references.points.empty() ||
+        !mesh.original_references.axes.empty();
+}
 
 class RelationMarkLayer final : public QWidget {
 public:
@@ -972,10 +997,11 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
         if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Viewer mesh %s: %.3f ms\n",name,timer.nsecsElapsed()/1e6);
         timer.restart();
     };
+    const bool retiring_scene=!has_viewer_storage(mesh)&&has_viewer_storage(impl_->mesh);
     zima::kernel::associate_solid_state_display(mesh);
     if(zima::kernel::has_surface_results(mesh))
         impl_->surface_source_mesh=mesh;
-    else impl_->surface_source_mesh.reset();
+    else if(!retiring_scene) impl_->surface_source_mesh.reset();
     if(!impl_->show_surfaces)zima::kernel::hide_surface_results(mesh);
     impl_->container_inspection_wire.clear();
     impl_->inspected_container.reset();
@@ -1052,7 +1078,21 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
             ++old;++next;
         }
     }();
+    std::shared_ptr<RetiredViewerGeometry> retired;
+    if(retiring_scene) {
+        retired=std::make_shared<RetiredViewerGeometry>();
+        retired->display=std::move(impl_->mesh);
+        retired->surface_source=std::move(impl_->surface_source_mesh);
+        retired->persisted_references=std::move(impl_->persisted_reference_mesh);
+        retired->sheet_container_pick=std::move(impl_->sheet_container_pick_mesh);
+        retired->sketch_interaction=std::move(impl_->sketch_interaction_mesh);
+        retired->display_index=std::move(impl_->display_picking_index);
+        retired->reference_index=std::move(impl_->reference_picking_index);
+        retired->sheet_index=std::move(impl_->sheet_container_picking_index);
+    }
     impl_->mesh = std::move(mesh);
+    if(retired)QThreadPool::globalInstance()->start(
+        [retired=std::move(retired)] {});
     // Datum display size must be initialized even when a document refresh
     // deliberately preserves the camera (and therefore does not call fit_all).
     // A body or a point alone cannot establish this presentation baseline.

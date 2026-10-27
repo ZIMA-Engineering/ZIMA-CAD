@@ -1,5 +1,12 @@
 # Application updates
 
+The current source identifies Windows candidate `2026102701`; it is not yet a
+published updater target. Exact viewer-cache v2, responsive saved-tab close and
+the focused Sketcher corrections are listed in the
+[candidate record](releases/2026102701.md). Existing `2026102603` installations
+remain on the signed stable channel until signing, publication and trusted-updater
+discovery pass.
+
 Signed Windows [2026102603](releases/2026102603.md#windows-publication-acceptance)
 was published at `2026-10-26T22:44:52Z` from immutable source
 `c3c52247c601312be405476c2ec2694f137563dc`. It includes the exact-output native

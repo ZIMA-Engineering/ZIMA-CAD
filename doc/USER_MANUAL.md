@@ -621,6 +621,11 @@ a segment and a tangent arc. The preview shows the derived arc center, which can
 snap to X/Y. Endpoints can snap to characteristic points `K` or align horizontally/
 vertically with another point. Confirmed suggestions become actual constraints.
 
+For an oriented **Rectangle**, confirm the first corner and press RMB. This enters
+axis selection whether the pointer is in empty space or still over that corner.
+Select Sketch X/Y or a construction line with LMB, then place the opposite size
+point. The saved rectangle keeps its axis symmetry and remains editable.
+
 A **construction line** is a two-point line supporting constraints/dimensions but
 excluded from the solid profile. Revolution uses the Sketch's first construction
 line as its extended rotation axis. Other geometry can also be marked construction;
@@ -807,6 +812,9 @@ geometry and its applicable dependencies; deleting a defining point also removes
 geometry that depends on it. A rectangle dragged through empty space selects a
 set; Ctrl adds to the selection and Delete removes the set in one reversible step.
 Dragging a point or dimension displays only the active Sketch's pending geometry.
+Deleting a segment that owns a rounded corner also removes that corner's obsolete
+radius constraints; mirrored/source geometry that was not selected remains
+editable.
 
 **Finish Sketch** retains the pending Sketch and returns to the enclosing feature
 Properties when entered there. **Cancel edits** discards changes since entry.

@@ -85,8 +85,36 @@ int main() {
         body.kernel_shape=std::string(8192,'B');
         body.source_fingerprint="stable-input";
         body.volume=17.25;
-        body.mesh.vertices={{0,0,0},{1,0,0},{0,1,0}};
-        body.mesh.triangles={0,1,2};
+        body.mesh.vertices={{0,0,0},{1,0,0},{0,1,0},{1,1,0}};
+        body.mesh.triangles={0,1,2,1,3,2};
+        zima::kernel::FaceReference face{"body","face:top",{}};
+        face.surface_result=true;face.sheet_role=zima::kernel::SheetFaceRole::SideA;
+        face.sheet_thickness=2.;face.sheet_owner="sheet";face.display_owner_id="display";
+        body.mesh.triangle_references={face,face};
+        zima::kernel::ViewerEdge edge;
+        edge.points={{0,0,0},{.5,.25,0},{1,0,0}};
+        edge.reference={"body","edge:top",{},"display"};edge.display_owner_id="display";
+        edge.color="#123456";edge.surface_result=true;edge.parameter_seam=true;
+        edge.edge_treatment_owner_ids={"fillet"};
+        edge.edge_treatment_side_directions={
+            {{0,1,0},{0,1,0},{0,1,0}},{{0,0,1},{0,0,1},{0,0,1}}};
+        auto thickness_face=face;thickness_face.semantic_key="face:thickness";
+        thickness_face.sheet_role=zima::kernel::SheetFaceRole::ThicknessFace;
+        edge.edge_treatment_side_references={face,thickness_face};
+        edge.edge_treatment_endpoint_references={
+            {"body","vertex:start",{}},{"body","vertex:end",{}}};
+        edge.measured_length=1.125;
+        body.mesh.edges.push_back(edge);
+        body.mesh.points.push_back({{.25,.5,.75},{"body","vertex:middle",{}}});
+        body.mesh.points.back().surface_result=true;
+        const auto body_packet=zima::document::serialize_body_result(body,false,false);
+        require(body_packet.at("viewer_binary_encoding")=="f64le-u32le-base64-v2"&&
+            body_packet.at("face_references").size()==1&&
+            !body_packet.contains("triangle_references")&&!body_packet.at("edge_points_binary").empty(),
+            "Viewer v2 did not compact repeated faces and edge coordinates");
+        const auto body_roundtrip=zima::document::load_body_result(body_packet);
+        require(zima::document::serialize_body_result(body_roundtrip,false,false)==body_packet,
+            "Viewer v2 changed exact topology identities, sheet sides, edge metadata or points");
         auto different=body;different.volume=18.5;
         if(!different.kernel_shape.shares_with(body.kernel_shape))
             throw std::runtime_error("Calculated snapshots copied opaque archive bytes");

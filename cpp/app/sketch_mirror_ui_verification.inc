@@ -110,6 +110,25 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
                 window.findChild<QAction*>("undoAction")->trigger();flush();check(dimension_row(),"Radius Delete Undo did not restore Tree annotation");
                 window.findChild<QAction*>("redoAction")->trigger();flush();check(!dimension_row(),"Radius Delete Redo did not remove annotation");
                 window.findChild<QAction*>("undoAction")->trigger();flush();
+                view->clear_selection();click(screen(16,10));
+                check(view->confirmed_candidate()&&
+                    view->confirmed_candidate()->semantic_key=="segment:"+first,
+                    "Rounded source segment was not selected for deletion");
+                QKeyEvent remove_segment(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);
+                QApplication::sendEvent(&window,&remove_segment);flush();
+                check(!geometry_keys().contains("segment:"+first)&&
+                    geometry_keys().size()==(axis_kind<2?3u:4u),
+                    "Rounded source segment survived GUI Delete");
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                check(geometry_keys().contains("segment:"+first)&&
+                    geometry_keys().size()==(axis_kind<2?4u:5u),
+                    "Rounded segment Delete Undo did not restore geometry");
+                window.findChild<QAction*>("redoAction")->trigger();flush();
+                check(!geometry_keys().contains("segment:"+first),
+                    "Rounded segment Delete Redo restored removed geometry");
+                window.findChild<QAction*>("undoAction")->trigger();flush();
+                check(geometry_keys().contains("segment:"+first),
+                    "Rounded segment Delete restoration failed");
             }
             // Real point drag after leaving the command; verify its reflection
             // independently from persisted Symmetric equations after saving.

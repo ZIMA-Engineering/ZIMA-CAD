@@ -102,6 +102,117 @@ int verify_sketch_rectangle_drag_ui(QApplication& application,const std::filesys
             }
             std::cout<<"Symmetric rectangle GUI "<<theme.toStdString()<<": all four exact point picks, 12 real drags, native readback, immutable references and Undo/Redo passed"<<std::endl;
         }
+        // The oriented Rectangle gesture is deliberately exercised through
+        // the real View callbacks.  In particular, RMB is pressed over the
+        // already existing first point.  That location has a selection
+        // candidate and therefore used to enter candidate cycling instead of
+        // advancing Rectangle to its orientation-axis step.
+        for(int case_id=0;case_id<6;++case_id) {
+            const int axis_kind=case_id/2;const bool reverse=case_id%2;
+            QSettings preferences(QString::fromStdString((directory/"config.ini").string()),QSettings::IniFormat);
+            preferences.setValue("Application/Theme",reverse?"dark":"light");preferences.sync();
+            auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+            const std::array axis_unit=axis_kind==0?std::array{1.,0.}:axis_kind==1?std::array{0.,1.}:
+                std::array{2./std::sqrt(5.),1./std::sqrt(5.)};
+            const std::array normal{-axis_unit[1],axis_unit[0]};
+            const double side=reverse?-6.:6.;
+            const std::array first{-3.*axis_unit[0]+side*normal[0],-3.*axis_unit[1]+side*normal[1]};
+            const std::array guide{first[0]+(reverse?-14.:14.)*axis_unit[0],
+                first[1]+(reverse?-14.:14.)*axis_unit[1]};
+            const auto anchor=sketch.add_point(first[0],first[1]);
+            std::string axis_id;
+            if(axis_kind==0) {
+                axis_id="sketch_axis:x";
+                static_cast<void>(sketch.add_segment(-25,-20,-24,-20,1e-6,true));
+            } else if(axis_kind==1) {
+                axis_id="sketch_axis:y";
+                static_cast<void>(sketch.add_segment(-20,-25,-20,-24,1e-6,true));
+            } else {
+                axis_id=sketch.add_segment(-25.*axis_unit[0],-25.*axis_unit[1],
+                    25.*axis_unit[0],25.*axis_unit[1],1e-6,true);
+            }
+            const auto baseline_segment_count=sketch.segments.size();
+            auto feature=document::PartDocument::create_sketch_container();feature.feature.sketch_id=sketch.id;
+            sketch.owner_container_id=feature.id;const auto sketch_id=sketch.id;
+            part.sketches={sketch};part.history={feature};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Oriented rectangle");graph.insert({document::PartHistoryKind::Feature,feature.id});
+            part.set_body_history(graph);part.resolve_constructions();
+            const auto file=directory/("oriented-rectangle-"+std::to_string(case_id)+".prtz");part.save(file);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(document::path_to_utf8(directory)));
+            window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(document::path_to_utf8(file))),"Cannot open oriented Rectangle fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate oriented Rectangle Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch_id&&
+                (*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Oriented Rectangle Sketch is missing in Tree");window.show_tree_item_properties(row);flush();
+            auto* open=window.findChild<QPushButton*>("sketchOpenButton");check(open,"Oriented Rectangle Sketch entry control is missing");
+            open->click();flush();QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Oriented Rectangle View is missing");
+            window.findChild<QAction*>("fitViewAction")->trigger();flush();
+            const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);check(ray.has_value(),"Oriented Rectangle ray is missing");
+                const auto point=sketch.intersect_ray(ray->first,ray->second);check(point.has_value(),"Oriented Rectangle plane is missing");return *point;};
+            const auto o=local({0,0}),u=local({100,0}),v=local({0,100});
+            const double ux=(u[0]-o[0])/100,uy=(u[1]-o[1])/100,vx=(v[0]-o[0])/100,vy=(v[1]-o[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](double x,double y){return QPointF(((x-o[0])*vy-(y-o[1])*vx)/det,
+                (ux*(y-o[1])-uy*(x-o[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons=Qt::NoButton){
+                QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+                mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            const auto first_pixel=screen(first[0],first[1]);
+            const auto first_candidates=view->selection_candidates_at(first_pixel);
+            check(std::ranges::any_of(first_candidates,[&](const auto& candidate){return candidate.owner_id==sketch_id&&
+                candidate.semantic_key=="point:"+anchor;}),"Oriented Rectangle first point has no picker candidate");
+            auto* rectangle=window.findChild<QAction*>("sketchRectangleAction");check(rectangle&&rectangle->isEnabled(),"Rectangle command is unavailable");
+            rectangle->trigger();flush();click(first_pixel);
+            // This exact RMB-over-candidate transition is the regression.
+            mouse(first_pixel,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            mouse(first_pixel,QEvent::MouseButtonRelease,Qt::RightButton);flush();
+            const std::array axis_pick{8.*axis_unit[0],8.*axis_unit[1]};const auto axis_pixel=screen(axis_pick[0],axis_pick[1]);
+            const auto axis_key=axis_kind<2?axis_id:"segment:"+axis_id;
+            const auto axis_candidates=view->selection_candidates_at(axis_pixel);
+            check(std::ranges::any_of(axis_candidates,[&](const auto& candidate){return candidate.owner_id==sketch_id&&
+                candidate.semantic_key==axis_key;}),"RMB over the first point did not enter Rectangle axis selection");
+            click(axis_pixel);click(screen(guide[0],guide[1]));
+            const auto geometry_keys=[&]{std::set<std::string> keys;for(const auto& edge:view->mesh().edges)
+                if(edge.reference.owner_id==sketch_id&&edge.reference.semantic_key.starts_with("segment:"))keys.insert(edge.reference.semantic_key);return keys;};
+            if(geometry_keys().size()!=baseline_segment_count+4) {
+                std::cerr<<"Oriented Rectangle case="<<case_id<<" baseline="<<baseline_segment_count
+                    <<" actual="<<geometry_keys().size()<<" guide_candidates="
+                    <<view->selection_candidates_at(screen(guide[0],guide[1])).size()<<std::endl;
+                window.grab().save(QString::fromStdString(document::path_to_utf8(
+                    directory/("oriented-rectangle-failure-"+std::to_string(case_id)+".png"))));
+            }
+            check(geometry_keys().size()==baseline_segment_count+4,"Oriented Rectangle did not create four native edges");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(geometry_keys().size()==baseline_segment_count,"Oriented Rectangle Undo did not remove the created geometry");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(geometry_keys().size()==baseline_segment_count+4,"Oriented Rectangle Redo did not restore the created geometry");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())
+                if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
+            check(window.execute_console_command("save").ok,"Oriented Rectangle native Save failed");flush();
+            const auto reopened=document::PartDocument::load(file);const auto saved=std::ranges::find(reopened.sketches,sketch_id,&sketcher::Sketch::id);
+            check(saved!=reopened.sketches.end(),"Oriented Rectangle disappeared on reopen");
+            std::vector<sketcher::SketchSegment> edges;
+            std::ranges::copy_if(saved->segments,std::back_inserter(edges),[](const auto& edge){return !edge.construction;});
+            check(edges.size()==4,"Oriented Rectangle reopened with a wrong edge count");
+            const auto* p0=saved->find_point(edges[0].first_point_id);const auto* p1=saved->find_point(edges[0].second_point_id);
+            const auto* p2=saved->find_point(edges[1].second_point_id);const auto* p3=saved->find_point(edges[2].second_point_id);
+            check(p0&&p1&&p2&&p3,"Oriented Rectangle reopened without its shared corners");
+            const auto along=[&](const auto* p){return p->x*axis_unit[0]+p->y*axis_unit[1];};
+            const auto across=[&](const auto* p){return -p->x*axis_unit[1]+p->y*axis_unit[0];};
+            check(std::abs(along(p0)-along(p3))<1e-7&&std::abs(along(p1)-along(p2))<1e-7&&
+                std::abs(across(p0)+across(p3))<1e-7&&std::abs(across(p1)+across(p2))<1e-7,
+                "Oriented Rectangle lost its independent symmetry equations");
+            check(std::ranges::count_if(saved->constraints,[&](const auto& constraint){return constraint.kind==sketcher::ConstraintKind::Symmetric&&
+                constraint.geometry_id==axis_id;})==2&&std::ranges::count_if(saved->constraints,[&](const auto& constraint){return constraint.kind==sketcher::ConstraintKind::Parallel&&
+                (constraint.geometry_id==axis_id||constraint.second_geometry_id==axis_id);})==1,
+                "Oriented Rectangle lost its persisted axis relations");
+            std::cout<<"Oriented rectangle GUI axis="<<axis_kind<<" reverse="<<reverse
+                <<": RMB-over-candidate, axis pick, equations, Undo/Redo and reopen passed"<<std::endl;
+        }
         return 0;
     }catch(const std::exception& e){std::cerr<<"Symmetric rectangle GUI: "<<e.what()<<'\n';return 1;}
 }

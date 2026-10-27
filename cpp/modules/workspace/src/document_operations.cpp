@@ -207,17 +207,18 @@ bool document_needs_save(const Workspace& workspace,const std::string& requested
     std::set<std::string> visited;
     return document_needs_save_impl(workspace,requested,visited);
 }
-CloseDocumentResult close_document(Workspace& workspace, const std::string& id, bool discard) {
+CloseDocumentResult close_document(Workspace& workspace, const std::string& id,
+        bool discard, const DocumentRelease& release) {
     if(!workspace.find(id))return CloseDocumentResult::NotOpen;
-    if(family_owner(workspace,id)!=id)return workspace.remove(id)?CloseDocumentResult::Closed:CloseDocumentResult::NotOpen;
+    if(family_owner(workspace,id)!=id)return workspace.remove(id,release)?CloseDocumentResult::Closed:CloseDocumentResult::NotOpen;
     if(!discard && document_needs_save(workspace,id))return CloseDocumentResult::UnsavedChanges;
     std::vector<std::string> members;
     for(const auto& state:workspace.documents())std::visit([&](const auto& value){
         if constexpr(requires{value.session;})if(value.session.document().family.parent_id==id)members.push_back(value.session.document().document_id);
     },state);
-    for(const auto& member:members)static_cast<void>(workspace.remove(member));
+    for(const auto& member:members)static_cast<void>(workspace.remove(member,release));
     workspace.drawing_edited_sources.erase(id);
-    return workspace.remove(id)?CloseDocumentResult::Closed:CloseDocumentResult::NotOpen;
+    return workspace.remove(id,release)?CloseDocumentResult::Closed:CloseDocumentResult::NotOpen;
 }
 
 bool can_step_document_history(const Workspace& workspace,

@@ -59,7 +59,7 @@ private:
 [[nodiscard]] bool document_needs_save(const Workspace&, const std::string& document_id);
 enum class CloseDocumentResult { Closed, NotOpen, UnsavedChanges };
 [[nodiscard]] CloseDocumentResult close_document(Workspace&, const std::string& document_id,
-    bool discard = false);
+    bool discard = false, const DocumentRelease& release = {});
 
 enum class HistoryDirection { Undo, Redo };
 [[nodiscard]] bool can_step_document_history(const Workspace& workspace,

@@ -567,28 +567,128 @@ zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value)
     return load_surface(value);
 }
 
+namespace {
+
+void load_viewer_edge_details(const nlohmann::json& source,
+        zima::kernel::ViewerEdge& edge, bool points_are_json) {
+    edge.color=source.value("color",std::string{});
+    edge.exact_spline=zima::kernel::spline_from_json(source.at("exact_spline"));
+    if(source.contains("measured_length")&&!source.at("measured_length").is_null()) {
+        edge.measured_length=source.at("measured_length").get<double>();
+        require_finite(*edge.measured_length,"measured length");
+        if(*edge.measured_length<0)throw std::runtime_error("Negative measured length");
+    }
+    edge.surface_result=source.at("surface_result").get<bool>();
+    edge.parameter_seam=source.value("parameter_seam",false);
+    edge.filled_text=source.value("filled_text",false);
+    edge.edge_treatment_owner_ids=
+        source.at("edge_treatment_owners").get<std::vector<std::string>>();
+    if(points_are_json)
+        for(const auto& point:source.at("points"))edge.points.push_back(load_vec3(point));
+    for(const auto& side:source.at("edge_treatment_side_directions")) {
+        std::vector<zima::kernel::Vec3> samples;
+        for(const auto& direction:side)samples.push_back(load_vec3(direction));
+        if(samples.size()!=edge.points.size())
+            throw std::runtime_error("Persisted viewer edge side directions are not aligned");
+        edge.edge_treatment_side_directions.push_back(std::move(samples));
+    }
+    for(const auto& reference:source.at("edge_treatment_side_references")) {
+        zima::kernel::FaceReference loaded_reference{
+            reference.at("owner").get<std::string>(),
+            reference.at("key").get<std::string>(),
+            reference.at("instance_path").get<std::string>()};
+        if(!loaded_reference.valid())
+            throw std::runtime_error("Persisted viewer treatment side reference is invalid");
+        load_sheet_face(loaded_reference,reference);
+        edge.edge_treatment_side_references.push_back(std::move(loaded_reference));
+    }
+    for(const auto& reference:source.at("edge_treatment_endpoint_references")) {
+        zima::kernel::VertexReference loaded_reference{
+            reference.at("owner").get<std::string>(),
+            reference.at("key").get<std::string>(),
+            reference.at("instance_path").get<std::string>()};
+        if(!loaded_reference.valid())
+            throw std::runtime_error("Persisted viewer treatment endpoint reference is invalid");
+        edge.edge_treatment_endpoint_references.push_back(std::move(loaded_reference));
+    }
+    if(!edge.edge_treatment_side_directions.empty()&&
+        (edge.edge_treatment_side_directions.size()!=2||
+         edge.edge_treatment_side_references.size()!=2))
+        throw std::runtime_error("Persisted viewer edge must have exactly two treatment sides");
+    if(!edge.edge_treatment_endpoint_references.empty()&&
+        edge.edge_treatment_endpoint_references.size()!=2)
+        throw std::runtime_error("Persisted viewer edge must have exactly two treatment endpoints");
+    const bool owner_empty=edge.reference.owner_id.empty();
+    const bool key_empty=edge.reference.semantic_key.empty();
+    // Viewer-only body edges deliberately carry an occurrence path without
+    // becoming persistent topology references. This lets selection recolour
+    // the existing wire for one exact nested occurrence.
+    if(owner_empty!=key_empty||edge.points.size()<2)
+        throw std::runtime_error("Persisted viewer edge is invalid");
+    restore_reference_curve_style(edge);
+}
+
+}  // namespace
+
 nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, bool include_histories,
         bool include_compound_operands,
-        const zima::kernel::ViewerReferenceGeometry* reference_geometry) {
-    nlohmann::json faces = nlohmann::json::array();
+        const zima::kernel::ViewerReferenceGeometry* reference_geometry,
+        bool include_measurement_sources) {
+    nlohmann::json face_references = nlohmann::json::array();
+    const auto append_face_reference = [&](const zima::kernel::FaceReference& reference) {
+        face_references.push_back({
+            {"owner", reference.owner_id}, {"key", reference.semantic_key},
+            {"instance_path", reference.instance_path},
+            {"surface_result", reference.surface_result},
+            {"sheet_role", static_cast<int>(reference.sheet_role)},
+            {"sheet_thickness", reference.sheet_thickness},
+            {"sheet_owner", reference.sheet_owner},
+            {"display_owner", reference.display_owner_id}});
+    };
+    const auto same_face_reference=[](const auto& left,const auto& right) {
+        return left.owner_id==right.owner_id&&left.semantic_key==right.semantic_key&&
+            left.instance_path==right.instance_path&&
+            left.surface_result==right.surface_result&&
+            left.sheet_role==right.sheet_role&&
+            left.sheet_thickness==right.sheet_thickness&&
+            left.sheet_owner==right.sheet_owner&&
+            left.display_owner_id==right.display_owner_id;
+    };
     const bool has_triangle_tags = std::ranges::any_of(
         result.mesh.triangle_references,
         [](const auto& reference) {
             return reference.valid() || !reference.instance_path.empty() || reference.surface_result;
         });
+    std::vector<std::uint32_t> triangle_reference_runs;
     if (has_triangle_tags) {
+        const zima::kernel::FaceReference* previous=nullptr;
         for (const auto& reference : result.mesh.triangle_references) {
-            faces.push_back({
-                {"owner", reference.owner_id}, {"key", reference.semantic_key},
-                {"instance_path", reference.instance_path},{"surface_result",reference.surface_result},
-                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner},
-                {"display_owner",reference.display_owner_id}});
+            if(previous&&same_face_reference(*previous,reference)&&
+                triangle_reference_runs.back()<std::numeric_limits<std::uint32_t>::max()) {
+                ++triangle_reference_runs.back();
+            } else {
+                append_face_reference(reference);
+                triangle_reference_runs.push_back(1);
+            }
+            previous=&reference;
         }
     }
+
+    nlohmann::json edge_references = nlohmann::json::array();
+    std::vector<zima::kernel::Vec3> edge_points;
+    std::vector<std::uint32_t> edge_offsets{0};
     nlohmann::json edges = nlohmann::json::array();
     for (const auto& edge : result.mesh.edges) {
-        nlohmann::json points = nlohmann::json::array();
-        for (const auto& point : edge.points) points.push_back(serialize_vec3(point));
+        if (edge.points.size() < 2 ||
+            edge_points.size() + edge.points.size() > std::numeric_limits<std::uint32_t>::max())
+            throw std::runtime_error("Viewer edge is invalid");
+        edge_points.insert(edge_points.end(), edge.points.begin(), edge.points.end());
+        edge_offsets.push_back(static_cast<std::uint32_t>(edge_points.size()));
+        edge_references.push_back({
+            {"owner", edge.reference.owner_id},
+            {"key", edge.reference.semantic_key},
+            {"instance_path", edge.reference.instance_path},
+            {"display_owner", edge.display_owner_id}});
         nlohmann::json side_directions = nlohmann::json::array();
         for (const auto& side : edge.edge_treatment_side_directions) {
             nlohmann::json samples = nlohmann::json::array();
@@ -615,27 +715,28 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 {"instance_path", reference.instance_path}});
         }
         edges.push_back({
-            {"owner", edge.reference.owner_id}, {"key", edge.reference.semantic_key},
-            {"instance_path", edge.reference.instance_path},
-            {"display_owner", edge.display_owner_id}, {"color",edge.color},
+            {"color",edge.color},
             {"surface_result",edge.surface_result},{"parameter_seam", edge.parameter_seam}, {"filled_text", edge.filled_text},
             {"edge_treatment_owners", edge.edge_treatment_owner_ids},
             {"edge_treatment_side_directions", std::move(side_directions)},
             {"edge_treatment_side_references", std::move(side_references)},
             {"edge_treatment_endpoint_references",
                 std::move(endpoint_references)},
-            {"points", std::move(points)},
             {"exact_spline", zima::kernel::spline_json(edge.exact_spline)},
             {"measured_length", edge.measured_length ? nlohmann::json(*edge.measured_length) : nlohmann::json(nullptr)},
         });
     }
-    nlohmann::json points = nlohmann::json::array();
+
+    nlohmann::json point_references = nlohmann::json::array();
+    std::vector<zima::kernel::Vec3> point_positions;
+    nlohmann::json point_surfaces = nlohmann::json::array();
     for (const auto& point : result.mesh.points) {
-        points.push_back({
-            {"owner", point.reference.owner_id}, {"key", point.reference.semantic_key},
-            {"instance_path", point.reference.instance_path},
-            {"position", serialize_vec3(point.position)},{"surface_result",point.surface_result},
-        });
+        point_references.push_back({
+            {"owner", point.reference.owner_id},
+            {"key", point.reference.semantic_key},
+            {"instance_path", point.reference.instance_path}});
+        point_positions.push_back(point.position);
+        point_surfaces.push_back(point.surface_result);
     }
     nlohmann::json axes = nlohmann::json::array();
     for (const auto& axis : result.mesh.axes) {
@@ -686,15 +787,22 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"centroid",serialize_vec3(result.volume_integrals->centroid)},
             {"inertia",result.volume_integrals->inertia}}:nlohmann::json(nullptr)},
         {"source_fingerprint", result.source_fingerprint},
-        {"viewer_binary_encoding", "f64le-u32le-base64-v1"},
+        {"viewer_binary_encoding", "f64le-u32le-base64-v2"},
     };
     // An initializer_list copies its const elements even when its expressions
     // use std::move. Transfer these large independently owned tables directly.
     packet["kernel_shape"]=result.kernel_shape.get();
     packet["vertices_binary"]=pack_vertices(result.mesh.vertices);
     packet["triangles_binary"]=pack_indices(result.mesh.triangles);
-    packet["triangle_references"]=std::move(faces);
-    packet["edges"]=std::move(edges);packet["points"]=std::move(points);
+    packet["face_references"]=std::move(face_references);
+    packet["triangle_reference_runs_binary"]=pack_indices(triangle_reference_runs);
+    packet["edge_references"]=std::move(edge_references);
+    packet["edge_points_binary"]=pack_vertices(edge_points);
+    packet["edge_offsets_binary"]=pack_indices(edge_offsets);
+    packet["edges"]=std::move(edges);
+    packet["point_references"]=std::move(point_references);
+    packet["point_positions_binary"]=pack_vertices(point_positions);
+    packet["point_surfaces"]=std::move(point_surfaces);
     packet["axes"]=std::move(axes);packet["dimensions"]=std::move(dimensions);
     packet["original_references"]=serialize_reference_geometry(
         reference_geometry?*reference_geometry:result.mesh.original_references);
@@ -738,7 +846,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         }
     }
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
-    if(!result.measurement_sources.empty()) {
+    if(include_measurement_sources&&!result.measurement_sources.empty()) {
         auto sources=nlohmann::json::array();
         for(const auto& source:result.measurement_sources)sources.push_back(serialize_body_result(source,false,false));
         packet["measurement_sources"]=std::move(sources);
@@ -805,8 +913,87 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         auto inputs = nlohmann::json::object();
         auto outputs = nlohmann::json::object();
         for (const auto& [id, boundaries] : result.body_boundaries) {
+            bool compact_measurement_sources=boundaries.size()>1;
+            const auto empty_reference_geometry=[](const auto& geometry) {
+                return geometry.vertices.empty()&&geometry.triangles.empty()&&
+                    geometry.triangle_references.empty()&&geometry.edges.empty()&&
+                    geometry.points.empty()&&geometry.axes.empty();
+            };
+            const auto compactable_source=[&](const zima::kernel::BodyResult& source) {
+                const auto& mesh=source.mesh;
+                return source.resolved_up_to_limits.empty()&&
+                    source.ordered_up_to_failures.empty()&&
+                    source.solid_state_reference_views.empty()&&
+                    source.calculation_errors.empty()&&source.kernel_shape!=zima::kernel::kernel_body_compound&&
+                    !source.kernel_shape.empty()&&source.kernel_compound_bodies.empty()&&
+                    !source.kernel_faces.empty()&&
+                    source.imported_step_topology.empty()&&source.sheet_cuts.empty()&&
+                    source.body_boundaries.empty()&&source.body_inputs.empty()&&
+                    source.body_outputs.empty()&&source.measurement_sources.empty()&&
+                    !source.incremental_history&&mesh.vertices.empty()&&mesh.triangles.empty()&&
+                    mesh.triangle_references.empty()&&mesh.edges.empty()&&mesh.points.empty()&&
+                    mesh.axes.empty()&&mesh.dimensions.empty()&&mesh.constraint_markers.empty()&&
+                    empty_reference_geometry(mesh.original_references)&&mesh.images.empty()&&
+                    mesh.annotation_frames.empty();
+            };
+            const auto same_reference=[](const auto& left,const auto& right) {
+                using Reference=std::decay_t<decltype(left)>;
+                if constexpr(std::is_same_v<Reference,zima::kernel::FaceReference>) {
+                    const auto same_surface=[](const auto& a,const auto& b) {
+                        return bool(a)==bool(b)&&(!a||*a==*b);
+                    };
+                    return left==right&&same_surface(left.surface,right.surface)&&
+                        left.measured_area==right.measured_area&&
+                        left.surface_result==right.surface_result&&
+                        left.sheet_role==right.sheet_role&&
+                        left.sheet_thickness==right.sheet_thickness&&
+                        left.sheet_owner==right.sheet_owner&&
+                        left.display_owner_id==right.display_owner_id&&
+                        same_surface(left.contour_surface,right.contour_surface);
+                } else if constexpr(std::is_same_v<Reference,zima::kernel::EdgeReference>)
+                    return left==right&&left.display_owner_id==right.display_owner_id;
+                else return left==right;
+            };
+            const auto& complete_sources=boundaries.empty()
+                ?zima::kernel::ImmutableVector<zima::kernel::BodySnapshot>{}
+                :boundaries.back().measurement_sources;
+            if(compact_measurement_sources)
+                for(const auto& source:complete_sources)
+                    if(!compactable_source(source)) {compact_measurement_sources=false;break;}
+            if(compact_measurement_sources)for(std::size_t row=0;
+                    row+1<boundaries.size()&&compact_measurement_sources;++row) {
+                const auto& prefix=boundaries[row].measurement_sources;
+                if(prefix.size()>complete_sources.size())compact_measurement_sources=false;
+                else for(std::size_t source=0;source<prefix.size();++source) {
+                    const auto& a=prefix[source].get();
+                    const auto& b=complete_sources[source].get();
+                    const auto same_bindings=[&](const auto& left,const auto& right) {
+                        if(left.size()!=right.size())return false;
+                        for(std::size_t index=0;index<left.size();++index)
+                            if(left[index].locator!=right[index].locator||
+                                !same_reference(left[index].reference,right[index].reference))return false;
+                        return true;
+                    };
+                    if(!compactable_source(a)||a.source_fingerprint!=b.source_fingerprint||
+                        a.kernel_shape.get()!=b.kernel_shape.get()||
+                        a.kernel_placements!=b.kernel_placements||
+                        a.physical_properties_current!=b.physical_properties_current||
+                        a.solid_present!=b.solid_present||a.volume!=b.volume||
+                        a.surface_area!=b.surface_area||a.volume_integrals!=b.volume_integrals||
+                        a.surface_centroid!=b.surface_centroid||
+                        !same_bindings(a.kernel_faces,b.kernel_faces)||
+                        !same_bindings(a.kernel_edges,b.kernel_edges)||
+                        !same_bindings(a.kernel_vertices,b.kernel_vertices)) {
+                        compact_measurement_sources=false;break;
+                    }
+                }
+            }
             auto serialized_rows=process_rows<nlohmann::json>(boundaries.size(),[&](std::size_t index) {
-                return serialize_body_result(boundaries[index]);
+                auto row=serialize_body_result(boundaries[index],true,true,nullptr,
+                    !compact_measurement_sources||index+1==boundaries.size());
+                if(compact_measurement_sources&&index+1<boundaries.size())
+                    row["measurement_sources_prefix_count"]=boundaries[index].measurement_sources.size();
+                return row;
             });
             auto rows = nlohmann::json::array();
             for (auto& row:serialized_rows) rows.push_back(std::move(row));
@@ -925,6 +1112,26 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             auto loaded=process_rows<zima::kernel::BodyResult>(rows.size(),[&](std::size_t index) {
                 return load_body_result(rows.at(index));
             });
+            bool compact_measurement_sources=rows.size()>1;
+            if(compact_measurement_sources)for(std::size_t index=0;index+1<rows.size();++index)
+                if(!rows.at(index).contains("measurement_sources_prefix_count")) {
+                    compact_measurement_sources=false;break;
+                }
+            if(compact_measurement_sources) {
+                if(rows.back().contains("measurement_sources_prefix_count"))
+                    throw std::runtime_error("Invalid native measurement-source prefix");
+                const auto complete=loaded.back().measurement_sources.get();
+                std::size_t previous_count{};
+                for(std::size_t index=0;index+1<loaded.size();++index) {
+                    const auto count=rows.at(index).at("measurement_sources_prefix_count").get<std::size_t>();
+                    if(count<previous_count||count>complete.size())
+                        throw std::runtime_error("Invalid native measurement-source prefix");
+                    std::vector<zima::kernel::BodySnapshot> prefix(
+                        complete.begin(),complete.begin()+static_cast<std::ptrdiff_t>(count));
+                    loaded[index].measurement_sources=std::move(prefix);
+                    previous_count=count;
+                }
+            }
             result.body_boundaries[id]=std::move(loaded);
         }
         for (const auto& [id, body] : caches->at("inputs").items())
@@ -1003,8 +1210,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         source.at("original_references"));
     require_finite(result.volume, "calculated volume");
     require_finite(result.surface_area, "calculated surface area");
-    if (source.value("viewer_binary_encoding", "") !=
-            "f64le-u32le-base64-v1") {
+    const auto viewer_encoding=source.value("viewer_binary_encoding",std::string{});
+    if(viewer_encoding!="f64le-u32le-base64-v1"&&
+       viewer_encoding!="f64le-u32le-base64-v2") {
         throw std::runtime_error("Unsupported calculated viewer mesh encoding");
     }
     result.mesh.vertices = unpack_vertices(
@@ -1016,6 +1224,100 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             throw std::runtime_error("Viewer triangle index is out of range");
         }
     }
+    if(viewer_encoding=="f64le-u32le-base64-v2") {
+        std::vector<zima::kernel::FaceReference> face_references;
+        for(const auto& reference:source.at("face_references")) {
+            zima::kernel::FaceReference loaded{
+                reference.at("owner").get<std::string>(),
+                reference.at("key").get<std::string>(),
+                reference.at("instance_path").get<std::string>()};
+            loaded.surface_result=reference.at("surface_result").get<bool>();
+            load_sheet_face(loaded,reference);
+            if(loaded.owner_id.empty()!=loaded.semantic_key.empty())
+                throw std::runtime_error("Persisted viewer triangle tag is invalid");
+            face_references.push_back(std::move(loaded));
+        }
+        const auto runs=unpack_indices(source.at("triangle_reference_runs_binary")
+            .get_ref<const std::string&>());
+        if(runs.size()!=face_references.size())
+            throw std::runtime_error("Viewer triangle reference runs are invalid");
+        for(std::size_t run=0;run<runs.size();++run) {
+            const auto count=runs[run];
+            if(count==0||
+                result.mesh.triangle_references.size()+count>
+                    result.mesh.triangles.size()/3)
+                throw std::runtime_error("Viewer triangle reference run is invalid");
+            result.mesh.triangle_references.insert(
+                result.mesh.triangle_references.end(),count,face_references[run]);
+        }
+        if(result.mesh.triangle_references.empty())
+            result.mesh.triangle_references.resize(result.mesh.triangles.size()/3);
+        if(result.mesh.triangles.size()%3!=0||
+            result.mesh.triangle_references.size()!=result.mesh.triangles.size()/3)
+            throw std::runtime_error("Viewer triangle references are not aligned");
+
+        std::vector<zima::kernel::EdgeReference> edge_references;
+        for(const auto& reference:source.at("edge_references")) {
+            zima::kernel::EdgeReference loaded{
+                reference.at("owner").get<std::string>(),
+                reference.at("key").get<std::string>(),
+                reference.at("instance_path").get<std::string>(),
+                reference.at("display_owner").get<std::string>()};
+            if(loaded.owner_id.empty()!=loaded.semantic_key.empty())
+                throw std::runtime_error("Persisted viewer edge reference is invalid");
+            edge_references.push_back(std::move(loaded));
+        }
+        const auto edge_points=unpack_vertices(
+            source.at("edge_points_binary").get_ref<const std::string&>());
+        const auto edge_offsets=unpack_indices(
+            source.at("edge_offsets_binary").get_ref<const std::string&>());
+        const auto& edge_details=source.at("edges");
+        if(edge_references.size()!=edge_details.size()||
+            edge_offsets.size()!=edge_details.size()+1||edge_offsets.empty()||
+            edge_offsets.front()!=0||edge_offsets.back()!=edge_points.size())
+            throw std::runtime_error("Persisted viewer edge arrays are invalid");
+        for(std::size_t index=0;index<edge_details.size();++index) {
+            if(edge_offsets[index]>edge_offsets[index+1]||
+                edge_offsets[index+1]-edge_offsets[index]<2)
+                throw std::runtime_error("Persisted viewer edge is invalid");
+            zima::kernel::ViewerEdge loaded;
+            loaded.reference=edge_references[index];
+            loaded.display_owner_id=loaded.reference.display_owner_id;
+            loaded.points.insert(loaded.points.end(),
+                edge_points.begin()+edge_offsets[index],
+                edge_points.begin()+edge_offsets[index+1]);
+            load_viewer_edge_details(edge_details.at(index),loaded,false);
+            result.mesh.edges.push_back(std::move(loaded));
+        }
+
+        std::vector<zima::kernel::VertexReference> point_references;
+        for(const auto& reference:source.at("point_references")) {
+            zima::kernel::VertexReference loaded{
+                reference.at("owner").get<std::string>(),
+                reference.at("key").get<std::string>(),
+                reference.at("instance_path").get<std::string>()};
+            if(!loaded.valid())throw std::runtime_error("Persisted viewer point is invalid");
+            point_references.push_back(std::move(loaded));
+        }
+        const auto point_positions=unpack_vertices(
+            source.at("point_positions_binary").get_ref<const std::string&>());
+        const auto& point_surfaces=source.at("point_surfaces");
+        if(point_references.size()!=point_positions.size()||
+            point_surfaces.size()!=point_positions.size())
+            throw std::runtime_error("Persisted viewer point arrays are invalid");
+        for(std::size_t index=0;index<point_positions.size();++index) {
+            zima::kernel::ViewerPoint loaded;
+            loaded.reference=point_references[index];
+            loaded.position=point_positions[index];
+            loaded.surface_result=point_surfaces.at(index).get<bool>();
+            loaded.always_visible=false;
+            if(axis_endpoint(loaded.reference.semantic_key)) {
+                loaded.always_visible=true;
+                loaded.display_owner_id=loaded.reference.owner_id;
+            }
+            result.mesh.points.push_back(std::move(loaded));
+        }
+    } else {
     for (const auto& reference : source.at("triangle_references")) {
         result.mesh.triangle_references.push_back({
             reference.at("owner").get<std::string>(),
@@ -1045,78 +1347,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             edge.value("display_owner",std::string{})};
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
-        loaded.color=edge.value("color",std::string{});
-        loaded.exact_spline = zima::kernel::spline_from_json(edge.at("exact_spline"));
-        if (edge.contains("measured_length") && !edge.at("measured_length").is_null()) {
-            loaded.measured_length = edge.at("measured_length").get<double>();
-            require_finite(*loaded.measured_length, "measured length");
-            if (*loaded.measured_length < 0) throw std::runtime_error("Negative measured length");
-        }
-        loaded.surface_result=edge.at("surface_result").get<bool>();
-        loaded.parameter_seam = edge.value("parameter_seam", false);
-        loaded.filled_text = edge.value("filled_text", false);
-        loaded.edge_treatment_owner_ids =
-            edge.at("edge_treatment_owners").get<std::vector<std::string>>();
-        for (const auto& point : edge.at("points")) loaded.points.push_back(load_vec3(point));
-        for (const auto& side : edge.at("edge_treatment_side_directions")) {
-            std::vector<zima::kernel::Vec3> samples;
-            for (const auto& direction : side) {
-                samples.push_back(load_vec3(direction));
-            }
-            if (samples.size() != loaded.points.size()) {
-                throw std::runtime_error(
-                    "Persisted viewer edge side directions are not aligned");
-            }
-            loaded.edge_treatment_side_directions.push_back(
-                std::move(samples));
-        }
-        for (const auto& reference :
-             edge.at("edge_treatment_side_references")) {
-            zima::kernel::FaceReference loaded_reference{
-                reference.at("owner").get<std::string>(),
-                reference.at("key").get<std::string>(),
-                reference.at("instance_path").get<std::string>()};
-            if (!loaded_reference.valid()) {
-                throw std::runtime_error(
-                    "Persisted viewer treatment side reference is invalid");
-            }
-            load_sheet_face(loaded_reference,reference);
-            loaded.edge_treatment_side_references.push_back(
-                std::move(loaded_reference));
-        }
-        for (const auto& reference :
-             edge.at("edge_treatment_endpoint_references")) {
-            zima::kernel::VertexReference loaded_reference{
-                reference.at("owner").get<std::string>(),
-                reference.at("key").get<std::string>(),
-                reference.at("instance_path").get<std::string>()};
-            if (!loaded_reference.valid()) {
-                throw std::runtime_error(
-                    "Persisted viewer treatment endpoint reference is invalid");
-            }
-            loaded.edge_treatment_endpoint_references.push_back(
-                std::move(loaded_reference));
-        }
-        if (!loaded.edge_treatment_side_directions.empty() &&
-            (loaded.edge_treatment_side_directions.size() != 2 ||
-             loaded.edge_treatment_side_references.size() != 2)) {
-            throw std::runtime_error(
-                "Persisted viewer edge must have exactly two treatment sides");
-        }
-        if (!loaded.edge_treatment_endpoint_references.empty() &&
-            loaded.edge_treatment_endpoint_references.size() != 2) {
-            throw std::runtime_error(
-                "Persisted viewer edge must have exactly two treatment endpoints");
-        }
-        const bool owner_empty = loaded.reference.owner_id.empty();
-        const bool key_empty = loaded.reference.semantic_key.empty();
-        // Viewer-only body edges deliberately carry an occurrence path without
-        // becoming persistent topology references. This lets selection recolour
-        // the existing wire for one exact nested occurrence.
-        if (owner_empty != key_empty || loaded.points.size() < 2) {
-            throw std::runtime_error("Persisted viewer edge is invalid");
-        }
-        restore_reference_curve_style(loaded);
+        load_viewer_edge_details(edge,loaded,true);
         result.mesh.edges.push_back(std::move(loaded));
     }
     for (const auto& point : source.at("points")) {
@@ -1140,6 +1371,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             throw std::runtime_error("Persisted viewer point is invalid");
         }
         result.mesh.points.push_back(std::move(loaded));
+    }
     }
     for (const auto& axis : source.at("axes")) {
         zima::kernel::ViewerAxis loaded;

@@ -1,6 +1,6 @@
 # Current project status
 
-Reviewed on 2026-10-26 against the current shared C++ implementation, focused
+Reviewed on 2026-10-27 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
@@ -37,6 +37,13 @@ alignment, Assembly Skeleton export control and revised Sketcher icons. Existing
 current-format native files remain directly readable. Resaving rewrites only
 their disposable calculated cache; it does not migrate authored model data.
 See the [release record](releases/2026102603.md).
+
+The current source identifies Windows candidate `2026102701`. It adds exact
+viewer-cache v2 storage, immediate detachment of large saved documents and View
+geometry during close, the oriented-Rectangle RMB correction and safe deletion
+of segments owning rounded mirrored corners. The authored native format and
+precision remain unchanged. See the [candidate record](releases/2026102701.md)
+and [measured performance/gate](performance/20261027-native-cache-close-and-redesign-gate.md).
 
 ## Available implementation
 
@@ -112,8 +119,8 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102603 is published and accepted with the exact-output performance, Sketcher, unit, naming, sheet-conversion and export work. Linux remains separate. |
-| Skeleton interaction | Properties opening is 1.46--1.61 s, draft editing 0.134--0.139 s and warm changed OK approximately 4.6 s in the measured fixture. Rewritten-cache reopen is 13.204--13.579 s and save 15.975--16.237 s. The one-second confirmation target is not claimed; further work must preserve exact output rather than weaken calculation. |
+| Current correction/release batch | Windows 2026102603 is published and accepted. Candidate 2026102701 contains exact viewer-cache v2, responsive close and focused Sketcher corrections; signed Windows publication and Linux verification remain separate. |
+| Skeleton interaction | Properties opening is 1.46--1.61 s, draft editing 0.134--0.139 s and warm changed OK approximately 4.6 s in the measured fixture. Candidate cache-v2 observations are approximately 9.45 s load, 12.394 s save and 9.716 s reopen. The one-second confirmation target is not claimed. A broader redesign is adopted only after a tenfold representative improvement with exact equivalence. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
 | Sketch Projection Feature | Requested as another Feature type consuming a Sketch; associative 3D result, direction, clipping and ambiguous intersections still need design. |

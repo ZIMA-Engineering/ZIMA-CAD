@@ -216,7 +216,8 @@ void Workspace::add_drawing(
     if (displayed_document_id_.empty()) displayed_document_id_ = id;
 }
 
-bool Workspace::remove(const std::string& document_id) {
+bool Workspace::remove(const std::string& document_id,
+        const DocumentRelease& release) {
     const auto found = std::find_if(documents_.begin(), documents_.end(),
         [&](const DocumentState& state) { return id_of(state) == document_id; });
     if (found == documents_.end()) return false;
@@ -225,7 +226,10 @@ bool Workspace::remove(const std::string& document_id) {
     const bool removed_active = active_document_id_ == document_id;
     const bool removed_displayed = displayed_document_id_ == document_id;
     if(removed_active||removed_displayed)active_occurrence_path_.clear();
+    std::optional<DocumentState> retired;
+    if (release) retired.emplace(std::move(*found));
     documents_.erase(found);
+    if (retired) release(std::move(*retired));
     if (documents_.empty()) {
         active_document_id_.clear();
         displayed_document_id_.clear();
@@ -246,6 +250,7 @@ bool Workspace::remove(const std::string& document_id) {
         const auto visible_state=std::ranges::find_if(documents_,visible);
         if(visible_state==documents_.end()) {
             // Closing the final document also releases its hidden import data.
+            if(release)for(auto& state:documents_)release(std::move(state));
             documents_.clear();active_document_id_.clear();displayed_document_id_.clear();
             drawing_edited_sources.clear();return true;
         }

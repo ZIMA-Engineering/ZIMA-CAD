@@ -8,6 +8,7 @@
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/file_path.hpp>
+#include <QThreadPool>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -257,7 +258,14 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
             if(!workspace_.find(id) || workspace::document_needs_save(workspace_,id))return;
         }
     }
-    if (workspace::close_document(workspace_,id,discard)!=workspace::CloseDocumentResult::Closed) return;
+    const auto release=[](workspace::DocumentState&& state) {
+        // Closing must detach the tab immediately. Destruction of the large
+        // immutable native history and its OCCT archives has no UI work and
+        // can safely finish after the Workspace no longer exposes it.
+        auto retired=std::make_shared<workspace::DocumentState>(std::move(state));
+        QThreadPool::globalInstance()->start([retired=std::move(retired)] {});
+    };
+    if (workspace::close_document(workspace_,id,discard,release)!=workspace::CloseDocumentResult::Closed) return;
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();

@@ -5904,6 +5904,85 @@ int main() {
         require(loaded_oriented.segments == oriented_rectangle.segments &&
                     loaded_oriented.constraints == oriented_rectangle.constraints,
                 "Oriented rectangle did not survive Sketch persistence");
+        // Exercise the same oriented Rectangle definition on both sides and
+        // directions of the two native axes and an oblique construction axis.
+        // The UI regression drives this API through RMB-over-candidate; this
+        // matrix independently verifies that later dimensions and manipulation
+        // keep the selected axis relationship editable.
+        for(int axis_kind=0;axis_kind<3;++axis_kind)for(const bool reverse:{false,true}) {
+            auto value=zima::sketcher::Sketch::create_default();
+            const std::array unit=axis_kind==0?std::array{1.,0.}:axis_kind==1?std::array{0.,1.}:
+                std::array{2./std::sqrt(5.),1./std::sqrt(5.)};
+            const std::array normal{-unit[1],unit[0]};const double side=reverse?-6.:6.;
+            const std::array first{-3.*unit[0]+side*normal[0],-3.*unit[1]+side*normal[1]};
+            const std::array guide{first[0]+(reverse?-14.:14.)*unit[0],first[1]+(reverse?-14.:14.)*unit[1]};
+            const auto axis=axis_kind==0?std::string("sketch_axis:x"):axis_kind==1?std::string("sketch_axis:y"):
+                value.add_segment(-25.*unit[0],-25.*unit[1],25.*unit[0],25.*unit[1],1e-6,true);
+            const auto ids=value.add_oriented_rectangle(first[0],first[1],guide[0],guide[1],axis);
+            const auto verify_oriented=[&](const auto& sketch) {
+                std::vector<const zima::sketcher::SketchSegment*> edges;
+                for(const auto& id:ids) {
+                    const auto found=std::ranges::find(sketch.segments,id,&zima::sketcher::SketchSegment::id);
+                    require(found!=sketch.segments.end(),"Oriented rectangle edit lost a native edge");edges.push_back(&*found);
+                }
+                const auto* p0=sketch.find_point(edges[0]->first_point_id);const auto* p1=sketch.find_point(edges[0]->second_point_id);
+                const auto* p2=sketch.find_point(edges[1]->second_point_id);const auto* p3=sketch.find_point(edges[2]->second_point_id);
+                std::array current_origin{0.,0.},current_unit=unit;
+                if(axis_kind==2) {
+                    const auto guide_edge=std::ranges::find(sketch.segments,axis,&zima::sketcher::SketchSegment::id);
+                    require(guide_edge!=sketch.segments.end(),"Oriented rectangle lost its construction axis");
+                    const auto* a=sketch.find_point(guide_edge->first_point_id);const auto* b=sketch.find_point(guide_edge->second_point_id);
+                    const double length=std::hypot(b->x-a->x,b->y-a->y);current_origin={a->x,a->y};
+                    current_unit={(b->x-a->x)/length,(b->y-a->y)/length};
+                }
+                const auto along=[&](const auto* p){return (p->x-current_origin[0])*current_unit[0]+(p->y-current_origin[1])*current_unit[1];};
+                const auto across=[&](const auto* p){return -(p->x-current_origin[0])*current_unit[1]+(p->y-current_origin[1])*current_unit[0];};
+                require(p0&&p1&&p2&&p3&&std::abs(along(p0)-along(p3))<1e-7&&
+                    std::abs(along(p1)-along(p2))<1e-7&&std::abs(across(p0)+across(p3))<1e-7&&
+                    std::abs(across(p1)+across(p2))<1e-7,"Oriented rectangle edit violated axis symmetry");
+                auto solved_copy=sketch;const auto solved=solved_copy.solve();require(solved.status!=zima::sketcher::SolveStatus::Invalid&&
+                    solved.status!=zima::sketcher::SolveStatus::Conflicting&&solved.maximum_residual<1e-8,
+                    "Oriented rectangle edit no longer solves");
+            };
+            verify_oriented(value);
+            for(const auto& point_id:{value.segments[value.segments.size()-4].first_point_id,
+                    value.segments[value.segments.size()-4].second_point_id,
+                    value.segments[value.segments.size()-3].second_point_id,
+                    value.segments[value.segments.size()-2].second_point_id}) {
+                auto dragged=value;const auto before=*dragged.find_point(point_id);
+                require(dragged.move_point(point_id,before.x+1.25*unit[0]+.4*normal[0],
+                    before.y+1.25*unit[1]+.4*normal[1]),"Underconstrained oriented rectangle point cannot be dragged");
+                const auto* after=dragged.find_point(point_id);require(std::hypot(after->x-before.x,after->y-before.y)>1e-5,
+                    "Oriented rectangle drag reported success without movement");verify_oriented(dragged);
+            }
+            auto dimensioned=value;auto length=dimensioned.create_segment_dimension(ids[0]);
+            dimensioned.apply_dimension(length);auto width=dimensioned.create_segment_dimension(ids[1]);dimensioned.apply_dimension(width);
+            for(const double target:{18.,11.,16.}) {
+                require(dimensioned.set_dimension_value(length.id,target),"Oriented rectangle length dimension cannot be edited repeatedly");
+                const auto& edge=*std::ranges::find(dimensioned.segments,ids[0],&zima::sketcher::SketchSegment::id);
+                const auto* a=dimensioned.find_point(edge.first_point_id);const auto* b=dimensioned.find_point(edge.second_point_id);
+                require(std::abs(std::hypot(b->x-a->x,b->y-a->y)-target)<1e-7,"Oriented rectangle length edit has a wrong value");verify_oriented(dimensioned);
+            }
+            require(dimensioned.set_dimension_value(width.id,9.),"Oriented rectangle width dimension cannot be edited");verify_oriented(dimensioned);
+            auto referenced=value;auto reference=referenced.create_segment_dimension(ids[0]);reference.driving=false;referenced.apply_dimension(reference);
+            const auto reference_point=referenced.segments[referenced.segments.size()-4].second_point_id;
+            const auto before=*referenced.find_point(reference_point);
+            require(referenced.move_point(reference_point,before.x+2.*unit[0],before.y+2.*unit[1]),
+                "Reference-dimensioned oriented rectangle cannot be dragged");
+            const auto& reference_edge=*std::ranges::find(referenced.segments,ids[0],&zima::sketcher::SketchSegment::id);
+            const auto* ra=referenced.find_point(reference_edge.first_point_id);const auto* rb=referenced.find_point(reference_edge.second_point_id);
+            require(std::abs(referenced.dimensions.front().value-std::hypot(rb->x-ra->x,rb->y-ra->y))<1e-7,
+                "Oriented rectangle reference dimension did not follow manipulation");verify_oriented(referenced);
+            auto fixed=value;for(const auto& id:ids) {
+                const auto& edge=*std::ranges::find(fixed.segments,id,&zima::sketcher::SketchSegment::id);
+                const auto first_point_id=edge.first_point_id,second_point_id=edge.second_point_id;
+                fixed.set_point_fixed(first_point_id,true);fixed.set_point_fixed(second_point_id,true);
+            }
+            const auto fixed_before=fixed.serialized();const auto* locked=fixed.find_point(fixed.segments.back().first_point_id);
+            require(!fixed.move_point(locked->id,locked->x+unit[0],locked->y+unit[1])&&fixed.serialized()==fixed_before,
+                "Fully constrained oriented rectangle escaped through dragging");
+            const auto reopened=zima::sketcher::Sketch::from_serialized(dimensioned.serialized());verify_oriented(reopened);
+        }
         auto polyline_arc = zima::sketcher::Sketch::create_default();
         const auto tangent_segment = polyline_arc.add_segment(
             0.0, 0.0, 10.0, 0.0);

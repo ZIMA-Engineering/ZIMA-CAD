@@ -34,6 +34,10 @@ void near(double actual,double expected){
     if(!std::isfinite(actual)||std::abs(actual-expected)>=1e-5)
         throw std::runtime_error("Native state value: expected "+std::to_string(expected)+", got "+std::to_string(actual));
 }
+double analyzed_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);
+    return body.volume;
+}
 void native_fillets() {
     for(bool after_straight:{false,true})for(bool linear:{false,true}) {
         kernel::OcctKernel kernel;workspace::Workspace live;
@@ -83,21 +87,21 @@ void native_fillets() {
         const auto expected=kernel.evaluate_history(expected_operations).back().volume;
         require(expected<400*110*std::numbers::pi/2,"Independent Fillet did not remove material");
         if(!after_straight)require(workspace::commit_solid_state(live,kernel,id,straight),"Post-Fillet Straighten failed");
-        const auto flat=state->session.calculated_boundaries().back().volume;
+        const auto flat=analyzed_volume(kernel,state->session.calculated_boundaries().back());
         require(flat<400*110*std::numbers::pi/2*.9,"Straighten discarded Fillet material removal");
         auto restore=document::PartDocument::create_solid_state_container(true);
         require(workspace::commit_solid_state(live,kernel,id,restore),"Native treated Restore failed");
-        near(state->session.calculated_boundaries().back().volume,expected);
+        near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),expected);
         require(*state->session.document().find_container(fillet.id)==authored_fillet&&
             *state->session.document().find_container(source.id)==authored_source,"State replay rewrote Fillet radius, direction or source identity");
-        require(workspace::step_part_document_history(live,id,false),"Treated state Undo failed");near(state->session.calculated_boundaries().back().volume,flat);
-        require(workspace::step_part_document_history(live,id,true),"Treated state Redo failed");near(state->session.calculated_boundaries().back().volume,expected);
+        require(workspace::step_part_document_history(live,id,false),"Treated state Undo failed");near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),flat);
+        require(workspace::step_part_document_history(live,id,true),"Treated state Redo failed");near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),expected);
         const auto path=std::filesystem::temp_directory_path()/("zima-state-fillet-"+id+".prtz");
         state->session.document().save(path,state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> saved;auto reopened=document::PartDocument::load(path,&saved);
-        require(*reopened.find_container(fillet.id)==authored_fillet,"Native reload lost Fillet intent");near(saved.back().volume,expected);
+        require(*reopened.find_container(fillet.id)==authored_fillet,"Native reload lost Fillet intent");near(analyzed_volume(kernel,saved.back()),expected);
         kernel::OcctKernel cold;const auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
-        require(regenerated.back().calculation_errors.empty(),"Native treated cold regeneration failed");near(regenerated.back().volume,expected);
+        require(regenerated.back().calculation_errors.empty(),"Native treated cold regeneration failed");near(analyzed_volume(cold,regenerated.back()),expected);
         std::filesystem::remove(path);
     }
 }

@@ -739,7 +739,10 @@ AssemblyWorkspaceWindow::inferred_sketch_polyline_arc_center_snap(
 bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_rectangle_active_) return false;
-    if (sketch_rectangle_axis_selecting_) return true;
+    // Axis entry is a candidate-selection step.  Returning true here lets the
+    // generic world-click path consume LMB before the offered SketchAxis or
+    // construction segment reaches accept_sketch_rectangle_axis().
+    if (sketch_rectangle_axis_selecting_) return false;
     const auto* sketch = active_sketch();
     if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);

@@ -6345,11 +6345,14 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         [&](const auto& value) { return value.id == geometry_id; });
     const auto external_reference_count = std::erase_if(next.external_references,
         [&](const auto& value) { return value.id == geometry_id; });
+    std::set<std::string> removed_corner_ids;
     const auto corner_radius_count = std::erase_if(next.corner_radii,
         [&](const auto& value) {
-        return value.id == geometry_id ||
+        const bool remove = value.id == geometry_id ||
             value.first_segment_id == geometry_id ||
             value.second_segment_id == geometry_id;
+        if (remove) removed_corner_ids.insert(value.id);
+        return remove;
     });
     if (segment_count + circle_count + arc_count + ellipse_count +
             elliptical_arc_count + spline_count + text_count +
@@ -6395,10 +6398,15 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
         const auto source=external_center_source(point_id);
         return external_reference_count!=0&&(point_id==geometry_id||(source&&*source==geometry_id));
     };
+    const auto removed_corner = [&](const std::string& id) {
+        return removed_corner_ids.contains(id);
+    };
     std::erase_if(next.constraints,
         [&](const auto& value) {
             return value.geometry_id == geometry_id ||
                 value.second_geometry_id == geometry_id ||
+                removed_corner(value.geometry_id) ||
+                removed_corner(value.second_geometry_id) ||
                 (value.second_point_id.starts_with("sketch_keypoint:") &&
                  value.second_point_id.find(":" + geometry_id + ":") !=
                      std::string::npos) ||
@@ -6411,6 +6419,9 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
             return value.geometry_id == geometry_id ||
                 value.second_geometry_id == geometry_id ||
                 value.third_geometry_id == geometry_id ||
+                removed_corner(value.geometry_id) ||
+                removed_corner(value.second_geometry_id) ||
+                removed_corner(value.third_geometry_id) ||
                 removed_external_point(value.first_point_id) || removed_external_point(value.second_point_id) ||
                 removed_external_point(value.geometry_id) || removed_external_point(value.second_geometry_id) ||
                 removed_external_point(value.third_geometry_id);

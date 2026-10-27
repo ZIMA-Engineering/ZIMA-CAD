@@ -102,6 +102,90 @@ void actual(const std::filesystem::path& path,bool reproduce) {
     auto loaded=Sketch::from_serialized(s.serialized());check(!loaded.corner_radii.front().dimension_visible,"Removed radius annotation returned after reopen");
     std::cout<<"Actual skeleton intrinsic radius deletion preserved exact geometry; Undo/Redo and native Sketch reopen passed\n";
 }
+void actual_delete(const std::filesystem::path& path,const std::string& sketch_id) {
+    const auto doc=document::PartDocument::load(path);
+    const auto found=std::ranges::find(doc.sketches,sketch_id,&Sketch::id);
+    check(found!=doc.sketches.end(),"Actual deletion Sketch is missing");
+    const auto original=*found;
+    check(!original.segments.empty()&&!original.corner_radii.empty(),
+        "Actual deletion Sketch has no rounded segment geometry");
+    for(const auto& segment:original.segments) {
+        auto changed=original;changed.remove_geometry(segment.id);changed.validate();solved(changed);
+        check(changed.external_references==original.external_references,
+            "Actual rounded deletion changed external references");
+        const auto reopened=Sketch::from_serialized(changed.serialized());
+        check(reopened.serialized()==changed.serialized(),
+            "Actual rounded deletion changed after native Sketch reopen");
+    }
+    auto emptied=original;
+    std::vector<std::string> segment_ids;
+    for(const auto& segment:original.segments)segment_ids.push_back(segment.id);
+    for(const auto& id:segment_ids)if(std::ranges::any_of(emptied.segments,[&](const auto& segment){return segment.id==id;}))
+        emptied.remove_geometry(id);
+    emptied.validate();solved(emptied);
+    check(emptied.segments.empty()&&emptied.corner_radii.empty(),
+        "Actual rounded Sketch retained deleted segments or corner radii");
+    check(std::ranges::none_of(emptied.constraints,[&](const auto& constraint) {
+        return std::ranges::any_of(original.corner_radii,[&](const auto& corner) {
+            return constraint.geometry_id==corner.id||constraint.second_geometry_id==corner.id;
+        });
+    }),"Actual rounded Sketch retained a constraint owned by a deleted corner");
+    document::DocumentSession session(doc);auto changed=doc;
+    *std::ranges::find(changed.sketches,sketch_id,&Sketch::id)=emptied;session.commit(changed);
+    check(session.undo()&&std::ranges::find(session.document().sketches,sketch_id,&Sketch::id)->serialized()==original.serialized(),
+        "Actual rounded deletion Undo lost its source Sketch");
+    check(session.redo()&&std::ranges::find(session.document().sketches,sketch_id,&Sketch::id)->serialized()==emptied.serialized(),
+        "Actual rounded deletion Redo lost the empty Sketch");
+    std::cout<<"Actual rounded Sketch deletion: every segment, complete deletion, external references, solve, reopen and Undo/Redo passed\n";
+}
+void deletion_matrix() {
+    unsigned cases{};
+    for(int axis_kind=0;axis_kind<4;++axis_kind)for(bool reverse:{false,true})for(bool delete_source:{false,true}) {
+        auto mirrored=fixture();
+        std::string axis=axis_kind<2?(axis_kind?"sketch_axis:y":"sketch_axis:x"):
+            mirrored.add_segment(axis_kind==2?-20:3,-30,axis_kind==2?20:3,30,1e-6,true);
+        std::vector<std::string> source_segments,source_corners;
+        for(const auto& segment:mirrored.segments)if(!segment.construction)source_segments.push_back(segment.id);
+        for(const auto& corner:mirrored.corner_radii)source_corners.push_back(corner.id);
+        auto ids=selection(mirrored,true);if(reverse)std::ranges::reverse(ids);
+        static_cast<void>(mirrored.mirror_geometry(ids,axis));
+        std::vector<std::string> copy_segments,copy_corners;
+        for(const auto& segment:mirrored.segments)
+            if(!segment.construction&&std::ranges::find(source_segments,segment.id)==source_segments.end())
+                copy_segments.push_back(segment.id);
+        for(const auto& corner:mirrored.corner_radii)
+            if(std::ranges::find(source_corners,corner.id)==source_corners.end())
+                copy_corners.push_back(corner.id);
+        check(copy_segments.size()==source_segments.size()&&copy_corners.size()==source_corners.size(),
+            "Rounded deletion matrix lost mirrored entities");
+        const auto removed=delete_source?source_segments:copy_segments;
+        const auto retained=delete_source?copy_segments:source_segments;
+        const auto retained_corner=(delete_source?copy_corners:source_corners).front();
+        auto dimension=mirrored.create_arc_radius_dimension(retained_corner);dimension.locked=false;
+        mirrored.apply_dimension(dimension);
+        const auto references=mirrored.external_references;
+        for(const auto& id:removed)mirrored.remove_geometry(id);
+        mirrored.validate();solved(mirrored);
+        const auto retained_segment_count=std::ranges::count_if(mirrored.segments,
+            [](const auto& segment){return !segment.construction;});
+        check(mirrored.external_references==references&&retained_segment_count==retained.size(),
+            "Rounded deletion changed references or retained the wrong segment count");
+        for(double radius:{4.,2.5,3.75}) {
+            check(mirrored.set_dimension_value(dimension.id,radius),
+                "Rounded deletion retained an uneditable radius dimension");
+            solved(mirrored);mirrored=Sketch::from_serialized(mirrored.serialized());
+        }
+        const auto retained_segment=std::ranges::find(mirrored.segments,retained.front(),&SketchSegment::id);
+        check(retained_segment!=mirrored.segments.end(),"Rounded deletion lost retained geometry");
+        const auto point=*mirrored.find_point(retained_segment->first_point_id);
+        check(mirrored.move_point(point.id,point.x+.2,point.y+.3),
+            "Rounded deletion blocked a retained free point drag");
+        check(std::hypot(mirrored.find_point(point.id)->x-point.x,mirrored.find_point(point.id)->y-point.y)>.01,
+            "Rounded deletion accepted a drag without moving its point");
+        solved(mirrored);++cases;
+    }
+    std::cout<<cases<<" rounded deletion cases: four axis kinds, both selection orders, source/copy deletion, repeated dimension edits, drag and reopen passed\n";
+}
 void matrix() {
     unsigned count{};
     for(int axis_kind=0;axis_kind<4;++axis_kind)for(bool reverse:{false,true})for(bool corners:{false,true}) {
@@ -232,4 +316,11 @@ void actual_rectangle(const std::filesystem::path& path) {
     rectangle_matrix(original);
 }
 }
-int main(int argc,char** argv) {try{if(argc>2&&std::string_view(argv[2])=="--symmetric-rectangle"){actual_rectangle(argv[1]);return 0;}if(argc>1)actual(argv[1],argc>2);if(argc<=2){matrix();rectangle_matrix(centered_rectangle_fixture());}return 0;}catch(const std::exception& e){std::cerr<<context<<": "<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv) {try{
+    if(argc>1&&std::string_view(argv[1])=="--deletion-matrix") {deletion_matrix();return 0;}
+    if(argc>3&&std::string_view(argv[2])=="--delete-rounded") {actual_delete(argv[1],argv[3]);return 0;}
+    if(argc>2&&std::string_view(argv[2])=="--symmetric-rectangle"){actual_rectangle(argv[1]);return 0;}
+    if(argc>1)actual(argv[1],argc>2);
+    if(argc<=2){matrix();deletion_matrix();rectangle_matrix(centered_rectangle_fixture());}
+    return 0;
+}catch(const std::exception& e){std::cerr<<context<<": "<<e.what()<<'\n';return 1;}}

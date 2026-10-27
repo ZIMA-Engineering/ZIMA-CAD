@@ -72,6 +72,15 @@ source remains pinned to OCCT 8.0.1. See the
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 
+The current source identifies Windows candidate `2026102701`. It adds exact
+viewer-cache v2 storage, immediate detachment when closing large saved documents,
+the restored oriented-Rectangle RMB axis gesture and safe rounded-Mirror deletion.
+The [candidate record](doc/releases/2026102701.md) and
+[performance record](doc/performance/20261027-native-cache-close-and-redesign-gate.md)
+state the measured improvement and the separate tenfold adoption gate for any
+future internal redesign. `2026102603` remains the latest published stable build
+until signing, publication and updater acceptance finish.
+
 ## Command line
 
 The `zima-cad-cli` executable runs the shared CAD commands without a desktop window.

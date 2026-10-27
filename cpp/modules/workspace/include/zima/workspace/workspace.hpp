@@ -7,6 +7,7 @@
 #include <zima/drawing/drawing_document.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <map>
 #include <set>
@@ -76,6 +77,7 @@ private:
 };
 
 using DocumentState = std::variant<PartState, AssemblyState, DrawingState>;
+using DocumentRelease = std::function<void(DocumentState&&)>;
 
 struct OccurrenceAddress {
     std::string owner_assembly_document_id;
@@ -118,7 +120,12 @@ public:
         const std::string& document_id, const std::filesystem::path& target,
         const std::filesystem::path& drawing_search_directory = {},
         bool overwrite_library = false) const;
-    [[nodiscard]] bool remove(const std::string& document_id);
+    // A desktop host may retire a large, already detached document away from
+    // its owner/UI thread. The callback receives the complete state after it
+    // has ceased to be addressable from this Workspace. With no callback the
+    // established synchronous destruction contract is retained.
+    [[nodiscard]] bool remove(const std::string& document_id,
+        const DocumentRelease& release = {});
 
     [[nodiscard]] std::size_t size() const;
     [[nodiscard]] DocumentState* find(const std::string& document_id);

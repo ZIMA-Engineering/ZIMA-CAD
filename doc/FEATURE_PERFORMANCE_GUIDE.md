@@ -161,6 +161,9 @@ separately from those checks. The finite large-import evidence is in the
   retain the exact native prefix, skip reference work only after comparing all
   actual projection and dependency inputs, and measure cold invalidation,
   repeated confirmation, draft interaction, Undo/Redo and native reopen.
+- [Native viewer cache and redesign gate](performance/20261027-native-cache-close-and-redesign-gate.md):
+  compact exact display packets, detach large closed documents before destruction,
+  and keep a proposed semantic/topology redesign behind a measured tenfold gate.
 
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

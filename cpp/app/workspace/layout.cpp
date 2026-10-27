@@ -1518,6 +1518,15 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_candidate_right_click_callback(
         [this](const auto&, std::size_t candidate_index,
                std::size_t candidate_count) {
+            // Once the first Rectangle corner is confirmed, RMB changes the
+            // command state to orientation-axis entry.  This must outrank the
+            // shared overlapping-candidate cycle: the corner itself, an axis
+            // or another snap candidate is commonly still under the pointer.
+            // Empty-space RMB reaches the same state through the callback
+            // above, so both pointer locations retain one interaction.
+            if(sketch_rectangle_active_&&pending_rectangle_corner_&&
+               pending_rectangle_axis_id_.empty())
+                return cancel_current_sketch_step(true);
             if (!sketch_segment_active_ || sketch_polyline_active_ ||
                 !pending_segment_start_) return false;
             if (!sketch_skip_candidate_snap_) {

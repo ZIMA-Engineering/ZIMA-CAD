@@ -1,5 +1,13 @@
 # Native versioned distribution
 
+The current source identifies Windows candidate `2026102701`. It compacts exact
+viewer packets and measurement-source prefixes, detaches large saved documents
+before background destruction, and includes focused Sketcher corrections. The
+authored native format version, geometry precision, topology identities and
+shared OCCT 8.0.1 pin are unchanged. See the
+[candidate record](releases/2026102701.md). Signed publication and updater
+acceptance are not claimed until the candidate passes the gates below.
+
 Signed Windows [2026102603](releases/2026102603.md#windows-publication-acceptance)
 was published at `2026-10-26T22:44:52Z` from immutable source
 `c3c52247c601312be405476c2ec2694f137563dc`. It adds exact-output cache/history

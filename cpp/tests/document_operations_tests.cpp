@@ -9,6 +9,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -272,7 +273,17 @@ int main() {
             require(complete_document_save(imported,before.write())&&document_needs_save(imported,top_id),"Older receipt cleared a newer source edit");
             require(complete_document_save(imported,prepare_document_save(imported,top_id,top_path).write()),"Hidden source Save failed");
             require(document::PartDocument::load(source_path).name==changed.name,"Saved Assembly lost current hidden source");
-            require(close_document(imported,top_id,false)==CloseDocumentResult::Closed,"Saved import could not close");
+            std::set<std::string> released;
+            const auto release=[&](DocumentState&& state) {
+                std::visit([&](auto&& value) {
+                    if constexpr(requires{value.session;})
+                        released.insert(value.session.document().document_id);
+                    else released.insert(value.document().document_id);
+                },state);
+            };
+            require(close_document(imported,top_id,false,release)==CloseDocumentResult::Closed,"Saved import could not close");
+            require(released==std::set<std::string>{top_id,source_id},
+                "Deferred close did not release the complete detached document family");
             require(imported.size()==0&&imported.displayed_document_id().empty(),"Closing last Assembly revealed a hidden Part tab");
             auto other=document::PartDocument::create_default();const auto other_id=other.document_id;
             imported.add_part(other);imported.add_assembly(top,top_path);imported.add_part(source,{},source_path);
