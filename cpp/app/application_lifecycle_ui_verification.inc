@@ -213,7 +213,7 @@ int verify_application_lifecycle_ui(QApplication& application) {
                 if (auto* primitive = dynamic_cast<app::PrimitivePropertiesDialog*>(dialog);
                     primitive && primitive->isVisible()) box_dialog = primitive;
             check(box_dialog && QString::fromStdString(box_dialog->pending_value().name) ==
-                settings.qt_translations.value("Tažení") + " 001", "New feature name ignores the UI language");
+                settings.qt_translations.value("Tažení") + " 01", "New feature name ignores the UI language");
             box_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
             reopened.findChild<QAction*>("aboutAction")->trigger(); flush();
             auto* about=dynamic_cast<ui::PropertiesSubWindow*>(reopened.findChild<QDialog*>("aboutDialog"));

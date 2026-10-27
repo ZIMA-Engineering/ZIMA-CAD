@@ -705,7 +705,7 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     check(dialog(),"Feature creation properties missing");
     dialog()->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(10);
     const auto pending=dialog()->pending_value();
-    check(pending.name==QObject::tr("Tažení").toStdString()+" 001" && pending.feature.automatic_name==pending.name,
+    check(pending.name==QObject::tr("Tažení").toStdString()+" 01" && pending.feature.automatic_name==pending.name,
         "New Feature has no numbered automatic name");
     dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
     check(!dialog(),"Feature Sketch action did not enter the editor");
@@ -1067,7 +1067,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 check(std::ranges::count_if(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==pending.container_origin.id;})>=3,
                     "A Feature type omitted its full editing Origin");
                 const char* prefixes[]={"Bod","Osa","Rovina","Skica","Tažení"};
-                check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 001" && pending.feature.automatic_name==pending.name,
+                check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 01" && pending.feature.automatic_name==pending.name,
                     "GUI type switch did not update its automatic name");
                 check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
                       pending.feature.centroid_centerline==inactive.centroid_centerline,"Type switch discarded inactive settings");
