@@ -11,10 +11,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QImage>
+#include <QMouseEvent>
 #include <QPixmap>
 #include <QPushButton>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 #include <chrono>
 #include <cmath>
 #include <future>
@@ -36,6 +38,28 @@ public:
     QDoubleSpinBox* numeric{};
 private:
     bool submit() override { return work(); }
+};
+class NavigationView final : public QWidget {
+public:
+    using QWidget::QWidget;
+    int left_presses{}, right_presses{}, middle_presses{}, middle_moves{},
+        middle_releases{}, middle_double_clicks{}, wheel_events{};
+protected:
+    void mousePressEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton) ++left_presses;
+        if (event->button() == Qt::RightButton) ++right_presses;
+        if (event->button() == Qt::MiddleButton) ++middle_presses;
+    }
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (event->buttons().testFlag(Qt::MiddleButton)) ++middle_moves;
+    }
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::MiddleButton) ++middle_releases;
+    }
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::MiddleButton) ++middle_double_clicks;
+    }
+    void wheelEvent(QWheelEvent*) override { ++wheel_events; }
 };
 void verify_exact_preview_lifecycle(const document::PartDocument& part,const std::string& feature_id) {
     const auto operations=part.kernel_operations();
@@ -83,7 +107,7 @@ int main(int argc, char** argv) {
     QApplication app(argc,argv);
     try {
         QWidget window; window.resize(1200,900);
-        QWidget view(&window); view.setGeometry(280,0,920,840);
+        NavigationView view(&window); view.setGeometry(280,0,920,840);
         view.setStyleSheet("background:#151e28;");
         QLineEdit input(&window); input.setText("unchanged");
         ui::OperationActivity activity(&window,&view);
@@ -104,7 +128,7 @@ int main(int argc, char** argv) {
                     worker_thread=std::this_thread::get_id();
                     std::this_thread::sleep_for(std::chrono::milliseconds(700));
                     task();
-                });
+                }, &view);
             });
         };
         activity.finished=[&] {++finishes; execution.reset();};
@@ -122,7 +146,7 @@ int main(int argc, char** argv) {
         const auto source=original.serialized();
         TestProperties properties(&window);properties.show();app.processEvents();
         auto candidate=original;std::vector<kernel::BodyResult> result;
-        int angle_before=-1,angle_after=-1;bool centered{},footer{},blocked{},foreground{};
+        int angle_before=-1,angle_after=-1;bool centered{},footer{},blocked{},foreground{},navigation{};
         QTimer::singleShot(330,&window,[&] {
             const auto* overlay=activity.overlay();
             angle_before=overlay->property("activityAngle").toInt();
@@ -136,6 +160,34 @@ int main(int argc, char** argv) {
             app.sendEvent(properties.numeric->findChild<QLineEdit*>(),&decimal);
             properties.buttons()->button(QDialogButtonBox::Ok)->click();
             window.close();blocked=input.text()=="unchanged"&&window.isVisible()&&properties.numeric->text()==numeric_text;
+            const QPointF start(100,100), moved(120,115);
+            QMouseEvent short_press(QEvent::MouseButtonPress,start,start,
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QMouseEvent short_release(QEvent::MouseButtonRelease,start,start,
+                Qt::MiddleButton,Qt::NoButton,Qt::NoModifier);
+            app.sendEvent(&view,&short_press);app.sendEvent(&view,&short_release);
+            QMouseEvent drag_press(QEvent::MouseButtonPress,start,start,
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QMouseEvent drag_move(QEvent::MouseMove,moved,moved,
+                Qt::NoButton,Qt::MiddleButton,Qt::NoModifier);
+            QMouseEvent drag_release(QEvent::MouseButtonRelease,moved,moved,
+                Qt::MiddleButton,Qt::NoButton,Qt::NoModifier);
+            app.sendEvent(&view,&drag_press);app.sendEvent(&view,&drag_move);app.sendEvent(&view,&drag_release);
+            QWheelEvent wheel(start,start,QPoint{},QPoint(0,120),Qt::NoButton,
+                Qt::NoModifier,Qt::NoScrollPhase,false);
+            app.sendEvent(&view,&wheel);
+            QMouseEvent left_press(QEvent::MouseButtonPress,start,start,
+                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent right_press(QEvent::MouseButtonPress,start,start,
+                Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+            QMouseEvent middle_double(QEvent::MouseButtonDblClick,start,start,
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            app.sendEvent(&view,&left_press);app.sendEvent(&view,&right_press);
+            app.sendEvent(&view,&middle_double);
+            navigation=view.middle_presses==2&&view.middle_moves==1&&
+                view.middle_releases==1&&view.wheel_events==1&&
+                view.left_presses==0&&view.right_presses==0&&
+                view.middle_double_clicks==0;
             const auto frame=window.grab();
             const auto probe=QPoint(overlay->x()+9,overlay->geometry().center().y());
             foreground=frame.toImage().pixelColor(QPoint(qRound(probe.x()*frame.devicePixelRatio()),
@@ -150,6 +202,7 @@ int main(int argc, char** argv) {
         properties.buttons()->button(QDialogButtonBox::Ok)->click();
         check(centered&&foreground,"Activity panel is not visible over Properties at the View center");
         check(footer&&blocked,"Busy confirmation or conflicting-input protection failed");
+        check(navigation,"Busy calculation did not isolate View navigation from command input");
         check(angle_before>=0&&angle_before!=angle_after,"Activity animation froze during a real kernel calculation");
         check(worker_thread!=owner_thread&&std::this_thread::get_id()==owner_thread,"Calculation or result ownership thread is incorrect");
         check(!activity.active()&&!activity.overlay()->isVisible()&&!properties.isVisible(),"Successful confirmation left activity visible");
@@ -175,7 +228,7 @@ int main(int argc, char** argv) {
         check((activity.overlay()->geometry().center()-QRect(view.mapTo(&window,QPoint{}),view.size()).center()).manhattanLength()<=2,"Activity did not follow View resize");
         static_cast<void>(activity.begin("Unfinished child"));activity.end(outer);
         check(!activity.active()&&!activity.overlay()->isVisible()&&starts==finishes,"Outer exit left a nested activity or executor active");
-        std::cout<<"Operation activity: delayed center overlay, foreground, OK indicator, live worker animation, private geometry, input gate, exceptions and nested retirement passed\n";
+        std::cout<<"Operation activity: delayed center overlay, foreground, OK indicator, live worker animation, private geometry, navigation-only input gate, exceptions and nested retirement passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

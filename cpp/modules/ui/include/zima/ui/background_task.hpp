@@ -12,8 +12,8 @@ namespace zima::ui {
 // Call on the UI thread. The worker must own its inputs and must not access
 // widgets. Keep paints/timers alive while blocking competing user commands.
 template <typename Function>
-auto run_background_task(Function&& function) {
-    OperationActivity::InputBlock input_block;
+auto run_background_task(Function&& function, QWidget* navigation_view = nullptr) {
+    OperationActivity::InputBlock input_block(navigation_view);
     using Result = std::invoke_result_t<std::decay_t<Function>>;
     auto future = std::async(std::launch::async, std::forward<Function>(function));
     using namespace std::chrono_literals;

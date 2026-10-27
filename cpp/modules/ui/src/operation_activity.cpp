@@ -4,6 +4,7 @@
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QTimer>
 #include <QWidget>
@@ -11,13 +12,51 @@
 
 namespace zima::ui {
 namespace {
-thread_local int input_blocks{};
+struct InputBlockState {
+    QPointer<QWidget> navigation_view;
+    QPoint middle_press_position;
+    bool middle_pressed{};
+    bool middle_dragged{};
+};
+thread_local std::vector<InputBlockState> input_blocks;
 class ActivityInputGate final : public QObject {
 public:
     explicit ActivityInputGate(QObject* parent) : QObject(parent) {}
 protected:
-    bool eventFilter(QObject*, QEvent* event) override {
-        if (input_blocks == 0) return false;
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (input_blocks.empty()) return false;
+        auto& block = input_blocks.back();
+        auto* widget = qobject_cast<QWidget*>(watched);
+        const bool navigation_target = block.navigation_view && widget &&
+            (widget == block.navigation_view || block.navigation_view->isAncestorOf(widget));
+        if (navigation_target && event->type() == QEvent::Wheel) return false;
+        if (navigation_target && (event->type() == QEvent::MouseButtonPress ||
+                event->type() == QEvent::MouseButtonRelease ||
+                event->type() == QEvent::MouseMove)) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (event->type() == QEvent::MouseButtonPress &&
+                    mouse->button() == Qt::MiddleButton) {
+                block.middle_press_position = mouse->position().toPoint();
+                block.middle_pressed = true;
+                block.middle_dragged = false;
+                return false;
+            }
+            if (event->type() == QEvent::MouseMove && block.middle_pressed &&
+                    mouse->buttons().testFlag(Qt::MiddleButton)) {
+                if ((mouse->position().toPoint() - block.middle_press_position)
+                        .manhattanLength() > 2) block.middle_dragged = true;
+                return false;
+            }
+            if (block.middle_pressed && mouse->button() == Qt::RightButton &&
+                    mouse->buttons().testFlag(Qt::MiddleButton)) return false;
+            if (event->type() == QEvent::MouseButtonRelease &&
+                    mouse->button() == Qt::MiddleButton && block.middle_pressed) {
+                const bool allow = block.middle_dragged;
+                block.middle_pressed = false;
+                block.middle_dragged = false;
+                return !allow;
+            }
+        }
         switch (event->type()) {
         case QEvent::MouseButtonPress: case QEvent::MouseButtonRelease:
         case QEvent::MouseButtonDblClick: case QEvent::MouseMove:
@@ -193,8 +232,8 @@ QWidget* OperationActivity::create_confirmation_indicator(QWidget* parent) {
 OperationActivity::Scope::Scope(OperationActivity* activity, const QString& message, QWidget* indicator)
     : activity_(activity), token_(activity ? activity->begin(message, indicator) : 0) {}
 OperationActivity::Scope::~Scope() { if (activity_) activity_->end(token_); }
-OperationActivity::InputBlock::InputBlock() {
-    ++input_blocks;
+OperationActivity::InputBlock::InputBlock(QWidget* navigation_view) {
+    input_blocks.push_back({navigation_view});
     static QPointer<ActivityInputGate> gate;
     if (qApp) {
         if (!gate) gate = new ActivityInputGate(qApp);
@@ -204,7 +243,7 @@ OperationActivity::InputBlock::InputBlock() {
         qApp->installEventFilter(gate);
     }
 }
-OperationActivity::InputBlock::~InputBlock() { --input_blocks; }
+OperationActivity::InputBlock::~InputBlock() { input_blocks.pop_back(); }
 
 bool OperationActivity::eventFilter(QObject* watched, QEvent* event) {
     if ((watched == window_ || watched == view_) &&

@@ -43,7 +43,7 @@ public:
     // validation prompts in an OK handler must remain interactive.
     class InputBlock final {
     public:
-        InputBlock();
+        explicit InputBlock(QWidget* navigation_view = nullptr);
         ~InputBlock();
         InputBlock(const InputBlock&) = delete;
         InputBlock& operator=(const InputBlock&) = delete;

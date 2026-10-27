@@ -204,9 +204,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->setObjectName("modelViewer");
     operation_activity_ = new ui::OperationActivity(this, viewer_);
     auto calculation_execution = std::make_shared<std::unique_ptr<workspace::CalculationExecutionScope>>();
-    operation_activity_->started = [calculation_execution] {
+    operation_activity_->started = [this,calculation_execution] {
         *calculation_execution = std::make_unique<workspace::CalculationExecutionScope>(
-            [](auto task) { run_background_task(std::move(task)); });
+            [this](auto task) { run_background_task(std::move(task), viewer_); });
     };
     operation_activity_->finished = [calculation_execution] { calculation_execution->reset(); };
     viewer_->set_origin_visibility_filter([this](const auto& reference) {

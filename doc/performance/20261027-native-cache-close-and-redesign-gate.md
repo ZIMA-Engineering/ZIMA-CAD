@@ -101,3 +101,32 @@ Undo/Redo, GUI interaction and save/reopen.
 Native Linux compilation, execution and timing remain unverified on this Windows
 host. Windows package publication has separate committed-source and signed-smoke
 gates.
+
+## Continued exact-calculation investigation
+
+The representative Skeleton's changed last operation was also measured with
+OCCT's oriented-bounding-box Boolean candidate filter. The ordinary, forced
+serial, forced parallel, serial OBB and parallel OBB runs produced the same
+386,915,509-byte calculated packet with SHA-256
+`c44542f4b7b9d56c249fba906f6b3a0343d7557b23e2271e350f67e9aaa1398c`.
+Observed calculation times were 4,595 ms, 4,340 ms, 4,466 ms, 4,601 ms and
+4,496 ms respectively. OBB therefore did not improve this operation and the
+experimental switch was removed. No Boolean tolerance or geometry precision was
+changed.
+
+Explicit GUI calculations already execute OCCT on a worker-owned candidate and
+publish only after completion. The remaining apparent freeze was caused by the
+global busy-input gate also consuming camera events. The gate now admits only
+wheel zoom and an actual middle-button drag in the active model View while the
+worker runs. MMB+RMB panning is retained. Selection, hover, commands, keys,
+short MMB confirmation, middle double-click, dialog confirmation and window
+close remain blocked. This changes responsiveness only: it does not shorten the
+calculation, expose the mutable candidate or publish a partial result.
+
+The operation-activity contract verifies worker-thread ownership, identical
+synchronous geometry, live painting and animation, delivery of navigation
+events, rejection of command input, exception cleanup and nested scopes. The
+complete Windows application builds with the shared runner. The five-language
+catalog contract passes; this change adds no user-visible text. Native Linux
+compilation and actual Linux View navigation remain unverified on this Windows
+host.
