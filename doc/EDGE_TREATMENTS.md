@@ -94,3 +94,28 @@ The complete Windows GUI run passed in 60.39 seconds. The shared dimension-layou
 and five-language translation contracts passed 2/2 in 11.71 seconds
 (`build/chamfer-envelope-contracts.log`). No new geometry calculation or format
 change was introduced. Linux validation remains deferred to the Linux host.
+
+## Deferred Fillet investigation (2026-10-27)
+
+The following user-observed case is recorded for investigation after the
+current Windows release and performance-redesign experiment. It is not yet a
+claim about the intended or verified current behavior.
+
+- Place a smaller upper box on a larger lower box so that the upper box extends
+  beyond the lower box. Filleting the exposed upper-box edge should be compared
+  with filleting that edge on the original upper solid before the body result is
+  combined. The latter construction can continue the round past the lower-box
+  boundary, while the current result-body selection can stop there.
+- In this arrangement, automatic route expansion appears to follow the wrong
+  continuation on the upper box when a rounded continuation is present. Manually
+  disabling route branches can produce the intended result. The investigation
+  must distinguish route-connectivity policy from an OCCT fillet limitation.
+- The route/branch list in Properties appears reversed relative to geometric
+  traversal: the first segment is shown last and the last segment first. Verify
+  persisted route identity and both traversal directions before changing display
+  order; a display-only correction must not reverse the selected geometric side.
+
+Any correction must use representative two-box fixtures, preserve exact output
+and stable references, and cover branch selection, save/reopen, Undo/Redo and
+dependent Fillet/Chamfer regeneration. Localization review: this record adds no
+user-visible application text.
