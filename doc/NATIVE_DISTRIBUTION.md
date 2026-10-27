@@ -1,13 +1,18 @@
 # Native versioned distribution
 
-The current source identifies Windows candidate `2026102702`. It adds exact
-unchanged-cache reuse, direct pooled-string loading, immutable metadata-history
-packets, responsive New Feature/Sketch interaction, command-only axis endpoints
-and View navigation during explicit calculation. The experimental semantic
-Boolean batch is not enabled. The authored native format version, geometry
-precision, topology identities and shared OCCT 8.0.1 pin are unchanged. See the
-[candidate record](releases/2026102702.md). Signed publication and updater
-acceptance are not claimed until the candidate passes the gates below.
+Signed Windows [2026102702](releases/2026102702.md#windows-publication-acceptance)
+was published at `2026-10-27T23:29:25Z` from immutable source
+`9d1bbae441ac591c53be3152981099b3e33cbe51`. It adds exact unchanged-cache
+reuse, direct pooled-string loading, immutable metadata-history packets,
+responsive New Feature/Sketch interaction, command-only axis endpoints and View
+navigation during explicit calculation. Candidate and signed native smoke each
+load all 1,185 factory assets; production trust, 17,404 archive entries, all
+three anonymous public downloads and trusted 2701 updater discovery pass. The
+experimental semantic Boolean batch is not enabled. The authored native format
+version, geometry precision, topology identities and shared OCCT 8.0.1 pin are
+unchanged. Native Linux execution remains a separate host acceptance
+requirement. See the
+[publication evidence](verification/20261028-windows-2702-publication.json).
 
 Signed Windows [2026102701](releases/2026102701.md#windows-publication-acceptance)
 was published at `2026-10-27T12:12:44Z` from immutable source

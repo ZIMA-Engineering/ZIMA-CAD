@@ -57,25 +57,23 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026102701](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102701).
-Its clean committed-source package, signature, both native smoke runs, all
-1,185 factory native assets, authenticated and anonymous public downloads,
-production bootstrap trust and trusted 2026102603 updater discovery are verified.
-It adds compact exact viewer-cache packets, responsive saved-tab close and
-focused Sketcher corrections. The shared Windows/Linux source remains pinned to
-OCCT 8.0.1. See the [release record](doc/releases/2026102701.md) and
-[publication evidence](doc/verification/20261027-windows-2701-publication.json).
+[2026102702](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102702).
+Its clean committed-source package, signature, candidate and signed native smoke,
+all 1,185 factory native assets, anonymous public downloads, production bootstrap
+trust and trusted `2026102701` updater discovery are verified. It adds exact
+unchanged-cache save reuse, direct pooled-string loading, responsive New Feature
+and Sketch interaction, command-only axis endpoints and View navigation during
+calculation. The shared Windows/Linux source remains pinned to OCCT 8.0.1. See
+the [release record](doc/releases/2026102702.md) and
+[publication evidence](doc/verification/20261028-windows-2702-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 
-The current source identifies Windows candidate `2026102702`. It adds exact
-unchanged-cache save reuse, direct pooled-string loading, immutable metadata
-history packets, responsive New Feature/Sketch interaction, command-only axis
-endpoints and View navigation during calculation. The
-[candidate record](doc/releases/2026102702.md) and
+The measured
 [performance record](doc/performance/20261027-native-cache-close-and-redesign-gate.md)
-future internal redesign. `2026102701` remains the latest published stable build
-until signing, publication and updater acceptance finish.
+also preserves the redesign gate and unresolved hard-calculation boundary. In
+particular, this release does not claim that unchanged late Feature confirmation
+is fast enough.
 
 ## Command line
 

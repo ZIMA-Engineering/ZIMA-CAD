@@ -1,0 +1,88 @@
+{
+  "version": "2026102702",
+  "source_commit": "9d1bbae441ac591c53be3152981099b3e33cbe51",
+  "tag_commit": "9d1bbae441ac591c53be3152981099b3e33cbe51",
+  "release_target_commitish": "main",
+  "published_at": "2026-10-27T23:29:25Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102702",
+  "archive_sha256": "a60c39ce60e893411f20fb057b09f7330b5d9c0c69948048fdd059082fff4035",
+  "archive_size": 1073846247,
+  "archive_file_count": 17404,
+  "archive_unpacked_size": 5948247065,
+  "checksums_sha256": "4fe5508a9ed6303a49e333940002076a543fdbf6c25e0a8e13f88a9750d78092",
+  "source_tree_sha256": "6bea8042afeea9cd045ea1410328c924d274ff7f00e231f16a7705f35c1dde25",
+  "native_factory_loads_per_package_smoke": 1185,
+  "candidate_windows_smoke": "passed",
+  "signed_windows_smoke": "passed",
+  "production_bootstrap_trust": "passed",
+  "signed_release_metadata": [
+    {
+      "asset": "ZIMA-CAD-2026102702.zip",
+      "size": 1073846247,
+      "sha256": "a60c39ce60e893411f20fb057b09f7330b5d9c0c69948048fdd059082fff4035",
+      "github_state": "uploaded"
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "9f452592beb323f8e603c3ab5c5232c82b8107a994ae1c1ffb6c58a4b39a4f06",
+      "github_state": "uploaded"
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "9296dcf126561a96fdf3bf2223401e87e6c75b6013ab1abecb08295efd8c185d",
+      "github_state": "uploaded"
+    }
+  ],
+  "anonymous_public_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102702.zip",
+      "size": 1073846247,
+      "sha256": "a60c39ce60e893411f20fb057b09f7330b5d9c0c69948048fdd059082fff4035",
+      "anonymous_public_download": true,
+      "matches_local_signed_asset": true
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "9f452592beb323f8e603c3ab5c5232c82b8107a994ae1c1ffb6c58a4b39a4f06",
+      "anonymous_public_download": true,
+      "matches_local_signed_asset": true
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "9296dcf126561a96fdf3bf2223401e87e6c75b6013ab1abecb08295efd8c185d",
+      "anonymous_public_download": true,
+      "matches_local_signed_asset": true
+    }
+  ],
+  "previous_update_check": {
+    "installedVersion": "2026102701",
+    "trusted": true,
+    "availableVersion": "2026102702",
+    "installable": true,
+    "download_performed": false,
+    "installation_performed": false,
+    "root_files_unchanged": true,
+    "updates_state_created": false
+  },
+  "localization_review": {
+    "new_user_visible_text_in_final_release_fixes": false,
+    "catalogs": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "translation_contract": "passed"
+  },
+  "verification_limits": [
+    "Native Linux compilation, execution and timing were not performed on this Windows host.",
+    "No update download, installation or activation was performed; updater discovery only was verified.",
+    "An unchanged late Feature confirmation remains an unresolved hard-performance case; the release does not claim that target is solved.",
+    "The intermittent nested Body/Assembly process-lifetime access violation and one pre-existing rounded-tangent-wing edit rejection remain recorded limits."
+  ]
+}

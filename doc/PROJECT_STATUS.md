@@ -1,37 +1,34 @@
 # Current project status
 
-Reviewed on 2026-10-27 against the current shared C++ implementation, focused
+Reviewed on 2026-10-28 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026102701](releases/2026102701.md#windows-publication-acceptance)
+Signed Windows [2026102702](releases/2026102702.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-10-27T12:12:44Z` from immutable source
-`21466680c6c065ee9b2defea6735338fd7229ded` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-10-27T23:29:25Z` from immutable source
+`9d1bbae441ac591c53be3152981099b3e33cbe51` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,401 immutable archive entries, authenticated and anonymous
-public downloads, and trusted 2026102603 updater discovery pass.
+signature/trust, 17,404 immutable archive entries, anonymous public downloads,
+and trusted 2026102701 updater discovery pass.
 Native Linux execution remains a separate host requirement.
 
-The release includes compact exact viewer-cache packets, responsive saved-tab
-close, restored oriented-Rectangle axis entry and safe rounded-Mirror deletion.
-See the [release record](releases/2026102701.md) and
-[publication evidence](verification/20261027-windows-2701-publication.json).
+The release includes exact unchanged-cache reuse, responsive New Feature and
+Sketch interaction, command-only axis endpoints and View navigation during
+calculation. See the [release record](releases/2026102702.md) and
+[publication evidence](verification/20261028-windows-2702-publication.json).
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 This release changes neither the native format version nor the protected
 container-placement, geometry-side, reference-identity or precision contracts.
 
-The current source identifies Windows candidate `2026102702`. It adds exact
-unchanged-cache reuse, direct pooled-string loading, immutable calculated packets
-for metadata history, responsive New Feature and Sketch interaction, command-only
-axis endpoints and View navigation during calculation. The authored native
-format and precision remain unchanged. See the
-[candidate record](releases/2026102702.md)
-and [measured performance/gate](performance/20261027-native-cache-close-and-redesign-gate.md).
+The authored native format and precision remain unchanged. The
+[measured performance/gate](performance/20261027-native-cache-close-and-redesign-gate.md)
+records both the released improvements and the unresolved late-history
+calculation cost.
 
 ## Available implementation
 
@@ -107,7 +104,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102701 is published and accepted. Candidate 2026102702 contains exact native reuse, responsive interaction and command-only axis endpoints; signed Windows publication and Linux verification remain separate. |
+| Current correction/release batch | Windows 2026102702 is published and accepted with exact native reuse, responsive interaction and command-only axis endpoints. Native Linux verification remains separate. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. Unchanged-cache save measures 0.587--0.633 s and rewritten-v2 open 5.991 s. An unchanged late Feature OK still measures about 47.128 s; the hard calculation target is not claimed. A broader redesign is adopted only after a tenfold representative improvement with exact equivalence. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |
