@@ -551,10 +551,11 @@ struct MeshView::Impl {
         if(active_sketch_geometry(point.reference)&&point.construction&&
             point.reference.semantic_key.starts_with("point:")&&
             !point.reference.semantic_key.starts_with("point:from:")) {
-            // The visibility preference also covers authored construction
-            // curves in the active Sketch. Keep real editable points available
-            // for snapping/dragging, with normal feedback only when picked.
-            return show_axis_points||picking;
+            // Active Sketch points are authored, editable geometry. They are
+            // independent of passive 3D Axis endpoint markers and remain
+            // visible after their circle/arc/segment becomes auxiliary or a
+            // centerline. The command picker already uses the same point.
+            return true;
         }
         if(passive_sketch_axis_point(point)) {
             const bool explicit_entry=sketch_axis_entry_requested()||std::ranges::any_of(allowed_kinds,[](auto kind){
@@ -5543,6 +5544,7 @@ if (impl_->show_origins) {
         // always stay on top, matching how the Origin's own point (drawn
         // even later, right below) is never hidden either.
         std::vector<QPointF> ordinary_sketch_markers;
+        qulonglong painted_active_sketch_points{};
         if (points_visible) {
             for(const auto* points:{&impl_->mesh.points,
                                     &impl_->transient_context_mesh.points})
@@ -5706,6 +5708,10 @@ if (impl_->show_origins) {
                     // in viewer data and returns immediately when the dialog
                     // closes, preserving ordinary View-only editing.
                     if (!hidden_marker && !replaced_by_active_point_manipulator) {
+                        if (impl_->active_sketch_geometry(point.reference) &&
+                            point.reference.semantic_key.starts_with("point:") &&
+                            !point.reference.semantic_key.starts_with("point:from:"))
+                            ++painted_active_sketch_points;
                         if(ordinary_sketch_point)ordinary_sketch_markers.push_back(center);
                         else draw_circular_marker(painter, center, marker_color);
                     }
@@ -5720,6 +5726,10 @@ if (impl_->show_origins) {
                 }
             }
         }
+        if (property("paintedActiveSketchPointCount").toULongLong() !=
+            painted_active_sketch_points)
+            setProperty("paintedActiveSketchPointCount",
+                painted_active_sketch_points);
         if (impl_->show_origins || points_selectable ||
             impl_->editing_origin_visible) {
             for (const auto& point : impl_->mesh.points) {

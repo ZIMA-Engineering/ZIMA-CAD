@@ -841,7 +841,10 @@ and extent. Sampled curves keep one continuous dash pattern across their chords.
 The role changes while identity, control points, dimensions, ranges, constraints
 remain. Auxiliary curves are excluded from solid profiles. Segments remain finite
 and arcs retain ends; converting a segment to auxiliary geometry does not turn it
-into a dash-dot construction line.
+into a dash-dot construction line. While the Sketch is active, every defining
+point remains visible and editable through conversion in either direction. This
+includes circle centres; arc centres and endpoints; ellipse axes; elliptical-arc
+axes and endpoints; and B-spline poles.
 
 ### Template text and dimensions in Properties (2026-09-09)
 
@@ -1040,7 +1043,9 @@ The geometry context menu offers both alternative roles. Construction geometry
 also exposes **Show in 3D**. This setting affects display and new hover selection,
 not the editable Sketch, geometry IDs, constraints or persisted references.
 Hidden construction remains visible while editing its Sketch. Undo/Redo and
-native save/reopen preserve both role and visibility.
+native save/reopen preserve both role and visibility. Passive 3D Axis endpoints
+remain a separate View concern: hiding those markers never hides authored points
+of the active Sketch.
 
 The first construction **segment** supplies the default Revolution axis. An
 already configured axis keeps its persisted identity. Other construction curves

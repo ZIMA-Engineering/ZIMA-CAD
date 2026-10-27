@@ -186,6 +186,12 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
         auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
         const auto line=sketch.add_segment(5,5,25,5);
         const auto circle=sketch.add_circle(40,15,5);
+        const auto arc=sketch.add_arc(65,5,70,5,65,10);
+        const auto ellipse=sketch.add_ellipse(90,5,98,5,90,9);
+        const auto elliptical_arc=sketch.add_elliptical_arc(
+            120,5,128,5,120,9,128,5,120,9);
+        const auto spline=sketch.add_bspline(
+            {{145,5},{150,13},{155,-3},{160,5}});
         part.history={feature};part.sketches={sketch};
         document::BodyHistoryGraph graph;const auto body=graph.create_body("Construction roles");
         graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
@@ -197,6 +203,12 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
             if((*it)->data(0,Qt::UserRole).toString().toStdString()==id && (id!=sketch.id || (*it)->data(0,Qt::UserRole+3).toString()=="part-sketch")){found=*it;break;}return found;};
         auto* row=find_row(sketch.id);check(row,"Sketch row missing");window.show_tree_item_properties(row);flush();
         auto* open=window.findChild<QPushButton*>("sketchOpenButton");check(open,"Sketch button missing");open->click();flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"View missing");
+        const auto visible_points=[&] {
+            static_cast<void>(view->grabFramebuffer());flush();
+            return view->property("paintedActiveSketchPointCount").toULongLong();
+        };
+        check(visible_points()==sketch.points.size(),"Profile Sketch points are not all visible");
         const auto context=[&](const std::string& id,const char* action_name,bool expect_both){
             auto* item=find_row(id);check(item,"Geometry row missing");tree->setCurrentItem(item);tree->scrollToItem(item);flush();
             bool found=false,both=false;
@@ -209,8 +221,23 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
             QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center()));flush();
             check(found,"Construction context action missing");check(!expect_both||both,"Normal geometry must offer both alternative roles");
         };
-        context(line,"sketchConstructionRoleAction",true);
-        context(circle,"sketchConstructionRoleAction",true);
+        const auto verify_roles=[&](const std::string& geometry,const char* kind) {
+            context(geometry,"sketchAuxiliaryRoleAction",true);
+            check(visible_points()==sketch.points.size(),
+                (std::string(kind)+" points disappeared after conversion to auxiliary geometry").c_str());
+            context(geometry,"sketchProfileRoleAction",false);
+            check(visible_points()==sketch.points.size(),
+                (std::string(kind)+" points disappeared after returning to profile geometry").c_str());
+            context(geometry,"sketchConstructionRoleAction",true);
+            check(visible_points()==sketch.points.size(),
+                (std::string(kind)+" points disappeared after conversion to construction geometry").c_str());
+        };
+        verify_roles(line,"Segment");
+        verify_roles(circle,"Circle");
+        verify_roles(arc,"Arc");
+        verify_roles(ellipse,"Ellipse");
+        verify_roles(elliptical_arc,"Elliptical arc");
+        verify_roles(spline,"B-spline");
         // Construction curves now start hidden. Explicitly show the segment,
         // and exercise both visibility transitions on the circle.
         context(line,"sketchGeometryVisible3DAction",false);
@@ -222,8 +249,10 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
         check(properties,"Sketch properties did not resume");properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         const auto saved=zima::test::load_part_with_properties(path);const auto& result=saved.sketches.front();
-        check(result.geometry_is_centerline(line)&&result.geometry_is_centerline(circle)&&!result.geometry_visible_in_3d(circle),"Role or visibility not persisted");
-        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"View missing");
+        check(result.geometry_is_centerline(line)&&result.geometry_is_centerline(circle)&&
+            result.geometry_is_centerline(arc)&&result.geometry_is_centerline(ellipse)&&
+            result.geometry_is_centerline(elliptical_arc)&&result.geometry_is_centerline(spline)&&
+            !result.geometry_visible_in_3d(circle),"Role or visibility not persisted");
         bool line_shown=false,circle_shown=false;
         for(const auto& edge:view->mesh().edges){if(edge.reference.semantic_key=="segment:"+line){line_shown=true;check(edge.dash_dot&&!edge.infinite,"Construction segment not finite dash-dot");}if(edge.reference.semantic_key=="circle:"+circle)circle_shown=true;}
         check(line_shown&&!circle_shown,"3D construction visibility differs from saved settings");
