@@ -1,11 +1,17 @@
 # Application updates
 
-The current source identifies Windows candidate `2026102701`; it is not yet a
-published updater target. Exact viewer-cache v2, responsive saved-tab close and
-the focused Sketcher corrections are listed in the
-[candidate record](releases/2026102701.md). Existing `2026102603` installations
-remain on the signed stable channel until signing, publication and trusted-updater
-discovery pass.
+Signed Windows [2026102701](releases/2026102701.md#windows-publication-acceptance)
+was published at `2026-10-27T12:12:44Z` from immutable source
+`21466680c6c065ee9b2defea6735338fd7229ded`. Exact viewer-cache v2, responsive
+saved-tab close and the focused Sketcher corrections are listed in the release
+record. Candidate and signed native smoke each load all 1,185 factory native
+assets. The signed manifest binds 17,401 archive entries, exact source, stable
+channel and the Windows runtime. All authenticated draft and anonymous public
+downloads match. Trusted 2603 offers 2701 as installable without download or
+installation; its root files, launcher selection and `.updates` state remain
+unchanged. Native Linux execution is not established by this Windows acceptance.
+See the
+[publication evidence](verification/20261027-windows-2701-publication.json).
 
 Signed Windows [2026102603](releases/2026102603.md#windows-publication-acceptance)
 was published at `2026-10-26T22:44:52Z` from immutable source
