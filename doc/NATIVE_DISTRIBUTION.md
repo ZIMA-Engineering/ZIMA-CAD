@@ -1,5 +1,20 @@
 # Native versioned distribution
 
+Signed Windows [2026102801](releases/2026102801.md#windows-publication-acceptance)
+was published at `2026-10-28T04:17:11Z` from immutable source
+`5021b0d341ae484657d1a6454439ec91957eef77`. It moves output-only mass,
+centroid and inertia analysis outside ordinary regeneration, completes pending
+analysis after idle, reuses reversible native history frames, repairs the valid
+exact-radius Thin corner collapse and restores activated Skeleton occurrence
+context. Candidate and signed native smoke each load all 1,185 factory assets;
+production trust, 17,408 archive entries, all three anonymous public downloads
+and trusted 2701 updater discovery pass. The authored native format version,
+geometry precision, topology identities and shared OCCT 8.0.1 pin are unchanged.
+Production parallel history batching remains disabled behind the exact-identity
+gate. Native Linux execution remains a separate host acceptance requirement.
+See the
+[publication evidence](verification/20261028-windows-2801-publication.json).
+
 Signed Windows [2026102702](releases/2026102702.md#windows-publication-acceptance)
 was published at `2026-10-27T23:29:25Z` from immutable source
 `9d1bbae441ac591c53be3152981099b3e33cbe51`. It adds exact unchanged-cache

@@ -1,0 +1,89 @@
+{
+  "version": "2026102801",
+  "source_commit": "5021b0d341ae484657d1a6454439ec91957eef77",
+  "tag_commit": "5021b0d341ae484657d1a6454439ec91957eef77",
+  "release_target_commitish": "main",
+  "published_at": "2026-10-28T04:17:11Z",
+  "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102801",
+  "archive_sha256": "f16e52c1d7d8fd18a2463eaebb45944e268804850c92f3b16fe7a6f946fef7c0",
+  "archive_size": 1073870330,
+  "archive_file_count": 17408,
+  "archive_unpacked_size": 5948313095,
+  "checksums_sha256": "cbe7dbbf6ebf28f2416ff525ad4892f13fa7382dd1c7cd1d316938f001957cbb",
+  "source_tree_sha256": "3c6800a9fd9f75a972c2a24feb237d6ad9dfa678b1b669c161d0f7d07c65d50a",
+  "native_factory_loads_per_package_smoke": 1185,
+  "candidate_windows_smoke": "passed",
+  "signed_windows_smoke": "passed",
+  "production_bootstrap_trust": "passed",
+  "signed_release_metadata": [
+    {
+      "asset": "ZIMA-CAD-2026102801.zip",
+      "size": 1073870330,
+      "sha256": "f16e52c1d7d8fd18a2463eaebb45944e268804850c92f3b16fe7a6f946fef7c0",
+      "github_state": "uploaded"
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "15f7eb3e5034712b6fccd7ff91933cd35aa067b178aa89c98cd604b4cdd0ed02",
+      "github_state": "uploaded"
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "53381931a484aa02acfee269c47230ca7fb696d677f06ab42c1784d1c684728b",
+      "github_state": "uploaded"
+    }
+  ],
+  "anonymous_public_downloads": [
+    {
+      "asset": "ZIMA-CAD-2026102801.zip",
+      "size": 1073870330,
+      "sha256": "f16e52c1d7d8fd18a2463eaebb45944e268804850c92f3b16fe7a6f946fef7c0",
+      "anonymous_public_download": true,
+      "matches_local_signed_asset": true
+    },
+    {
+      "asset": "update-manifest.json",
+      "size": 704,
+      "sha256": "15f7eb3e5034712b6fccd7ff91933cd35aa067b178aa89c98cd604b4cdd0ed02",
+      "anonymous_public_download": true,
+      "matches_local_signed_asset": true
+    },
+    {
+      "asset": "update-manifest.sig",
+      "size": 176,
+      "sha256": "53381931a484aa02acfee269c47230ca7fb696d677f06ab42c1784d1c684728b",
+      "anonymous_public_download": true,
+      "matches_local_signed_asset": true
+    }
+  ],
+  "previous_update_check": {
+    "installedVersion": "2026102701",
+    "trusted": true,
+    "availableVersion": "2026102801",
+    "installable": true,
+    "download_performed": false,
+    "installation_performed": false,
+    "root_files_unchanged": true,
+    "updates_state_created": false
+  },
+  "localization_review": {
+    "new_user_visible_text_in_final_release_fixes": false,
+    "catalogs": [
+      "cs",
+      "en",
+      "de",
+      "fr",
+      "ru"
+    ],
+    "translation_contract": "passed"
+  },
+  "verification_limits": [
+    "Native Linux compilation, execution and timing were not performed on this Windows host.",
+    "No update download, installation or activation was performed; updater discovery only was verified.",
+    "A representative late Solid Fillet still has an approximately 26-second dependent suffix; production parallel history batching remains behind the exact topology/reference identity gate.",
+    "Immediate Escape termination is not implemented; safe cancellation requires cooperative OCCT progress tokens and private-candidate checkpoints.",
+    "The general native-style hover test still requires a real foreground cursor and was not established by the automated desktop run."
+  ]
+}

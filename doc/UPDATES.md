@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026102801](releases/2026102801.md#windows-publication-acceptance)
+was published at `2026-10-28T04:17:11Z` from immutable source
+`5021b0d341ae484657d1a6454439ec91957eef77`. Output-only physical analysis,
+reversible native continuation reuse, exact-radius Thin correction and activated
+Skeleton occurrence context are listed in the release record. Candidate and
+signed native smoke each load all 1,185 factory native assets. The signed
+manifest binds 17,408 archive entries, exact source, stable channel and the
+Windows runtime. All three anonymous public downloads match the accepted signed
+files. Trusted 2701 offers 2801 as installable without download or installation;
+its root files and `.updates` state remain unchanged. Native Linux execution is
+not established by this Windows acceptance. See the
+[publication evidence](verification/20261028-windows-2801-publication.json).
+
 Signed Windows [2026102702](releases/2026102702.md#windows-publication-acceptance)
 was published at `2026-10-27T23:29:25Z` from immutable source
 `9d1bbae441ac591c53be3152981099b3e33cbe51`. Exact native reuse, responsive

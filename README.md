@@ -57,23 +57,25 @@ See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/USER_MANUAL.md).
 
 The latest published signed Windows release is
-[2026102702](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102702).
+[2026102801](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102801).
 Its clean committed-source package, signature, candidate and signed native smoke,
 all 1,185 factory native assets, anonymous public downloads, production bootstrap
-trust and trusted `2026102701` updater discovery are verified. It adds exact
-unchanged-cache save reuse, direct pooled-string loading, responsive New Feature
-and Sketch interaction, command-only axis endpoints and View navigation during
-calculation. The shared Windows/Linux source remains pinned to OCCT 8.0.1. See
-the [release record](doc/releases/2026102702.md) and
-[publication evidence](doc/verification/20261028-windows-2702-publication.json).
+trust and trusted `2026102701` updater discovery are verified. It moves output-only
+mass, centroid and inertia integration outside ordinary regeneration, completes
+pending analysis after idle, reuses reversible native history frames and accepts
+the valid exact-radius Thin corner collapse. The shared Windows/Linux source
+remains pinned to OCCT 8.0.1. See the
+[release record](doc/releases/2026102801.md) and
+[publication evidence](doc/verification/20261028-windows-2801-publication.json).
 The [current status](doc/PROJECT_STATUS.md) separates released scope and remaining
 work. Linux verification follows the separate handoff.
 
 The measured
-[performance record](doc/performance/20261027-native-cache-close-and-redesign-gate.md)
-also preserves the redesign gate and unresolved hard-calculation boundary. In
-particular, this release does not claim that unchanged late Feature confirmation
-is fast enough.
+[performance record](doc/performance/20261028-background-analysis-and-history-cache.md)
+also preserves the parallel-history redesign gate. A representative late Solid
+Fillet still has an approximately 26-second dependent suffix, and production
+history batching remains disabled until exact topology/reference equivalence is
+proved.
 
 ## Command line
 
