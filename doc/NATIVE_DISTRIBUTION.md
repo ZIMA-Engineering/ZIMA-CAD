@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026102802](releases/2026102802.md#windows-publication-acceptance)
+was published at `2026-10-28T12:09:13Z` from immutable source
+`304e2af6bdd117203b5ff2cbdf81f18ccd0c8ec5`. It gives actual cross-feature
+intersections default selection priority while retaining original source edges
+through explicit candidate cycling, and makes Fillet/Chamfer preview,
+confirmation and calculation respect that choice. Candidate and signed native
+smoke each load all 1,185 factory assets; production trust, 17,411 archive
+entries, all three anonymous public downloads and trusted 2701 updater discovery
+pass. The authored native format, geometry precision, topology identities and
+shared OCCT 8.0.1 pin are unchanged. Native Linux execution remains a separate
+host acceptance requirement. See the
+[publication evidence](verification/20261028-windows-2802-publication.json).
+
 Signed Windows [2026102801](releases/2026102801.md#windows-publication-acceptance)
 was published at `2026-10-28T04:17:11Z` from immutable source
 `5021b0d341ae484657d1a6454439ec91957eef77`. It moves output-only mass,

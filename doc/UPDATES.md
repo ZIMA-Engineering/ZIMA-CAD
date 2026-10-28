@@ -1,5 +1,17 @@
 # Application updates
 
+Signed Windows [2026102802](releases/2026102802.md#windows-publication-acceptance)
+was published at `2026-10-28T12:09:13Z` from immutable source
+`304e2af6bdd117203b5ff2cbdf81f18ccd0c8ec5`. Intersection-aware Fillet and
+Chamfer selection, preview and calculation are listed in the release record.
+Candidate and signed native smoke each load all 1,185 factory native assets.
+The signed manifest binds 17,411 archive entries, exact source, stable channel
+and the Windows runtime. All three anonymous public downloads match the
+accepted signed files. Trusted 2701 offers 2802 as installable without download
+or installation and its root files remain unchanged. Native Linux execution is
+not established by this Windows acceptance. See the
+[publication evidence](verification/20261028-windows-2802-publication.json).
+
 Signed Windows [2026102801](releases/2026102801.md#windows-publication-acceptance)
 was published at `2026-10-28T04:17:11Z` from immutable source
 `5021b0d341ae484657d1a6454439ec91957eef77`. Output-only physical analysis,

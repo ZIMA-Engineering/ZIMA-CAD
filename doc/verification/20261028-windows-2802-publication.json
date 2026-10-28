@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "product": "ZIMA-CAD",
+  "version": "2026102802",
+  "platform": "windows-x64",
+  "tag": "ZIMA-CAD-2026102802",
+  "commit": "304e2af6bdd117203b5ff2cbdf81f18ccd0c8ec5",
+  "publishedAt": "2026-10-28T12:09:13Z",
+  "releaseUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102802",
+  "archive": {
+    "name": "ZIMA-CAD-2026102802.zip",
+    "size": 1073915159,
+    "sha256": "28088f95cadc0c49f1c95f5020c0176e6cba2045d527c6a283bd5c952aef6905",
+    "unpackedSize": 5948452174,
+    "fileCount": 17411
+  },
+  "updateManifest": {
+    "name": "update-manifest.json",
+    "size": 704,
+    "sha256": "e97e9e88111ff6dff66b193a97a169f9062421f449bd05b349265117b5b53ed7"
+  },
+  "updateSignature": {
+    "name": "update-manifest.sig",
+    "size": 176,
+    "sha256": "cc88333b991f0359389fef6af424585af98cecebc9b6559a23aa0c0266662838"
+  },
+  "sourceTreeSha256": "0301757e877d0005d35787ff842eaf85340ddefaa72cb6d8c32385a84454fd53",
+  "candidate": {
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185
+  },
+  "signed": {
+    "windowsNativeSmoke": "passed",
+    "productionTrust": "passed",
+    "applicationLifecycle": "passed"
+  },
+  "publicDownloads": {
+    "anonymous": true,
+    "zip": "matched",
+    "manifest": "matched",
+    "signature": "matched"
+  },
+  "updaterDiscovery": {
+    "installedVersion": "2026102701",
+    "trusted": true,
+    "availableVersion": "2026102802",
+    "installable": true,
+    "downloadPerformed": false,
+    "installationPerformed": false,
+    "rootFilesUnchanged": true
+  },
+  "verificationBoundary": {
+    "protectedUserModelsCommitted": false,
+    "nativeFormatChanged": false,
+    "localizationCatalogsChanged": false,
+    "linuxExecution": "not-run-on-windows-host",
+    "remainingLimits": [
+      "Finite Fillet and Chamfer geometry and UI matrices do not prove every possible topology.",
+      "Native Linux compilation and execution require the Linux host."
+    ]
+  }
+}
