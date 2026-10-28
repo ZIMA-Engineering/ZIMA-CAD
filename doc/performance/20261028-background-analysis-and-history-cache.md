@@ -109,6 +109,13 @@ preceding topology remain dependency barriers for that branch. This is the same
 release gate recorded in
 [`20261027-native-cache-close-and-redesign-gate.md`](20261027-native-cache-close-and-redesign-gate.md).
 
+A later same-day research probe recovered every downstream Fillet edge in the
+representative independent Add block by preserving exact Boolean section-face
+ancestry before same-domain unification. It also proved zero two-way geometric
+difference through the remaining measured history. The production gates and
+full/partial/absent edge contract are recorded in
+[`20261028-ordered-section-ancestry-probe.md`](20261028-ordered-section-ancestry-probe.md).
+
 ## Cancellation boundary
 
 Immediate thread termination was not added. Current geometry tasks capture

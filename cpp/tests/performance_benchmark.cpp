@@ -796,6 +796,60 @@ int batch_add_probe(const std::filesystem::path& source,
     }
     TopTools_IndexedMapOfShape batch_edge_map;
     TopExp::MapShapes(unified,TopAbs_EDGE,batch_edge_map);
+    TopTools_IndexedMapOfShape batch_vertex_map_for_supports;
+    TopExp::MapShapes(unified,TopAbs_VERTEX,batch_vertex_map_for_supports);
+    std::vector<std::set<std::string>> batch_edge_source_face_supports(
+        static_cast<std::size_t>(batch_edge_map.Extent())+1);
+    std::vector<std::set<std::string>> batch_vertex_source_face_supports(
+        static_cast<std::size_t>(batch_vertex_map_for_supports.Extent())+1);
+    std::map<std::string,kernel::FaceReference> source_face_references;
+    const auto attach_unified_support=[&](const TopoDS_Shape& source,
+            const std::string& token,TopAbs_ShapeEnum kind) {
+        const auto attach=[&](const TopoDS_Shape& shape) {
+            if(kind==TopAbs_EDGE) {
+                const int index=batch_edge_map.FindIndex(shape);
+                if(index)batch_edge_source_face_supports[
+                    static_cast<std::size_t>(index)].insert(token);
+                return index!=0;
+            }
+            const int index=batch_vertex_map_for_supports.FindIndex(shape);
+            if(index)batch_vertex_source_face_supports[
+                static_cast<std::size_t>(index)].insert(token);
+            return index!=0;
+        };
+        bool changed=false;
+        const auto history=unify.History();
+        if(!history.IsNull())for(const auto* descendants:{
+                &history->Modified(source),&history->Generated(source)})
+            for(TopTools_ListIteratorOfListOfShape it(*descendants);it.More();
+                    it.Next())
+                if(it.Value().ShapeType()==kind)
+                    changed=attach(it.Value())||changed;
+        if(!changed&&(history.IsNull()||!history->IsRemoved(source)))
+            static_cast<void>(attach(source));
+    };
+    // Record the exact source-face pair at the Boolean boundary, before
+    // same-domain unification can erase a result-face distinction. This is the
+    // research equivalent of carrying section-curve ancestry beside the B-Rep:
+    // OCCT still owns the intersection geometry, while ZIMA owns its identity.
+    for(const auto& [face,reference]:source_faces) {
+        const auto token=encoded_reference(reference);
+        source_face_references.insert_or_assign(token,reference);
+        std::vector<TopoDS_Shape> descendants;
+        for(const auto* generated:{&fuse.Modified(face),&fuse.Generated(face)})
+            for(TopTools_ListIteratorOfListOfShape it(*generated);it.More();
+                    it.Next())
+                if(it.Value().ShapeType()==TopAbs_FACE)
+                    descendants.push_back(it.Value());
+        if(descendants.empty()&&!fuse.IsDeleted(face))descendants.push_back(face);
+        for(const auto& descendant:descendants) {
+            for(TopExp_Explorer edge(descendant,TopAbs_EDGE);edge.More();edge.Next())
+                attach_unified_support(edge.Current(),token,TopAbs_EDGE);
+            for(TopExp_Explorer vertex(descendant,TopAbs_VERTEX);vertex.More();
+                    vertex.Next())
+                attach_unified_support(vertex.Current(),token,TopAbs_VERTEX);
+        }
+    }
     std::vector<std::set<std::string>> batch_edge_ancestry(
         static_cast<std::size_t>(batch_edge_map.Extent())+1);
     std::vector<std::vector<kernel::EdgeReference>> batch_edge_sources(
@@ -887,24 +941,24 @@ int batch_add_probe(const std::filesystem::path& source,
         }
         return result;
     };
-    std::set<std::string> reconstructed_batch_edges;
+    std::map<std::string,std::vector<int>> reconstructed_batch_edge_targets;
     std::vector<kernel::EdgeReference> reconstructed_batch_edge_references;
     std::vector<std::optional<kernel::EdgeReference>> reconstructed_batch_edge_by_index(
         static_cast<std::size_t>(batch_edge_map.Extent())+1);
     std::size_t reconstructable_intersection_edges{};
     for(int index=1;index<=batch_edge_map.Extent();++index) {
         const auto& edge=batch_edge_map(index);
-        const auto adjacent=face_tokens_for(batch_edge_faces,edge);
+        auto adjacent=face_tokens_for(batch_edge_faces,edge);
+        if(batch_edge_source_face_supports[static_cast<std::size_t>(index)].size()>=2)
+            adjacent=batch_edge_source_face_supports[
+                static_cast<std::size_t>(index)];
         if(!adjacent||adjacent->empty())continue;
         std::string owner;
         std::size_t owner_age{};
-        const int edge_faces_index=batch_edge_faces.FindIndex(edge);
-        for(TopTools_ListIteratorOfListOfShape iterator(
-                batch_edge_faces.FindFromIndex(edge_faces_index));
-                iterator.More();iterator.Next()) {
-            const int face_index=batch_face_map.FindIndex(iterator.Value());
-            const auto& reference=
-                *canonical_batch_faces[static_cast<std::size_t>(face_index)];
+        for(const auto& token:*adjacent) {
+            const auto found=source_face_references.find(token);
+            if(found==source_face_references.end())continue;
+            const auto& reference=found->second;
             if(const auto current=age(reference);current>=owner_age) {
                 owner_age=current;owner=reference.owner_id;
             }
@@ -915,8 +969,14 @@ int batch_add_probe(const std::filesystem::path& source,
         TopTools_IndexedMapOfShape vertices;
         TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
         for(int vertex=1;vertex<=vertices.Extent();++vertex) {
-            const auto support=face_tokens_for(
-                batch_vertex_faces,vertices(vertex));
+            std::optional<std::set<std::string>> support;
+            const int vertex_index=batch_vertex_map_for_supports.FindIndex(
+                vertices(vertex));
+            if(vertex_index&& !batch_vertex_source_face_supports[
+                    static_cast<std::size_t>(vertex_index)].empty())
+                support=batch_vertex_source_face_supports[
+                    static_cast<std::size_t>(vertex_index)];
+            else support=face_tokens_for(batch_vertex_faces,vertices(vertex));
             if(!support) {endpoints_complete=false;break;}
             if(!support->empty())
                 endpoint_supports.insert(encoded_reference_set(*support));
@@ -926,7 +986,8 @@ int batch_add_probe(const std::filesystem::path& source,
             "boolean:add:intersection:between:"+
                 encoded_reference_set(*adjacent)+":ends:"+
                 encoded_reference_set(endpoint_supports),{}};
-        reconstructed_batch_edges.insert(reference_key(reference));
+        const auto key=reference_key(reference);
+        reconstructed_batch_edge_targets[key].push_back(index);
         reconstructed_batch_edge_by_index[static_cast<std::size_t>(index)]=reference;
         reconstructed_batch_edge_references.push_back(std::move(reference));
         ++reconstructable_intersection_edges;
@@ -956,21 +1017,24 @@ int batch_add_probe(const std::filesystem::path& source,
     std::size_t downstream_between_matched{},downstream_ends_matched{};
     std::map<std::string,std::size_t> missing_by_owner;
     std::set<std::string> unresolved_downstream_edges;
-    std::map<std::string,int> downstream_batch_edge_targets;
+    std::map<std::string,std::vector<int>> downstream_batch_edge_targets;
     for(const auto& requested:downstream_treatment_edges) {
-        std::size_t matches{};
-        int matched_index{};
+        std::vector<int> matches;
         for(std::size_t index=1;index<batch_edge_ancestry.size();++index)
-            if(batch_edge_ancestry[index].contains(requested)) {
-                ++matches;matched_index=static_cast<int>(index);
-            }
-        if(matches==1)downstream_batch_edge_targets.emplace(
-            requested,matched_index);
-        downstream_treatment_fragments+=matches;
-        if(matches==0) {
-            if(reconstructed_batch_edges.contains(requested))
+            if(batch_edge_ancestry[index].contains(requested))
+                matches.push_back(static_cast<int>(index));
+        if(!matches.empty())downstream_batch_edge_targets.emplace(
+            requested,matches);
+        downstream_treatment_fragments+=matches.size();
+        if(matches.empty()) {
+            const auto reconstructed=
+                reconstructed_batch_edge_targets.find(requested);
+            if(reconstructed!=reconstructed_batch_edge_targets.end()&&
+                    !reconstructed->second.empty()) {
                 ++downstream_treatment_reconstructed;
-            else {
+                downstream_batch_edge_targets.emplace(
+                    requested,reconstructed->second);
+            } else {
                 ++downstream_treatment_missing;
                 unresolved_downstream_edges.insert(requested);
                 const auto& requested_reference=
@@ -1139,7 +1203,8 @@ int batch_add_probe(const std::filesystem::path& source,
         if(candidates.size()==1) {
             ++downstream_containment_unique;
             ++contained_aliases_per_batch_edge[candidates.front()];
-            downstream_batch_edge_targets.emplace(key,candidates.front());
+            downstream_batch_edge_targets.emplace(
+                key,std::vector<int>{candidates.front()});
         }
     }
     std::map<std::size_t,std::size_t> containment_alias_histogram;
@@ -1150,6 +1215,38 @@ int batch_add_probe(const std::filesystem::path& source,
     for(const auto& [aliases,edges]:containment_alias_histogram)
         std::cerr<<"batch containment alias group aliases="<<aliases
             <<" edges="<<edges<<'\n';
+    // Classify the persisted treatment contract independently of how the edge
+    // was located. Equal extent is a complete survivor. One or more proven
+    // descendants with changed extent are the partial case; production must
+    // retain only their surviving intervals. No proven descendant is the
+    // absent case and must not rebind the feature to an unrelated edge.
+    std::size_t downstream_treatment_full{},downstream_treatment_partial{};
+    std::size_t downstream_treatment_absent{};
+    for(const auto& key:downstream_treatment_edges) {
+        const auto target=downstream_batch_edge_targets.find(key);
+        const auto expected=expected_downstream_shapes.find(key);
+        if(target==downstream_batch_edge_targets.end()||
+           expected==expected_downstream_shapes.end()) {
+            ++downstream_treatment_absent;
+            continue;
+        }
+        if(target->second.size()!=1) {
+            ++downstream_treatment_partial;
+            continue;
+        }
+        const auto expected_measure=measure_edge(expected->second);
+        const auto& actual=batch_edge_measures[
+            static_cast<std::size_t>(target->second.front())];
+        if(std::abs(actual.length-expected_measure.length)<=
+                std::max(1.0e-7,expected_measure.length*1.0e-9)&&
+           actual.center.Distance(expected_measure.center)<=1.0e-7)
+            ++downstream_treatment_full;
+        else ++downstream_treatment_partial;
+    }
+    if(downstream_treatment_full+downstream_treatment_partial+
+            downstream_treatment_absent!=downstream_treatment_edges.size())
+        throw std::runtime_error(
+            "Batch treatment state did not classify every requested edge");
     double localized_treatment_ms=-1.;
     double localized_expected_minus=-1.;
     double localized_minus_expected=-1.;
@@ -1481,8 +1578,9 @@ int batch_add_probe(const std::filesystem::path& source,
                 edge_bindings;
             for(int index=1;index<=batch_edge_map.Extent();++index) {
                 std::vector<kernel::EdgeReference> references;
-                for(const auto& [key,target]:downstream_batch_edge_targets)
-                    if(target==index)references.push_back(
+                for(const auto& [key,targets]:downstream_batch_edge_targets)
+                    if(std::ranges::find(targets,index)!=targets.end())
+                        references.push_back(
                         downstream_edge_references.at(key));
                 if(references.empty()) {
                     const auto& sources=
@@ -1727,6 +1825,9 @@ int batch_add_probe(const std::filesystem::path& source,
         <<" downstream_treatment_missing="<<downstream_treatment_missing
         <<" downstream_treatment_reconstructed="
         <<downstream_treatment_reconstructed
+        <<" downstream_treatment_full="<<downstream_treatment_full
+        <<" downstream_treatment_partial="<<downstream_treatment_partial
+        <<" downstream_treatment_absent="<<downstream_treatment_absent
         <<" downstream_between_matched="<<downstream_between_matched
         <<" downstream_ends_matched="<<downstream_ends_matched
         <<" downstream_geometric_matches="<<downstream_geometric_matches
