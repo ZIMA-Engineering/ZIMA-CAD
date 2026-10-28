@@ -49,6 +49,23 @@ mates or replaying Assembly operations. A matching exact source analysis is
 retained when ordinary source refresh publishes the same geometry fingerprint.
 Save and explicit inspection remain exact synchronous fallbacks.
 
+### Complete aggregate deferral for new histories
+
+The earlier deferred mode still calculated inexpensive analytical aggregate
+properties on the command path. The follow-up change separates that behavior
+from complete deferral. A Part with no persisted Body Properties row now skips
+all aggregate mass, area, centroid and inertia work while calculating geometry.
+Existing histories that contain Body Properties keep the previous adaptive
+behavior, and a geometry-driving centroid still forces exact analysis.
+
+Explicit measurement and Save analyze a private geometry copy. Closed nested
+Assemblies hydrate their native Part sources before that analysis, and an open
+nested Assembly source stamp includes its calculated data generation. These
+details prevent a changed child shape from retaining stale mass or a reopened
+nested Assembly from reporting zero mass. Background publication still merges
+only derived values into the unchanged live geometry and creates no history or
+Undo entry.
+
 ### Reversible continuation cache
 
 The OCCT kernel now retains a bounded in-memory map of native continuation frames
@@ -109,11 +126,13 @@ preceding topology remain dependency barriers for that branch. This is the same
 release gate recorded in
 [`20261027-native-cache-close-and-redesign-gate.md`](20261027-native-cache-close-and-redesign-gate.md).
 
-A later same-day research probe recovered every downstream Fillet edge in the
-representative independent Add block by preserving exact Boolean section-face
-ancestry before same-domain unification. It also proved zero two-way geometric
-difference through the remaining measured history. The production gates and
-full/partial/absent edge contract are recorded in
+A same-day isolated research probe appeared to recover the downstream Fillet
+edges by recording Boolean section-face ancestry. A later production-route
+trial invalidated that result: its candidate block took 14.626 seconds versus
+11.329 seconds for the sequential route, and the following Fillet produced
+non-zero two-way Boolean differences (approximately 450.9 and 1856.7 cubic
+model units). The experimental production code was removed. The superseded
+probe, the failed gate and the full/partial/absent edge contract are recorded in
 [`20261028-ordered-section-ancestry-probe.md`](20261028-ordered-section-ancestry-probe.md).
 
 ## Cancellation boundary
@@ -142,6 +161,27 @@ Focused Windows Release checks passed for:
 - Opening, component Opening and target Opening commands;
 - operation activity, edge-treatment GUI paths and translation coverage; and
 - the synthetic Skeleton activation/context-menu/Up To workflow.
+
+The complete-deferral follow-up additionally passed focused Body Properties,
+face-measurement demand, STEP parallel-property, cache-storage, measurement,
+history-recovery, measurement-command, solid-state-history, Boolean split-edge
+and Save/Save As tests. Save verification included nested mass, Regenerate,
+concurrency and Undo/Redo. The aggregate-demand benchmark produced identical
+native archives and reference packets and measured 5.2--11.2% less foreground
+time across five 24-operation synthetic samples; exact private completion then
+took 0.607--0.636 ms.
+
+On the protected Skeleton, current operations 1--22 measured 10.081--10.134
+seconds, while the unchanged release baseline measured 10.049--10.224 seconds.
+This is equivalent within run-to-run variation, because that history already
+used the adaptive deferred route. No Skeleton speedup is claimed for this
+follow-up.
+
+The Assembly profile regression reached a pre-existing failure in shared Axis
+Feature rendering after the affected source-refresh and pending-property checks
+had passed. The same failure reproduces with the unchanged release executable,
+so it is recorded as an unrelated verification gap rather than mixed into this
+performance change.
 
 Linux was not built on this Windows host. The implementation contains no new
 platform branch; Linux verification remains a release handoff item.

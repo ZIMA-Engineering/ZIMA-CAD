@@ -2134,7 +2134,73 @@ int sequential_range_probe(const std::filesystem::path& source,
     return 0;
 }
 
+int aggregate_property_demand_probe(std::size_t feature_count) {
+    using namespace zima;
+    if(feature_count<1||feature_count>128)
+        throw std::invalid_argument("Property demand feature count must be 1..128");
+    const auto part=part_fixture(feature_count);
+    const auto operations=part.kernel_operations();
+    const auto calculate=[&](kernel::AggregatePropertyDemand demand) {
+        kernel::OcctKernel kernel;
+        kernel::AggregatePropertyScope properties(demand);
+        return kernel.evaluate_history(operations);
+    };
+    std::vector<kernel::BodyResult> exact,deferred;
+    const auto exact_ms=milliseconds([&]{exact=calculate(
+        kernel::AggregatePropertyDemand::All);},3);
+    const auto deferred_ms=milliseconds([&]{deferred=calculate(
+        kernel::AggregatePropertyDemand::Deferred);},3);
+    const auto geometry_packet=[](const kernel::BodyResult& result) {
+        auto packet=document::serialize_body_result(result);
+        const auto erase_analysis=[&](const auto& self,nlohmann::json& value)->void {
+            if(value.is_object()) {
+                for(const auto* field:{"volume","surface_area","volume_integrals",
+                        "surface_centroid","solid_present","incremental_history"})value.erase(field);
+                for(auto& child:value.items())self(self,child.value());
+            } else if(value.is_array())for(auto& child:value)self(self,child);
+        };
+        erase_analysis(erase_analysis,packet);return packet;
+    };
+    const auto exact_geometry=geometry_packet(exact.back());
+    const auto deferred_geometry=geometry_packet(deferred.back());
+    if(exact.size()!=operations.size()||deferred.size()!=exact.size()||
+            deferred.back().physical_properties_current||
+            exact_geometry!=deferred_geometry) {
+        if(exact_geometry!=deferred_geometry)
+            std::cerr<<nlohmann::json::diff(exact_geometry,deferred_geometry).dump().substr(0,4000)<<'\n';
+        throw std::runtime_error("Deferred property demand changed calculated geometry or stable references");
+    }
+    kernel::OcctKernel analysis_kernel;
+    const auto analysis_ms=milliseconds([&] {
+        auto analyzed=deferred.back();
+        analysis_kernel.ensure_body_properties(analyzed);
+        if(!analyzed.physical_properties_current||
+                std::abs(analyzed.volume-exact.back().volume)>1e-8||
+                std::abs(analyzed.surface_area-exact.back().surface_area)>1e-8||
+                analyzed.volume_integrals!=exact.back().volume_integrals||
+                analyzed.surface_centroid!=exact.back().surface_centroid)
+            std::abort();
+    },3);
+    std::size_t deferred_archive_bytes{};
+    for(const auto& boundary:deferred)deferred_archive_bytes+=boundary.kernel_shape.size();
+    std::cout<<std::setprecision(17)
+        <<"aggregate_property_demand features="<<feature_count
+        <<" exact_ms="<<exact_ms
+        <<" deferred_ms="<<deferred_ms
+        <<" foreground_speedup="<<exact_ms/deferred_ms
+        <<" background_final_ms="<<analysis_ms
+        <<" archive_bytes="<<deferred_archive_bytes<<'\n';
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if(argc==3&&std::string_view(argv[1])=="--aggregate-property-demand-probe") {
+        try {
+            return aggregate_property_demand_probe(std::stoull(argv[2]));
+        } catch(const std::exception& error) {
+            std::cerr<<error.what()<<'\n';return 1;
+        }
+    }
     if(argc==3&&std::string_view(argv[1])=="--history-cursor-probe") {
         try {
             return history_cursor_probe(std::filesystem::u8path(argv[2]));

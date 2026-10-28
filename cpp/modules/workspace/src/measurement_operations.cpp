@@ -168,7 +168,11 @@ std::optional<measurement::MeasurementGeometry> resolve_measurement(
                     if(!analyzed.physical_properties_current)kernel::OcctKernel{}.ensure_body_properties(analyzed);
                     geometry->values.volume=kernel::MeasurementValue{std::abs(analyzed.volume),false};
                     geometry->values.area=kernel::MeasurementValue{std::abs(analyzed.surface_area),false};
-                    if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
+                    // Explicit inspection owns this private exact analysis. Use
+                    // the analyzed snapshot for mass too; the live occurrence
+                    // may still be waiting for the idle background publisher.
+                    auto measured=*item;measured.calculated_source=std::move(analyzed);
+                    if(const auto mass=assembly::occurrence_mass_kg(measured))geometry->values.mass=kernel::MeasurementValue{*mass,false};
                 }
             }
         }

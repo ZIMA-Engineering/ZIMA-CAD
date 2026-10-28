@@ -4,6 +4,7 @@
 #include <zima/document/measurement_record.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/workspace/metadata_operations.hpp>
+#include <zima/workspace/save_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <cmath>
@@ -14,7 +15,10 @@ using commands::Json;
 namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* text){if(!value)throw std::runtime_error(text);}
-void near(double actual,double expected,const char* text){require(std::abs(actual-expected)<1e-7,text);}
+void near(double actual,double expected,const char* text){
+    if(std::abs(actual-expected)>=1e-7)
+        throw std::runtime_error(std::string(text)+": "+std::to_string(actual)+" != "+std::to_string(expected));
+}
 commands::Result run(command_host::Host& host,const char* command,Json args=Json::object()) {
     auto value=host.execute({{"command",command},{"arguments",std::move(args)}});
     if(!value.ok)throw std::runtime_error(std::string(command)+": "+value.code+": "+value.message);return value;
@@ -54,6 +58,10 @@ void verify_mixed_units(const kernel::OcctKernel& kernel,fs::path dir) {
     const double vb=std::pow(25.4,3),mb=.1*.45359237;
     double area_a=2*(25.4*50.8+25.4*76.2+50.8*76.2);const double area_b=6*25.4*25.4;
     const auto verify=[&](workspace::Workspace& state,command_host::Host& commands){
+        auto* current=state.open_assembly(top);
+        auto analyzed=current->session.document();
+        if(workspace::refresh_save_properties(analyzed,state,current->path))
+            current->session.update_source_geometry(std::move(analyzed));
         const auto& document=state.open_assembly(top)->session.document();
         const auto physical=assembly::physical_values(document);
         const double l=document::length_unit_mm(document.document_units.at("Length")),m=document::mass_unit_kg(document.document_units.at("Mass"));
@@ -102,9 +110,12 @@ void verify_mixed_units(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto feature=live.open_part(mm)->session.document().history.back().id;
     test::resize_rectangular_commands(execute,{{"container",feature},{"height_mm",152.4}});
     va*=2;ma*=2;model_height=152.4;area_a=2*(25.4*50.8+25.4*152.4+50.8*152.4);
-    run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
+    run(host,"activate",{{"document",top}});live.refresh_source_geometry();
+    require(!assembly::physical_values(live.open_assembly(top)->session.document()).contains("model.volume"),
+        "Source geometry refresh retained stale Assembly physical values");
     require(live.open_assembly(top)->session.revision()==top_revision,"Source geometry refresh created Assembly history");
     require(live.open_assembly(top)->session.document().user_parameters==previous_parameters,"Source geometry refresh evaluated Assembly relations");
+    verify(live,host);
     run(host,"activate",{{"document",mm}});run(host,"undo");va=original_va;ma=original_ma;area_a=original_area;model_height=76.2;
     run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
     run(host,"activate",{{"document",mm}});

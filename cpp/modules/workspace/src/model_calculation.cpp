@@ -129,7 +129,9 @@ std::vector<zima::kernel::BodyResult> calculate_part(
         ?kernel::AggregatePropertyDemand::All
         :policy.refresh_physical_properties
             ?kernel::AggregatePropertyDemand::Final
-            :kernel::AggregatePropertyDemand::Deferred;
+            :document.body_properties.empty()
+                ?kernel::AggregatePropertyDemand::Deferred
+                :kernel::AggregatePropertyDemand::DeferredAdaptive;
     kernel::AggregatePropertyScope properties(demand);
     auto calculated = kernel.evaluate_history_recovering(operations,
         calculation_input == nullptr ? empty_previous : *calculation_input);

@@ -125,7 +125,10 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     f.run("activate",{{"document",f.source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return f.run(n,std::move(a));},{{"container",f.box},{"height_mm","20"}});f.run("activate",{{"document",f.owner}});
     f.reject_feature(cut,[](auto& p){p["sides"][0]["length"]=-1;},"invalid_arguments");
     f.set_feature(cut,[](auto& p){p["sides"][0]["length"]=3;});near(f.volume(f.first),1982);
-    near(f.live.open_part(f.source)->session.calculated_boundaries().back().volume,2000);
+    const auto& source_result=f.live.open_part(f.source)->session.calculated_boundaries().back();
+    const auto source_shape=source_result.kernel_shape.get();auto analyzed_source=source_result;
+    kernel.ensure_body_properties(analyzed_source);near(analyzed_source.volume,2000);
+    require(analyzed_source.kernel_shape.get()==source_shape,"Source property analysis replaced Assembly input geometry");
     const std::string open=f.run("sketch.create",{{"name","Open profile"},{"plane","XY"}}).at("sketch");f.line(open,0,0,2,0);
     f.reject("feature.create",{{"sketch",open},{"targets",{f.first}}},"profile_rejected");
     f.run("new",{{"type","assembly"},{"name","nested-cut-target"}});const auto nested=f.live.active_document_id();

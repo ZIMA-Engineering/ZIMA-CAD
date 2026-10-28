@@ -65,7 +65,10 @@ bool refresh_save_properties(assembly::AssemblyDocument& doc,const Workspace& co
             const auto key=std::pair{component.source_document_id,source_path};
             if(nested_source&&!completed.contains(key)) {
                 const auto* open=context.open_assembly(component.source_document_id);
-                auto nested=open?open->session.document():read_family_assembly(&context,source_path,component.source_document_id,false);
+                // Closed subassemblies must hydrate their native Part sources
+                // before private physical analysis; otherwise geometry is
+                // available but source density metadata is absent.
+                auto nested=open?open->session.document():read_family_assembly(&context,source_path,component.source_document_id);
                 self(self,nested,open?open->path:source_path);
                 completed.emplace(key,std::move(nested));
             }
