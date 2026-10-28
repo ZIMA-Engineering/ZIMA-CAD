@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026102803](releases/2026102803.md#windows-publication-acceptance)
+was published at `2026-10-28T14:52:01Z` from immutable source
+`fa728b90803145047210918f583c51dbb770817c`. Complete deferral of unrequested
+aggregate Part physical analysis, exact private measurement snapshots and
+nested Assembly Save/source invalidation are listed in the release record.
+Candidate and signed native smoke each load all 1,185 factory native assets.
+The signed manifest binds 17,414 archive entries, exact source, stable channel
+and the Windows runtime. All three anonymous public downloads match the
+accepted signed files. Trusted 2701 offers 2803 as installable without download
+or installation and its root files remain unchanged. Native Linux execution is
+not established by this Windows acceptance. See the
+[publication evidence](verification/20261028-windows-2803-publication.json).
+
 Signed Windows [2026102802](releases/2026102802.md#windows-publication-acceptance)
 was published at `2026-10-28T12:09:13Z` from immutable source
 `304e2af6bdd117203b5ff2cbdf81f18ccd0c8ec5`. Intersection-aware Fillet and

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "product": "ZIMA-CAD",
+  "version": "2026102803",
+  "platform": "windows-x64",
+  "tag": "ZIMA-CAD-2026102803",
+  "commit": "fa728b90803145047210918f583c51dbb770817c",
+  "publishedAt": "2026-10-28T14:52:01Z",
+  "releaseUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026102803",
+  "archive": {
+    "name": "ZIMA-CAD-2026102803.zip",
+    "size": 1073927371,
+    "sha256": "549e8e5783d263839a045c787fd31561fe2e6f4e6a6a130d46e7cc7bf5b33a29",
+    "unpackedSize": 5948481216,
+    "fileCount": 17414
+  },
+  "updateManifest": {
+    "name": "update-manifest.json",
+    "size": 704,
+    "sha256": "91c46d878fc537f3446ac97821c2b6ccd8fc8e197992279dcdae30709d23f6c4"
+  },
+  "updateSignature": {
+    "name": "update-manifest.sig",
+    "size": 176,
+    "sha256": "43d7729dca200646a44b061ca8de249fcb1913ff90055570c62a9e329580b521"
+  },
+  "sourceTreeSha256": "cfea7cae9e9d050581ab5177db404cb0f46a70246d3b7fe93d31188c0722731f",
+  "candidate": {
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185
+  },
+  "signed": {
+    "windowsNativeSmoke": "passed",
+    "productionTrust": "passed",
+    "applicationLifecycle": "passed"
+  },
+  "publicDownloads": {
+    "anonymous": true,
+    "zip": "matched",
+    "manifest": "matched",
+    "signature": "matched"
+  },
+  "updaterDiscovery": {
+    "installedVersion": "2026102701",
+    "trusted": true,
+    "availableVersion": "2026102803",
+    "installable": true,
+    "downloadPerformed": false,
+    "installationPerformed": false,
+    "rootFilesUnchanged": true
+  },
+  "verificationBoundary": {
+    "protectedUserModelsCommitted": false,
+    "nativeFormatChanged": false,
+    "localizationCatalogsChanged": false,
+    "linuxExecution": "not-run-on-windows-host",
+    "remainingLimits": [
+      "The Assembly profile test retains the pre-existing shared Axis Feature rendering failure also reproduced by the unchanged previous release executable.",
+      "Finite physical-property, measurement and persistence matrices do not prove every possible topology.",
+      "Native Linux compilation and execution require the Linux host."
+    ]
+  }
+}

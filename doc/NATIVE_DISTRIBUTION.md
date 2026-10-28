@@ -1,5 +1,18 @@
 # Native versioned distribution
 
+Signed Windows [2026102803](releases/2026102803.md#windows-publication-acceptance)
+was published at `2026-10-28T14:52:01Z` from immutable source
+`fa728b90803145047210918f583c51dbb770817c`. It completely defers aggregate
+physical analysis for Parts without persisted Body Properties while preserving
+exact on-demand measurement, Save-time nested Assembly analysis and source
+invalidation. Candidate and signed native smoke each load all 1,185 factory
+assets; production trust, 17,414 archive entries, application lifecycle, all
+three anonymous public downloads and trusted 2701 updater discovery pass. The
+authored native format, geometry precision, stable references, side identity,
+oldest-face ancestry and shared OCCT 8.0.1 pin are unchanged. Native Linux
+execution remains a separate host acceptance requirement. See the
+[publication evidence](verification/20261028-windows-2803-publication.json).
+
 Signed Windows [2026102802](releases/2026102802.md#windows-publication-acceptance)
 was published at `2026-10-28T12:09:13Z` from immutable source
 `304e2af6bdd117203b5ff2cbdf81f18ccd0c8ec5`. It gives actual cross-feature
