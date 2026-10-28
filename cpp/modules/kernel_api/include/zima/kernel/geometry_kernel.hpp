@@ -7,9 +7,11 @@
 #include <cstdint>
 #include <cmath>
 #include <bit>
+#include <charconv>
 #include <algorithm>
 #include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <variant>
 #include <optional>
@@ -107,6 +109,64 @@ struct EdgeReference {
             instance_path==other.instance_path;
     }
 };
+
+// Boolean intersection intervals are persisted topology, not geometric
+// proximity guesses. Edge treatments and their presentation share this
+// predicate so the calculation and preview cannot select different rails.
+[[nodiscard]] inline bool is_boolean_intersection_interval(
+        const EdgeReference& reference) {
+    const std::string_view key=reference.semantic_key;
+    constexpr std::string_view prefix="boolean:";
+    if(!key.starts_with(prefix))return false;
+    const auto role_end=key.find(':',prefix.size());
+    if(role_end==std::string_view::npos)return false;
+    std::size_t offset=role_end+1;
+    constexpr std::string_view intersection="intersection:between:";
+    if(key.substr(offset).starts_with(intersection))return true;
+    constexpr std::string_view split="split-edge:from:";
+    if(!key.substr(offset).starts_with(split))return false;
+    offset+=split.size();
+
+    const auto field=[](std::string_view encoded,std::size_t& at)
+            -> std::optional<std::string_view> {
+        const auto separator=encoded.find(':',at);
+        if(separator==std::string_view::npos)return std::nullopt;
+        std::size_t length{};
+        const auto text=encoded.substr(at,separator-at);
+        const auto parsed=std::from_chars(
+            text.data(),text.data()+text.size(),length);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size()||
+           separator+1+length>encoded.size())return std::nullopt;
+        at=separator+1+length;
+        return encoded.substr(separator+1,length);
+    };
+    // Skip the exact length-delimited parent. A textual search is unsafe:
+    // that parent can itself be a Boolean edge whose key contains the same
+    // role markers as this child.
+    for(int parent_field=0;parent_field<3;++parent_field)
+        if(!field(key,offset))return false;
+    constexpr std::string_view between=":between:";
+    if(!key.substr(offset).starts_with(between))return false;
+    offset+=between.size();
+
+    std::set<std::string_view> support_owners;
+    constexpr std::string_view ends=":ends:";
+    while(offset<key.size()&&!key.substr(offset).starts_with(ends)) {
+        const auto encoded_support=field(key,offset);
+        if(!encoded_support)return false;
+        std::size_t support_offset{};
+        const auto owner=field(*encoded_support,support_offset);
+        const auto semantic=field(*encoded_support,support_offset);
+        const auto instance=field(*encoded_support,support_offset);
+        if(!owner||!semantic||!instance||
+           support_offset!=encoded_support->size())return false;
+        support_owners.insert(*owner);
+    }
+    // A split fragment is the real joint only where its two adjacent support
+    // faces come from different persisted source features. Another fragment
+    // of the same source edge is merely its surviving original continuation.
+    return key.substr(offset).starts_with(ends)&&support_owners.size()>1;
+}
 
 struct VertexReference {
     std::string owner_id;

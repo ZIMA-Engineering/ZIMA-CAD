@@ -37,6 +37,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/feature_up_to.hpp>
 #include <zima/document/solid_state_calculation.hpp>
 #include <zima/document/relation_program.hpp>
@@ -10567,17 +10568,22 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 ? zima::kernel::FilletRequest::Mode::Linear
                 : zima::kernel::FilletRequest::Mode::Constant;
             std::vector<zima::kernel::VertexReference> contour_starts;
+            std::vector<zima::kernel::EdgeReference> calculation_edges;
             for (std::size_t route = 0;
                  route < container.edge_treatment.routes.size(); ++route) {
+                const auto selected_route=actual_edge_treatment_intervals(
+                    container.edge_treatment.routes[route]);
                 const auto start = route <
                         container.edge_treatment.route_start_vertices.size()
                     ? container.edge_treatment.route_start_vertices[route]
                     : zima::kernel::VertexReference{};
+                calculation_edges.insert(calculation_edges.end(),
+                    selected_route.begin(),selected_route.end());
                 contour_starts.insert(contour_starts.end(),
-                    container.edge_treatment.routes[route].size(), start);
+                    selected_route.size(), start);
             }
             primitive = zima::kernel::FilletRequest{
-                container.edge_treatment.flattened_edges(),
+                std::move(calculation_edges),
                 mode,
                 container.edge_treatment.primary_size,
                 container.edge_treatment.secondary_size,
@@ -10592,8 +10598,15 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         EdgeTreatmentParameters::ChamferMode::DistanceAngle
                     ? zima::kernel::ChamferRequest::Mode::DistanceAngle
                     : zima::kernel::ChamferRequest::Mode::EqualDistance;
+            std::vector<zima::kernel::EdgeReference> calculation_edges;
+            for(const auto& route:container.edge_treatment.routes) {
+                const auto selected_route=
+                    actual_edge_treatment_intervals(route);
+                calculation_edges.insert(calculation_edges.end(),
+                    selected_route.begin(),selected_route.end());
+            }
             primitive = zima::kernel::ChamferRequest{
-                container.edge_treatment.flattened_edges(),
+                std::move(calculation_edges),
                 mode,
                 container.edge_treatment.primary_size,
                 container.edge_treatment.secondary_size,

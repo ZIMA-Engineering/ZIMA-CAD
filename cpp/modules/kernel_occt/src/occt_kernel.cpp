@@ -4580,6 +4580,43 @@ std::string encoded_topology_reference(const Reference& reference) {
         reference.instance_path;
 }
 
+std::optional<EdgeReference> decoded_edge_reference(std::string_view encoded) {
+    std::size_t offset{};
+    const auto field=[&]() -> std::optional<std::string> {
+        const auto separator=encoded.find(':',offset);
+        if(separator==std::string_view::npos)return std::nullopt;
+        std::size_t length{};
+        const auto text=encoded.substr(offset,separator-offset);
+        const auto parsed=std::from_chars(
+            text.data(),text.data()+text.size(),length);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size()||
+           separator+1+length>encoded.size())return std::nullopt;
+        offset=separator+1+length;
+        return std::string(encoded.substr(separator+1,length));
+    };
+    const auto owner=field();
+    const auto key=field();
+    const auto instance=field();
+    if(!owner||!key||!instance)return std::nullopt;
+    return EdgeReference{*owner,*key,*instance};
+}
+
+std::optional<EdgeReference> split_edge_parent(
+        const EdgeReference& candidate) {
+    constexpr std::string_view marker=":split-edge:from:";
+    const auto parent_offset=candidate.semantic_key.find(marker);
+    if(parent_offset==std::string::npos)return std::nullopt;
+    return decoded_edge_reference(std::string_view(
+        candidate.semantic_key).substr(parent_offset+marker.size()));
+}
+
+bool split_edge_descends_from(
+        const EdgeReference& candidate,const EdgeReference& requested) {
+    const auto parent=split_edge_parent(candidate);
+    if(!parent)return false;
+    return *parent==requested||split_edge_descends_from(*parent,requested);
+}
+
 std::string encoded_topology_reference_set(
     const std::set<std::string>& references) {
     std::string encoded;
@@ -8562,6 +8599,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
         };
         std::map<std::string,PrimitiveData> copy_operands;
+        struct BoundedFilletSource {
+            std::string owner;
+            PrimitiveData operand;
+            TopoDS_Shape base_shape;
+            std::shared_ptr<const LiveCache::Topology> base_topology;
+            double boolean_tolerance{};
+        };
+        std::optional<BoundedFilletSource> bounded_fillet_source;
         // A complete unchanged Form history can also be read from its saved
         // packet when no external caller needs a separate source operand.
         const bool reuse_complete_form_copy=has_forms&&context.requested_solids.empty()&&
@@ -8949,31 +8994,79 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             "Chamfer parameters are outside their valid range");
                     }
                 }
+                const auto resolved_treatment_edges=[&](
+                        const EdgeReference& requested) {
+                    std::vector<const OwnedEdge*> exact,descendants;
+                    for(const auto& owned:owned_topology->edges) {
+                        if(owned.reference.owner_id==requested.owner_id&&
+                           owned.reference.semantic_key==
+                               requested.semantic_key)
+                            exact.push_back(&owned);
+                        else if(split_edge_descends_from(
+                                    owned.reference,requested))
+                            descendants.push_back(&owned);
+                    }
+                    // Explicit split descendants are the actual surviving
+                    // intervals. Prefer them if a transitional topology ever
+                    // carries both the old parent alias and its children;
+                    // otherwise use the unchanged edge. No geometric proximity,
+                    // enumeration order or measured dimension participates.
+                    return descendants.empty()?exact:descendants;
+                };
                 std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
                 std::vector<VertexReference> selected_starts;
                 for (std::size_t requested_index=0;requested_index<treatment.edges.size();++requested_index) {
                     const auto& requested=treatment.edges[requested_index];
-                    bool found = false;
-                    for (const auto& owned : owned_topology->edges) {
-                        if (owned.reference.owner_id == requested.owner_id &&
-                            owned.reference.semantic_key == requested.semantic_key) {
-                            selected.emplace_back(
-                                TopoDS::Edge(owned.shape), owned.reference);
-                            // One persisted edge can resolve to several shape
-                            // uses (or split shapes). Carry its explicit ZIMA R1
-                            // with every match; runtime expansion must not shift
-                            // the following route's endpoint or read past it.
-                            if constexpr (std::is_same_v<Treatment, FilletRequest>) {
-                                if(treatment.mode==FilletRequest::Mode::Linear)
-                                    selected_starts.push_back(treatment.contour_start_vertices.at(requested_index));
-                            }
-                            found = true;
+                    for(const auto* owned:
+                            resolved_treatment_edges(requested)) {
+                        selected.emplace_back(
+                            TopoDS::Edge(owned->shape),owned->reference);
+                        // One persisted edge can resolve to several shape uses
+                        // or split descendants. Carry its explicit ZIMA R1 with
+                        // every match; runtime expansion must not shift the next
+                        // route's endpoint or read past it.
+                        if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                            if(treatment.mode==FilletRequest::Mode::Linear)
+                                selected_starts.push_back(
+                                    treatment.contour_start_vertices.at(
+                                        requested_index));
                         }
                     }
-                    if (!found) {
-                        throw std::runtime_error(
-                            "Fillet/Chamfer original edge is missing at this history boundary");
-                    }
+                }
+                if(selected.empty()) {
+                    // The definition remains in history, but all selected
+                    // edges have genuinely disappeared. Publish an explicit
+                    // unchanged boundary instead of guessing another edge or
+                    // turning an ordinary topology change into a hard error.
+                    if(!publish)return;
+                    boundaries.push_back(make_operation_result(
+                        result_shape,owned_topology->faces,
+                        owned_topology->edges,owned_topology->vertices,true,
+                        persist_boundary_shape,true,
+                        owned_topology->hidden_display_edges));
+                    append_technological_surfaces(
+                        boundaries.back(),operation.mesh_deflection);
+                    boundaries.back().source_fingerprint=
+                        fingerprint(operations,boundaries.size());
+                    remember_live_boundary(
+                        boundaries.back().source_fingerprint,
+                        result_shape,owned_topology);
+                    return;
+                }
+                const auto authored_selected=selected;
+                const auto actual_intersection_selection=[&]() {
+                    std::vector<std::pair<TopoDS_Edge,EdgeReference>> actual;
+                    for(const auto& seed:selected)
+                        if(is_boolean_intersection_interval(seed.second))
+                            actual.push_back(seed);
+                    return actual;
+                };
+                if constexpr (!std::is_same_v<Treatment,FilletRequest>) {
+                    if(auto actual=actual_intersection_selection();
+                       !actual.empty())selected=std::move(actual);
+                } else if(treatment.mode==FilletRequest::Mode::Constant) {
+                    if(auto actual=actual_intersection_selection();
+                       !actual.empty())selected=std::move(actual);
                 }
                 if constexpr (std::is_same_v<Treatment, FilletRequest>) {
                     treatment_phase("selection");
@@ -8981,7 +9074,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // FORM's internal transitions use exact rational circular
                     // parameterization; ordinary Fillet keeps its established
                     // default. No radius or approximation tolerance changes.
-                    if(!publish)algorithm.SetFilletShape(ChFi3d_QuasiAngular);
+                    if(!publish)
+                        algorithm.SetFilletShape(ChFi3d_QuasiAngular);
                     // Preserve OCCT's angular, UV and marching parameters;
                     // only spatial and 3D approximation tolerances are mm.
                     const double fillet_tolerance = publish?std::max(1.0e-7, operation.boolean_tolerance):1.0e-7;
@@ -9053,12 +9147,100 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             }
                         }
                     }
+                    const auto selected_seeds=selected;
                     selected = resolve_edge_treatment_contours(
                         algorithm, selected, owned_topology->edges,
                         "Fillet", operation.owner_id);
                     treatment_phase("contours");
+                    const auto accept_fillet_result=[&](auto& built,
+                            const auto& parents,
+                            const std::string& treatment_owner) {
+                        auto treatment_faces = propagate_topology(
+                            built, owned_topology->faces,
+                            std::vector<OwnedFace>{});
+                        treatment_phase("validation and face propagation");
+                        auto generated_faces = generated_edge_treatment_faces(
+                            built, parents, treatment_owner, "fillet:face");
+                        treatment_faces.insert(treatment_faces.end(),
+                            std::make_move_iterator(generated_faces.begin()),
+                            std::make_move_iterator(generated_faces.end()));
+                        append_unmapped_edge_treatment_faces(
+                            built.Shape(), parents, owned_topology->faces,
+                            treatment_owner, "fillet:face",
+                            std::max(1.0e-7, operation.boolean_tolerance),
+                            treatment_faces);
+                        treatment_phase("generated and unmapped faces");
+                        classify_edge_treatment_surfaces(
+                            built.Shape(),treatment_owner,treatment_faces);
+                        treatment_phase("surface classification");
+                        auto treatment_topology =
+                            std::make_shared<LiveCache::Topology>(
+                                LiveCache::Topology{
+                                    std::move(treatment_faces),
+                                    propagate_edge_treatment_topology(
+                                        built, built.Shape(),
+                                        owned_topology->edges),
+                                    propagate_edge_treatment_topology(
+                                        built, built.Shape(),
+                                        owned_topology->vertices),
+                                    propagate_display_edges(
+                                        built,
+                                        owned_topology->hidden_display_edges)});
+                        treatment_phase("edge and vertex propagation");
+                        result_shape = built.Shape();
+                        auto unified = unify_preserving_face_provenance(
+                            result_shape,treatment_topology->faces,
+                            treatment_topology->edges,
+                            treatment_topology->vertices,
+                            std::max(1.0e-7,
+                                operation.boolean_tolerance));
+                        treatment_phase("unify");
+                        if(!unified.validated&&
+                           (unified.shape.IsNull()||
+                            !BRepCheck_Analyzer(unified.shape).IsValid()))
+                            throw std::runtime_error(
+                                "OCCT Fillet produced an invalid body");
+                        treatment_phase("fallback validation");
+                        result_shape = std::move(unified.shape);
+                        auto completed_edges = complete_edge_treatment_edges(
+                            result_shape, unified.faces, unified.edges,
+                            owned_topology->edges, parents,
+                            treatment_owner,"fillet:edge");
+                        treatment_phase("complete edges");
+                        auto completed_vertices =
+                            complete_edge_treatment_vertices(
+                                result_shape, completed_edges,
+                                unified.vertices, parents,
+                                treatment_owner,"fillet:vertex");
+                        treatment_phase("complete vertices");
+                        owned_topology =
+                            std::make_shared<LiveCache::Topology>(
+                                LiveCache::Topology{
+                                    std::move(unified.faces),
+                                    std::move(completed_edges),
+                                    std::move(completed_vertices),
+                                    std::move(
+                                        unified.hidden_display_edges)});
+                    };
                     algorithm.Build();
                     treatment_phase("build");
+                    if(trace_treatment&&
+                       (!algorithm.IsDone()||algorithm.Shape().IsNull())) {
+                        std::fprintf(stderr,
+                            "Edge treatment %s Fillet failure: contours=%d faulty-contours=%d faulty-vertices=%d\n",
+                            operation.owner_id.c_str(),algorithm.NbContours(),
+                            algorithm.NbFaultyContours(),
+                            algorithm.NbFaultyVertices());
+                        for(int faulty=1;faulty<=algorithm.NbFaultyContours();
+                                ++faulty) {
+                            const int contour=algorithm.FaultyContour(faulty);
+                            std::fprintf(stderr,
+                                "Edge treatment %s Fillet faulty contour=%d status=%d edges=%d\n",
+                                operation.owner_id.c_str(),contour,
+                                static_cast<int>(algorithm.StripeStatus(contour)),
+                                algorithm.NbEdges(contour));
+                        }
+                    }
                     if(!publish&&std::getenv("ZIMA_CPP_FORM_PROFILE")&&
                        (!algorithm.IsDone()||algorithm.Shape().IsNull()||!BRepCheck_Analyzer(algorithm.Shape()).IsValid()))
                     {
@@ -9069,191 +9251,494 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             std::fprintf(stderr,"FORM faulty contour=%d status=%d edges=%d\n",contour,int(algorithm.StripeStatus(contour)),algorithm.NbEdges(contour));
                         }
                     }
-                    if (!algorithm.IsDone() || algorithm.Shape().IsNull()) {
-                        throw std::runtime_error(
-                            "OCCT Fillet failed");
+                    if (algorithm.IsDone() && !algorithm.Shape().IsNull()) {
+                        accept_fillet_result(
+                            algorithm,selected,operation.owner_id);
+                    } else {
+                        std::vector<std::pair<TopoDS_Edge,EdgeReference>>
+                            intersection_seeds;
+                        for(const auto& seed:selected_seeds)
+                            if(is_boolean_intersection_interval(seed.second))
+                                intersection_seeds.push_back(seed);
+                        if(trace_treatment)std::fprintf(stderr,
+                            "Edge treatment %s bounded intersection seeds=%zu selected=%zu\n",
+                            operation.owner_id.c_str(),
+                            intersection_seeds.size(),selected_seeds.size());
+                        bool recovered_from_bounded_source=false;
+                        if(!bounded_fillet_source&&
+                           treatment.mode==FilletRequest::Mode::Constant&&
+                           authored_selected.size()==1&&operation_index>0) {
+                            const auto source_index=operation_index-1;
+                            const auto& source_operation=
+                                operations[source_index];
+                            if(source_operation.owner_id==
+                                   authored_selected.front().second.owner_id&&
+                               source_operation.operation==
+                                   BooleanOperation::Add&&
+                               std::holds_alternative<FeatureGroupRequest>(
+                                   source_operation.primitive)) {
+                                OcctKernel source_kernel;
+                                BodyResult references;
+                                TopoDS_Shape base_shape;
+                                auto base_topology=std::make_shared<const
+                                    LiveCache::Topology>();
+                                if(source_index>0) {
+                                    const auto base_key=fingerprint(
+                                        operations,source_index);
+                                    const auto cached=
+                                        live_cache_->boundaries.find(base_key);
+                                    if(cached!=live_cache_->boundaries.end()&&
+                                       source_index<=
+                                           previous_boundaries.size()) {
+                                        // A live edit already owns the exact
+                                        // pre-feature B-Rep and topology. Reuse
+                                        // that bounded input; rebuilding its
+                                        // complete history would defeat the
+                                        // incremental Fillet correction.
+                                        references=previous_boundaries[
+                                            source_index-1];
+                                        base_shape=cached->second.shape;
+                                        base_topology=
+                                            cached->second.topology;
+                                    } else {
+                                        const std::vector<HistoryOperation>
+                                            prefix(operations.begin(),
+                                                operations.begin()+
+                                                static_cast<std::ptrdiff_t>(
+                                                    source_index));
+                                        auto calculated=
+                                            source_kernel.evaluate_history(
+                                                prefix);
+                                        if(calculated.size()!=source_index)
+                                            throw std::runtime_error(
+                                                "Bounded Fillet source prefix did not calculate");
+                                        references=
+                                            std::move(calculated.back());
+                                        auto base=bound_face_geometry(
+                                            references,true);
+                                        base_shape=base.shape;
+                                        base_topology=std::make_shared<const
+                                            LiveCache::Topology>(
+                                                LiveCache::Topology{
+                                                    std::move(base.faces),
+                                                    std::move(base.edges),
+                                                    std::move(base.vertices),
+                                                    {}});
+                                    }
+                                }
+                                auto source_result=
+                                    source_kernel.calculate_feature_tool(
+                                        source_operation,references,{},
+                                        references,{});
+                                auto source_operand=bound_face_geometry(
+                                    source_result,true);
+                                bounded_fillet_source=
+                                    BoundedFilletSource{
+                                        source_operation.owner_id,
+                                        std::move(source_operand),
+                                        std::move(base_shape),
+                                        std::move(base_topology),
+                                        source_operation.boolean_tolerance};
+                            }
+                        }
+                        if(treatment.mode==FilletRequest::Mode::Constant&&
+                           authored_selected.size()==1&&
+                           bounded_fillet_source&&
+                           bounded_fillet_source->owner==
+                               authored_selected.front().second.owner_id) {
+                            auto& source=*bounded_fillet_source;
+                            std::vector<
+                                std::pair<TopoDS_Edge,EdgeReference>>
+                                local_seeds;
+                            for(const auto& edge:source.operand.edges)
+                                if(edge.reference==
+                                   authored_selected.front().second)
+                                    local_seeds.emplace_back(
+                                        TopoDS::Edge(edge.shape),
+                                        edge.reference);
+                            if(!local_seeds.empty()) {
+                                BRepFilletAPI_MakeFillet local(
+                                    source.operand.shape);
+                                local.SetParams(1.0e-2,fillet_tolerance,
+                                    1.0e-5,fillet_tolerance,1.0e-5,1.0e-3);
+                                for(const auto& [edge,reference]:local_seeds) {
+                                    static_cast<void>(reference);
+                                    if(local.Contour(edge)==0)
+                                        local.Add(
+                                            treatment.radius_start,edge);
+                                }
+                                auto local_parents=
+                                    resolve_edge_treatment_contours(
+                                        local,local_seeds,
+                                        source.operand.edges,"Fillet",
+                                        operation.owner_id);
+                                local.Build();
+                                if(local.IsDone()&&
+                                   !local.Shape().IsNull()) {
+                                    result_shape=source.operand.shape;
+                                    owned_topology=std::make_shared<
+                                        LiveCache::Topology>(
+                                            LiveCache::Topology{
+                                                source.operand.faces,
+                                                source.operand.edges,
+                                                source.operand.vertices,{}});
+                                    accept_fillet_result(local,local_parents,
+                                        operation.owner_id);
+                                    if(!source.base_shape.IsNull()) {
+                                        BRepAlgoAPI_Fuse fuse;
+                                        set_boolean_inputs(fuse,
+                                            source.base_shape,result_shape);
+                                        fuse.SetToFillHistory(true);
+                                        fuse.SetFuzzyValue(std::max(1.0e-7,
+                                            source.boolean_tolerance));
+                                        fuse.Build();
+                                        if(!fuse.IsDone()||
+                                           fuse.Shape().IsNull())
+                                            throw std::runtime_error(
+                                                "Bounded Fillet source Fuse failed");
+                                        auto fused=std::make_shared<
+                                            LiveCache::Topology>(
+                                                LiveCache::Topology{
+                                                    propagate_topology(fuse,
+                                                        source.base_topology->faces,
+                                                        owned_topology->faces),
+                                                    propagate_topology(fuse,
+                                                        source.base_topology->edges,
+                                                        owned_topology->edges),
+                                                    propagate_topology(fuse,
+                                                        source.base_topology->vertices,
+                                                        owned_topology->vertices),
+                                                    propagate_display_edges(
+                                                        fuse,source.base_topology->
+                                                            hidden_display_edges)});
+                                        result_shape=fuse.Shape();
+                                        auto unified=
+                                            unify_preserving_face_provenance(
+                                                result_shape,fused->faces,
+                                                fused->edges,fused->vertices,
+                                                std::max(1.0e-7,
+                                                    source.boolean_tolerance),
+                                                true);
+                                        if(!unified.validated&&
+                                           (unified.shape.IsNull()||
+                                            !BRepCheck_Analyzer(
+                                                unified.shape).IsValid()))
+                                            throw std::runtime_error(
+                                                "Bounded Fillet source Fuse produced an invalid body");
+                                        result_shape=std::move(unified.shape);
+                                        unified.faces=complete_boolean_faces(
+                                            result_shape,unified.faces,
+                                            unified.edges,unified.vertices,
+                                            source.owner,"add",operations);
+                                        unified.edges=complete_boolean_edges(
+                                            result_shape,unified.faces,
+                                            unified.edges,source.owner,"add");
+                                        unified.vertices=
+                                            complete_boolean_vertices(
+                                                result_shape,unified.faces,
+                                                unified.edges,unified.vertices,
+                                                source.owner,"add");
+                                        owned_topology=std::make_shared<
+                                            LiveCache::Topology>(
+                                                LiveCache::Topology{
+                                                    std::move(unified.faces),
+                                                    std::move(unified.edges),
+                                                    std::move(unified.vertices),
+                                                    std::move(unified.
+                                                        hidden_display_edges)});
+                                    }
+                                    recovered_from_bounded_source=true;
+                                }
+                            }
+                        }
+                        if(recovered_from_bounded_source) {
+                            treatment_phase("bounded source recovery");
+                        } else if(treatment.mode!=
+                                      FilletRequest::Mode::Constant||
+                                  (intersection_seeds.empty()
+                                      ?selected_seeds.size()
+                                      :intersection_seeds.size())<2) {
+                            throw std::runtime_error("OCCT Fillet failed");
+                        } else {
+                            // Independent contours can intersect at their
+                            // endpoint patches even though each bounded edge is
+                            // valid by itself. Use a deterministic reverse
+                            // authored order so a later interval is not
+                            // swallowed by an earlier endpoint patch. Publish
+                            // one boundary after all steps. Successful combined
+                            // corner blending remains the primary path.
+                            const auto& bounded_seeds=
+                                intersection_seeds.empty()
+                                    ?selected_seeds:intersection_seeds;
+                            for(auto seed_iterator=bounded_seeds.rbegin();
+                                seed_iterator!=bounded_seeds.rend();
+                                ++seed_iterator) {
+                                const auto& seed=*seed_iterator;
+                                const auto patch_owner=operation.owner_id+
+                                    ":bounded:"+compact_topology_token(
+                                        encoded_topology_reference(
+                                            seed.second));
+                                std::vector<std::pair<
+                                    TopoDS_Edge,EdgeReference>> step_seeds;
+                                for(const auto* owned:
+                                        resolved_treatment_edges(
+                                            seed.second))
+                                    step_seeds.emplace_back(
+                                        TopoDS::Edge(owned->shape),
+                                        owned->reference);
+                                if(step_seeds.empty()) {
+                                    if(trace_treatment)std::fprintf(stderr,
+                                        "Edge treatment %s sequential edge consumed owner=%s key=%s\n",
+                                        operation.owner_id.c_str(),
+                                        seed.second.owner_id.c_str(),
+                                        seed.second.semantic_key.c_str());
+                                    // An earlier bounded patch can consume the
+                                    // complete next edge at their common
+                                    // endpoint. The authored route then has no
+                                    // surviving interval to process; never
+                                    // rebind it to a nearby edge.
+                                    continue;
+                                }
+                                BRepFilletAPI_MakeFillet step(result_shape);
+                                step.SetParams(1.0e-2,fillet_tolerance,
+                                    1.0e-5,fillet_tolerance,1.0e-5,1.0e-3);
+                                for(const auto& [edge,reference]:step_seeds) {
+                                    static_cast<void>(reference);
+                                    if(step.Contour(edge)==0)
+                                        step.Add(
+                                            treatment.radius_start,edge);
+                                }
+                                auto step_parents=
+                                    resolve_edge_treatment_contours(
+                                        step,step_seeds,
+                                        owned_topology->edges,
+                                        "Fillet",patch_owner);
+                                step.Build();
+                                if(!step.IsDone()||step.Shape().IsNull())
+                                    throw std::runtime_error(
+                                        "Sequential OCCT Fillet failed");
+                                accept_fillet_result(
+                                    step,step_parents,patch_owner);
+                            }
+                            auto normalized=
+                                std::make_shared<LiveCache::Topology>(
+                                    *owned_topology);
+                            const auto normalize_owner=[&](auto& values) {
+                                const auto prefix=
+                                    operation.owner_id+":bounded:";
+                                for(auto& value:values)
+                                    if(value.reference.owner_id.starts_with(
+                                            prefix))
+                                        value.reference.owner_id=
+                                            operation.owner_id;
+                            };
+                            normalize_owner(normalized->faces);
+                            normalize_owner(normalized->edges);
+                            normalize_owner(normalized->vertices);
+                            owned_topology=std::move(normalized);
+                        }
                     }
-                    auto treatment_faces = propagate_topology(
-                        algorithm, owned_topology->faces,
-                        std::vector<OwnedFace>{});
-                    treatment_phase("validation and face propagation");
-                    auto generated_faces = generated_edge_treatment_faces(
-                        algorithm, selected, operation.owner_id, "fillet:face");
-                    treatment_faces.insert(treatment_faces.end(),
-                        std::make_move_iterator(generated_faces.begin()),
-                        std::make_move_iterator(generated_faces.end()));
-                    append_unmapped_edge_treatment_faces(
-                        algorithm.Shape(), selected, owned_topology->faces,
-                        operation.owner_id, "fillet:face",
-                        std::max(1.0e-7, operation.boolean_tolerance),
-                        treatment_faces);
-                    treatment_phase("generated and unmapped faces");
-                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
-                    treatment_phase("surface classification");
-                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{
-                            std::move(treatment_faces),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->edges),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->vertices),
-                            propagate_display_edges(
-                                algorithm, owned_topology->hidden_display_edges)});
-                    treatment_phase("edge and vertex propagation");
-                    result_shape = algorithm.Shape();
-                    auto unified = unify_preserving_face_provenance(result_shape,
-                        treatment_topology->faces, treatment_topology->edges,
-                        treatment_topology->vertices,
-                        std::max(1.0e-7, operation.boolean_tolerance));
-                    treatment_phase("unify");
-                    // The same-domain result is the exact shape published by
-                    // this operation and validates itself. If unification is
-                    // unavailable, validate its unchanged Fillet fallback
-                    // here. Do not run the same whole-B-Rep check once on the
-                    // discarded Fillet result and again on the published one.
-                    if(!unified.validated&&
-                       (unified.shape.IsNull()||
-                        !BRepCheck_Analyzer(unified.shape).IsValid())) {
-                        throw std::runtime_error(
-                            "OCCT Fillet produced an invalid body");
-                    }
-                    treatment_phase("fallback validation");
-                    result_shape = std::move(unified.shape);
-                    auto completed_edges = complete_edge_treatment_edges(
-                        result_shape, unified.faces, unified.edges,
-                        owned_topology->edges, selected, operation.owner_id,
-                        "fillet:edge");
-                    treatment_phase("complete edges");
-                    auto completed_vertices = complete_edge_treatment_vertices(
-                        result_shape, completed_edges, unified.vertices, selected,
-                        operation.owner_id, "fillet:vertex");
-                    treatment_phase("complete vertices");
-                    owned_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{std::move(unified.faces),
-                            std::move(completed_edges),
-                            std::move(completed_vertices),
-                            std::move(unified.hidden_display_edges)});
                 } else {
-                    BRepFilletAPI_MakeChamfer algorithm(result_shape);
-                    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-                    TopExp::MapShapesAndAncestors(
-                        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-                    const TopologyReferenceIndex<FaceReference, OwnedFace>
-                        face_references(owned_topology->faces);
-                    const auto support_face = [&](const TopoDS_Edge& edge) {
-                        const int edge_index = edge_faces.FindIndex(edge);
-                        if (edge_index == 0) {
+                    const auto accept_chamfer_result=[&](auto& algorithm,
+                            const auto& parents,
+                            const std::string& treatment_owner) {
+                        auto treatment_faces=propagate_topology(
+                            algorithm,owned_topology->faces,
+                            std::vector<OwnedFace>{});
+                        auto generated_faces=generated_edge_treatment_faces(
+                            algorithm,parents,treatment_owner,
+                            "chamfer:face");
+                        treatment_faces.insert(treatment_faces.end(),
+                            std::make_move_iterator(generated_faces.begin()),
+                            std::make_move_iterator(generated_faces.end()));
+                        append_unmapped_edge_treatment_faces(
+                            algorithm.Shape(),parents,
+                            owned_topology->faces,treatment_owner,
+                            "chamfer:face",
+                            std::max(1.0e-7,
+                                operation.boolean_tolerance),
+                            treatment_faces);
+                        classify_edge_treatment_surfaces(
+                            algorithm.Shape(),treatment_owner,
+                            treatment_faces);
+                        auto treatment_topology=
+                            std::make_shared<LiveCache::Topology>(
+                                LiveCache::Topology{
+                                    std::move(treatment_faces),
+                                    propagate_edge_treatment_topology(
+                                        algorithm,algorithm.Shape(),
+                                        owned_topology->edges),
+                                    propagate_edge_treatment_topology(
+                                        algorithm,algorithm.Shape(),
+                                        owned_topology->vertices),
+                                    propagate_display_edges(
+                                        algorithm,
+                                        owned_topology
+                                            ->hidden_display_edges)});
+                        result_shape=algorithm.Shape();
+                        auto unified=unify_preserving_face_provenance(
+                            result_shape,treatment_topology->faces,
+                            treatment_topology->edges,
+                            treatment_topology->vertices,
+                            std::max(1.0e-7,
+                                operation.boolean_tolerance));
+                        if(!unified.validated&&
+                           (unified.shape.IsNull()||
+                            !BRepCheck_Analyzer(
+                                unified.shape).IsValid()))
                             throw std::runtime_error(
-                                "Chamfer edge has no adjacent faces");
-                        }
-                        std::vector<std::pair<FaceReference, TopoDS_Face>> faces;
-                        for (TopTools_ListIteratorOfListOfShape iterator(
-                                 edge_faces.FindFromIndex(edge_index));
-                             iterator.More(); iterator.Next()) {
-                            const auto reference =
-                                face_references.reference_for(iterator.Value());
-                            if (reference.valid()) {
-                                faces.emplace_back(reference,
-                                    TopoDS::Face(iterator.Value()));
-                            }
-                        }
-                        std::ranges::sort(faces,
-                            [](const auto& first, const auto& second) {
-                                return std::tie(first.first.owner_id,
-                                           first.first.semantic_key,
-                                           first.first.instance_path) <
-                                    std::tie(second.first.owner_id,
-                                           second.first.semantic_key,
-                                           second.first.instance_path);
-                            });
-                        faces.erase(std::ranges::unique(faces,
-                            [](const auto& first, const auto& second) {
-                                return first.first == second.first;
-                            }).begin(), faces.end());
-                        if (faces.size() != 2) {
-                            throw std::runtime_error(
-                                "Chamfer A x B / A + angle requires exactly two stably named adjacent faces");
-                        }
-                        return treatment.flip
-                            ? faces.back().second : faces.front().second;
+                                "OCCT Chamfer produced an invalid body");
+                        result_shape=std::move(unified.shape);
+                        auto completed_edges=
+                            complete_edge_treatment_edges(
+                                result_shape,unified.faces,
+                                unified.edges,owned_topology->edges,
+                                parents,treatment_owner,
+                                "chamfer:edge");
+                        auto completed_vertices=
+                            complete_edge_treatment_vertices(
+                                result_shape,completed_edges,
+                                unified.vertices,parents,
+                                treatment_owner,"chamfer:vertex");
+                        owned_topology=
+                            std::make_shared<LiveCache::Topology>(
+                                LiveCache::Topology{
+                                    std::move(unified.faces),
+                                    std::move(completed_edges),
+                                    std::move(completed_vertices),
+                                    std::move(
+                                        unified.hidden_display_edges)});
                     };
-                    for (const auto& [edge, reference] : selected) {
-                        static_cast<void>(reference);
-                        if (algorithm.Contour(edge) == 0) {
-                            if (treatment.mode ==
-                                ChamferRequest::Mode::EqualDistance) {
-                                algorithm.Add(treatment.distance_a, edge);
-                            } else if (treatment.mode ==
-                                ChamferRequest::Mode::TwoDistances) {
-                                algorithm.Add(treatment.distance_a,
-                                    treatment.distance_b, edge,
-                                    support_face(edge));
-                            } else {
-                                algorithm.AddDA(treatment.distance_a,
-                                    treatment.angle_radians, edge,
-                                    support_face(edge));
+                    const auto build_chamfer=[&](const auto& seeds,
+                            const std::string& treatment_owner) {
+                        BRepFilletAPI_MakeChamfer algorithm(result_shape);
+                        TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+                        TopExp::MapShapesAndAncestors(result_shape,
+                            TopAbs_EDGE,TopAbs_FACE,edge_faces);
+                        const TopologyReferenceIndex<
+                            FaceReference,OwnedFace> face_references(
+                                owned_topology->faces);
+                        const auto support_face=[&](
+                                const TopoDS_Edge& edge) {
+                            const int edge_index=
+                                edge_faces.FindIndex(edge);
+                            if(edge_index==0)
+                                throw std::runtime_error(
+                                    "Chamfer edge has no adjacent faces");
+                            std::vector<std::pair<
+                                FaceReference,TopoDS_Face>> faces;
+                            for(TopTools_ListIteratorOfListOfShape iterator(
+                                    edge_faces.FindFromIndex(edge_index));
+                                iterator.More();iterator.Next()) {
+                                const auto reference=
+                                    face_references.reference_for(
+                                        iterator.Value());
+                                if(reference.valid())
+                                    faces.emplace_back(reference,
+                                        TopoDS::Face(iterator.Value()));
                             }
+                            std::ranges::sort(faces,
+                                [](const auto& first,
+                                        const auto& second) {
+                                    return std::tie(
+                                            first.first.owner_id,
+                                            first.first.semantic_key,
+                                            first.first.instance_path)<
+                                        std::tie(
+                                            second.first.owner_id,
+                                            second.first.semantic_key,
+                                            second.first.instance_path);
+                                });
+                            faces.erase(std::ranges::unique(faces,
+                                [](const auto& first,
+                                        const auto& second) {
+                                    return first.first==second.first;
+                                }).begin(),faces.end());
+                            if(faces.size()!=2)
+                                throw std::runtime_error(
+                                    "Chamfer A x B / A + angle requires exactly two stably named adjacent faces");
+                            return treatment.flip?faces.back().second:
+                                faces.front().second;
+                        };
+                        for(const auto& [edge,reference]:seeds) {
+                            static_cast<void>(reference);
+                            if(algorithm.Contour(edge)!=0)continue;
+                            if(treatment.mode==
+                                    ChamferRequest::Mode::EqualDistance)
+                                algorithm.Add(
+                                    treatment.distance_a,edge);
+                            else if(treatment.mode==
+                                    ChamferRequest::Mode::TwoDistances)
+                                algorithm.Add(treatment.distance_a,
+                                    treatment.distance_b,edge,
+                                    support_face(edge));
+                            else
+                                algorithm.AddDA(treatment.distance_a,
+                                    treatment.angle_radians,edge,
+                                    support_face(edge));
                         }
+                        auto parents=resolve_edge_treatment_contours(
+                            algorithm,seeds,owned_topology->edges,
+                            "Chamfer",treatment_owner);
+                        algorithm.Build();
+                        if(!algorithm.IsDone()||
+                           algorithm.Shape().IsNull())return false;
+                        accept_chamfer_result(
+                            algorithm,parents,treatment_owner);
+                        return true;
+                    };
+                    const auto selected_seeds=selected;
+                    if(!build_chamfer(
+                            selected_seeds,operation.owner_id)) {
+                        std::vector<std::pair<
+                            TopoDS_Edge,EdgeReference>>
+                                intersection_seeds;
+                        for(const auto& seed:selected_seeds)
+                            if(is_boolean_intersection_interval(
+                                   seed.second))
+                                intersection_seeds.push_back(seed);
+                        if(intersection_seeds.size()<2)
+                            throw std::runtime_error(
+                                "OCCT Chamfer failed");
+                        for(auto seed_iterator=
+                                intersection_seeds.rbegin();
+                            seed_iterator!=intersection_seeds.rend();
+                            ++seed_iterator) {
+                            const auto patch_owner=operation.owner_id+
+                                ":bounded:"+
+                                std::to_string(std::distance(
+                                    intersection_seeds.rbegin(),
+                                    seed_iterator));
+                            std::vector<std::pair<
+                                TopoDS_Edge,EdgeReference>> step_seeds;
+                            for(const auto* owned:
+                                    resolved_treatment_edges(
+                                        seed_iterator->second))
+                                step_seeds.emplace_back(
+                                    TopoDS::Edge(owned->shape),
+                                    owned->reference);
+                            if(step_seeds.empty())continue;
+                            if(!build_chamfer(step_seeds,patch_owner))
+                                throw std::runtime_error(
+                                    "Sequential OCCT Chamfer failed");
+                        }
+                        auto normalized=
+                            std::make_shared<LiveCache::Topology>(
+                                *owned_topology);
+                        const auto normalize_owner=[&](auto& values) {
+                            const auto prefix=
+                                operation.owner_id+":bounded:";
+                            for(auto& value:values)
+                                if(value.reference.owner_id.starts_with(
+                                       prefix))
+                                    value.reference.owner_id=
+                                        operation.owner_id;
+                        };
+                        normalize_owner(normalized->faces);
+                        normalize_owner(normalized->edges);
+                        normalize_owner(normalized->vertices);
+                        owned_topology=std::move(normalized);
                     }
-                    selected = resolve_edge_treatment_contours(
-                        algorithm, selected, owned_topology->edges,
-                        "Chamfer", operation.owner_id);
-                    algorithm.Build();
-                    if (!algorithm.IsDone() || algorithm.Shape().IsNull()) {
-                        throw std::runtime_error(
-                            "OCCT Chamfer failed");
-                    }
-                    auto treatment_faces = propagate_topology(
-                        algorithm, owned_topology->faces,
-                        std::vector<OwnedFace>{});
-                    auto generated_faces = generated_edge_treatment_faces(
-                        algorithm, selected, operation.owner_id, "chamfer:face");
-                    treatment_faces.insert(treatment_faces.end(),
-                        std::make_move_iterator(generated_faces.begin()),
-                        std::make_move_iterator(generated_faces.end()));
-                    append_unmapped_edge_treatment_faces(
-                        algorithm.Shape(), selected, owned_topology->faces,
-                        operation.owner_id, "chamfer:face",
-                        std::max(1.0e-7, operation.boolean_tolerance),
-                        treatment_faces);
-                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
-                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{
-                            std::move(treatment_faces),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->edges),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->vertices),
-                            propagate_display_edges(
-                                algorithm, owned_topology->hidden_display_edges)});
-                    result_shape = algorithm.Shape();
-                    auto unified = unify_preserving_face_provenance(result_shape,
-                        treatment_topology->faces, treatment_topology->edges,
-                        treatment_topology->vertices,
-                        std::max(1.0e-7, operation.boolean_tolerance));
-                    if(!unified.validated&&
-                       (unified.shape.IsNull()||
-                        !BRepCheck_Analyzer(unified.shape).IsValid())) {
-                        throw std::runtime_error(
-                            "OCCT Chamfer produced an invalid body");
-                    }
-                    result_shape = std::move(unified.shape);
-                    auto completed_edges = complete_edge_treatment_edges(
-                        result_shape, unified.faces, unified.edges,
-                        owned_topology->edges, selected, operation.owner_id,
-                        "chamfer:edge");
-                    auto completed_vertices = complete_edge_treatment_vertices(
-                        result_shape, completed_edges, unified.vertices, selected,
-                        operation.owner_id, "chamfer:vertex");
-                    owned_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{std::move(unified.faces),
-                            std::move(completed_edges),
-                            std::move(completed_vertices),
-                            std::move(unified.hidden_display_edges)});
                 }
                 if (!technological_surfaces.empty()) {
                     // Thread sheets are separate from the solid B-Rep. Remove
@@ -11553,6 +12038,31 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             }, operation.primitive);
             operation_phase("operand");
+            bounded_fillet_source.reset();
+            if(operation.operation==BooleanOperation::Add&&
+               std::holds_alternative<FeatureGroupRequest>(
+                   operation.primitive)&&
+               operation_index+1<operations.size()&&
+               !operations[operation_index+1].suppressed) {
+                if(const auto* next=std::get_if<FilletRequest>(
+                        &operations[operation_index+1].primitive);
+                   next&&next->mode==FilletRequest::Mode::Constant&&
+                   next->edges.size()==1&&
+                   next->edges.front().owner_id==operation.owner_id&&
+                   std::ranges::any_of(operand.edges,[&](const auto& edge) {
+                       return edge.reference==next->edges.front();
+                   })) {
+                    // Keep only the immediately consumed standalone operand
+                    // and its real input. If the ordinary post-Fuse Fillet
+                    // cannot construct its endpoint patch, the same authored
+                    // edge can be rounded before this Add and then fused once.
+                    // This is operation-local and never becomes a sidecar or
+                    // a persisted alternative document representation.
+                    bounded_fillet_source=BoundedFilletSource{
+                        operation.owner_id,operand,result_shape,
+                        owned_topology,operation.boolean_tolerance};
+                }
+            }
             if(operation.sheet_operation!=SheetOperation::None) {
                 // Roles follow authored semantic ancestry. OCCT only locates
                 // the descendants; neither face order nor curvature names them.

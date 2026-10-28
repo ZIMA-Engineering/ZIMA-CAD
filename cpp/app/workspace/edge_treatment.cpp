@@ -87,6 +87,7 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         viewer_->set_edge_treatment_selection_edges({});
         viewer_->set_feature_hover_edges({});
         viewer_->set_candidate_filter({});
+        viewer_->set_candidate_priority({});
         viewer_->set_constraint_reference_highlights({}, {});
         refresh_tabs();
         preserve_view_on_refresh_ = true;
@@ -135,7 +136,8 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
     // Python parity: clicking an already selected route keeps it selected;
     // removal is an explicit action in the dialog's route tree.
     if (already_selected) return;
-    auto route = viewer_->tangent_edge_route(candidate);
+    auto route = zima::document::edge_treatment_intervals_from_seed(
+        viewer_->tangent_edge_route(candidate),seed);
     for (auto& edge : route) edge.instance_path.clear();
     if (route.empty()) route = {seed};
     std::erase_if(route, [&](const auto& edge) {
@@ -171,6 +173,14 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
         tree_->setProperty("commandSelectionActive", true);
         viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge,
                                          zima::viewer::CandidateKind::Dimension});
+        // At a Boolean joint the real intersection and a surviving source-edge
+        // fragment are both legitimate choices. Offer the intersection first;
+        // RMB cycling can still select the original edge explicitly.
+        viewer_->set_candidate_priority([](const auto& candidate) {
+            if(candidate.kind!=zima::viewer::CandidateKind::Edge)return 1;
+            return zima::kernel::is_boolean_intersection_interval({
+                candidate.owner_id,candidate.semantic_key,{}})?0:1;
+        });
         viewer_->set_candidate_filter(
             [expected_path = instance_path,
              input_edges = std::make_shared<const decltype(input_edges)>(std::move(input_edges)),
@@ -187,7 +197,9 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
                     input_edges->contains({candidate.owner_id,candidate.semantic_key});
             }, false);
     }
-    for (const auto& group : pending_edge_treatment_groups_) {
+    for (const auto& authored_group : pending_edge_treatment_groups_) {
+        const auto group=zima::document::actual_edge_treatment_intervals(
+            authored_group);
         for (const auto& edge : group) {
             if (std::find(pending_edge_treatment_edges_.begin(),
                     pending_edge_treatment_edges_.end(), edge) ==
@@ -232,7 +244,8 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     display_groups.reserve(pending_edge_treatment_groups_.size());
     route_start_vertices.reserve(pending_edge_treatment_groups_.size());
     for (std::size_t group_index=0;group_index<pending_edge_treatment_groups_.size();++group_index) {
-        const auto& group=pending_edge_treatment_groups_[group_index];
+        const auto group=zima::document::actual_edge_treatment_intervals(
+            pending_edge_treatment_groups_[group_index]);
         std::vector<zima::kernel::ViewerEdge> display_group;
         display_group.reserve(group.size());
         for (const auto& stored : group) {
@@ -332,7 +345,8 @@ void AssemblyWorkspaceWindow::restore_edge_treatment_route(std::size_t group) {
     candidate.instance_path = path;
     // Restoration has a persisted identity, not an offered mesh-edge index.
     candidate.geometry_index = std::numeric_limits<std::size_t>::max();
-    auto route = viewer_->tangent_edge_route(candidate);
+    auto route = zima::document::edge_treatment_intervals_from_seed(
+        viewer_->tangent_edge_route(candidate),seed);
     for (auto& edge : route) edge.instance_path.clear();
     if(route.empty())route={seed};
     // Restoring one route must not duplicate edges already assigned elsewhere.

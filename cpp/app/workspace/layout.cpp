@@ -1168,8 +1168,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 hover_seed = *candidate;
                 if (hover_seed != edge_treatment_hover_seed_) {
                     std::set<zima::viewer::EdgeKey> hovered_route;
-                    for (const auto& edge :
-                         viewer_->tangent_edge_route(*candidate)) {
+                    const zima::kernel::EdgeReference seed{
+                        candidate->owner_id,candidate->semantic_key,{}};
+                    const auto route=
+                        zima::document::edge_treatment_intervals_from_seed(
+                            viewer_->tangent_edge_route(*candidate),seed);
+                    for (const auto& edge : route) {
                         hovered_route.insert(zima::viewer::edge_key(edge));
                     }
                     viewer_->set_feature_hover_edges(std::move(hovered_route));

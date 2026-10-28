@@ -29,7 +29,9 @@ implementation and selection workflow, configured with a fixed operation type.
   and stores `distance`.
 - Both store the full `edge_refs` list and mirror its first entry in legacy
   `edge_ref`.
-- All selected edges are submitted in one OCCT builder operation.
+- The effective selected intervals are first submitted in one OCCT builder
+  operation. A bounded recovery is used only when that combined operation
+  fails, as described below.
 - Apply is a transient preview during creation and updates the same feature
   during editing; OK is Apply plus commit/close.
 - A failed build keeps the last valid body and leaves Properties open.
@@ -95,27 +97,65 @@ and five-language translation contracts passed 2/2 in 11.71 seconds
 (`build/chamfer-envelope-contracts.log`). No new geometry calculation or format
 change was introduced. Linux validation remains deferred to the Linux host.
 
-## Deferred Fillet investigation (2026-10-27)
+## Bounded edge-treatment recovery (2026-10-28)
 
-The following user-observed case is recorded for investigation after the
-current Windows release and performance-redesign experiment. It is not yet a
-claim about the intended or verified current behavior.
+Three user-provided native models exposed two distinct OCCT failure modes. The
+models remain outside the repository and were read only; no project geometry was
+copied into the source tree.
 
-- Place a smaller upper box on a larger lower box so that the upper box extends
-  beyond the lower box. Filleting the exposed upper-box edge should be compared
-  with filleting that edge on the original upper solid before the body result is
-  combined. The latter construction can continue the round past the lower-box
-  boundary, while the current result-body selection can stop there.
-- In this arrangement, automatic route expansion appears to follow the wrong
-  continuation on the upper box when a rounded continuation is present. Manually
-  disabling route branches can produce the intended result. The investigation
-  must distinguish route-connectivity policy from an OCCT fillet limitation.
-- The route/branch list in Properties appears reversed relative to geometric
-  traversal: the first segment is shown last and the last segment first. Verify
-  persisted route identity and both traversal directions before changing display
-  order; a display-only correction must not reverse the selected geometric side.
+- A single source edge was valid on its standalone additive feature, but the
+  same Fillet failed after the feature had been fused into the preceding body.
+  The failure was at the later intersection endpoint, not an excessive radius.
+- Several individually valid bounded edges failed when submitted to one OCCT
+  Fillet or Chamfer builder because their endpoint patches interacted.
 
-Any correction must use representative two-box fixtures, preserve exact output
-and stable references, and cover branch selection, save/reopen, Undo/Redo and
-dependent Fillet/Chamfer regeneration. Localization review: this record adds no
-user-visible application text.
+A Boolean split interval is a real joint only when its persisted adjacent-face
+ancestry contains support owners from different source features. A surviving
+fragment bounded only by faces from one source feature remains an original edge,
+even when it is collinear with the joint. Text contained in a length-delimited
+parent reference is never mistaken for the current interval's role.
+
+At an overlapping pick the real joint is offered before the original edge. RMB
+cycling still exposes the original edge, and the selected seed determines which
+side of that choice forms the tangent route. Selecting the joint retains only its
+actual intersection intervals; selecting the original edge retains the source
+route instead. The same seed-aware route is shared by hover, confirmation and
+Restore Route. Persisted mixed routes from the earlier implementation are reduced
+per route before calculation, so preview and output use the same physical rail.
+
+The normal combined OCCT calculation remains the primary path. On failure, a
+constant single-edge Fillet immediately following an additive Feature can retain
+that standalone operand, fillet the exact authored edge there, and then fuse the
+treated operand with the real preceding body. A cold or reused native prefix
+reconstructs only the required source branch before applying the same recovery.
+For a failed constant multi-edge Fillet or multi-edge Chamfer, the kernel applies
+the persisted intersection intervals as deterministic independent patches and
+publishes one final history boundary. If an earlier patch completely consumes a
+later interval, that interval is skipped; the kernel never selects a nearby
+replacement by coordinates.
+
+Edge resolution now recognizes recursively persisted Boolean split ancestry.
+Actual split descendants take precedence over a transitional parent alias. A
+partially surviving edge is therefore treated only on its real current intervals.
+If every persisted interval has disappeared, Fillet and Chamfer publish an
+unchanged no-op boundary. Explicit history deletion remains a different workflow:
+it removes the source reference and retains the existing repair state.
+
+The available private cases passed read-only recalculation on the development
+Windows machine. The synthetic regression covers fresh and reused-prefix
+single-edge Fillet recovery, exact joint-versus-original priority for both
+Fillet and Chamfer, recursive split-parent resolution, stable public feature
+ownership, and ordinary fragment
+save/reopen, regeneration and Undo/Redo contracts. The production implementation
+still uses OCCT treatment surfaces. A future native ZIMA treatment generator can
+consume the same explicit intersection curve, two support faces and endpoint
+ancestry; that generator is not claimed by this correction.
+
+There is no native file-format or precision change. Localization review found no
+new or changed user-visible text, so the existing `cs`, `en`, `de`, `fr` and `ru`
+catalogs are unchanged. Linux execution remains deferred to the Linux host; the
+same shared C++ path is used on both platforms.
+
+The route/branch display-order observation from the original investigation is
+not changed by this geometry correction. It requires a separate UI-only audit of
+both traversal directions before any ordering change.

@@ -9,12 +9,69 @@
 #include <stdexcept>
 
 namespace zima::document {
+inline std::vector<kernel::EdgeReference> edge_treatment_intervals_from_seed(
+        const std::vector<kernel::EdgeReference>& route,
+        const kernel::EdgeReference& seed) {
+    const bool has_intersection=std::ranges::any_of(route,[](const auto& edge) {
+        return kernel::is_boolean_intersection_interval(edge);
+    });
+    if(!has_intersection)return route;
+    const bool intersection_seed=
+        kernel::is_boolean_intersection_interval(seed);
+    std::vector<kernel::EdgeReference> selected;
+    for(const auto& edge:route)
+        if(kernel::is_boolean_intersection_interval(edge)==intersection_seed)
+            selected.push_back(edge);
+    // A stale candidate must never make the offered route disappear. Keep the
+    // exact viewer route for explicit validation instead of guessing a rail.
+    return selected.empty()?route:selected;
+}
+
+inline std::vector<kernel::EdgeReference> actual_edge_treatment_intervals(
+        const std::vector<kernel::EdgeReference>& route) {
+    std::vector<kernel::EdgeReference> intersections;
+    for (const auto& reference : route)
+        if (kernel::is_boolean_intersection_interval(reference))
+            intersections.push_back(reference);
+    // A Boolean joint can consist of one or several persisted intervals. Once
+    // a route contains any such interval, tangent source edges are only route
+    // discovery context and must not be presented or treated themselves.
+    return intersections.empty() ? route : intersections;
+}
+
+inline std::vector<kernel::ViewerEdge> edge_treatment_intervals_from_seed(
+        const std::vector<kernel::ViewerEdge>& route,
+        const kernel::EdgeReference& seed) {
+    const bool has_intersection=std::ranges::any_of(route,[](const auto& edge) {
+        return kernel::is_boolean_intersection_interval(edge.reference);
+    });
+    if(!has_intersection)return route;
+    const bool intersection_seed=
+        kernel::is_boolean_intersection_interval(seed);
+    std::vector<kernel::ViewerEdge> selected;
+    for(const auto& edge:route)
+        if(kernel::is_boolean_intersection_interval(edge.reference)==
+               intersection_seed)
+            selected.push_back(edge);
+    return selected.empty()?route:selected;
+}
+
+inline std::vector<kernel::ViewerEdge> actual_edge_treatment_intervals(
+        const std::vector<kernel::ViewerEdge>& route) {
+    std::vector<kernel::ViewerEdge> intersections;
+    for (const auto& edge : route)
+        if (kernel::is_boolean_intersection_interval(edge.reference))
+            intersections.push_back(edge);
+    return intersections.empty() ? route : intersections;
+}
+
 inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
         const document::EdgeTreatmentParameters& parameters, std::size_t route,
         std::optional<std::size_t> segment, const kernel::ViewerMesh& input) {
     std::vector<kernel::ViewerEdge> result;
     if (route>=parameters.routes.size()) return result;
-    const auto& selected=parameters.routes[route];
+    const auto selected=segment ? parameters.routes[route] :
+        actual_edge_treatment_intervals(parameters.routes[route]);
     for (std::size_t i=0;i<selected.size();++i) {
         if (segment && i!=*segment) continue;
         for (const auto& edge : input.edges)

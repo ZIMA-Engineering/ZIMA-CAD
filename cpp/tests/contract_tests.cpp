@@ -1257,6 +1257,81 @@ int main() {
             require(zima::document::treatment_selection_wire(parameters,0,std::nullopt,input).size()==4 &&
                 zima::document::treatment_selection_wire(parameters,0,0,input).front().reference==refs[2],
                 "Treatment Tree wire does not distinguish route and segment");
+            auto boolean_route=parameters;
+            const auto encoded_reference=[](const auto& reference) {
+                return std::to_string(reference.owner_id.size())+":"+
+                    reference.owner_id+
+                    std::to_string(reference.semantic_key.size())+":"+
+                    reference.semantic_key+
+                    std::to_string(reference.instance_path.size())+":"+
+                    reference.instance_path;
+            };
+            const auto encoded_set=[](const auto& values) {
+                std::string result;
+                for(const auto& value:values)
+                    result+=std::to_string(value.size())+":"+value;
+                return result;
+            };
+            const auto face_token=[&](std::string owner,std::string key) {
+                return encoded_reference(zima::kernel::FaceReference{
+                    std::move(owner),std::move(key),{}});
+            };
+            const auto split_key=[&](const auto& parent,
+                    std::vector<std::string> supports) {
+                return "boolean:add:split-edge:from:"+
+                    encoded_reference(parent)+":between:"+
+                    encoded_set(supports)+":ends:";
+            };
+            auto first_boolean=refs[0];
+            first_boolean.semantic_key=split_key(refs[0],{
+                face_token("first-feature","face-a"),
+                face_token("second-feature","face-b")});
+            auto source_continuation=refs[1];
+            source_continuation.semantic_key=split_key(refs[0],{
+                face_token("first-feature","face-a"),
+                face_token("first-feature","face-c")});
+            auto second_boolean=refs[1];
+            second_boolean.semantic_key=
+                "boolean:subtract:intersection:between:";
+            input.edges.push_back(input.edges[0]);
+            input.edges.back().reference=first_boolean;
+            input.edges.push_back(input.edges[1]);
+            input.edges.back().reference=second_boolean;
+            input.edges.push_back(input.edges[1]);
+            input.edges.back().reference=source_continuation;
+            boolean_route.routes={{refs[2],source_continuation,
+                first_boolean,second_boolean,refs[3]}};
+            const auto actual_wire=zima::document::treatment_selection_wire(
+                boolean_route,0,std::nullopt,input);
+            require(actual_wire.size()==2&&
+                    actual_wire[0].reference==first_boolean&&
+                    actual_wire[1].reference==second_boolean&&
+                    zima::document::treatment_selection_wire(
+                        boolean_route,0,0,input).front().reference==refs[2],
+                "Treatment route preview retained tangent source edges beside the actual Boolean intersection");
+            const auto intersection_choice=
+                zima::document::edge_treatment_intervals_from_seed(
+                    boolean_route.routes.front(),first_boolean);
+            const auto source_choice=
+                zima::document::edge_treatment_intervals_from_seed(
+                    boolean_route.routes.front(),source_continuation);
+            require(intersection_choice.size()==2&&
+                    std::ranges::find(intersection_choice,first_boolean)!=
+                        intersection_choice.end()&&
+                    source_choice.size()==3&&
+                    std::ranges::find(source_choice,source_continuation)!=
+                        source_choice.end()&&
+                    std::ranges::none_of(source_choice,[](const auto& edge) {
+                        return zima::kernel::is_boolean_intersection_interval(
+                            edge);
+                    }),
+                "Treatment hover did not preserve the explicit intersection/source-edge choice");
+            boolean_route.routes={{refs[2],first_boolean,refs[3]}};
+            const auto partial_wire=zima::document::treatment_selection_wire(
+                boolean_route,0,std::nullopt,input);
+            require(partial_wire.size()==1&&
+                    partial_wire.front().reference==first_boolean,
+                "Treatment route preview did not limit a partial Boolean intersection to its one surviving interval");
             zima::document::remove_treatment_selection(parameters,0,0,input);
             require(parameters.routes.size()==2 && parameters.routes[0].size()==2 &&
                 parameters.routes[1].size()==1 && parameters.primary_size==2 && parameters.secondary_size==4 &&

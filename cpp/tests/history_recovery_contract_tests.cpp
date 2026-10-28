@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
         kernel::OcctKernel kernel;
         std::vector<kernel::HistoryOperation> operations{
             {"first", zima::test::ProfilePrism{10, 10, 10}},
-            {"broken", kernel::FilletRequest{{{"removed", "missing-edge", {}}}, 1}},
+            {"broken", kernel::FilletRequest{{{"first", "generated:lower-right", {}}}, 0}},
             {"later", zima::test::ProfilePrism{5, 5, 5}}};
         auto results = kernel.evaluate_history_recovering(operations);
         require(results.size() == 3, "Recovery lost history boundaries");
@@ -31,6 +31,19 @@ int main(int argc, char** argv) {
         require(rejected, "Strict evaluation accepted a failed cache");
         const auto packet = document::load_body_result(document::serialize_body_result(results.back()));
         require(packet.calculation_errors == results.back().calculation_errors, "Diagnostics did not persist");
+        auto absent = operations;
+        absent[1].primitive = kernel::FilletRequest{
+            {{"removed", "missing-edge", {}}}, 1};
+        const auto absent_results = kernel.evaluate_history(absent);
+        require(absent_results.size() == 3 &&
+                absent_results[1].calculation_errors.empty() &&
+                std::abs(absent_results[1].volume -
+                    absent_results[0].volume) < 1e-8,
+            "A treatment with no surviving source edge was not an unchanged no-op boundary");
+        const auto absent_reused =
+            kernel.evaluate_history_incremental(absent, absent_results);
+        require(absent_reused.back().calculation_errors.empty(),
+            "Incremental evaluation rejected a persisted no-op treatment");
         auto repaired = operations;
         repaired[1].primitive = kernel::FilletRequest{{{"first", "generated:lower-right", {}}}, 1};
         auto recalculated = kernel.evaluate_history_recovering(repaired, results);
@@ -62,7 +75,8 @@ int main(int argc, char** argv) {
         recalculated = kernel.evaluate_history_recovering(operations, results);
         require(recalculated.back().calculation_errors.empty(), "Body repair reused failed input/output cache");
         auto combined = operations;
-        combined[1].primitive = kernel::FilletRequest{{{"removed", "missing-edge", {}}}, 1};
+        combined[1].primitive = kernel::FilletRequest{
+            {{"first", "generated:lower-right", {}}}, 0};
         kernel::HistoryOperation boolean{"combine", kernel::FeatureGroupRequest{}};
         boolean.body.id = "combined";
         boolean.body.combination = kernel::BodyCombination::Subtract;

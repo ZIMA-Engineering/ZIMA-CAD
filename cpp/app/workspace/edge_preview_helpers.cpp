@@ -259,7 +259,8 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
     if (!std::isfinite(parameters.primary_size) ||
         parameters.primary_size <= 1.0e-9) return result;
     for (std::size_t group_index = 0; group_index < groups.size(); ++group_index) {
-        const auto& group = groups[group_index];
+        const auto group = zima::document::actual_edge_treatment_intervals(
+            groups[group_index]);
         for (auto path : ordered_edge_treatment_preview_paths(group)) {
             if (path.edges.empty()) continue;
             double path_length{};

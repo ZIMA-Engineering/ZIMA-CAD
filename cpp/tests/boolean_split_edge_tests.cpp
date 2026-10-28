@@ -223,6 +223,36 @@ void split_again(const fs::path& directory) {
         if (edge.reference.owner_id == cutter.id && longitudinal(edge) &&
             std::abs(edge.points.front().x - a.x) < 1e-6 && std::abs(edge.points.front().z - a.z) < 1e-6) children.push_back(edge);
     require(children.size() == 2, "Second cut did not retain both fragment children");
+    const auto verify_parent_resolution=[&](bool fillet) {
+        auto operations=f.state().session.document().kernel_operations();
+        const std::string owner=fillet
+            ?"split-parent-fillet":"split-parent-chamfer";
+        kernel::HistoryOperation treatment;
+        if(fillet)
+            treatment={owner,
+                kernel::FilletRequest{{original},.2},
+                kernel::BooleanOperation::Add};
+        else
+            treatment={owner,
+                kernel::ChamferRequest{{original},.2},
+                kernel::BooleanOperation::Add};
+        treatment.body=operations.back().body;
+        treatment.boolean_tolerance=operations.back().boolean_tolerance;
+        treatment.mesh_deflection=operations.back().mesh_deflection;
+        operations.push_back(std::move(treatment));
+        kernel::OcctKernel rebuilt;
+        const auto treated=rebuilt.evaluate_history(operations);
+        require(treated.size()==operations.size()&&
+            treated.back().calculation_errors.empty()&&
+            std::abs(treated.back().volume-f.volume())>.001,
+            "A persisted split parent did not resolve to its actual surviving intervals");
+        require(std::ranges::any_of(
+            treated.back().mesh.triangle_references,
+            [&](const auto& face) {return face.owner_id==owner;}),
+            "A treatment of split-parent descendants lost its feature identity");
+    };
+    verify_parent_resolution(true);
+    verify_parent_resolution(false);
     for (const auto& child : children) {
         near(*child.measured_length, 2);
         require(child.reference.semantic_key.find(original.semantic_key) != std::string::npos, "Second split lost recoverable parent ancestry");
@@ -234,7 +264,164 @@ void split_again(const fs::path& directory) {
     const auto rejected = f.host.execute({{"command", "chamfer.create"}, {"arguments", stale_args}});
     require(!rejected.ok && rejected.code == "invalid_reference" && f.state().session.revision() == revision,
         "An obsolete parent selected a child or committed a partial treatment");
-    std::cout << "Repeated split: child ancestry, sibling isolation and obsolete-parent rejection passed\n";
+    std::cout << "Repeated split: child ancestry, sibling isolation, split-parent Fillet/Chamfer resolution and obsolete-parent creation rejection passed\n";
+}
+
+void bounded_fillet_recovery() {
+    const auto additive=[](std::string owner,test::ProfilePrism prism) {
+        kernel::FeatureGroupRequest group;
+        group.children.emplace_back(
+            static_cast<kernel::ExtrusionRequest>(prism));
+        return kernel::HistoryOperation{
+            std::move(owner),std::move(group),
+            kernel::BooleanOperation::Add};
+    };
+    const auto upper=additive("bounded-upper",
+        test::ProfilePrism{100,100,50});
+    auto lower_prism=test::ProfilePrism{100,100,-50};
+    lower_prism.translation={25,25,0};
+    const auto lower=additive("bounded-lower",lower_prism);
+    kernel::OcctKernel input_kernel;
+    const std::vector<kernel::HistoryOperation> additive_history{upper,lower};
+    const auto input=input_kernel.evaluate_history(additive_history);
+    require(input.size()==2&&input.back().calculation_errors.empty(),
+        "Bounded Fillet fixture did not calculate its Add input");
+    const auto vertical=std::ranges::find_if(input.back().mesh.edges,
+        [](const auto& edge) {
+            if(edge.reference.owner_id!="bounded-lower"||
+               edge.points.size()<2)return false;
+            const auto& a=edge.points.front();
+            const auto& b=edge.points.back();
+            return std::abs(a.x-25)<1.0e-6&&
+                std::abs(b.x-25)<1.0e-6&&
+                std::abs(a.y-125)<1.0e-6&&
+                std::abs(b.y-125)<1.0e-6&&
+                std::abs(std::abs(a.z-b.z)-50)<1.0e-6;
+        });
+    require(vertical!=input.back().mesh.edges.end(),
+        "Bounded Fillet fixture has no lower source corner");
+    auto local_history=additive_history;
+    local_history.push_back({"bounded-fillet",
+        kernel::FilletRequest{{vertical->reference},30},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel fresh;
+    const auto local=fresh.evaluate_history(local_history);
+    require(local.size()==3&&local.back().calculation_errors.empty()&&
+        local.back().volume>0&&local.back().volume<input.back().volume,
+        "A Fillet limited by a later Add endpoint did not recover on its source branch");
+    require(std::ranges::any_of(local.back().mesh.triangle_references,
+        [](const auto& face) {return face.owner_id=="bounded-fillet";}),
+        "Bounded source Fillet lost its generated face identity");
+    kernel::OcctKernel incremental_kernel;
+    const auto incremental=incremental_kernel.evaluate_history_incremental(
+        local_history,input);
+    require(incremental.size()==local.size()&&
+        incremental.back().calculation_errors.empty(),
+        "Bounded source Fillet failed from a reused native prefix");
+    near(incremental.back().volume,local.back().volume,1.0e-5);
+
+    std::vector<kernel::EdgeReference> split_route;
+    for(const auto& edge:input.back().mesh.edges) {
+        if(edge.reference.owner_id!="bounded-lower"||
+           edge.points.size()<2)continue;
+        const auto& a=edge.points.front();
+        const auto& b=edge.points.back();
+        if(std::abs(a.x-25)>1.0e-6||std::abs(b.x-25)>1.0e-6||
+           std::abs(a.z)>1.0e-6||std::abs(b.z)>1.0e-6||
+           std::abs(a.y-b.y)<1.0)continue;
+        const double length=edge.measured_length.value_or(0);
+        if(std::abs(length-25)<1.0e-5||std::abs(length-75)<1.0e-5)
+            split_route.push_back(edge.reference);
+    }
+    require(split_route.size()==2,
+        "Bounded Fillet fixture did not retain the joint and source-edge fragments");
+    const auto actual=std::ranges::find_if(split_route,
+        zima::kernel::is_boolean_intersection_interval);
+    const auto continuation=std::ranges::find_if(split_route,
+        [](const auto& edge) {
+            return !zima::kernel::is_boolean_intersection_interval(edge);
+        });
+    require(actual!=split_route.end()&&continuation!=split_route.end()&&
+            std::count_if(split_route.begin(),split_route.end(),
+                zima::kernel::is_boolean_intersection_interval)==1,
+        "Boolean joint classification did not distinguish the cross-feature interval from the original continuation");
+    auto multi_history=additive_history;
+    multi_history.push_back({"bounded-multi-fillet",
+        kernel::FilletRequest{{*actual},6},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel multi_kernel;
+    const auto multi=multi_kernel.evaluate_history(multi_history);
+    require(multi.size()==3&&multi.back().calculation_errors.empty()&&
+        multi.back().volume>0&&
+        std::abs(multi.back().volume-input.back().volume)>.01,
+        "The bounded Boolean-intersection Fillet did not calculate");
+    require(std::ranges::any_of(multi.back().mesh.triangle_references,
+        [](const auto& face) {
+            return face.owner_id=="bounded-multi-fillet";
+        }),"Bounded multi-Fillet lost its public feature identity");
+    auto discovered_route=std::vector<kernel::EdgeReference>{
+        *actual,*continuation};
+    discovered_route.push_back(vertical->reference);
+    auto discovered_fillet_history=additive_history;
+    discovered_fillet_history.push_back({"bounded-multi-fillet",
+        kernel::FilletRequest{discovered_route,6},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel discovered_fillet_kernel;
+    const auto discovered_fillet=discovered_fillet_kernel.evaluate_history(
+        discovered_fillet_history);
+    require(discovered_fillet.size()==3&&
+        discovered_fillet.back().calculation_errors.empty()&&
+        discovered_fillet.back().mesh.vertices==multi.back().mesh.vertices&&
+        discovered_fillet.back().mesh.triangles==multi.back().mesh.triangles,
+        "Fillet treated a tangent source edge beside the actual Boolean intersection intervals");
+    auto source_fillet_history=additive_history;
+    source_fillet_history.push_back({"bounded-source-fragment-fillet",
+        kernel::FilletRequest{{*continuation},6},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel source_fillet_kernel;
+    const auto source_fillet=source_fillet_kernel.evaluate_history(
+        source_fillet_history);
+    require(source_fillet.size()==3&&
+            source_fillet.back().calculation_errors.empty()&&
+            (source_fillet.back().mesh.vertices!=multi.back().mesh.vertices||
+             source_fillet.back().mesh.triangles!=multi.back().mesh.triangles),
+        "An explicitly selected original edge fragment was replaced by the adjacent Boolean intersection");
+    auto chamfer_history=additive_history;
+    chamfer_history.push_back({"bounded-multi-chamfer",
+        kernel::ChamferRequest{{*actual},.2},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel chamfer_kernel;
+    const auto chamfer=chamfer_kernel.evaluate_history(chamfer_history);
+    require(chamfer.size()==3&&chamfer.back().calculation_errors.empty(),
+        "Bounded Chamfer fixture did not calculate its intersection intervals");
+    auto discovered_chamfer_history=additive_history;
+    discovered_chamfer_history.push_back({"bounded-multi-chamfer",
+        kernel::ChamferRequest{discovered_route,.2},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel discovered_chamfer_kernel;
+    const auto discovered_chamfer=
+        discovered_chamfer_kernel.evaluate_history(
+            discovered_chamfer_history);
+    require(discovered_chamfer.size()==3&&
+        discovered_chamfer.back().calculation_errors.empty()&&
+        discovered_chamfer.back().mesh.vertices==
+            chamfer.back().mesh.vertices&&
+        discovered_chamfer.back().mesh.triangles==
+            chamfer.back().mesh.triangles,
+        "Chamfer treated a tangent source edge beside the actual Boolean intersection intervals");
+    auto source_chamfer_history=additive_history;
+    source_chamfer_history.push_back({"bounded-source-fragment-chamfer",
+        kernel::ChamferRequest{{*continuation},.2},
+        kernel::BooleanOperation::Add});
+    kernel::OcctKernel source_chamfer_kernel;
+    const auto source_chamfer=source_chamfer_kernel.evaluate_history(
+        source_chamfer_history);
+    require(source_chamfer.size()==3&&
+            source_chamfer.back().calculation_errors.empty()&&
+            (source_chamfer.back().mesh.vertices!=chamfer.back().mesh.vertices||
+             source_chamfer.back().mesh.triangles!=chamfer.back().mesh.triangles),
+        "An explicitly selected original edge fragment was replaced by the adjacent Boolean intersection for Chamfer");
+    std::cout<<"Bounded treatments: source recovery, intersection/source priority, Fillet/Chamfer filtering and reused prefix passed\n";
 }
 
 void assembly_targets(const fs::path& directory) {
@@ -431,8 +618,13 @@ int main(int argc, char** argv) { try {
         form_case(directory);
         require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
     }
+    if(argc>1&&std::string(argv[1])=="--bounded-only") {
+        bounded_fillet_recovery();
+        require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
+    }
     for (const auto* name : {"open", "closed", "offset", "shell", "three-solids", "solid"}) exercise(directory, name);
     split_again(directory);
+    bounded_fillet_recovery();
     if(argc<2||std::string(argv[1])!="--part-only")assembly_targets(directory);
     require(directory.parent_path() == root, "Invalid test cleanup path"); fs::remove_all(directory);
     return 0;

@@ -2354,6 +2354,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         viewer_->set_extent_manipulator_callbacks({}, {}, {});
         viewer_->set_feature_preview_owners({});
         viewer_->set_candidate_filter({});
+        viewer_->set_candidate_priority({});
         viewer_->set_constraint_reference_highlights({}, {});
         viewer_->set_edge_treatment_selection_edges({});
         viewer_->set_feature_hover_edges({});
