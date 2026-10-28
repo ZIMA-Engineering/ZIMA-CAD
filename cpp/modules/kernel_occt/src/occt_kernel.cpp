@@ -6271,7 +6271,8 @@ BodyResult make_result(
     // measurements below: downstream references still require those values.
     // Cheap analytic properties may be completed immediately. Adaptive surface
     // integration is optional analysis and stays off the ordinary editing path.
-    const bool adaptive_analysis=calculate_body_properties&&aggregate_property_demand==AggregatePropertyDemand::Deferred&&[&] {
+    const bool adaptive_analysis=calculate_body_properties&&
+        aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive&&[&] {
         for(TopExp_Explorer face(shape,TopAbs_FACE);face.More();face.Next()) {
             const auto type=BRepAdaptor_Surface(TopoDS::Face(face.Current())).GetType();
             if(type==GeomAbs_BSplineSurface||type==GeomAbs_BezierSurface||
@@ -8104,7 +8105,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     if (previous_boundaries.size() == operations.size() &&
         previous_boundaries.back().calculation_errors.empty() &&
         previous_boundaries.back().source_fingerprint == history_fingerprint(operations, operations.size()) &&
-        (aggregate_property_demand==AggregatePropertyDemand::Deferred ||
+        ((aggregate_property_demand==AggregatePropertyDemand::Deferred||
+            aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive) ||
             (aggregate_property_demand==AggregatePropertyDemand::Final&&previous_boundaries.back().physical_properties_current&&
                 std::ranges::all_of(previous_boundaries.back().body_outputs,[](const auto& item){return item.second->physical_properties_current;})) ||
             (aggregate_property_demand==AggregatePropertyDemand::All&&std::ranges::all_of(previous_boundaries,
@@ -8245,7 +8247,9 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         const auto old_input = previous.body_inputs.find(branch.scope.id);
         if (old_input != previous.body_inputs.end() && old_input->second->calculation_errors.empty() &&
             local.back().calculation_errors.empty() && old_input->second->source_fingerprint == input_key &&
-            (aggregate_property_demand==AggregatePropertyDemand::Deferred||old_input->second->physical_properties_current)) {
+            (aggregate_property_demand==AggregatePropertyDemand::Deferred||
+                aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive||
+                old_input->second->physical_properties_current)) {
             input_snapshot = old_input->second;
         } else {
             auto placed = local.back();
@@ -8386,7 +8390,9 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             if (!recover_errors) throw;
             output = preserve_failed_inputs(error.what());
         }
-        if(aggregate_property_demand!=AggregatePropertyDemand::Deferred&&!output->physical_properties_current) {
+        if(aggregate_property_demand!=AggregatePropertyDemand::Deferred&&
+                aggregate_property_demand!=AggregatePropertyDemand::DeferredAdaptive&&
+                !output->physical_properties_current) {
             auto analyzed=output.get();ensure_body_properties(analyzed);output=std::move(analyzed);
         }
         document.calculation_errors.insert(output->calculation_errors.begin(), output->calculation_errors.end());
@@ -8912,7 +8918,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const std::vector<TopoDS_Shape>& hidden = {}, bool calculate_body_properties = true) {
                 const bool retain_analysis_solid=calculate_body_properties;
                 calculate_body_properties=calculate_body_properties&&
-                    (aggregate_property_demand==AggregatePropertyDemand::All||aggregate_property_demand==AggregatePropertyDemand::Deferred||
+                    (aggregate_property_demand==AggregatePropertyDemand::All||
+                    aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive||
                     (aggregate_property_demand==AggregatePropertyDemand::Final&&operation_index+1==operations.size()));
                 const bool trace=std::getenv("ZIMA_CPP_CALC_PROFILE")!=nullptr;
                 if(trace)std::fprintf(stderr,"Kernel packet count=%zu index=%zu owner=%s properties=%d\n",

@@ -10,7 +10,14 @@ struct SolidStraighteningPlan;
 class StepSourceDocument;
 struct FacePlaneIntersectionRequest;
 
-enum class AggregatePropertyDemand { All, Final, Deferred };
+enum class AggregatePropertyDemand {
+    All,
+    Final,
+    Deferred,
+    // Preserve the established immediate path for cheap analytic shapes while
+    // leaving adaptive surface integration to background analysis.
+    DeferredAdaptive
+};
 // Explicit calculation policy only; no viewer/selection callbacks install it.
 class AggregatePropertyScope final {
 public:

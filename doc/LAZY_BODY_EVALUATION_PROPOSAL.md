@@ -7,6 +7,21 @@ This document records the optimization direction agreed for investigation on
 Any persistence change still requires the separate format review, conversion
 plan and verification required by the project rules.
 
+### 2026-10-28 validation outcome
+
+An isolated ordered-section experiment initially appeared to make one
+representative Add block substantially faster while retaining the downstream
+Fillet edges. A later production-route trial failed both required gates: it took
+14.626 seconds versus 11.329 seconds sequentially, and the following Fillet had
+non-zero two-way Boolean differences of approximately 450.9 and 1856.7 cubic
+model units. That implementation was removed and is not a product path.
+
+This proposal therefore remains research direction only. The next experiment
+must preserve every authored intermediate boundary required by actual production
+consumers, measure the complete publisher and reference route, and fall back to
+sequential evaluation whenever equivalence is not proven. No native-format
+change is introduced or authorized by this document.
+
 ## Objective
 
 Avoid constructing and caching a complete sequential Boolean result after every

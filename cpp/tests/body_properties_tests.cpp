@@ -49,6 +49,27 @@ void geometry(const kernel::OcctKernel& kernel) {
 void deferred_analysis(const kernel::OcctKernel& kernel) {
     using E=kernel::ExtrusionRequest;
     auto request=zima::test::rectangular_request(10,8,6);
+    const std::vector<kernel::HistoryOperation> analytic_operations{{"pending-analytic-box",request}};
+    const auto analytic_complete=kernel.evaluate_history(analytic_operations).back();
+    kernel::BodyResult analytic_pending;
+    {
+        kernel::AggregatePropertyScope scope(kernel::AggregatePropertyDemand::Deferred);
+        analytic_pending=kernel.evaluate_history(analytic_operations).back();
+    }
+    check(!analytic_pending.physical_properties_current&&analytic_pending.has_solid()&&
+            !analytic_pending.volume_integrals&&!analytic_pending.surface_centroid,
+        "Analytic aggregate analysis was not deferred or lost solid classification");
+    const auto analytic_shape=analytic_pending.kernel_shape.get();
+    const auto analytic_faces=analytic_pending.mesh.triangle_references;
+    kernel::OcctKernel analytic_worker;analytic_worker.ensure_body_properties(analytic_pending);
+    check(analytic_pending.physical_properties_current&&
+            analytic_pending.kernel_shape.get()==analytic_shape&&
+            analytic_pending.mesh.triangle_references==analytic_faces,
+        "Deferred analytic analysis changed geometry or identity");
+    near(analytic_pending.volume,analytic_complete.volume,"Deferred analytic volume");
+    near(analytic_pending.surface_area,analytic_complete.surface_area,"Deferred analytic area");
+    for(int i=0;i<9;++i)near(analytic_pending.volume_integrals->inertia[i],
+        analytic_complete.volume_integrals->inertia[i],"Deferred analytic tensor");
     E::BSplineCurve bottom;bottom.start={0,0,0};bottom.end={10,0,0};
     bottom.control_points={{0,0,0},{5,0,0},{10,0,0}};bottom.degree=2;
     request.outer_profile=E::CurvedProfile{{bottom,E::LineCurve{{10,0,0},{10,8,0}},
@@ -374,7 +395,10 @@ void centroid_placement(const kernel::OcctKernel& kernel,const std::filesystem::
     document::BodyHistoryGraph graph;const auto body=graph.create_body("Centroid source");graph.insert({document::PartHistoryKind::Feature,source.id});
     auto definition=*graph.find(body);definition.scope.placement.x=100;definition.scope.placement.rotation_z=definition.scope.placement.absolute_rotation_z=90;graph.update_body(definition);
     doc.set_body_history(graph);
-    auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc);
+    workspace::PartCalculationPolicy initial_analysis;
+    initial_analysis.refresh_physical_properties=true;
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,doc,nullptr,initial_analysis);
     document::BodyProperties row;row.id="centroid-driver";row.name="Driver";row.body_id=body;row.after_object_id=source.id;row.rotation_degrees={0,0,90};
     row=document::evaluate_body_properties(doc,calculated,row);doc.body_properties={row};
     const auto centroid=row.id+":origin";

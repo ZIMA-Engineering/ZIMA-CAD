@@ -484,7 +484,6 @@ void Workspace::refresh_source_geometry() {
             zima::assembly::AssemblyDocument nested;
             std::string source_stamp="assembly-display:"+component.source_document_id+":";
             if(auto* open=open_source) {
-                source_stamp+="open:"+std::to_string(open->session.revision());
                 nested=open->session.document();
                 file=open->path;
                 native_assembly_cache_.erase(source_key);
@@ -492,6 +491,12 @@ void Workspace::refresh_source_geometry() {
                     if(self(self,nested,file))open->session.update_source_geometry(nested);
                     refreshed_open_documents.insert(nested.document_id);
                 }
+                // Source display/analysis refresh is deliberately not an Undo
+                // revision. Include its generation after the recursive update
+                // so a parent cannot reuse physical analysis from older child
+                // geometry under the same authored Assembly revision.
+                source_stamp+="open:"+std::to_string(open->session.revision())+
+                    ":generation:"+std::to_string(open->session.data_generation());
             } else {
                 const auto* parent=lookup_assembly(parent_id);
                 if(!parent&&(file.empty()||!std::filesystem::is_regular_file(file))) {

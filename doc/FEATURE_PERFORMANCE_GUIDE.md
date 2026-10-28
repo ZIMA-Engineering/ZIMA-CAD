@@ -164,6 +164,12 @@ separately from those checks. The finite large-import evidence is in the
 - [Native viewer cache and redesign gate](performance/20261027-native-cache-close-and-redesign-gate.md):
   compact exact display packets, detach large closed documents before destruction,
   and keep a proposed semantic/topology redesign behind a measured tenfold gate.
+- [Background physical analysis](performance/20261028-background-analysis-and-history-cache.md):
+  keep exact aggregate properties outside geometry-critical work when they are
+  output-only, but hydrate nested sources and invalidate derived values from the
+  calculated data generation. The linked batch-history experiment also shows
+  why an isolated speedup must be rejected when the production route is slower
+  or a downstream Boolean difference is non-zero.
 
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

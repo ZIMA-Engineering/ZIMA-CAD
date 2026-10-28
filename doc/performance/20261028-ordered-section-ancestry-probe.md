@@ -1,4 +1,12 @@
-# Ordered Boolean section ancestry probe (2026-10-28)
+# Ordered Boolean section ancestry probe (superseded, 2026-10-28)
+
+## Status
+
+This report preserves an isolated research result. A later production-route
+trial contradicted its performance and downstream-geometry conclusions. The
+candidate is rejected and no batch evaluator from this probe is present in the
+product. The full/partial/absent identity contract remains useful input to a
+future design, but every result below must be read in that superseded context.
 
 ## Purpose
 
@@ -75,10 +83,13 @@ Windows Release build, native C++ implementation, OCCT 8.0.1:
 | Hot rebuild of one changed tool | 0.193-0.224 s |
 | Hot candidate total with cached sibling tools | 2.154-2.333 s |
 
-The paired exact runs make the cold phase total 8.6-9.7 times faster than the
-sequential block. The measured one-tool edit case is 10.2-11.3 times faster.
-These are measurements of this representative history, not general performance
-promises.
+In this isolated harness the paired runs made the listed phase total 8.6-9.7
+times faster than its separately instrumented sequential block, and the
+one-tool edit case appeared 10.2-11.3 times faster. The harness did not reproduce
+all production publication and downstream-consumer costs. A later
+production-route measurement took 14.626 seconds for the candidate versus
+11.329 seconds sequentially, so the apparent speedup did not survive the
+production-equivalent gate.
 
 The sequential boundary has 920 faces and 2,344 edges; the same-domain batch
 boundary has 824 faces and 2,056 edges. This is a topological simplification,
@@ -86,28 +97,26 @@ not a geometry change. Raw independently integrated volume values differ by
 0.369 cubic model units because the two topologies use different integration
 partitions. The authoritative two-way Boolean difference is zero.
 
-## Exact downstream verification
+## Downstream verification outcome
 
-The final probe performed two-way Boolean-difference checks after each tested
-stage. Every listed difference was exactly zero:
+The isolated publisher reported zero two-way Boolean difference through its
+instrumented stages. The production-route trial did not confirm that result.
+After the candidate Add block, the following Fillet produced non-zero Boolean
+differences: expected-minus-candidate was approximately 450.9 cubic model units
+and candidate-minus-expected approximately 1856.7 cubic model units. This is a
+geometry failure, not an acceptable topological rearrangement.
 
-| Stage | Expected minus candidate | Candidate minus expected |
-| --- | ---: | ---: |
-| 17-operation Add block | 0 | 0 |
-| Two following Fillets plus next Add group | 0 | 0 |
-| Four following Subtract operations batched once | 0 | 0 |
-| Final following Add group | 0 | 0 |
-
-The downstream batch treatment completed without an identity or calculation
-error. A second localized-Fillet construction also produced zero two-way
-difference, supporting a future independent treatment branch when only a small
-subset of batch tools participates in a Fillet.
+The most likely lesson is that preserving selected section-edge ancestry alone
+does not reproduce every authored intermediate boundary consumed by later
+treatments. A future attempt must compare each real production consumer against
+the sequential boundary and include the complete publisher, unification and
+reference-rebinding route in its timing. The failed candidate was removed rather
+than retained behind a production switch.
 
 ## Remaining production gates
 
-This result proves the central geometry and downstream-Fillet hypothesis on one
-representative model, but it is not yet safe to replace the production linear
-evaluator:
+The isolated result did not pass the production gate. Reconsideration requires
+all of the following before any replacement of the linear evaluator:
 
 - 96 final faces remain deliberately unresolved by the research publisher,
   including non-planar multi-parent cases. General face, edge and vertex
