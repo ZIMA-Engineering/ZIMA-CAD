@@ -297,6 +297,51 @@ void mirrored_rounded_thin(const kernel::OcctKernel& kernel) {
     std::cout<<"Rounded/polygon Thin Extrusion and Sweep: both windings, directions, all three thickness sides, analytical volume and actual extrusion material bounds passed\n";
 }
 
+void collapsed_rounded_thin(const kernel::OcctKernel& kernel) {
+    for(const bool mirrored:{false,true})for(const bool reverse_normal:{false,true}) {
+        kernel::ExtrusionRequest request;request.direction={reverse_normal?-10.:10.,0,0};
+        request.wall=kernel::ProfileWall{0.,5.,{}};
+        const auto point=[&](double x,double y){return kernel::Vec3{0,(mirrored?-1:1)*(700+x),y};};
+        kernel::ExtrusionRequest::CurvedProfile profile;
+        const auto line=[&](double a,double b,double c,double d){profile.curves.push_back(kernel::ExtrusionRequest::LineCurve{point(a,b),point(c,d)});};
+        const auto arc=[&](double a,double b,double c,double d,double e,double f){profile.curves.push_back(kernel::ExtrusionRequest::ArcCurve{point(a,b),point(c,d),point(e,f)});};
+        const double t=5/std::sqrt(2.);
+        line(5,0,45,0);arc(45,0,45+t,5-t,50,5);line(50,5,50,45);arc(50,45,45+t,45+t,45,50);
+        line(45,50,5,50);arc(5,50,5-t,45+t,0,45);line(0,45,0,5);arc(0,5,5-t,5-t,5,0);
+        request.outer_profile=profile;request.profile_region_id="collapse-region";request.outer_boundary_id="collapse-loop";
+        for(int i=0;i<8;++i){request.outer_edge_source_ids.push_back("curve-"+std::to_string(i));request.outer_vertex_source_ids.push_back("point-"+std::to_string(i));}
+
+        const auto body=kernel.evaluate_history({{"collapsed-rounded",request,kernel::BooleanOperation::Add}}).back();
+        const double outer_area=2500-(4-std::numbers::pi)*25;
+        const double inner_area=40*40;
+        near(body.volume,(outer_area-inner_area)*10);
+        check(body.calculation_errors.empty(),"Exact-radius Thin offset failed");
+        const auto original_faces=faces(body);
+        const auto repeated=kernel.evaluate_history({{"collapsed-rounded",request,kernel::BooleanOperation::Add}}).back();
+        check(faces(repeated)==original_faces,"Exact-radius Thin offset changed stable face identities");
+
+        kernel::Sweep3DRequest sweep;sweep.thin=true;sweep.thin_first=0.;sweep.thin_second=5.;
+        sweep.path_points={{0,0,0},request.direction};sweep.path_point_ids={"start","end"};
+        sweep.path_segments.push_back({"guide",{0,0,0},request.direction});
+        kernel::Sweep3DRequest::Section section;section.profile_id="section";section.point_id="start";
+        section.profile_normal={reverse_normal?-1.:1.,0,0};section.profile.region_id=request.profile_region_id;
+        section.profile.outer_boundary_id=request.outer_boundary_id;section.profile.outer_profile=request.outer_profile;
+        section.profile.outer_edge_source_ids=request.outer_edge_source_ids;section.profile.outer_vertex_source_ids=request.outer_vertex_source_ids;
+        sweep.sections={section};
+        auto swept=kernel.evaluate_history({{"collapsed-rounded-sweep",sweep,kernel::BooleanOperation::Add}}).back();
+        kernel.ensure_body_properties(swept);near(swept.volume,(outer_area-inner_area)*10);
+        check(swept.calculation_errors.empty(),"Dependent exact-radius Thin Sweep failed");
+
+        request.wall->second_offset=5.01;
+        const auto beyond_radius=kernel.evaluate_history({{"beyond-collapsed-rounded",request,kernel::BooleanOperation::Add}}).back();
+        check(beyond_radius.volume>0&&beyond_radius.calculation_errors.empty(),"Valid Thin offset beyond the corner radius failed");
+        request.wall->second_offset=25.01;
+        bool rejected=false;try{static_cast<void>(kernel.evaluate_history({{"closed-rounded",request,kernel::BooleanOperation::Add}}));}catch(const std::exception&){rejected=true;}
+        check(rejected,"Thin offset beyond the profile inradius was accepted");
+    }
+    std::cout<<"Exact-radius Thin corner collapse: both windings and directions, Extrusion/Sweep volume, stable identities, continued valid offset and inradius rejection passed\n";
+}
+
 void supplied_extrusion(const kernel::OcctKernel& kernel,const char* source) {
     const auto part=document::PartDocument::load(std::filesystem::u8path(source));
     const auto unchanged=part.serialized();
@@ -316,4 +361,4 @@ void supplied_extrusion(const kernel::OcctKernel& kernel,const char* source) {
 }
 
 }
-int main(int argc,char**){try{kernel::OcctKernel kernel;if(const auto* source=std::getenv("ZIMA_VERIFY_EXTRUSION_FILE")){supplied_extrusion(kernel,source);return 0;}if(argc>1){zero_corner_limits(kernel);return 0;}mirrored_rounded_thin(kernel);limits(kernel);cuts(kernel);native_limits(kernel);coarse_target_classification();original_body_targets(kernel);curved_body_target(kernel);zero_corner_limits(kernel);std::cout<<"Independent extrusion limits, inclined planes, Thin, identity and cache passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(int argc,char**){try{kernel::OcctKernel kernel;if(const auto* source=std::getenv("ZIMA_VERIFY_EXTRUSION_FILE")){supplied_extrusion(kernel,source);return 0;}if(argc>1){zero_corner_limits(kernel);return 0;}mirrored_rounded_thin(kernel);collapsed_rounded_thin(kernel);limits(kernel);cuts(kernel);native_limits(kernel);coarse_target_classification();original_body_targets(kernel);curved_body_target(kernel);zero_corner_limits(kernel);std::cout<<"Independent extrusion limits, inclined planes, Thin, identity and cache passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

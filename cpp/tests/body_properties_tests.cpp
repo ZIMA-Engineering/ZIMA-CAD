@@ -4,6 +4,7 @@
 #include <zima/workspace/body_properties_edits.hpp>
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/save_properties.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/body_origin_attachment.hpp>
@@ -106,6 +107,7 @@ void deferred_analysis(const kernel::OcctKernel& kernel) {
 
 void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::path& directory) {
     auto doc=document::PartDocument::create_default();
+    doc.relations="mass = model.mass\n";
     auto sketch=sketcher::Sketch::create_default();
     static_cast<void>(sketch.add_bspline({{0,0},{5,0},{10,0}},2));
     static_cast<void>(sketch.add_segment(10,0,10,8));static_cast<void>(sketch.add_segment(10,8,0,8));
@@ -118,6 +120,32 @@ void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::p
     doc.physical_parameters["MASS_DENSITY"]="7850";doc.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
     auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc);
     check(!calculated.back().physical_properties_current&&calculated.back().has_solid(),"Native adaptive Part did not defer analysis");
+    {
+        auto recorded=doc;document::BodyProperties row;
+        row.id=kernel::make_stable_id();row.name="Deferred centroid";
+        row.body_id=recorded.body_history.active_body_id();row.after_object_id=feature.id;
+        recorded.body_properties={row};
+        auto deferred=workspace::calculate_part_with_resolved_references(kernel,recorded,&calculated);
+        check(!deferred.back().physical_properties_current,
+            "Unreferenced centroid forced exact analysis into geometry calculation");
+        const auto geometry_packet=document::serialize_body_result(deferred.back());
+        check(workspace::complete_part_physical_analysis(kernel,recorded,deferred),
+            "Private background analysis did not complete pending properties");
+        check(deferred.back().physical_properties_current&&recorded.body_properties.front().integrals&&
+            recorded.body_properties.front().error.empty(),
+            "Background analysis did not publish the exact centroid record");
+        auto analyzed_packet=document::serialize_body_result(deferred.back());
+        const auto erase_analysis=[&](const auto& self,nlohmann::json& value)->void {
+            if(value.is_object()) {
+                for(const auto* field:{"volume","surface_area","volume_integrals","surface_centroid","solid_present"})value.erase(field);
+                for(auto& child:value.items())self(self,child.value());
+            }else if(value.is_array())for(auto& child:value)self(self,child);
+        };
+        auto geometry_only=geometry_packet;erase_analysis(erase_analysis,geometry_only);
+        erase_analysis(erase_analysis,analyzed_packet);
+        check(analyzed_packet==geometry_only,
+            "Background centroid analysis changed geometry or stable references");
+    }
     {
         auto historical=doc;
         auto suppressed=document::PartDocument::create_fillet_container({calculated.back().mesh.edges.front().reference});
@@ -155,15 +183,22 @@ void deferred_assembly(const kernel::OcctKernel& kernel,const std::filesystem::p
     workspace::Workspace live;live.add_part(doc,calculated,directory/"analysis-source.prtz");
     auto child=assembly::AssemblyDocument::create_default();live.add_assembly(child,directory/"analysis-child.asmz");
     static_cast<void>(live.insert_open_part(child.document_id,doc.document_id,"Adaptive source"));
-    auto root=assembly::AssemblyDocument::create_default();live.add_assembly(root,directory/"analysis-root.asmz");
+    auto root=assembly::AssemblyDocument::create_default();root.relations="mass = model.mass\n";
+    live.add_assembly(root,directory/"analysis-root.asmz");
     static_cast<void>(live.insert_open_assembly(root.document_id,child.document_id,"Nested source"));
-    const auto revision=live.open_assembly(root.document_id)->session.revision();
-    const auto child_revision=live.open_assembly(child.document_id)->session.revision();
-    const auto part_revision=live.open_part(doc.document_id)->session.revision();
     const auto placement=live.open_assembly(root.document_id)->session.document().components.front().placement;
     const auto original=live.open_part(doc.document_id)->session.calculated_boundaries().back();
     check(!assembly::physical_values(live.open_assembly(root.document_id)->session.document()).contains("model.mass"),"Pending nested source exposed fake mass");
     workspace::regenerate_assembly(live,kernel,root.document_id);
+    check(!assembly::physical_values(live.open_assembly(root.document_id)->session.document()).contains("model.mass"),
+        "Assembly regeneration blocked on deferred source mass");
+    const auto revision=live.open_assembly(root.document_id)->session.revision();
+    const auto child_revision=live.open_assembly(child.document_id)->session.revision();
+    const auto part_revision=live.open_part(doc.document_id)->session.revision();
+    auto analyzed=live.open_assembly(root.document_id)->session.document();
+    check(workspace::refresh_save_properties(analyzed,live,directory/"analysis-root.asmz"),
+        "Private Assembly analysis did not complete pending sources");
+    live.open_assembly(root.document_id)->session.update_source_geometry(std::move(analyzed));
     const auto values=assembly::physical_values(live.open_assembly(root.document_id)->session.document());
     near(values.at("model.volume"),480,"Nested explicit volume");near(values.at("model.mass"),480*7.85e-6,"Nested explicit mass");
     check(live.open_assembly(root.document_id)->session.revision()==revision&&

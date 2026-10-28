@@ -1629,13 +1629,23 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
             std::vector<TopoDS_Edge> generated;
             if(std::abs(amount)<=1e-10)generated.push_back(original_edges[i]);
             else{const auto& shapes=builder.Generated(original_edges[i]);for(TopTools_ListIteratorOfListOfShape it(shapes);it.More();it.Next())if(it.Value().ShapeType()==TopAbs_EDGE)generated.push_back(TopoDS::Edge(it.Value()));}
+            // An offset exactly equal to a tangent corner radius legitimately
+            // collapses that source arc to one sharp vertex. OCCT reports no
+            // generated edge for the arc while the adjacent source edges keep
+            // a connected, valid wire. Retain the surviving source ancestry;
+            // a split source edge still changes topology and remains invalid.
+            if(generated.empty())continue;
             if(generated.size()!=1)throw std::runtime_error("Odsazení změnilo topologii profilu; upravte tloušťku");
             wire.Add(generated.front());if(!wire.IsDone())throw std::runtime_error("Nesouvislé odsazení Thin profilu");
             result.edges.push_back(generated.front());
             result.curve_ids.push_back("thin:"+role+":from:"+section.profile.outer_edge_source_ids[i]);
             if(!section.profile.outer_vertex_source_ids.empty())result.point_ids.push_back("thin:"+role+":from:"+section.profile.outer_vertex_source_ids.at(i));
         }
-        result.wire=wire.Wire();return result;
+        if(result.edges.empty()||!wire.IsDone())throw std::runtime_error("Odsazení změnilo topologii profilu; upravte tloušťku");
+        result.wire=wire.Wire();
+        if(!BRepCheck_Analyzer(result.wire).IsValid() || (closed&&!BRep_Tool::IsClosed(result.wire)))
+            throw std::runtime_error("Odsazení změnilo topologii profilu; upravte tloušťku");
+        return result;
     };
     auto first=offset(request.thin_first,"first"),second=offset(request.thin_second,"second");
     if(closed){
@@ -6919,6 +6929,12 @@ struct OcctKernel::LiveCache {
     };
     std::unordered_map<std::string, CopySource> copy_sources;
     std::deque<std::string> copy_source_order;
+    // Retain recently calculated continuation frames by their exact authored
+    // prefix. Returning to an earlier value (including Undo/Redo) can then
+    // reuse the already validated native representation instead of rebuilding
+    // and reserializing equivalent OCCT topology.
+    std::unordered_map<std::string, KernelHistoryFrame> history_frames;
+    std::deque<std::string> history_frame_order;
     // Full reference packets are larger than the shared live topology. Keep
     // only recent copy/subtraction boundaries, rather than one full prefix per
     // long-lived cached shape. A miss simply calculates an earlier boundary.

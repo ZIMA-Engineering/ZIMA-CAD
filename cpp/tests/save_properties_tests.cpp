@@ -163,10 +163,15 @@ int main() {try {
     auto& current=w.open_part(id)->session;
     before=current.document();before.physical_parameters.clear();current.commit(before,current.calculated_boundaries());save(w,id,path);
     check(current.document().user_parameters.at("mass").empty(),"Unknown material produced a false zero mass");
-    // Explicit Regenerate still publishes physical results through the full path.
-    before=current.document();before.physical_parameters["MASS_DENSITY"]="7850";current.commit(before,current.calculated_boundaries());
+    // Explicit Regenerate keeps exact physical integration out of the
+    // geometry-critical path. Save (and the GUI idle worker) publishes it.
+    before=current.document();before.physical_parameters["MASS_DENSITY"]="7850";current.commit(before,pending);
     static_cast<void>(workspace::regenerate_part(w,kernel,id));
-    check(w.open_part(id)->session.document().user_parameters.at("mass")=="0.047","Regenerate no longer publishes mass");
+    check(!w.open_part(id)->session.calculated_boundaries().back().physical_properties_current&&
+            w.open_part(id)->session.document().user_parameters.at("mass").empty(),
+        "Regenerate synchronously published deferred physical analysis");
+    save(w,id,path);
+    check(w.open_part(id)->session.document().user_parameters.at("mass")=="0.047","Save did not publish deferred mass");
     auto& units=w.open_part(id)->session;
     before=units.document();before.document_units["Mass"]="g";units.commit(before,units.calculated_boundaries());save(w,id,path);
     check(units.document().user_parameters.at("mass")=="47.1","Save used the wrong mass unit");

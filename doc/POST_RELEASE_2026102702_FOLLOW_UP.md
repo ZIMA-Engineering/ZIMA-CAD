@@ -58,3 +58,55 @@ the unresolved late-history calculation cost. Profile command opening,
 incremental reference entry, changed and unchanged confirmation, Insert Here,
 save, open and close separately. Preserve geometry precision, reference and side
 identity, calculated output, persistence and Undo/Redo.
+
+### Large automotive STEP scalability
+
+Use the user-provided local 175 MB automotive sheet STEP as a representative
+performance workload without copying, committing or redistributing that data.
+The current native importer completes functionally with a 10 mm display mesh
+deflection, but the first measured run took approximately ten minutes and saved
+a 283 MiB Part. Inserting that Part into the experimental Assembly, saving and
+reopening succeeded; the Assembly remained a 67 kB source reference instead of
+duplicating the Part data. Reopening the Assembly took approximately 24 seconds.
+Windows temporarily reported the application as not responding during the
+blocking load, while interactive navigation was usable after loading completed.
+Direct user evaluation after loading rated ordinary rotation as excellent
+(grade 1) and interactive dragging through the pre-confirmation phase as good
+(grade 2). Confirming with OK then blocked for approximately 30 seconds before
+completing. Body Measurement on the same occurrence also became a visibly long
+operation, but it eventually completed and allowed the centroid record to be
+saved. A command-line check of the same native Part showed that its aggregate
+properties were already cached (`body_calculated=false`); opening the Part took
+about 12.5 seconds and the Body Properties command added less than one second.
+The long GUI delay therefore belongs to preparing and publishing the measurement
+scene rather than recomputing the exact mass integrals. Remove only redundant
+scene copies/publications and verify identical values and unchanged document
+revision.
+
+Closing the loaded 283 MiB Part tab also temporarily produced a Windows
+not-responding state before the tab eventually closed and the application
+continued. The close path already retires the document state and principal View
+geometry on worker threads, so profile remaining synchronous View indexes,
+derived presentation caches and the replacement-scene publication instead of
+assuming native-document destruction is still the cause. Explicit Assembly
+regeneration requested after saving the centroid again produced a
+not-responding state lasting minutes. The saved Body Properties origin is
+intentionally a source-Part annotation and is not copied into occurrence scenes,
+so its absence in the Assembly is correct and must not be treated as a display
+defect. The long regeneration remains a valid independent performance defect.
+
+Provide cooperative Escape cancellation for long work. Escape must request a
+safe stop, discard only private candidate data, leave the live document and Undo
+history unchanged, and never publish a partial native save. Existing atomic
+temporary-file publication is the required basis for save cancellation. Do not
+terminate a calculation thread or the application process; OCCT and persistence
+work must observe cancellation at explicit safe checkpoints, with unsupported
+monolithic calls reported as still finishing their current safe step.
+
+Treat the complete workflow as the performance contract: import, native save,
+native reopen, insertion, Assembly save/reopen and later interactive navigation.
+Keep exact B-Rep geometry and source sharing. Do not trade geometry precision,
+reference identity or supported data for speed. Long operations must publish
+progress and keep the application responsive rather than presenting an apparent
+hang. Measure time, peak memory, persisted size and source-data duplication at
+each stage independently.

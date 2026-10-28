@@ -2,6 +2,7 @@
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/body_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
@@ -26,12 +27,8 @@ bool share_family_source_analysis(assembly::AssemblyDocument& member,const assem
     return complete;
 }
 bool refresh_save_properties(document::PartDocument& doc,std::vector<kernel::BodyResult>& boundaries) {
-    bool changed=false;
-    if(!boundaries.empty()&&!boundaries.back().physical_properties_current) {
-        kernel::OcctKernel{}.ensure_body_properties(boundaries.back());
-        document::refresh_body_properties(doc,boundaries);
-        changed=true;
-    }
+    bool changed=complete_part_physical_analysis(
+        kernel::OcctKernel{},doc,boundaries,true);
     for(auto& [row,packet]:doc.family.evaluated) {
         std::vector<kernel::BodyResult> cache;
         auto member=document::PartDocument::from_serialized(*packet,&cache);

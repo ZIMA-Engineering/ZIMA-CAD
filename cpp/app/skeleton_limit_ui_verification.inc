@@ -37,9 +37,27 @@ static int verify_skeleton_limit_ui(QApplication& application,const std::filesys
         };
         const auto dependent_path=assembly::InstancePath{}.child(moving.occurrence_id).encoded();
         const auto source_path=assembly::InstancePath{}.child(fixed.occurrence_id).encoded();
-        run("component.activate",{{"instance_path",dependent_path}});run("body.activate",{{"body",part.body_history.active_body_id()}});
         auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         check(tree&&view,"GUI limit workspace missing");
+        run("component.activate",{{"instance_path",source_path}});run("body.activate",{{"body",source.body_history.active_body_id()}});
+        QTreeWidgetItem* source_feature_row{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==source.history.front().id&&
+            (*i)->data(0,Qt::UserRole+3)=="part-container"){source_feature_row=*i;break;}
+        check(source_feature_row&&source_feature_row->data(0,Qt::UserRole+1).toString().toStdString()==source_path,
+            "Active Skeleton feature row lost its occurrence path");
+        view->confirm_reference(source.history.front().id,{},source_path,viewer::CandidateKind::Container);flush();
+        bool view_context_menu=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=window.findChild<QMenu*>("partHistoryMenu");
+            view_context_menu=menu&&menu->isVisible();
+            if(menu)menu->close();
+        });
+        const auto center=QPointF(view->rect().center());
+        QMouseEvent context_release(QEvent::MouseButtonRelease,center,
+            QPointF(view->mapToGlobal(center.toPoint())),Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&context_release);flush();
+        check(view_context_menu,"Active Skeleton feature has no View context menu");
+        run("component.activate",{{"instance_path",dependent_path}});run("body.activate",{{"body",part.body_history.active_body_id()}});
         const auto dialog=[&]()->app::PrimitivePropertiesDialog* {
             for(auto* widget:window.findChildren<QDialog*>())if(auto* d=dynamic_cast<app::PrimitivePropertiesDialog*>(widget);d&&d->isVisible())return d;
             return nullptr;
@@ -96,7 +114,7 @@ static int verify_skeleton_limit_ui(QApplication& application,const std::filesys
         saved=document::PartDocument::load(part_file,&result);kernel.ensure_body_properties(result.back());
         check(std::abs(result.back().volume-528)<1e-6,"CLI external limit correction did not use the same native source");
         check(document::PartDocument::load(source_file).serialized()==source.serialized(),"GUI/CLI limit changed the read-only Skeleton file");
-        std::cout<<"Skeleton limit GUI/CLI: real face hover/cycling/LMB, foreign Part filtering, read-only draft, Cancel/OK, exact volume, correction, Undo/Redo and native persistence passed\n";
+        std::cout<<"Skeleton limit GUI/CLI: activated Skeleton View context menu, real face hover/cycling/LMB, foreign Part filtering, read-only draft, Cancel/OK, exact volume, correction, Undo/Redo and native persistence passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

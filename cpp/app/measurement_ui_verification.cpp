@@ -24,6 +24,7 @@
 #include <QTabBar>
 #include <QMenu>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <iostream>
 #include <numbers>
 
@@ -32,6 +33,34 @@ int verify_measurement_inspector(QApplication& application,AssemblyWorkspaceWind
 try{
     const auto check=[](bool condition,const char* message){if(!condition)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_MEASUREMENT_SOURCE_ONLY")) {
+        const auto source=std::filesystem::path(qEnvironmentVariable("ZIMA_BODY_MEASUREMENT_SOURCE").toStdWString());
+        check(!source.empty()&&std::filesystem::exists(source),"Body measurement source is missing");
+        check(window.open_document_path(QString::fromStdString(source.string())),"Cannot open body measurement source");
+        window.resize(1200,850);window.show();flush();
+        auto* action=window.findChild<QAction*>("massPropertiesAction");
+        check(action&&action->isEnabled(),"Body properties action is unavailable for the source");
+        const auto dialog=[&]()->MassPropertiesDialog* {
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* value=dynamic_cast<MassPropertiesDialog*>(child);value&&value->isVisible())return value;
+            return nullptr;
+        };
+        const auto before=window.execute_console_command("documents").data;
+        for(int attempt=1;attempt<=2;++attempt) {
+            QElapsedTimer timer;timer.start();action->trigger();flush();
+            const auto elapsed=timer.elapsed();auto* opened=dialog();
+            check(opened,"Body properties did not open for the source");
+            const auto row=opened->current();
+            check(row.error.empty()&&row.integrals&&row.volume>0&&row.area>0,
+                "Body properties source values are incomplete");
+            std::cout<<"Body measurement source open "<<attempt<<": "<<elapsed<<" ms; volume="
+                <<row.volume<<" area="<<row.area<<'\n';
+            opened->reject();flush();
+        }
+        check(window.execute_console_command("documents").data==before,
+            "Body properties inspection changed the source document");
+        std::cout<<"Body measurement source preview and repeat-cache check passed\n";return 0;
+    }
     auto part=document::PartDocument::create_default();auto box=test::rectangular_feature(part,{10,20,30});part.history={box};
     part.physical_parameters["MASS_DENSITY"]="7850";part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
     kernel::OcctKernel kernel;const auto bodies=kernel.evaluate_history(part.kernel_operations());

@@ -22,12 +22,32 @@ if(native_history_enabled&&!previous_boundaries.empty()) {
             int(native_history_enabled),int(bool(saved)),int(compatible),
             native_frames.size(),previous_boundaries.size());
 }
-if(native_history_enabled)native_frames.resize(operations.size());
+if(native_history_enabled) {
+    native_frames.resize(operations.size());
+    // Prefer an exact frame retained by this kernel. The persisted packet owns
+    // only the current branch, while the bounded live cache can also retain a
+    // previously visited value for fast and byte-stable Undo/Redo.
+    for(std::size_t index=0;index<operations.size();++index) {
+        const auto key=fingerprint(operations,index+1);
+        const auto found=live_cache_->history_frames.find(key);
+        if(found!=live_cache_->history_frames.end()&&
+                found->second.original_edges_retained==retain_original_edges)
+            native_frames[index]=found->second;
+    }
+}
 std::shared_ptr<const OriginalFaces> native_original_before;
 std::optional<HistoryReferenceCounts> native_reference_before;
 const auto capture_native_frame=[&](const std::string& key,const TopoDS_Shape& shape,
         const LiveCache::Topology& topology) {
     if(!native_history_enabled||!native_reference_before)return;
+    if(const auto retained=live_cache_->history_frames.find(key);
+            retained!=live_cache_->history_frames.end()&&
+            retained->second.original_edges_retained==retain_original_edges) {
+        std::erase(live_cache_->history_frame_order,key);
+        live_cache_->history_frame_order.push_back(key);
+        native_frames[current_operation]=retained->second;
+        return;
+    }
     auto delta=native_history_reference_delta(original_references,*native_reference_before);
     if(!delta){native_history_enabled=false;return;}
     KernelHistoryFrame frame;frame.fingerprint=key;frame.original_edges_retained=retain_original_edges;
@@ -67,6 +87,14 @@ const auto capture_native_frame=[&](const std::string& key,const TopoDS_Shape& s
                 snapshot_native_history_sources(operand.source_caps),cached->second.solid,
                 operand.empty_material_operand,operand.reference_only};
         }
+    }
+    auto [retained,inserted]=live_cache_->history_frames.insert_or_assign(key,frame);
+    static_cast<void>(retained);
+    if(!inserted)std::erase(live_cache_->history_frame_order,key);
+    live_cache_->history_frame_order.push_back(key);
+    while(live_cache_->history_frame_order.size()>kLiveShapeCacheLimit) {
+        live_cache_->history_frames.erase(live_cache_->history_frame_order.front());
+        live_cache_->history_frame_order.pop_front();
     }
     native_frames[current_operation]=std::move(frame);
 };

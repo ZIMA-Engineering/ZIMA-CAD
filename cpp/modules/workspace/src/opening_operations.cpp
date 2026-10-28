@@ -112,10 +112,10 @@ bool commit_opening(Workspace& workspace,const kernel::OcctKernel& kernel,const 
         // Resolve derived dimensions on the private draft before an opening's
         // kernel definition validates its thread/runout against the bore. A
         // driver edit and its derived bore belong to the same transaction.
-        auto relation_input=previous;
-        if(!relation_input.empty())kernel.ensure_body_properties(relation_input.back());
-        apply_relation_dimensions(next,document::physical_values(before,relation_input));
-        policy.refresh_physical_properties=true;
+        apply_relation_dimensions(next,document::physical_values(before,previous));
+        // Physical relation outputs cannot drive dimensions. Keep exact
+        // aggregate analysis outside this geometry transaction.
+        policy.refresh_physical_properties=false;
     }
     auto references=construction_reference_source_geometry(previous);
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);

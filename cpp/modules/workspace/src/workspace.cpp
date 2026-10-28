@@ -388,6 +388,18 @@ void Workspace::refresh_source_geometry() {
     // Only fully processed sources are reusable, and only within this call.
     // Keep cycle detection independent from completed-source reuse.
     std::map<NativeSourceKey,RefreshedAssembly> refreshed_assemblies;
+    const auto retain_matching_analysis=[](kernel::BodySnapshot source,
+            const kernel::BodySnapshot& previous) {
+        if(source->physical_properties_current||!previous->physical_properties_current||
+                source->source_fingerprint!=previous->source_fingerprint)return source;
+        auto value=source.get();
+        value.volume=previous->volume;value.surface_area=previous->surface_area;
+        value.volume_integrals=previous->volume_integrals;
+        value.surface_centroid=previous->surface_centroid;
+        value.solid_present=previous->solid_present;
+        value.physical_properties_current=true;
+        return kernel::BodySnapshot{std::move(value)};
+    };
     const auto refresh=[&](const auto& self,zima::assembly::AssemblyDocument& document,
             const std::filesystem::path& owner_file)->bool {
         if (!visiting.insert(document.document_id).second)
@@ -435,7 +447,8 @@ void Workspace::refresh_source_geometry() {
                     }
                     if(part->session.document().document_id!=component.source_document_id)
                         throw std::runtime_error("Part source document identity mismatch");
-                    const auto source=part_snapshot(*part);
+                    const auto source=retain_matching_analysis(
+                        part_snapshot(*part),component.calculated_source);
                     if (!source.shares_with(component.calculated_source)) {
                         component.calculated_source=source;
                         component.body_color=part->session.document().body_color;
@@ -521,7 +534,8 @@ void Workspace::refresh_source_geometry() {
                     const auto source=zima::assembly::AssemblyDocument::create_assembly_occurrence(
                         component.name,component.source_document_id,file,nested);
                     auto body=source.calculated_source.get();body.source_fingerprint=source_stamp;
-                    component.calculated_source=std::move(body);
+                    component.calculated_source=retain_matching_analysis(
+                        kernel::BodySnapshot{std::move(body)},component.calculated_source);
                     component.nested_snapshot=source.nested_snapshot;
                     changed=true;
                 }

@@ -546,6 +546,8 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             {QString::fromStdString(container.name) +
              (container.suppressed ? tr(" [potlačeno]") : QString{})});
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
+        item->setData(0, Qt::UserRole + 1,
+            QString::fromStdString(construction_path.encoded()));
         item->setData(0, Qt::UserRole + 3, "part-container");
         item->setIcon(0, resource_tree_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
             !container.thread.enabled ? QStringLiteral("hole") : feature_icon_name(container),container.is_surface_result()));
@@ -608,6 +610,8 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             parent, {QString::fromStdString(sketch.name) +
                 (sketch.suppressed ? tr(" [potlačeno]") : QString{})});
         item->setData(0, Qt::UserRole, QString::fromStdString(sketch.id));
+        item->setData(0, Qt::UserRole + 1,
+            QString::fromStdString(construction_path.encoded()));
         item->setData(0, Qt::UserRole + 3, "part-sketch");
         tree_reference_state_.apply(item,document.document_id,sketch.id,sketch_reference_issue(sketch,document));
         item->setSelected(sketch.id == selected_sketch_id_);

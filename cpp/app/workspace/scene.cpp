@@ -9,6 +9,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/workspace/save_properties.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
 #include "../document_numeric_display.hpp"
@@ -25,11 +26,132 @@
 #include "../surface_trim_dialog.hpp"
 #include <QElapsedTimer>
 #include <QScopeGuard>
+#include <QThreadPool>
+#include <QCoreApplication>
+#include <QTimer>
 #include <cstdio>
 #include "../../common/interaction_colors.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
+
+void AssemblyWorkspaceWindow::schedule_background_physical_analysis() {
+    if(closing_||properties_dialog_||!active_sketch_id_.empty()||part_rollback_||assembly_cut_rollback_)return;
+    const auto generation=++background_physical_analysis_schedule_generation_;
+    if(background_physical_analysis_scheduled_)return;
+    background_physical_analysis_scheduled_=true;
+    // Exact integration is intentionally idle work. Resetting this short
+    // grace period on every scene publication prevents a just-completed model
+    // command from immediately competing with the user's next edit.
+    QTimer::singleShot(1500,this,[this,generation] {
+        background_physical_analysis_scheduled_=false;
+        if(generation!=background_physical_analysis_schedule_generation_) {
+            schedule_background_physical_analysis();
+            return;
+        }
+        run_background_physical_analysis();
+    });
+}
+
+void AssemblyWorkspaceWindow::run_background_physical_analysis() {
+    if(closing_||properties_dialog_||!active_sketch_id_.empty()||part_rollback_||assembly_cut_rollback_)return;
+    const auto id=workspace_.active_document_id();
+    const auto* part=workspace_.open_part(id);
+    if(!part) {
+        const auto* assembly=workspace_.open_assembly(id);
+        if(!assembly)return;
+        bool pending=false;
+        try {pending=workspace::save_properties_pending(*assembly,workspace_);}
+        catch(const std::exception&) {return;}
+        if(!pending)return;
+        const auto revision=assembly->session.revision(),generation=assembly->session.data_generation();
+        const auto identity=assembly->runtime_identity;
+        const auto key="assembly:"+std::to_string(reinterpret_cast<std::uintptr_t>(identity.get()))+":"+
+            std::to_string(revision)+":"+std::to_string(generation);
+        if(!background_physical_analysis_jobs_.insert(key).second)return;
+        auto candidate=assembly->session.document();auto context=workspace_;const auto path=assembly->path;
+        QPointer<AssemblyWorkspaceWindow> window(this);
+        QThreadPool::globalInstance()->start([
+                window,id,key,revision,generation,identity,path,
+                candidate=std::move(candidate),context=std::move(context)]() mutable {
+            bool changed=false;
+            try {changed=workspace::refresh_save_properties(candidate,context,path);}
+            catch(const std::exception&) {}
+            auto* application=QCoreApplication::instance();
+            if(!application)return;
+            QMetaObject::invokeMethod(application,[window,id,key,revision,generation,identity,changed,
+                    candidate=std::move(candidate)]() mutable {
+                if(!window)return;
+                window->background_physical_analysis_jobs_.erase(key);
+                auto* current=window->workspace_.open_assembly(id);
+                if(!changed||!current||current->runtime_identity!=identity||
+                        current->session.revision()!=revision||
+                        current->session.data_generation()!=generation) {
+                    window->schedule_background_physical_analysis();return;
+                }
+                current->session.update_source_geometry(std::move(candidate));
+                if(window->workspace_.active_document_id()==id||
+                        window->workspace_.displayed_document_id()==id) {
+                    window->preserve_view_on_refresh_=true;
+                    window->refresh_tabs();window->refresh_scene();
+                }
+            },Qt::QueuedConnection);
+        },-1);
+        return;
+    }
+    if(part->session.calculated_boundaries().empty())return;
+    const auto& document=part->session.document();
+    const auto& calculated=part->session.calculated_boundaries();
+    bool pending=!calculated.back().physical_properties_current;
+    if(!pending)for(const auto& row:document.body_properties)try {
+        if(std::ranges::any_of(document::body_properties_inputs(document,calculated,row),
+                [](const auto& input){return !input.body->physical_properties_current;})) {
+            pending=true;break;
+        }
+    }catch(const std::invalid_argument&) {}
+    if(!pending)return;
+    const auto revision=part->session.revision(),generation=part->session.data_generation();
+    const auto identity=part->runtime_identity;
+    const auto key="part:"+std::to_string(reinterpret_cast<std::uintptr_t>(identity.get()))+":"+
+        std::to_string(revision)+":"+std::to_string(generation);
+    if(!background_physical_analysis_jobs_.insert(key).second)return;
+    auto candidate=document;auto boundaries=calculated;
+    QPointer<AssemblyWorkspaceWindow> window(this);
+    QThreadPool::globalInstance()->start([
+            window,id,key,revision,generation,identity,
+            candidate=std::move(candidate),boundaries=std::move(boundaries)]() mutable {
+        bool changed=false;
+        try {
+            kernel::OcctKernel private_kernel;
+            changed=workspace::complete_part_physical_analysis(
+                private_kernel,candidate,boundaries,true);
+        }catch(const std::exception&) {
+            // Save and explicit inspection retain their synchronous error path.
+            // Speculative analysis must never disturb the live document.
+        }
+        auto* application=QCoreApplication::instance();
+        if(!application)return;
+        QMetaObject::invokeMethod(application,[window,id,key,revision,generation,identity,changed,
+                candidate=std::move(candidate),boundaries=std::move(boundaries)]() mutable {
+            if(!window)return;
+            window->background_physical_analysis_jobs_.erase(key);
+            auto* current=window->workspace_.open_part(id);
+            if(!changed||!current||current->runtime_identity!=identity||
+                    current->session.revision()!=revision||
+                    current->session.data_generation()!=generation) {
+                window->schedule_background_physical_analysis();
+                return;
+            }
+            current->session.update_save_analysis(
+                std::move(candidate),std::move(boundaries));
+            if(window->workspace_.active_document_id()==id||
+                    window->workspace_.displayed_document_id()==id) {
+                window->preserve_view_on_refresh_=true;
+                window->refresh_tabs();window->refresh_scene();
+            }
+        },Qt::QueuedConnection);
+    },-1);
+}
 
 
 void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
@@ -2559,6 +2681,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     update_section_ui();
     update_measurement_ui();
     update_family_selection();
+    schedule_background_physical_analysis();
 }
 
 } // namespace zima::app

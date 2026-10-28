@@ -22,17 +22,19 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
     }
     catch(const std::exception& e){state_->setText(tr(e.what()));return;}
     cancel_sketch_segment();const auto& part=*workspace_.open_part(id);const auto& doc=part.session.document();
-    auto input=std::make_shared<kernel::ViewerMesh>();
-    try {
-        for(const auto& source:document::body_properties_inputs(doc,part.session.calculated_boundaries(),edit.initial)) {
-            auto mesh=source.body->mesh;
-            if(!edit.initial.body_id.empty())mesh=doc.place_body_mesh(std::move(mesh),edit.initial.body_id);
-            append_mesh(*input,std::move(mesh));
-        }
-    }catch(const std::exception&){} // A broken record remains editable and removable.
-    const auto preview=[this,input](const document::BodyProperties& row){
+    const auto preview=[this,id](const document::BodyProperties& row){
         auto shown=row;shown.visible=true;
-        auto mesh=*input;append_mesh(mesh,document::body_properties_origin(shown,tr("Těžiště").toStdString()));
+        kernel::ViewerMesh mesh;
+        if(const auto* source_part=workspace_.open_part(id))try {
+            const auto& source_doc=source_part->session.document();
+            for(const auto& source:document::body_properties_inputs(
+                    source_doc,source_part->session.calculated_boundaries(),row)) {
+                auto input=source.body->mesh;
+                if(!row.body_id.empty())input=source_doc.place_body_mesh(std::move(input),row.body_id);
+                append_mesh(mesh,std::move(input));
+            }
+        }catch(const std::exception&){} // A broken record remains editable and removable.
+        append_mesh(mesh,document::body_properties_origin(shown,tr("Těžiště").toStdString()));
         viewer_->set_mesh(std::move(mesh),false);
         viewer_->set_editing_origin_visible(true);
         viewer_->set_candidate_filter([](const auto&){return false;});
@@ -60,7 +62,10 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
             }
         }
     });
-    preserve_view_on_refresh_=true;refresh_scene();preview(edit.initial);
+    // The preview below publishes the exact history input immediately. A full
+    // scene refresh here would build and upload a scene that is discarded by
+    // that preview, which is particularly expensive for imported STEP bodies.
+    preview(edit.initial);
     // The information feature consumes the solid immediately before its row.
     // Suppress downstream tree rows visually only for this edit session.
     for(QTreeWidgetItemIterator it(tree_);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==edit.initial.id) {

@@ -78,6 +78,14 @@ void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
 void calculate_body_properties(Workspace& workspace, const kernel::OcctKernel& kernel,
     const std::string& document_id, const document::BodyProperties& position);
 
+// Complete exact aggregate properties on an already calculated private Part
+// snapshot. This never replays history or changes authored geometry. Callers
+// may publish the result only after matching runtime identity, revision and
+// data generation on the Workspace owner thread.
+[[nodiscard]] bool complete_part_physical_analysis(
+    const kernel::OcctKernel&, document::PartDocument&,
+    std::vector<kernel::BodyResult>&, bool include_final_body = true);
+
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
     zima::kernel::ViewerReferenceGeometry source);

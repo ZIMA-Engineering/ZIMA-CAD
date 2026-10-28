@@ -1243,6 +1243,11 @@ private:
         zima::document::PartDocument& document,
         const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;
     void refresh_tabs();
+    void schedule_background_physical_analysis();
+    void run_background_physical_analysis();
+    bool background_physical_analysis_scheduled_{};
+    std::uint64_t background_physical_analysis_schedule_generation_{};
+    std::set<std::string> background_physical_analysis_jobs_;
     // Optional command-owned Assembly scene, built synchronously after source
     // refresh. Tree, actions and selection preparation still run normally.
     void refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview = {});
