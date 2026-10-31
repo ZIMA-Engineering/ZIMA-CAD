@@ -1,5 +1,19 @@
 # Native versioned distribution
 
+Signed Windows [2026103101](releases/2026103101.md#windows-publication-acceptance)
+was published at `2026-10-31T22:04:50Z` from immutable source
+`4896c5a34daf1f79d52c36c7b0f308915d91211b`. Existing history-Feature editing
+now publishes the complete final Body before nonessential intermediate packets,
+materializes exact rollback boundaries on demand and preserves the active
+document object while background cache-only publication completes. Candidate
+and signed native smoke each load all 1,185 factory assets; production trust,
+17,417 archive entries, application lifecycle, all three anonymous public
+downloads and trusted 2701 updater discovery pass. The authored native format,
+geometry precision, stable references, side identity, oldest-face ancestry and
+shared OCCT 8.0.1 pin are unchanged. Native Linux execution remains a separate
+host acceptance requirement. See the
+[publication evidence](verification/20261031-windows-3101-publication.json).
+
 Signed Windows [2026102803](releases/2026102803.md#windows-publication-acceptance)
 was published at `2026-10-28T14:52:01Z` from immutable source
 `fa728b90803145047210918f583c51dbb770817c`. It completely defers aggregate

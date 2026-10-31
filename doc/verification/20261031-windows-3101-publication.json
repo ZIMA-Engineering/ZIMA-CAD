@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "product": "ZIMA-CAD",
+  "version": "2026103101",
+  "platform": "windows-x64",
+  "tag": "ZIMA-CAD-2026103101",
+  "commit": "4896c5a34daf1f79d52c36c7b0f308915d91211b",
+  "publishedAt": "2026-10-31T22:04:50Z",
+  "releaseUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026103101",
+  "archive": {
+    "name": "ZIMA-CAD-2026103101.zip",
+    "size": 1073959623,
+    "sha256": "97201e86ba343aecdb84d8efa557563ee554db98eb8ad3f40cc811e39ab23563",
+    "unpackedSize": 5948570768,
+    "fileCount": 17417
+  },
+  "updateManifest": {
+    "name": "update-manifest.json",
+    "size": 704,
+    "sha256": "b0857c871b652af457d38219a5fb70e2cd2242c5870cb623578befe1e57194cc"
+  },
+  "updateSignature": {
+    "name": "update-manifest.sig",
+    "size": 176,
+    "sha256": "10bb98e8a82cc20b7d87394bd82cdb7a04f8b57152a3a8a1d5d5ccafb840d66c"
+  },
+  "sourceTreeSha256": "fcc05184896f5479baccf4a2ef9a465e18ca4725208266d61246b6632a8b1d02",
+  "candidate": {
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185
+  },
+  "signed": {
+    "windowsNativeSmoke": "passed",
+    "productionTrust": "passed",
+    "applicationLifecycle": "passed"
+  },
+  "publicDownloads": {
+    "anonymous": true,
+    "zip": "matched",
+    "manifest": "matched",
+    "signature": "matched"
+  },
+  "updaterDiscovery": {
+    "installedVersion": "2026102701",
+    "trusted": true,
+    "availableVersion": "2026103101",
+    "installable": true,
+    "downloadPerformed": false,
+    "installationPerformed": false,
+    "rootFilesUnchanged": true
+  },
+  "verificationBoundary": {
+    "protectedUserModelsCommitted": false,
+    "nativeFormatChanged": false,
+    "localizationCatalogsChanged": false,
+    "linuxExecution": "not-run-on-windows-host",
+    "remainingLimits": [
+      "The native-document test retains a stale expected Linux runtime fingerprint.",
+      "The Feature-axis UI contract retains an older active-Sketch construction-point image assertion that conflicts with the current authored construction-point visibility rule.",
+      "The imported-body frame GUI fixture retains a signed work-plane equation mismatch; its dependent imported-datum check was not run.",
+      "Finite performance, geometry and persistence matrices do not prove every possible topology.",
+      "Native Linux compilation, execution and timing require the Linux host."
+    ]
+  }
+}

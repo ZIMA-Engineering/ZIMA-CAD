@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026103101](releases/2026103101.md#windows-publication-acceptance)
+was published at `2026-10-31T22:04:50Z` from immutable source
+`4896c5a34daf1f79d52c36c7b0f308915d91211b`. Final-first history publication,
+exact on-demand rollback materialization, camera retention and the Feature axis
+control layout are listed in the release record. Candidate and signed native
+smoke each load all 1,185 factory native assets. The signed manifest binds
+17,417 archive entries, exact source, stable channel and the Windows runtime.
+All three anonymous public downloads match the accepted signed files. Trusted
+2701 offers 3101 as installable without download or installation and its root
+files remain unchanged. Native Linux execution is not established by this
+Windows acceptance. See the
+[publication evidence](verification/20261031-windows-3101-publication.json).
+
 Signed Windows [2026102803](releases/2026102803.md#windows-publication-acceptance)
 was published at `2026-10-28T14:52:01Z` from immutable source
 `fa728b90803145047210918f583c51dbb770817c`. Complete deferral of unrequested
