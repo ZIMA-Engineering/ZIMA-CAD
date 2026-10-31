@@ -13,7 +13,7 @@ void AssemblyWorkspaceWindow::show_surface_trim_properties(const std::string& id
         const auto* stored=part->session.document().find_container(id);auto feature=stored?*stored:document::create_surface_trim();
         if(!stored)feature.name=part->session.document().next_numbered_name(
             tr("Oříznout plochu").toStdString(),feature.id);
-        const auto rollback=stored?part->session.rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
+        const auto rollback=stored?part_history_rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         auto* dialog=new SurfaceTrimDialog(feature,[this,document_id](auto pending){static_cast<void>(workspace::commit_surface_trim(workspace_,kernel_,document_id,std::move(pending)));},this);
         properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;track_tree_edit(dialog);

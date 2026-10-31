@@ -144,7 +144,7 @@ void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std:
             if(kernel::sheet_material::eligible(region,unfold))
                 if(const auto* source=part->session.document().find_container(region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id))available.emplace(region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id,QString::fromStdString(source->name));
         }
-        const auto rollback=stored?part->session.rollback_boundary(container_id):std::optional<document::HistoryRollbackBoundary>{};
+        const auto rollback=stored?part_history_rollback_boundary(container_id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         auto* dialog=new SheetStateDialog(feature,available,[this,document_id](auto pending){
             static_cast<void>(workspace::commit_sheet_state(workspace_,kernel_,document_id,std::move(pending)));
@@ -202,7 +202,7 @@ void AssemblyWorkspaceWindow::show_solid_state_properties(bool restore,const std
         std::map<std::string,QString> available;
         for(const auto& owner:sources)if(const auto* source=part->session.document().find_container(owner))
             available.emplace(owner,QString::fromStdString(source->name));
-        const auto rollback=stored?part->session.rollback_boundary(container_id):std::optional<document::HistoryRollbackBoundary>{};
+        const auto rollback=stored?part_history_rollback_boundary(container_id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         SolidStateEdit initial{feature.name,restore,feature.solid_state.all,feature.solid_state.coefficient,feature.solid_state.owners};
         auto* dialog=new SolidStateDialog(initial,available,[this,document_id,feature](auto value)mutable {

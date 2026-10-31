@@ -1497,7 +1497,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_named_view_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_metadata_command_tests tests/metadata_command_tests.cpp)
-    target_link_libraries(zima_cpp_metadata_command_tests PRIVATE zima_command_host)
+    # The native I/O probes included by this test call the OCCT shape and
+    # Boolean APIs directly; declare those non-transitive dependencies.
+    target_link_libraries(zima_cpp_metadata_command_tests PRIVATE
+        zima_command_host zima_kernel_occt TKBO TKBool TKTopAlgo TKShHealing TKBRep)
     add_test(NAME zima_cpp_metadata_command_tests COMMAND zima_cpp_metadata_command_tests)
     set_tests_properties(zima_cpp_metadata_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 

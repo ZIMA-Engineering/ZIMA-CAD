@@ -116,6 +116,9 @@ void verify_failed_sheet_settings(const kernel::OcctKernel& kernel,fs::path dire
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","failed-sheet-settings"}});
     const auto id=live.active_document_id();auto* state=live.open_part(id);
+    const auto measured_volume=[&](const kernel::BodyResult& value) {
+        auto measured=value;kernel.ensure_body_properties(measured);return measured.volume;
+    };
     const auto flat=run(host,"flat.create",{{"width_mm",40},{"height_mm",30}}).data.at("container").get<std::string>();
     const auto& edges=state->session.calculated_boundaries().back().mesh.edges;
     const auto edge=std::ranges::find_if(edges,[](const auto& e){return !e.parameter_seam&&e.edge_treatment_side_references.size()==2;});
@@ -129,7 +132,7 @@ void verify_failed_sheet_settings(const kernel::OcctKernel& kernel,fs::path dire
         const auto change=workspace::set_file_settings(live,kernel,id,requested);
         require(change.changed&&change.calculated&&workspace::file_settings(live,id)==requested,"Failed feature blocked sheet thickness edit");
         require(*state->session.document().find_container(failed.id)==failed&&state->session.calculated_boundaries().back().calculation_errors.contains(failed.id),"Thickness edit lost failed feature definition or error");
-        require(std::abs(state->session.calculated_boundaries().back().volume-1200.*thickness)<1e-7,"Thickness edit kept stale input geometry");
+        require(std::abs(measured_volume(state->session.calculated_boundaries().back())-1200.*thickness)<1e-7,"Thickness edit kept stale input geometry");
         require(document::flat_thickness(*state->session.document().find_container(flat),*requested.sheet_metal)==thickness,"Flat ignored new default thickness");
         const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
         require(!workspace::set_file_settings(live,kernel,id,requested).changed&&state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Unchanged failed-sheet settings calculated or created Undo");
@@ -140,7 +143,7 @@ void verify_failed_sheet_settings(const kernel::OcctKernel& kernel,fs::path dire
     try{static_cast<void>(workspace::set_file_settings(live,kernel,id,invalid));}catch(const std::invalid_argument&){rejected=true;}
     require(rejected&&state->session.revision()==revision,"Failed feature bypassed invalid thickness validation");
     run(host,"save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"failed-sheet-settings.prtz",&cache);
-    require(document::sheet_metal_defaults(reopened).thickness_mm==4.&&*reopened.find_container(failed.id)==failed&&cache.back().calculation_errors.contains(failed.id)&&std::abs(cache.back().volume-4800.)<1e-7,"Native reopen lost changed thickness or failed feature");
+    require(document::sheet_metal_defaults(reopened).thickness_mm==4.&&*reopened.find_container(failed.id)==failed&&cache.back().calculation_errors.contains(failed.id)&&std::abs(measured_volume(cache.back())-4800.)<1e-7,"Native reopen lost changed thickness or failed feature");
 }
 template<class Doc> void binding_unit_matrix(Doc source) {
     using Quantity=document::DimensionQuantity;
@@ -242,7 +245,10 @@ void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
     authored.relations+="SHEETMETAL_THICKNESS = "+dimension+" / 10\n";
     part->session.commit(std::move(authored),part->session.calculated_boundaries());run(host,"regenerate");
     const auto before=part->session.document();const auto cached=part->session.calculated_boundaries().back().kernel_shape;
-    const double volume=part->session.calculated_boundaries().back().volume;
+    const auto actual_volume=[&](const kernel::BodyResult& value) {
+        auto measured=value;kernel.ensure_body_properties(measured);return measured.volume;
+    };
+    const double volume=actual_volume(part->session.calculated_boundaries().back());
     auto settings=workspace::file_settings(live,id);settings.units["Length"]="in";settings.units["Angle"]="rad";settings.units["Mass"]="g";
     const auto change=workspace::set_file_settings(live,kernel,id,settings);
     require(change.changed&&!change.calculated&&part->session.calculated_boundaries().back().kernel_shape==cached,"Relation unit conversion calculated geometry");
@@ -252,12 +258,16 @@ void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto converted=part->session.document();
     run(host,"undo");require(part->session.document().serialized()==before.serialized(),"Unit conversion did not undo as one complete document transaction");
     run(host,"redo");require(part->session.document().serialized()==converted.serialized(),"Unit conversion Redo differs from converted document");
-    run(host,"regenerate");require(std::abs(part->session.calculated_boundaries().back().volume-volume)<1e-8,"Unit conversion changed physical geometry on regeneration");
+    run(host,"regenerate");require(std::abs(actual_volume(part->session.calculated_boundaries().back())-volume)<1e-8,"Unit conversion changed physical geometry on regeneration");
     require(part->session.document().user_parameters.at("stock")==before.user_parameters.at("stock"),"Converted relation text changed after regeneration");
     require(document::sheet_metal_defaults(part->session.document()).thickness_mm==document::sheet_metal_defaults(before).thickness_mm,"Regenerated relation changed native sheet thickness");
     const auto file=dir/"unit-relations.prtz";part->session.document().save(file,part->session.calculated_boundaries());
     auto reopened=document::PartDocument::load(file);workspace::apply_relation_dimensions(reopened,document::physical_values(reopened,part->session.calculated_boundaries()));
-    require(reopened.relations==converted.relations&&std::abs(kernel.evaluate_history(reopened.kernel_operations()).back().volume-volume)<1e-8,"Converted relations lost physical meaning after save/reopen");
+    auto reopened_calculated=kernel.evaluate_history(reopened.kernel_operations());
+    kernel.ensure_body_properties(reopened_calculated.back());
+    require(reopened.relations==converted.relations&&
+        std::abs(reopened_calculated.back().volume-volume)<1e-8,
+        "Converted relations lost physical meaning after save/reopen");
     auto invalid=part->session.document();invalid.relations="if false\noutput = "+dimension+" + model.mass\nendif";
     part->session.commit(std::move(invalid),part->session.calculated_boundaries());
     const auto invalid_before=part->session.document().serialized();const auto revision=part->session.revision();
@@ -300,7 +310,21 @@ void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
         const auto native_angle=[&](){const auto d=dimensions().at(angle);return std::get<double>(d.input.value.data)*d.native_scale;};
         const auto volume=[&](){
             const auto settings=workspace::file_settings(live,id);const double scale=document::length_unit_mm(settings.units.at("Length"));
-            const auto values=assembly_mode?assembly::physical_values(live.open_assembly(id)->session.document()):document::physical_values(live.open_part(id)->session.document(),live.open_part(id)->session.calculated_boundaries());
+            std::map<std::string,double> values;
+            if(assembly_mode) {
+                auto measured=live.open_assembly(id)->session.document();
+                for(auto& occurrence:measured.components) {
+                    auto body=occurrence.calculated_source.get();
+                    kernel.ensure_body_properties(body);
+                    occurrence.calculated_source=std::move(body);
+                }
+                values=assembly::physical_values(measured);
+            } else {
+                const auto* state=live.open_part(id);
+                auto measured=state->session.calculated_boundaries().back();
+                kernel.ensure_body_properties(measured);
+                values=document::physical_values(state->session.document(),{measured});
+            }
             return values.at("model.volume")*std::pow(scale,3);
         };
         const auto parameters=[&](){return assembly_mode?live.open_assembly(id)->session.document().user_parameters:live.open_part(id)->session.document().user_parameters;};
@@ -339,7 +363,9 @@ void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
         } else {
             const auto* state=live.open_part(id);const auto file=dir/"angular-relations.prtz";state->session.document().save(file,state->session.calculated_boundaries());
             auto reopened=document::PartDocument::load(file);workspace::apply_relation_dimensions(reopened,document::physical_values(reopened,state->session.calculated_boundaries()));
-            const auto calculated=kernel.evaluate_history(reopened.kernel_operations());workspace::apply_relation_parameters(reopened,document::physical_values(reopened,calculated));
+            auto calculated=kernel.evaluate_history(reopened.kernel_operations());
+            kernel.ensure_body_properties(calculated.back());
+            workspace::apply_relation_parameters(reopened,document::physical_values(reopened,calculated));
             require(reopened.relations==source&&reopened.user_parameters==state->session.document().user_parameters&&std::abs(calculated.back().volume-expected_volume)<1e-7,"Part angular relations changed after native reopen and calculation");
         }
     }
@@ -353,6 +379,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.relations.set",{{"relations",""}});
     const auto id=live.active_document_id();zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     auto* part=live.open_part(id);const auto original=workspace::user_parameters(live,id);const auto cached=part->session.calculated_boundaries().back().kernel_shape;
+    const auto measured_native_volume=[&]() {
+        auto measured=part->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(measured);
+        return measured.volume;
+    };
+    const auto measured_physical_values=[&]() {
+        auto measured=part->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(measured);
+        return document::physical_values(part->session.document(),{measured});
+    };
     const auto feature=part->session.document().history.back().id;
     const auto feature_name=part->session.document().history.back().name;
     require(workspace::rename_tree_object(live,id,"part-container",feature,"Renamed feature"),"Feature rename did not commit");
@@ -423,9 +459,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         part->session.calculated_boundaries().back().kernel_shape==cached,"Sheet Cut tolerance recalculated unrelated Box geometry");
     const auto settings=workspace::file_settings(live,id);run(host,"document.settings.set",{{"units",{{"Length","cm"}}},{"precision",{{"decimal_places",6}}}});
     require(part->session.document().document_units.at("Length")=="cm" && part->session.document().document_precision.at("decimal_places")=="6" &&
-        part->session.calculated_boundaries().back().kernel_shape==cached && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7,
+        part->session.calculated_boundaries().back().kernel_shape==cached && std::abs(measured_native_volume()-6000)<1e-7,
         "Changing display units or precision rebuilt or rescaled geometry");
-    require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.volume")-6)<1e-8,"mm to cm display conversion is incorrect");
+    require(std::abs(measured_physical_values().at("model.volume")-6)<1e-8,"mm to cm display conversion is incorrect");
     run(host,"undo");require(workspace::file_settings(live,id)==settings,"Settings Undo failed");run(host,"redo");
     const auto unit_baseline=workspace::file_settings(live,id);
     const auto native_operations=part->session.document().kernel_operations(false,true);
@@ -439,7 +475,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(part->session.document().document_precision==requested.precision,"Unit change modified calculation precision");
         const double scale=document::length_unit_mm(unit);
         const double expected=6000./(scale*scale*scale);
-        require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.volume")-expected)<1e-10*std::max(1.,expected),
+        require(std::abs(measured_physical_values().at("model.volume")-expected)<1e-10*std::max(1.,expected),
             "Repeated unit change scaled physical geometry or used the wrong volume units");
         const auto file=dir/(std::string("unit-")+unit+".prtz");
         part->session.document().save(file,part->session.calculated_boundaries());
@@ -452,7 +488,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     }
     static_cast<void>(workspace::set_file_settings(live,kernel,id,unit_baseline));
     const auto recalculated=run(host,"document.settings.set",{{"precision",{{"mesh_deflection",2}}}}).data;
-    require(recalculated.at("calculated")==true && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7,"Geometric precision did not explicitly calculate a consistent result");
+    require(recalculated.at("calculated")==true && std::abs(measured_native_volume()-6000)<1e-7,"Geometric precision did not explicitly calculate a consistent result");
     require(!run(host,"document.settings.set",{{"units",{{"Length","cm"}}},{"precision",{{"mesh_deflection",2},{"decimal_places",6}}}}).data.at("changed").get<bool>(),"Unchanged settings created Undo");
     const auto sheet_geometry=part->session.calculated_boundaries().back().kernel_shape;
     const auto default_sheet=run(host,"document.settings.get").data.at("sheet_metal");
@@ -535,7 +571,6 @@ if(argc==3&&std::string_view(argv[1])=="--native-close-performance")return bench
 if(argc==3&&std::string_view(argv[1])=="--native-history-description")return describe_native_history(fs::absolute(fs::u8path(argv[2])));
 if(argc==3&&std::string_view(argv[1])=="--native-kernel-plan-description")return describe_native_kernel_plan(fs::absolute(fs::u8path(argv[2])));
 if(argc==4&&std::string_view(argv[1])=="--native-dependency-envelopes")return describe_native_dependency_envelopes(fs::absolute(fs::u8path(argv[2])),argv[3]);
-if(argc==5&&std::string_view(argv[1])=="--native-local-delta-performance")return benchmark_native_local_delta(fs::absolute(fs::u8path(argv[2])),argv[3],argv[4]);
 if(argc==4&&std::string_view(argv[1])=="--native-operation-description")return describe_native_operation(fs::absolute(fs::u8path(argv[2])),argv[3]);
 if(argc==5&&std::string_view(argv[1])=="--native-operation-edit-performance")return benchmark_native_operation_edit(fs::absolute(fs::u8path(argv[2])),argv[3],argv[4]);
 if(argc==3&&std::string_view(argv[1])=="--native-last-add-performance")return benchmark_native_last_operation(fs::absolute(fs::u8path(argv[2])),true);

@@ -105,7 +105,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
     if(part){
         if(choices.body_id.empty()){body_dialog_context_=available;body_dialog_step_id_=initial.id;}
         else if(!id.empty()) {
-            const auto boundary=part->session.rollback_boundary(id);
+            const auto boundary=part_history_rollback_boundary(id);
             if(!boundary){dialog->deleteLater();properties_dialog_=nullptr;primitive_reference_dialog_=nullptr;return;}
             part_rollback_=PartRollbackContext{document_id,prefix,boundary->history_index,boundary->input_body};
         }

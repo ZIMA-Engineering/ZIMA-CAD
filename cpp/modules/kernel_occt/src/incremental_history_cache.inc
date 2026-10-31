@@ -4,6 +4,7 @@ bool native_history_enabled=!context.preview_wire&&!has_forms&&std::ranges::none
     return std::holds_alternative<ThreadSurfaceRequest>(operation.primitive)||
         std::holds_alternative<SheetStateRequest>(operation.primitive);
 });
+const bool native_history_output_enabled=!compact_dependency_boundaries;
 std::vector<KernelHistoryFrame> native_frames;
 if(native_history_enabled&&!previous_boundaries.empty()) {
     const auto& saved=previous_boundaries.back().incremental_history;
@@ -39,7 +40,7 @@ std::shared_ptr<const OriginalFaces> native_original_before;
 std::optional<HistoryReferenceCounts> native_reference_before;
 const auto capture_native_frame=[&](const std::string& key,const TopoDS_Shape& shape,
         const LiveCache::Topology& topology) {
-    if(!native_history_enabled||!native_reference_before)return;
+    if(!native_history_enabled||!native_history_output_enabled||!native_reference_before)return;
     if(const auto retained=live_cache_->history_frames.find(key);
             retained!=live_cache_->history_frames.end()&&
             retained->second.original_edges_retained==retain_original_edges) {
@@ -188,7 +189,7 @@ const auto restore_native_prefix=[&](std::size_t count) {
 };
 
 const auto attach_native_history=[&](std::vector<BodyResult>& result) {
-    if(!native_history_enabled||result.empty()||native_frames.size()!=result.size())return;
+    if(!native_history_enabled||!native_history_output_enabled||result.empty()||native_frames.size()!=result.size())return;
     for(std::size_t index=0;index<result.size();++index)
         if(!native_frames[index].reference_delta||native_frames[index].fingerprint!=result[index].source_fingerprint)return;
     auto cache=std::make_shared<KernelHistoryCache>();cache->algorithm=std::string(native_history_algorithm);

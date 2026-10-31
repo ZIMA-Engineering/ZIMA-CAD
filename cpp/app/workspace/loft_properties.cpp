@@ -46,7 +46,7 @@ void AssemblyWorkspaceWindow::show_loft_properties(const std::string& id) {
             value.sketch_serialized=sketch.serialized();value.sketch_feature->name=sketch.name;value.sketch_feature->feature.automatic_name=sketch.name;
         }
     }
-    const auto rollback=stored?part->session.rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
+    const auto rollback=stored?part_history_rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
     if(stored&&!rollback){state_->setText(tr("Regenerate the Part before editing this feature."));return;}
     const auto* input=rollback&&rollback->input_body?&*rollback->input_body:
         part->session.calculated_boundaries().empty()?nullptr:&part->session.calculated_boundaries().back();

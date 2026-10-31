@@ -12,6 +12,16 @@ zima::workspace::PartCalculationPolicy AssemblyWorkspaceWindow::part_calculation
     return policy;
 }
 
+std::optional<zima::document::HistoryRollbackBoundary>
+AssemblyWorkspaceWindow::part_history_rollback_boundary(
+        const std::string& container_id) {
+    auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(!part)return std::nullopt;
+    static_cast<void>(workspace::materialize_part_history_input_boundary(
+        workspace_,kernel_,part->session.document().document_id,container_id));
+    return part->session.rollback_boundary(container_id);
+}
+
 std::vector<zima::kernel::BodyResult> AssemblyWorkspaceWindow::calculate_part(
     const zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous) const {

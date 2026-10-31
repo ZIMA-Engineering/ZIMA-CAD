@@ -13,7 +13,7 @@ void AssemblyWorkspaceWindow::show_boundary_surface_properties(const std::string
         auto feature=stored?*stored:document::create_boundary_surface();
         if(!stored)feature.name=part->session.document().next_numbered_name(
             tr("Zaplnit plochu").toStdString(),feature.id);
-        const auto rollback=stored?part->session.rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
+        const auto rollback=stored?part_history_rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         auto* dialog=new BoundarySurfaceDialog(feature,[this,document_id](auto pending){
             static_cast<void>(workspace::commit_boundary_surface(workspace_,kernel_,document_id,std::move(pending)));

@@ -300,8 +300,20 @@ int main(int argc,char** argv) {
         auto* axis_display=dialog.findChild<QCheckBox*>("featureShowAxis3D");
         auto* point_display=dialog.findChild<QCheckBox*>("featureShowPoint");
         auto* text_display=dialog.findChild<QCheckBox*>("featureShowText");
-        if(!axis_display||!point_display||!text_display||axis_display->parentWidget()!=point_display->parentWidget()||
-           axis_display->parentWidget()!=text_display->parentWidget()||axis_display->isChecked())
+        auto* origin_axis=dialog.findChild<QCheckBox*>("featureOriginAxis");
+        auto* centroid_axis=dialog.findChild<QCheckBox*>("featureCentroidAxis");
+        if(!axis_display||!point_display||!text_display||!origin_axis||!centroid_axis||
+           axis_display->parentWidget()!=point_display->parentWidget()||
+           axis_display->parentWidget()!=text_display->parentWidget()||
+           axis_display->parentWidget()!=origin_axis->parentWidget()||
+           axis_display->parentWidget()!=centroid_axis->parentWidget()||
+           std::abs(text_display->geometry().center().y()-
+               origin_axis->geometry().center().y())>2||
+           std::abs(origin_axis->geometry().center().y()-
+               centroid_axis->geometry().center().y())>2||
+           !(text_display->geometry().right()<origin_axis->geometry().left()&&
+             origin_axis->geometry().right()<centroid_axis->geometry().left())||
+           axis_display->isChecked())
             throw std::runtime_error("Axis display checkbox is absent from the Point/Text row or has an enabled default");
         type->setCurrentIndex(1);flush();
         if(!axis_display->isVisible())throw std::runtime_error("Axis display checkbox is hidden for Axis type");

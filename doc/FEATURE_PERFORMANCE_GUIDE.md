@@ -170,6 +170,11 @@ separately from those checks. The finite large-import evidence is in the
   calculated data generation. The linked batch-history experiment also shows
   why an isolated speedup must be rejected when the production route is slower
   or a downstream Boolean difference is non-zero.
+- [Final-first history publication](performance/20261031-final-first-history-publication.md):
+  calculate the complete native topology chain while publishing the final body
+  first, retain exact dependency boundaries, materialize rollback geometry on
+  demand and complete disposable intermediate packets during idle time. The
+  measured GUI result remains above the three-second early-edit target.
 
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

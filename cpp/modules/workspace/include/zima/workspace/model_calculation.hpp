@@ -41,6 +41,9 @@ struct PartCalculationPolicy {
     // Nonempty only when the command proved that the edited last definition
     // still produces the same single native operation owner.
     std::string unchanged_last_operation_owner;
+    // Internal calculation boundary used to complete one deferred history
+    // packet. It never changes the authored cursor or persisted document.
+    std::optional<std::size_t> calculation_operation_limit;
 };
 
 // Validated new definitions and already failed features retain their native
@@ -70,6 +73,29 @@ struct PartRegenerationResult { bool references_changed{}; };
 [[nodiscard]] PartRegenerationResult regenerate_part(
     Workspace& workspace, const kernel::OcctKernel& kernel,
     const std::string& document_id, const PartCalculationPolicy& policy = {});
+// Return the first intentionally deferred intermediate viewer boundary. The
+// final body, suppressed/failed rows and already complete rows are excluded.
+[[nodiscard]] std::optional<std::size_t> deferred_part_history_boundary(
+    const document::PartDocument& document,
+    const std::vector<kernel::BodyResult>& calculated_boundaries);
+// Complete one deferred boundary on private candidate data. This function is
+// safe to run on a worker; publishing and stale-snapshot checks remain with the
+// Workspace owner thread.
+[[nodiscard]] bool complete_part_history_boundary(
+    const kernel::OcctKernel& kernel,const document::PartDocument& document,
+    std::vector<kernel::BodyResult>& calculated_boundaries,
+    std::size_t operation_count);
+// Complete one deferred intermediate OCCT/viewer boundary without changing
+// authored data or creating an Undo transaction. Returns true only when a
+// missing boundary was published into the existing calculated state.
+[[nodiscard]] bool materialize_part_history_boundary(
+    Workspace& workspace,const kernel::OcctKernel& kernel,
+    const std::string& document_id,std::size_t operation_count);
+// Complete the exact body immediately before a persisted history container.
+// First operations have no input and already-complete inputs are left intact.
+[[nodiscard]] bool materialize_part_history_input_boundary(
+    Workspace& workspace,const kernel::OcctKernel& kernel,
+    const std::string& document_id,const std::string& container_id);
 void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
     const std::string& document_id, const PartCalculationPolicy& policy = {});
 

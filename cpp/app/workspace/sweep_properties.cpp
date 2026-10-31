@@ -119,7 +119,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     else { for (auto& data : initial.helical.sketches) localize_sketch(data); }
     if(!id.empty()){
         const auto* stored=part->session.document().find_container(id);if(!stored||stored->feature_kind!=kind)return;
-        initial=*stored;const auto boundary=part->session.rollback_boundary(id);
+        initial=*stored;const auto boundary=part_history_rollback_boundary(id);
         const auto index=part->session.document().history_index(id);
         if(!index)return;
         part_rollback_=PartRollbackContext{part->session.document().document_id,*occurrence,*index,

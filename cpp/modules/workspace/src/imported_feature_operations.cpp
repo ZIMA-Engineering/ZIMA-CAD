@@ -2,6 +2,7 @@
 #include <zima/workspace/origin_display_operations.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/metadata.hpp>
 #include <algorithm>
 #include <cctype>
@@ -19,7 +20,10 @@ const document::HistoryContainer& imported_feature(
 }
 bool commit_imported_feature(Workspace& live, const kernel::OcctKernel& kernel,
     const std::string& id, document::HistoryContainer value) {
-    const auto& original = imported_feature(live, id, value.id);
+    if(value.combine_mode==document::CombineMode::Subtract)
+        static_cast<void>(materialize_part_history_input_boundary(
+            live,kernel,id,value.id));
+    const auto original = imported_feature(live, id, value.id);
     if (value.feature_kind != original.feature_kind ||
         value.feature_id != original.feature_id || value.feature_parent_id != original.feature_parent_id ||
         value.container_origin != original.container_origin)

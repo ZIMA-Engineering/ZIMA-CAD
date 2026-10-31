@@ -12,7 +12,7 @@ void AssemblyWorkspaceWindow::show_surface_intersection_properties(const std::st
         const auto* stored=part->session.document().find_container(id);auto feature=stored?*stored:document::create_surface_intersection();
         if(!stored)feature.name=part->session.document().next_numbered_name(
             tr("Průsečík ploch").toStdString(),feature.id);
-        const auto rollback=stored?part->session.rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
+        const auto rollback=stored?part_history_rollback_boundary(id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         auto* dialog=new SurfaceIntersectionDialog(feature,[this,document_id](auto pending){
             static_cast<void>(workspace::commit_surface_intersection(workspace_,kernel_,document_id,std::move(pending)));

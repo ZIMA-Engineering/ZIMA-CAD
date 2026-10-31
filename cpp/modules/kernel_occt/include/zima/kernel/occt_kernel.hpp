@@ -3,12 +3,25 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 #include <memory>
+#include <set>
+#include <string>
 
 namespace zima::kernel {
 
 struct SolidStraighteningPlan;
 class StepSourceDocument;
 struct FacePlaneIntersectionRequest;
+
+// Controls which calculated history rows must publish a complete BodyResult.
+// The native Boolean/topology chain is always evaluated in full; this only
+// defers large viewer/persistence packets that no current dependency consumes.
+struct HistoryOutputPolicy {
+    bool final_boundary_first{};
+    // Owners whose input body is queried after calculation (for example a
+    // Sketch body-edge projection or exact face intersection). Their immediate
+    // preceding boundary must remain complete.
+    std::set<std::string> input_boundary_consumers;
+};
 
 enum class AggregatePropertyDemand {
     All,
@@ -93,7 +106,8 @@ public:
     // Explicit document calculation preserves valid prefixes and independent bodies.
     [[nodiscard]] std::vector<BodyResult> evaluate_history_recovering(
         const std::vector<HistoryOperation>& operations,
-        const std::vector<BodyResult>& previous_boundaries = {}) const;
+        const std::vector<BodyResult>& previous_boundaries = {},
+        const HistoryOutputPolicy& output_policy = {}) const;
     [[nodiscard]] BodyResult compound_bodies(
         const std::vector<PlacedBody>& bodies) const override;
     [[nodiscard]] BodyResult import_iges(const std::string& path,
@@ -138,7 +152,8 @@ private:
         const std::vector<BodyResult>& previous_boundaries, HistoryContext& context) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_body_histories(
         const std::vector<HistoryOperation>& operations,
-        const std::vector<BodyResult>& previous_boundaries, bool recover_errors = false) const;
+        const std::vector<BodyResult>& previous_boundaries, bool recover_errors = false,
+        const HistoryOutputPolicy& output_policy = {}) const;
     struct LiveCache;
     std::unique_ptr<LiveCache> live_cache_;
 };

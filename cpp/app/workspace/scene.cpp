@@ -109,7 +109,59 @@ void AssemblyWorkspaceWindow::run_background_physical_analysis() {
             pending=true;break;
         }
     }catch(const std::invalid_argument&) {}
-    if(!pending)return;
+    if(!pending) {
+        const auto operation_count=workspace::deferred_part_history_boundary(
+            document,calculated);
+        if(!operation_count)return;
+        const auto revision=part->session.revision();
+        const auto generation=part->session.data_generation();
+        const auto identity=part->runtime_identity;
+        const auto key="part-history:"+
+            std::to_string(reinterpret_cast<std::uintptr_t>(identity.get()))+":"+
+            std::to_string(revision)+":"+std::to_string(generation)+":"+
+            std::to_string(*operation_count);
+        if(!background_physical_analysis_jobs_.insert(key).second)return;
+        auto candidate=document;auto boundaries=calculated;
+        QPointer<AssemblyWorkspaceWindow> window(this);
+        QThreadPool::globalInstance()->start([
+                window,id,key,revision,generation,identity,
+                operation_count=*operation_count,
+                candidate=std::move(candidate),boundaries=std::move(boundaries)]() mutable {
+            bool changed=false;
+            try {
+                kernel::OcctKernel private_kernel;
+                changed=workspace::complete_part_history_boundary(
+                    private_kernel,candidate,boundaries,operation_count);
+            }catch(const std::exception&) {
+                // Properties retains its synchronous, user-visible error path.
+                // Speculative completion must never disturb the live document.
+            }
+            auto* application=QCoreApplication::instance();
+            if(!application)return;
+            QMetaObject::invokeMethod(application,[window,id,key,revision,generation,
+                    identity,changed,boundaries=std::move(boundaries)]() mutable {
+                if(!window)return;
+                window->background_physical_analysis_jobs_.erase(key);
+                auto* current=window->workspace_.open_part(id);
+                if(!current||current->runtime_identity!=identity||
+                        current->session.revision()!=revision||
+                        current->session.data_generation()!=generation||
+                        window->closing_||window->properties_dialog_||
+                        !window->active_sketch_id_.empty()||window->part_rollback_||
+                        window->assembly_cut_rollback_) {
+                    window->schedule_background_physical_analysis();
+                    return;
+                }
+                if(!changed)return;
+                current->session.update_calculated_cache_only(
+                    std::move(boundaries));
+                // The visible final body is unchanged. Continue the idle queue
+                // without rebuilding the scene or disturbing selection.
+                window->schedule_background_physical_analysis();
+            },Qt::QueuedConnection);
+        },-1);
+        return;
+    }
     const auto revision=part->session.revision(),generation=part->session.data_generation();
     const auto identity=part->runtime_identity;
     const auto key="part:"+std::to_string(reinterpret_cast<std::uintptr_t>(identity.get()))+":"+

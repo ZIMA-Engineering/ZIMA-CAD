@@ -2179,7 +2179,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* part=workspace_.open_part(workspace_.active_document_id());
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();
                 const auto* container=part ? part->session.document().find_container(id) : nullptr;
-                const auto boundary=part ? part->session.rollback_boundary(id) : std::nullopt;
+                const auto boundary=part ? part_history_rollback_boundary(id) : std::nullopt;
                 if (!container || !boundary || !boundary->input_body) return;
                 const auto route=static_cast<std::size_t>(item->data(0,Qt::UserRole+6).toInt());
                 const int segment=item->data(0,Qt::UserRole+7).toInt();

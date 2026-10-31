@@ -1235,6 +1235,8 @@ private:
     void undo();
     void redo();
     [[nodiscard]] zima::workspace::PartCalculationPolicy part_calculation_policy() const;
+    [[nodiscard]] std::optional<zima::document::HistoryRollbackBoundary>
+    part_history_rollback_boundary(const std::string& container_id);
     [[nodiscard]] std::vector<zima::kernel::BodyResult> calculate_part(
         const zima::document::PartDocument& document,
         const std::vector<zima::kernel::BodyResult>* previous = nullptr) const;

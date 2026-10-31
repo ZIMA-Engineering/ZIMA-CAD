@@ -20,7 +20,7 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
         const auto* stored=part->session.document().find_container(id);
         if (!stored || stored->feature_kind!=document::FeatureKind::ShaftThread) return;
         initial=*stored;
-        const auto boundary=part->session.rollback_boundary(id);
+        const auto boundary=part_history_rollback_boundary(id);
         if (!boundary) {
             state_->setText(tr("Chybí vypočtený vstup závitu. Regenerujte Part."));return;
         }

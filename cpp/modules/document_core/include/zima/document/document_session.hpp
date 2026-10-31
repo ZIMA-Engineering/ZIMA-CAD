@@ -75,6 +75,12 @@ public:
     void commit_metadata(PartDocument document);
     void update_calculated_boundaries(
         std::vector<zima::kernel::BodyResult> calculated_boundaries);
+    // Publish a disposable cache completion whose final geometry and all
+    // document-derived metadata are proven unchanged. Unlike the general
+    // calculated update, this preserves the current PartDocument object and
+    // therefore any short-lived editor pointers into it.
+    void update_calculated_cache_only(
+        std::vector<zima::kernel::BodyResult> calculated_boundaries);
     // Publish the derived physical analysis of a matching save snapshot only.
     // Preserves authored geometry, revision and both Undo/Redo stacks.
     void update_save_analysis(PartDocument, std::vector<zima::kernel::BodyResult>);

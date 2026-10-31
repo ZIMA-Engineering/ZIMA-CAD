@@ -107,7 +107,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (!occurrence) {state_->setText(tr("Nejprve aktivujte přesný výskyt Partu."));return;}
             properties_dialog_instance_path_ = *occurrence;
             if (owner) {
-                const auto rollback = part->session.rollback_boundary(owner->id);
+                const auto rollback = part_history_rollback_boundary(owner->id);
                 // A first feature has a valid rollback boundary with no input solid.
                 if (!rollback) {
                     state_->setText(tr("Nejprve regenerujte Part, aby byl dostupný vstup upravovaného prvku."));return;

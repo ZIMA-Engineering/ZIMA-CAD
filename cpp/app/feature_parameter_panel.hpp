@@ -126,7 +126,6 @@ public:
         origin_axis_=new QCheckBox(tr("Osa počátku"),this);origin_axis_->setObjectName("featureOriginAxis");
         centroid_axis_=new QCheckBox(tr("Osa těžiště"),this);centroid_axis_->setObjectName("featureCentroidAxis");
         origin_axis_->setChecked(initial_.origin_centerline);centroid_axis_->setChecked(initial_.centroid_centerline);
-        options->addWidget(origin_axis_);options->addWidget(centroid_axis_);
         options->addWidget(new QLabel(tr("Směr"),this));
         direction_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Scalar,this);
         direction_->setObjectName("featureDirection");direction_->setRange(-1,1);
@@ -242,7 +241,12 @@ public:
     QWidget* type_row() {
         auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
         type_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-        layout->addWidget(type_);layout->addWidget(show_point_);layout->addWidget(show_text_);layout->addWidget(show_axis_3d_);layout->addStretch();
+        layout->addWidget(type_);layout->addWidget(show_point_);layout->addWidget(show_text_);
+        // Visibility and authored-axis controls describe the profile itself.
+        // Keep them together instead of mixing the axes with symmetric extent,
+        // direction and side swapping on the operation row below.
+        layout->addWidget(origin_axis_);layout->addWidget(centroid_axis_);
+        layout->addWidget(show_axis_3d_);layout->addStretch();
         return row;
     }
     QComboBox* plane_control() const { return plane_; }

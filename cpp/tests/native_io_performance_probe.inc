@@ -332,6 +332,10 @@ int describe_native_dependency_envelopes(const std::filesystem::path& source,
     return 0;
 }
 
+#if defined(ZIMA_ENABLE_RETIRED_LOCAL_DELTA_PROBE)
+// Retained only as research source for the rejected contact-region experiment.
+// The production kernel deliberately no longer exposes
+// replace_additive_contact_region; ordinary test builds must not depend on it.
 int benchmark_native_local_delta(const std::filesystem::path& source,
         const std::string& changed_owner,const std::string& dependent_owner) {
     using namespace zima;
@@ -605,6 +609,7 @@ int benchmark_native_local_delta(const std::filesystem::path& source,
         <<std::endl;
     return 0;
 }
+#endif
 
 int describe_native_operation(const std::filesystem::path& source,
         const std::string& name) {

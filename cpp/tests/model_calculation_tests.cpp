@@ -13,6 +13,9 @@ namespace {
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 void near(double value,double expected,const char* message){if(std::abs(value-expected)>=1e-7)throw std::runtime_error(std::string(message)+": expected "+std::to_string(expected)+", got "+std::to_string(value));}
 template<class F> void fails(F&& f,const char* message){bool failed=false;try{f();}catch(const std::exception&){failed=true;}require(failed,message);}
+double measured_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body){
+    kernel.ensure_body_properties(body);return body.volume;
+}
 auto face_ids(const kernel::ViewerMesh& mesh){
     std::set<std::tuple<std::string,std::string,std::string>> ids;
     for(const auto& face:mesh.original_references.triangle_references)
@@ -96,7 +99,7 @@ void verify_profile_frame_convergence(const kernel::OcctKernel& kernel){
         require(result.size()+1==fingerprints.size(),"Frame convergence lost a history boundary");
         for(std::size_t i=0;i<result.size();++i)
             require(result[i].source_fingerprint==fingerprints[i+1],"Profile frame and calculated history disagree");
-        near(result.back().volume,multi_body?376:184,"Resolved subtraction has incorrect volume");
+        near(measured_volume(kernel,result.back()),multi_body?376:184,"Resolved subtraction has incorrect volume");
         double min_x=1e100,max_x=-1e100,min_y=1e100,max_y=-1e100;
         for(const auto& point:result.back().mesh.original_references.points)if(point.reference.owner_id==cut.id) {
             min_x=std::min(min_x,point.position.x);max_x=std::max(max_x,point.position.x);
@@ -108,7 +111,7 @@ void verify_profile_frame_convergence(const kernel::OcctKernel& kernel){
         std::vector<kernel::BodyResult> restored;
         const auto reopened=document::PartDocument::from_serialized(resolved.serialized(result),&restored);
         require(face_ids(restored.back().mesh)==face_ids(result.back().mesh),"Save/reopen changed source identities");
-        near(restored.back().volume,result.back().volume,"Save/reopen changed calculated geometry");
+        near(measured_volume(kernel,restored.back()),measured_volume(kernel,result.back()),"Save/reopen changed calculated geometry");
         require(reopened.find_container(cut.id)->placement.x==x,"Save/reopen lost authored placement");
         const auto fingerprint=result.back().source_fingerprint;
         const auto stable_revision=session.revision();
@@ -127,7 +130,7 @@ void verify_recovery_policy(const kernel::OcctKernel& kernel){
     auto broken=document::PartDocument::create_extrusion_container("missing-profile");
     broken.extrusion.sketch_id="missing-profile";part.history={box,broken};
     const auto recovered=workspace::calculate_part(kernel,part);
-    near(recovered.back().volume,1000,"Recovery erased valid input geometry");
+    near(measured_volume(kernel,recovered.back()),1000,"Recovery erased valid input geometry");
     require(recovered.back().calculation_errors.contains(broken.id),"Recovery lost the failed feature owner");
     workspace::PartCalculationPolicy policy{true,part.document_id,0};
     static_cast<void>(workspace::calculate_part(kernel,part,nullptr,policy));
@@ -142,8 +145,74 @@ void verify_recovery_policy(const kernel::OcctKernel& kernel){
     fails([&]{static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id,policy));},"Strict regeneration unexpectedly committed");
     require(live.open_part(part.document_id)->session.data_generation()==generation,"Rejected regeneration changed the session");
     static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id));
-    near(live.open_part(part.document_id)->session.calculated_boundaries().back().volume,1000,"Explicit recovery lost valid geometry");
+    near(measured_volume(kernel,live.open_part(part.document_id)->session.calculated_boundaries().back()),1000,"Explicit recovery lost valid geometry");
     fails([&]{static_cast<void>(workspace::regenerate_part(live,kernel,"missing"));},"Missing Part was accepted");
+}
+void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
+    auto part=document::PartDocument::create_default();
+    auto first=zima::test::rectangular_feature(part,{10,10,10});
+    auto second=zima::test::rectangular_feature(part,{6,6,6});second.placement.x=4;
+    auto third=zima::test::rectangular_feature(part,{4,4,4});third.placement.x=-4;
+    part.history={first,second,third};
+    const auto complete=workspace::calculate_part(kernel,part);
+    require(complete.size()==3&&std::ranges::all_of(complete,[](const auto& boundary) {
+        return !boundary.mesh.triangles.empty();
+    }),"History fixture did not start with complete boundaries");
+
+    auto edited=part;
+    zima::test::resize_rectangular_feature(edited,edited.history.front(),{12,10,10});
+    auto policy=workspace::feature_definition_calculation_policy(
+        part,complete,first.id);
+    auto deferred=workspace::calculate_part(kernel,edited,&complete,policy);
+    require(deferred.size()==complete.size()&&
+        deferred[1].mesh.triangles.empty()&&
+        !deferred.back().mesh.triangles.empty(),
+        "Existing feature edit did not prioritize the final boundary");
+    require(workspace::deferred_part_history_boundary(edited,deferred)==1,
+        "Idle completion did not identify the first deferred boundary");
+    const auto final_volume=measured_volume(kernel,deferred.back());
+    const auto final_fingerprint=deferred.back().source_fingerprint;
+    const auto final_ids=face_ids(deferred.back().mesh);
+
+    workspace::Workspace live;live.add_part(edited,std::move(deferred));
+    auto* state=live.open_part(edited.document_id);
+    const auto revision=state->session.revision();
+    const auto generation=state->session.data_generation();
+    const auto authored=state->session.document().serialized();
+    const auto* document_address=&state->session.document();
+    const auto* container_address=state->session.document().find_container(first.id);
+    const bool undo_before=state->session.can_undo();
+    require(workspace::materialize_part_history_input_boundary(
+        live,kernel,edited.document_id,third.id),
+        "Deferred input boundary was not materialized for Properties");
+    require(!state->session.calculated_boundaries()[1].mesh.triangles.empty(),
+        "Materialized rollback boundary has no viewer geometry");
+    require(state->session.revision()==revision&&
+        state->session.can_undo()==undo_before&&
+        state->session.document().serialized()==authored,
+        "Boundary materialization changed authored history or Undo");
+    require(&state->session.document()==document_address&&
+        state->session.document().find_container(first.id)==container_address,
+        "Cache-only boundary materialization invalidated editor document pointers");
+    require(state->session.data_generation()==generation+1,
+        "Published rollback cache did not advance its data generation");
+    require(measured_volume(kernel,state->session.calculated_boundaries().back())==final_volume&&
+        state->session.calculated_boundaries().back().source_fingerprint==final_fingerprint&&
+        face_ids(state->session.calculated_boundaries().back().mesh)==final_ids,
+        "Boundary materialization changed the final calculated result");
+    const auto completed_generation=state->session.data_generation();
+    require(!workspace::materialize_part_history_input_boundary(
+            live,kernel,edited.document_id,third.id)&&
+        state->session.data_generation()==completed_generation,
+        "Complete rollback boundary was calculated or published twice");
+    auto background_candidate=state->session.calculated_boundaries();
+    require(workspace::complete_part_history_boundary(
+            kernel,state->session.document(),background_candidate,1)&&
+        !workspace::deferred_part_history_boundary(
+            state->session.document(),background_candidate)&&
+        measured_volume(kernel,background_candidate.back())==final_volume&&
+        face_ids(background_candidate.back().mesh)==final_ids,
+        "Private idle completion changed the final result or left a deferred row");
 }
 void verify_assembly(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
@@ -155,10 +224,10 @@ void verify_assembly(const kernel::OcctKernel& kernel){
     live.activate(part.document_id);live.display_top_level(id);
     auto changed=part;zima::test::resize_rectangular_feature(changed,changed.history.front(),{20,10,10});
     live.open_part(part.document_id)->session.commit(changed,workspace::calculate_part(kernel,changed));
-    near(live.open_assembly(id)->session.document().find_occurrence(occurrence)->calculated_source->volume,1000,"Source edit implicitly regenerated parent");
+    near(measured_volume(kernel,live.open_assembly(id)->session.document().find_occurrence(occurrence)->calculated_source.get()),1000,"Source edit implicitly regenerated parent");
     workspace::regenerate_assembly(live,kernel,id);
     const auto* parent=live.open_assembly(id);
-    near(parent->session.document().find_occurrence(occurrence)->calculated_source->volume,2000,"Explicit Assembly regeneration ignored unsaved Part");
+    near(measured_volume(kernel,parent->session.document().find_occurrence(occurrence)->calculated_source.get()),2000,"Explicit Assembly regeneration ignored unsaved Part");
     require(live.open_part(part.document_id)->session.is_dirty(),"Assembly regeneration saved a source document");
     require(live.active_document_id()==part.document_id&&live.displayed_document_id()==id,"Regeneration changed editing/display ownership");
     require(parent->session.document().components.size()==1&&parent->session.document().components.front().occurrence_id==occurrence,"Regeneration replaced occurrence identity");
@@ -176,15 +245,16 @@ void verify_assembly(const kernel::OcctKernel& kernel){
     assembly::AssemblyCut cut;cut.definition=cutter;cut.target_occurrence_ids={occurrence};cut_model.cuts.push_back(cut);
     workspace::calculate_resolved_assembly_cuts(kernel,cut_model);
     near(cut_model.cuts.front().definition.placement.x,0,"Assembly cutter reference was not resolved");
-    near(cut_model.find_occurrence(occurrence)->calculated_source->volume,1800,"Assembly cutter volume is incorrect");
-    near(live.open_part(part.document_id)->session.calculated_boundaries().back().volume,2000,"Assembly cutter modified its source Part");
+    near(measured_volume(kernel,cut_model.find_occurrence(occurrence)->calculated_source.get()),1800,"Assembly cutter volume is incorrect");
+    near(measured_volume(kernel,live.open_part(part.document_id)->session.calculated_boundaries().back()),2000,"Assembly cutter modified its source Part");
     require(cut_model.cuts.front().input_component_bodies.contains(occurrence),"Cut lost the real rollback input");
     require(cut_model.cuts.front().definition.id==cutter.id,"Cut calculation changed feature identity");
 }
 }
 int main(){try{
     kernel::OcctKernel kernel;
-    verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);verify_recovery_policy(kernel);verify_assembly(kernel);
-    std::cout<<"Model calculation: reference convergence, sections, source identity, Undo, error policy, explicit Assembly refresh and cuts passed without Qt.\n";
+    verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);verify_recovery_policy(kernel);
+    verify_deferred_history_boundary(kernel);verify_assembly(kernel);
+    std::cout<<"Model calculation: reference convergence, deferred rollback materialization, source identity, Undo, error policy, explicit Assembly refresh and cuts passed without Qt.\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

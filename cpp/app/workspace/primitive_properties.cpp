@@ -208,7 +208,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     std::optional<std::string> rollback_occurrence;
     const auto rollback_boundary = edit_mode && !assembly_cut
-        ? part->session.rollback_boundary(container_id)
+        ? part_history_rollback_boundary(container_id)
         : std::optional<zima::document::HistoryRollbackBoundary>{};
     if (edit_mode && !assembly_cut) {
         if (!rollback_boundary) {
@@ -1379,7 +1379,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         std::make_shared<std::optional<std::vector<double>>>();
     const auto profile_scene_name=std::make_shared<std::string>();
     const auto publish_profile_preview_scene =
-        [this, profile_scene_signature, profile_scene_name, defer_profile_preview](
+        [this, profile_scene_signature, profile_scene_name, defer_profile_preview,
+         edit_mode](
             const zima::document::PartDocument* preview_document,
             const zima::document::HistoryContainer& preview,
             bool lightweight_context) {
@@ -1461,9 +1462,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // placement/profile frame changes. Length/angle edits update the
         // transient wire, manipulators and live dimensions without sending
         // the complete STEP mesh through set_mesh()/upload_mesh().
-        // Preserve the fit previously performed by the final rollback
-        // publication on opening; subsequent parameter edits keep the camera.
-        preserve_view_on_refresh_ = !(defer_profile_preview && first_scene);
+        // Opening Properties is an inspection/edit transition and must retain
+        // the user's exact camera. A newly created profile may still perform
+        // its established one-time initial fit.
+        preserve_view_on_refresh_ = edit_mode ||
+            !(defer_profile_preview && first_scene);
         refresh_scene();
         if (!pending_primitive_reference_index_ &&
             extrusion_target_dialog_ == nullptr) {
@@ -2268,13 +2271,19 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         assembly_cut_rollback_ = AssemblyCutRollbackContext{
             assembly->session.document().document_id, container_id,
             *assembly_cut_index, edited_cut->input_component_bodies};
-        if(!deferred_profile_preview)refresh_scene();
+        if (!deferred_profile_preview) {
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+        }
     }
     if (rollback_boundary) {
         part_rollback_ = PartRollbackContext{
             part->session.document().document_id, *rollback_occurrence,
             rollback_boundary->history_index, rollback_boundary->input_body};
-        if (!deferred_profile_preview) refresh_scene();
+        if (!deferred_profile_preview) {
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+        }
     }
     if (deferred_profile_preview)
         dialog->set_preview_callback(std::move(deferred_profile_preview));
