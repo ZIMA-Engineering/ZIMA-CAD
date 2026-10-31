@@ -81,6 +81,11 @@ public:
     // therefore any short-lived editor pointers into it.
     void update_calculated_cache_only(
         std::vector<zima::kernel::BodyResult> calculated_boundaries);
+    // Publish a disposable cache completion and refresh only derived Body
+    // Properties records. The PartDocument and its history/container storage
+    // remain in place, preserving editor pointers and authored Undo state.
+    void update_calculated_analysis(
+        std::vector<zima::kernel::BodyResult> calculated_boundaries);
     // Publish the derived physical analysis of a matching save snapshot only.
     // Preserves authored geometry, revision and both Undo/Redo stacks.
     void update_save_analysis(PartDocument, std::vector<zima::kernel::BodyResult>);

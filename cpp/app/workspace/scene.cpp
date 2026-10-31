@@ -153,7 +153,11 @@ void AssemblyWorkspaceWindow::run_background_physical_analysis() {
                     return;
                 }
                 if(!changed)return;
-                current->session.update_calculated_cache_only(
+                // A newly completed historical packet can be the input of a
+                // saved Body Properties row.  Publish the derived analysis
+                // view with the cache so that its volume/centroid is refreshed
+                // without creating an authored revision or Undo transaction.
+                current->session.update_calculated_analysis(
                     std::move(boundaries));
                 // The visible final body is unchanged. Continue the idle queue
                 // without rebuilding the scene or disturbing selection.

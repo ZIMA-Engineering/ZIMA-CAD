@@ -448,6 +448,17 @@ void DocumentSession::update_calculated_cache_only(
     ++data_generation_;
 }
 
+void DocumentSession::update_calculated_analysis(
+        std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    refresh_body_properties(current_->document,calculated_boundaries);
+    current_->calculated_boundaries =
+        std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+            std::move(calculated_boundaries));
+    current_->native_cache.reset();
+    current_->calculated_state_dirty = true;
+    ++data_generation_;
+}
+
 void DocumentSession::update_save_analysis(PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
     // Editing focus (including Body activation) deliberately does not create a

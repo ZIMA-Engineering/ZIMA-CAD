@@ -17,6 +17,7 @@
 #include <QTableWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <array>
 
 namespace zima::app {
@@ -124,7 +125,12 @@ private:
         if(!isVisible()||!layout())return;
         layout()->invalidate();layout()->activate();
         const int natural=layout()->hasHeightForWidth()?layout()->totalHeightForWidth(width()):layout()->totalSizeHint().height();
-        const int target=std::max(minimumSizeHint().height(),natural);
+        // PropertiesSubWindow owns a scroll area, so the outer layout's
+        // natural height can remain at the current viewport height when a
+        // previously hidden result row appears.  Its sizeHint also includes
+        // the content layout's new natural height and lets the dialog grow (or
+        // shrink again after clearing the reference) without clipping it.
+        const int target=std::max({minimumSizeHint().height(),sizeHint().height(),natural});
         resize(width(),parentWidget()?std::min(target,parentWidget()->height()):target);
     }
     QString number(double value)const{return QString::fromStdString(kernel::dimension_number(value,ui::numeric_decimal_places(this)));}

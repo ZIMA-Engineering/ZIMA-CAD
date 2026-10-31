@@ -26,7 +26,9 @@ Input input(const workspace::Workspace& live,const Json& args) {
             throw QueryError("wrong_feature","This container is not a Fillet or Chamfer.");
     }
     const auto* result=workspace::calculated_operation_input(state->session,container);
-    if(!result||result->mesh.triangles.empty())throw QueryError("missing_input","Edge treatment requires a calculated input body.");
+    // Final-first history retains the exact persisted edge/endpoint packet for
+    // this query without retaining the complete input face mesh or B-Rep.
+    if(!result||result->mesh.edges.empty())throw QueryError("missing_input","Edge treatment requires a calculated input body.");
     const auto* body=container.empty()?doc.body_history.find(doc.body_history.active_body_id()):doc.body_owner_for_object(container);
     return {*state,*result,body?body->scope.id:std::string{},container};
 }

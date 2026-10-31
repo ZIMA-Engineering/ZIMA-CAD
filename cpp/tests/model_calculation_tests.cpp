@@ -214,6 +214,41 @@ void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
         face_ids(background_candidate.back().mesh)==final_ids,
         "Private idle completion changed the final result or left a deferred row");
 }
+void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{10,10,10});
+    auto fillet=document::PartDocument::create_fillet_container({{
+        stock.id,test::profile_key(part,stock,
+            "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}}});
+    fillet.edge_treatment.primary_size=1;
+    auto cut=test::rectangular_feature(part,{2,2,2});
+    cut.combine_mode=document::CombineMode::Subtract;
+    part.history={stock,fillet,cut};
+    const auto complete=workspace::calculate_part(kernel,part);
+    require(complete.size()==3&&std::ranges::all_of(complete,[](const auto& boundary) {
+        return !boundary.mesh.triangles.empty();
+    }),"Edge-treatment history fixture did not start with complete boundaries");
+
+    auto edited=part;
+    test::resize_rectangular_feature(edited,edited.history.front(),{12,10,10});
+    const auto policy=workspace::feature_definition_calculation_policy(
+        part,complete,stock.id);
+    auto deferred=workspace::calculate_part(kernel,edited,&complete,policy);
+    const auto reference=workspace::calculate_part(kernel,edited);
+    require(deferred.size()==3&&
+        deferred[0].mesh.triangles.empty()&&!deferred[0].mesh.edges.empty()&&
+        !deferred[1].mesh.triangles.empty()&&!deferred[1].mesh.edges.empty()&&
+        !deferred.back().mesh.triangles.empty(),
+        "Final-first edit lost the identity-bearing Fillet output");
+    require(std::abs(measured_volume(kernel,deferred.back())-
+            measured_volume(kernel,reference.back()))<1e-8,
+        "Deferring an intermediate Fillet packet changed the final volume");
+    require(face_ids(deferred.back().mesh)==face_ids(reference.back().mesh),
+        "Deferring an intermediate Fillet packet changed final face identities");
+
+    require(face_ids(deferred[1].mesh)==face_ids(reference[1].mesh),
+        "Retained Fillet output changed its own face identities");
+}
 void verify_assembly(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
     auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
@@ -254,7 +289,8 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 int main(){try{
     kernel::OcctKernel kernel;
     verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);verify_recovery_policy(kernel);
-    verify_deferred_history_boundary(kernel);verify_assembly(kernel);
+    verify_deferred_history_boundary(kernel);verify_retained_edge_treatment_boundary(kernel);
+    verify_assembly(kernel);
     std::cout<<"Model calculation: reference convergence, deferred rollback materialization, source identity, Undo, error policy, explicit Assembly refresh and cuts passed without Qt.\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

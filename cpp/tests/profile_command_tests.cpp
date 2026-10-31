@@ -22,6 +22,9 @@ void near(double actual,double expected,const std::source_location location=std:
     if(!std::isfinite(actual)||std::abs(actual-expected)>1e-5)throw std::runtime_error(
         std::string(location.function_name())+":"+std::to_string(location.line())+": Expected "+std::to_string(expected)+", got "+std::to_string(actual));
 }
+double exact_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);return body.volume;
+}
 struct Fixture {
     workspace::Workspace live;const kernel::OcctKernel& kernel;fs::path directory;command_host::Interaction interaction;command_host::Host host;
     Fixture(const kernel::OcctKernel& kernel,fs::path directory):kernel(kernel),directory(std::move(directory)),host(live,kernel,this->directory,options()){}
@@ -62,7 +65,11 @@ struct Fixture {
         const auto profile=rectangle(-x/2,-y/2,x,y);
         document::FeatureParameters p;p.symmetric=true;p.sides[0].length=z/2;return create_feature(profile,p);
     }
-    double volume(){require(!part().session.calculated_boundaries().empty(),"Missing calculated body");return part().session.calculated_boundaries().back().volume;}
+    double volume(){
+        require(!part().session.calculated_boundaries().empty(),"Missing calculated body");
+        auto measured=part().session.calculated_boundaries().back();
+        kernel.ensure_body_properties(measured);return measured.volume;
+    }
 };
 void retired_profile_commands(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory);
@@ -191,8 +198,8 @@ void touching_features(const kernel::OcctKernel& kernel,fs::path directory) {
         f.run("save");std::vector<kernel::BodyResult> bodies;
         const auto reopened=document::PartDocument::load(directory/(name+".prtz"),&bodies);
         require(reopened.find_container(id)!=nullptr,"Touching Feature lost its native definition");
-        near(bodies.back().volume,2000);
-        near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,2000);
+        near(exact_volume(kernel,bodies.back()),2000);
+        near(exact_volume(kernel,kernel.evaluate_history(reopened.kernel_operations()).back()),2000);
     }
 }
 void drafted_feature(const kernel::OcctKernel& kernel,fs::path directory) {
@@ -215,8 +222,8 @@ void drafted_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     f.run("undo");near(f.volume(),expected);f.run("redo");near(f.volume(),100000);f.run("undo");
     f.run("save");std::vector<kernel::BodyResult> calculated;
     const auto reopened=document::PartDocument::load(directory/"drafted-feature.prtz",&calculated);
-    near(reopened.find_container(id)->feature.sides[0].draft_angle_degrees,5);near(calculated.back().volume,expected);
-    near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,expected);
+    near(reopened.find_container(id)->feature.sides[0].draft_angle_degrees,5);near(exact_volume(kernel,calculated.back()),expected);
+    near(exact_volume(kernel,kernel.evaluate_history(reopened.kernel_operations()).back()),expected);
 }
 void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);
@@ -271,7 +278,7 @@ void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     f.run("save");std::vector<kernel::BodyResult> saved;
     const auto reopened=document::PartDocument::load(directory/"unified-feature-transaction.prtz",&saved);
     require(*reopened.find_container(id)==*f.doc().find_container(id),"Feature transaction lost native fields");
-    near(saved.back().volume,800*std::numbers::pi);
+    near(exact_volume(kernel,saved.back()),800*std::numbers::pi);
 
     // A kernel-level profile failure must leave the transaction just as intact
     // as a parameter validation failure, including its owned Sketch.
@@ -421,7 +428,8 @@ void directed_rotation_targets(const kernel::OcctKernel& kernel,const fs::path& 
         std::vector<kernel::BodyResult> persisted;
         const auto reopened=document::PartDocument::load(directory/(name+".prtz"),&persisted);
         require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"Native rotation limit lost its side or target orientation");
-        near(persisted.back().volume,expected);near(kernel::OcctKernel{}.evaluate_history(reopened.kernel_operations()).back().volume,expected);
+        near(exact_volume(kernel,persisted.back()),expected);
+        kernel::OcctKernel cold;near(exact_volume(cold,cold.evaluate_history(reopened.kernel_operations()).back()),expected);
         f.run("undo");f.run("redo");verify();
     }
 }
@@ -449,7 +457,7 @@ void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
         f.run("sheet_cut.set",{{"container",id},{"sheet_cut_clearance",clearance}});f.run("save");
         std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"sheet-cut-methods.prtz",&cache);
         require(reopened.find_container(id)->extrusion.sheet_cut_clearance==clearance,
-            "Native Sheet Cut calculation method was lost on reopen");near(cache.back().volume,1176.);
+            "Native Sheet Cut calculation method was lost on reopen");near(exact_volume(kernel,cache.back()),1176.);
     }
     const auto before_tolerance=f.doc().kernel_operations();
     const auto old_fingerprint=kernel::history_fingerprint(before_tolerance,before_tolerance.size());
@@ -467,7 +475,7 @@ void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
     std::vector<kernel::BodyResult> tolerance_cache;
     const auto reopened=document::PartDocument::load(directory/"sheet-cut-methods.prtz",&tolerance_cache);
     require(std::stod(reopened.document_precision.at("sheet_cut_tolerance"))==.0125,"Native Part lost the Sheet Cut tolerance");
-    near(tolerance_cache.back().volume,1176.);
+    near(exact_volume(kernel,tolerance_cache.back()),1176.);
 }
 void axis_model_visibility(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","axis-model-visibility"}});
@@ -543,7 +551,7 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     f.interaction.editing=true;f.reject("feature.set",{{"container",id},{"name","blocked"}},"editing_in_progress");f.interaction={};
     f.run("body.activate");f.reject("feature.set",{{"container",id},{"name","blocked"}},"inactive_body");f.run("body.activate",{{"body",created.at("body")}});
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-extrusion.prtz",&cache);
-    require(*reopened.find_container(id)==*f.doc().find_container(id),"Native profile parameters or identities lost");near(cache.back().volume,1200);
+    require(*reopened.find_container(id)==*f.doc().find_container(id),"Native profile parameters or identities lost");near(exact_volume(kernel,cache.back()),1200);
     // GUI can commit a changed owned Sketch with unchanged feature parameters.
     auto draft=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
     for(auto& point:draft.points)point.x*=2;
@@ -593,7 +601,7 @@ void up_to_corrections(const kernel::OcctKernel& kernel,fs::path directory) {
     f.reject_feature(id,[](auto& p){p["sides"][0]["up_to"]={{"length_correction",1},{"angle_correction_degrees",0},{"retained_patches",Json::array()}};},"value_locked");
     f.run("undo");f.run("undo");near(f.volume(),480);f.run("redo");near(f.volume(),560);f.run("save");
     std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-target-corrections.prtz",&cache);
-    near(reopened.find_container(id)->feature.sides[0].up_to.length_correction,0);near(cache.back().volume,560);
+    near(reopened.find_container(id)->feature.sides[0].up_to.length_correction,0);near(exact_volume(kernel,cache.back()),560);
     std::cout<<"CLI Up To corrections: zero/nonzero, both signs, locks, atomic errors, Undo/Redo and native reopen passed\n";
 }
 void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
@@ -629,7 +637,7 @@ void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
     require(f.part().session.calculated_boundaries().back().calculation_errors.contains(id),"Dependent profile has no missing-target diagnostic");
     f.run("undo");near(f.volume(),300*std::numbers::pi);
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-targets.prtz",&cache);
-    require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"End target native data changed on reopen");near(cache.back().volume,300*std::numbers::pi);
+    require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"End target native data changed on reopen");near(exact_volume(kernel,cache.back()),300*std::numbers::pi);
     f.set_feature(id,[](auto& p){p["sides"][0]["extrusion_extent"]="length";p["sides"][0]["length"]=5;p["sides"][0]["targets"]=Json::array();p["sides"][1]["operation"]="none";p["sides"][1]["targets"]=Json::array();});near(f.volume(),125*std::numbers::pi);
     f.run("undo");near(f.volume(),300*std::numbers::pi);
     f.set_feature(id,[&](auto& p){p["sides"][0]["operation"]="none";p["sides"][1]["targets"][0]["owner"]=f.doc().document_id+":origin";p["sides"][1]["targets"][0]["key"]="origin:plane:xy";},{{"placement",{{"z",4}}}});
@@ -662,10 +670,10 @@ void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path dir
     f.run("undo");near(f.volume(),8000+375*std::numbers::pi);f.run("redo");near(f.volume(),8800+400*std::numbers::pi);
     f.run("save");std::vector<kernel::BodyResult> cache;
     auto reopened=document::PartDocument::load(directory/"profile-body-target.prtz",&cache);
-    near(cache.back().volume,8800+400*std::numbers::pi);
+    near(exact_volume(kernel,cache.back()),8800+400*std::numbers::pi);
     kernel::OcctKernel cold;
     reopened.find_container(profile)->feature.symmetric=true;
-    near(cold.evaluate_history_incremental(reopened.kernel_operations(),cache).back().volume,8800+800*std::numbers::pi);
+    near(exact_volume(cold,cold.evaluate_history_incremental(reopened.kernel_operations(),cache).back()),8800+800*std::numbers::pi);
 }
 void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-revolution"}});
@@ -690,7 +698,7 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     auto locked=f.doc();locked.find_container(id)->value_locks.insert("side0_angle");f.part().session.commit(std::move(locked),f.part().session.calculated_boundaries());
     f.reject_feature(id,[](auto& p){p["sides"][0]["angle_degrees"]=30;},"value_locked");
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-revolution.prtz",&cache);
-    require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"Revolution native persistence lost axis or parameters");near(cache.back().volume,30*std::numbers::pi);
+    require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"Revolution native persistence lost axis or parameters");near(exact_volume(kernel,cache.back()),30*std::numbers::pi);
 }
 void symmetric_endpoint_references(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","symmetric-endpoints"}});
@@ -774,7 +782,7 @@ void symmetric_endpoint_references(const kernel::OcctKernel& kernel,const fs::pa
     near(radius_at(selected.at("endpoints")[0]),2);near(radius_at(selected.at("endpoints")[1]),1);
     f.run("undo");near(measured(),linear);f.run("redo");near(measured(),linear);
     f.run("save");saved.clear();const auto rounded=document::PartDocument::load(directory/"symmetric-endpoints.prtz",&saved);
-    near(saved.back().volume,linear);near(cold.evaluate_history(rounded.kernel_operations()).back().volume,linear);
+    near(exact_volume(kernel,saved.back()),linear);near(exact_volume(cold,cold.evaluate_history(rounded.kernel_operations()).back()),linear);
     for(int kind=0;kind<4;++kind) {
         f.run("new",{{"type","part"},{"name","joined-endpoints-"+std::to_string(kind)}});
         const auto profile=f.rectangle(2,0,2,10);
@@ -804,7 +812,7 @@ void symmetric_endpoint_references(const kernel::OcctKernel& kernel,const fs::pa
         f.run("undo");require(endpoints()==original,"Direction Undo replaced endpoint metadata");
         f.run("redo");endpoints();f.run("undo");f.run("save");
         std::vector<kernel::BodyResult> cache;const auto native=document::PartDocument::load(directory/("joined-endpoints-"+std::to_string(kind)+".prtz"),&cache);
-        near(cache.back().volume,expected);near(cold.evaluate_history(native.kernel_operations()).back().volume,expected);
+        near(exact_volume(kernel,cache.back()),expected);near(exact_volume(cold,cold.evaluate_history(native.kernel_operations()).back()),expected);
     }
 }
 void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
@@ -844,7 +852,9 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     auto failed_native=document::PartDocument::load(directory/"retained-feature-definitions.prtz",&failed_cache);
     require(failed_native.find_container(failed_id)->edge_treatment==fillet.edge_treatment&&failed_cache.back().calculation_errors.contains(failed_id),"Native reopen lost failed parameters or diagnostics");
     auto failed_rebuilt=workspace::calculate_part_with_resolved_references(cold,failed_native,&failed_cache);
-    require(failed_rebuilt.back().calculation_errors.contains(failed_id)&&std::abs(failed_rebuilt.back().volume-1000)<1e-8,"Cold failed regeneration lost preceding geometry");
+    require(failed_rebuilt.back().calculation_errors.contains(failed_id)&&
+        std::abs(exact_volume(cold,failed_rebuilt.back())-1000)<1e-8,
+        "Cold failed regeneration lost preceding geometry");
     auto downstream=document::PartDocument::create_feature_container("unused");
     auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
     static_cast<void>(sketch.add_rectangle(20,20,25,25));

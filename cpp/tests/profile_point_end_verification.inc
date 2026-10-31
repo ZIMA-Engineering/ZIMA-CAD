@@ -17,8 +17,11 @@ void point_end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
             const double back=extent=="symmetric"?length:extent=="two_sides"?3.:0.;
             const auto& body=f.part().session.calculated_boundaries().back();require(body.calculation_errors.empty()&&!body.mesh.vertices.empty(),"Point end target left failed or empty geometry");
             double low=body.mesh.vertices.front().z,high=low;for(const auto& p:body.mesh.vertices){low=std::min(low,p.z);high=std::max(high,p.z);}near(low,reverse?-length:-back);near(high,reverse?back:length);
-            if(result=="solid")near(body.volume,4*std::numbers::pi*(length+back));
-            if(result=="surface"){near(body.volume,0);near(body.surface_area,4*std::numbers::pi*(length+back));}
+            if(result=="solid"||result=="surface") {
+                auto analyzed=body;kernel.ensure_body_properties(analyzed);
+                if(result=="solid")near(analyzed.volume,4*std::numbers::pi*(length+back));
+                else {near(analyzed.volume,0);near(analyzed.surface_area,4*std::numbers::pi*(length+back));}
+            }
             const auto& current=f.doc().find_container(id)->feature.sides[0].targets.front();require(current.kind==document::EndTargetKind::Point&&current.reference.owner_id==source&&current.reference.semantic_key=="point:"+point,"Point end identity changed");
         };
         verify(7.);
@@ -48,7 +51,7 @@ void point_end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
             f.run("undo");f.run("redo");near(f.volume(),4*std::numbers::pi*length*(symmetric?2:1));
         }
         f.run("save");auto reopened=document::PartDocument::load(f.directory/(f.doc().name+".prtz"));kernel::OcctKernel cold;
-        const auto bodies=workspace::calculate_part_with_resolved_references(cold,reopened);require(bodies.back().calculation_errors.empty(),"Unified Feature point target failed reopen");near(bodies.back().volume,4*std::numbers::pi*8*(symmetric?2:1));
+        const auto bodies=workspace::calculate_part_with_resolved_references(cold,reopened);require(bodies.back().calculation_errors.empty(),"Unified Feature point target failed reopen");near(exact_volume(cold,bodies.back()),4*std::numbers::pi*8*(symmetric?2:1));
     }
     std::cout<<"Point end targets: "<<count<<" result/direction/extent combinations, repeated source motion, Undo/Redo and cold reopen passed\n";
 }

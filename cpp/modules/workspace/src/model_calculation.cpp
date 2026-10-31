@@ -94,10 +94,16 @@ static kernel::HistoryOutputPolicy history_output_policy(
             result.input_boundary_consumers.insert(consumer);
         return true;
     });
-    // Drill-point repair validates selected bottoms against the exact body
-    // immediately before its own operation.
+    // Edge-treatment queries and edits resolve their persisted routes against
+    // the exact input immediately before the operation.  Retain that narrow
+    // edge/identity packet just like other explicit input consumers; keeping
+    // it avoids either a stale empty boundary or an on-demand OCCT rebuild.
+    // Drill-point repair likewise validates selected bottoms against its exact
+    // input body.
     for(const auto& feature:document.history)
-        if(feature.feature_kind==document::FeatureKind::DrillPoint)
+        if(feature.feature_kind==document::FeatureKind::Fillet||
+                feature.feature_kind==document::FeatureKind::Chamfer||
+                feature.feature_kind==document::FeatureKind::DrillPoint)
             result.input_boundary_consumers.insert(feature.id);
     return result;
 }

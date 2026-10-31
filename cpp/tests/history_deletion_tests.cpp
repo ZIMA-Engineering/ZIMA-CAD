@@ -41,8 +41,10 @@ static void verify_long_suffix_reference_eviction() {
             require(trace.log.str().find("operations=12 reused=2 calculated=10")!=std::string::npos,
                 "A long suffix evicted the input reference packet and recalculated its unchanged prefix");}
         kernel::OcctKernel oracle;const auto expected=workspace::calculate_part(oracle,next);
-        require(std::abs(result.back().volume-(3978+2*length))<1e-7&&
-            result.back().volume==expected.back().volume&&result.back().surface_area==expected.back().surface_area&&
+        auto measured=result.back(),expected_measured=expected.back();
+        editing.ensure_body_properties(measured);oracle.ensure_body_properties(expected_measured);
+        require(std::abs(measured.volume-(3978+2*length))<1e-7&&
+            measured.volume==expected_measured.volume&&measured.surface_area==expected_measured.surface_area&&
             document::serialize_viewer_reference_geometry(result.back().mesh.original_references)==
                 document::serialize_viewer_reference_geometry(expected.back().mesh.original_references),
             "Reference-packet restoration changed independent volume or exact source geometry");
@@ -85,7 +87,8 @@ static void verify_live_regeneration(const kernel::OcctKernel& kernel) {
     auto changed=session.document();changed.find_container(box.id)->extrusion.length_forward=6;
     session.commit(changed,session.calculated_boundaries());
     static_cast<void>(workspace::regenerate_part(live,kernel,id));
-    require(std::abs(session.calculated_boundaries().back().volume-1200)<1e-8,"Changed source reused obsolete live geometry");
+    auto changed_result=session.calculated_boundaries().back();kernel.ensure_body_properties(changed_result);
+    require(std::abs(changed_result.volume-1200)<1e-8,"Changed source reused obsolete live geometry");
 }
 static void verify_cold_history_resume() {
     kernel::OcctKernel original_kernel;

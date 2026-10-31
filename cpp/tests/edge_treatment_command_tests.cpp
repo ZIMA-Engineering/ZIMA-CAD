@@ -87,8 +87,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{"reverse",false}}}}).code=="inactive_body","Fillet edited inactive Body");
     require(host.execute({{"command","fillet.create"},{"arguments",{{"routes",routes()}}}}).code=="invalid_reference","Fillet accepted another Body edge");
     run(host,"body.activate",{{"body",body}});run(host,"body.cursor",{{"body",body},{"index",1}});
-    near(workspace::calculated_operation_input(state->session)->volume,440000);
+    auto cursor_input=*workspace::calculated_operation_input(state->session);kernel.ensure_body_properties(cursor_input);
+    near(cursor_input.volume,440000);
+    const auto input_revision=state->session.revision();const auto* input_cache=state->session.calculated_boundaries().data();
     require(run(host,"edge_treatment.edges",{{"container",id}}).data.at("total")==12,"Fillet edit lost consumed input edge");
+    require(state->session.revision()==input_revision&&state->session.calculated_boundaries().data()==input_cache,
+        "Fillet input query recalculated or modified the document");
     // Three independent Chamfer modes; FLIP swaps the two support faces.
     run(host,"new",{{"type","part"},{"name","chamfer-command"}});
     const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"one_sided",true},{"height_mm","50"}}).data.at("container");state=live.open_part(live.active_document_id());

@@ -145,3 +145,69 @@ dependent datum command runs. None of those source paths changed in this work.
 The implementation has no platform-specific modeling branch. Native Linux
 compilation, execution and timing require the Linux host and are not established
 by this Windows verification.
+
+## 2026-11-01 edge-treatment follow-up
+
+The follow-up profiled all five Fillets in the representative Skeleton before
+attempting a custom edge-treatment implementation. Their combined measured phase
+time was 3156.418 ms, of which the OCCT Fillet builders used 760.752 ms. Result
+packet construction used 1050.729 ms and unification used 995.486 ms; the rest
+was identity preparation, validation and publication. A general replacement for
+the OCCT surface builders therefore could not plausibly recover the approximately
+17 seconds still separating the early edit from the three-second target.
+
+An experimental final-first variant deferred complete intermediate Fillet and
+Chamfer owner packets. Repeated warm GUI observations improved from
+20.529/19.305/24.184 seconds for the two changed confirmations and Save to
+19.444/18.522/23.401 seconds. That approximately 4--5% result failed the durable
+identity gate: a constructed Fillet followed by a dependent cut produced a
+different final face-identity set when calculated final-first. The experiment was
+fully reverted. No custom Fillet or Chamfer generator, and no identity-changing
+packet deferral, is shipped by this work.
+
+The accepted change retains the exact compact input edge and endpoint packet for
+every Fillet and Chamfer. Queries and edits consume that packet without requiring
+the omitted input triangle mesh or rebuilding OCCT geometry. The complete
+identity-bearing Fillet/Chamfer output remains available to downstream features.
+A new regression changes an upstream stock, evaluates final-first, and compares
+both the edge-treatment output identities and final dependent-cut identities with
+a fresh full calculation.
+
+The final Windows GUI observation on the isolated Skeleton copy measured:
+
+| Interaction | First edit | Repeated edit |
+| --- | ---: | ---: |
+| Open Properties | 1.222 s | 1.277 s |
+| Draft value update | 0.039 s | 0.031 s |
+| Changed OK | 21.156 s | 19.937 s |
+
+Undo measured 0.484 seconds, Redo 0.505 seconds and Save 24.313 seconds. A cold
+post-build observation measured 23.665/23.428/24.525 seconds; the immediate warm
+repeat above is equivalent to the accepted 20.529/19.305/24.184-second baseline
+within ordinary run-to-run variation, so no Skeleton speedup is claimed. Both
+saved results exported 94,979 STEP entities and identical 5,946,078-byte `DATA`
+sections with
+SHA-256 `E20B3462C8F7524D004080EBAD4E6841A8F05A9269A53EA71AF4B985E91C64DC`.
+All five `fillet.get` results and all five complete `edge_treatment.edges`
+payloads were byte-identical between the baseline and accepted build.
+
+Two persistence/UI defects exposed by the expanded matrix were corrected:
+
+- cache string pooling can replace long Sheet Cut, history fingerprint, hidden
+  edge and native locator strings with shared references; the loader now decodes
+  those fields through the shared-string table, including a second save/reopen;
+- completing a deferred historical packet can make it the current input of a
+  saved Body Properties row, so background publication now refreshes its derived
+  volume, centroid and inertia without changing the authored revision, Undo,
+  `PartDocument` address or history-container address;
+  and the Measurement inspector now grows and shrinks with newly visible result
+  rows when hosted in the shared scrolling properties window.
+
+Thirteen focused native suites passed together: model calculation, Body
+Properties, cache storage, history deletion/recovery, external targets, Sketch
+intersections, Solid State Fillet, Fillet/Chamfer commands and queries, Boolean
+split edges, tangent routes and profile commands. The Body Properties suite
+completed in 116.10 seconds, the Measurement GUI contract in 8.23 seconds and
+the five-language translation/source coverage contract in 18.40 seconds. No
+user-visible string changed. Windows Release and the representative Skeleton
+were verified; native Linux execution remains a Linux-host verification gap.

@@ -1084,7 +1084,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         if(!cached->is_object()||!cached->contains("algorithm")||!cached->at("algorithm").is_string()||
             !cached->contains("frames")||!cached->at("frames").is_array()||cached->at("frames").size()>50000)
             throw std::runtime_error("Invalid native topology binding");
-        auto history=std::make_shared<zima::kernel::KernelHistoryCache>();history->algorithm=cached->at("algorithm");
+        auto history=std::make_shared<zima::kernel::KernelHistoryCache>();
+        history->algorithm=stored_string(cached->at("algorithm"),shared_strings);
         const auto& source_frames=cached->at("frames");
         const auto native=[&](const nlohmann::json& value)->zima::kernel::BodySnapshot {
             if(value.contains("incremental_history"))throw std::runtime_error("Invalid native topology binding");
@@ -1092,8 +1093,11 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         };
         auto frames=process_rows<zima::kernel::KernelHistoryFrame>(source_frames.size(),[&](std::size_t index) {
             const auto& row=source_frames.at(index);
-            zima::kernel::KernelHistoryFrame frame;frame.fingerprint=row.at("fingerprint");
-            frame.native_body=native(row.at("native"));frame.hidden_edges=row.at("hidden_edges").get<std::vector<std::string>>();
+            zima::kernel::KernelHistoryFrame frame;
+            frame.fingerprint=stored_string(row.at("fingerprint"),shared_strings);
+            frame.native_body=native(row.at("native"));
+            for(const auto& edge:row.at("hidden_edges"))
+                frame.hidden_edges.push_back(stored_string(edge,shared_strings));
             frame.reference_delta=std::make_shared<const zima::kernel::ViewerReferenceGeometry>(
                 load_reference_geometry(row.at("references"),shared_strings));
             frame.original_edges_retained=row.at("original_edges_retained");
@@ -1117,11 +1121,15 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
                     load_reference_geometry(geometry,shared_strings)));
         }
     for(const auto& row:source.value("sheet_cuts",nlohmann::json::array())) {
-        zima::kernel::SheetCutRegion region;region.cut_owner=row.at("cut_owner");
-        region.source={row.at("source_owner"),row.at("source_key"),row.at("source_path")};
-        region.source.sheet_owner=row.at("sheet_owner");
+        zima::kernel::SheetCutRegion region;
+        region.cut_owner=stored_string(row.at("cut_owner"),shared_strings);
+        region.source={stored_string(row.at("source_owner"),shared_strings),
+            stored_string(row.at("source_key"),shared_strings),
+            stored_string(row.at("source_path"),shared_strings)};
+        region.source.sheet_owner=stored_string(row.at("sheet_owner"),shared_strings);
         region.source.sheet_role=zima::kernel::SheetFaceRole::SideA;
-        region.surface_type=row.at("surface_type");region.origin=load_vec3(row.at("origin"));
+        region.surface_type=stored_string(row.at("surface_type"),shared_strings);
+        region.origin=load_vec3(row.at("origin"));
         region.axis=load_vec3(row.at("axis"));region.x_axis=load_vec3(row.at("x_axis"));
         region.y_axis=load_vec3(row.at("y_axis"));
         region.radius=row.at("radius");region.semi_angle=row.at("semi_angle");region.thickness=row.at("thickness");
@@ -1137,7 +1145,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         for(const auto& loop:row.at("loops")) {
             std::vector<zima::kernel::SheetTrimCurve> curves;
             for(const auto& curve:loop) {
-                zima::kernel::SheetTrimCurve c;c.parent_owner=curve.at("parent_owner");c.parent_key=curve.at("parent_key");
+                zima::kernel::SheetTrimCurve c;
+                c.parent_owner=stored_string(curve.at("parent_owner"),shared_strings);
+                c.parent_key=stored_string(curve.at("parent_key"),shared_strings);
                 c.degree=curve.at("degree");c.poles=curve.at("poles").get<decltype(c.poles)>();c.weights=curve.at("weights").get<decltype(c.weights)>();
                 c.knots=curve.at("knots").get<decltype(c.knots)>();c.multiplicities=curve.at("multiplicities").get<decltype(c.multiplicities)>();c.reversed=curve.at("reversed");
                 curves.push_back(std::move(c));
@@ -1208,7 +1218,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
         for(double x:p.inertia)require_finite(x,"volume inertia");
         result.volume_integrals=p;
     }
-    result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
+    result.source_fingerprint = stored_string(
+        source.at("source_fingerprint"),shared_strings);
     result.kernel_shape = stored_shared_string(
         source.at("kernel_shape"),shared_strings);
     for (const auto& placement : source.value("kernel_placements", nlohmann::json::array()))
@@ -1231,7 +1242,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
             using Binding=typename std::decay_t<decltype(values)>::value_type;
             std::vector<Binding> captured;captured.reserve(bindings->at(kind).size());
             for(const auto& row:bindings->at(kind)) {
-                Binding value;value.locator=row.at("locator");
+                Binding value;
+                value.locator=stored_string(row.at("locator"),shared_strings);
                 auto& ref=value.reference;ref={row.at("owner"),
                     stored_string(row.at("key"),shared_strings),row.at("instance_path")};
                 if(!ref.valid()||value.locator.empty())throw std::runtime_error("Invalid native topology binding");

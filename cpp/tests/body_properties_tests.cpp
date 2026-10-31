@@ -322,7 +322,19 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     row=run(host,"body_properties.get",{{"object",object}});near(row["volume_mm3"],480,"Downstream feature changed earlier measurement");
     try{static_cast<void>(workspace::commit_body_properties(live,stale,stale.initial));throw std::runtime_error("stale accepted");}
     catch(const workspace::MeasurementOperationError& e){check(std::string(e.code)=="stale_edit","Wrong stale error");}
-    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","12"}});row=run(host,"body_properties.get",{{"object",object}});near(row["volume_mm3"],576,"Upstream change did not recalculate measurement");
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","12"}});
+    auto background_document=part->session.document();auto background_cache=part->session.calculated_boundaries();
+    const auto missing_boundary=workspace::deferred_part_history_boundary(background_document,background_cache);
+    check(missing_boundary&&workspace::complete_part_history_boundary(
+            kernel,background_document,background_cache,*missing_boundary),
+        "Upstream change did not queue its historical analysis boundary");
+    const auto* stable_document=&part->session.document();
+    const auto* stable_container=part->session.document().find_container(box);
+    part->session.update_calculated_analysis(std::move(background_cache));
+    check(&part->session.document()==stable_document&&
+            part->session.document().find_container(box)==stable_container,
+        "Background analysis invalidated document or container pointers");
+    row=run(host,"body_properties.get",{{"object",object}});near(row["volume_mm3"],576,"Background history completion did not refresh the changed measurement");
     run(host,"body.cursor",{{"body",body},{"index",1}});
     auto middle=run(host,"body_properties.create",{{"name","At cursor"}});check(middle["after_object_id"]==box,"Creation used final history instead of cursor");
     const auto origins=document::body_properties_origins(part->session.document());check(origins.points.size()==2,"Historical COG origins missing");

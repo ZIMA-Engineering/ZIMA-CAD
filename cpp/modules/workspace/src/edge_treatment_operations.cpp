@@ -85,7 +85,9 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
         (!fillet&&parameters.chamfer_mode!=Parameters::ChamferMode::EqualDistance&&parameters.chamfer_mode!=Parameters::ChamferMode::TwoDistances&&parameters.chamfer_mode!=Parameters::ChamferMode::DistanceAngle))
         throw Error("invalid_arguments","Unsupported edge treatment mode.");
     const auto* input=calculated_operation_input(state->session,stored?feature.id:std::string{});
-    if(!input||input->mesh.triangles.empty())throw Error("missing_input","Edge treatment requires a calculated input body.");
+    // Route validation consumes exact persisted edges and endpoints.  A
+    // final-first checkpoint deliberately omits its unused face mesh/B-Rep.
+    if(!input||input->mesh.edges.empty())throw Error("missing_input","Edge treatment requires a calculated input body.");
     if(parameters.routes.empty())throw Error("invalid_reference","Select at least one input edge route.");
     if(parameters.route_start_vertices.size()>parameters.routes.size())throw Error("invalid_reference","Each edge route may have only one R1 endpoint.");
     const auto available=group_edges(input->mesh.edges);std::set<Key> unique;
