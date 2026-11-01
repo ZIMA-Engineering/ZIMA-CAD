@@ -33,6 +33,9 @@ public:
     DocumentSession(const DocumentSession&);
     // Private read/calculation snapshot only; never publish over a live Undo session.
     [[nodiscard]] DocumentSession current_state_copy() const;
+    // A Workspace copy owns a distinct current publication allocation while
+    // retaining the ordinary immutable sharing of inactive Undo/Redo states.
+    [[nodiscard]] DocumentSession workspace_copy() const;
     DocumentSession& operator=(const DocumentSession&);
     DocumentSession(DocumentSession&&) noexcept = default;
     DocumentSession& operator=(DocumentSession&&) noexcept = default;

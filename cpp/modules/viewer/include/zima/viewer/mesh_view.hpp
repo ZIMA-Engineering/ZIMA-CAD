@@ -342,8 +342,7 @@ public:
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::vector<zima::kernel::EdgeReference> tangent_edge_route(
-        const ViewerCandidate& seed,
-        double angular_tolerance_degrees = 35.0) const;
+        const ViewerCandidate& seed) const;
     [[nodiscard]] std::set<std::size_t> edge_treatment_boundary_edge_indices(
         const std::string& owner_id,
         const std::string& instance_path = {}) const;

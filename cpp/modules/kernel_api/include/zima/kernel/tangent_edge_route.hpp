@@ -1,10 +1,11 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/edge_treatment_chain.hpp>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
-#include <numbers>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -12,10 +13,10 @@ namespace zima::kernel {
 // Shared traversal over persisted viewer edges. Geometry indices select
 // an offered runtime edge, never define a persisted topology identity.
 inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdge>& edges,
-    const EdgeReference& seed,double angular_tolerance_degrees=35,
-    double position_tolerance=1e-6,std::optional<std::size_t> picked_index={}) {
-    if(!seed.valid()||!std::isfinite(angular_tolerance_degrees)||angular_tolerance_degrees<0||
-        angular_tolerance_degrees>90||!std::isfinite(position_tolerance)||position_tolerance<0)return {};
+    const EdgeReference& seed,double position_tolerance=1e-6,
+    std::optional<std::size_t> picked_index={}) {
+    if(!seed.valid()||!std::isfinite(position_tolerance)||
+       position_tolerance<0)return {};
     struct Endpoint { std::size_t edge{}; int end{}; };
     const double tolerance = std::max(1.0e-6, position_tolerance);
     using VertexKey = std::pair<std::string, std::string>;
@@ -72,21 +73,42 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
     if (!seed_index) return {};
     const auto direction = [&](std::size_t index, int end)
         -> std::optional<zima::kernel::Vec3> {
-        const auto& points = edges[index].points;
-        const auto& origin = end == 0 ? points.front() : points.back();
-        for (std::size_t step = 1; step < points.size(); ++step) {
-            const auto& target = end == 0 ? points[step]
-                                         : points[points.size() - 1 - step];
-            zima::kernel::Vec3 value{target.x - origin.x,
-                target.y - origin.y, target.z - origin.z};
-            const double length = std::hypot(std::hypot(value.x, value.y), value.z);
-            if (length > tolerance) return zima::kernel::Vec3{
-                value.x / length, value.y / length, value.z / length};
+        const auto& edge=edges[index];
+        if(!edge.exact_spline)return std::nullopt;
+        const auto& curve=*edge.exact_spline;
+        try {curve.validate();}
+        catch(const std::exception&) {return std::nullopt;}
+        const auto& endpoint=end==0?edge.points.front():edge.points.back();
+        const auto first=bspline_value(curve,0.);
+        const auto last=bspline_value(curve,1.);
+        const auto squared_distance=[&](const Vec3& point) {
+            const double x=point.x-endpoint.x;
+            const double y=point.y-endpoint.y;
+            const double z=point.z-endpoint.z;
+            return x*x+y*y+z*z;
+        };
+        const double first_distance=squared_distance(first);
+        const double last_distance=squared_distance(last);
+        const bool at_first=first_distance<=last_distance;
+        const double coordinate_scale=std::max({1.,std::abs(endpoint.x),
+            std::abs(endpoint.y),std::abs(endpoint.z)});
+        const double endpoint_tolerance=std::max(tolerance,
+            64.*std::numeric_limits<double>::epsilon()*coordinate_scale);
+        if(std::min(first_distance,last_distance)>
+                endpoint_tolerance*endpoint_tolerance)
+            return std::nullopt;
+        auto tangent=bspline_derivative(curve,at_first?0.:1.);
+        if(!at_first) {
+            tangent.x=-tangent.x;tangent.y=-tangent.y;
+            tangent.z=-tangent.z;
         }
-        return std::nullopt;
+        const double length=std::hypot(
+            std::hypot(tangent.x,tangent.y),tangent.z);
+        if(!std::isfinite(length)||length<=1.0e-12*coordinate_scale)
+            return std::nullopt;
+        return zima::kernel::Vec3{tangent.x/length,
+            tangent.y/length,tangent.z/length};
     };
-    const double limit = std::cos(angular_tolerance_degrees *
-        std::numbers::pi / 180.0);
     std::set<std::size_t> selected{*seed_index};
     std::vector<std::size_t> pending{*seed_index};
     if(seed_chain)for(const auto index:seed_indices)if(selected.insert(index).second)pending.push_back(index);
@@ -101,6 +123,18 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
             // junction again from the newly added edge and accidentally take
             // a different branch back out of it.
             if (!visited_vertices.insert(*vertex).second) continue;
+            std::vector<std::size_t> incident_edges;
+            for(const auto& candidate:endpoints[*vertex])
+                incident_edges.push_back(candidate.edge);
+            std::sort(incident_edges.begin(),incident_edges.end());
+            incident_edges.erase(std::unique(incident_edges.begin(),
+                incident_edges.end()),incident_edges.end());
+            // Tangent propagation is a curve continuation, not a choice at a
+            // topological junction.  Even when exactly one of several exits
+            // is geometrically tangent, a third incident edge is
+            // an authored termination and must stop automatic Fillet/Chamfer
+            // selection.  The user can still select the next edge explicitly.
+            if(incident_edges.size()!=2)continue;
             std::vector<std::size_t> continuations;
             for (const auto candidate : endpoints[*vertex]) {
                 if (candidate.edge == current || selected.contains(candidate.edge)) continue;
@@ -115,7 +149,13 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
                 // old abs(dot) also accepted a curve that doubled back on the
                 // same side, which could pull a disconnected-looking Fillet
                 // boundary into the selected route.
-                if (alignment <= -limit) continuations.push_back(candidate.edge);
+                // The exact native curve derivatives must be antiparallel.
+                // This is only a floating-point equality allowance, not an
+                // authored angle threshold: a real corner, however small,
+                // remains a route boundary.
+                constexpr double exact_tangent_dot_tolerance=1.0e-8;
+                if (alignment <= -1.+exact_tangent_dot_tolerance)
+                    continuations.push_back(candidate.edge);
             }
             std::sort(continuations.begin(), continuations.end());
             continuations.erase(std::unique(continuations.begin(), continuations.end()),

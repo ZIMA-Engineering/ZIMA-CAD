@@ -3,8 +3,10 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 #include <memory>
+#include <span>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace zima::kernel {
 
@@ -47,6 +49,62 @@ struct FrozenStepComponent {
     ImmutableVector<StepRequest::TopologyIdentity> topology;
 };
 
+// Derived native support data for an explicitly selected Fillet/Chamfer edge.
+// It is calculation-only inspection state: none of it is persisted or used as
+// topology identity. Stable references remain the sole parent contract.
+enum class OcctEdgeTreatmentCurveKind {
+    Line,
+    Circle,
+    Ellipse,
+    Hyperbola,
+    Parabola,
+    Bezier,
+    BSpline,
+    Offset,
+    Other
+};
+
+enum class OcctEdgeTreatmentSurfaceKind {
+    Plane,
+    Cylinder,
+    Cone,
+    Sphere,
+    Torus,
+    Bezier,
+    BSpline,
+    Revolution,
+    Extrusion,
+    Offset,
+    Other
+};
+
+struct OcctEdgeTreatmentSupportFace {
+    // One runtime face can retain several valid ancestry aliases. Keeping all
+    // of them prevents inspection from choosing a newer parent arbitrarily.
+    std::vector<FaceReference> references;
+    OcctEdgeTreatmentSurfaceKind kind{
+        OcctEdgeTreatmentSurfaceKind::Other};
+    bool reversed{};
+};
+
+struct OcctEdgeTreatmentSupportSegment {
+    EdgeReference edge;
+    OcctEdgeTreatmentCurveKind curve_kind{
+        OcctEdgeTreatmentCurveKind::Other};
+    std::vector<OcctEdgeTreatmentSupportFace> adjacent_faces;
+    // OCCT continuity rank: 0=C0, 1=G1/C1, 2=G2/C2, 3=C3, 4=CN.
+    unsigned continuity_order{};
+    // Angle between oriented outward face normals at the edge midpoint.
+    // Empty for a non-manifold edge or a degenerate support derivative.
+    std::optional<double> outward_normal_angle_degrees;
+};
+
+struct OcctEdgeTreatmentSupportInspection {
+    std::vector<OcctEdgeTreatmentSupportSegment> segments;
+    double native_decode_ms{};
+    double adjacency_ms{};
+};
+
 // Ordinary modeling retains exact native face locators instead of integrating
 // every face for a later inspector. Explicit analysis can request eager values.
 class FaceMeasurementScope final {
@@ -71,6 +129,12 @@ public:
     void ensure_body_properties(BodyResult& body) const;
     [[nodiscard]] std::vector<std::optional<double>> measure_face_areas(
         const BodyResult& body, std::span<const FaceReference> references) const;
+    // Decode an already calculated Body once and classify the exact native
+    // supports of the requested persisted edges. This never recalculates the
+    // Body, creates geometry, changes identity or creates an undo transaction.
+    [[nodiscard]] OcctEdgeTreatmentSupportInspection
+        inspect_edge_treatment_supports(
+            const BodyResult&,std::span<const EdgeReference>) const;
     // Explicit reference calculation, never an ordinary picking/hover query.
     // Returns exact curves/points with native ancestry; source stays read-only.
     [[nodiscard]] ViewerReferenceGeometry intersect_face_plane(
@@ -92,6 +156,27 @@ public:
     [[nodiscard]] BodyResult calculate_feature_tool(
         HistoryOperation,const BodyResult& references,KernelRigidPlacement frame_to_document,
         const BodyResult& local_input,const std::vector<OrderedUpToPatch>& external_sources) const;
+    // Completes one independently prepared contiguous Add block with one
+    // exterior-boundary calculation. This experimental entry point does not
+    // alter ordinary history evaluation or native persistence.
+    [[nodiscard]] BodyResult calculate_add_block(
+        const BodyResult& input,std::span<const BodyResult> tools,
+        std::span<const std::size_t> tool_history_indices,
+        std::span<const std::string> history_owners,
+        double boolean_tolerance,double mesh_deflection,
+        const std::string& source_fingerprint = {},
+        std::span<const std::string> history_fingerprints = {},
+        bool publish_result = true) const;
+    // Completes one contiguous set of independent subtractive tools with one
+    // exact Cut while retaining authored topology ancestry. Experimental: it
+    // does not alter ordinary history evaluation or native persistence.
+    [[nodiscard]] BodyResult calculate_subtract_block(
+        const BodyResult& input,std::span<const BodyResult> tools,
+        std::span<const std::size_t> tool_history_indices,
+        std::span<const std::string> history_owners,
+        double boolean_tolerance,double mesh_deflection,
+        const std::string& source_fingerprint = {},
+        bool publish_result = true) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
@@ -147,6 +232,10 @@ private:
     [[nodiscard]] std::vector<BodyResult> evaluate_flat_history(
         const std::vector<HistoryOperation>& operations,
         const std::vector<BodyResult>& previous_boundaries, HistoryContext& context) const;
+    [[nodiscard]] std::optional<std::vector<BodyResult>>
+        evaluate_flat_history_batched(
+            const std::vector<HistoryOperation>& operations,
+            HistoryContext& context) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_flat_history_recovering(
         const std::vector<HistoryOperation>& operations,
         const std::vector<BodyResult>& previous_boundaries, HistoryContext& context) const;

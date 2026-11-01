@@ -1091,6 +1091,22 @@ Cuts and ordinary additive/subtractive operations. Their limitations and
 verification are documented separately. Sheet Cut projects onto all intersected
 supported reference skins in the current Body; it has no individual region collector.
 
+### Future bend-zone cut deformation check (2026-11-01)
+
+A reported manufacturing rule of thumb is that a cut whose nearest boundary is
+closer than approximately `2.5 * t` to a bend zone can deform during forming,
+where `t` is material thickness. This is recorded as future investigation, not
+as a universal validated limit and not as current product behavior.
+
+Before implementation, establish the measurement datum (bend line, tangent
+line, inside-radius boundary or developed bend zone), the influence of inside
+radius, bend angle, material and tooling, and which cut shapes need a different
+limit. The eventual design should detect affected cuts without changing their
+geometry, explain the measured clearance, and offer manufacturing guidance such
+as moving the cut or adding an appropriate relief. Any automatic geometry
+change would require a separate explicit command and verification through
+Unbend/Bend Back, DXF, save/reopen and reference identity.
+
 ### Sheet Cut verification
 
 All thirteen focused suites passed in

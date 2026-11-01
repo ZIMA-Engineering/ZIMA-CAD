@@ -2858,9 +2858,8 @@ int main(int argc, char* argv[]) {
              {"route-owner-b", "edge:right", {}}},
             {{{0.0, 0.0, 0.0}, {0.0, 10.0, 0.0}},
              {"route-owner-c", "edge:branch", {}}},
-            // Same geometric start and tangent direction as edge:left, but
-            // it doubles back from the shared endpoint and is not a route
-            // continuation.
+            // Same geometric point as the route joint, but a distinct stable
+            // endpoint. Spatial coincidence must not create a T-junction.
             {{{0.0, 0.0, 0.0}, {-5.0, 0.0, 0.0}},
              {"route-owner-d", "edge:wrong-way", {}}},
             // Geometrically touches edge:right but owns a different ZIMA
@@ -2875,14 +2874,20 @@ int main(int argc, char* argv[]) {
             {"vertex-owner", "vertex:joint", {}},
             {"vertex-owner", "vertex:right", {}}};
         tangent_route_mesh.edges[2].edge_treatment_endpoint_references = {
-            {"vertex-owner", "vertex:joint", {}},
+            {"vertex-owner", "vertex:other-branch-joint", {}},
             {"vertex-owner", "vertex:branch", {}}};
         tangent_route_mesh.edges[3].edge_treatment_endpoint_references = {
-            {"vertex-owner", "vertex:joint", {}},
+            {"vertex-owner", "vertex:other-wrong-way-joint", {}},
             {"vertex-owner", "vertex:wrong-way", {}}};
         tangent_route_mesh.edges[4].edge_treatment_endpoint_references = {
             {"vertex-owner", "vertex:other-at-right", {}},
             {"vertex-owner", "vertex:near-only", {}}};
+        for(auto& edge:tangent_route_mesh.edges) {
+            zima::kernel::BSplineGeometry exact;exact.degree=1;
+            exact.poles={edge.points.front(),edge.points.back()};
+            exact.knots={0,0,1,1};exact.weights={1,1};
+            exact.validate();edge.exact_spline=std::move(exact);
+        }
         zima::viewer::MeshView tangent_route_view(&parent);
         tangent_route_view.setGeometry(0, 0, 500, 360);
         tangent_route_view.set_mesh(std::move(tangent_route_mesh));

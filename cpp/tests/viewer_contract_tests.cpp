@@ -431,6 +431,23 @@ int main() {
                 "Edge candidates do not use stable owners in depth order");
         require(mesh.edges.size() == 3,
                 "Viewer packet did not retain an unowned display-only result edge");
+        {
+            zima::kernel::ViewerMesh rounded_wire;
+            rounded_wire.edges.push_back({
+                {{-2.0,0.0,5.0},{-1.0,0.0,6.0},
+                 {1.0,0.0,6.0},{2.0,0.0,5.0}},
+                {"fillet","fillet:boundary"}});
+            const auto first_segment=zima::viewer::ordered_edge_candidates(
+                rounded_wire,{-1.5,0.0,0.0},{0.0,0.0,1.0},0.01);
+            const auto last_segment=zima::viewer::ordered_edge_candidates(
+                rounded_wire,{1.5,0.0,0.0},{0.0,0.0,1.0},0.01);
+            require(first_segment.size()==1&&last_segment.size()==1&&
+                    first_segment.front().edge==0&&
+                    last_segment.front().edge==0&&
+                    first_segment.front().reference==
+                        last_segment.front().reference,
+                "Rounded boundary chords became separate selectable edges");
+        }
         const zima::kernel::ViewerEdge first_occurrence_wire{
             {{-1.0, 0.0, 5.0}, {1.0, 0.0, 5.0}},
             {{}, {}, "5:first"}};

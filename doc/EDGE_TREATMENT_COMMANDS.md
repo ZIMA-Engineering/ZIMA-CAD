@@ -34,18 +34,21 @@ See the [connected-curve correction and finite checks](verification/20261022-con
 ## Tangent routes
 
 `edge_treatment.route` requires `seed` with string `owner`, `key`, optional empty
-`instance_path`. It rejects OCCT edge numbers and `geometry_index`. Optional numeric
-`tolerance_degrees` ranges 0–90, default 35. Result includes `edges`, free `endpoints`,
-`endpoints_complete`, `closed`, tolerance and the same context as listing. Free ends
-have stable identities/positions. When saved endpoint references are incomplete
+`instance_path`. It rejects OCCT edge numbers, `geometry_index` and angular
+thresholds. Result includes `edges`, free `endpoints`, `endpoints_complete`, `closed`
+and the same context as listing. Free ends have stable identities/positions. When
+saved endpoint references are incomplete
 (for example, standalone circles), the route is a valid edge but
 `endpoints_complete:false`, empty `endpoints`, `closed:null`. The query never guesses
 closure from point proximity. Otherwise `closed` is a boolean from saved connectivity.
 
 GUI/query share `kernel::tangent_edge_route` over saved viewer data. Only identical
-original points connect edges; spatial proximity is insufficient. Routes may cross
-source containers within one occurrence. Two possible continuations stop traversal.
-A direction returning to the same side of a point is not tangent continuation.
+original points connect edges; spatial proximity is insufficient. Continuation uses
+the exact native curve derivatives, not display chords or an authored angle
+threshold. A real corner remains a route boundary however small its angle. Routes
+may cross source containers within one occurrence. A T-junction or any other vertex
+with more than two incident edges always stops traversal. A direction returning to
+the same side of a point is not tangent continuation.
 
 Symmetric/two-sided Features keep both authored half-edge identities. Their
 shared operational junction uses the existing Boolean ancestry, so the route
@@ -54,11 +57,12 @@ attaches R1/R2 to those complete-contour ends, including after reversal. Existin
 files with incomplete endpoint caches need explicit Regenerate; read-only queries
 do not silently calculate them. See the [finite endpoint and radius-law matrix](verification/20261022-symmetric-feature-endpoints.md).
 
-GUI supplies image scale to skip near-zero polyline samples; camera-free CLI uses
-0.000001 mm. This tolerance never joins distinct point IDs. Missing/ambiguous sources
-are rejected; incomplete endpoint references are reported. GUI route restoration
-explicitly passes no valid selected-edge index, so even the first array edge cannot
-bypass ambiguity checks.
+GUI supplies image scale only to verify that the exact curve endpoint belongs to the
+selected display edge; camera-free CLI uses 0.000001 mm. This tolerance never decides
+tangency or joins distinct point IDs. Missing/ambiguous sources and edges without an
+exact tangent are not extended automatically; incomplete endpoint references are
+reported. GUI route restoration explicitly passes no valid selected-edge index, so
+even the first array edge cannot bypass ambiguity checks.
 
 ## Query verification
 

@@ -482,6 +482,9 @@ target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/curve_plane_intersection.cpp
+    modules/kernel_occt/src/occt_boundary_intersection_graph.cpp
+    modules/kernel_occt/src/occt_boundary_union.cpp
+    modules/kernel_occt/src/occt_planar_edge_fillet.cpp
     modules/kernel_occt/src/ordered_up_to.cpp
     modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/step_source_document.cpp
@@ -845,6 +848,30 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)
+    add_executable(zima_cpp_occt_boundary_intersection_graph_tests
+        tests/occt_boundary_intersection_graph_tests.cpp)
+    target_link_libraries(zima_cpp_occt_boundary_intersection_graph_tests
+        PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
+    add_test(NAME zima_cpp_occt_boundary_intersection_graph_tests
+        COMMAND zima_cpp_occt_boundary_intersection_graph_tests)
+    add_executable(zima_cpp_occt_boundary_union_tests
+        tests/occt_boundary_union_tests.cpp)
+    target_link_libraries(zima_cpp_occt_boundary_union_tests
+        PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
+    add_test(NAME zima_cpp_occt_boundary_union_tests
+        COMMAND zima_cpp_occt_boundary_union_tests)
+    add_executable(zima_cpp_occt_edge_treatment_support_tests
+        tests/occt_edge_treatment_support_tests.cpp)
+    target_link_libraries(zima_cpp_occt_edge_treatment_support_tests
+        PRIVATE zima_kernel_occt TKPrim TKTopAlgo)
+    add_test(NAME zima_cpp_occt_edge_treatment_support_tests
+        COMMAND zima_cpp_occt_edge_treatment_support_tests)
+    add_executable(zima_cpp_occt_planar_edge_fillet_tests
+        tests/occt_planar_edge_fillet_tests.cpp)
+    target_link_libraries(zima_cpp_occt_planar_edge_fillet_tests
+        PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
+    add_test(NAME zima_cpp_occt_planar_edge_fillet_tests
+        COMMAND zima_cpp_occt_planar_edge_fillet_tests)
     enable_testing()
     add_test(NAME zima_cpp_symbol_library COMMAND zima_symbol_library_tool
         "${CMAKE_SOURCE_DIR}/../config/symbols/drawing-conventions/ZE-PROJECTION-METHOD.symz"
@@ -996,6 +1023,12 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_history_deletion_tests tests/history_deletion_tests.cpp)
     target_link_libraries(zima_cpp_history_deletion_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_history_deletion_tests COMMAND zima_cpp_history_deletion_tests)
+    add_executable(zima_cpp_history_dependency_layer_tests
+        tests/history_dependency_layer_tests.cpp)
+    target_link_libraries(zima_cpp_history_dependency_layer_tests PRIVATE
+        zima_workspace)
+    add_test(NAME zima_cpp_history_dependency_layer_tests
+        COMMAND zima_cpp_history_dependency_layer_tests)
     target_link_libraries(zima_cpp_history_recovery_contract_tests PRIVATE zima_kernel_occt zima_document_core nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_history_recovery_contract_tests COMMAND zima_cpp_history_recovery_contract_tests)
     add_executable(zima_cpp_multibody_contract_tests tests/multibody_contract_tests.cpp)

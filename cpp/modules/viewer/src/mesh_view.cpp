@@ -1832,13 +1832,13 @@ std::optional<zima::kernel::ViewerAxis> MeshView::candidate_axis(
 }
 
 std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
-    const ViewerCandidate& seed, double angular_tolerance_degrees) const {
+    const ViewerCandidate& seed) const {
     if (seed.kind != CandidateKind::Edge) return {};
     const auto& edges = seed.geometry == CandidateGeometry::OriginalReference
         ? impl_->mesh.original_references.edges : impl_->mesh.edges;
     return zima::kernel::tangent_edge_route(edges,
         {seed.owner_id,seed.semantic_key,seed.instance_path},
-        angular_tolerance_degrees,world_tolerance_for_pixels(0.05),seed.geometry_index);
+        world_tolerance_for_pixels(0.05),seed.geometry_index);
 }
 
 std::set<std::size_t> MeshView::edge_treatment_boundary_edge_indices(

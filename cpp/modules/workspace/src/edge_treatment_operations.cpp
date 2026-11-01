@@ -3,6 +3,7 @@
 #include <zima/workspace/history_operations.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/edge_treatment_chain.hpp>
+#include <zima/kernel/edge_treatment_route_plan.hpp>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -106,6 +107,18 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
         if(fillet&&parameters.fillet_mode==Parameters::FilletMode::Linear) {
             const auto ends=endpoints(available,route);
             if(!start.valid()||!start.instance_path.empty()||std::ranges::find(ends,start)==ends.end())
+                throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");
+            std::vector<std::size_t> selected_indices;
+            for(std::size_t edge_index=0;
+                    edge_index<input->mesh.edges.size();++edge_index)
+                if(!input->mesh.edges[edge_index].parameter_seam&&
+                   std::ranges::find(route,
+                       input->mesh.edges[edge_index].reference)!=route.end())
+                    selected_indices.push_back(edge_index);
+            const auto plan=kernel::build_edge_treatment_route_plan(
+                input->mesh.edges,selected_indices,start);
+            if(!plan||
+               !kernel::edge_treatment_route_supports_linear_fillet(*plan))
                 throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");
         }
     }

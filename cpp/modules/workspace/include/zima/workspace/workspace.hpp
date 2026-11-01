@@ -95,6 +95,11 @@ struct OccurrenceAddress {
 
 class Workspace {
 public:
+    Workspace() = default;
+    Workspace(const Workspace&);
+    Workspace& operator=(const Workspace&);
+    Workspace(Workspace&&) noexcept = default;
+    Workspace& operator=(Workspace&&) noexcept = default;
     // The desktop host reserves writable native paths across processes.
     std::function<void(const std::filesystem::path&)> file_reservation;
     void reserve_file(const std::filesystem::path& path) const {

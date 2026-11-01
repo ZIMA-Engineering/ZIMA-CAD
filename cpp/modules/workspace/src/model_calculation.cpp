@@ -175,7 +175,11 @@ std::vector<zima::kernel::BodyResult> calculate_part(
     kernel::AggregatePropertyScope properties(demand);
     auto calculated = kernel.evaluate_history_recovering(operations,
         calculation_input == nullptr ? empty_previous : *calculation_input,
-        history_output_policy(document,policy.edited_history_limit.has_value()));
+        // Ordinary regeneration needs the current final Body immediately too.
+        // Dependency analysis retains the exact earlier inputs that are
+        // actually consumed; all other history rows stay as lightweight live
+        // native boundaries instead of publishing a full mesh/B-Rep packet.
+        history_output_policy(document,true));
     validate_part_calculation(document,calculated,policy);
     return calculated;
 }

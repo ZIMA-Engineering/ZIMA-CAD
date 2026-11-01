@@ -170,6 +170,13 @@ DocumentSession::States DocumentSession::copy_states(const States& states) {
 }
 DocumentSession::DocumentSession(const DocumentSession& other) : DocumentSession(other,true) {}
 DocumentSession DocumentSession::current_state_copy() const {return DocumentSession(*this,false);}
+DocumentSession DocumentSession::workspace_copy() const {
+    DocumentSession result(*this,true);
+    result.current_->calculated_boundaries =
+        std::make_shared<const std::vector<zima::kernel::BodyResult>>(
+            *current_->calculated_boundaries);
+    return result;
+}
 DocumentSession::DocumentSession(const DocumentSession& other,bool include_history)
     : data_generation_(other.data_generation_), current_(std::make_shared<State>(*other.current_)),
       undo_(include_history?copy_states(other.undo_):States{}), redo_(include_history?copy_states(other.redo_):States{}),

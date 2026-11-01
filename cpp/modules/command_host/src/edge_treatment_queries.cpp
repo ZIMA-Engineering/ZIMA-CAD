@@ -81,17 +81,15 @@ void Host::register_edge_treatment_queries() {
             }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
         });
     dispatcher_.add({"edge_treatment.route",tr("Read the unambiguous tangent route of a persisted input edge."),
-        {{"seed",true,Type::Object},{"container",false},{"tolerance_degrees",false,Type::Number},{"document",false}},false},[this](const Json& args) {
+        {{"seed",true,Type::Object},{"container",false},{"document",false}},false},[this](const Json& args) {
             try {
                 const auto source=input(workspace_,args);const auto edges=groups(source);const auto& value=args.at("seed");
                 if(!value.contains("owner")||!value.contains("key"))throw QueryError("invalid_arguments","A target reference requires owner and key.");
                 for(const auto& [key,field]:value.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!field.is_string())
                     throw QueryError("invalid_arguments","Reference fields must be supported text fields.");
                 const kernel::EdgeReference seed{value.at("owner"),value.at("key"),value.value("instance_path",std::string{})};
-                const auto angle=args.value("tolerance_degrees",35.);
-                if(!std::isfinite(angle)||angle<0||angle>90)throw QueryError("invalid_arguments","Tangent tolerance must be between 0 and 90 degrees.");
                 if(!seed.valid()||!seed.instance_path.empty())throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
-                const auto route=kernel::tangent_edge_route(source.result.mesh.edges,seed,angle);
+                const auto route=kernel::tangent_edge_route(source.result.mesh.edges,seed);
                 if(route.empty())throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
                 auto members=Json::array();std::map<Key,std::pair<Json,std::size_t>> vertices;bool complete_endpoints=true;
                 for(const auto& reference:route) {
@@ -116,7 +114,7 @@ void Host::register_edge_treatment_queries() {
                 auto data=envelope(source);data["edges"]=std::move(members);
                 data["endpoints_complete"]=complete_endpoints;data["closed"]=complete_endpoints?Json(endpoints.empty()):Json(nullptr);
                 data["endpoints"]=std::move(endpoints);
-                data["tolerance_degrees"]=angle;return Result::success(std::move(data));
+                return Result::success(std::move(data));
             }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
         });
 }

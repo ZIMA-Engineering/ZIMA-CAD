@@ -39,10 +39,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(tail.at("items").size()==1&&!tail.at("has_more").get<bool>()&&run(host,"edge_treatment.edges",{{"owner","missing"}}).data.at("total")==0,"Edge query ignored pagination or owner filter");
     for(const auto args:std::vector<Json>{{{"limit",0}},{{"offset",-1}},{{"limit",5001}},{{"container",box}}})
         require(!host.execute({{"command","edge_treatment.edges"},{"arguments",args}}).ok,"Invalid edge query accepted");
-    for(const auto args:std::vector<Json>{{{"seed",seed},{"tolerance_degrees",91}},{{"seed",seed},{"tolerance_degrees",-1}},
+    for(const auto args:std::vector<Json>{{{"seed",seed},{"tolerance_degrees",35}},
         {{"seed",{{"owner",box},{"key","missing"}}}},{{"seed",{{"owner",box},{"key",seed.at("key")},{"instance_path","another"}}}},
         {{"seed",{{"owner",box},{"key",seed.at("key")},{"geometry_index",0}}}}})
-        require(!host.execute({{"command","edge_treatment.route"},{"arguments",args}}).ok,"Invalid or ambiguous route request accepted");
+        require(!host.execute({{"command","edge_treatment.route"},{"arguments",args}}).ok,"Angular-threshold, invalid or ambiguous route request accepted");
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Read-only edge queries changed the document or calculation cache");
     // Editing uses the input before the treatment, including its removed edge.
     auto next=state->session.document();auto fillet=document::PartDocument::create_fillet_container({{box,seed.at("key"),{}}});

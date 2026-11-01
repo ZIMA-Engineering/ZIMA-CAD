@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -185,6 +186,78 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
 inline HistoryDependencies part_history_dependencies(const document::PartDocument& document) {
     return part_history_dependency_graph(document).edges;
 }
+
+// Returns stable topological waves for a selected subset of history objects.
+// Dependency paths through objects outside the subset are still respected.
+// This lets calculation planners run independent edge treatments together
+// without losing an indirect dependency through an intermediate feature.
+inline std::vector<std::vector<std::string>>
+selected_history_dependency_layers(const std::vector<std::string>& order,
+        const std::set<std::string>& selected,
+        const HistoryDependencies& dependencies) {
+    std::map<std::string,std::size_t> positions;
+    for(std::size_t index=0;index<order.size();++index)
+        if(!positions.emplace(order[index],index).second)
+            throw std::invalid_argument(
+                "History dependency layer order contains duplicate objects");
+    for(const auto& id:selected)
+        if(!positions.contains(id))
+            throw std::invalid_argument(
+                "History dependency layer selection is absent from its order");
+
+    std::map<std::string,std::set<std::string>> adjacency;
+    for(const auto& [source,consumer]:dependencies)
+        adjacency[source].insert(consumer);
+    HistoryDependencies selected_dependencies;
+    for(const auto& source:selected) {
+        std::set<std::string> visited;
+        std::vector<std::string> pending;
+        if(const auto found=adjacency.find(source);found!=adjacency.end())
+            pending.assign(found->second.begin(),found->second.end());
+        while(!pending.empty()) {
+            auto current=std::move(pending.back());
+            pending.pop_back();
+            if(current==source)
+                throw std::invalid_argument(
+                    "History dependency layer selection contains a cycle");
+            if(!visited.insert(current).second)continue;
+            if(selected.contains(current))
+                selected_dependencies.emplace(source,current);
+            if(const auto found=adjacency.find(current);
+                    found!=adjacency.end())
+                pending.insert(pending.end(),found->second.begin(),
+                    found->second.end());
+        }
+    }
+
+    std::map<std::string,std::size_t> prerequisites;
+    for(const auto& id:selected)prerequisites.emplace(id,0);
+    for(const auto& [source,consumer]:selected_dependencies) {
+        static_cast<void>(source);
+        ++prerequisites.at(consumer);
+    }
+    std::set<std::string> scheduled;
+    std::vector<std::vector<std::string>> result;
+    while(scheduled.size()<selected.size()) {
+        std::vector<std::string> layer;
+        for(const auto& id:order)
+            if(selected.contains(id)&&!scheduled.contains(id)&&
+               prerequisites.at(id)==0)
+                layer.push_back(id);
+        if(layer.empty())
+            throw std::invalid_argument(
+                "History dependency layer selection contains a cycle");
+        for(const auto& source:layer)scheduled.insert(source);
+        for(const auto& source:layer)
+            for(const auto& [dependency_source,consumer]:
+                    selected_dependencies)
+                if(dependency_source==source)
+                    --prerequisites.at(consumer);
+        result.push_back(std::move(layer));
+    }
+    return result;
+}
+
 inline HistoryDependencies part_body_dependencies(const document::PartDocument& document) {
     const auto features = part_history_dependency_graph(document);
     HistoryDependencies result;

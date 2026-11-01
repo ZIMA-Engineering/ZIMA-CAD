@@ -160,6 +160,38 @@ std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
 
 }  // namespace
 
+Workspace::Workspace(const Workspace& other)
+    : file_reservation(other.file_reservation),
+      family_transaction_active(other.family_transaction_active),
+      drawing_edited_sources(other.drawing_edited_sources),
+      documents_(other.documents_), native_part_cache_(other.native_part_cache_),
+      native_assembly_cache_(other.native_assembly_cache_),
+      active_document_id_(other.active_document_id_),
+      displayed_document_id_(other.displayed_document_id_),
+      active_occurrence_path_(other.active_occurrence_path_) {
+    for (auto& state : documents_) {
+        if (auto* part = std::get_if<PartState>(&state)) {
+            part->session = part->session.workspace_copy();
+            part->source_geometry.reset();
+            part->source_generation = 0;
+        }
+    }
+    for (auto& [key, cached] : native_part_cache_) {
+        (void)key;
+        cached.part.session = cached.part.session.workspace_copy();
+        cached.part.source_geometry.reset();
+        cached.part.source_generation = 0;
+    }
+}
+
+Workspace& Workspace::operator=(const Workspace& other) {
+    if (this != &other) {
+        Workspace copy(other);
+        *this = std::move(copy);
+    }
+    return *this;
+}
+
 const std::string& Workspace::id_of(const DocumentState& state) {
     return std::visit([](const auto& document) -> const std::string& {
         using State = std::decay_t<decltype(document)>;
