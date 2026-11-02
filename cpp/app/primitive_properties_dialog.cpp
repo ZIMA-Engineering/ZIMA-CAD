@@ -898,15 +898,20 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         centroid_centerline_=new QCheckBox(tr("Osa těžiště profilu"),this);
         centroid_centerline_->setObjectName("profileCentroidCenterline");
         centroid_centerline_->setChecked(revolve?initial.revolution.centroid_centerline:initial.extrusion.centroid_centerline);
+        individual_centroid_centerlines_=new QCheckBox(tr("Osy jednotlivých profilů"),this);
+        individual_centroid_centerlines_->setObjectName("profileIndividualCentroidAxes");
+        individual_centroid_centerlines_->setChecked(revolve?initial.revolution.individual_centroid_centerlines:initial.extrusion.individual_centroid_centerlines);
         auto* centerline_row = new QHBoxLayout;
         centerline_row->setContentsMargins(0, 0, 0, 0);
         centerline_row->setSpacing(24);
         centerline_row->addWidget(origin_centerline_);
         centerline_row->addWidget(centroid_centerline_);
+        centerline_row->addWidget(individual_centroid_centerlines_);
         centerline_row->addStretch();
         form->addRow(centerline_row);
         connect(origin_centerline_,&QCheckBox::toggled,this,[this]{notify_preview();});
         connect(centroid_centerline_,&QCheckBox::toggled,this,[this]{notify_preview();});
+        connect(individual_centroid_centerlines_,&QCheckBox::toggled,this,[this]{notify_preview();});
         const auto profile_source = revolve ? initial.revolution.profile_source
                                              : initial.extrusion.profile_source;
         const auto& sketch_id = revolve ? initial.revolution.sketch_id
@@ -1725,6 +1730,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.origin_centerline=origin_centerline_->isChecked();
         result.extrusion.centroid_centerline=centroid_centerline_->isChecked();
+        result.extrusion.individual_centroid_centerlines=individual_centroid_centerlines_->isChecked();
         result.extrusion.profile_plane_offset = primitive_value(profile_plane_offset_);
         result.extrusion.profile_source =
             zima::document::ProfileSource::Internal;
@@ -1777,6 +1783,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
         result.revolution.origin_centerline=origin_centerline_->isChecked();
         result.revolution.centroid_centerline=centroid_centerline_->isChecked();
+        result.revolution.individual_centroid_centerlines=individual_centroid_centerlines_->isChecked();
         result.revolution.profile_plane_offset = primitive_value(profile_plane_offset_);
         result.revolution.profile_source =
             zima::document::ProfileSource::Internal;

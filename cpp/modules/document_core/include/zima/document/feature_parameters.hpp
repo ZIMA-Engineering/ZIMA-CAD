@@ -79,6 +79,7 @@ struct FeatureParameters {
     bool reversed_sides{};
     bool origin_centerline{};
     bool centroid_centerline{};
+    bool individual_centroid_centerlines{};
     bool show_point{};
     bool show_text{};
     // Axis presentation only; native references and Drawing sources stay available.

@@ -69,6 +69,10 @@ void calculate_resolved_assembly_cuts(
     bool refresh_physical_properties=false,const Workspace* authoritative_sources=nullptr);
 
 struct PartRegenerationResult { bool references_changed{}; };
+struct HistoryCursorChange {
+    bool changed{};
+    bool boundary_materialized{};
+};
 // Synchronous operations on the Workspace owner thread. No activation or View work.
 [[nodiscard]] PartRegenerationResult regenerate_part(
     Workspace& workspace, const kernel::OcctKernel& kernel,
@@ -84,7 +88,8 @@ struct PartRegenerationResult { bool references_changed{}; };
 [[nodiscard]] bool complete_part_history_boundary(
     const kernel::OcctKernel& kernel,const document::PartDocument& document,
     std::vector<kernel::BodyResult>& calculated_boundaries,
-    std::size_t operation_count);
+    std::size_t operation_count,const std::string& known_body_id = {},
+    std::size_t known_body_index = 0);
 // Complete one deferred intermediate OCCT/viewer boundary without changing
 // authored data or creating an Undo transaction. Returns true only when a
 // missing boundary was published into the existing calculated state.

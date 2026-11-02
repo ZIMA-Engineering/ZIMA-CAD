@@ -109,7 +109,7 @@ void Host::register_history_commands() {
             auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
         });
     }
-    add({"history.cursor",tr("Set the history insertion index without calculating geometry."),{{"index",true,commands::ArgumentType::Integer},{"document",false}},true},[this](const Json& args) {
+    add({"history.cursor",tr("Set the history insertion index and prepare its visible body."),{{"index",true,commands::ArgumentType::Integer},{"document",false}},true},[this](const Json& args) {
         if(args["index"]<0 || args["index"].get<std::uint64_t>()>std::numeric_limits<std::size_t>::max())
             throw workspace::HistoryOperationError("invalid_arguments","The history index must be a nonnegative integer.");
         const auto id=args.value("document",workspace_.active_document_id());
@@ -118,8 +118,11 @@ void Host::register_history_commands() {
             auto data=assembly_history_data(*state);data["changed"]=changed;data["body_calculated"]=false;return data;
         }
         const auto document_id=part(workspace_,args).session.document().document_id;
-        const bool changed=workspace::set_part_history_cursor(workspace_,document_id,args["index"].get<std::size_t>());
-        auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
+        const auto change=workspace::set_part_history_cursor(
+            workspace_,document_id,kernel_,args["index"].get<std::size_t>());
+        auto data=history_data(part(workspace_,args));
+        data["changed"]=change.changed;
+        data["body_calculated"]=change.boundary_materialized;return data;
     });
 }
 }

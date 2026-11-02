@@ -148,15 +148,25 @@ void delete_part_history(Workspace& live,const std::string& document_id,const ke
     auto calculated=calculate_part_with_resolved_references(kernel,next,&part.session.calculated_boundaries());
     commit_part_document(live,document_id,std::move(next),std::move(calculated));
 }
-bool set_part_history_cursor(Workspace& live,const std::string& document_id,std::size_t index) {
+HistoryCursorChange set_part_history_cursor(Workspace& live,
+        const std::string& document_id,const kernel::OcctKernel& kernel,
+        std::size_t index) {
     auto* state=live.open_part(document_id);
     if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
     auto& part=*state;
     auto next=part.session.document();
     if (index>next.history_order.size()) throw HistoryOperationError("invalid_arguments", "The history index is outside the document history.");
-    if (next.effective_history_cursor()==index) return false;
+    if (next.effective_history_cursor()==index) return {};
     next.set_history_cursor(index);
+    auto calculated=part.session.calculated_boundaries();
+    bool materialized{};
+    const auto operation_count=next.body_operation_count_at_history_cursor();
+    if(operation_count&&operation_count<=calculated.size())
+        materialized=complete_part_history_boundary(
+            kernel,next,calculated,operation_count);
     commit_part_document_metadata(live,document_id,std::move(next));
-    return true;
+    if(materialized)live.open_part(document_id)->session.
+        update_calculated_cache_only(std::move(calculated));
+    return {true,materialized};
 }
 }

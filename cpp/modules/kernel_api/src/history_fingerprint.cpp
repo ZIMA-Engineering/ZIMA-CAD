@@ -165,6 +165,7 @@ std::string encode_history_fingerprint(
                     u64(std::bit_cast<std::uint64_t>(primitive.draft_angle_degrees));
                 }
                 byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
+                byte(primitive.centerlines.individual_centroids_enabled);
                 for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
                 for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));
 
@@ -418,6 +419,7 @@ std::string encode_history_fingerprint(
                     u64(limit.triangles.size());for(auto p:limit.triangles)for(double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
                 }
                 byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
+                byte(primitive.centerlines.individual_centroids_enabled);
                 for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
                 for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));
 

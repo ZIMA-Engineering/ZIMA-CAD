@@ -435,6 +435,80 @@ void coincident_revolution_endpoints() {
         }
     }
 }
+void individual_profile_centroid_axes(const kernel::OcctKernel& kernel) {
+    auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(0,0,8,8));
+    static_cast<void>(sketch.add_rectangle(2,2,6,6));
+    static_cast<void>(sketch.add_rectangle(12,0,16,4));
+    auto feature=document::PartDocument::create_feature_container(sketch.id);
+    feature.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;
+    feature.feature.sides[0].length=10;
+    feature.feature.sides[1].operation=document::FeatureSideOperation::None;
+    feature.feature.origin_centerline=false;
+    feature.feature.centroid_centerline=false;
+    feature.feature.individual_centroid_centerlines=true;
+    sketch.owner_container_id=feature.id;
+    auto part=document::PartDocument::create_default();part.history={feature};part.sketches={sketch};
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Individual profile axes"));
+    graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+    const auto operations=part.kernel_operations();
+    const auto& group_request=std::get<kernel::FeatureGroupRequest>(operations.front().primitive);
+    check(group_request.children.size()==1,"Individual profile fixture did not produce one active Feature side");
+    const auto& request=std::get<kernel::ExtrusionRequest>(group_request.children.front());
+    check(request.centerlines.individual_centroids_enabled,"Individual centroid option did not reach the kernel request");
+    check(request.additional_profile_regions.size()==1,"Disconnected profile fixture did not produce two regions");
+    const auto calculated=kernel.evaluate_history(operations);
+    const auto active_side=[](const std::string& key) {
+        const auto offset=key.find("feature-side:");
+        if(offset==std::string::npos)return false;
+        const auto parent=kernel::feature_side_parent(key.substr(offset));
+        return parent&&parent->side==kernel::FeatureSide::End;
+    };
+    const auto collect=[&](const kernel::BodyResult& body) {
+        std::vector<kernel::ViewerAxis> result;
+        for(const auto& axis:body.mesh.original_references.axes)
+            if(axis.reference.semantic_key.starts_with("centerline:from:centroid:region:")&&
+               active_side(axis.reference.semantic_key))result.push_back(axis);
+        std::ranges::sort(result,{},[](const auto& axis){return axis.point.x;});
+        return result;
+    };
+    const auto axes=collect(calculated.back());
+    check(axes.size()==2,"Individual profile option did not create exactly one axis per disconnected region");
+    near(axes[0].point,{4,4,5});near(axes[1].point,{14,2,5});
+    for(const auto& axis:axes){near(axis.direction,{0,0,1});near(axis.display_length,12);}
+    check(std::ranges::count_if(calculated.back().mesh.original_references.points,[&](const auto& point){
+        return point.reference.semantic_key.find(":from:centerline:from:centroid:region:")!=std::string::npos&&
+            active_side(point.reference.semantic_key);
+    })==4,"Individual profile axes do not have independent endpoints");
+    auto combined=part;combined.history.front().feature.centroid_centerline=true;
+    const auto combined_result=kernel.evaluate_history(combined.kernel_operations());
+    const auto whole=std::ranges::find_if(combined_result.back().mesh.original_references.axes,[&](const auto& axis){
+        return axis.reference.semantic_key.starts_with("centerline:from:centroid:")&&
+            !axis.reference.semantic_key.starts_with("centerline:from:centroid:region:")&&
+            active_side(axis.reference.semantic_key);
+    });
+    check(whole!=combined_result.back().mesh.original_references.axes.end(),"Combined profile centroid disappeared beside individual axes");
+    const double first_area=48,total=first_area+16;
+    near(whole->point,{(first_area*4+16*14)/total,(first_area*4+16*2)/total,5});
+    auto disabled=part;disabled.history.front().feature.individual_centroid_centerlines=false;
+    check(kernel::history_fingerprint(disabled.kernel_operations(),1)!=kernel::history_fingerprint(operations,1),
+        "Individual centroid option is absent from the geometry fingerprint");
+    check(collect(kernel.evaluate_history(disabled.kernel_operations()).back()).empty(),
+        "Disabled individual profile axes remained in the result");
+    auto changed=part;changed.history.front().feature.sides[0].length=18;
+    const auto moved=kernel.evaluate_history(changed.kernel_operations());const auto moved_axes=collect(moved.back());
+    check(identities(moved.back().mesh.original_references)==identities(calculated.back().mesh.original_references),
+        "Extrusion length edit changed individual profile-axis identities");
+    near(moved_axes[0].point.z,9);near(moved_axes[1].point.z,9);near(moved_axes[0].display_length,20);near(moved_axes[1].display_length,20);
+    std::vector<kernel::BodyResult> reopened_results;
+    const auto reopened=document::PartDocument::from_serialized(part.serialized(calculated),&reopened_results);
+    check(reopened.history.front().feature.individual_centroid_centerlines,
+        "Native save/reopen lost the individual profile-axis option");
+    check(identities(reopened_results.back().mesh.original_references)==identities(calculated.back().mesh.original_references),
+        "Native save/reopen changed individual profile-axis references");
+    document::DocumentSession session(part);session.commit(changed,moved);
+    check(session.undo()&&session.redo(),"Individual profile-axis edit lacks Undo/Redo");
+}
 void extrusion_identity_matrix(const kernel::OcctKernel& kernel) {
     const auto source=fixture(false);
     std::set<std::string> baseline;
@@ -1041,6 +1115,7 @@ int main(){try {
  repeated_mixed_state_centerlines(kernel);
  disconnected_twist(kernel);
  grouped_profile_axes(kernel);
+ individual_profile_centroid_axes(kernel);
  extrusion_identity_matrix(kernel);
  limited_centerline_matrix(kernel);
  mirrored_feature_limit(kernel);

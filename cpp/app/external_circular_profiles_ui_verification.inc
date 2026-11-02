@@ -62,6 +62,76 @@ int verify_external_circular_profiles_ui(QApplication& application,const std::fi
         const auto& restored=*std::ranges::find(redone.sketches,target.id,&sketcher::Sketch::id);
         if(!verify(restored.points==points&&restored.circles==curves&&restored.arcs==arcs&&restored.import_blocks==result.import_blocks,
             "Mouse contour Redo/save/reopen changed geometry or projection identity"))return 1;
+        const auto current_serialized=[&] {
+            const auto current=snapshot();
+            const auto found=std::ranges::find(current.sketches,target.id,&sketcher::Sketch::id);
+            if(found==current.sketches.end())throw std::runtime_error("Reference Profile Sketch disappeared");
+            return found->serialized();
+        };
+        const auto reference_id=result.external_references.front().id;
+        const auto contour_id=result.import_blocks.front().geometry_ids.front();
+        const auto reference_key="external_edge:"+reference_id;
+        const auto contour_key=(closed?"circle:":"arc:")+contour_id;
+        const auto mouse=[&](QPointF position,QEvent::Type type,Qt::MouseButton button) {
+            QMouseEvent event(type,position,QPointF(view->mapToGlobal(position.toPoint())),button,
+                type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        const auto select_exact=[&](const std::string& key,viewer::CandidateKind kind) {
+            mouse(*hit,QEvent::MouseMove,Qt::NoButton);
+            const auto offered=view->selection_candidates_at(*hit);
+            if(!verify(std::ranges::any_of(offered,[&](const auto& candidate){return candidate.kind==kind&&candidate.semantic_key==key;}),
+                "Overlapping external reference and Reference Profile contour are not independently selectable"))return false;
+            for(std::size_t cycle=0;cycle<offered.size()&&
+                (!view->hovered_candidate()||view->hovered_candidate()->kind!=kind||view->hovered_candidate()->semantic_key!=key);++cycle) {
+                mouse(*hit,QEvent::MouseButtonPress,Qt::RightButton);
+                mouse(*hit,QEvent::MouseButtonRelease,Qt::RightButton);
+            }
+            if(!verify(view->hovered_candidate()&&view->hovered_candidate()->kind==kind&&
+                view->hovered_candidate()->semantic_key==key,
+                "RMB cycling cannot select the exact external reference or Reference Profile contour"))return false;
+            mouse(*hit,QEvent::MouseButtonPress,Qt::LeftButton);
+            mouse(*hit,QEvent::MouseButtonRelease,Qt::LeftButton);
+            return verify(view->confirmed_candidate()&&view->confirmed_candidate()->kind==kind&&
+                view->confirmed_candidate()->semantic_key==key,
+                "Click confirmation changed the selected external reference or Reference Profile contour");
+        };
+        const auto erase_selection=[&] {
+            QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);
+            QApplication::sendEvent(&window,&remove);flush();
+        };
+        if(!select_exact(reference_key,viewer::CandidateKind::SketchExternalReference))return 1;
+        erase_selection();const auto detached_document=snapshot();
+        const auto& detached=*std::ranges::find(detached_document.sketches,target.id,&sketcher::Sketch::id);
+        const bool detached_contour_exists=closed
+            ? std::ranges::any_of(detached.circles,[&](const auto& value){return value.id==contour_id;})
+            : std::ranges::any_of(detached.arcs,[&](const auto& value){return value.id==contour_id;});
+        if(!verify(detached.external_references.empty()&&detached.import_blocks.empty()&&
+            detached_contour_exists,
+            "Deleting the external reference did not retain the detached native contour"))return 1;
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        if(!verify(current_serialized()==result.serialized(),
+            "Undo after external-reference deletion did not restore the linked contour"))return 1;
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        if(!verify(current_serialized()==detached.serialized(),
+            "Redo after external-reference deletion changed the detached contour"))return 1;
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        if(!verify(current_serialized()==result.serialized(),
+            "Second Undo did not restore the linked Reference Profile"))return 1;
+        if(!select_exact(contour_key,viewer::CandidateKind::SketchCurve))return 1;
+        erase_selection();const auto contour_deleted_document=snapshot();
+        const auto& contour_deleted=*std::ranges::find(contour_deleted_document.sketches,target.id,&sketcher::Sketch::id);
+        if(!verify(contour_deleted.external_references==result.external_references&&
+            contour_deleted.import_blocks.empty()&&
+            std::ranges::none_of(contour_deleted.circles,[&](const auto& value){return value.id==contour_id;})&&
+            std::ranges::none_of(contour_deleted.arcs,[&](const auto& value){return value.id==contour_id;}),
+            "Deleting the Reference Profile contour changed its external reference or left owned geometry"))return 1;
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        if(!verify(current_serialized()==result.serialized(),
+            "Undo after Reference Profile deletion did not restore its exact identities"))return 1;
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        if(!verify(current_serialized()==contour_deleted.serialized(),
+            "Redo/save/reopen after Reference Profile deletion changed the retained reference"))return 1;
         window.grab().save(QString::fromStdString(document::path_to_utf8((directory/(closed?"circular-contour-ui.png":"arc-contour-ui.png")))));
     }
     std::cout<<"Circular body contour mouse insertion, native type, Undo/Redo and persistence passed\n";return 0;

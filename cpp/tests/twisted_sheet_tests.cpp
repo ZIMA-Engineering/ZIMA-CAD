@@ -21,6 +21,10 @@
 using namespace zima;
 namespace {
 void check(bool value,const char* message) { if(!value)throw std::runtime_error(message); }
+double analyzed_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);
+    return body.volume;
+}
 double distance(kernel::Vec3 a,kernel::Vec3 b) {
     return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);
 }
@@ -93,7 +97,8 @@ void verify_chain() {
             auto back=document::PartDocument::create_sketch_container();back.feature_kind=document::FeatureKind::BendBack;
             candidate.insert_history_entry(document::PartHistoryKind::Feature,back.id);candidate.history.push_back(back);
             const auto folded=workspace::calculate_part_with_resolved_references(kernel,candidate);
-            check(folded.back().calculation_errors.empty()&&std::abs(folded.back().volume-formed.back().volume)<.05,
+            check(folded.back().calculation_errors.empty()&&std::abs(
+                analyzed_volume(kernel,folded.back())-analyzed_volume(kernel,formed.back()))<.05,
                 "Chained twist Bend Back changed formed material after persistence");
         }
         if(depth==3)break;
@@ -137,7 +142,8 @@ void verify() {
     check(state!=nullptr&&!state->session.calculated_boundaries().empty(),
         "Twisted Sheet has no calculated body");
     const auto& body=state->session.calculated_boundaries().back();
-    check(body.calculation_errors.empty()&&body.volume>6200&&body.volume<6600,
+    const double body_volume=analyzed_volume(kernel,body);
+    check(body.calculation_errors.empty()&&body_volume>6200&&body_volume<6600,
         "Twisted Sheet volume is outside its geometric tolerance");
     bool side_a=false,side_b=false,boundary=false,end_edge=false;
     for(const auto& face:body.mesh.original_references.triangle_references) {
@@ -208,7 +214,7 @@ void verify() {
     auto formed_cut_operations=state->session.document().kernel_operations();
     formed_cut_operations.push_back(cut);
     const auto formed_cut=kernel.evaluate_history(formed_cut_operations).back();
-    check(formed_cut.calculation_errors.empty()&&formed_cut.volume<body.volume&&
+    check(formed_cut.calculation_errors.empty()&&analyzed_volume(kernel,formed_cut)<body_volume&&
         std::ranges::any_of(formed_cut.sheet_cuts,[](const auto& region) {
             return region.surface_type=="twist";
         }),"Sheet Cut did not cut the formed Twisted Sheet spline surface");
@@ -220,20 +226,20 @@ void verify() {
         }),"Native viewer packet lost the Twisted Sheet cut domain");
     cut_operations.push_back(cut);
     const auto cut_flat=kernel.evaluate_history(cut_operations).back();
-    check(cut_flat.calculation_errors.empty()&&cut_flat.volume<unfolded.volume,
+    check(cut_flat.calculation_errors.empty()&&analyzed_volume(kernel,cut_flat)<analyzed_volume(kernel,unfolded),
         "Sheet Cut did not cut the unfolded Twisted Sheet");
     kernel::HistoryOperation cut_back;
     cut_back.owner_id="twist-cut-back";
     cut_back.primitive=kernel::SheetStateRequest{false,true,{}};
     cut_operations.push_back(cut_back);
     const auto cut_formed=kernel.evaluate_history(cut_operations).back();
-    check(cut_formed.calculation_errors.empty()&&cut_formed.volume<body.volume,
+    check(cut_formed.calculation_errors.empty()&&analyzed_volume(kernel,cut_formed)<body_volume,
         "Bend Back did not carry the flat Sheet Cut into Twisted Sheet geometry");
     kernel::HistoryOperation back;
     back.owner_id="twist-back";back.primitive=kernel::SheetStateRequest{false,true,{}};
     operations.push_back(back);
     const auto restored=kernel.evaluate_history(operations).back();
-    check(restored.calculation_errors.empty()&&std::abs(restored.volume-body.volume)<0.05,
+    check(restored.calculation_errors.empty()&&std::abs(analyzed_volume(kernel,restored)-body_volume)<0.05,
         "Bend Back did not restore the original Twisted Sheet");
     for(const auto& point:body.mesh.points) {
         double distance=INFINITY;
@@ -288,7 +294,8 @@ void verify() {
         attached_feature,workspace::PrimitiveEditMode::Create),
         "Attached Twisted Sheet was not committed");
     const auto& attached_body=attached_state->session.calculated_boundaries().back();
-    check(attached_body.calculation_errors.empty()&&attached_body.volume>0,
+    const double attached_body_volume=analyzed_volume(kernel,attached_body);
+    check(attached_body.calculation_errors.empty()&&attached_body_volume>0,
         "Attached Twisted Sheet failed to fuse with its source sheet");
     const auto saved_feature=attached_state->session.document().find_container(attached_feature.id);
     check(saved_feature&&saved_feature->twisted_sheet.sheet_attachment&&
@@ -361,7 +368,7 @@ void verify() {
     attached_unbend.primitive=kernel::SheetStateRequest{};
     attached_operations.push_back(attached_unbend);
     const auto attached_flat=kernel.evaluate_history(attached_operations).back();
-    check(attached_flat.calculation_errors.empty()&&attached_flat.volume>0,
+    check(attached_flat.calculation_errors.empty()&&analyzed_volume(kernel,attached_flat)>0,
         "Attached Twisted Sheet did not unfold with its parent sheet");
     kernel::HistoryOperation attached_back;
     attached_back.owner_id="attached-twist-back";
@@ -369,7 +376,7 @@ void verify() {
     attached_operations.push_back(attached_back);
     const auto attached_restored=kernel.evaluate_history(attached_operations).back();
     check(attached_restored.calculation_errors.empty()&&
-        std::abs(attached_restored.volume-attached_body.volume)<0.05,
+        std::abs(analyzed_volume(kernel,attached_restored)-attached_body_volume)<0.05,
         "Attached Twisted Sheet did not return to its authored formed body");
 }
 }
@@ -381,7 +388,7 @@ int main() {
         check(part.user_parameter_values.size()==12&&part.user_parameter_values.at("mass").at("")=="0.076"&&
             part.user_parameter_values.at("material").at("")=="S235JR",
             "Profile-side fixture lost its authored parameter values");
-        const auto formed=workspace::calculate_part_with_resolved_references(kernel,part);
+        auto formed=workspace::calculate_part_with_resolved_references(kernel,part);
         check(formed.back().calculation_errors.empty(),"Profile-side fixture cannot calculate");
         const auto twist=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::TwistedSheet;});
         check(part.history.size()==4&&std::ranges::none_of(part.history,[](const auto& f){return f.suppressed;}),
@@ -396,8 +403,21 @@ int main() {
             std::abs(continuation->flat.thickness-1)<1e-9&&
             continuation->placement.references.front().owner_id=="01a0b9cea24a7c489f4558625b5eb778",
             "Profile-side continuation lost its Bend attachment or thickness");
-        check(formed.size()==4&&std::abs((formed[2].volume-formed[1].volume)-89.44373321533203*20)<1e-6,
-            "Profile-side continuation changed the original straight wall material");
+        // Ordinary regeneration intentionally publishes only the final Body.
+        // This assertion inspects two earlier states, so request those exact
+        // prefixes through the same on-demand history path used by the editor.
+        static_cast<void>(workspace::complete_part_history_boundary(
+            kernel,part,formed,2,{},0));
+        static_cast<void>(workspace::complete_part_history_boundary(
+            kernel,part,formed,3,{},0));
+        const double continuation_after=formed.size()==4?analyzed_volume(kernel,formed[2]):0.;
+        const double continuation_before=formed.size()==4?analyzed_volume(kernel,formed[1]):0.;
+        const double continuation_volume=continuation_after-continuation_before;
+        if(formed.size()!=4||std::abs(continuation_volume-89.44373321533203*20)>=1e-6)
+            throw std::runtime_error("Profile-side continuation changed the original straight wall material: expected "+
+                std::to_string(89.44373321533203*20)+", got "+std::to_string(continuation_volume)+
+                " (after="+std::to_string(continuation_after)+", before="+
+                std::to_string(continuation_before)+")");
         check(std::abs(twist->twisted_sheet.width-20)<1e-9&&std::abs(twist->twisted_sheet.length-100)<1e-9&&
             std::abs(twist->twisted_sheet.thickness-1)<1e-9&&std::abs(twist->twisted_sheet.angle_degrees-90)<1e-9&&
             !twist->twisted_sheet.reverse,
@@ -466,7 +486,8 @@ int main() {
             "Fixture Bend Back Undo changed source definitions");
         check(workspace::step_part_document_history(reopened,id,true)&&reopened.open_part(id)->session.document().serialized()==folded_document.serialized(),
             "Fixture Bend Back Redo changed source definitions");
-        check(folded.back().calculation_errors.empty()&&std::abs(folded.back().volume-formed.back().volume)<.05,
+        check(folded.back().calculation_errors.empty()&&std::abs(
+            analyzed_volume(kernel,folded.back())-analyzed_volume(kernel,formed.back()))<.05,
             "Profile-side twist did not fold back after persistence");
         std::cout<<"Twisted Sheet geometry, chained attachment, sides, unfolding and persistence passed\n";return 0;
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }

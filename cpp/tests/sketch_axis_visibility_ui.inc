@@ -30,6 +30,11 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
         for(bool editing:{false,true}) {
             auto packet=sketch.viewer_mesh();if(!editing)sketch.filter_hidden_3d_geometry(packet);
             packet.axes.clear();packet.vertices={{-50,-50,0},{50,50,0}};
+            auto without_axis_points=packet;
+            std::erase_if(without_axis_points.points,[](const auto& point) {
+                return point.reference.semantic_key.starts_with("point:")&&
+                    point.construction;
+            });
             view.set_active_sketch_owner(editing?sketch.id:"");
             view.set_geometry_editing_presentation(editing,editing?sketch.id:"");
             view.set_mesh(packet);view.clear_selection();
@@ -53,14 +58,13 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
                     frame.save("build/sketch-axis-visibility-failure.png");
                 }
                 require(wire_visible==line_shown,"Sketch rotation axis uses the wrong visibility category");
-                for(double x:{-20.,20.}) {
-                    const auto color=editing?viewer::view_theme(palette).foreground:QColor(173,110,46);
-                    require(framebuffer_contains_color_near(frame,view.size(),project(x,12),color,2)==(editing||axes),
-                        "Sketch rotation axis endpoint has the wrong visibility or idle color");
-                }
                 // A real profile and its native points keep their own role.
                 require(framebuffer_contains_color_near(frame,view.size(),project(0,-18),viewer::view_theme(palette).foreground,2)==sketches,
                     "Axis visibility changed the ordinary Sketch profile");
+                view.set_mesh(without_axis_points,false);application.processEvents();
+                require((view.grabFramebuffer()!=frame)==editing,
+                    "Sketch rotation axis endpoint has the wrong ordinary/editing visibility");
+                view.set_mesh(packet,false);application.processEvents();
                 ++cases;
             }
             if(!editing) {
@@ -139,14 +143,28 @@ static void verify_sketch_axis_visibility(QApplication& application,QWidget& par
         curve.set_geometry_centerline(id,true);curve.set_geometry_visible_in_3d(id,true);
         auto packet=curve.viewer_mesh();curve.filter_hidden_3d_geometry(packet);packet.axes.clear();
         packet.vertices={{-50,-50,0},{50,50,0}};view.set_mesh(packet);view.clear_selection();
+        auto without_axis_points=packet;
+        std::erase_if(without_axis_points.points,[](const auto& point) {
+            return point.reference.semantic_key.starts_with("point:")&&
+                point.construction;
+        });
         view.set_reference_visibility(viewer::ReferenceVisibility::Sketches,false);
         for(bool axes:{true,false,true}) {
             view.set_reference_visibility(viewer::ReferenceVisibility::Axes,axes);application.processEvents();
             const auto frame=view.grabFramebuffer();
-            for(const auto& point:packet.points)if(point.reference.semantic_key.starts_with("point:")&&point.construction)
-                require(framebuffer_contains_color_near(frame,view.size(),project(point.position.x,point.position.y),QColor(173,110,46),2)==axes,
-                    "A curved Sketch centerline point does not follow its Axes category");
+            view.set_mesh(without_axis_points,false);application.processEvents();
+            require(view.grabFramebuffer()==frame,
+                "A curved Sketch centerline exposed a permanent endpoint marker");
+            view.set_mesh(packet,false);application.processEvents();
         }
+        view.set_selection_contract({viewer::CandidateKind::SketchAxis});
+        view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);application.processEvents();
+        const auto reference_entry=view.grabFramebuffer();
+        view.set_mesh(without_axis_points,false);application.processEvents();
+        require(view.grabFramebuffer()!=reference_entry,
+            "Curved Sketch centerline endpoints are unavailable during explicit axis entry");
+        view.set_mesh(packet,false);
+        view.set_selection_contract({});
     }
     view.set_active_sketch_owner({});view.setPalette(original_palette);
     std::cout<<"Sketch rotation axis: "<<cases<<" native round-trip/theme/display/editing/visibility cases, hidden picking and component endpoints passed\n";

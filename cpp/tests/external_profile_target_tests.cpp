@@ -235,4 +235,7 @@ void verify(const fs::path& directory) {
 int main(){try {
     const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-external-target-"+document::PartDocument::create_default().document_id);
     fs::create_directory(directory);verify(directory);require(directory.parent_path()==root,"Unsafe test cleanup");fs::remove_all(directory);return 0;
+}catch(const kernel::OrderedUpToError& error){
+    std::cerr<<error.what()<<": failure="<<static_cast<int>(error.failure)
+        <<", row="<<error.row<<", other="<<error.other_row<<'\n';return 1;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

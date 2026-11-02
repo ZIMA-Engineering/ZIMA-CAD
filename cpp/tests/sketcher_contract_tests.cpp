@@ -57,6 +57,140 @@ int main() {
             };
             const auto line=reference("plane-line",ExternalReferenceKind::Face,{{49,10},{51,10}},true);
             const auto anchor=reference("anchor",ExternalReferenceKind::Point,{{0,3}});
+            {
+                // The reported case is a side of an already completed H/V
+                // rectangle.  Both contacts must be solved as one intent so
+                // the first contact cannot choose an incompatible free branch.
+                auto rectangle=Sketch::create_default();
+                const auto bottom=rectangle.add_segment(-493.677,264.554,
+                    -297.935,264.554);
+                const auto right=rectangle.add_segment(-297.935,264.554,
+                    -297.935,453.698);
+                const auto top=rectangle.add_segment(-297.935,453.698,
+                    -493.677,453.698);
+                const auto left=rectangle.add_segment(-493.677,453.698,
+                    -493.677,264.554);
+                for(const auto& [id,kind]:std::vector{
+                        std::pair{bottom,ConstraintKind::Horizontal},
+                        std::pair{right,ConstraintKind::Vertical},
+                        std::pair{top,ConstraintKind::Horizontal},
+                        std::pair{left,ConstraintKind::Vertical}})
+                    static_cast<void>(rectangle.add_segment_constraint(id,kind));
+                auto rectangle_support=reference("rectangle-face-line",
+                    ExternalReferenceKind::Face,
+                    {{-450,0},{-450,925}},true);
+                rectangle.add_external_reference(rectangle_support);
+                const auto rectangle_source_before=rectangle.external_references;
+                const auto rectangle_added=rectangle.
+                    add_segment_on_external_line_constraint(
+                        left,rectangle_support.id);
+                const auto& constrained=*std::ranges::find(
+                    rectangle.segments,left,&SketchSegment::id);
+                require(rectangle_added.size()==2&&
+                        std::abs(rectangle.find_point(
+                            constrained.first_point_id)->x+450)<1e-8&&
+                        std::abs(rectangle.find_point(
+                            constrained.second_point_id)->x+450)<1e-8&&
+                        rectangle.external_references==rectangle_source_before,
+                    "Completed rectangle side did not bind atomically to its external Face line");
+
+                // The same relation must keep the external Face read-only
+                // through dimensions, repeated dragging and save/reopen.
+                auto s=Sketch::create_default();
+                const auto side=s.add_segment(-493.677,264.554,
+                    -493.677,453.698);
+                static_cast<void>(s.add_segment_constraint(
+                    side,ConstraintKind::Vertical));
+                auto support=reference("external-face-line",
+                    ExternalReferenceKind::Face,
+                    {{-450,0},{-450,925}},true);
+                s.add_external_reference(support);
+                auto length=s.create_segment_dimension(side);
+                length.locked=true;s.apply_dimension(length);
+                const auto source_before=s.external_references;
+                const auto added=
+                    s.add_segment_on_external_line_constraint(
+                        side,support.id);
+                require(added.size()==2&&
+                        std::ranges::count_if(s.constraints,
+                            [&](const auto& constraint) {
+                                return !constraint.suppressed&&
+                                    constraint.kind==
+                                        ConstraintKind::PointOnLine&&
+                                    constraint.geometry_id==support.id;
+                            })==2,
+                    "Segment-on-external-line did not persist both contacts");
+                const auto first=s.segments.front().first_point_id;
+                const auto second=s.segments.front().second_point_id;
+                const auto check=[&] {
+                    const auto* a=s.find_point(first);
+                    const auto* b=s.find_point(second);
+                    require(std::abs(a->x+450)<1e-8&&
+                            std::abs(b->x+450)<1e-8,
+                        "Segment endpoints left the external line");
+                    require(std::abs(std::hypot(b->x-a->x,b->y-a->y)-
+                            s.dimensions.front().value)<1e-7,
+                        "Segment-on-external-line changed its driving length equation");
+                };
+                check();
+                require(s.external_references==source_before,
+                    "Segment-on-external-line modified its read-only source");
+                for(const double value:{220.,180.,205.}) {
+                    require(s.set_dimension_value(length.id,value),
+                        "Segment-on-external-line dimension edit failed");
+                    check();
+                }
+                const auto before_y=s.find_point(second)->y;
+                require(s.move_point(second,-450,before_y+25),
+                    "Segment-on-external-line could not slide during drag");
+                check();
+                require(std::abs(s.find_point(second)->y-before_y)>1,
+                    "Segment-on-external-line drag reported no movement");
+                auto reopened=Sketch::from_serialized(s.serialized());
+                require(reopened.solve().status!=SolveStatus::Conflicting&&
+                        reopened.constraints==s.constraints&&
+                        reopened.external_references==s.external_references,
+                    "Segment-on-external-line did not survive save/reopen");
+                reopened.external_references.front().cached_points=
+                    {{-350,0},{-350,925}};
+                require(reopened.solve().status!=SolveStatus::Conflicting&&
+                        std::abs(reopened.find_point(first)->x+350)<1e-8&&
+                        std::abs(reopened.find_point(second)->x+350)<1e-8,
+                    "Segment did not follow its refreshed external line");
+
+                auto fixed=s;fixed.set_point_fixed(first,true);
+                fixed.set_point_fixed(second,true);
+                const auto fixed_before=fixed.serialized();
+                require(!fixed.move_point(second,-450,999)&&
+                        fixed.serialized()==fixed_before,
+                    "Fully constrained external-line segment escaped on drag");
+
+                auto conflicting=Sketch::create_default();
+                const auto horizontal=conflicting.add_segment(0,0,10,0);
+                static_cast<void>(conflicting.add_segment_constraint(
+                    horizontal,ConstraintKind::Horizontal));
+                conflicting.add_external_reference(support);
+                const auto conflict_before=conflicting.serialized();
+                bool rejected{};
+                try {
+                    static_cast<void>(conflicting.
+                        add_segment_on_external_line_constraint(
+                            horizontal,support.id));
+                }catch(const std::exception&) {rejected=true;}
+                require(rejected&&conflicting.serialized()==conflict_before,
+                    "Conflicting segment-on-line changed the Sketch partially");
+                auto broken=Sketch::create_default();
+                const auto broken_side=broken.add_segment(0,0,0,10);
+                support.broken=true;broken.add_external_reference(support);
+                const auto broken_before=broken.serialized();rejected=false;
+                try {
+                    static_cast<void>(broken.
+                        add_segment_on_external_line_constraint(
+                            broken_side,support.id));
+                }catch(const std::exception&) {rejected=true;}
+                require(rejected&&broken.serialized()==broken_before,
+                    "Broken external line accepted or changed the Sketch");
+            }
             for(const bool reverse:{false,true}) {
                 auto s=Sketch::create_default();
                 const auto ab=s.add_segment(0,3,-8.31,3),bc=s.add_segment(-8.31,3,-8.31,10);

@@ -4,6 +4,7 @@
 #include <zima/workspace/body_link_operations.hpp>
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
+#include "group_solid_state_calculation.hpp"
 #include <algorithm>
 
 namespace zima::workspace {

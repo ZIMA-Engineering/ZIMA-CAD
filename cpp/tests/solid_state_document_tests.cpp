@@ -84,7 +84,7 @@ void native_fillets() {
         auto expected_operations=original_operations;
         auto expected_fillet=state->session.document().kernel_operations().back();expected_fillet.primitive=reference_request;
         expected_operations.push_back(std::move(expected_fillet));
-        const auto expected=kernel.evaluate_history(expected_operations).back().volume;
+        const auto expected=analyzed_volume(kernel,kernel.evaluate_history(expected_operations).back());
         require(expected<400*110*std::numbers::pi/2,"Independent Fillet did not remove material");
         if(!after_straight)require(workspace::commit_solid_state(live,kernel,id,straight),"Post-Fillet Straighten failed");
         const auto flat=analyzed_volume(kernel,state->session.calculated_boundaries().back());
@@ -136,7 +136,7 @@ void invalid_fillet_state() {
         const auto* calculated=state->session.calculated_boundaries().data();
         const auto can_undo=state->session.can_undo(),can_redo=state->session.can_redo();
         const auto* input=workspace::calculated_operation_input(state->session,editing?straight.id:std::string{});
-        require(input,"Invalid Fillet state lacks calculated input");const auto input_volume=input->volume;
+        require(input,"Invalid Fillet state lacks calculated input");const auto input_volume=analyzed_volume(kernel,*input);
         // Developed stock becomes 0.173 mm long: opposing R2 end fillets cannot fit.
         // A valid definition with a failed calculation is retained with its
         // native error under the general feature-definition contract.
@@ -165,7 +165,7 @@ void invalid_fillet_state() {
         require(*state->session.document().find_container(straight.id)==straight&&
             state->session.revision()==revision+1&&state->session.data_generation()>generation,
             "Failed state lost its authored definition or transaction");
-        near(failed.volume,input_volume);
+        near(analyzed_volume(kernel,failed),input_volume);
         const auto retained=state->session.document().serialized();
         const auto retained_error=failed.calculation_errors.at(straight.id);
         require(workspace::step_part_document_history(live,id,false),"Failed state Undo was unavailable");
@@ -192,7 +192,7 @@ void invalid_fillet_state() {
         std::vector<kernel::BodyResult> saved;const auto reopened=document::PartDocument::load(path,&saved);
         require(*reopened.find_container(straight.id)==straight&&saved.back().calculation_errors.at(straight.id)==retained_error,
             "Failed state save/reopen lost its parameters or native error");
-        near(saved.back().volume,input_volume);std::filesystem::remove(path);
+        near(analyzed_volume(kernel,saved.back()),input_volume);std::filesystem::remove(path);
     }
 }
 void native_holes() {
@@ -212,7 +212,7 @@ void native_holes() {
         workspace::commit_sweep(live,kernel,id,source,workspace::SweepEditMode::Create);
         auto* state=live.open_part(id);const auto authored_source=*state->session.document().find_container(source.id);
         const double ideal=16*(30+5*std::numbers::pi/2),removed=std::numbers::pi;
-        const double formed=state->session.calculated_boundaries().back().volume;
+        const double formed=analyzed_volume(kernel,state->session.calculated_boundaries().back());
         require(std::abs(formed-ideal)<.002,"Native curved Sweep exceeds the fixture approximation budget");
         auto straight=document::PartDocument::create_solid_state_container();straight.solid_state.coefficient=.9;
         if(after_straight)require(workspace::commit_solid_state(live,kernel,id,straight),"Pre-hole Straighten failed");
@@ -234,26 +234,26 @@ void native_holes() {
                 }
             require(found,"Native hole state lost its cylindrical surface");
         };
-        near(state->session.calculated_boundaries().back().volume,(after_straight?ideal*.9:formed)-removed);
+        near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),(after_straight?ideal*.9:formed)-removed);
         if(!after_straight)require(workspace::commit_solid_state(live,kernel,id,straight),"Post-hole Straighten failed");
-        near(state->session.calculated_boundaries().back().volume,ideal*.9-removed);
+        near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),ideal*.9-removed);
         // A hole created after Straighten belongs to the normal authored prefix;
         // the earlier state's packet intentionally excludes that later feature.
         if(!after_straight)check_bore(state->session.calculated_boundaries().back(),straight.id,7.5*.9);
         auto restore=document::PartDocument::create_solid_state_container(true);
         require(workspace::commit_solid_state(live,kernel,id,restore),"Native hole Restore failed");
-        near(state->session.calculated_boundaries().back().volume,formed-removed);
+        near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed-removed);
         check_bore(state->session.calculated_boundaries().back(),restore.id,7.5);
         require(*state->session.document().find_container(source.id)==authored_source&&
             *state->session.document().find_container(hole.id)==authored_hole,"State replay rewrote authored hole geometry or placement");
-        require(workspace::step_part_document_history(live,id,false),"Hole state Undo failed");near(state->session.calculated_boundaries().back().volume,ideal*.9-removed);
-        require(workspace::step_part_document_history(live,id,true),"Hole state Redo failed");near(state->session.calculated_boundaries().back().volume,formed-removed);
+        require(workspace::step_part_document_history(live,id,false),"Hole state Undo failed");near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),ideal*.9-removed);
+        require(workspace::step_part_document_history(live,id,true),"Hole state Redo failed");near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed-removed);
         const auto path=std::filesystem::temp_directory_path()/("zima-state-hole-"+id+".prtz");
         state->session.document().save(path,state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> saved;auto reopened=document::PartDocument::load(path,&saved);
-        require(*reopened.find_container(hole.id)==authored_hole,"Native reload changed hole parameters");near(saved.back().volume,formed-removed);
+        require(*reopened.find_container(hole.id)==authored_hole,"Native reload changed hole parameters");near(analyzed_volume(kernel,saved.back()),formed-removed);
         kernel::OcctKernel cold;const auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
-        require(regenerated.back().calculation_errors.empty(),"Native hole cold regeneration failed");near(regenerated.back().volume,formed-removed);
+        require(regenerated.back().calculation_errors.empty(),"Native hole cold regeneration failed");near(analyzed_volume(cold,regenerated.back()),formed-removed);
         check_bore(regenerated.back(),restore.id,7.5);
         // A complete removed volume crossing the straight/curved transition is
         // unsupported even when its center is still inside the straight leg.
@@ -296,7 +296,7 @@ void native_sweep_lifecycle(document::HistoryContainer source,double expected,do
     const auto id=doc.document_id;live.add_part(doc,{});live.activate(id);
     workspace::commit_sweep(live,kernel,id,source,workspace::SweepEditMode::Create);
     auto* state=live.open_part(id);const auto authored=*state->session.document().find_container(source.id);
-    const auto formed=state->session.calculated_boundaries().back().volume;
+    const auto formed=analyzed_volume(kernel,state->session.calculated_boundaries().back());
     if(std::abs(formed-expected)>=tolerance)throw std::runtime_error(
         "Native sweep source volume differs from independent length: expected "+std::to_string(expected)+", got "+std::to_string(formed));
     if(probe_rectangle) {
@@ -350,29 +350,29 @@ void native_sweep_lifecycle(document::HistoryContainer source,double expected,do
     }
     auto straight=document::PartDocument::create_solid_state_container();straight.solid_state.coefficient=.9;
     require(workspace::commit_solid_state(live,kernel,id,straight),"Native sweep Straighten failed");
-    require(std::abs(state->session.calculated_boundaries().back().volume-expected*.9)<tolerance,
+    require(std::abs(analyzed_volume(kernel,state->session.calculated_boundaries().back())-expected*.9)<tolerance,
         "Native sweep developed volume differs from independent length");
     const auto revision=state->session.revision(),generation=state->session.data_generation();
     require(!workspace::commit_solid_state(live,kernel,id,*state->session.document().find_container(straight.id))&&
         state->session.revision()==revision&&state->session.data_generation()==generation,"Native sweep unchanged state recalculated");
     require(*state->session.document().find_container(source.id)==authored,"Native sweep state changed authored source");
-    const auto flat=state->session.calculated_boundaries().back().volume;
+    const auto flat=analyzed_volume(kernel,state->session.calculated_boundaries().back());
     const auto path=std::filesystem::temp_directory_path()/("zima-native-sweep-state-"+id+".prtz");
     state->session.document().save(path,state->session.calculated_boundaries());
     std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(path,&cached);
-    require(*reopened.find_container(source.id)==authored,"Native sweep reload changed source");near(cached.back().volume,flat);
+    require(*reopened.find_container(source.id)==authored,"Native sweep reload changed source");near(analyzed_volume(kernel,cached.back()),flat);
     kernel::OcctKernel cold;
     auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
-    require(regenerated.back().calculation_errors.empty(),"Native sweep cold regeneration failed");near(regenerated.back().volume,flat);
+    require(regenerated.back().calculation_errors.empty(),"Native sweep cold regeneration failed");near(analyzed_volume(cold,regenerated.back()),flat);
     auto restore=document::PartDocument::create_solid_state_container(true);
     require(workspace::commit_solid_state(live,kernel,id,restore),"Native sweep Restore failed");
-    near(state->session.calculated_boundaries().back().volume,formed);
-    require(workspace::step_part_document_history(live,id,false),"Native sweep state Undo failed");near(state->session.calculated_boundaries().back().volume,flat);
-    require(workspace::step_part_document_history(live,id,true),"Native sweep state Redo failed");near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
+    require(workspace::step_part_document_history(live,id,false),"Native sweep state Undo failed");near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),flat);
+    require(workspace::step_part_document_history(live,id,true),"Native sweep state Redo failed");near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     state->session.document().save(path,state->session.calculated_boundaries());cached.clear();reopened=document::PartDocument::load(path,&cached);
     regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
     require(regenerated.back().calculation_errors.empty()&&*reopened.find_container(source.id)==authored,
-        "Restored native sweep lost source definition");near(regenerated.back().volume,formed);
+        "Restored native sweep lost source definition");near(analyzed_volume(cold,regenerated.back()),formed);
     std::filesystem::remove(path);
 }
 kernel::Vec3 spatial_attachment_chain(document::HistoryContainer source,bool flip) {
@@ -540,34 +540,34 @@ void native_spline() {
     workspace::commit_sweep(live,kernel,id,source,workspace::SweepEditMode::Create);
     auto* state=live.open_part(id);
     const auto authored=*state->session.document().find_container(source.id);
-    const double formed=state->session.calculated_boundaries().back().volume;
+    const double formed=analyzed_volume(kernel,state->session.calculated_boundaries().back());
     const double expected=.25*std::numbers::pi*(.5*std::sqrt(11600.)+125*std::asinh(.4));
     require(std::abs(formed-expected)<.001,"Native spline adapter changed the analytic source volume");
     auto straight=document::PartDocument::create_solid_state_container();straight.solid_state.coefficient=.9;
     straight.solid_state.all=false;straight.solid_state.owners={source.id};
     require(workspace::commit_solid_state(live,kernel,id,straight),"Native spline Straighten failed");
-    near(state->session.calculated_boundaries().back().volume,expected*.9);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),expected*.9);
     require(*state->session.document().find_container(source.id)==authored,"Native spline state changed authored Sketches");
     const auto path=std::filesystem::temp_directory_path()/("zima-solid-spline-"+id+".prtz");
     state->session.document().save(path,state->session.calculated_boundaries());
     std::vector<kernel::BodyResult> cached;auto reopened=document::PartDocument::load(path,&cached);
     require(*reopened.find_container(source.id)==authored,"Native spline reload changed source identities");
-    near(cached.back().volume,expected*.9);
+    near(analyzed_volume(kernel,cached.back()),expected*.9);
     kernel::OcctKernel cold;
     const auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
     require(regenerated.back().calculation_errors.empty(),"Native spline cold regeneration failed");
-    near(regenerated.back().volume,expected*.9);
+    near(analyzed_volume(cold,regenerated.back()),expected*.9);
     auto restore=document::PartDocument::create_solid_state_container(true);
     require(workspace::commit_solid_state(live,kernel,id,restore),"Native spline Restore failed");
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     require(workspace::step_part_document_history(live,id,false),"Native spline Restore Undo failed");
-    near(state->session.calculated_boundaries().back().volume,expected*.9);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),expected*.9);
     require(workspace::step_part_document_history(live,id,true),"Native spline Restore Redo failed");
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     state->session.document().save(path,state->session.calculated_boundaries());cached.clear();
     reopened=document::PartDocument::load(path,&cached);
     require(*reopened.find_container(source.id)==authored&&reopened.find_container(restore.id),"Native spline restored history changed on reload");
-    near(workspace::calculate_part_with_resolved_references(cold,reopened).back().volume,formed);
+    near(analyzed_volume(cold,workspace::calculate_part_with_resolved_references(cold,reopened).back()),formed);
     auto changed=*state->session.document().find_container(source.id);
     guide=sketcher::Sketch::from_serialized(changed.sweep2d.path_sketch);
     const auto spline_id=guide.bsplines.front().id;
@@ -575,13 +575,13 @@ void native_spline() {
     changed.sweep2d.path_sketch=guide.serialized();
     workspace::commit_sweep(live,kernel,id,changed,workspace::SweepEditMode::Replace);
     const double revised=.25*std::numbers::pi*(.5*std::sqrt(13600.)+(10000./120)*std::asinh(.6));
-    require(std::abs(state->session.calculated_boundaries().back().volume-revised)<.001,
+    require(std::abs(analyzed_volume(kernel,state->session.calculated_boundaries().back())-revised)<.001,
         "Edited spline reused the previous restored geometry");
     require(sketcher::Sketch::from_serialized(state->session.document().find_container(source.id)->sweep2d.path_sketch).bsplines.front().id==spline_id,
         "Editing spline source changed its curve identity");
     auto next=document::PartDocument::create_solid_state_container();next.solid_state.coefficient=1.1;
     require(workspace::commit_solid_state(live,kernel,id,next),"Edited spline could not be straightened again");
-    near(state->session.calculated_boundaries().back().volume,revised*1.1);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),revised*1.1);
     std::filesystem::remove(path);
 }
 }
@@ -603,14 +603,14 @@ int main(int argc,char** argv){try {
     auto* state=live.open_part(id);
     const auto authored=*state->session.document().find_container(source.id);
     const double formed=400*110*std::numbers::pi/2;
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     require(workspace::solid_state_sources(state->session.document(),false)==std::vector<std::string>{source.id},
         "Source picker did not offer the preceding solid");
     require(workspace::solid_state_sources(state->session.document(),true).empty(),"Restore offered an unstraightened source");
     auto straight=document::PartDocument::create_solid_state_container();straight.solid_state.coefficient=.9;
     straight.solid_state.all=false;straight.solid_state.owners={source.id};
     require(workspace::commit_solid_state(live,kernel,id,straight),"Straighten did not commit");
-    near(state->session.calculated_boundaries().back().volume,formed*.9);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed*.9);
     const auto revision=state->session.revision(),generation=state->session.data_generation();
     require(!workspace::commit_solid_state(live,kernel,id,*state->session.document().find_container(straight.id)),
         "Unchanged properties created a transaction");
@@ -625,10 +625,10 @@ int main(int argc,char** argv){try {
         "Native save/reopen lost state parameters or identity");
     require(loaded.body_history.active_body_id()==state->session.document().body_history.active_body_id(),
         "Native reopen lost active Body context");
-    near(stored.back().volume,formed*.9);
+    near(analyzed_volume(kernel,stored.back()),formed*.9);
     kernel::OcctKernel cold;const auto regenerated=workspace::calculate_part_with_resolved_references(cold,loaded);
     require(regenerated.back().calculation_errors.empty(),"Cold state regeneration failed");
-    near(regenerated.back().volume,formed*.9);
+    near(analyzed_volume(cold,regenerated.back()),formed*.9);
     bool ancestry=false;for(const auto& ref:stored.back().mesh.original_references.triangle_references)
         if(ref.owner_id==straight.id) {ancestry=true;require(kernel::solid_state_parent(ref.semantic_key).has_value(),"Native save lost state ancestry");}
     require(ancestry,"Native save lost state-owned reference geometry");
@@ -917,7 +917,7 @@ int main(int argc,char** argv){try {
         const auto* variant=family.open_part(member);
         require(variant&&variant->session.document().find_container(source.id)&&
             variant->session.document().find_container(straight.id),"Family lost source or state identity");
-        near(variant->session.calculated_boundaries().back().volume,formed*(std::string(name)=="Formed"?1:.9));
+        near(analyzed_volume(cold,variant->session.calculated_boundaries().back()),formed*(std::string(name)=="Formed"?1:.9));
     }
     const auto family_path=std::filesystem::temp_directory_path()/("zima-solid-family-"+id+".prtz");
     const auto* generic=family.open_part(id);
@@ -927,20 +927,20 @@ int main(int argc,char** argv){try {
     const auto formed_id=workspace::open_family_instance(family,cold,id,"Formed",false);
     auto formed_variant=workspace::family_part_source(reopened_family,family_cache,formed_id);
     require(formed_variant.find_container(straight.id)->suppressed,"Saved Family lost state suppression");
-    near(workspace::calculate_part_with_resolved_references(cold,formed_variant).back().volume,formed);
+    near(analyzed_volume(cold,workspace::calculate_part_with_resolved_references(cold,formed_variant).back()),formed);
     std::filesystem::remove(family_path);
     auto restore=document::PartDocument::create_solid_state_container(true);
     require(workspace::commit_solid_state(live,kernel,id,restore),"Restore did not commit");
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     require(workspace::step_part_document_history(live,id,false),"Undo failed");
-    near(state->session.calculated_boundaries().back().volume,formed*.9);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed*.9);
     require(!state->session.document().find_container(restore.id),"Undo retained the new state container");
     require(workspace::step_part_document_history(live,id,true),"Redo failed");
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     require(*state->session.document().find_container(source.id)==authored,"State rewrote the authored source");
     auto edit=*state->session.document().find_container(straight.id);edit.solid_state.coefficient=1.1;
     require(workspace::commit_solid_state(live,kernel,id,edit),"Earlier state edit failed");
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     const auto before=state->session.document().serialized();const auto before_generation=state->session.data_generation();
     edit.solid_state.coefficient=0;
     bool rejected=false;try{static_cast<void>(workspace::commit_solid_state(live,kernel,id,edit));}
@@ -949,7 +949,7 @@ int main(int argc,char** argv){try {
         "Failed state edit partially committed the document or calculation");
     state->session.document().save(path,state->session.calculated_boundaries());
     stored.clear();loaded=document::PartDocument::load(path,&stored);
-    near(workspace::calculate_part_with_resolved_references(cold,loaded).back().volume,formed);
+    near(analyzed_volume(cold,workspace::calculate_part_with_resolved_references(cold,loaded).back()),formed);
     auto directory=std::filesystem::temp_directory_path();command_host::Host host(live,kernel,directory);
     const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
         const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
@@ -963,12 +963,12 @@ int main(int argc,char** argv){try {
     require(!run("straighten.set",{{"container",straight.id},{"coefficient",1.1}}).data.at("changed").get<bool>() &&
         state->session.data_generation()==command_generation,"Command no-op calculated or committed");
     const auto command_state=run("straighten.create",{{"coefficient",1.05}}).data.at("container").get<std::string>();
-    near(state->session.calculated_boundaries().back().volume,formed*1.05);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed*1.05);
     require(run("straighten.set",{{"container",command_state},{"coefficient",1.15}}).data.at("changed").get<bool>(),
         "Command coefficient edit did not report its transaction");
-    near(state->session.calculated_boundaries().back().volume,formed*1.15);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed*1.15);
     const auto restored_command=run("restore_shape.create").data.at("container").get<std::string>();
-    near(state->session.calculated_boundaries().back().volume,formed);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),formed);
     const auto restored_generation=state->session.data_generation(),restored_revision=state->session.revision();
     const auto restored_properties=run("restore_shape.get",{{"container",restored_command}});
     require(restored_properties.data.at("all")==true&&restored_properties.data.at("coefficient")==1.&&

@@ -36,6 +36,7 @@ struct ExternalProfileTarget {
 struct ExtrusionParameters {
     bool origin_centerline{};
     bool centroid_centerline{};
+    bool individual_centroid_centerlines{};
     bool sheet_cut{};
     bool sheet_cut_clearance{};
     std::string sketch_id;
@@ -74,6 +75,7 @@ struct ExtrusionParameters {
 struct RevolutionParameters {
     bool origin_centerline{};
     bool centroid_centerline{};
+    bool individual_centroid_centerlines{};
     bool sheet_metal{};
     bool sheet_attachment{};
     bool thickness_override{};

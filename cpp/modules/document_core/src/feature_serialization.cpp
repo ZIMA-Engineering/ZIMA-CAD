@@ -159,9 +159,9 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
         {"result_type",name(p.result_type,results)},{"thin_thickness",p.thin_thickness},
         {"thin_mode",name(p.thin_mode,thin_modes)},{"symmetric",p.symmetric},
         {"origin_centerline",p.origin_centerline},{"centroid_centerline",p.centroid_centerline},
+        {"individual_centroid_centerlines",p.individual_centroid_centerlines},
         {"show_point",p.show_point},{"show_text",p.show_text},
         {"sides",std::move(sides)}};
-    // Neutral defaults need no stored override, just like axis_enabled above.
     if(p.reversed_sides)result["reversed_sides"]=true;
     if(p.axis_visible_in_3d)result["axis_visible_in_3d"]=true;
     return result;
@@ -183,6 +183,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         p.reversed_sides=source.value("reversed_sides",false);
         p.origin_centerline=source.at("origin_centerline").get<bool>();
         p.centroid_centerline=source.at("centroid_centerline").get<bool>();
+        p.individual_centroid_centerlines=source.at("individual_centroid_centerlines").get<bool>();
         p.show_point=source.at("show_point").get<bool>();
         p.show_text=source.at("show_text").get<bool>();
         p.axis_visible_in_3d=source.value("axis_visible_in_3d",false);

@@ -112,13 +112,26 @@ void AssemblyWorkspaceWindow::create_layout() {
             const auto* body=part->session.document().body_history.find(owner.toStdString());
             if(!body || body->scope.id!=part->session.document().body_history.active_body_id())return;
         }
-        if(!workspace::set_body_history_cursor(workspace_,workspace_.active_document_id(),cursor,owner.toStdString()))return;
+        workspace::HistoryCursorChange change;
+        try {change=workspace::set_body_history_cursor(
+            workspace_,kernel_,workspace_.active_document_id(),cursor,
+            owner.toStdString());}
+        catch(const std::exception& error) {
+            report_operation_error(tr("Regenerace selhala"),tr(error.what()));return;
+        }
+        if(!change.changed)return;
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     };
     history_tree->history_cursor_moved = [this](std::size_t cursor) {
         auto* part = workspace_.open_part(workspace_.active_document_id());
         if (part == nullptr || !part_history_insertion_allowed()) return;
-        if (!workspace::set_part_history_cursor(workspace_,workspace_.active_document_id(),cursor)) return;
+        workspace::HistoryCursorChange change;
+        try {change=workspace::set_part_history_cursor(
+            workspace_,workspace_.active_document_id(),kernel_,cursor);}
+        catch(const std::exception& error) {
+            report_operation_error(tr("Regenerace selhala"),tr(error.what()));return;
+        }
+        if (!change.changed) return;
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();

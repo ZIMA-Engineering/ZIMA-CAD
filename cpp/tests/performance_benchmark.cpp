@@ -94,35 +94,34 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-class PlanarFilletExperimentScope {
+class EnvironmentVariableScope {
 public:
-    explicit PlanarFilletExperimentScope(bool enabled) {
-        if(const char* value=std::getenv(name()))previous_=value;
-        set(enabled?"1":nullptr);
+    EnvironmentVariableScope(const char* name,const char* value):name_(name) {
+        if(const char* previous=std::getenv(name_.c_str()))
+            previous_=previous;
+        set(name_.c_str(),value);
     }
-    ~PlanarFilletExperimentScope() noexcept {
-        try {set(previous_?previous_->c_str():nullptr);}
+    ~EnvironmentVariableScope() noexcept {
+        try {set(name_.c_str(),previous_?previous_->c_str():nullptr);}
         catch(...) {}
     }
 private:
-    static constexpr const char* name() noexcept {
-        return "ZIMA_CPP_EXPERIMENTAL_PLANAR_FILLET";
-    }
-    static void set(const char* value) {
+    static void set(const char* name,const char* value) {
 #ifdef _WIN32
-        if(_putenv_s(name(),value?value:"")!=0)
+        if(_putenv_s(name,value?value:"")!=0)
             throw std::runtime_error(
-                "Could not set the planar Fillet experiment environment");
+                "Could not set a benchmark environment variable");
 #else
         if(value) {
-            if(setenv(name(),value,1)!=0)
+            if(setenv(name,value,1)!=0)
                 throw std::runtime_error(
-                    "Could not set the planar Fillet experiment environment");
-        } else if(unsetenv(name())!=0)
+                    "Could not set a benchmark environment variable");
+        } else if(unsetenv(name)!=0)
             throw std::runtime_error(
-                "Could not clear the planar Fillet experiment environment");
+                "Could not clear a benchmark environment variable");
 #endif
     }
+    std::string name_;
     std::optional<std::string> previous_;
 };
 
@@ -1014,6 +1013,199 @@ int batch_add_probe(const std::filesystem::path& source,
     for(std::size_t index=first;index<=last;++index)
         tolerance=std::max(tolerance,operations[index].boolean_tolerance);
 
+    if(std::getenv("ZIMA_CPP_BATCH_FUSE_ONLY")) {
+        TopTools_ListOfShape arguments,tool_list;
+        arguments.Append(input_shape.root);
+        for(const auto& tool:tools)tool_list.Append(tool);
+        BRepAlgoAPI_BooleanOperation fuse;
+        fuse.SetOperation(boolean_operation==kernel::BooleanOperation::Add
+            ?BOPAlgo_FUSE:BOPAlgo_CUT);
+        fuse.SetArguments(arguments);
+        fuse.SetTools(tool_list);
+        fuse.SetRunParallel(true);
+        fuse.SetToFillHistory(true);
+        fuse.SetFuzzyValue(tolerance);
+        const auto fuse_start=Clock::now();
+        fuse.Build();
+        const auto fuse_ms=std::chrono::duration<double,std::milli>(
+            Clock::now()-fuse_start).count();
+        const bool raw_available=fuse.IsDone()&&!fuse.Shape().IsNull();
+        const bool raw_valid=raw_available&&
+            BRepCheck_Analyzer(fuse.Shape(),true,true,false).IsValid();
+        TopoDS_Shape unified;
+        double unify_ms{};
+        bool unified_valid{};
+        TopoDS_Shape protected_shape;
+        double protected_unify_ms{};
+        bool protected_valid{};
+        std::size_t protected_edges{};
+        if(raw_available) {
+            const auto unify_start=Clock::now();
+            ShapeUpgrade_UnifySameDomain unifier(
+                fuse.Shape(),true,true,false);
+            unifier.SetLinearTolerance(tolerance);
+            unifier.SetAngularTolerance(1.0e-9);
+            unifier.Build();
+            unified=unifier.Shape();
+            unify_ms=std::chrono::duration<double,std::milli>(
+                Clock::now()-unify_start).count();
+            unified_valid=!unified.IsNull()&&
+                BRepCheck_Analyzer(unified,true,true,false).IsValid();
+
+            TopTools_IndexedMapOfShape raw_faces;
+            TopExp::MapShapes(fuse.Shape(),TopAbs_FACE,raw_faces);
+            std::vector<std::vector<kernel::FaceReference>> face_parents(
+                static_cast<std::size_t>(raw_faces.Extent())+1);
+            const auto attach_parent=[&](const TopoDS_Shape& face,
+                    const kernel::FaceReference& reference) {
+                const int index=raw_faces.FindIndex(face);
+                if(index&&std::ranges::find(face_parents[
+                        static_cast<std::size_t>(index)],reference)==
+                        face_parents[static_cast<std::size_t>(index)].end())
+                    face_parents[static_cast<std::size_t>(index)].push_back(
+                        reference);
+            };
+            for(const auto& [source,reference]:source_faces) {
+                bool changed=false;
+                for(const auto* descendants:{&fuse.Modified(source),
+                        &fuse.Generated(source)})
+                    for(TopTools_ListIteratorOfListOfShape descendant(
+                            *descendants);descendant.More();descendant.Next())
+                        if(descendant.Value().ShapeType()==TopAbs_FACE) {
+                            attach_parent(descendant.Value(),reference);
+                            changed=true;
+                        }
+                if(!changed&&!fuse.IsDeleted(source))
+                    attach_parent(source,reference);
+            }
+            TopTools_IndexedMapOfShape probe_edges;
+            TopExp::MapShapes(unified,TopAbs_EDGE,probe_edges);
+            const auto edge_survives=[&](const TopoDS_Shape& edge) {
+                if(probe_edges.Contains(edge))return true;
+                const auto history=unifier.History();
+                if(history.IsNull())return false;
+                for(const auto* descendants:{&history->Modified(edge),
+                        &history->Generated(edge)})
+                    for(TopTools_ListIteratorOfListOfShape descendant(
+                            *descendants);descendant.More();descendant.Next())
+                        if(descendant.Value().ShapeType()==TopAbs_EDGE&&
+                           probe_edges.Contains(descendant.Value()))
+                            return true;
+                return false;
+            };
+            ShapeUpgrade_UnifySameDomain protected_unifier(
+                fuse.Shape(),true,true,false);
+            protected_unifier.SetLinearTolerance(tolerance);
+            protected_unifier.SetAngularTolerance(1.0e-9);
+            TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+            TopExp::MapShapesAndAncestors(fuse.Shape(),TopAbs_EDGE,
+                TopAbs_FACE,edge_faces);
+            for(int edge=1;edge<=edge_faces.Extent();++edge) {
+                const auto& adjacent=edge_faces.FindFromIndex(edge);
+                if(adjacent.Extent()!=2)continue;
+                TopTools_ListIteratorOfListOfShape iterator(adjacent);
+                const auto first_face=TopoDS::Face(iterator.Value());
+                const int first_index=raw_faces.FindIndex(first_face);
+                iterator.Next();
+                const auto second_face=TopoDS::Face(iterator.Value());
+                const int second_index=raw_faces.FindIndex(second_face);
+                bool may_merge=first_index&&second_index;
+                if(may_merge) {
+                    const auto& first=face_parents[
+                        static_cast<std::size_t>(first_index)];
+                    const auto& second=face_parents[
+                        static_cast<std::size_t>(second_index)];
+                    may_merge=std::ranges::any_of(first,[&](const auto& left) {
+                        return std::ranges::find(second,left)!=second.end();
+                    });
+                    if(!may_merge) {
+                        may_merge=std::ranges::any_of(first,[&](const auto& left) {
+                            return std::ranges::any_of(second,[&](const auto& right) {
+                                return left.surface_result==right.surface_result&&
+                                    left.sheet_role==right.sheet_role;
+                            });
+                        });
+                        if(may_merge) {
+                            const BRepAdaptor_Surface first_surface(first_face),
+                                second_surface(second_face);
+                            may_merge=first_surface.GetType()==GeomAbs_Plane&&
+                                second_surface.GetType()==GeomAbs_Plane;
+                            if(may_merge) {
+                                auto first_normal=first_surface.Plane().Axis().Direction();
+                                auto second_normal=second_surface.Plane().Axis().Direction();
+                                if(!first_surface.Plane().Position().Direct())
+                                    first_normal.Reverse();
+                                if(!second_surface.Plane().Position().Direct())
+                                    second_normal.Reverse();
+                                if(first_face.Orientation()==TopAbs_REVERSED)
+                                    first_normal.Reverse();
+                                if(second_face.Orientation()==TopAbs_REVERSED)
+                                    second_normal.Reverse();
+                                may_merge=first_normal.Angle(second_normal)<=1.0e-9&&
+                                    first_surface.Plane().Distance(
+                                        second_surface.Plane().Location())<=tolerance;
+                            }
+                        }
+                    }
+                }
+                if(!may_merge&&!edge_survives(edge_faces.FindKey(edge))) {
+                    protected_unifier.KeepShape(edge_faces.FindKey(edge));
+                    ++protected_edges;
+                }
+            }
+            const auto protected_start=Clock::now();
+            protected_unifier.Build();
+            protected_shape=protected_unifier.Shape();
+            protected_unify_ms=std::chrono::duration<double,std::milli>(
+                Clock::now()-protected_start).count();
+            protected_valid=!protected_shape.IsNull()&&
+                BRepCheck_Analyzer(
+                    protected_shape,true,true,false).IsValid();
+        }
+        const auto topology=[](const TopoDS_Shape& shape) {
+            std::array<int,4> result{};
+            if(shape.IsNull())return result;
+            for(std::size_t index=0;index<result.size();++index) {
+                TopTools_IndexedMapOfShape members;
+                TopExp::MapShapes(shape,std::array{TopAbs_SOLID,
+                    TopAbs_FACE,TopAbs_EDGE,TopAbs_VERTEX}[index],members);
+                result[index]=members.Extent();
+            }
+            return result;
+        };
+        const auto expected=kernel::read_calculated_body_shape(
+            local_body(last));
+        const auto expected_topology=topology(expected);
+        const auto raw_topology=topology(
+            raw_available?fuse.Shape():TopoDS_Shape{});
+        const auto unified_topology=topology(unified);
+        const auto protected_topology=topology(protected_shape);
+        std::cout<<std::setprecision(17)
+            <<"batch_fuse_only first="<<first<<" last="<<last
+            <<" tools="<<tools.size()
+            <<" fuse_ms="<<fuse_ms
+            <<" unify_ms="<<unify_ms
+            <<" protected_unify_ms="<<protected_unify_ms
+            <<" raw_available="<<raw_available
+            <<" raw_valid="<<raw_valid
+            <<" unified_valid="<<unified_valid
+            <<" protected_valid="<<protected_valid
+            <<" protected_edges="<<protected_edges
+            <<" expected_topology="<<expected_topology[0]<<','
+                <<expected_topology[1]<<','<<expected_topology[2]<<','
+                <<expected_topology[3]
+            <<" raw_topology="<<raw_topology[0]<<','
+                <<raw_topology[1]<<','<<raw_topology[2]<<','
+                <<raw_topology[3]
+            <<" unified_topology="<<unified_topology[0]<<','
+                <<unified_topology[1]<<','<<unified_topology[2]<<','
+                <<unified_topology[3]
+            <<" protected_topology="<<protected_topology[0]<<','
+                <<protected_topology[1]<<','<<protected_topology[2]<<','
+                <<protected_topology[3]<<'\n';
+        return raw_valid&&unified_valid&&protected_valid?0:2;
+    }
+
     // Measure the proposed lightweight history representation separately
     // from Fuse.  Keep the already-authored and newly added solids as a
     // compound, and calculate only the exact trim curves introduced by each
@@ -1786,20 +1978,85 @@ int batch_add_probe(const std::filesystem::path& source,
         const auto expected_edge_intervals=edge_intervals(expected_edges);
         const auto graph_edge_intervals=edge_intervals(
             reusable_union_edges);
-        const auto expected_edges_covered_by_graph=treatment_only
+        const bool report_edge_partitions=
+            std::getenv("ZIMA_CPP_REPORT_EDGE_PARTITIONS")!=nullptr;
+        const auto expected_edges_covered_by_graph=
+            (treatment_only||report_edge_partitions)
             ?expected_edge_intervals.size()
             :static_cast<std::size_t>(std::ranges::count_if(
                 expected_edge_intervals,[&](const auto& edge) {
                     return curve_is_covered_by_union(
                         edge,graph_edge_intervals);
                 }));
-        const auto graph_edges_covered_by_expected=treatment_only
+        const auto graph_edges_covered_by_expected=
+            (treatment_only||report_edge_partitions)
             ?graph_edge_intervals.size()
             :static_cast<std::size_t>(std::ranges::count_if(
                 graph_edge_intervals,[&](const auto& edge) {
                     return curve_is_covered_by_union(
                         edge,expected_edge_intervals);
                 }));
+        if(report_edge_partitions) {
+            const auto interval_for=[&](const TopoDS_Edge& edge)
+                    ->std::optional<CurveInterval> {
+                double first{},last{};
+                auto curve=BRep_Tool::Curve(edge,first,last);
+                if(curve.IsNull()||last<=first)return std::nullopt;
+                CurveInterval interval{std::move(curve),first,last,{}};
+                GeomAdaptor_Curve adaptor(interval.curve,first,last);
+                BndLib_Add3dCurve::Add(adaptor,
+                    std::max(1.0e-7,tolerance),interval.bounds);
+                return interval;
+            };
+            for(int expected_index=1;
+                    expected_index<=expected_edges.Extent();
+                    ++expected_index) {
+                const auto expected_edge=TopoDS::Edge(
+                    expected_edges(expected_index));
+                const auto expected_interval=interval_for(expected_edge);
+                if(!expected_interval)continue;
+                std::vector<CurveInterval> fragments;
+                std::vector<int> fragment_indices;
+                for(int graph_index=1;
+                        graph_index<=reusable_union_edges.Extent();
+                        ++graph_index) {
+                    const auto graph_interval=interval_for(TopoDS::Edge(
+                        reusable_union_edges(graph_index)));
+                    if(!graph_interval||
+                       !curve_is_covered(*graph_interval,
+                            {*expected_interval}))continue;
+                    fragments.push_back(*graph_interval);
+                    fragment_indices.push_back(graph_index);
+                }
+                if(fragments.size()<2||!curve_is_covered_by_union(
+                        *expected_interval,fragments))continue;
+                std::cerr<<"direct edge partition expected_index="
+                    <<expected_index<<" fragments="<<fragments.size();
+                for(const auto& [shape,reference]:expected_bound.edges)
+                    if(shape.IsSame(expected_edge))
+                        std::cerr<<" expected_reference="
+                            <<reference.owner_id<<':'
+                            <<reference.semantic_key;
+                for(const int graph_index:fragment_indices) {
+                    const auto graph_edge=TopoDS::Edge(
+                        reusable_union_edges(graph_index));
+                    std::cerr<<" graph_index="<<graph_index;
+                    const auto metadata=std::ranges::find_if(
+                        reusable_union.edges,[&](const auto& edge) {
+                            return edge.shape.IsSame(graph_edge);
+                        });
+                    if(metadata!=reusable_union.edges.end()) {
+                        std::cerr<<" graph_parent_count="
+                            <<metadata->references.size();
+                        for(const auto& reference:metadata->references)
+                            std::cerr<<" graph_parent="
+                                <<reference.owner_id<<':'
+                                <<reference.semantic_key;
+                    }
+                }
+                std::cerr<<'\n';
+            }
+        }
         std::size_t treatment_requests{},treatment_mapped_references{},
             treatment_mapping_failures{};
         std::map<std::string,std::vector<kernel::EdgeReference>>
@@ -6920,22 +7177,26 @@ int history_cursor_probe(const std::filesystem::path& source) {
     const auto final_fingerprint=state->session.calculated_boundaries().empty()
         ?std::string{}:state->session.calculated_boundaries().back()
             .source_fingerprint;
-    const auto* calculated_allocation=
+    const auto* previous_calculated_allocation=
         state->session.calculated_boundaries().data();
     const std::set<std::size_t> positions{
         0,std::min<std::size_t>(1,entry_count),entry_count/4,
         entry_count/2,(entry_count*3)/4,entry_count};
     double maximum_commit{},maximum_scene{};
+    double maximum_revisit_commit{};
+    std::size_t materialized_boundaries{};
+    kernel::OcctKernel kernel;
     for(const auto position:positions) {
         const auto revision=state->session.revision();
         const auto commit_start=Clock::now();
-        const bool changed=workspace::set_body_history_cursor(
-            live,document_id,position,body_id);
+        const auto change=workspace::set_body_history_cursor(
+            live,kernel,document_id,position,body_id);
         const auto commit_ms=std::chrono::duration<double,std::milli>(
             Clock::now()-commit_start).count();
-        if(!changed||state->session.revision()!=revision+1)
+        if(!change.changed||state->session.revision()!=revision+1)
             throw std::runtime_error(
                 "History cursor move did not create its metadata transaction");
+        materialized_boundaries+=change.boundary_materialized;
         const auto scene_start=Clock::now();
         const auto mesh=state->session.body_context_mesh();
         const auto scene_ms=std::chrono::duration<double,std::milli>(
@@ -6947,25 +7208,277 @@ int history_cursor_probe(const std::filesystem::path& source) {
                final_fingerprint)
             throw std::runtime_error(
                 "History cursor move replaced the calculated cache");
-        if(state->session.calculated_boundaries().data()!=calculated_allocation)
+        if(!change.boundary_materialized&&
+           state->session.calculated_boundaries().data()!=
+               previous_calculated_allocation)
             throw std::runtime_error(
                 "History cursor move copied the immutable calculated cache");
+        if(position&&mesh.triangles.empty())
+            throw std::runtime_error(
+                "History cursor has no calculated visible body");
         std::cout<<std::setprecision(17)
             <<"history_cursor position="<<position
             <<" entries="<<entry_count
             <<" commit_ms="<<commit_ms
+            <<" body_calculated="<<change.boundary_materialized
             <<" scene_ms="<<scene_ms
             <<" vertices="<<mesh.vertices.size()
             <<" triangles="<<mesh.triangles.size()/3
             <<" edges="<<mesh.edges.size()<<'\n';
+        previous_calculated_allocation=
+            state->session.calculated_boundaries().data();
     }
     if(entry_count!=state->session.document().body_history.find(body_id)->cursor)
         static_cast<void>(workspace::set_body_history_cursor(
-            live,document_id,entry_count,body_id));
+            live,kernel,document_id,entry_count,body_id));
+    for(const auto position:positions) {
+        const auto revisit_start=Clock::now();
+        const auto revisit=workspace::set_body_history_cursor(
+            live,kernel,document_id,position,body_id);
+        const auto revisit_ms=std::chrono::duration<double,std::milli>(
+            Clock::now()-revisit_start).count();
+        maximum_revisit_commit=std::max(
+            maximum_revisit_commit,revisit_ms);
+        if(!revisit.changed||revisit.boundary_materialized||
+           (position&&!state->session.body_context_mesh().triangles.size()))
+            throw std::runtime_error(
+                "History cursor revisit recalculated or lost its visible body");
+    }
     std::cout<<std::setprecision(17)
         <<"history_cursor_summary maximum_commit_ms="<<maximum_commit
         <<" maximum_scene_ms="<<maximum_scene
-        <<" occt_operations=0\n";
+        <<" maximum_revisit_commit_ms="<<maximum_revisit_commit
+        <<" occt_operations="<<materialized_boundaries<<'\n';
+    return 0;
+}
+
+int history_cursor_boundary_probe(const std::filesystem::path& source,
+        std::size_t position,const std::filesystem::path& destination) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> boundaries;
+    auto document=document::PartDocument::load(source,&boundaries);
+    const auto document_id=document.document_id;
+    const auto body_id=document.body_history.active_body_id();
+    const auto* body=document.body_history.find(body_id);
+    if(!body||position==0||position>=body->entries.size())
+        throw std::runtime_error(
+            "History boundary probe requires a non-final Body cursor");
+    const auto entry_count=body->entries.size();
+    // Start from the ordinary final-history state even when the source was
+    // saved while rolled back.  The following measured move therefore uses
+    // the same production path as Tree > Insert Here without modifying the
+    // user's source document.
+    document.set_history_cursor(entry_count);
+    workspace::Workspace live;
+    live.add_part(std::move(document),std::move(boundaries),source);
+    auto* state=live.open_part(document_id);
+    if(!state)throw std::runtime_error(
+        "History boundary probe could not open its Part state");
+    kernel::OcctKernel kernel;
+    const auto calculate_start=Clock::now();
+    const auto change=workspace::set_body_history_cursor(
+        live,kernel,document_id,position,body_id);
+    const auto calculate_ms=std::chrono::duration<double,std::milli>(
+        Clock::now()-calculate_start).count();
+    const auto mesh=state->session.body_context_mesh();
+    if(!change.changed||!change.boundary_materialized||
+       mesh.vertices.empty()||mesh.triangles.empty())
+        throw std::runtime_error(
+            "History boundary probe did not materialize its visible Body");
+
+    const auto save_start=Clock::now();
+    state->session.document().save(destination,
+        state->session.calculated_boundaries());
+    const auto save_ms=std::chrono::duration<double,std::milli>(
+        Clock::now()-save_start).count();
+    const auto reopen_start=Clock::now();
+    std::vector<kernel::BodyResult> reopened_boundaries;
+    auto reopened=document::PartDocument::load(
+        destination,&reopened_boundaries);
+    document::DocumentSession reopened_session(
+        std::move(reopened),std::move(reopened_boundaries));
+    const auto reopened_mesh=reopened_session.body_context_mesh();
+    const auto reopen_ms=std::chrono::duration<double,std::milli>(
+        Clock::now()-reopen_start).count();
+    if(reopened_mesh.vertices.empty()||reopened_mesh.triangles.empty()||
+       reopened_mesh.vertices.size()!=mesh.vertices.size()||
+       reopened_mesh.triangles.size()!=mesh.triangles.size()||
+       reopened_mesh.edges.size()!=mesh.edges.size())
+        throw std::runtime_error(
+            "History boundary probe changed its visible Body after reopen");
+
+    static_cast<void>(workspace::set_body_history_cursor(
+        live,kernel,document_id,entry_count,body_id));
+    const auto revisit_start=Clock::now();
+    const auto revisit=workspace::set_body_history_cursor(
+        live,kernel,document_id,position,body_id);
+    const auto revisit_ms=std::chrono::duration<double,std::milli>(
+        Clock::now()-revisit_start).count();
+    const auto revisit_mesh=state->session.body_context_mesh();
+    if(!revisit.changed||revisit.boundary_materialized||
+       revisit_mesh.triangles.size()!=mesh.triangles.size())
+        throw std::runtime_error(
+            "History boundary revisit recalculated or lost its visible Body");
+    std::cout<<std::setprecision(17)
+        <<"history_cursor_boundary position="<<position
+        <<" entries="<<entry_count
+        <<" calculate_ms="<<calculate_ms
+        <<" save_ms="<<save_ms
+        <<" reopen_ms="<<reopen_ms
+        <<" revisit_ms="<<revisit_ms
+        <<" vertices="<<mesh.vertices.size()
+        <<" triangles="<<mesh.triangles.size()/3
+        <<" edges="<<mesh.edges.size()<<'\n';
+    return 0;
+}
+
+int history_cursor_invalidation_probe(const std::filesystem::path& source,
+        std::size_t position,const std::filesystem::path& destination) {
+    using namespace zima;
+    std::vector<kernel::BodyResult> boundaries;
+    auto document=document::PartDocument::load(source,&boundaries);
+    const auto document_id=document.document_id;
+    const auto body_id=document.body_history.active_body_id();
+    const auto* body=document.body_history.find(body_id);
+    if(!body||position==0||position>=body->entries.size())
+        throw std::runtime_error(
+            "History invalidation probe requires a non-final Body cursor");
+    const auto entry_count=body->entries.size();
+    document.set_history_cursor(entry_count);
+    workspace::Workspace live;
+    live.add_part(std::move(document),std::move(boundaries),source);
+    auto* state=live.open_part(document_id);
+    if(!state)throw std::runtime_error(
+        "History invalidation probe could not open its Part state");
+    body=state->session.document().body_history.find(body_id);
+    if(!body)throw std::runtime_error(
+        "History invalidation probe lost its active Body");
+    kernel::OcctKernel kernel;
+    const auto initial=workspace::set_body_history_cursor(
+        live,kernel,document_id,position,body_id);
+    if(!initial.changed||!initial.boundary_materialized)
+        throw std::runtime_error(
+            "History invalidation probe could not materialize its baseline");
+    body=state->session.document().body_history.find(body_id);
+    if(!body)throw std::runtime_error(
+        "History invalidation probe lost its materialized Body");
+    std::size_t body_operation_count{};
+    for(std::size_t entry=0;entry<position;++entry) {
+        const auto& row=body->entries[entry];
+        if(row.kind!=document::PartHistoryKind::Feature)continue;
+        const auto* feature=state->session.document().find_container(row.id);
+        if(feature&&feature->feature_kind!=
+                document::FeatureKind::Sketch)
+            ++body_operation_count;
+    }
+    const auto before=state->session.calculated_body_boundary(
+        body_id,body_operation_count);
+    if(!before||before->mesh.triangles.empty())
+        throw std::runtime_error(
+            "History invalidation baseline has no visible Body");
+    static_cast<void>(workspace::set_body_history_cursor(
+        live,kernel,document_id,entry_count,body_id));
+    body=state->session.document().body_history.find(body_id);
+    if(!body)throw std::runtime_error(
+        "History invalidation probe lost its restored Body");
+
+    std::optional<document::HistoryContainer> edited;
+    double old_length{},new_length{};
+    for(std::size_t entry=position;entry>0;--entry) {
+        const auto& row=body->entries[entry-1];
+        if(row.kind!=document::PartHistoryKind::Feature)continue;
+        const auto* feature=state->session.document().find_container(row.id);
+        if(!feature||feature->suppressed)continue;
+        if(feature->feature_kind==document::FeatureKind::Extrusion&&
+           feature->extrusion.end_condition_forward==
+                document::EndCondition::Length) {
+            edited=*feature;
+            old_length=edited->extrusion.length_forward;
+            edited->extrusion.length_forward+=std::max(
+                0.1,std::abs(old_length)*0.001);
+            new_length=edited->extrusion.length_forward;
+        } else if(feature->feature_kind==document::FeatureKind::Feature&&
+                  feature->feature.type==
+                    document::FeatureType::Modeling) {
+            for(std::size_t side=0;
+                    side<(feature->feature.symmetric?1u:2u);++side) {
+                const auto& parameters=feature->feature.sides[side];
+                if(parameters.operation!=
+                        document::FeatureSideOperation::Extrusion||
+                   parameters.extrusion_extent!=
+                        document::EndCondition::Length)
+                    continue;
+                edited=*feature;
+                old_length=edited->feature.sides[side].length;
+                edited->feature.sides[side].length+=std::max(
+                    0.1,std::abs(old_length)*0.001);
+                new_length=edited->feature.sides[side].length;
+                break;
+            }
+        }
+        if(edited)break;
+    }
+    if(!edited)throw std::runtime_error(
+        "History invalidation probe found no earlier length feature");
+    const auto edit_start=Clock::now();
+    auto next=state->session.document();
+    *next.find_container(edited->id)=*edited;
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,next,&state->session.calculated_boundaries());
+    state->session.commit(std::move(next),std::move(calculated));
+    const auto edit_ms=std::chrono::duration<double,std::milli>(
+        Clock::now()-edit_start).count();
+
+    const auto return_start=Clock::now();
+    const auto invalidated=workspace::set_body_history_cursor(
+        live,kernel,document_id,position,body_id);
+    const auto return_ms=std::chrono::duration<double,std::milli>(
+        Clock::now()-return_start).count();
+    const auto after=state->session.calculated_body_boundary(
+        body_id,body_operation_count);
+    if(!invalidated.changed||!invalidated.boundary_materialized||
+       !after||after->mesh.triangles.empty()||
+       after->source_fingerprint==before->source_fingerprint)
+        throw std::runtime_error(
+            "Earlier dimension change reused a stale history boundary");
+    const auto exact_volume=[](const kernel::BodyResult& value) {
+        const auto shape=kernel::read_calculated_body_shape(value);
+        if(shape.IsNull())throw std::runtime_error(
+            "History invalidation boundary has no exact shape");
+        GProp_GProps properties;
+        BRepGProp::VolumeProperties(shape,properties);
+        return std::abs(properties.Mass());
+    };
+    const auto before_volume=exact_volume(*before);
+    const auto after_volume=exact_volume(*after);
+    if(std::abs(after_volume-before_volume)<=1.0e-6)
+        throw std::runtime_error(
+            "Earlier dimension change did not change exact boundary material");
+    state->session.document().save(destination,
+        state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> reopened_boundaries;
+    auto reopened=document::PartDocument::load(
+        destination,&reopened_boundaries);
+    document::DocumentSession reopened_session(
+        std::move(reopened),std::move(reopened_boundaries));
+    if(reopened_session.body_context_mesh().triangles.empty())
+        throw std::runtime_error(
+            "Invalidated history boundary disappeared after save/reopen");
+    std::cout<<std::setprecision(17)
+        <<"history_cursor_invalidation position="<<position
+        <<" entries="<<entry_count
+        <<" edited="<<edited->id
+        <<" old_length="<<old_length
+        <<" new_length="<<new_length
+        <<" edit_ms="<<edit_ms
+        <<" invalidated_return_ms="<<return_ms
+        <<" before_triangles="<<before->mesh.triangles.size()/3
+        <<" after_triangles="<<after->mesh.triangles.size()/3
+        <<" before_volume="<<before_volume
+        <<" after_volume="<<after_volume
+        <<" fingerprint_changed="
+            <<(after->source_fingerprint!=before->source_fingerprint)
+        <<'\n';
     return 0;
 }
 
@@ -7256,7 +7769,8 @@ int sequential_range_probe(const std::filesystem::path& source,
 }
 
 int append_last_operation_probe(const std::filesystem::path& source,
-        bool verify_full_replay=false) {
+        bool verify_full_replay=false,
+        bool redundant_geometry=false) {
     using namespace zima;
     std::vector<kernel::BodyResult> previous;
     const auto document=document::PartDocument::load(source,&previous);
@@ -7279,6 +7793,17 @@ int append_last_operation_probe(const std::filesystem::path& source,
                 extrusion->target_surface_triangles.clear();
                 extrusion->reverse_limit.reset();
                 extrusion->ordered_end_limit.reset();
+                // Exercise an actual appended feature by extending the copied
+                // tool beyond its preceding material. An exact duplicate is a
+                // separate, deliberately pathological Boolean-provenance case:
+                // OCCT may report different parent histories for coincident
+                // operands depending on whether they are fused in one batch or
+                // sequentially.
+                if(!redundant_geometry) {
+                    extrusion->direction.x*=1.125;
+                    extrusion->direction.y*=1.125;
+                    extrusion->direction.z*=1.125;
+                }
             }
     operations.push_back(std::move(appended));
     kernel::AggregatePropertyScope aggregate_properties(
@@ -7517,7 +8042,8 @@ int planar_fillet_equivalence_probe(
         kernel::AggregatePropertyDemand::Deferred);
     kernel::FaceMeasurementScope face_measurements(false);
     const auto calculate=[&](bool custom) {
-        PlanarFilletExperimentScope environment(custom);
+        EnvironmentVariableScope environment(
+            "ZIMA_CPP_EXPERIMENTAL_PLANAR_FILLET",custom?"1":nullptr);
         kernel::OcctKernel geometry;
         const auto start=Clock::now();
         auto result=geometry.evaluate_history(operations);
@@ -7778,7 +8304,8 @@ int planar_fillet_batch_probe(const std::filesystem::path& source,
         kernel::AggregatePropertyDemand::Deferred);
     kernel::FaceMeasurementScope face_measurements(false);
     const auto calculate=[](const auto& operations,bool custom) {
-        PlanarFilletExperimentScope environment(custom);
+        EnvironmentVariableScope environment(
+            "ZIMA_CPP_EXPERIMENTAL_PLANAR_FILLET",custom?"1":nullptr);
         kernel::OcctKernel geometry;
         const auto start=Clock::now();
         auto results=geometry.evaluate_history(operations);
@@ -7930,7 +8457,8 @@ int primary_region_treatment_probe(const std::filesystem::path& source) {
     // primary removal domain once on the combined boundary, 3 = compose the
     // positive bases and negative treatment domains directly from face patches.
     const auto calculate_regions=[&](bool custom,int removal_mode) {
-        PlanarFilletExperimentScope environment(custom);
+        EnvironmentVariableScope environment(
+            "ZIMA_CPP_EXPERIMENTAL_PLANAR_FILLET",custom?"1":nullptr);
         const auto total_start=Clock::now();
         struct CalculatedRegion {
             TopoDS_Shape base,treated;
@@ -8419,20 +8947,21 @@ int primary_region_treatment_probe(const std::filesystem::path& source) {
            signed_custom_counts==reference_counts?0:2;
 }
 
-int direct_remapped_equivalence_probe(
+int direct_exact_equivalence_probe(
         const std::filesystem::path& source,std::size_t requested_count=0) {
     using namespace zima;
-    const auto document=document::PartDocument::load(source);
+    std::vector<kernel::BodyResult> persisted;
+    const auto document=document::PartDocument::load(source,&persisted);
     auto authored=document.kernel_operations(false,true);
     if(requested_count) {
         if(requested_count<2||requested_count>authored.size())
             throw std::runtime_error(
-                "Direct remap prefix is outside Part history");
+                "Direct exact prefix is outside Part history");
         authored.resize(requested_count);
     }
     if(authored.size()<2)
         throw std::runtime_error(
-            "Direct remap probe requires a modeling history");
+            "Direct exact probe requires a modeling history");
     kernel::AggregatePropertyScope aggregate_properties(
         kernel::AggregatePropertyDemand::Deferred);
     kernel::FaceMeasurementScope face_measurements(false);
@@ -8454,75 +8983,6 @@ int direct_remapped_equivalence_probe(
         return output==boundary.body_outputs.end()
             ?boundary:output->second.get();
     };
-    struct BoundEdge {
-        TopoDS_Edge shape;
-        kernel::EdgeReference reference;
-    };
-    const auto bound_edges=[](const kernel::BodyResult& body) {
-        std::vector<BoundEdge> result;
-        if(body.kernel_shape.empty()||
-           body.kernel_shape==kernel::kernel_body_compound||
-           !body.kernel_placements.empty())return result;
-        BRep_Builder builder;
-        BRepTools_ShapeSet archive(builder);
-        std::istringstream source(body.kernel_shape.get());
-        archive.Read(source);
-        TopoDS_Shape root;
-        archive.Read(root,source);
-        if(root.IsNull())return result;
-        TopTools_IndexedMapOfShape members;
-        TopExp::MapShapes(root,TopAbs_EDGE,members);
-        for(const auto& binding:body.kernel_edges) {
-            TopoDS_Shape edge;
-            std::istringstream locator(binding.locator);
-            archive.Read(edge,locator);
-            if(!edge.IsNull()&&edge.ShapeType()==TopAbs_EDGE&&
-               members.Contains(edge))
-                result.push_back({TopoDS::Edge(edge),
-                    binding.reference});
-        }
-        return result;
-    };
-    const auto same_edge=[](const TopoDS_Edge& first,
-            const TopoDS_Edge& second) {
-        const auto covered=[](const TopoDS_Edge& child,
-                const TopoDS_Edge& parent) {
-            double child_first{},child_last{},parent_first{},parent_last{};
-            const auto child_curve=BRep_Tool::Curve(child,
-                child_first,child_last);
-            const auto parent_curve=BRep_Tool::Curve(parent,
-                parent_first,parent_last);
-            if(child_curve.IsNull()||parent_curve.IsNull()||
-               child_last<=child_first||parent_last<=parent_first)
-                return false;
-            GeomAPI_ProjectPointOnCurve projection;
-            projection.Init(parent_curve,parent_first,parent_last);
-            constexpr int samples=11;
-            for(int sample=0;sample<samples;++sample) {
-                gp_Pnt point;
-                child_curve->D0(child_first+(child_last-child_first)*
-                    sample/(samples-1.),point);
-                projection.Perform(point);
-                if(!projection.NbPoints()||
-                   projection.LowerDistance()>2.0e-6)
-                    return false;
-            }
-            return true;
-        };
-        // A Boolean can split one persisted curve into several current edge
-        // intervals or merge tangent intervals into one route. Conversion
-        // maps every exact subset/superset interval; ordinary regeneration
-        // later uses only the persisted direct identities.
-        if(covered(first,second)||covered(second,first))return true;
-        GProp_GProps first_properties,second_properties;
-        BRepGProp::LinearProperties(first,first_properties);
-        BRepGProp::LinearProperties(second,second_properties);
-        const auto first_center=first_properties.CentreOfMass();
-        const auto second_center=second_properties.CentreOfMass();
-        return std::abs(first_properties.Mass()-
-                   second_properties.Mass())<=1.0e-5&&
-            first_center.Distance(second_center)<=1.0e-5;
-    };
     const auto direct_prefix=[&](
             const std::vector<kernel::HistoryOperation>& operations,
             std::size_t count) {
@@ -8537,177 +8997,263 @@ int direct_remapped_equivalence_probe(
         if(result.size()!=count||
            !result.back().calculation_errors.empty())
             throw std::runtime_error(
-                "Direct remap prefix failed");
+                "Direct exact prefix failed");
         return result;
     };
-    const auto remap_edges=[&](std::vector<kernel::EdgeReference>& requested,
-            const kernel::BodyResult& serial_input,
-            const kernel::BodyResult& direct_input) {
-        const auto serial_native=bound_edges(serial_input);
-        const auto direct_native=bound_edges(direct_input);
-        std::set<std::string> visible;
-        for(const auto& edge:direct_input.mesh.edges)
-            visible.insert(edge.reference.owner_id+'\x1f'+
-                edge.reference.semantic_key+'\x1f'+
-                edge.reference.instance_path);
-        std::vector<kernel::EdgeReference> mapped;
-        std::set<std::string> used;
-        std::size_t retained_exact{};
-        for(const auto& reference:requested) {
-            std::vector<TopoDS_Edge> sources;
-            for(const auto& edge:serial_native)
-                if(edge.reference==reference)
-                    sources.push_back(edge.shape);
-            if(sources.empty())
-                throw std::runtime_error(
-                    "Serial treatment edge has no native binding");
-            const bool exact_survives=std::ranges::any_of(direct_native,
-                [&](const auto& edge) {
-                    return edge.reference==reference&&
-                        std::ranges::any_of(sources,
-                            [&](const auto& source_edge) {
-                                return same_edge(source_edge,edge.shape);
-                            });
-                });
-            if(exact_survives) {
-                mapped.push_back(reference);
-                used.insert(reference.owner_id+'\x1f'+
-                    reference.semantic_key+'\x1f'+
-                    reference.instance_path);
-                ++retained_exact;
-                continue;
-            }
-            const auto matching=[&](bool visible_only) {
-                std::vector<kernel::EdgeReference> candidates;
-                for(const auto& edge:direct_native) {
-                    const auto key=edge.reference.owner_id+'\x1f'+
-                        edge.reference.semantic_key+'\x1f'+
-                        edge.reference.instance_path;
-                    if(visible_only&&!visible.empty()&&
-                       !visible.contains(key))continue;
-                    if(std::ranges::any_of(sources,
-                            [&](const auto& source_edge) {
-                                return same_edge(source_edge,edge.shape);
-                            }))
-                        candidates.push_back(edge.reference);
-                }
-                return candidates;
-            };
-            auto candidates=matching(true);
-            if(candidates.empty())candidates=matching(false);
-            if(candidates.empty()&&sources.size()==1) {
-                GProp_GProps source_properties;
-                BRepGProp::LinearProperties(sources.front(),
-                    source_properties);
-                const auto source_center=
-                    source_properties.CentreOfMass();
-                double best=std::numeric_limits<double>::infinity();
-                std::optional<kernel::EdgeReference> closest;
-                for(const auto& edge:direct_native) {
-                    const auto key=edge.reference.owner_id+'\x1f'+
-                        edge.reference.semantic_key+'\x1f'+
-                        edge.reference.instance_path;
-                    if((!visible.empty()&&!visible.contains(key))||
-                       used.contains(key))
-                        continue;
-                    GProp_GProps properties;
-                    BRepGProp::LinearProperties(edge.shape,properties);
-                    const double score=source_center.Distance(
-                            properties.CentreOfMass())+
-                        std::abs(source_properties.Mass()-
-                            properties.Mass());
-                    if(score<best) {
-                        best=score;
-                        closest=edge.reference;
-                    }
-                }
-                if(closest) {
-                    candidates.push_back(std::move(*closest));
-                    std::cerr<<std::setprecision(17)
-                        <<"direct_remap_nearest score="<<best
-                        <<" source="<<reference.owner_id<<":"
-                        <<reference.semantic_key<<'\n';
-                }
-            }
-            std::ranges::sort(candidates,{},[](const auto& value) {
-                return std::tuple{value.owner_id,value.semantic_key,
-                    value.instance_path};
-            });
-            candidates.erase(std::unique(candidates.begin(),
-                candidates.end()),candidates.end());
-            if(candidates.empty())
-                throw std::runtime_error(
-                    "Treatment edge "+reference.owner_id+":"+
-                    reference.semantic_key+" has "+
-                    std::to_string(candidates.size())+
-                    " direct identities for "+
-                    std::to_string(sources.size())+" native shapes");
-            mapped.insert(mapped.end(),
-                std::make_move_iterator(candidates.begin()),
-                std::make_move_iterator(candidates.end()));
-            for(const auto& candidate:
-                    std::span(mapped).last(candidates.size()))
-                used.insert(candidate.owner_id+'\x1f'+
-                    candidate.semantic_key+'\x1f'+
-                    candidate.instance_path);
-        }
-        requested=std::move(mapped);
-        std::cerr<<"direct_remap_exact retained="<<retained_exact
-            <<" requested="<<requested.size()<<'\n';
-    };
-
-    auto remapped=authored;
-    std::size_t remapped_treatments{};
-    for(std::size_t index=1;index<remapped.size();++index) {
-        auto* fillet=std::get_if<kernel::FilletRequest>(
-            &remapped[index].primitive);
-        auto* chamfer=std::get_if<kernel::ChamferRequest>(
-            &remapped[index].primitive);
-        if(!fillet&&!chamfer)continue;
-        const auto direct_input_history=direct_prefix(remapped,index);
-        const auto& serial_input=local_body(serial[index-1],index-1);
-        const auto& direct_input=local_body(
-            direct_input_history.back(),index-1);
-        const auto serial_input_shape=kernel::read_calculated_body_shape(
-            serial_input);
-        const auto direct_input_shape=kernel::read_calculated_body_shape(
-            direct_input);
-        GProp_GProps serial_input_volume,direct_input_volume;
-        BRepGProp::VolumeProperties(serial_input_shape,
-            serial_input_volume);
-        BRepGProp::VolumeProperties(direct_input_shape,
-            direct_input_volume);
-        TopTools_IndexedMapOfShape serial_input_faces,
-            direct_input_faces;
-        TopExp::MapShapes(serial_input_shape,TopAbs_FACE,
-            serial_input_faces);
-        TopExp::MapShapes(direct_input_shape,TopAbs_FACE,
-            direct_input_faces);
-        const auto before=fillet?fillet->edges.size():
-            chamfer->edges.size();
-        if(fillet)remap_edges(fillet->edges,serial_input,direct_input);
-        else remap_edges(chamfer->edges,serial_input,direct_input);
-        const auto after=fillet?fillet->edges.size():
-            chamfer->edges.size();
-        std::cerr<<std::setprecision(17)
-            <<"direct_remap index="<<index
-            <<" before="<<before<<" after="<<after
-            <<" serial_faces="<<serial_input_faces.Extent()
-            <<" direct_faces="<<direct_input_faces.Extent()
-            <<" volume_delta="<<std::abs(
-                serial_input_volume.Mass()-
-                direct_input_volume.Mass())<<'\n';
-        ++remapped_treatments;
-    }
+    const auto& direct_operations=authored;
+    const auto edge_treatments=std::ranges::count_if(
+        direct_operations,[](const auto& operation) {
+            return std::holds_alternative<kernel::FilletRequest>(
+                       operation.primitive)||
+                std::holds_alternative<kernel::ChamferRequest>(
+                       operation.primitive);
+        });
 
     const auto direct_start=Clock::now();
-    const auto direct=direct_prefix(remapped,remapped.size());
+    const auto direct=direct_prefix(
+        direct_operations,direct_operations.size());
     const auto direct_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-direct_start).count();
+    const auto& serial_final=local_body(
+        serial.back(),direct_operations.size()-1);
+    const auto& direct_final=local_body(
+        direct.back(),direct_operations.size()-1);
     const auto serial_shape=kernel::read_calculated_body_shape(
-        serial.back());
+        serial_final);
     const auto direct_shape=kernel::read_calculated_body_shape(
-        direct.back());
+        direct_final);
+    if(std::getenv("ZIMA_CPP_DIRECT_QUICK_EQUIVALENCE")) {
+        struct QuickMetrics {
+            double volume{},area{};
+            gp_Pnt center;
+            std::array<int,4> topology{};
+            std::set<std::string> references;
+            bool valid{};
+        };
+        const auto metrics=[](const TopoDS_Shape& shape,
+                const kernel::BodyResult& body) {
+            QuickMetrics value;
+            GProp_GProps volume,surface;
+            BRepGProp::VolumeProperties(shape,volume);
+            BRepGProp::SurfaceProperties(shape,surface);
+            value.volume=volume.Mass();
+            value.area=surface.Mass();
+            value.center=volume.CentreOfMass();
+            for(std::size_t index=0;index<value.topology.size();++index) {
+                TopTools_IndexedMapOfShape shapes;
+                TopExp::MapShapes(shape,std::array{TopAbs_SOLID,
+                    TopAbs_FACE,TopAbs_EDGE,TopAbs_VERTEX}[index],shapes);
+                value.topology[index]=shapes.Extent();
+            }
+            const auto append=[&](char kind,const auto& bindings) {
+                for(const auto& binding:bindings)
+                    value.references.insert(std::string(1,kind)+'\x1f'+
+                        binding.reference.owner_id+'\x1f'+
+                        binding.reference.semantic_key+'\x1f'+
+                        binding.reference.instance_path);
+            };
+            append('F',body.kernel_faces);
+            append('E',body.kernel_edges);
+            append('V',body.kernel_vertices);
+            value.valid=BRepCheck_Analyzer(
+                shape,true,true,false).IsValid();
+            return value;
+        };
+        const auto material_equivalent=[](const QuickMetrics& first,
+                const QuickMetrics& second) {
+            const auto close=[](double left,double right,
+                    double absolute,double relative) {
+                return std::abs(left-right)<=std::max(absolute,
+                    relative*std::max(std::abs(left),std::abs(right)));
+            };
+            return first.valid&&second.valid&&
+                close(first.volume,second.volume,1.0e-6,1.0e-9)&&
+                close(first.area,second.area,1.0e-6,1.0e-9)&&
+                first.center.Distance(second.center)<=1.0e-7&&
+                first.topology==second.topology;
+        };
+        const auto exactly_equivalent=[&](const QuickMetrics& first,
+                const QuickMetrics& second) {
+            return material_equivalent(first,second)&&
+                first.references==second.references;
+        };
+        const auto serial_metrics=metrics(serial_shape,serial_final);
+        const auto direct_metrics=metrics(direct_shape,direct_final);
+        double repeated_direct_ms=-1.;
+        bool repeated_direct_equal=true;
+        if(std::getenv("ZIMA_CPP_DIRECT_REPEAT")) {
+            const auto repeated_start=Clock::now();
+            const auto repeated=direct_prefix(
+                direct_operations,direct_operations.size());
+            repeated_direct_ms=std::chrono::duration<double,std::milli>(
+                Clock::now()-repeated_start).count();
+            const auto& repeated_final=local_body(
+                repeated.back(),direct_operations.size()-1);
+            repeated_direct_equal=exactly_equivalent(direct_metrics,metrics(
+                kernel::read_calculated_body_shape(repeated_final),
+                repeated_final));
+        }
+        std::vector<std::string> missing_references,added_references;
+        std::set_difference(serial_metrics.references.begin(),
+            serial_metrics.references.end(),
+            direct_metrics.references.begin(),
+            direct_metrics.references.end(),
+            std::back_inserter(missing_references));
+        std::set_difference(direct_metrics.references.begin(),
+            direct_metrics.references.end(),
+            serial_metrics.references.begin(),
+            serial_metrics.references.end(),
+            std::back_inserter(added_references));
+        const auto categories=[](const auto& references) {
+            std::map<std::string,std::size_t> counts;
+            for(const auto& encoded:references) {
+                const auto kind_end=encoded.find('\x1f');
+                const auto owner_end=kind_end==std::string::npos
+                    ?std::string::npos:encoded.find('\x1f',kind_end+1);
+                const auto key_end=owner_end==std::string::npos
+                    ?std::string::npos:encoded.find('\x1f',owner_end+1);
+                const auto key=owner_end==std::string::npos
+                    ?std::string_view{}:std::string_view(encoded).substr(
+                        owner_end+1,key_end-(owner_end+1));
+                std::string category=kind_end==std::string::npos
+                    ?"?":encoded.substr(0,kind_end);
+                if(key.starts_with("boundary-union:add:"))
+                    category+=":boundary-union:add";
+                else if(key.starts_with(
+                        "boolean:add:intersection:between:"))
+                    category+=":boolean:add:intersection";
+                else if(key.starts_with("boolean:add:split-edge:from:"))
+                    category+=":boolean:add:split-edge";
+                else if(key.starts_with("boolean:add:vertex"))
+                    category+=":boolean:add:vertex";
+                else if(key.starts_with("boolean:add:"))
+                    category+=":boolean:add:other";
+                else if(key.starts_with("fillet:"))
+                    category+=":fillet";
+                else if(key.starts_with("chamfer:"))
+                    category+=":chamfer";
+                else category+=":source";
+                ++counts[category];
+            }
+            std::string result;
+            for(const auto& [category,count]:counts) {
+                if(!result.empty())result+=',';
+                result+=category+'='+std::to_string(count);
+            }
+            return result;
+        };
+        bool persisted_available{};
+        bool persisted_equal{};
+        if(persisted.size()>=direct_operations.size()) {
+            const auto& persisted_body=local_body(
+                persisted[direct_operations.size()-1],
+                direct_operations.size()-1);
+            if(!persisted_body.kernel_shape.empty()) {
+                const auto persisted_shape=
+                    kernel::read_calculated_body_shape(persisted_body);
+                persisted_available=!persisted_shape.IsNull();
+                if(persisted_available)
+                    persisted_equal=exactly_equivalent(direct_metrics,
+                        metrics(persisted_shape,persisted_body));
+            }
+        }
+        const bool direct_material_equal=material_equivalent(
+            serial_metrics,direct_metrics);
+        const bool direct_identity_equal=
+            serial_metrics.references==direct_metrics.references;
+        std::cout<<std::setprecision(17)
+            <<"direct_quick_equivalence operations="
+                <<direct_operations.size()
+            <<" serial_ms="<<serial_ms
+            <<" direct_ms="<<direct_ms
+            <<" repeated_direct_ms="<<repeated_direct_ms
+            <<" repeated_direct_equal="<<repeated_direct_equal
+            <<" serial_volume="<<serial_metrics.volume
+            <<" direct_volume="<<direct_metrics.volume
+            <<" serial_area="<<serial_metrics.area
+            <<" direct_area="<<direct_metrics.area
+            <<" center_distance="<<serial_metrics.center.Distance(
+                direct_metrics.center)
+            <<" serial_topology="<<serial_metrics.topology[0]<<','
+                <<serial_metrics.topology[1]<<','
+                <<serial_metrics.topology[2]<<','
+                <<serial_metrics.topology[3]
+            <<" direct_topology="<<direct_metrics.topology[0]<<','
+                <<direct_metrics.topology[1]<<','
+                <<direct_metrics.topology[2]<<','
+                <<direct_metrics.topology[3]
+            <<" serial_references="<<serial_metrics.references.size()
+            <<" direct_references="<<direct_metrics.references.size()
+            <<" missing_references="<<missing_references.size()
+            <<" added_references="<<added_references.size()
+            <<" missing_categories="<<categories(missing_references)
+            <<" added_categories="<<categories(added_references)
+            <<" direct_material_equal="<<direct_material_equal
+            <<" direct_identity_equal="<<direct_identity_equal
+            <<" persisted_available="<<persisted_available
+            <<" persisted_equal="<<persisted_equal<<'\n';
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND")) {
+            for(const auto& reference:std::span(missing_references).
+                    first(std::min<std::size_t>(8,
+                        missing_references.size())))
+                std::cerr<<"direct quick missing reference "
+                    <<reference<<'\n';
+            for(const auto& reference:std::span(added_references).
+                    first(std::min<std::size_t>(8,
+                        added_references.size())))
+                std::cerr<<"direct quick added reference "
+                    <<reference<<'\n';
+        }
+        if(!direct_material_equal||
+                (persisted_available&&!persisted_equal)||
+                !repeated_direct_equal)
+            throw std::runtime_error(
+                "Quick direct history equivalence failed");
+        return 0;
+    }
+    if(const char* output_directory=
+            std::getenv("ZIMA_CPP_DIRECT_VISUALIZATION_DIRECTORY")) {
+        const auto directory=std::filesystem::u8path(output_directory);
+        std::filesystem::create_directories(directory);
+        const auto write_wire=[&](const kernel::BodyResult& boundary,
+                const std::filesystem::path& target) {
+            nlohmann::json packet;
+            packet["operation_count"]=direct_operations.size();
+            auto& edges=packet["edges"]=nlohmann::json::array();
+            std::size_t edge_index{};
+            for(const auto& edge:boundary.mesh.edges) {
+                if(edge.parameter_seam||edge.points.size()<2)continue;
+                nlohmann::json item;
+                item["id"]=edge_index++;
+                auto& points=item["points"]=nlohmann::json::array();
+                constexpr std::size_t maximum_points=16;
+                const auto count=std::min(maximum_points,
+                    edge.points.size());
+                const auto coordinate=[](double value) {
+                    return std::round(value*1000.)/1000.;
+                };
+                for(std::size_t sample=0;sample<count;++sample) {
+                    const auto index=count==1?std::size_t{}:
+                        sample*(edge.points.size()-1)/(count-1);
+                    const auto& point=edge.points[index];
+                    points.push_back({coordinate(point.x),
+                        coordinate(point.y),coordinate(point.z)});
+                }
+                edges.push_back(std::move(item));
+            }
+            std::ofstream stream(target,std::ios::binary);
+            stream<<packet.dump();
+            if(!stream)
+                throw std::runtime_error(
+                    "Could not write direct topology visualization packet");
+        };
+        write_wire(serial.back(),directory/
+            ("serial-prefix-"+std::to_string(
+                direct_operations.size())+"-wire.json"));
+        write_wire(direct.back(),directory/
+            ("direct-prefix-"+std::to_string(
+                direct_operations.size())+"-wire.json"));
+    }
     const auto difference=[](const TopoDS_Shape& left,
             const TopoDS_Shape& right) {
         BRepAlgoAPI_Cut cut(left,right);
@@ -8723,17 +9269,45 @@ int direct_remapped_equivalence_probe(
         direct_shape,serial_shape);
     const auto serial_minus_direct=difference(
         serial_shape,direct_shape);
+    double persisted_minus_serial=-1.,serial_minus_persisted=-1.,
+        persisted_minus_direct=-1.,direct_minus_persisted=-1.;
+    if(persisted.size()>=direct_operations.size()) {
+        const auto& persisted_body=local_body(
+            persisted[direct_operations.size()-1],
+            direct_operations.size()-1);
+        // Final-first native documents intentionally leave ordinary
+        // intermediate rows without a persisted B-Rep. Compare a saved
+        // boundary only when the requested prefix is one of the explicitly
+        // retained complete outputs.
+        if(!persisted_body.kernel_shape.empty()) {
+            const auto persisted_shape=kernel::read_calculated_body_shape(
+                persisted_body);
+            persisted_minus_serial=difference(
+                persisted_shape,serial_shape);
+            serial_minus_persisted=difference(
+                serial_shape,persisted_shape);
+            persisted_minus_direct=difference(
+                persisted_shape,direct_shape);
+            direct_minus_persisted=difference(
+                direct_shape,persisted_shape);
+        }
+    }
     std::cout<<std::setprecision(17)
-        <<"direct_remapped_equivalence operations="<<remapped.size()
-        <<" remapped_treatments="<<remapped_treatments
+        <<"direct_exact_equivalence operations="
+            <<direct_operations.size()
+        <<" edge_treatments="<<edge_treatments
         <<" serial_ms="<<serial_ms
         <<" direct_ms="<<direct_ms
         <<" direct_minus_serial="<<direct_minus_serial
-        <<" serial_minus_direct="<<serial_minus_direct<<'\n';
+        <<" serial_minus_direct="<<serial_minus_direct
+        <<" persisted_minus_serial="<<persisted_minus_serial
+        <<" serial_minus_persisted="<<serial_minus_persisted
+        <<" persisted_minus_direct="<<persisted_minus_direct
+        <<" direct_minus_persisted="<<direct_minus_persisted<<'\n';
     if(direct_minus_serial<0||serial_minus_direct<0||
        direct_minus_serial>1.0e-6||serial_minus_direct>1.0e-6)
         throw std::runtime_error(
-            "Remapped direct history changed material");
+            "Exact direct history changed material");
     return 0;
 }
 
@@ -8800,6 +9374,9 @@ int edit_thin_profile_probe(const std::filesystem::path& source,
         const std::filesystem::path& destination,
         const std::string& container_id,double thickness) {
     using namespace zima;
+    kernel::AggregatePropertyScope aggregate_properties(
+        kernel::AggregatePropertyDemand::Deferred);
+    kernel::FaceMeasurementScope face_measurements(false);
     const auto load_start=Clock::now();
     std::vector<kernel::BodyResult> previous;
     auto document=document::PartDocument::load(source,&previous);
@@ -8807,6 +9384,19 @@ int edit_thin_profile_probe(const std::filesystem::path& source,
         Clock::now()-load_start).count();
     if(previous.empty())throw std::runtime_error(
         "Thin profile edit probe requires a calculated source Part");
+    const auto operations=document.kernel_operations(false,true);
+    if(operations.empty())throw std::runtime_error(
+        "Thin profile edit probe requires modeling history");
+    const auto body_id=operations.back().body.id;
+    const auto local_body=[&](const kernel::BodyResult& boundary)
+            ->const kernel::BodyResult& {
+        const auto bodies=boundary.body_boundaries.find(body_id);
+        const auto& local=bodies==boundary.body_boundaries.end()
+            ?boundary:bodies->second.back();
+        const auto output=local.body_outputs.find(body_id);
+        return output==local.body_outputs.end()
+            ?local:output->second.get();
+    };
     const auto policy=workspace::feature_definition_calculation_policy(
         document,previous,container_id);
     auto* feature=document.find_container(container_id);
@@ -8830,34 +9420,84 @@ int edit_thin_profile_probe(const std::filesystem::path& source,
     }
     if(!value)throw std::runtime_error(
         "Requested container is not a Thin profile feature");
+    const bool verify_direct_recalculation=
+        std::getenv("ZIMA_CPP_VERIFY_DIRECT_RECALCULATION")!=nullptr;
+    std::vector<kernel::BodyResult> direct_baseline;
+    double direct_baseline_ms=-1.;
+    if(verify_direct_recalculation) {
+        kernel::OcctKernel baseline_kernel;
+        kernel::HistoryOutputPolicy output_policy;
+        output_policy.final_boundary_first=true;
+        const auto baseline_start=Clock::now();
+        direct_baseline=baseline_kernel.evaluate_history_recovering(
+            document.kernel_operations(false,true),{},output_policy);
+        direct_baseline_ms=std::chrono::duration<double,std::milli>(
+            Clock::now()-baseline_start).count();
+        if(direct_baseline.empty()||
+           !local_body(direct_baseline.back()).calculation_errors.empty())
+            throw std::runtime_error(
+                "Thin profile direct baseline did not calculate");
+    }
     const double old_thickness=*value;
     *value=thickness;
     kernel::OcctKernel kernel;
     const auto calculation_start=Clock::now();
-    auto calculated=workspace::calculate_part_with_resolved_references(
-        kernel,document,&previous,policy);
+    std::vector<kernel::BodyResult> calculated;
+    if(verify_direct_recalculation) {
+        kernel::HistoryOutputPolicy output_policy;
+        output_policy.final_boundary_first=true;
+        calculated=kernel.evaluate_history_recovering(
+            document.kernel_operations(false,true),{},output_policy);
+    } else {
+        calculated=workspace::calculate_part_with_resolved_references(
+            kernel,document,&previous,policy);
+    }
     const auto calculation_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-calculation_start).count();
+    if(verify_direct_recalculation)
+        std::cerr<<"thin direct phase=calculation ms="
+            <<calculation_ms<<'\n';
     if(calculated.empty()||calculated.size()!=document.kernel_operations().size())
         throw std::runtime_error(
             "Thin profile edit did not publish every history boundary");
-    for(std::size_t index=0;index<calculated.size();++index)try {
+    const auto& calculated_final=local_body(calculated.back());
+    if(!calculated_final.calculation_errors.empty())
+        throw std::runtime_error(
+            "Thin profile edit left a final calculation error");
+    const auto calculated_shape=kernel::read_calculated_body_shape(
+        calculated_final);
+    if(calculated_shape.IsNull()||!BRepCheck_Analyzer(
+            calculated_shape,true,true,false).IsValid())
+        throw std::runtime_error(
+            "Thin profile edit produced an invalid final Body");
+    if(verify_direct_recalculation) {
         static_cast<void>(document::load_body_result(
-            document::serialize_body_result(calculated[index])));
-    } catch(const std::exception& error) {
-        throw std::runtime_error("Thin profile edit boundary "+
-            std::to_string(index)+" does not round-trip: "+error.what());
+            document::serialize_body_result(calculated_final)));
+        std::cerr<<"thin direct phase=final-round-trip done\n";
+    } else {
+        for(std::size_t index=0;index<calculated.size();++index)try {
+            static_cast<void>(document::load_body_result(
+                document::serialize_body_result(calculated[index])));
+        } catch(const std::exception& error) {
+            throw std::runtime_error("Thin profile edit boundary "+
+                std::to_string(index)+" does not round-trip: "+
+                error.what());
+        }
     }
     const auto save_start=Clock::now();
     document.save(destination,calculated);
     const auto save_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-save_start).count();
+    if(verify_direct_recalculation)
+        std::cerr<<"thin direct phase=save ms="<<save_ms<<'\n';
     const auto reopen_start=Clock::now();
     std::vector<kernel::BodyResult> reopened_boundaries;
-    const auto reopened=document::PartDocument::load(
+    auto reopened=document::PartDocument::load(
         destination,&reopened_boundaries);
     const auto reopen_ms=std::chrono::duration<double,std::milli>(
         Clock::now()-reopen_start).count();
+    if(verify_direct_recalculation)
+        std::cerr<<"thin direct phase=reopen ms="<<reopen_ms<<'\n';
     if(reopened.serialized()!=document.serialized()||
             reopened_boundaries.size()!=calculated.size()||
             document::serialize_body_result(reopened_boundaries.back())!=
@@ -8886,8 +9526,51 @@ int edit_thin_profile_probe(const std::filesystem::path& source,
             values.insert(reference_key(value.reference));
         return values;
     };
-    const auto previous_references=references(previous.back());
-    const auto calculated_references=references(calculated.back());
+    const auto previous_references=references(local_body(previous.back()));
+    const auto calculated_references=references(calculated_final);
+    bool direct_parameter_reference_sets_equal=true;
+    std::size_t direct_parameter_missing_references{};
+    std::size_t direct_parameter_added_references{};
+    if(verify_direct_recalculation) {
+        const auto baseline_references=references(
+            local_body(direct_baseline.back()));
+        direct_parameter_reference_sets_equal=
+            baseline_references==calculated_references;
+        std::vector<std::string> missing,added;
+        std::set_difference(baseline_references.begin(),
+            baseline_references.end(),calculated_references.begin(),
+            calculated_references.end(),std::back_inserter(missing));
+        std::set_difference(calculated_references.begin(),
+            calculated_references.end(),baseline_references.begin(),
+            baseline_references.end(),std::back_inserter(added));
+        direct_parameter_missing_references=missing.size();
+        direct_parameter_added_references=added.size();
+    }
+    bool repeated_reference_sets_equal=true;
+    double repeated_calculation_ms=-1.;
+    if(verify_direct_recalculation) {
+        kernel::OcctKernel repeated_kernel;
+        const auto repeated_start=Clock::now();
+        kernel::HistoryOutputPolicy output_policy;
+        output_policy.final_boundary_first=true;
+        auto repeated=repeated_kernel.evaluate_history_recovering(
+            reopened.kernel_operations(false,true),{},output_policy);
+        repeated_calculation_ms=
+            std::chrono::duration<double,std::milli>(
+                Clock::now()-repeated_start).count();
+        std::cerr<<"thin direct phase=repeated-calculation ms="
+            <<repeated_calculation_ms<<'\n';
+        if(!repeated.empty()&&repeated.size()==calculated.size()) {
+            const auto& repeated_final=local_body(repeated.back());
+            const auto repeated_shape=kernel::read_calculated_body_shape(
+                repeated_final);
+            repeated_reference_sets_equal=
+                repeated_final.calculation_errors.empty()&&
+                !repeated_shape.IsNull()&&BRepCheck_Analyzer(
+                    repeated_shape,true,true,false).IsValid()&&
+                references(repeated_final)==calculated_references;
+        } else repeated_reference_sets_equal=false;
+    }
     std::cout<<std::setprecision(17)
         <<"edit_thin_profile owner="<<container_id
         <<" old_thickness="<<old_thickness
@@ -8895,17 +9578,30 @@ int edit_thin_profile_probe(const std::filesystem::path& source,
         <<" boundaries="<<calculated.size()
         <<" load_ms="<<load_ms
         <<" calculation_ms="<<calculation_ms
+        <<" direct_baseline_ms="<<direct_baseline_ms
         <<" save_ms="<<save_ms
         <<" reopen_ms="<<reopen_ms
+        <<" repeated_calculation_ms="<<repeated_calculation_ms
+        <<" repeated_reference_sets_equal="
+        <<repeated_reference_sets_equal
+        <<" direct_parameter_reference_sets_equal="
+        <<direct_parameter_reference_sets_equal
+        <<" direct_parameter_missing_references="
+        <<direct_parameter_missing_references
+        <<" direct_parameter_added_references="
+        <<direct_parameter_added_references
         <<" reference_sets_equal="
         <<(previous_references==calculated_references)
         <<" previous_references="<<previous_references.size()
         <<" calculated_references="<<calculated_references.size()
-        <<" final_faces="<<calculated.back().kernel_faces.size()
-        <<" final_edges="<<calculated.back().kernel_edges.size()
-        <<" final_vertices="<<calculated.back().kernel_vertices.size()
+        <<" final_faces="<<calculated_final.kernel_faces.size()
+        <<" final_edges="<<calculated_final.kernel_edges.size()
+        <<" final_vertices="<<calculated_final.kernel_vertices.size()
         <<'\n';
-    if(previous_references!=calculated_references)
+    if((!verify_direct_recalculation&&
+            previous_references!=calculated_references)||
+       !repeated_reference_sets_equal||
+       !direct_parameter_reference_sets_equal)
         throw std::runtime_error(
             "Thin profile edit changed the stable reference identity set");
     return 0;
@@ -8939,6 +9635,19 @@ int main(int argc, char** argv) {
                     <<" owner="<<operation.owner_id
                     <<" body="<<operation.body.id
                     <<" cached="<<(index<boundaries.size())<<'\n';
+            }
+            if(!boundaries.empty()) {
+                for(const auto& [body,rows]:boundaries.back().body_boundaries)
+                    for(std::size_t index=0;index<rows.size();++index) {
+                        const auto& row=rows[index];
+                        std::cout<<"body_boundary body="<<body
+                            <<" index="<<index
+                            <<" vertices="<<row.mesh.vertices.size()
+                            <<" triangles="<<row.mesh.triangles.size()/3
+                            <<" edges="<<row.mesh.edges.size()
+                            <<" faces="<<row.kernel_faces.size()
+                            <<" errors="<<row.calculation_errors.size()<<'\n';
+                    }
             }
             return 0;
         } catch(const std::exception& error) {
@@ -9301,6 +10010,28 @@ int main(int argc, char** argv) {
             std::cerr<<error.what()<<'\n';return 1;
         }
     }
+    if(argc==5&&std::string_view(argv[1])==
+            "--history-cursor-boundary-probe") {
+        try {
+            return history_cursor_boundary_probe(
+                std::filesystem::u8path(argv[2]),
+                std::stoull(argv[3]),
+                std::filesystem::u8path(argv[4]));
+        } catch(const std::exception& error) {
+            std::cerr<<error.what()<<'\n';return 1;
+        }
+    }
+    if(argc==5&&std::string_view(argv[1])==
+            "--history-cursor-invalidation-probe") {
+        try {
+            return history_cursor_invalidation_probe(
+                std::filesystem::u8path(argv[2]),
+                std::stoull(argv[3]),
+                std::filesystem::u8path(argv[4]));
+        } catch(const std::exception& error) {
+            std::cerr<<error.what()<<'\n';return 1;
+        }
+    }
     if(argc==4&&std::string_view(argv[1])=="--edge-route-probe") {
         try {
             return edge_route_probe(std::filesystem::u8path(argv[2]),argv[3]);
@@ -9326,12 +10057,16 @@ int main(int argc, char** argv) {
     if(argc==3&&(std::string_view(argv[1])==
             "--append-last-operation-probe"||
             std::string_view(argv[1])==
-            "--append-last-operation-equivalence-probe")) {
+            "--append-last-operation-equivalence-probe"||
+            std::string_view(argv[1])==
+            "--append-redundant-last-operation-equivalence-probe")) {
         try {
             return append_last_operation_probe(
                 std::filesystem::u8path(argv[2]),
+                std::string_view(argv[1])!=
+                    "--append-last-operation-probe",
                 std::string_view(argv[1])==
-                    "--append-last-operation-equivalence-probe");
+                    "--append-redundant-last-operation-equivalence-probe");
         } catch(const std::exception& error) {
             std::cerr<<error.what()<<'\n';return 1;
         }
@@ -9376,9 +10111,9 @@ int main(int argc, char** argv) {
         }
     }
     if((argc==3||argc==4)&&std::string_view(argv[1])==
-            "--direct-remapped-equivalence-probe") {
+            "--direct-exact-equivalence-probe") {
         try {
-            return direct_remapped_equivalence_probe(
+            return direct_exact_equivalence_probe(
                 std::filesystem::u8path(argv[2]),
                 argc==4?std::stoull(argv[3]):0);
         } catch(const std::exception& error) {

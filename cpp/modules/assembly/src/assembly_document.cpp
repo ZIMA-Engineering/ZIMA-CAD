@@ -137,7 +137,13 @@ void write_ini(const std::filesystem::path& path, const IniSections& ini) {
         if (!output) throw std::runtime_error("Assembly write failed: " + zima::document::path_to_utf8(path));
     }
     zima::document::archive_existing_file(path);
-    std::filesystem::rename(temporary, zima::document::native_file_io_path(path));
+    try {
+        zima::document::publish_temporary_file(temporary, path);
+    } catch (...) {
+        std::error_code cleanup_error;
+        std::filesystem::remove(temporary, cleanup_error);
+        throw;
+    }
 }
 
 void append_viewer_mesh(zima::kernel::ViewerMesh& target,

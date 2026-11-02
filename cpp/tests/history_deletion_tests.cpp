@@ -24,7 +24,24 @@ struct HistoryTrace {
     }
     HistoryTrace(){flag("1");}~HistoryTrace(){std::cerr.rdbuf(old);flag(flag_before);}
 };
-static void verify_long_suffix_reference_eviction() {
+static bool owns_persisted_history_cache(
+        const std::vector<kernel::BodyResult>& calculated) {
+    const auto packet_owns_cache=[](auto&& self,
+            const kernel::BodyResult& packet)->bool {
+        if(packet.incremental_history)return true;
+        for(const auto& [id,rows]:packet.body_boundaries) {
+            static_cast<void>(id);
+            if(std::ranges::any_of(rows,[&](const auto& row) {
+                    return self(self,row);
+                }))return true;
+        }
+        return false;
+    };
+    return std::ranges::any_of(calculated,[&](const auto& packet) {
+        return packet_owns_cache(packet_owns_cache,packet);
+    });
+}
+static void verify_long_suffix_cacheless_regeneration() {
     auto doc=document::PartDocument::create_default();doc.history={test::rectangular_feature(doc,{20,20,10})};
     auto cut=test::rectangular_feature(doc,{2,2,15});cut.combine_mode=document::CombineMode::Subtract;doc.history.push_back(cut);
     for(int index=0;index<10;++index) {
@@ -32,14 +49,26 @@ static void verify_long_suffix_reference_eviction() {
     }
     doc.resolve_constructions();kernel::OcctKernel initial;
     const auto calculated=workspace::calculate_part(initial,doc);
+    require(!owns_persisted_history_cache(calculated),
+        "Final-first Part calculation retained a persistent per-step B-Rep cache");
     std::vector<kernel::BodyResult> previous;static_cast<void>(document::PartDocument::from_serialized(doc.serialized(calculated),&previous));
+    require(!owns_persisted_history_cache(previous),
+        "Native reopen restored a removed per-step B-Rep cache");
     kernel::OcctKernel editing;
+    std::size_t edit_index{};
     for(double length:{1.5,2.,2.5}) {
         auto next=doc;next.history[2].extrusion.length_forward=length;
         std::vector<kernel::BodyResult> result;
         {HistoryTrace trace;result=workspace::calculate_part(editing,next,&previous);
-            require(trace.log.str().find("operations=12 reused=2 calculated=10")!=std::string::npos,
-                "A long suffix evicted the input reference packet and recalculated its unchanged prefix");}
+            const auto expected=edit_index==0
+                ?"operations=12 reused=0 calculated=12"
+                :"operations=12 reused=2 calculated=10";
+            require(trace.log.str().find(expected)!=std::string::npos,
+                edit_index==0
+                    ?"Cold edit reused an unpersisted per-step B-Rep cache"
+                    :"Repeated live edit recalculated its unchanged in-memory prefix");}
+        require(!owns_persisted_history_cache(result),
+            "Explicit edit reintroduced a persistent per-step B-Rep cache");
         kernel::OcctKernel oracle;const auto expected=workspace::calculate_part(oracle,next);
         auto measured=result.back(),expected_measured=expected.back();
         editing.ensure_body_properties(measured);oracle.ensure_body_properties(expected_measured);
@@ -49,11 +78,12 @@ static void verify_long_suffix_reference_eviction() {
                 document::serialize_viewer_reference_geometry(expected.back().mesh.original_references),
             "Reference-packet restoration changed independent volume or exact source geometry");
         previous=std::move(result);
+        ++edit_index;
     }
-    std::cout<<"Long suffix continuation: cold and repeated prefix reuse after bounded reference-packet eviction, exact oracle and independent volumes passed\n";
+    std::cout<<"Cacheless long suffix: cold recomputation, transient live prefix reuse, exact oracle and independent volumes passed\n";
 }
 static void verify_live_regeneration(const kernel::OcctKernel& kernel) {
-    verify_long_suffix_reference_eviction();
+    verify_long_suffix_cacheless_regeneration();
     auto doc=document::PartDocument::create_default();auto box=test::rectangular_feature(doc,{10,10,10});
     doc.history={box};const auto input=workspace::calculate_part(kernel,doc);
     auto fillet=document::PartDocument::create_fillet_container({input.back().mesh.edges.front().reference});
@@ -99,6 +129,8 @@ static void verify_cold_history_resume() {
     document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Cold native continuation"));
     for(const auto& feature:doc.history)graph.insert({document::PartHistoryKind::Feature,feature.id});
     doc.set_body_history(graph);const auto calculated=workspace::calculate_part(original_kernel,doc);
+    require(!owns_persisted_history_cache(calculated),
+        "Ordinary Part calculation retained a persistent history cache");
     std::vector<kernel::BodyResult> loaded;
     doc=document::PartDocument::from_serialized(doc.serialized(calculated),&loaded);
     const auto authored=doc.serialized();
@@ -111,12 +143,20 @@ static void verify_cold_history_resume() {
         for(const auto& point:geometry.points)result.emplace(2,point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path);
         return result;
     };
+    std::size_t edit_index{};
     for(double radius:{.75,.6,.9}) {
         auto changed=doc;changed.find_container(fillet.id)->edge_treatment.primary_size=radius;
         std::vector<kernel::BodyResult> resumed;
         {HistoryTrace trace;resumed=workspace::calculate_part(resumed_kernel,changed,&loaded);
-            require(trace.log.str().find("operations=2 reused=1 calculated=1")!=std::string::npos,
-                "Cold/repeated tail edit recalculated its unchanged native prefix");}
+            const auto expected=edit_index==0
+                ?"operations=2 reused=0 calculated=2"
+                :"operations=2 reused=1 calculated=1";
+            require(trace.log.str().find(expected)!=std::string::npos,
+                edit_index==0
+                    ?"Cold tail edit reused removed persistent history state"
+                    :"Repeated live tail edit recalculated its unchanged prefix");}
+        require(!owns_persisted_history_cache(resumed),
+            "Tail edit reintroduced persistent history state");
         kernel::OcctKernel fresh;auto expected=workspace::calculate_part(fresh,changed);
         auto actual_body=resumed.back(),expected_body=expected.back();
         resumed_kernel.ensure_body_properties(actual_body);fresh.ensure_body_properties(expected_body);
@@ -128,7 +168,10 @@ static void verify_cold_history_resume() {
         require(doc.serialized()==authored,"Native continuation changed its read-only input document");
         std::vector<kernel::BodyResult> reopened;
         static_cast<void>(document::PartDocument::from_serialized(changed.serialized(resumed),&reopened));
+        require(!owns_persisted_history_cache(reopened),
+            "Tail-edit reopen restored persistent history state");
         loaded=std::move(resumed);
+        ++edit_index;
     }
     auto changed=doc;changed.find_container(fillet.id)->edge_treatment.primary_size=.8;
     auto damaged=calculated;
@@ -142,55 +185,12 @@ static void verify_cold_history_resume() {
     {HistoryTrace trace;static_cast<void>(workspace::calculate_part(missing,changed,&damaged));
         require(trace.log.str().find("operations=2 reused=0 calculated=2")!=std::string::npos,
             "Missing optional continuation data reused unverified ancestry");}
-    auto compatible=calculated;
-    const auto set_algorithm=[](kernel::BodyResult& packet,const std::string& algorithm) {
-        if(packet.incremental_history) {
-            auto copy=std::make_shared<kernel::KernelHistoryCache>(*packet.incremental_history);
-            copy->algorithm=algorithm;packet.incremental_history=std::move(copy);
-        }
-    };
-    for(auto& packet:compatible) {
-        set_algorithm(packet,"history-v1/compatible-rebuild");
-        for(auto& [id,rows]:packet.body_boundaries) {
-            auto copy=rows.get();for(auto& row:copy)set_algorithm(row,"history-v1/compatible-rebuild");rows=std::move(copy);
-        }
-    }
-    kernel::OcctKernel compatible_kernel,fresh_compatible_kernel;
-    std::vector<kernel::BodyResult> compatible_result;
-    {HistoryTrace trace;compatible_result=workspace::calculate_part(compatible_kernel,changed,&compatible);
-        require(trace.log.str().find("operations=2 reused=1 calculated=1")!=std::string::npos,
-            "A compatible history-v1 producer rebuild discarded the saved prefix");}
-    auto compatible_expected=workspace::calculate_part(fresh_compatible_kernel,changed);
-    auto compatible_body=compatible_result.back(),compatible_expected_body=compatible_expected.back();
-    compatible_kernel.ensure_body_properties(compatible_body);
-    fresh_compatible_kernel.ensure_body_properties(compatible_expected_body);
-    require(std::abs(compatible_body.volume-compatible_expected_body.volume)<1e-8&&
-        std::abs(compatible_body.surface_area-compatible_expected_body.surface_area)<1e-7&&
-        identities(compatible_body.mesh.original_references)==identities(compatible_expected_body.mesh.original_references),
-        "Compatible history-v1 continuation differs from a fresh calculation");
-    auto stale=calculated;
-    const auto invalidate=[](kernel::BodyResult& packet) {
-        if(packet.incremental_history) {
-            auto copy=std::make_shared<kernel::KernelHistoryCache>(*packet.incremental_history);
-            copy->algorithm="different-modeling-algorithm";packet.incremental_history=std::move(copy);
-        }
-    };
-    for(auto& packet:stale) {
-        invalidate(packet);
-        for(auto& [id,rows]:packet.body_boundaries) {
-            auto copy=rows.get();for(auto& row:copy)invalidate(row);rows=std::move(copy);
-        }
-    }
-    kernel::OcctKernel changed_algorithm;
-    {HistoryTrace trace;static_cast<void>(workspace::calculate_part(changed_algorithm,changed,&stale));
-        require(trace.log.str().find("operations=2 reused=0 calculated=2")!=std::string::npos,
-            "A different algorithm reused saved native continuation data");}
     auto invalid_packet=document::serialize_body_result(calculated.back());
     invalid_packet["incremental_history"]={{"algorithm",17},{"frames",false}};
     const auto ignored=document::load_body_result(invalid_packet);
     require(!ignored.incremental_history&&ignored.mesh.vertices==calculated.back().mesh.vertices&&
         ignored.mesh.triangles==calculated.back().mesh.triangles,"Invalid optional continuation metadata hid valid display geometry");
-    std::cout<<"Cold native continuation: first/repeated tail edits, fresh geometry/identities, native reopen, input immutability, stale/missing cache and invalid optional metadata passed\n";
+    std::cout<<"Cacheless native continuation: cold/repeated tail edits, fresh geometry/identities, reopen, input immutability and invalid optional metadata passed\n";
 }
 
 static void verify_recovery_prefix() {

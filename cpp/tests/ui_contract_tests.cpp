@@ -90,6 +90,118 @@ void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+bool widget_contains_azure(QWidget& widget) {
+    const auto image=widget.grab().toImage();
+    const QColor expected("#00D1FF");
+    int pixels{};
+    for(int y=0;y<image.height();++y)
+        for(int x=0;x<image.width();++x) {
+            const auto color=image.pixelColor(x,y);
+            if(std::abs(color.red()-expected.red())<=8&&
+                    std::abs(color.green()-expected.green())<=8&&
+                    std::abs(color.blue()-expected.blue())<=8)
+                ++pixels;
+        }
+    return pixels>image.width()*image.height()/5;
+}
+
+void verify_sketch_constraint_active_buttons(QApplication& application,
+    QWidget& parent) {
+    using namespace zima::app;
+    using K=zima::sketcher::ConstraintKind;
+    for(const auto& theme:{QStringLiteral("light"),QStringLiteral("dark"),
+            QStringLiteral("light")}) {
+        ApplicationSettings appearance;appearance.theme=theme;
+        apply_application_appearance(application,appearance);
+        SketchInferenceSettings settings;
+        QAction horizontal(QObject::tr("Vodorovnost"),&parent);
+        horizontal.setObjectName("activeHorizontal");
+        int manual{};
+        QObject::connect(&horizontal,&QAction::triggered,&parent,[&]{++manual;});
+        auto* dialog=new SketchConstraintsDialog(settings,
+            {{K::Horizontal,&horizontal}},[](auto){},&parent);
+        dialog->show();application.processEvents();
+        auto* automatic=dialog->findChild<QPushButton*>(
+            "activeHorizontalAutomatic");
+        auto* choose=dialog->findChild<QPushButton*>(
+            "activeHorizontalChoose");
+        require(automatic&&choose&&automatic->isChecked()&&
+                widget_contains_azure(*automatic)&&
+                !widget_contains_azure(*choose),
+            "Enabled automatic constraint is not visibly azure");
+        choose->click();application.processEvents();
+        require(manual==1&&choose->isChecked()&&
+                widget_contains_azure(*choose)&&
+                widget_contains_azure(*automatic),
+            "Active manual constraint is not visibly azure");
+        dialog->clear_active_choice();application.processEvents();
+        require(!choose->isChecked()&&!widget_contains_azure(*choose)&&
+                widget_contains_azure(*automatic),
+            "Cleared manual constraint retained the active colour");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    }
+    std::cout<<"Sketch constraint buttons: automatic and manual active states are azure in Light/Dark/Light\n";
+}
+
+int pixels_near(const QImage& image,const QColor& expected,
+        const QRect& area = {}) {
+    const auto bounds=area.isValid()?area.intersected(image.rect()):image.rect();
+    int result{};
+    for(int y=bounds.top();y<=bounds.bottom();++y)
+        for(int x=bounds.left();x<=bounds.right();++x) {
+            const auto color=image.pixelColor(x,y);
+            if(color.alpha()>96&&
+               std::abs(color.red()-expected.red())<=18&&
+               std::abs(color.green()-expected.green())<=18&&
+               std::abs(color.blue()-expected.blue())<=18)
+                ++result;
+        }
+    return result;
+}
+
+void verify_sketch_reference_icons(QApplication& application) {
+    using namespace zima::app;
+    const QColor reference_points("#AD6E2E");
+    for(const auto& theme:{QStringLiteral("light"),QStringLiteral("dark"),
+            QStringLiteral("light")}) {
+        ApplicationSettings appearance;appearance.theme=theme;
+        apply_application_appearance(application,appearance);
+        const auto neutral=application.palette().color(QPalette::WindowText);
+        const auto rendered=[&](const char* name) {
+            const auto image=resource_icon(name).pixmap(
+                48,48,QIcon::Normal,QIcon::Off).toImage();
+            require(!image.isNull(),"Sketch reference icon did not render");
+            return image;
+        };
+        for(const auto* name:{"sketch-reference",
+                "sketch-reference-outline"}) {
+            const auto image=rendered(name);
+            require(pixels_near(image,reference_points)>20&&
+                    pixels_near(image,neutral)>20,
+                "Sketch reference icon lost its brown points or neutral wire");
+        }
+        const auto intersection=rendered("sketch-intersection");
+        require(pixels_near(intersection,reference_points,
+                    QRect(4,28,16,16))>8&&
+                pixels_near(intersection,reference_points,
+                    QRect(28,4,16,16))>8&&
+                pixels_near(intersection,neutral,
+                    QRect(4,4,16,16))>8&&
+                pixels_near(intersection,neutral,
+                    QRect(28,28,16,16))>8,
+            "Intersection icon does not distinguish reference and crossing endpoints");
+        const auto contour=rendered("sketch-intersection-outline");
+        require(pixels_near(contour,reference_points)>40&&
+                pixels_near(contour,neutral)>60&&
+                pixels_near(contour,neutral,QRect(0,32,14,16))>8&&
+                pixels_near(contour,neutral,QRect(34,0,14,14))>8,
+            "Intersection contour icon lost its reference contour or crossing segment");
+    }
+    std::cout<<"Sketch reference icons: neutral wires, brown reference points and crossing endpoints passed Light/Dark/Light\n";
+}
+
 // Mesh interaction in this executable is driven by explicit synthetic events.
 // Delayed native cursor moves after exposing a new child widget must not replace
 // the tested hover between sendEvent() and its framebuffer/confirmation check.
@@ -934,6 +1046,14 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
             point.display_owner_id=owner;mesh.points.push_back(point);
         }
     }
+    const kernel::Vec3 feature_marker_position{42,42,0};
+    kernel::ViewerPoint feature_marker;
+    feature_marker.position=feature_marker_position;
+    feature_marker.reference={"feature","point",{}};
+    feature_marker.display_owner_id="feature";
+    feature_marker.always_visible=false;
+    feature_marker.label="Feature";
+    mesh.points.push_back(feature_marker);
     mesh.original_references.axes=mesh.axes;
     view.set_mesh(mesh);auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;
     view.set_camera_state(camera);view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);
@@ -971,7 +1091,31 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
         for(double x:{-19.,19.})
             require(framebuffer_contains_color_near(frame,view.size(),project(x,axis_y(3))+QPointF(11,-11),centroid_color,4),
                 "Centroid axis lost T at one of its actual endpoints");
+        require(view.property("paintedProfileCentroidLabelCount").toULongLong()==2,
+            "Feature Text did not publish exactly two centroid endpoint labels");
     };
+    {
+        auto point_hidden=mesh;
+        point_hidden.points.back().label.clear();
+        view.set_mesh(point_hidden,false);application.processEvents();
+        const auto hidden=view.grabFramebuffer();
+        require(!framebuffer_contains_color_near(hidden,view.size(),
+            project(feature_marker_position.x,feature_marker_position.y),
+            QColor(173,110,46),4),
+            "Disabled Feature Point remained visible beside its profile axes");
+        point_hidden.points.back().always_visible=true;
+        view.set_mesh(point_hidden,false);application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),
+            project(feature_marker_position.x,feature_marker_position.y),
+            QColor(173,110,46),4),
+            "Feature Point checkbox cannot reveal the Feature origin marker");
+        auto text_hidden=mesh;text_hidden.points.back().label.clear();
+        view.set_mesh(text_hidden,false);application.processEvents();
+        static_cast<void>(view.grabFramebuffer());
+        require(view.property("paintedProfileCentroidLabelCount").toULongLong()==0,
+            "Centroid T remained visible after disabling Feature Text");
+        view.set_mesh(mesh,false);application.processEvents();
+    }
     check_lines(0);view.confirm_container("feature");application.processEvents();check_lines(1);
     view.grabFramebuffer().save("feature-axis-selected.png");
     view.clear_selection();application.processEvents();check_lines(0);
@@ -1018,7 +1162,10 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
             const auto packet=reopened?document::load_body_result(document::serialize_body_result(curved)):curved;
             require(packet.mesh.edges.front().construction&&packet.mesh.edges.front().overlay&&packet.mesh.edges.front().dash_dot,
                 "Native reopen lost restored rotation centerline style");
-            view.set_mesh(packet.mesh);view.clear_selection();view.set_selection_contract({});
+            auto display=packet.mesh;
+            auto text_marker=feature_marker;text_marker.position={40,40,0};
+            display.points.push_back(std::move(text_marker));
+            view.set_mesh(std::move(display));view.clear_selection();view.set_selection_contract({});
             for(const auto mode:{viewer::DisplayMode::Wire,viewer::DisplayMode::ShadedWithEdges,viewer::DisplayMode::Shaded}) {
                 view.set_display_mode(mode);
                 view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);application.processEvents();
@@ -1368,6 +1515,8 @@ int main(int argc, char* argv[]) {
             std::cout<<"Command guidance status, themes, transparency, canvas input, resize, transfer and visibility passed\n";return 0;
         }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_INTERACTION_COLORS_ONLY")){verify_interaction_colors(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_CONSTRAINT_BUTTONS_ONLY")){verify_sketch_constraint_active_buttons(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_REFERENCE_ICONS_ONLY")){verify_sketch_reference_icons(application);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
@@ -1679,7 +1828,9 @@ int main(int argc, char* argv[]) {
             };
             auto* canceled=create();
             auto* toggle=canceled->findChild<QPushButton*>("testHorizontalAutomatic");
-            require(toggle && toggle->isChecked() && canceled->windowFlags().testFlag(Qt::SubWindow),
+            require(toggle && toggle->isChecked() &&
+                    toggle->styleSheet().contains("#00D1FF") &&
+                    canceled->windowFlags().testFlag(Qt::SubWindow),
                 "Constraint activity dialog is not internal or defaults are not enabled");
             toggle->click();canceled->buttons()->button(QDialogButtonBox::Cancel)->click();
             require(commits==0 && settings.enabled(K::Horizontal),"Cancel committed automatic constraint settings");
@@ -1690,13 +1841,14 @@ int main(int argc, char* argv[]) {
             application.processEvents();
             require(manual==1 && commits==1 && manual_dialog->isVisible() &&
                 manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->isChecked() &&
+                manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->styleSheet().contains("#00D1FF") &&
                 !settings.enabled(K::Horizontal),
                 "Manual constraint must stay active without closing or committing the window");
             manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->click();
             require(manual==2 && manual_dialog->isVisible(),"Constraint cannot be selected repeatedly");
             manual_dialog->clear_active_choice();
             require(!manual_dialog->findChild<QPushButton*>("testHorizontalChoose")->isChecked(),
-                "Canceled constraint remains green");
+                "Canceled constraint remains active");
             manual_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
             QPointer<SketchConstraintsDialog> middle=create();
             QMouseEvent middle_ok(QEvent::MouseButtonDblClick,QPointF(40,40),QPointF(40,40),QPointF(40,40),

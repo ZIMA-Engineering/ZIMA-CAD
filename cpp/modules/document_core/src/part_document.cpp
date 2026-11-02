@@ -751,12 +751,13 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     NativeIoProfile profile("Part read");
     const auto ini = read_ini(path);
     profile.phase("INI scan");
-    if (ini_value(ini, "Document", "format_version") != "46") {
+    const auto native_format=ini_value(ini, "Document", "format_version");
+    if (native_format != "47") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 70},
+        {"format_version", 71},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -953,7 +954,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "46"},
+        {"format_version", "47"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -1207,7 +1208,13 @@ NativeCalculatedCachePtr write_part_ini(
     ini.clear();
     profile.phase("release encoded text");
     archive_existing_file(path);
-    std::filesystem::rename(temporary, native_file_io_path(path));
+    try {
+        publish_temporary_file(temporary, path);
+    } catch (...) {
+        std::error_code cleanup_error;
+        std::filesystem::remove(temporary, cleanup_error);
+        throw;
+    }
     return written_cache;
 }
 
@@ -10151,6 +10158,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 if(sketch->owner_container_id!=container.id)apply_container_placement(request,container.placement);
                 request.centerlines={p.type==FeatureType::Modeling&&p.origin_centerline,p.type==FeatureType::Modeling&&p.centroid_centerline,
                     sketch->world_point(0,0),sketch->normal(),container.container_origin.id,sketch->id};
+                request.centerlines.individual_centroids_enabled=
+                    p.type==FeatureType::Modeling&&p.individual_centroid_centerlines;
                 if(sketch->owner_container_id!=container.id) {
                     const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,container.placement.rotation_y,container.placement.rotation_z});
                     request.centerlines.origin=placement_transform_point(rotation,{container.placement.x,container.placement.y,container.placement.z},request.centerlines.origin);
@@ -10218,6 +10227,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     twist.twist=zima::kernel::Sweep3DRequest::Twist{settings.length,
                         settings.twist_reverse?-settings.angle_degrees:settings.angle_degrees,settings.twist_smooth};
                     twist.twist->centerlines=profile.centerlines;
+                    twist.twist->centerlines.individual_centroids_enabled=false;
                     if(!profile.additional_profile_regions.empty()) {
                         twist.twist->axis_point=zima::kernel::profile_centerlines::centroid(profile);
                     }
@@ -10320,7 +10330,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         }
                     }
                     auto prepared=prepare(std::move(request),side);
-                    if(group.allow_empty&&status==ProfileStatus::Open)prepared.centerlines.centroid_enabled=false;
+                    if(group.allow_empty&&status==ProfileStatus::Open) {
+                        prepared.centerlines.centroid_enabled=false;
+                        prepared.centerlines.individual_centroids_enabled=false;
+                    }
                     if(inactive)group.reference_profiles.push_back(std::move(prepared));
                     else group.children.push_back(std::move(prepared));
                 }
@@ -10437,6 +10450,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if(parameters.sheet_cut)extrusion.sheet_cut_tolerance=sheet_cut_tolerance(document_precision);
             extrusion.centerlines={parameters.origin_centerline,parameters.centroid_centerline,
                 sketch->world_point(0,0),sketch->normal(),container.container_origin.id,sketch->id};
+            extrusion.centerlines.individual_centroids_enabled=parameters.individual_centroid_centerlines;
             if(sketch->owner_container_id!=container.id) {
                 const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,container.placement.rotation_y,container.placement.rotation_z});
                 extrusion.centerlines.origin=placement_transform_point(rotation,{container.placement.x,container.placement.y,container.placement.z},extrusion.centerlines.origin);
@@ -10474,6 +10488,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             }
             revolution.centerlines={parameters.origin_centerline,parameters.centroid_centerline,
                 sketch->world_point(0,0),sketch->normal(),container.container_origin.id,sketch->id};
+            revolution.centerlines.individual_centroids_enabled=parameters.individual_centroid_centerlines;
             if(sketch->owner_container_id!=container.id) {
                 const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,container.placement.rotation_y,container.placement.rotation_z});
                 revolution.centerlines.origin=placement_transform_point(rotation,{container.placement.x,container.placement.y,container.placement.z},revolution.centerlines.origin);
@@ -13320,7 +13335,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 70},
+        {"format_version", 71},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

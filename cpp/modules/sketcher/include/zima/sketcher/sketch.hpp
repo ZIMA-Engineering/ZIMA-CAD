@@ -594,6 +594,9 @@ public:
         const std::string& reference_id, const std::string& segment_id, bool midpoint);
     [[nodiscard]] std::string add_point_on_line_constraint(
         const std::string& point_id, const std::string& line_id);
+    [[nodiscard]] std::vector<std::string>
+    add_segment_on_external_line_constraint(
+        const std::string& segment_id, const std::string& line_id);
     [[nodiscard]] std::string add_midpoint_on_line_constraint(
         const std::string& segment_id, const std::string& line_id);
     [[nodiscard]] std::string add_symmetric_constraint(

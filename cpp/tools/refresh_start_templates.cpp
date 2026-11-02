@@ -7,6 +7,7 @@
 #include <zima/document/engineering_metadata.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/drawing/drawing_template.hpp>
+#include <algorithm>
 #include <charconv>
 #include <limits>
 #include <cmath>
@@ -21,6 +22,76 @@ auto comparable_history(std::vector<zima::document::HistoryContainer> history) {
     // retain every parsed field, including signed floating-point zero.
     for(auto& item:history)zima::document::visit_feature_sketches(item,[](auto& sketch,std::size_t){sketch=nlohmann::json::parse(sketch).dump();});
     return history;
+}
+void collect_entity_ids(const nlohmann::json& value,std::set<std::string>& ids) {
+    if(value.is_object()) {
+        if(const auto id=value.find("id");id!=value.end()&&id->is_string())
+            ids.insert(id->get<std::string>());
+        for(const auto& child:value)collect_entity_ids(child,ids);
+    } else if(value.is_array())for(const auto& child:value)
+        collect_entity_ids(child,ids);
+}
+std::vector<std::set<std::string>> sketch_entity_ids(
+        const zima::document::PartDocument& part) {
+    std::vector<std::set<std::string>> result;
+    const auto append=[&](const auto& sketch) {
+        std::set<std::string> ids;
+        collect_entity_ids(nlohmann::json::parse(sketch),ids);
+        result.push_back(std::move(ids));
+    };
+    for(const auto& sketch:part.sketches)append(sketch.serialized());
+    for(const auto& feature:part.history)
+        zima::document::visit_feature_sketches(feature,
+            [&](const auto& sketch,std::size_t){append(sketch);});
+    return result;
+}
+bool same_history_structure(const zima::document::PartDocument& before,
+        const zima::document::PartDocument& after) {
+    if(before.body_history!=after.body_history||
+            before.history_order!=after.history_order||
+            before.history.size()!=after.history.size()||
+            before.constructions.size()!=after.constructions.size())return false;
+    for(std::size_t index=0;index<before.history.size();++index) {
+        const auto& left=before.history[index];const auto& right=after.history[index];
+        if(left.id!=right.id||left.feature_id!=right.feature_id||
+                left.feature_parent_id!=right.feature_parent_id||
+                left.name!=right.name||left.feature_kind!=right.feature_kind||
+                left.container_origin!=right.container_origin||
+                left.combine_mode!=right.combine_mode||
+                left.suppressed!=right.suppressed||
+                left.value_locks!=right.value_locks)return false;
+    }
+    for(std::size_t index=0;index<before.constructions.size();++index)
+        if(before.constructions[index].id!=after.constructions[index].id||
+                before.constructions[index].kind!=after.constructions[index].kind)
+            return false;
+    return sketch_entity_ids(before)==sketch_entity_ids(after);
+}
+bool resolved_reference_state_improvement(const nlohmann::json& change) {
+    const auto path=change.value("path",std::string{});
+    return change.value("op",std::string{})=="replace"&&
+        change.contains("value")&&change.at("value").is_boolean()&&
+        ((path.ends_with("/broken")&&!change.at("value").get<bool>())||
+         (path.ends_with("/reference_valid")&&
+            change.at("value").get<bool>()));
+}
+bool allowed_topology_migration_change(const nlohmann::json& change) {
+    const auto path=change.value("path",std::string{});
+    // Regeneration may refresh only derived bookkeeping. In particular, a
+    // topology migration must never rewrite an authored reference, placement,
+    // Sketch definition, side choice or history parameter merely because the
+    // calculated BodyResult uses a newer native representation.
+    return path=="/calculation_definition_fingerprint"||
+        path=="/user_parameters/mass"||
+        path.starts_with("/user_parameter_values/mass/")||
+        resolved_reference_state_improvement(change);
+}
+bool topology_migration_preserves_authored_definition(
+        const zima::document::PartDocument& before,
+        const zima::document::PartDocument& after,
+        nlohmann::json& changes) {
+    changes=nlohmann::json::diff(before.serialized(),after.serialized());
+    return std::ranges::all_of(changes,allowed_topology_migration_change);
 }
 // Explicit offline authoring operation. Input must already satisfy the current
 // native contract; the application retains no legacy reader or dual semantics.
@@ -77,15 +148,20 @@ std::size_t reexpress_embedded_forms(zima::document::PartDocument& part,zima::ke
         for(const auto& row:document::parse_family_table(embedded.family_table).instances)
             if(evaluated.contains(row.id))static_cast<void>(workspace::open_family_instance(live,engine,id,row.name,false));
         const auto* current=live.open_part(id);
-        if(!current||comparable_history(current->session.document().history)!=comparable_history(embedded.history)||
-                current->session.document().body_history!=embedded.body_history||
-                current->session.document().sketches.size()!=embedded.sketches.size())
+        if(!current)throw std::runtime_error("Embedded FORM conversion lost its Part");
+        auto updated=current->session.document();
+        auto calculated=current->session.calculated_boundaries();
+        static_cast<void>(workspace::complete_part_physical_analysis(
+            engine,updated,calculated,true));
+        if(comparable_history(updated.history)!=comparable_history(embedded.history)||
+                updated.body_history!=embedded.body_history||
+                updated.sketches.size()!=embedded.sketches.size())
             throw std::runtime_error("Embedded FORM conversion changed authored history or Body roles");
         for(std::size_t i=0;i<embedded.sketches.size();++i)
-            if(embedded.sketches[i].serialized()!=current->session.document().sketches[i].serialized())
+            if(embedded.sketches[i].serialized()!=updated.sketches[i].serialized())
                 throw std::runtime_error("Embedded FORM conversion changed authored Sketch geometry or references");
         feature.sheet_form.definition=std::make_shared<const std::string>(
-            current->session.document().serialized(current->session.calculated_boundaries()).dump());
+            updated.serialized(calculated).dump());
         ++count;
     }
     return count;
@@ -163,9 +239,13 @@ int main(int argc,char** argv){try{
         std::cout<<"Assembly start template written and reopened with the current serializer\n";
         return 0;
     }
-    if(argc==5&&(std::string_view(argv[1])=="--regenerate-asset"||std::string_view(argv[1])=="--reexpress-coordinate-asset")) {
+    if(argc==5&&(std::string_view(argv[1])=="--regenerate-asset"||
+            std::string_view(argv[1])=="--regenerate-topology-asset"||
+            std::string_view(argv[1])=="--reexpress-coordinate-asset")) {
         const auto source=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
         const auto report=std::filesystem::u8path(argv[4]);
+        const bool topology_migration=
+            std::string_view(argv[1])=="--regenerate-topology-asset";
         if(std::filesystem::absolute(source).lexically_normal()==std::filesystem::absolute(output).lexically_normal())
             throw std::runtime_error("Verification output must be separate from its source");
         std::vector<kernel::BodyResult> cached;auto authored=document::PartDocument::load(source,&cached);
@@ -187,14 +267,25 @@ int main(int argc,char** argv){try{
         if(!evaluated_rows.empty())for(const auto& row:document::parse_family_table(authored.family_table).instances)
             if(evaluated_rows.contains(row.id))static_cast<void>(workspace::open_family_instance(live,engine,id,row.name,false));
         const auto* current=live.open_part(id);if(!current)throw std::runtime_error("Factory asset disappeared");
-        const auto& updated=current->session.document();const auto& calculated=current->session.calculated_boundaries();
-        if(comparable_history(updated.history)!=comparable_history(authored.history)||updated.body_history!=authored.body_history||updated.sketches.size()!=authored.sketches.size()) {
+        auto updated=current->session.document();auto calculated=current->session.calculated_boundaries();
+        static_cast<void>(workspace::complete_part_physical_analysis(
+            engine,updated,calculated,true));
+        nlohmann::json topology_changes=nlohmann::json::array();
+        const bool authored_definition_preserved=!topology_migration||
+            topology_migration_preserves_authored_definition(
+                authored,updated,topology_changes);
+        if((topology_migration&&(!same_history_structure(authored,updated)||
+                    !authored_definition_preserved))||
+                (!topology_migration&&(comparable_history(updated.history)!=
+                    comparable_history(authored.history)||
+                    updated.body_history!=authored.body_history||
+                    updated.sketches.size()!=authored.sketches.size()))) {
             std::filesystem::create_directories(report.parent_path());
             std::ofstream diagnostic(report);diagnostic<<nlohmann::json{{"authored_definition_changes",
                 nlohmann::json::diff(authored.serialized(),updated.serialized())}}.dump(2)<<'\n';
             throw std::runtime_error("Factory regeneration changed authored history, sides or Body ownership");
         }
-        for(std::size_t i=0;i<authored.sketches.size();++i)
+        for(std::size_t i=0;!topology_migration&&i<authored.sketches.size();++i)
             if(authored.sketches[i].serialized()!=updated.sketches[i].serialized())
                 throw std::runtime_error("Factory regeneration changed authored Sketch geometry or references");
         std::filesystem::create_directories(output.parent_path());updated.save(output,calculated);
@@ -205,7 +296,23 @@ int main(int argc,char** argv){try{
             if(document::serialize_body_result(restored[i])!=document::serialize_body_result(calculated[i]))
                 throw std::runtime_error("Factory native readback lost geometry or side identities");
         nlohmann::json evidence={{"calculated_boundaries",calculated.size()},{"history_count",updated.history.size()},
-            {"authored_history_unchanged",true},{"sketches_unchanged",true},{"native_readback_exact",true}};
+            {"authored_history_unchanged",!topology_migration},
+            {"authored_structure_unchanged",true},
+            {"sketches_unchanged",!topology_migration},
+            {"sketch_entity_id_sets_unchanged",true},
+            {"topology_reference_migration",topology_migration},
+            {"native_readback_exact",true}};
+        if(topology_migration) {
+            evidence["authored_definition_change_count"]=topology_changes.size();
+            evidence["authored_definition_change_paths"]=nlohmann::json::array();
+            for(const auto& change:topology_changes)
+                evidence["authored_definition_change_paths"].push_back(
+                    change.value("path",std::string{}));
+            evidence["authored_reference_identities_unchanged"]=true;
+            evidence["resolved_reference_state_improvements"]=
+                std::ranges::count_if(topology_changes,
+                    resolved_reference_state_improvement);
+        }
         evidence["coordinate_reexpression"]=coordinate_factors;
         evidence["embedded_form_definitions_recalculated"]=embedded_forms;
         if(!calculated.empty()) {

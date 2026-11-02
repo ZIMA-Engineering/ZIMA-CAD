@@ -28,6 +28,7 @@ public:
             choose->setEnabled(kind.has_value() || action->isEnabled());
             choose->setAutoDefault(false);
             choose->setCheckable(kind.has_value());
+            choose->setStyleSheet(active_button_style());
             choices_->addButton(choose);
             connect(action,&QAction::changed,this,[choose,action,kind] {
                 if (!kind) choose->setEnabled(action->isEnabled());
@@ -45,6 +46,7 @@ public:
             auto* enabled=new QPushButton(this);
             enabled->setObjectName(action->objectName()+"Automatic");
             enabled->setCheckable(true);enabled->setChecked(pending_.enabled(*kind));
+            enabled->setStyleSheet(active_button_style());
             const auto update=[enabled](bool checked){enabled->setText(checked ? tr("✓ Zapnuto") : tr("Vypnuto"));};
             update(enabled->isChecked());
             connect(enabled,&QPushButton::toggled,this,[this,kind,update](bool checked){
@@ -68,6 +70,11 @@ protected:
         return true;
     }
 private:
+    static QString active_button_style() {
+        return QStringLiteral(
+            "QPushButton:checked { background: #00D1FF; color: #102027; "
+            "border: 1px solid #008DAA; border-radius: 3px; }");
+    }
     SketchInferenceSettings pending_;
     std::function<void(SketchInferenceSettings)> commit_;
     QAction* chosen_{};

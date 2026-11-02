@@ -109,63 +109,10 @@ void AssemblyWorkspaceWindow::run_background_physical_analysis() {
             pending=true;break;
         }
     }catch(const std::invalid_argument&) {}
-    if(!pending) {
-        const auto operation_count=workspace::deferred_part_history_boundary(
-            document,calculated);
-        if(!operation_count)return;
-        const auto revision=part->session.revision();
-        const auto generation=part->session.data_generation();
-        const auto identity=part->runtime_identity;
-        const auto key="part-history:"+
-            std::to_string(reinterpret_cast<std::uintptr_t>(identity.get()))+":"+
-            std::to_string(revision)+":"+std::to_string(generation)+":"+
-            std::to_string(*operation_count);
-        if(!background_physical_analysis_jobs_.insert(key).second)return;
-        auto candidate=document;auto boundaries=calculated;
-        QPointer<AssemblyWorkspaceWindow> window(this);
-        QThreadPool::globalInstance()->start([
-                window,id,key,revision,generation,identity,
-                operation_count=*operation_count,
-                candidate=std::move(candidate),boundaries=std::move(boundaries)]() mutable {
-            bool changed=false;
-            try {
-                kernel::OcctKernel private_kernel;
-                changed=workspace::complete_part_history_boundary(
-                    private_kernel,candidate,boundaries,operation_count);
-            }catch(const std::exception&) {
-                // Properties retains its synchronous, user-visible error path.
-                // Speculative completion must never disturb the live document.
-            }
-            auto* application=QCoreApplication::instance();
-            if(!application)return;
-            QMetaObject::invokeMethod(application,[window,id,key,revision,generation,
-                    identity,changed,boundaries=std::move(boundaries)]() mutable {
-                if(!window)return;
-                window->background_physical_analysis_jobs_.erase(key);
-                auto* current=window->workspace_.open_part(id);
-                if(!current||current->runtime_identity!=identity||
-                        current->session.revision()!=revision||
-                        current->session.data_generation()!=generation||
-                        window->closing_||window->properties_dialog_||
-                        !window->active_sketch_id_.empty()||window->part_rollback_||
-                        window->assembly_cut_rollback_) {
-                    window->schedule_background_physical_analysis();
-                    return;
-                }
-                if(!changed)return;
-                // A newly completed historical packet can be the input of a
-                // saved Body Properties row.  Publish the derived analysis
-                // view with the cache so that its volume/centroid is refreshed
-                // without creating an authored revision or Undo transaction.
-                current->session.update_calculated_analysis(
-                    std::move(boundaries));
-                // The visible final body is unchanged. Continue the idle queue
-                // without rebuilding the scene or disturbing selection.
-                window->schedule_background_physical_analysis();
-            },Qt::QueuedConnection);
-        },-1);
-        return;
-    }
+    // Historical bodies are materialized only for an explicit cursor move or
+    // Properties rollback.  Idle work is reserved for physical analysis; an
+    // unsolicited OCCT history replay competes with the user's next command.
+    if(!pending)return;
     const auto revision=part->session.revision(),generation=part->session.data_generation();
     const auto identity=part->runtime_identity;
     const auto key="part:"+std::to_string(reinterpret_cast<std::uintptr_t>(identity.get()))+":"+
@@ -1552,8 +1499,16 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             const auto owner_id = active_sketch_id_;
             const auto first_id = pending_coincident_point_id_;
             const auto kind = pending_point_pair_constraint_kind_;
+            std::set<std::string> external_lines;
+            if(const auto* sketch=active_sketch())
+                for(const auto& reference:sketch->external_references)
+                    if(!reference.broken&&
+                            (reference.infinite||reference.kind==
+                                zima::sketcher::ExternalReferenceKind::Axis)&&
+                            zima::sketcher::external_reference_line(reference))
+                        external_lines.insert(reference.id);
             viewer_->set_candidate_filter(
-                [owner_id, first_id, kind](const auto& candidate) {
+                [owner_id, first_id, kind,external_lines](const auto& candidate) {
                     if (candidate.owner_id != owner_id) return false;
                     if (candidate.kind ==
                             zima::viewer::CandidateKind::SketchPoint) {
@@ -1565,14 +1520,19 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
                             candidate.semantic_key.starts_with("segment:");
                     if (first_id.empty()) {
+                        const auto external_id=
+                            sketch_external_reference_id_from_key(
+                                candidate.semantic_key);
                         return (candidate.kind ==
                                     zima::viewer::CandidateKind::SketchAxis &&
                                 (candidate.semantic_key == "sketch_axis:x" ||
                                  candidate.semantic_key == "sketch_axis:y")) ||
                             (candidate.kind == zima::viewer::CandidateKind::
                                     SketchExternalReference &&
-                                candidate.semantic_key.starts_with(
-                                    "external_point:"));
+                                (candidate.semantic_key.starts_with(
+                                    "external_point:")||
+                                 (external_id&&external_lines.contains(
+                                    *external_id))));
                     }
                     if ((first_id == "sketch_axis:x" ||
                          first_id == "sketch_axis:y")) {
@@ -1580,6 +1540,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                                 zima::viewer::CandidateKind::SketchPoint &&
                             candidate.semantic_key.starts_with("point:");
                     }
+                    if(first_id.starts_with("external_line:"))
+                        return candidate.kind==
+                                zima::viewer::CandidateKind::SketchSegment&&
+                            candidate.semantic_key.starts_with("segment:");
                     return (candidate.kind ==
                                 zima::viewer::CandidateKind::SketchAxis &&
                             (candidate.semantic_key == "sketch_axis:x" ||

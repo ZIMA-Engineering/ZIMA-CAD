@@ -43,9 +43,24 @@ int verify_sketch_symmetry_hover_ui(QApplication& application,const std::filesys
             const auto result=stored();check(std::ranges::any_of(result.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::Symmetric&&c.geometry_id==axis;}),"Symmetry hover transition lost the actual constraint");
             const auto equations=[&](const auto& s) {
                 const auto* p=s.find_point(first);const auto* q=s.find_point(second);check(p&&q,"Symmetry lost native points");
-                check(axis_kind==0?std::abs(p->x-q->x)<1e-7&&std::abs(p->y+q->y)<1e-7:
-                    axis_kind==1?std::abs(p->y-q->y)<1e-7&&std::abs(p->x+q->x)<1e-7:
-                    std::abs(p->x-q->y)<1e-7&&std::abs(p->y-q->x)<1e-7,"Symmetry equation failed");
+                bool valid=axis_kind==0?std::abs(p->x-q->x)<1e-7&&std::abs(p->y+q->y)<1e-7:
+                    axis_kind==1?std::abs(p->y-q->y)<1e-7&&std::abs(p->x+q->x)<1e-7:false;
+                if(axis_kind==2) {
+                    const auto line=std::ranges::find(s.segments,axis,&sketcher::SketchSegment::id);
+                    check(line!=s.segments.end(),"Symmetry lost its construction axis");
+                    const auto* start=s.find_point(line->first_point_id);const auto* end=s.find_point(line->second_point_id);
+                    check(start&&end,"Symmetry axis lost an endpoint");
+                    const double dx=end->x-start->x,dy=end->y-start->y,length_squared=dx*dx+dy*dy;
+                    check(length_squared>1e-12,"Symmetry axis collapsed");
+                    const double along=((p->x-start->x)*dx+(p->y-start->y)*dy)/length_squared;
+                    const double reflected_x=2*(start->x+along*dx)-p->x;
+                    const double reflected_y=2*(start->y+along*dy)-p->y;
+                    valid=std::abs(q->x-reflected_x)<1e-7&&std::abs(q->y-reflected_y)<1e-7;
+                }
+                if(!valid)throw std::runtime_error("Symmetry equation failed: axis="+
+                    std::to_string(axis_kind)+", reverse="+std::to_string(reverse)+", first=("+
+                    std::to_string(p->x)+","+std::to_string(p->y)+"), second=("+
+                    std::to_string(q->x)+","+std::to_string(q->y)+")");
             };
             equations(result);window.findChild<QAction*>("undoAction")->trigger();flush();
             check(stored().constraints.size()+1==result.constraints.size(),"Symmetry Undo failed");

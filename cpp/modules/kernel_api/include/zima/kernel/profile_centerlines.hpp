@@ -86,19 +86,42 @@ inline Moments loop(const E::ProfileLoop& input,const Frame& frame) {
     },input);
     return moments[0]<0?times(moments,-1):moments;
 }
+template<class Outer,class Holes> inline Moments region_moments(
+        const Frame& frame,const Outer& outer,const Holes& holes) {
+    auto sum=loop(outer,frame);
+    for(const auto& hole:holes)sum=plus(sum,times(loop(hole,frame),-1));
+    return sum;
+}
+inline Vec3 centroid_from_moments(const Frame& frame,const Moments& sum) {
+    if(!std::isfinite(sum[0])||sum[0]<=1e-12)throw std::runtime_error("Profile centroid requires a closed profile with positive area.");
+    return frame.world({sum[1]/sum[0],sum[2]/sum[0],0});
+}
 template<class Request> inline Vec3 centroid(const Request& request) {
     if(!request.open_profile_end_id.empty())throw std::runtime_error("Profile centroid requires a closed profile with positive area.");
     const Frame frame(request.centerlines);
-    const auto region=[&](const auto& outer,const auto& holes){auto sum=loop(outer,frame);for(const auto& hole:holes)sum=plus(sum,times(loop(hole,frame),-1));return sum;};
-    auto sum=region(request.outer_profile,request.inner_profiles);
-    for(const auto& item:request.additional_profile_regions)sum=plus(sum,region(item.outer_profile,item.inner_profiles));
-    if(!std::isfinite(sum[0])||sum[0]<=1e-12)throw std::runtime_error("Profile centroid requires a closed profile with positive area.");
-    return frame.world({sum[1]/sum[0],sum[2]/sum[0],0});
+    auto sum=region_moments(frame,request.outer_profile,request.inner_profiles);
+    for(const auto& item:request.additional_profile_regions)
+        sum=plus(sum,region_moments(frame,item.outer_profile,item.inner_profiles));
+    return centroid_from_moments(frame,sum);
 }
 template<class Request> inline std::vector<std::pair<std::string,Vec3>> seeds(const Request& request) {
     std::vector<std::pair<std::string,Vec3>> result;
     if(request.centerlines.origin_enabled)result.push_back({"centerline:from:origin:"+request.centerlines.origin_id,request.centerlines.origin});
     if(request.centerlines.centroid_enabled)result.push_back({"centerline:from:centroid:"+request.centerlines.profile_id,centroid(request)});
+    if(request.centerlines.individual_centroids_enabled) {
+        if(!request.open_profile_end_id.empty())throw std::runtime_error("Profile centroid requires a closed profile with positive area.");
+        const Frame frame(request.centerlines);
+        const auto append=[&](const auto& outer,const auto& holes,const std::string& region_id,std::size_t index) {
+            const auto source=region_id.empty()?request.centerlines.profile_id+":region:"+std::to_string(index):region_id;
+            result.push_back({"centerline:from:centroid:region:"+source,
+                centroid_from_moments(frame,region_moments(frame,outer,holes))});
+        };
+        append(request.outer_profile,request.inner_profiles,request.profile_region_id,0);
+        for(std::size_t index=0;index<request.additional_profile_regions.size();++index) {
+            const auto& item=request.additional_profile_regions[index];
+            append(item.outer_profile,item.inner_profiles,item.region_id,index+1);
+        }
+    }
     return result;
 }
 

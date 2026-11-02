@@ -23,6 +23,10 @@ struct HistoryOutputPolicy {
     // Sketch body-edge projection or exact face intersection). Their immediate
     // preceding boundary must remain complete.
     std::set<std::string> input_boundary_consumers;
+    // Owners whose output is currently displayed, for example the operation
+    // immediately before an active history cursor.  Retaining it during the
+    // same calculation avoids a second OCCT replay just to publish the scene.
+    std::set<std::string> retained_output_owners;
 };
 
 enum class AggregatePropertyDemand {

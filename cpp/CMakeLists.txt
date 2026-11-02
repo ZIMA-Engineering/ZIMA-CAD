@@ -253,6 +253,7 @@ target_include_directories(zima_transition_core PUBLIC research)
 target_link_libraries(zima_transition_core PUBLIC zima_sketcher)
 
 add_library(zima_document_core
+    modules/document_core/src/versioned_file.cpp
     modules/document_core/src/sheet_transition.cpp
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/feature_serialization.cpp
@@ -752,6 +753,8 @@ add_executable(zima_cpp_performance_benchmark
 target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer
     zima_sketcher TKBO TKBool TKTopAlgo TKShHealing TKBRep)
+target_compile_options(zima_cpp_performance_benchmark PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 
 add_executable(zima_cpp_assembly_view_benchmark tests/assembly_view_benchmark.cpp)
 target_link_libraries(zima_cpp_assembly_view_benchmark PRIVATE
@@ -860,6 +863,12 @@ if(ZIMA_BUILD_TESTS)
         PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
     add_test(NAME zima_cpp_occt_boundary_union_tests
         COMMAND zima_cpp_occt_boundary_union_tests)
+    add_executable(zima_cpp_direct_batch_edge_treatment_tests
+        tests/direct_batch_edge_treatment_tests.cpp)
+    target_link_libraries(zima_cpp_direct_batch_edge_treatment_tests
+        PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
+    add_test(NAME zima_cpp_direct_batch_edge_treatment_tests
+        COMMAND zima_cpp_direct_batch_edge_treatment_tests)
     add_executable(zima_cpp_occt_edge_treatment_support_tests
         tests/occt_edge_treatment_support_tests.cpp)
     target_link_libraries(zima_cpp_occt_edge_treatment_support_tests
@@ -992,6 +1001,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sketch_external_constraints_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CONSTRAINTS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_sketch_external_line_segment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_external_line_segment_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CONSTRAINTS_ONLY=1;ZIMA_VERIFY_EXTERNAL_LINE_SEGMENT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_sketch_origin_pick_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
@@ -1091,6 +1104,16 @@ if(ZIMA_BUILD_TESTS)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_sketch_constraint_buttons_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_sketch_constraint_buttons_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_CONSTRAINT_BUTTONS_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_sketch_reference_icons_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_sketch_reference_icons_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_REFERENCE_ICONS_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
     add_executable(zima_cpp_file_dialog_contract_tests
         tests/file_dialog_contract_tests.cpp app/file_dialog.cpp
         app/resource_icon.cpp app/zima_resources.qrc)

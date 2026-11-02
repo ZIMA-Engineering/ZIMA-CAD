@@ -130,15 +130,23 @@ Whole-feature selection does not add individual-axis inspection markers.
 
 ## Profile-origin and centroid options
 
-Extrusion and Revolution properties offer two independent, disabled-by-default
-choices: **Profile origin axis** and **Profile centroid axis**. They supplement
-existing cylindrical axes; they do not change the calculated solid.
+Extrusion and Revolution properties offer three independent,
+disabled-by-default choices: **Profile origin axis**, **Profile centroid axis**
+and **Individual profile axes**. They supplement existing cylindrical axes;
+they do not change the calculated solid.
 
 The origin option follows the source Sketch origin. The centroid option follows
 the area centroid of the selected closed profile, subtracting holes and combining
 selected profile regions. An open profile has no area centroid and is rejected
 when this option is enabled. Native line, arc, ellipse and resolved spline
 geometry supplies area and first moments; the body volume is not measured.
+
+The individual option creates one centroid-derived axis for every disconnected
+closed profile region. Holes contribute negative area only to their owning
+region; they never become independent axes. Each axis uses the stable semantic
+key `centerline:from:centroid:region:<region-id>`, so changing a dimension or
+operation extent preserves the identity of an unchanged source region. The
+combined centroid axis and the individual axes may be enabled together.
 
 Extrusion creates a straight axis with a 1 mm display overhang at either end.
 Its two reference points remain at the actual operation endpoints, including
@@ -156,13 +164,22 @@ they do not calculate a body. Circular paths also carry an exact rational curve,
 independent of display tessellation.
 
 The options use the common create/edit properties dialog and OK/Cancel
-transaction. Both axis options share one horizontal row with spacing in
-Extrusion and Revolution properties. Native serialization and Undo/Redo preserve both options.
+transaction. All three axis options share one horizontal row with spacing in
+Extrusion and Revolution properties. The same control is available in the
+unified Feature editor and the legacy Extrusion/Revolution editors. Native
+serialization and Undo/Redo preserve all three options. The current native
+format stores `individual_centroid_centerlines` explicitly for both enabled and
+disabled states; current-format loading requires the field and contains no
+legacy fallback.
 
 Verification is provided by `zima_cpp_profile_centerlines` and
 `zima_cpp_translations_contract`: area moments (including translated arcs and
-holes), extent changes, stable identities, exact rotation curves, full-turn point
-suppression, endpoint/axis binding, persistence, Undo/Redo and all five UI languages.
+holes), two disconnected regions, region-local hole subtraction, extent changes,
+stable identities, exact rotation curves, full-turn point suppression,
+endpoint/axis binding, persistence, Undo/Redo and all five UI languages. The
+Feature-axis GUI contract also verifies creation/edit state and the shared
+layout. Repository-owned native assets are recalculated, saved and reopened
+with the current serializer before release.
 
 Feature-group fusion also preserves the automatic references of every child,
 regardless of child order. The regression combines Extrusion and Revolution and
@@ -185,9 +202,12 @@ claim that the complete cross-command frame audit passes.
 Factory Part, Skeleton and Assembly templates were regenerated with the current
 serializer. Template UI and new-document options GUI contracts passed.
 
-Centroid-derived axes and rotation paths display a `T` at their starting location
-in the 3D View. The label shares the axis/path presentation color, including hover
-and selection. It is a display-only label, adds no selectable point to a full
+Centroid-derived axes and rotation paths display a `T` at their actual endpoint
+locations in the 3D View only while the owning Feature's **Text** option is
+enabled. The **Point** option remains independent and controls only the Feature
+origin marker; calculated axis endpoints remain hidden auxiliary references in
+ordinary View. The label shares the axis/path presentation color, including
+hover and selection. It is display-only, adds no selectable point to a full
 revolution and does not alter persisted references or require recalculation.
 
 ## Unified type and owned-frame follow-up (2026-09-25)

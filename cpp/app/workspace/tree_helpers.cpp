@@ -130,16 +130,19 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     bool assembly_owned,const zima::kernel::ViewerReferenceGeometry* calculated_references) {
     const auto add_calculated_axes=[&] {
         if(!calculated_references)return;
-        int profile_number=0;
+        int profile_number=0,individual_centroid_number=0;
         for(const auto& axis:calculated_references->axes) {
             const auto& ref=axis.reference;const auto& key=ref.semantic_key;
             if(ref.owner_id!=container.id&&ref.owner_id!=container.feature_id)continue;
             const bool origin=key.starts_with("centerline:from:origin:");
-            const bool centroid=key.starts_with("centerline:from:centroid:");
+            const bool individual_centroid=key.starts_with("centerline:from:centroid:region:");
+            const bool centroid=!individual_centroid&&key.starts_with("centerline:from:centroid:");
             const bool profile=container.feature_kind==zima::document::FeatureKind::Feature&&key.starts_with("axis:profile:from:");
-            if(!origin&&!centroid&&!profile)continue;
+            if(!origin&&!centroid&&!individual_centroid&&!profile)continue;
             auto label=origin?QObject::tr("Osa počátku profilu"):
-                centroid?QObject::tr("Osa těžiště profilu"):QObject::tr("Profile axis %1").arg(++profile_number);
+                centroid?QObject::tr("Osa těžiště profilu"):
+                individual_centroid?QObject::tr("Osa těžiště profilu %1").arg(++individual_centroid_number):
+                QObject::tr("Profile axis %1").arg(++profile_number);
             if(const auto index=key.find("feature-side:");index!=std::string::npos)
                 if(const auto side=zima::kernel::feature_side_parent(key.substr(index)))
                     label+=QStringLiteral(" — ")+(side->side==zima::kernel::FeatureSide::End?QObject::tr("Strana 1"):QObject::tr("Strana 2"));

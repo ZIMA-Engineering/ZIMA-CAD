@@ -125,7 +125,10 @@ public:
         options->addWidget(symmetric);options->addSpacing(16);
         origin_axis_=new QCheckBox(tr("Osa počátku"),this);origin_axis_->setObjectName("featureOriginAxis");
         centroid_axis_=new QCheckBox(tr("Osa těžiště"),this);centroid_axis_->setObjectName("featureCentroidAxis");
+        individual_centroid_axes_=new QCheckBox(tr("Osy jednotlivých profilů"),this);
+        individual_centroid_axes_->setObjectName("featureIndividualCentroidAxes");
         origin_axis_->setChecked(initial_.origin_centerline);centroid_axis_->setChecked(initial_.centroid_centerline);
+        individual_centroid_axes_->setChecked(initial_.individual_centroid_centerlines);
         options->addWidget(new QLabel(tr("Směr"),this));
         direction_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Scalar,this);
         direction_->setObjectName("featureDirection");direction_->setRange(-1,1);
@@ -234,6 +237,7 @@ public:
         value.show_point=show_point_->isChecked();value.show_text=show_text_->isChecked();
         value.axis_visible_in_3d=show_axis_3d_->isChecked();
         value.centroid_centerline=centroid_axis_->isChecked();
+        value.individual_centroid_centerlines=individual_centroid_axes_->isChecked();
         for(int i=0;i<2;++i)value.sides[i]=capture_side(sides_[i],sides_[i].mode->currentIndex());
         return value;
     }
@@ -246,6 +250,7 @@ public:
         // Keep them together instead of mixing the axes with symmetric extent,
         // direction and side swapping on the operation row below.
         layout->addWidget(origin_axis_);layout->addWidget(centroid_axis_);
+        layout->addWidget(individual_centroid_axes_);
         layout->addWidget(show_axis_3d_);layout->addStretch();
         return row;
     }
@@ -407,7 +412,7 @@ private:
     std::array<Side,2> sides_{};
     ui::UnitDoubleSpinBox *offset_{}, *thickness_{};
     QComboBox* thin_side_{};
-    QCheckBox *origin_axis_{}, *centroid_axis_{};
+    QCheckBox *origin_axis_{}, *centroid_axis_{}, *individual_centroid_axes_{};
     QComboBox* result_{};
     QWidget* operations_{};
     bool symmetric_{};
@@ -455,6 +460,7 @@ private:
         options_row_->setVisible(lengths);
         symmetric_control_->setVisible(lengths);swap_->setVisible(lengths);
         origin_axis_->setVisible(modeling);centroid_axis_->setVisible(modeling);
+        individual_centroid_axes_->setVisible(modeling);
         for(int i=0;i<2;++i) {
             auto& s=sides_[i];if(!s.box)continue;
             s.box->setVisible(lengths&&(i==0||!symmetric_));

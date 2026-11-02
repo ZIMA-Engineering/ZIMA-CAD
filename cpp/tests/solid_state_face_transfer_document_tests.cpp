@@ -308,6 +308,7 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
     auto child=document::PartDocument::create_extrusion_container(contour.id);child.extrusion.length_forward=4;
     child.placement.x=join_center.x;child.placement.y=join_center.y;child.placement.z=join_center.z;
     document::ConstructionReference ref;ref.owner_id=face->owner_id;ref.semantic_key=face->semantic_key;ref.supports_offset=true;ref.offset=invalid==5?2.5:-0.;ref.flip=flip;
+    ref.orientation_drives_rotation=true;ref.orientation_role="front";
     auto top=ref;top.orientation_only=true;top.orientation_drives_rotation=true;top.orientation_role="top";top.supports_offset=false;
     const auto triangle=static_cast<std::size_t>(face-geometry.triangle_references.begin())*3;
     const auto pa=geometry.vertices.at(geometry.triangles.at(triangle)),pb=geometry.vertices.at(geometry.triangles.at(triangle+1)),pc=geometry.vertices.at(geometry.triangles.at(triangle+2));
@@ -330,6 +331,7 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
             std::ranges::none_of(points,[&](const auto& prior){return prior.reference==p.reference;}))points.push_back(p);
         check(points.size()>=2,"Source end has too few semantic points");
         auto anchor=ref;anchor.semantic_key=points[0].reference.semantic_key;anchor.supports_offset=false;anchor.offset=0;anchor.flip=false;
+        anchor.orientation_drives_rotation=false;anchor.orientation_role="none";
         auto direction=anchor;direction.orientation_only=true;direction.orientation_drives_rotation=true;direction.orientation_role="direction";
         if(attachment==2) {
             const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e){return e.reference.owner_id==join_owner&&e.points.size()==2&&on_end(e.points.front())&&on_end(e.points.back());});
@@ -337,7 +339,13 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
             direction.semantic_key=edge->reference.semantic_key;
         } else direction.semantic_key=points[1].reference.semantic_key;
         child.placement.references=attachment==4?std::vector{ref,anchor,top}:std::vector{ref,anchor,top,direction};
-        check(document::resolve_placement(child.placement,geometry),"Plane/point/direction fixture cannot be resolved");
+        if(!document::resolve_placement(child.placement,geometry))throw std::runtime_error(
+            "Plane/point/direction fixture cannot be resolved: anchor="+anchor.semantic_key+
+            " ("+std::to_string(points[0].position.x)+","+std::to_string(points[0].position.y)+","+
+            std::to_string(points[0].position.z)+"), direction="+direction.semantic_key+
+            " ("+std::to_string(points[1].position.x)+","+std::to_string(points[1].position.y)+","+
+            std::to_string(points[1].position.z)+"), seed=("+std::to_string(join_center.x)+","+
+            std::to_string(join_center.y)+","+std::to_string(join_center.z)+")");
     }
     workspace::commit_profile(live,kernel,id,child,workspace::ProfileEditMode::Create,contour);
     if(attachment==1||attachment==2||attachment==4) {
@@ -395,7 +403,13 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
     state=live.open_part(id);const auto authored=*state->session.document().find_container(child.id);
     std::map<std::string,kernel::Vec3> original;
     for(const auto& point:state->session.calculated_boundaries().back().mesh.original_references.points)
-        if(point.reference.owner_id==child.id)original.emplace(point.reference.semantic_key,point.position);
+        // Boolean completion can assign a later operation owner to a split
+        // vertex that still belongs to the parent's material carrier. The
+        // rigid face-transfer contract covers the child's authored contour,
+        // not those parent-carried operational aliases.
+        if(point.reference.owner_id==child.id&&
+           !point.reference.semantic_key.starts_with("boolean:"))
+            original.emplace(point.reference.semantic_key,point.position);
     check(original.size()>=8,"Attached contour has no semantic corner vertices");
     gp_Trsf movement;
     if(sweep) {
@@ -471,19 +485,35 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
     const auto elapsed=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
 
     const auto verify_result=[&](const kernel::BodyResult& result) {
-        check(result.calculation_errors.empty(),"Restore has a calculation error");
+        if(!result.calculation_errors.empty()) {
+            const auto& [owner,message]=*result.calculation_errors.begin();
+            throw std::runtime_error("Restore has a calculation error at "+
+                owner+": "+message);
+        }
         const auto& packet=*result.solid_state_reference_views.at(restore.id);
+        const auto verify_point=[](std::string_view kind,const std::string& key,
+                kernel::Vec3 actual,const gp_Pnt& expected) {
+            if(std::hypot(std::hypot(actual.x-expected.X(),actual.y-expected.Y()),
+                    actual.z-expected.Z())<1e-5)return;
+            throw std::runtime_error(std::string(kind)+" point "+key+
+                " differs: actual=("+std::to_string(actual.x)+","+
+                std::to_string(actual.y)+","+std::to_string(actual.z)+
+                "), expected=("+std::to_string(expected.X())+","+
+                std::to_string(expected.Y())+","+std::to_string(expected.Z())+")");
+        };
         for(const auto& [key,position]:original) {
             const auto found=std::ranges::find_if(packet.points,[&](const auto& p){return p.reference.owner_id==child.id&&p.reference.semantic_key==key;});
-            check(found!=packet.points.end(),"Restore lost attached contour identity");
+            if(found==packet.points.end())throw std::runtime_error(
+                "Restore lost attached contour identity "+key);
             const auto expected=gp_Pnt(position.x,position.y,position.z).Transformed(movement);
-            near(found->position.x,expected.X());near(found->position.y,expected.Y());near(found->position.z,expected.Z());
+            verify_point("Attached",key,found->position,expected);
         }
         for(const auto& [key,position]:descendant_points) {
             const auto found=std::ranges::find_if(packet.points,[&](const auto& p){return p.reference.owner_id==descendant->id&&p.reference.semantic_key==key;});
-            check(found!=packet.points.end(),"Restore lost a descendant corner identity");
+            if(found==packet.points.end())throw std::runtime_error(
+                "Restore lost a descendant corner identity "+key);
             const auto expected=gp_Pnt(position.x,position.y,position.z).Transformed(movement);
-            near(found->position.x,expected.X());near(found->position.y,expected.Y());near(found->position.z,expected.Z());
+            verify_point("Descendant",key,found->position,expected);
         }
     };
     verify_result(state->session.calculated_boundaries().back());

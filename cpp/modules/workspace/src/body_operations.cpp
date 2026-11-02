@@ -116,10 +116,12 @@ bool set_part_body_suppressed(Workspace& workspace,const kernel::OcctKernel& ker
     } else throw BodyOperationError("body_not_found","The requested Body does not exist.");
     return calculate_and_commit(state,kernel,std::move(graph),false);
 }
-bool set_body_history_cursor(Workspace& workspace,const std::string& id,std::size_t index,const std::string& body_id) {
+HistoryCursorChange set_body_history_cursor(Workspace& workspace,
+        const kernel::OcctKernel& kernel,const std::string& id,
+        std::size_t index,const std::string& body_id) {
     auto& state=part(workspace,id);auto next=state.session.document();
     if(body_id.empty()) {
-        if(next.body_history.insertion_cursor()==index && next.body_history.active_body_id().empty())return false;
+        if(next.body_history.insertion_cursor()==index && next.body_history.active_body_id().empty())return {};
         next.body_history.set_insertion_cursor(index);
         next.body_history.activate({});
     } else {
@@ -127,9 +129,31 @@ bool set_body_history_cursor(Workspace& workspace,const std::string& id,std::siz
         if(!body)throw BodyOperationError("body_not_found","The requested Body does not exist.");
         if(next.body_history.active_body_id()!=body_id)
             throw BodyOperationError("inactive_body","Activate the Body before changing its history cursor.");
-        if(body->cursor==index)return false;
+        if(body->cursor==index)return {};
         next.body_history.set_history_cursor(body_id,index);
     }
-    state.session.commit_metadata(std::move(next));return true;
+    auto calculated=state.session.calculated_boundaries();
+    bool materialized{};
+    const auto operation_count=next.body_operation_count_at_history_cursor();
+    std::size_t body_operation_count{};
+    if(!body_id.empty()) {
+        const auto* body=next.body_history.find(body_id);
+        for(std::size_t entry=0;body&&entry<index;++entry) {
+            const auto& row=body->entries[entry];
+            if(row.kind!=document::PartHistoryKind::Feature)continue;
+            const auto* feature=next.find_container(row.id);
+            if(feature&&feature->feature_kind!=
+                    document::FeatureKind::Sketch)
+                ++body_operation_count;
+        }
+    }
+    if(operation_count&&operation_count<=calculated.size())
+        materialized=complete_part_history_boundary(
+            kernel,next,calculated,operation_count,
+            body_id,body_operation_count);
+    state.session.commit_metadata(std::move(next));
+    if(materialized)state.session.update_calculated_cache_only(
+        std::move(calculated));
+    return {true,materialized};
 }
 } // namespace zima::workspace

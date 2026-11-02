@@ -2,9 +2,11 @@
 #include <zima/document/versioned_file.hpp>
 #include <zima/workspace/archive_operations.hpp>
 #include <fstream>
+#include <chrono>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -49,6 +51,21 @@ int main() {
         document::archive_existing_file(file);
         require(fs::exists(version(file, successor)) && read(version(file, successor)) == "current" &&
             read(file) == "current", "Unicode save archival or arbitrary-size decimal increment failed");
+        const auto publish_target = directory / "publish.prtz";
+        auto publish_temporary = publish_target; publish_temporary += ".tmp";
+        write(publish_target, "old"); write(publish_temporary, "new");
+#ifdef _WIN32
+        const auto locked = CreateFileW(document::native_file_io_path(publish_target).c_str(),
+            GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        require(locked != INVALID_HANDLE_VALUE, "Cannot create the Windows publication-lock fixture");
+        std::jthread unlock([locked] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(125));
+            CloseHandle(locked);
+        });
+#endif
+        document::publish_temporary_file(publish_temporary, publish_target);
+        require(read(publish_target) == "new" && !fs::exists(publish_temporary),
+            "Atomic native publication did not replace the complete target");
         for (const auto* ext : {".ASMZ", ".drwz", ".frmz", ".tblz"}) {
             auto base = directory / (std::string("other") + ext);
             write(version(base, "2")); write(version(base, "10"));

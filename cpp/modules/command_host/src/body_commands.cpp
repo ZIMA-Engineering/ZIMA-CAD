@@ -174,9 +174,11 @@ void Host::register_body_commands() {
         auto& state=part(workspace_,args);
         if(args["index"]<0 || args["index"].get<std::uint64_t>()>std::numeric_limits<std::size_t>::max())
             throw workspace::BodyOperationError("invalid_arguments","The history index must be a nonnegative integer.");
-        const auto changed=workspace::set_body_history_cursor(workspace_,state.session.document().document_id,
+        const auto change=workspace::set_body_history_cursor(
+            workspace_,kernel_,state.session.document().document_id,
             args["index"].get<std::size_t>(),args.value("body",std::string{}));
-        auto result=graph_data(state);result["changed"]=changed;result["body_calculated"]=false;return result;
+        auto result=graph_data(state);result["changed"]=change.changed;
+        result["body_calculated"]=change.boundary_materialized;return result;
     });
     add({"body.boolean.get",tr("Read a Body Boolean and its two source results."),{{"boolean",true},{"document",false}},false},[this](const Json& args) {
         return boolean_data(part(workspace_,args),args["boolean"].get<std::string>());

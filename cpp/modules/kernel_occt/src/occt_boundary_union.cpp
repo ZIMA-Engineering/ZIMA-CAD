@@ -109,42 +109,6 @@ std::string direct_boundary_key(std::string_view name_space,
         compact_reference_context(encoded_reference_set(context));
 }
 
-std::string edge_interval_token(const TopoDS_Edge& edge,
-        double tolerance) {
-    const auto step=std::max(1.0e-9,tolerance*.01);
-    const auto quantized=[&](double value) {
-        const long double scaled=static_cast<long double>(value)/step;
-        constexpr auto limit=static_cast<long double>(
-            std::numeric_limits<std::int64_t>::max());
-        if(scaled>=limit)return std::numeric_limits<std::int64_t>::max();
-        if(scaled<=-limit)return std::numeric_limits<std::int64_t>::min();
-        return static_cast<std::int64_t>(std::llround(scaled));
-    };
-    BRepAdaptor_Curve curve(edge);
-    const double first=curve.FirstParameter();
-    const double last=curve.LastParameter();
-    if(!std::isfinite(first)||!std::isfinite(last))
-        throw std::runtime_error(
-            "Boundary topology edge has an unbounded interval");
-    std::array<std::string,5> samples;
-    for(std::size_t index=0;index<samples.size();++index) {
-        const double ratio=static_cast<double>(index)/
-            static_cast<double>(samples.size()-1);
-        const auto point=curve.Value(first+(last-first)*ratio);
-        samples[index]=std::to_string(quantized(point.X()))+','+
-            std::to_string(quantized(point.Y()))+','+
-            std::to_string(quantized(point.Z()));
-    }
-    std::string forward,reverse;
-    for(std::size_t index=0;index<samples.size();++index) {
-        forward+=std::to_string(samples[index].size())+':'+samples[index];
-        const auto& opposite=samples[samples.size()-1-index];
-        reverse+=std::to_string(opposite.size())+':'+opposite;
-    }
-    return std::to_string(static_cast<int>(curve.GetType()))+':'+
-        std::min(forward,reverse);
-}
-
 bool edge_is_covered_by_curve(const TopoDS_Edge& edge,
         const OcctBoundaryCurve& parent,double tolerance) {
     double first{},last{};
@@ -1451,25 +1415,66 @@ static OcctBoundaryNamedTopology occt_boundary_named_topology_impl(
             context.insert("curve:"+curve_events[event].token);
             latest=std::max(latest,curve_events[event].latest_history);
         }
+        std::set<std::string> endpoint_contexts;
         for(TopExp_Explorer endpoint(edges(edge_index),TopAbs_VERTEX);
                 endpoint.More();endpoint.Next()) {
             const int vertex_index=vertices.FindIndex(endpoint.Current());
             if(!vertex_index)continue;
             const auto& vertex=*vertex_metadata[
                 static_cast<std::size_t>(vertex_index)];
-            add_reference_context(context,latest,"source-vertex:",
+            std::set<std::string> endpoint_context;
+            add_reference_context(endpoint_context,latest,"source-vertex:",
                 vertex.references,vertex.history_index);
+            const int face_adjacency=vertex_faces.FindIndex(
+                endpoint.Current());
+            if(face_adjacency)
+                for(TopTools_ListIteratorOfListOfShape adjacent(
+                        vertex_faces.FindFromIndex(face_adjacency));
+                        adjacent.More();adjacent.Next()) {
+                    const int face_index=faces.FindIndex(adjacent.Value());
+                    if(!face_index)continue;
+                    const auto& face=*named_faces[
+                        static_cast<std::size_t>(face_index)];
+                    endpoint_context.insert("face:"+
+                        encoded_reference(face.reference));
+                    latest=std::max(latest,face.history_index);
+                }
+            const int edge_adjacency=vertex_edges.FindIndex(
+                endpoint.Current());
+            if(edge_adjacency)
+                for(TopTools_ListIteratorOfListOfShape incident(
+                        vertex_edges.FindFromIndex(edge_adjacency));
+                        incident.More();incident.Next()) {
+                    const int incident_index=edges.FindIndex(
+                        incident.Value());
+                    if(!incident_index)continue;
+                    const auto& incident_metadata=*edge_metadata[
+                        static_cast<std::size_t>(incident_index)];
+                    add_reference_context(endpoint_context,latest,
+                        "source-edge:",incident_metadata.references,
+                        incident_metadata.history_index);
+                    for(const auto event:edge_events[
+                            static_cast<std::size_t>(incident_index)]) {
+                        endpoint_context.insert("curve:"+
+                            curve_events[event].token);
+                        latest=std::max(latest,
+                            curve_events[event].latest_history);
+                    }
+                }
+            if(endpoint_context.empty())
+                throw std::runtime_error(
+                    "Boundary topology edge endpoint has no persisted ancestry");
+            endpoint_contexts.insert(
+                encoded_reference_set(endpoint_context));
         }
         if(primary_candidates.empty())
             throw std::runtime_error(
                 "Boundary topology edge has no persisted ancestry");
-        // Two surviving intervals may share every authored parent and every
-        // adjacent face while still being distinct current edges. Their
-        // orientation-independent sampled interval is a deterministic child
-        // discriminator; the parent remains separately available as a lookup
-        // alias in the live topology.
-        context.insert("edge-interval:"+edge_interval_token(
-            TopoDS::Edge(edges(edge_index)),tolerance));
+        // Distinguish surviving intervals only by their persisted endpoint
+        // incidence. Coordinates, length and OCCT enumeration must not rename
+        // an edge when a driving dimension moves the same authored topology.
+        for(const auto& endpoint_context:endpoint_contexts)
+            context.insert("endpoint:"+endpoint_context);
         const auto& primary=*primary_candidates.begin();
         EdgeReference reference{generated_owner(latest),
             direct_boundary_key(name_space,metadata.references.empty()
@@ -1669,6 +1674,58 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
     }
     TopTools_IndexedMapOfShape boundary_edges;
     TopExp::MapShapes(boundary,TopAbs_EDGE,boundary_edges);
+    TopTools_IndexedMapOfShape boundary_faces,boundary_vertices;
+    TopExp::MapShapes(boundary,TopAbs_FACE,boundary_faces);
+    TopExp::MapShapes(boundary,TopAbs_VERTEX,boundary_vertices);
+    std::vector<std::set<std::string>> current_face_references(
+        static_cast<std::size_t>(boundary_faces.Extent())+1);
+    bool complete_current_ancestry=true;
+    for(const auto& face:source_faces) {
+        const int index=boundary_faces.FindIndex(face.shape);
+        if(!index) {
+            complete_current_ancestry=false;
+            continue;
+        }
+        auto& references=current_face_references[
+            static_cast<std::size_t>(index)];
+        for(const auto& reference:face.references)
+            references.insert(encoded_reference(reference));
+    }
+    for(int index=1;index<=boundary_faces.Extent();++index)
+        complete_current_ancestry=complete_current_ancestry&&
+            !current_face_references[static_cast<std::size_t>(index)].empty();
+
+    std::vector<std::set<std::string>> current_edge_references,
+        current_vertex_references;
+    if(complete_current_ancestry) {
+        TopTools_IndexedDataMapOfShapeListOfShape edge_faces,vertex_faces;
+        TopExp::MapShapesAndAncestors(boundary,TopAbs_EDGE,TopAbs_FACE,
+            edge_faces);
+        TopExp::MapShapesAndAncestors(boundary,TopAbs_VERTEX,TopAbs_FACE,
+            vertex_faces);
+        const auto gather=[&](const auto& members,const auto& ancestors) {
+            std::vector<std::set<std::string>> result(
+                static_cast<std::size_t>(members.Extent())+1);
+            for(int index=1;index<=members.Extent();++index) {
+                const int ancestry=ancestors.FindIndex(members(index));
+                if(!ancestry)continue;
+                for(TopTools_ListIteratorOfListOfShape face(
+                        ancestors.FindFromIndex(ancestry));face.More();
+                        face.Next()) {
+                    const int face_index=boundary_faces.FindIndex(
+                        face.Value());
+                    if(!face_index)continue;
+                    const auto& references=current_face_references[
+                        static_cast<std::size_t>(face_index)];
+                    result[static_cast<std::size_t>(index)].insert(
+                        references.begin(),references.end());
+                }
+            }
+            return result;
+        };
+        current_edge_references=gather(boundary_edges,edge_faces);
+        current_vertex_references=gather(boundary_vertices,vertex_faces);
+    }
     const double incidence_tolerance=std::max(1.0e-7,2.*tolerance);
     const auto point_on_reference=[&](const gp_Pnt& point,
             const std::string& reference) {
@@ -1683,6 +1740,11 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
     };
     const auto edge_on_reference=[&](const TopoDS_Edge& edge,
             const std::string& reference) {
+        if(complete_current_ancestry) {
+            const int index=boundary_edges.FindIndex(edge);
+            return index&&current_edge_references[
+                static_cast<std::size_t>(index)].contains(reference);
+        }
         BRepAdaptor_Curve curve(edge);
         const double first=curve.FirstParameter();
         const double last=curve.LastParameter();
@@ -1748,6 +1810,18 @@ std::vector<OcctResolvedBooleanEdge> occt_resolve_add_intersection_edges(
                         return std::ranges::any_of(
                             std::views::iota(1,endpoints.Extent()+1),
                             [&](int endpoint) {
+                                if(complete_current_ancestry) {
+                                    const int index=boundary_vertices.FindIndex(
+                                        endpoints(endpoint));
+                                    if(!index)return false;
+                                    const auto& references=
+                                        current_vertex_references[
+                                            static_cast<std::size_t>(index)];
+                                    return std::ranges::all_of(support,
+                                        [&](const auto& parent) {
+                                            return references.contains(parent);
+                                        });
+                                }
                                 const auto point=BRep_Tool::Pnt(
                                     TopoDS::Vertex(endpoints(endpoint)));
                                 return std::ranges::all_of(support,

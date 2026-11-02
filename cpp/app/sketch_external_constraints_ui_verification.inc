@@ -4,18 +4,20 @@
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for(int scenario:{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24}) {
+        for(int scenario:{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26}) {
             std::cout<<"Starting external constraint GUI scenario "<<scenario<<std::endl;
             const auto supplied=qEnvironmentVariable("ZIMA_VERIFY_EXTERNAL_CONSTRAINT_FILE");
             const auto form=qEnvironmentVariable("ZIMA_VERIFY_TANGENT_FORM_FILE");
-            if(scenario>=23 && form.isEmpty())continue;
+            const bool form_scenario=scenario==23||scenario==24;
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_LINE_SEGMENT_ONLY")&&scenario<25)continue;
+            if(form_scenario && form.isEmpty())continue;
             // The private Part retains calculated boundaries for its actual
             // Sketch. Endpoint-creation variants use the generated fixture,
             // without rewriting a calculated boundary to fabricate an input.
             if(!supplied.isEmpty()&&scenario>=4)continue;
             auto part=document::PartDocument::create_default();
             std::vector<kernel::BodyResult> calculated;
-            if(scenario>=23) {
+            if(form_scenario) {
                 part=document::PartDocument::load(std::filesystem::path(form.toStdWString()),&calculated);
                 const auto sweep=std::ranges::find_if(part.history,[](const auto& c){return c.feature_kind==document::FeatureKind::Sweep2D;});
                 check(sweep!=part.history.end(),"Actual FORM Sweep missing");
@@ -45,7 +47,8 @@
                 auto source=sketcher::Sketch::create_default();source.owner_container_id=source_feature.id;
                 const auto source_line=source.add_segment(-50,10,50,10);
                 const auto source_vertical=source.add_segment(-20,-20,-20,20);
-                const auto source_arc=(scenario==11 || scenario>=13)?source.add_arc(3,-7,0,-7,3,-10):source.add_arc(3,3,0,3,3,0);
+                const auto tangent_scenario=scenario==11||(scenario>=13&&scenario<=22);
+                const auto source_arc=tangent_scenario?source.add_arc(3,-7,0,-7,3,-10):source.add_arc(3,3,0,3,3,0);
                 auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
                 const auto ab=sketch.add_segment(0,3,-8.31,3),bc=sketch.add_segment(-8.31,3,-8.31,10);
                 for(const auto& edge:source.viewer_mesh().edges) {
@@ -72,8 +75,8 @@
                 static_cast<void>(sketch.add_point_pair_constraint(sketch.segments[0].first_point_id,sketch.segments[0].second_point_id,K::Horizontal));
                 static_cast<void>(sketch.add_point_on_line_constraint(sketch.segments[1].second_point_id,horizontal_id));
                 static_cast<void>(sketch.add_point_pair_constraint(sketch.segments[1].second_point_id,sketch.segments[1].first_point_id,K::Vertical));
-                const auto circle=sketch.add_circle(-14.113200233087127,(scenario==11 || scenario>=13)?-10.6:-3.5749458189590086,13.633686118333486);
-                if(scenario!=11 && scenario<13) {
+                const auto circle=sketch.add_circle(-14.113200233087127,tangent_scenario?-10.6:-3.5749458189590086,13.633686118333486);
+                if(!tangent_scenario) {
                     const auto rim=sketch.add_point(-12.848983801629856,10,1e-9);
                     static_cast<void>(sketch.add_point_on_circle_constraint(rim,circle));
                     static_cast<void>(sketch.add_point_on_line_constraint(rim,horizontal_id));
@@ -83,7 +86,7 @@
                     static_cast<void>(sketch.add_external_profile_geometry(external->id));
                     static_cast<void>(sketch.add_segment(1,-1,1,4));
                 }
-                if(scenario>=13) {
+                if(scenario>=13&&scenario<=22) {
                     const auto external=std::ranges::find_if(sketch.external_references,[](const auto& r){return sketcher::external_reference_circle(r).has_value();});
                     const auto external_id=external->id;
                     if(scenario==21 || scenario==22)static_cast<void>(sketch.add_external_profile_geometry(external_id));
@@ -106,7 +109,7 @@
                 part.set_body_history(graph);part.resolve_constructions();
                 (void)ab;(void)bc;
             }
-            const auto target=std::ranges::find_if(part.sketches,[&](const auto& s){return scenario>=23?!s.circles.empty() && !s.bsplines.empty():s.external_references.size()>=3&&(!s.circles.empty()||!s.arcs.empty())&&s.segments.size()>=2;});
+            const auto target=std::ranges::find_if(part.sketches,[&](const auto& s){return form_scenario?!s.circles.empty() && !s.bsplines.empty():s.external_references.size()>=3&&(!s.circles.empty()||!s.arcs.empty())&&s.segments.size()>=2;});
             check(target!=part.sketches.end(),"External constraint target Sketch missing");
             const auto sketch_index=std::size_t(target-part.sketches.begin());
             auto& editable=*target;
@@ -117,8 +120,9 @@
             const auto sketch=editable;
             std::optional<sketcher::Sketch> expected_trim;
             const auto horizontal=std::ranges::find_if(sketch.external_references,[](const auto& r){return r.infinite&&r.cached_points.size()>=2&&std::abs(r.cached_points.front()[1]-10)<1e-8;});
+            const auto vertical=std::ranges::find_if(sketch.external_references,[](const auto& r){return r.infinite&&r.cached_points.size()>=2&&std::abs(r.cached_points.front()[0]+20)<1e-8;});
             const auto arc=std::ranges::find_if(sketch.external_references,[](const auto& r){return sketcher::external_reference_circle(r).has_value();});
-            check((scenario>=23 || horizontal!=sketch.external_references.end())&&arc!=sketch.external_references.end(),"External test references missing");
+            check((form_scenario || (horizontal!=sketch.external_references.end()&&vertical!=sketch.external_references.end()))&&arc!=sketch.external_references.end(),"External test references missing");
             const auto path=directory/("external-constraints-"+std::to_string(scenario)+".prtz");part.save(path,calculated);
             const auto* owner=part.body_owner_for_object(sketch.owner_container_id);
             check(owner,"External constraint Body hierarchy missing");
@@ -138,7 +142,7 @@
             QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"External constraint View missing");
             view->fit_points({sketch.world_point(-35,-22),sketch.world_point(25,22)});flush();
-            auto camera=view->camera_state();camera[4]=(scenario==12 || scenario>=19)?8:40;camera[5]=camera[6]=0;view->set_camera_state(camera);flush();
+            auto camera=view->camera_state();camera[4]=(scenario==12 || (scenario>=19&&scenario<=24))?8:40;camera[5]=camera[6]=0;view->set_camera_state(camera);flush();
             const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"External constraint camera ray missing");const auto q=sketch.intersect_ray(ray->first,ray->second);check(q.has_value(),"External constraint camera not facing Sketch");return *q;};
             const auto screen=[&](double x,double y){
                 // Command status text can resize the View. Use its current ray
@@ -149,6 +153,25 @@
             };
             const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
             const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            const auto pick_exact=[&](QPointF position,const std::string& key) {
+                mouse(position,QEvent::MouseMove,Qt::NoButton);
+                const auto offered=view->selection_candidates_at(position);
+                check(std::ranges::any_of(offered,[&](const auto& candidate) {
+                        return candidate.owner_id==sketch.id&&
+                            candidate.semantic_key==key;
+                    }),"Expected external-line C candidate was not offered");
+                for(std::size_t cycle=0;cycle<offered.size()&&
+                        (!view->hovered_candidate()||
+                         view->hovered_candidate()->semantic_key!=key);++cycle) {
+                    mouse(position,QEvent::MouseButtonPress,Qt::RightButton);
+                    mouse(position,QEvent::MouseButtonRelease,Qt::RightButton);
+                }
+                check(view->hovered_candidate()&&
+                        view->hovered_candidate()->owner_id==sketch.id&&
+                        view->hovered_candidate()->semantic_key==key,
+                    "External-line C hover did not select the requested identity");
+                click(position);
+            };
             if(scenario<=1) {
                 window.findChild<QAction*>("sketchTangentAction")->trigger();flush();
                 const auto& ref=scenario==0?*horizontal:*arc;
@@ -173,6 +196,19 @@
                 check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchTrimPiece,
                     "GUI does not offer the external circular contour as a trim piece");
                 click(screen(.228361402466,1.851949702905));
+            } else if(scenario>=25) {
+                window.findChild<QAction*>("sketchCoincidentAction")->trigger();flush();
+                const auto segment_position=screen(-8.31,6.5);
+                const auto line_position=screen(-20,0);
+                const auto segment_key="segment:"+sketch.segments[1].id;
+                const auto line_key="external_edge:"+vertical->id;
+                if(scenario==25) {
+                    pick_exact(segment_position,segment_key);
+                    pick_exact(line_position,line_key);
+                } else {
+                    pick_exact(line_position,line_key);
+                    pick_exact(segment_position,segment_key);
+                }
             } else if(scenario>=19) {
                 window.findChild<QAction*>("sketchTrimAction")->trigger();flush();
                 const auto topology=sketcher::sketch_trim_topology(sketch,true);
@@ -184,10 +220,25 @@
                 const auto& piece=pieces[(scenario-19)%2];
                 expected_trim=sketch;static_cast<void>(sketcher::apply_sketch_trim(*expected_trim,{piece}));
                 const auto at=piece.points[piece.points.size()/2];
-                mouse(screen(at[0],at[1]),QEvent::MouseMove,Qt::NoButton);
+                const auto full_topology=sketcher::sketch_trim_topology(sketch,true);
+                const auto expected_index=std::ranges::find(full_topology,piece);
+                check(expected_index!=full_topology.end(),"GUI tangent Reference Profile piece lost its topology identity");
+                const auto expected_key="trim_piece:"+std::to_string(expected_index-full_topology.begin());
+                const auto position=screen(at[0],at[1]);
+                mouse(position,QEvent::MouseMove,Qt::NoButton);
+                const auto offered=view->selection_candidates_at(position);
+                check(std::ranges::any_of(offered,[&](const auto& candidate){return candidate.semantic_key==expected_key;}),
+                    "GUI does not offer the exact tangent Reference Profile piece");
+                for(std::size_t cycle=0;cycle<offered.size()&&
+                    (!view->hovered_candidate()||view->hovered_candidate()->semantic_key!=expected_key);++cycle) {
+                    mouse(position,QEvent::MouseButtonPress,Qt::RightButton);
+                    mouse(position,QEvent::MouseButtonRelease,Qt::RightButton);
+                }
                 check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchTrimPiece,
                     "GUI does not offer the tangent external contour for trimming");
-                click(screen(at[0],at[1]));
+                check(view->hovered_candidate()->semantic_key==expected_key,
+                    "GUI cannot select the exact tangent Reference Profile piece");
+                click(position);
             } else if(scenario>=13) {
                 std::vector<std::string> ids;
                 if(scenario<16) {
@@ -198,8 +249,10 @@
                 }
                 const auto* point=sketch.find_point(ids[(scenario-13)%3]);
                 mouse(screen(point->x,point->y),QEvent::MouseMove,Qt::NoButton);
-                check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchPoint,
-                    "GUI drag did not offer the tangent centre/contact point");
+                check(view->hovered_candidate()&&
+                    view->hovered_candidate()->kind==viewer::CandidateKind::SketchPoint&&
+                    view->hovered_candidate()->semantic_key=="point:"+point->id,
+                    "GUI drag did not offer the exact tangent centre/contact point");
                 mouse(screen(point->x,point->y),QEvent::MouseButtonPress,Qt::LeftButton);
                 const auto at=screen(point->x-1,point->y-.25);
                 QMouseEvent drag(QEvent::MouseMove,at,QPointF(view->mapToGlobal(at.toPoint())),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
@@ -246,6 +299,20 @@
                     "GUI circle did not remain tangent to both axis and external arc");
             } else if(scenario==12) {
                 check(!result.curve_trims.empty(),"GUI external arc contour was not trimmed");
+            } else if(scenario>=25) {
+                const auto& side=result.segments[1];
+                const auto* first=result.find_point(side.first_point_id);
+                const auto* second=result.find_point(side.second_point_id);
+                check(first&&second&&std::abs(first->x+20)<1e-8&&
+                        std::abs(second->x+20)<1e-8,
+                    "GUI whole-segment C did not move both endpoints onto the external line");
+                check(std::ranges::count_if(result.constraints,[&](const auto& c) {
+                        return !c.suppressed&&c.kind==K::PointOnLine&&
+                            c.geometry_id==vertical->id&&
+                            (c.first_point_id==side.first_point_id||
+                             c.first_point_id==side.second_point_id);
+                    })==2,
+                    "GUI whole-segment C did not persist two endpoint incidences");
             } else if(scenario>=19) {
                 check(!result.bsplines.empty() && result.curve_trims.size()==expected_trim->curve_trims.size() &&
                     std::ranges::none_of(result.curve_trims,[](const auto& t){return t.broken;}),

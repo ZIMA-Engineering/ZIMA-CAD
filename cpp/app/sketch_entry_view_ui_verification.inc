@@ -43,6 +43,72 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         unsigned cases=0;
+        {
+            auto part=document::PartDocument::create_default();
+            auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();
+            sketch.owner_container_id=feature.id;
+            part.history={feature};part.sketches={sketch};
+            document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Empty Sketch camera regression");
+            graph.insert({document::PartHistoryKind::Feature,feature.id});
+            part.set_body_history(graph);part.resolve_constructions();
+            const auto path=directory/"sketch-entry-empty.prtz";
+            part.save(path);
+            app::AssemblyWorkspaceWindow window(
+                QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            check(window.open_document_path(
+                    QString::fromStdString(path.string())),
+                "Cannot open empty Sketch camera fixture");flush();
+            check(activate_test_body(application,window,body),
+                "Cannot activate empty Sketch camera fixture Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)
+                if((*i)->data(0,Qt::UserRole).toString().toStdString()==
+                        sketch.id&&
+                        (*i)->data(0,Qt::UserRole+3)=="part-sketch") {
+                    row=*i;break;
+                }
+            check(row,"Empty Sketch camera fixture row missing");
+            const auto state=window.execute_console_command("documents").data;
+            window.show_tree_item_properties(row);flush();
+            auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+            check(open,"Empty Sketch open button missing");open->click();flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(
+                window.findChild<QOpenGLWidget*>());
+            check(view,"Empty Sketch View missing");
+            check_sketch_entry_camera(application,*view,sketch.id);
+            const auto camera=view->camera_state();
+            check(camera[4]>350&&camera[4]<500,
+                "Empty Sketch retained monitor 1:1 instead of fitting its work area");
+            const auto ray=view->ray_at(
+                {view->width()*.5,view->height()*.5});
+            check(ray&&std::abs(ray->second.z)>1e-8,
+                "Empty Sketch center ray misses its plane");
+            const double t=-ray->first.z/ray->second.z;
+            check(std::hypot(ray->first.x+t*ray->second.x,
+                             ray->first.y+t*ray->second.y)<1e-5,
+                "Empty Sketch work area is not centered on its origin");
+            check(window.execute_console_command("documents").data==state,
+                "Empty Sketch entry changed the document revision");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* dialog:window.findChildren<QDialog*>())
+                if(dialog->isVisible())
+                    if(auto* buttons=dialog->findChild<QDialogButtonBox*>())
+                        if(auto* cancel=buttons->button(QDialogButtonBox::Cancel)) {
+                            cancel->click();flush();break;
+                        }
+            check(window.execute_console_command("save").ok,
+                "Empty Sketch camera fixture Save failed");
+            const auto saved=document::PartDocument::load(path);
+            check(saved.sketches.front().serialized()==
+                    part.sketches.front().serialized()&&
+                    saved.body_history==part.body_history,
+                "Empty Sketch camera changed persisted geometry");
+            ++cases;
+        }
         for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})for(bool placed:{false,true}) {
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;sketch.plane=plane;sketch.plane_auto=false;sketch.refresh_default_frame();
@@ -123,6 +189,8 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             auto* own_sketch=dialog()->findChild<QPushButton*>("primitiveOwnSketchButton");check(own_sketch,"Face-attached Sketch action missing");own_sketch->click();flush();
             check(!dialog()&&window.findChild<QAction*>("finishSketchAction")->isEnabled(),"Cannot enter face-attached feature Sketch");
             check_sketch_entry_camera(application,*view,pending.extrusion.sketch_id);
+            check(view->camera_state()[4]<100,
+                "Empty face Sketch ignored its real solid context while fitting");
             const auto& axes=view->mesh().axes;
             const auto x_axis=std::ranges::find_if(axes,[&](const auto& axis){return axis.reference.owner_id==pending.extrusion.sketch_id&&axis.reference.semantic_key=="sketch_axis:x";});
             const auto y_axis=std::ranges::find_if(axes,[&](const auto& axis){return axis.reference.owner_id==pending.extrusion.sketch_id&&axis.reference.semantic_key=="sketch_axis:y";});

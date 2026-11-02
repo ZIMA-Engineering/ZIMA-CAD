@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 #include <future>
 #include <iostream>
 #include <stdexcept>
@@ -113,12 +114,16 @@ int main(){
         {
             const auto fixture=fs::absolute("cpp/tests/fixtures/parity/ventilation-linux.prtz");
             const auto before=bytes(fixture);
-            require(before.find("9c5e8e780b30accd")!=std::string::npos,"Linux fixture lost its original runtime fingerprint");
+            require(before.find("format_version=47")!=std::string::npos&&
+                before.find("definition_fingerprint=9a4fd086e277088904aa04e1b51f76437a12dfe5e2a48cfba38f28538229edd2")!=std::string::npos,
+                "Converted cross-platform fixture lost its format or definition identity");
             std::vector<kernel::BodyResult> calculated;
             const auto portable=document::PartDocument::load(fixture,&calculated);
             require(bytes(fixture)==before&&calculated.size()==7,"Opening the Linux calculation changed the source or lost history");
-            require(calculated.back().surface_area==2242.5998362849596&&calculated.back().volume==0,
-                "Opening the Linux calculation changed stored physical properties");
+            require(calculated.back().physical_properties_current&&
+                    std::abs(calculated.back().surface_area-2242.5998362849596)<1e-9&&
+                    calculated.back().volume==0,
+                "Opening the converted parity fixture changed stored physical properties");
             const auto snapshot=portable.serialized(calculated);
             portable.save(directory/"linux-roundtrip.prtz",calculated);
             std::vector<kernel::BodyResult> reopened;

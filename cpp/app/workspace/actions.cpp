@@ -1071,12 +1071,18 @@ void AssemblyWorkspaceWindow::create_actions() {
                 (part || workspace_.open_assembly(workspace_.active_document_id())) &&
                 viewer_->selection_contract() == ordinary_selection_kinds(previous_filter, part);
             const auto revision = viewer_->base_mesh_revision();
+            const bool previous_preserve_view=preserve_view_on_refresh_;
+            // Changing a selection filter may clear an incompatible confirmed
+            // candidate. Its empty-selection callback can synchronously rebuild
+            // the scene; that rebuild must never fit or recenter the camera.
+            preserve_view_on_refresh_=true;
             viewer_->set_selection_filter(static_cast<zima::viewer::SelectionFilter>(
                 selection_filter_combo_->currentIndex()));
             // Clearing a feature-dimension inspection can already rebuild the
             // scene in the empty-selection callback. Do not publish it twice.
             if (viewer_->base_mesh_revision() != revision) return;
             if (ordinary) {
+                preserve_view_on_refresh_=previous_preserve_view;
                 // Preserve the exact active Body/occurrence predicate. Only the
                 // offered kinds change; geometry, Tree and camera stay intact.
                 auto predicate = viewer_->candidate_filter();
@@ -1086,6 +1092,7 @@ void AssemblyWorkspaceWindow::create_actions() {
                 return;
             }
             if (workspace_.size() != 0) refresh_scene();
+            else preserve_view_on_refresh_=previous_preserve_view;
         });
     view_toolbar_->addWidget(selection_filter_combo_);
     view_toolbar_->addSeparator();

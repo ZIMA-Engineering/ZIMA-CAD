@@ -1,5 +1,6 @@
 #include <zima/document/document_session.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
+#include <zima/sketcher/external_curve_center.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <algorithm>
@@ -136,8 +137,183 @@ void verify(unsigned& cases) {
         check(!sketch.coincident_circular_support(source.id,circle),"Noncircular exact curve was classified from stale circular display samples");
         sketch.external_references.front()=source;sketch.external_references.front().broken=true;
         check(!sketch.coincident_circular_support(source.id,circle),"Broken reference was used as an active circular support");
-        sketch.external_references.front()=source;sketch.circles.front().radius+=.001;
-        check(!sketch.coincident_circular_support(source.id,circle)&&crossings(sketch,source.id,circle)==0,"Concentric separated circles produced false crossings");
+        sketch.external_references.front()=source;
+        for(const double difference:{.001,-.001}) {
+            sketch.circles.front().radius=8+difference;
+            check(!sketch.coincident_circular_support(source.id,circle)&&
+                crossings(sketch,source.id,circle)==0,
+                "Concentric separated circles produced false crossings");
+        }
+        ++cases;
+    }
+    {
+        auto sketch=sketcher::Sketch::create_default();
+        auto left=reference(-20,0,10,57,false,false);
+        auto right=reference(20,0,10,128,true,false);
+        left.kind=right.kind=sketcher::ExternalReferenceKind::Face;
+        left.source_semantic_key="left-rim";
+        right.source_semantic_key="right-rim";
+        left.cached_paths={left.cached_points};left.cached_points.clear();
+        right.cached_paths={right.cached_points};right.cached_points.clear();
+        sketch.add_external_reference(left);sketch.add_external_reference(right);
+        const auto left_center=sketch.add_point(-20,0);
+        const auto right_center=sketch.add_point(20,0);
+        static_cast<void>(sketch.add_point_reference_constraint(
+            left_center,sketcher::external_center_point_id(left.id)));
+        static_cast<void>(sketch.add_point_reference_constraint(
+            right_center,sketcher::external_center_point_id(right.id)));
+        const auto axis=sketch.add_segment(-20,0,20,0);
+        sketch.set_geometry_construction(axis,true);
+        sketch.set_segment_centerline(axis,true);
+        const auto original=sketch.add_segment(-12,6,12,6);
+        const auto mirrored=sketch.add_segment(-12,-6,12,-6);
+        const auto original_line=std::ranges::find(
+            sketch.segments,original,&sketcher::SketchSegment::id);
+        const auto mirrored_line=std::ranges::find(
+            sketch.segments,mirrored,&sketcher::SketchSegment::id);
+        const auto original_first=original_line->first_point_id;
+        const auto original_second=original_line->second_point_id;
+        const auto mirrored_first=mirrored_line->first_point_id;
+        const auto mirrored_second=mirrored_line->second_point_id;
+        static_cast<void>(sketch.add_point_on_line_constraint(
+            original_first,left.id));
+        static_cast<void>(sketch.add_point_on_line_constraint(
+            original_second,right.id));
+        static_cast<void>(sketch.add_segment_pair_constraint(
+            axis,original,sketcher::ConstraintKind::Parallel));
+        static_cast<void>(sketch.add_symmetric_constraint(
+            original_first,mirrored_first,axis));
+        static_cast<void>(sketch.add_symmetric_constraint(
+            original_second,mirrored_second,axis));
+        const auto arc=sketch.add_arc(-20,0,-10,0,-20,10);
+        static_cast<void>(sketch.add_equal_radius_constraint(left.id,arc));
+        auto distance=sketch.create_line_pair_dimension(
+            original,mirrored,sketcher::DimensionKind::DistanceLine);
+        sketch.apply_dimension(distance);
+        const auto measured_distance=[&] {
+            const auto a=std::ranges::find(
+                sketch.segments,original,&sketcher::SketchSegment::id);
+            const auto b=std::ranges::find(
+                sketch.segments,mirrored,&sketcher::SketchSegment::id);
+            const auto* p=sketch.find_point(a->first_point_id);
+            const auto* q=sketch.find_point(a->second_point_id);
+            const auto* r=sketch.find_point(b->first_point_id);
+            const double dx=q->x-p->x,dy=q->y-p->y;
+            return std::abs(dx*(r->y-p->y)-dy*(r->x-p->x))/
+                std::hypot(dx,dy);
+        };
+        for(const double value:{14.,8.,12.,10.,12.}) {
+            check(sketch.set_dimension_value(distance.id,value),
+                "Mirrored external-circle line distance rejected an edit");
+            const auto solved=sketch.solve();
+            check(solved.status==sketcher::SolveStatus::UnderConstrained&&
+                solved.remaining_degrees_of_freedom>0&&
+                solved.maximum_residual<1.0e-8&&
+                std::abs(measured_distance()-value)<1.0e-7,
+                "Mirrored external-circle line distance did not solve exactly");
+        }
+        const auto external_before=sketch.external_references;
+        const auto arc_item=std::ranges::find(
+            sketch.arcs,arc,&sketcher::SketchArc::id);
+        const auto arc_center_id=arc_item->center_point_id;
+        const auto arc_start_id=arc_item->start_point_id;
+        for(const double angle:{.25,.4,.15}) {
+            const auto* center=sketch.find_point(arc_center_id);
+            check(sketch.move_point(arc_start_id,
+                    center->x+10*std::cos(angle),
+                    center->y+10*std::sin(angle)),
+                "Free arc endpoint on the mirrored reference fixture did not drag");
+            check(sketch.external_references==external_before,
+                "Dragging changed an external circular source");
+        }
+        auto reopened=sketcher::Sketch::from_serialized(sketch.serialized());
+        const auto solved=reopened.solve();
+        check(solved.status==sketcher::SolveStatus::UnderConstrained&&
+            solved.maximum_residual<1.0e-8&&
+            crossings(reopened,"sketch_axis:x",left.id)==2,
+            "Mirrored external-circle fixture changed after reopen");
+        ++cases;
+    }
+    {
+        auto source_sketch=sketcher::Sketch::create_default();
+        const auto source_arc=source_sketch.add_arc(3,-7,0,-7,3,-10);
+        const auto source_mesh=source_sketch.viewer_mesh();
+        const auto source_edge=std::ranges::find_if(
+            source_mesh.edges,[&](const auto& edge) {
+                return edge.reference.semantic_key=="arc:"+source_arc;
+            });
+        check(source_edge!=source_mesh.edges.end(),
+            "Double-tangent trim source arc is missing");
+        auto external=sketcher::Sketch::create_external_reference(
+            sketcher::ExternalReferenceKind::Edge);
+        external.source_document_id="read-only-source";
+        external.source_owner_id=source_sketch.id;
+        external.source_semantic_key="arc:"+source_arc;
+        external.exact_spline=source_edge->exact_spline;
+        for(const auto& point:source_edge->points)
+            external.cached_points.push_back(
+                source_sketch.local_point(point));
+        auto sketch=sketcher::Sketch::create_default();
+        auto vertical=sketcher::Sketch::create_external_reference(
+            sketcher::ExternalReferenceKind::Edge);
+        vertical.source_document_id="read-only-source";
+        vertical.source_owner_id="vertical-source";
+        vertical.source_semantic_key="segment:vertical";
+        vertical.infinite=true;
+        vertical.cached_points={{-20,-20},{-20,20}};
+        sketch.add_external_reference(vertical);
+        sketch.add_external_reference(external);
+        const auto circle=sketch.add_circle(
+            -14.113200233087127,-10.6,13.633686118333486);
+        static_cast<void>(sketch.add_tangent_constraint(
+            "sketch_axis:x",circle));
+        static_cast<void>(sketch.add_tangent_constraint(
+            external.id,circle));
+        const auto* center=sketch.find_point(
+            sketch.circles.front().center_point_id);
+        const auto topology=sketcher::sketch_trim_topology(sketch,false);
+        const auto removed=sketcher::nearest_sketch_trim_piece(topology,
+            {center->x-sketch.circles.front().radius,center->y},.01);
+        check(removed.has_value(),
+            "Double-tangent circle has no removable trim piece");
+        static_cast<void>(sketcher::apply_sketch_trim(sketch,{*removed}));
+        check(sketch.circles.empty()&&sketch.arcs.size()==1,
+            "Double-tangent circle trim did not retain one native arc");
+        sketch=sketcher::Sketch::from_serialized(sketch.serialized());
+        const auto baseline=sketch.serialized();
+        const auto arc=sketch.arcs.front();
+        for(const auto& point_id:{arc.center_point_id,arc.start_point_id,
+                arc.end_point_id}) {
+            auto candidate=sketcher::Sketch::from_serialized(baseline);
+            const auto* dragged=candidate.find_point(point_id);
+            const auto* original_center=candidate.find_point(
+                candidate.arcs.front().center_point_id);
+            const auto before=*original_center;
+            check(candidate.move_point(point_id,
+                    dragged->x-1.000000648924618,
+                    dragged->y-.250008536347602),
+                "Double-tangent trimmed arc point rejected dragging");
+            center=candidate.find_point(candidate.arcs.front().center_point_id);
+            check(std::hypot(center->x-before.x,center->y-before.y)>1e-5,
+                "Double-tangent trimmed arc point drag reported no movement");
+            check(std::abs(center->y+candidate.arcs.front().radius)<1e-8 &&
+                    std::abs(std::hypot(center->x-3,center->y+7)-
+                        candidate.arcs.front().radius-3)<1e-8,
+                "Double-tangent trimmed arc drag lost a tangency");
+            for(const auto& endpoint:{candidate.arcs.front().start_point_id,
+                    candidate.arcs.front().end_point_id}) {
+                const auto* value=candidate.find_point(endpoint);
+                check(std::abs(value->x+20)<1e-8 &&
+                        std::abs(std::hypot(value->x-center->x,
+                            value->y-center->y)-candidate.arcs.front().radius)<1e-8,
+                    "Double-tangent trimmed arc drag lost an endpoint support");
+            }
+            const auto solved=candidate.solve();
+            check(solved.status==sketcher::SolveStatus::UnderConstrained &&
+                    solved.maximum_residual<1e-8 &&
+                    candidate.external_references==sketch.external_references,
+                "Double-tangent trimmed arc drag changed its exact sources");
+        }
         ++cases;
     }
     for(bool reverse:{false,true}) {
@@ -148,6 +324,12 @@ void verify(unsigned& cases) {
         const auto saved=sketch.serialized();const auto center=sketch.circles.front().center_point_id;
         for(const auto target:{std::array{18.,30.},std::array{9.,21.}})
             check(!sketch.move_point(center,target[0],target[1])&&sketch.serialized()==saved,"Source-bound circular contour escaped repeated dragging");
+        auto removed_contour=sketch;
+        removed_contour.remove_geometry(circle);
+        check(removed_contour.external_references==std::vector{source} &&
+                removed_contour.import_blocks.empty() &&
+                removed_contour.circles.empty(),
+            "Deleting a circular Reference Profile changed its source or left an owned contour");
         auto dimension=sketch.create_circle_radius_dimension(circle);dimension.driving=false;sketch.apply_dimension(dimension);
         check(std::abs(sketch.dimensions.front().value-12)<1e-8,"Source-bound circle cannot be measured by radius");
         ++cases;
@@ -212,6 +394,82 @@ void verify(unsigned& cases) {
 }
 int main(int argc,char** argv) {
     try {
+        if(argc==3&&std::string_view(argv[1])=="--inspect-sketches") {
+            const auto part=document::PartDocument::load(argv[2]);
+            nlohmann::json report=nlohmann::json::array();
+            for(const auto& source:part.sketches) {
+                auto solved=source;
+                const auto solve=solved.solve();
+                const auto viewer=source.viewer_mesh();
+                nlohmann::json sketch{{"name",source.name},{"id",source.id},
+                    {"points",source.points.size()},
+                    {"segments",source.segments.size()},
+                    {"circles",source.circles.size()},
+                    {"arcs",source.arcs.size()},
+                    {"external_references",source.external_references.size()},
+                    {"constraints",source.constraints.size()},
+                    {"dimensions",source.dimensions.size()},
+                    {"solve_status",static_cast<int>(solve.status)},
+                    {"solve_dof",solve.remaining_degrees_of_freedom},
+                    {"solve_residual",solve.maximum_residual},
+                    {"viewer_points",nlohmann::json::array()}};
+                for(const auto& point:viewer.points)
+                    sketch["viewer_points"].push_back(point.reference.semantic_key);
+                sketch["dimension_edits"]=nlohmann::json::array();
+                for(const auto& dimension:source.dimensions) {
+                    auto edited=source;
+                    const double input=sketcher::dimension_display_value(
+                        dimension,source.plane);
+                    auto direct=source;
+                    auto updated=dimension;
+                    sketcher::set_dimension_input_value(
+                        updated,input==0?.1:input*1.01,source.plane);
+                    std::string direct_error;
+                    try {
+                        direct.apply_dimension(updated);
+                    } catch(const std::exception& error) {
+                        direct_error=error.what();
+                    }
+                    const bool accepted=edited.set_dimension_value(
+                        dimension.id,input==0?.1:input*1.01);
+                    const auto result=edited.solve();
+                    sketch["dimension_edits"].push_back({
+                        {"id",dimension.id},
+                        {"kind",static_cast<int>(dimension.kind)},
+                        {"value",dimension.value},
+                        {"driving",dimension.driving},
+                        {"locked",dimension.locked},
+                        {"suppressed",dimension.suppressed},
+                        {"direct_error",direct_error},
+                        {"direct_changed",direct.serialized()!=source.serialized()},
+                        {"accepted",accepted},
+                        {"changed",edited.serialized()!=source.serialized()},
+                        {"status",static_cast<int>(result.status)},
+                        {"dof",result.remaining_degrees_of_freedom},
+                        {"residual",result.maximum_residual}});
+                }
+                sketch["point_drags"]=nlohmann::json::array();
+                for(const auto& point:source.points) {
+                    auto dragged=source;
+                    const bool accepted=dragged.move_point(
+                        point.id,point.x+.5,point.y+.25);
+                    const auto* actual=dragged.find_point(point.id);
+                    const auto result=dragged.solve();
+                    sketch["point_drags"].push_back({
+                        {"id",point.id},{"fixed",point.fixed},
+                        {"accepted",accepted},
+                        {"movement",actual?std::hypot(
+                            actual->x-point.x,actual->y-point.y):0.},
+                        {"changed",dragged.serialized()!=source.serialized()},
+                        {"status",static_cast<int>(result.status)},
+                        {"dof",result.remaining_degrees_of_freedom},
+                        {"residual",result.maximum_residual}});
+                }
+                report.push_back(std::move(sketch));
+            }
+            std::cout<<report.dump(2)<<'\n';
+            return 0;
+        }
         unsigned cases{};verify_cylinder_refresh();verify(cases);
         if(argc==2) {
             const auto document=document::PartDocument::load(argv[1]);

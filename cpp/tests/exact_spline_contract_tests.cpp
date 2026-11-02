@@ -119,6 +119,11 @@ int main(){try{
     restored.remove_geometry(ref.id);
     require(restored.external_references.empty() && restored.import_blocks.empty() && restored.points==retained &&
         restored.bsplines.front().id==id,"Detach changed native geometry");
+    auto removed_contour=sketch;
+    removed_contour.remove_geometry(id);
+    require(removed_contour.external_references==sketch.external_references &&
+        removed_contour.import_blocks.empty() && removed_contour.bsplines.empty(),
+        "Deleting a Reference Profile contour changed its external reference or left projection metadata");
     // Closed profile calculation verifies knots and rational weights reach OCCT.
     sketch.remove_geometry(ref.id);
     static_cast<void>(sketch.add_segment(0,1.5,0,0));

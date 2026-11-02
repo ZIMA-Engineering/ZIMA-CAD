@@ -15,9 +15,15 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message);return result;
 }
-void volume(const workspace::PartState& state,double expected) {
+void volume(const kernel::OcctKernel& kernel,const workspace::PartState& state,double expected) {
     const auto& cache=state.session.calculated_boundaries();
-    require(!cache.empty() && std::abs(cache.back().volume-expected)<1e-6,"Incorrect history volume");
+    auto measured=cache.empty()?kernel::BodyResult{}:cache.back();
+    if(!cache.empty())kernel.ensure_body_properties(measured);
+    if(cache.empty() || std::abs(measured.volume-expected)>=1e-6)
+        throw std::runtime_error("Incorrect history volume: expected "+
+            std::to_string(expected)+", got "+
+            (cache.empty()?std::string("no boundary"):
+                std::to_string(measured.volume)));
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
@@ -27,7 +33,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto body=state->session.document().body_history.active_body_id();
     const auto first=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     const auto second=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}}).data.at("container").get<std::string>();
-    volume(*state,1000);const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
+    volume(kernel,*state,1000);const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     const auto listed=run(host,"history.list").data;
     require(listed.at("items").size()==2 && listed.at("items")[0].at("body")==body,"History query lost order/ownership");
     require(run(host,"history.can_move",{{"object",second},{"before",first}}).data.at("would_change")==true,"Independent move rejected");
@@ -35,13 +41,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(run(host,"history.suppress",{{"object",first},{"suppressed",false}}).data.at("changed")==false,"No-op suppression committed");
     require(state->session.revision()==revision && cache==state->session.calculated_boundaries().data(),"Query/no-op replaced calculated history");
     workspace::ReferenceIndex refs;refs.add_geometry(state->session.calculated_boundaries().back().mesh.original_references);
-    run(host,"history.move",{{"object",second},{"before",first}});volume(*state,1000);
+    run(host,"history.move",{{"object",second},{"before",first}});volume(kernel,*state,1000);
     workspace::ReferenceIndex moved;moved.add_geometry(state->session.calculated_boundaries().back().mesh.original_references);
     require(refs.keys==moved.keys && state->session.document().history_order.front().id==second,"Move changed original identities or ignored order");
     run(host,"undo");require(state->session.document().history_order.front().id==first,"History move Undo failed");run(host,"redo");
-    run(host,"history.suppress",{{"object",first},{"suppressed",true}});volume(*state,64);
-    run(host,"undo");volume(*state,1000);run(host,"redo");volume(*state,64);
-    run(host,"history.suppress",{{"object",first},{"suppressed",false}});volume(*state,1000);
+    run(host,"history.suppress",{{"object",first},{"suppressed",true}});volume(kernel,*state,64);
+    require(!state->session.calculated_boundaries().back().kernel_shape.empty()&&
+        !state->session.calculated_boundaries().back().mesh.triangles.empty(),
+        "Terminal suppression published an empty final-first boundary");
+    run(host,"undo");volume(kernel,*state,1000);run(host,"redo");volume(kernel,*state,64);
+    run(host,"history.suppress",{{"object",first},{"suppressed",false}});volume(kernel,*state,1000);
     const auto valid_revision=state->session.revision();
     for(const Json& request:std::vector<Json>{
         {{"command","history.delete"},{"arguments",{{"object","missing"}}}},
@@ -51,7 +60,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         {{"command","history.cursor"},{"arguments",{{"index",99}}}}}) {
         require(!host.execute(request).ok && state->session.revision()==valid_revision,"Rejected history command partly committed");
     }
-    run(host,"history.cursor",{{"index",0}});volume(*state,1000);
+    run(host,"history.cursor",{{"index",0}});volume(kernel,*state,1000);
     const auto inserted=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container").get<std::string>();
     require(state->session.document().history_order.front().id==inserted && state->session.document().body_history.owner(inserted)->scope.id==body,"Cursor insertion lost history scope");
     run(host,"history.delete",{{"object",inserted}});require(!state->session.document().find_container(inserted),"Delete retained feature");
@@ -95,10 +104,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(!calculated.empty() && calculated.back().calculation_errors.empty(),"Invalid edge treatment fixture");
         edges->session.commit(std::move(next),std::move(calculated));return id;
     };
-    const auto treatment_a=append_treatment(vertical(-5,-5));const auto treatment_b=append_treatment(vertical(5,5));volume(*edges,990);
-    run(host,"history.delete",{{"object",treatment_a}});volume(*edges,995);
+    const auto treatment_a=append_treatment(vertical(-5,-5));const auto treatment_b=append_treatment(vertical(5,5));volume(kernel,*edges,990);
+    run(host,"history.delete",{{"object",treatment_a}});volume(kernel,*edges,995);
     require(edges->session.document().find_container(treatment_b) && edges->session.calculated_boundaries().back().calculation_errors.empty(),"Delete broke surviving downstream edge treatment");
-    run(host,"undo");volume(*edges,990);run(host,"redo");volume(*edges,995);
+    run(host,"undo");volume(kernel,*edges,990);run(host,"redo");volume(kernel,*edges,995);
     run(host,"undo");
     const auto generated_edge=vertical(-4,-5);require(generated_edge.owner_id==treatment_a,"Dependent fixture did not use generated topology");
     const auto dependent_treatment=append_treatment(generated_edge);

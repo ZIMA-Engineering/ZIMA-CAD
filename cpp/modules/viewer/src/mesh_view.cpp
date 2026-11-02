@@ -265,6 +265,12 @@ struct MeshView::Impl {
     };
     std::optional<SilhouetteConnectivity> silhouette_connectivity;
     std::set<std::pair<std::string,std::string>> curve3d_point_owners;
+    // Profile-centroid labels are presentation owned by the Feature's Text
+    // switch.  The calculated axis/path stays unchanged; these two indices
+    // connect its real endpoint ancestry to the already published Feature
+    // marker without asking the kernel to calculate anything.
+    std::set<std::pair<std::string,std::string>> profile_text_owners;
+    std::set<EdgeKey> profile_centroid_text_axes;
     std::map<std::pair<std::string,std::string>,std::pair<ReferenceVisibility,EdgeKey>> marker_parents;
     std::optional<std::array<float, 3>> silhouette_view_direction;
     GLsizei silhouette_vertex_count{};
@@ -576,6 +582,17 @@ struct MeshView::Impl {
             kernel::feature_side_parent(std::string_view(point.reference.semantic_key).substr(side_point.size())))
             axis_key="axis";
         const bool defining_marker=point.reference.semantic_key=="point"||point.reference.semantic_key=="preview:plane-offset-point";
+        // A unified Feature publishes its own origin marker with the Feature
+        // owner in both reference and display ownership.  Profile axes of the
+        // same Feature used to make marker_parents misclassify that marker as
+        // an axis endpoint, so the Point checkbox appeared to do nothing.
+        // Construction Axis/Plane markers use their nested Origin owner and
+        // retain the helper-point rules below.
+        if(axis_key.empty()&&point.reference.semantic_key=="point"&&
+            !point.display_owner_id.empty()&&
+            point.display_owner_id==point.reference.owner_id&&
+            !curve3d_point_owners.contains({point.display_owner_id,
+                point.reference.instance_path}))return true;
         if(axis_key.empty()&&(!defining_marker||parent==marker_parents.end()))return true;
         const auto category=axis_key.empty()?parent->second.first:ReferenceVisibility::Axes;
         const auto reference=axis_key.empty()?parent->second.second:EdgeKey{point.reference.owner_id,axis_key,point.reference.instance_path};
@@ -1164,6 +1181,30 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->curve3d_point_owners.clear();
     for(const auto& edge:impl_->mesh.edges)if(is_curve3d_edge(edge.reference.semantic_key))
         impl_->curve3d_point_owners.emplace(edge.display_owner_id,edge.reference.instance_path);
+    impl_->profile_text_owners.clear();
+    for(const auto& point:impl_->mesh.points) {
+        if(point.label.empty()||
+            (point.reference.semantic_key!="point"&&
+             point.reference.semantic_key!="container:origin-marker"))continue;
+        const auto& owner=point.display_owner_id.empty()
+            ? point.reference.owner_id : point.display_owner_id;
+        impl_->profile_text_owners.emplace(owner,point.reference.instance_path);
+    }
+    impl_->profile_centroid_text_axes.clear();
+    for(const auto& point:impl_->mesh.points) {
+        const auto parent=kernel::axis_endpoint_parent_key(
+            point.reference.semantic_key);
+        if(parent.empty())continue;
+        std::string source_storage;
+        if(!kernel::construction_source_key(parent,source_storage)
+                .starts_with("centerline:from:centroid:"))continue;
+        const auto& owner=point.display_owner_id.empty()
+            ? point.reference.owner_id : point.display_owner_id;
+        if(impl_->profile_text_owners.contains(
+                {owner,point.reference.instance_path}))
+            impl_->profile_centroid_text_axes.insert({
+                point.reference.owner_id,parent,point.reference.instance_path});
+    }
     impl_->marker_parents.clear();
     const auto marker_parent=[&](const auto& reference,ReferenceVisibility category){
         const EdgeKey key{reference.owner_id,reference.semantic_key,reference.instance_path};
@@ -4877,6 +4918,7 @@ if (impl_->show_origins) {
                 painter.setBrush(Qt::NoBrush);
             }
         }
+        qulonglong painted_profile_centroid_labels{};
         // Reference axes are background context for authored Sketch wires and previews.
         const auto draw_axes = [&] {
             if (!impl_->active_sketch_owner_id.empty()) painter.save();
@@ -5055,7 +5097,10 @@ if (impl_->show_origins) {
                         }
                     }
                     std::string axis_source_storage;
-                    if (kernel::construction_source_key(axis.reference.semantic_key,axis_source_storage).starts_with("centerline:from:centroid:")) {
+                    if (kernel::construction_source_key(axis.reference.semantic_key,axis_source_storage).starts_with("centerline:from:centroid:")&&
+                        impl_->profile_centroid_text_axes.contains({
+                            axis.reference.owner_id,axis.reference.semantic_key,
+                            axis.reference.instance_path})) {
                         // Profile axes extend 1 mm beyond each actual endpoint.
                         painter.setPen(QPen(presentation_color));
                         for(const double contact:{first + kernel::axis_display_overhang,
@@ -5064,6 +5109,7 @@ if (impl_->show_origins) {
                                 axis.point.y + axis.direction.y * contact,
                                 axis.point.z + axis.direction.z * contact});
                             painter.drawText(anchor + QPointF(8.0, -6.0), QStringLiteral("T"));
+                            ++painted_profile_centroid_labels;
                         }
                     }
                     if (origin) {
@@ -5278,11 +5324,18 @@ if (impl_->show_origins) {
                 }
                 if(overhang)path.lineTo(project((*overhang)[1]));
                 painter.drawPath(path);
-                if (datum_key.starts_with("centerline:from:centroid:")) {
+                const auto text_owner=edge.display_owner_id.empty()
+                    ? edge.reference.owner_id : edge.display_owner_id;
+                if (datum_key.starts_with("centerline:from:centroid:")&&
+                    impl_->profile_text_owners.contains(
+                        {text_owner,edge.reference.instance_path})) {
                     painter.setPen(QPen(color));
                     painter.drawText(project(edge.points.front()) + QPointF(8.0, -6.0), QStringLiteral("T"));
-                    if(edge.points.back()!=edge.points.front())
+                    ++painted_profile_centroid_labels;
+                    if(edge.points.back()!=edge.points.front()) {
                         painter.drawText(project(edge.points.back()) + QPointF(8.0, -6.0), QStringLiteral("T"));
+                        ++painted_profile_centroid_labels;
+                    }
                 }
             }
         }
@@ -5537,6 +5590,10 @@ if (impl_->show_origins) {
             }
         }
         if (impl_->active_sketch_owner_id.empty() && axes_visible) draw_axes();
+        if(property("paintedProfileCentroidLabelCount").toULongLong()!=
+                painted_profile_centroid_labels)
+            setProperty("paintedProfileCentroidLabelCount",
+                painted_profile_centroid_labels);
         // Non-origin construction Point markers are drawn AFTER the plane
         // and axis overlays (rather than before them, as previously) so an
         // overlapping origin/construction axis line can never paint over

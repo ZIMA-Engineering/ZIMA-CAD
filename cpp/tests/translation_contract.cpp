@@ -717,6 +717,11 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(properties.findChild<QCheckBox*>("featureShowPoint")->text()==settings.qt_translations.value("Bod")&&
                 properties.findChild<QCheckBox*>("featureShowText")->text()==settings.qt_translations.value("Text"),
                 "Feature visibility switches are untranslated");
+            auto* individual_profile_axes=properties.findChild<QCheckBox*>("featureIndividualCentroidAxes");
+            check(individual_profile_axes&&
+                individual_profile_axes->text()==settings.qt_translations.value("Osy jednotlivých profilů")&&
+                !individual_profile_axes->isChecked(),
+                "Feature individual profile axes control is missing, enabled by default or untranslated");
             check(properties.findChild<QPushButton*>("featureSketchButton")->text()==settings.qt_translations.value("Skica"),"Feature Sketch action is untranslated");
             auto* mode=properties.findChild<QComboBox*>("featureSideMode0");
             check(mode->itemText(0)==settings.qt_translations.value("Bez operace")&&mode->itemText(2)==settings.qt_translations.value("Rotace"),"Feature side modes are untranslated");
@@ -797,14 +802,24 @@ int verify_translations(QApplication& application, QWidget& parent) {
             properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
             auto* origin=properties.findChild<QCheckBox*>("profileOriginCenterline");
             auto* centroid=properties.findChild<QCheckBox*>("profileCentroidCenterline");
-            check(origin&&centroid&&origin->text()==settings.qt_translations.value("Osa počátku profilu")&&centroid->text()==settings.qt_translations.value("Osa těžiště profilu"),"Profile centerline controls are missing or untranslated");
-            check(!origin->isChecked()&&!centroid->isChecked(),"New centerlines must be opt-in");origin->setChecked(true);centroid->setChecked(true);
+            auto* individual=properties.findChild<QCheckBox*>("profileIndividualCentroidAxes");
+            check(origin&&centroid&&individual&&origin->text()==settings.qt_translations.value("Osa počátku profilu")&&
+                centroid->text()==settings.qt_translations.value("Osa těžiště profilu")&&
+                individual->text()==settings.qt_translations.value("Osy jednotlivých profilů"),
+                "Profile centerline controls are missing or untranslated");
+            check(!origin->isChecked()&&!centroid->isChecked()&&!individual->isChecked(),"New centerlines must be opt-in");
+            origin->setChecked(true);centroid->setChecked(true);individual->setChecked(true);
             properties.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
             check(committed.has_value(),"Profile centerline OK failed");
-            check(revolve?(committed->revolution.origin_centerline&&committed->revolution.centroid_centerline):(committed->extrusion.origin_centerline&&committed->extrusion.centroid_centerline),"Profile centerline OK lost choices");
+            check(revolve?(committed->revolution.origin_centerline&&committed->revolution.centroid_centerline&&committed->revolution.individual_centroid_centerlines):
+                (committed->extrusion.origin_centerline&&committed->extrusion.centroid_centerline&&committed->extrusion.individual_centroid_centerlines),
+                "Profile centerline OK lost choices");
             app::PrimitivePropertiesDialog editing(*committed,true,false,[&](document::HistoryContainer){throw std::runtime_error("Cancel committed profile centerline changes");},&parent);
             editing.setAttribute(Qt::WA_DeleteOnClose,false);editing.show();application.processEvents();
-            check(editing.findChild<QCheckBox*>("profileOriginCenterline")->isChecked()&&editing.findChild<QCheckBox*>("profileCentroidCenterline")->isChecked(),"Profile centerline edit lost choices");
+            check(editing.findChild<QCheckBox*>("profileOriginCenterline")->isChecked()&&
+                editing.findChild<QCheckBox*>("profileCentroidCenterline")->isChecked()&&
+                editing.findChild<QCheckBox*>("profileIndividualCentroidAxes")->isChecked(),
+                "Profile centerline edit lost choices");
             editing.findChild<QCheckBox*>("profileOriginCenterline")->setChecked(false);editing.reject();application.processEvents();
         }
         {

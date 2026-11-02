@@ -1,4 +1,5 @@
 #include "rectilinear_template_solver.hpp"
+#include <zima/sketcher/external_curve_center.hpp>
 #include <zima/sketcher/sketch.hpp>
 #include <algorithm>
 #include <cmath>
@@ -364,6 +365,12 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
         const auto* p=next.find_point(id);if(p)return std::array{p->x,p->y};
+        if(const auto source=external_center_source(id)) {
+            const auto ref=std::ranges::find(next.external_references,*source,
+                &SketchExternalReference::id);
+            if(ref!=next.external_references.end())
+                return external_reference_center(*ref);
+        }
         const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
         // Match the ordinary PointReference equations: a persisted point cache
         // remains read-only while its source is unavailable. Seeding must not
@@ -454,8 +461,17 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 const auto a=point(c.first_point_id),b=point(c.second_point_id);if(!a||!b)return {};
                 r.push_back((*a)[0]-(*b)[0]);r.push_back((*a)[1]-(*b)[1]);
             } else if(c.kind==ConstraintKind::PointOnLine) {
-                const auto p=point(c.first_point_id);const auto l=line(c.geometry_id);if(!p||!l)return {};
-                r.push_back(((*p)[0]-(*l)[0])*(*l)[3]-((*p)[1]-(*l)[1])*(*l)[2]);
+                const auto p=point(c.first_point_id);if(!p)return {};
+                if(const auto l=line(c.geometry_id)) {
+                    r.push_back(((*p)[0]-(*l)[0])*(*l)[3]-((*p)[1]-(*l)[1])*(*l)[2]);
+                } else if(const auto support=circular(c.geometry_id)) {
+                    // External curve projection keeps its historical
+                    // PointOnLine relation kind. Preserve its exact circular
+                    // incidence in the simultaneous seed instead of treating
+                    // the circular face boundary as an unsupported line.
+                    r.push_back(std::hypot((*p)[0]-(*support)[0],
+                        (*p)[1]-(*support)[1])-(*support)[2]);
+                } else return {};
             } else if(c.kind==ConstraintKind::PointOnCircle) {
                 const auto p=point(c.first_point_id);const auto circle=circular(c.geometry_id);if(!p||!circle)return {};
                 r.push_back(std::hypot((*p)[0]-(*circle)[0],(*p)[1]-(*circle)[1])-(*circle)[2]);
@@ -544,16 +560,43 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 r.push_back((((*a)[0]+(*b)[0])/2-(*support)[0])*(*support)[3]-
                     (((*a)[1]+(*b)[1])/2-(*support)[1])*(*support)[2]);
             } else if(c.kind==ConstraintKind::EqualRadius) {
-                const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id),b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
-                if(a!=next.arcs.end()&&b!=next.arcs.end())r.push_back(a->radius-b->radius);
-                else {
-                    // Circle centres need the same coupled fit. Keep mixed
-                    // circle/arc creation on its established path, including
-                    // rejection when a fixed arc endpoint blocks resizing.
-                    const auto x=std::ranges::find(next.circles,c.geometry_id,&SketchCircle::id),y=std::ranges::find(next.circles,c.second_geometry_id,&SketchCircle::id);
-                    if(x==next.circles.end()||y==next.circles.end())return {};
-                    r.push_back(x->radius-y->radius);
-                }
+                // Treat exact external circles as immutable radius inputs to
+                // the same coupled fit as native circles and arcs.  A profile
+                // can otherwise be solvable yet reject a line-distance edit
+                // merely because an unrelated trimmed arc owns an EqualRadius
+                // relation to its projected source circle.
+                const auto first_arc=std::ranges::find(
+                    next.arcs,c.geometry_id,&SketchArc::id);
+                const auto second_arc=std::ranges::find(
+                    next.arcs,c.second_geometry_id,&SketchArc::id);
+                const auto first_circle=std::ranges::find(
+                    next.circles,c.geometry_id,&SketchCircle::id);
+                const auto second_circle=std::ranges::find(
+                    next.circles,c.second_geometry_id,&SketchCircle::id);
+                const auto first_external=std::ranges::find(
+                    next.external_references,c.geometry_id,
+                    &SketchExternalReference::id);
+                const auto second_external=std::ranges::find(
+                    next.external_references,c.second_geometry_id,
+                    &SketchExternalReference::id);
+                const bool native_pair=
+                    (first_arc!=next.arcs.end()&&second_arc!=next.arcs.end())||
+                    (first_circle!=next.circles.end()&&
+                        second_circle!=next.circles.end());
+                const bool external_native_pair=
+                    (first_external!=next.external_references.end()&&
+                        external_reference_circle(*first_external)&&
+                        (second_arc!=next.arcs.end()||
+                         second_circle!=next.circles.end()))||
+                    (second_external!=next.external_references.end()&&
+                        external_reference_circle(*second_external)&&
+                        (first_arc!=next.arcs.end()||
+                         first_circle!=next.circles.end()));
+                if(!native_pair&&!external_native_pair)return {};
+                const auto first=radius(c.geometry_id);
+                const auto second=radius(c.second_geometry_id);
+                if(!first||!second)return {};
+                r.push_back(*first-*second);
             } else if(c.kind==ConstraintKind::Symmetric) {
                 const auto a=point(c.first_point_id),b=point(c.second_point_id);const auto l=line(c.geometry_id);if(!a||!b||!l)return {};
                 const double projection=((*a)[0]-(*l)[0])*(*l)[2]+((*a)[1]-(*l)[1])*(*l)[3];

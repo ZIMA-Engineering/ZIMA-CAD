@@ -861,22 +861,24 @@ int main() {
                 treated_shell_packet_error.c_str());
         zima::test::ProfilePrism separated_shell_box{10.0, 10.0, 10.0};
         separated_shell_box.translation = {20.0, 0.0, 0.0};
-        bool rejected_multi_solid_shell = false;
-        try {
-            static_cast<void>(kernel.evaluate_history({
-                {"shell-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
-                 zima::kernel::BooleanOperation::Add},
-                {"shell-b", separated_shell_box,
-                 zima::kernel::BooleanOperation::Add},
-                {"shell", zima::kernel::ShellRequest{{
-                    {"shell-a", "end:from:6:region", {}}}, 1.0},
-                 zima::kernel::BooleanOperation::Add},
-            }));
-        } catch (const std::invalid_argument&) {
-            rejected_multi_solid_shell = true;
-        }
-        require(rejected_multi_solid_shell,
-            "Shell accepted multiple disjoint input solids");
+        const auto multi_solid_shell = kernel.evaluate_history({
+            {"shell-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Add},
+            {"shell-b", separated_shell_box,
+             zima::kernel::BooleanOperation::Add},
+            {"shell", zima::kernel::ShellRequest{{
+                {"shell-a", "end:from:6:region", {}}}, 1.0},
+             zima::kernel::BooleanOperation::Add},
+        });
+        const auto untouched_shell_b_faces = std::ranges::count_if(
+            multi_solid_shell.back().kernel_faces, [](const auto& face) {
+                return face.reference.owner_id == "shell-b";
+            });
+        require(multi_solid_shell.size() == 3 &&
+                    multi_solid_shell.back().volume > 1000.0 &&
+                    multi_solid_shell.back().volume < 2000.0 &&
+                    untouched_shell_b_faces == 6,
+                "Shell on one of multiple disjoint solids changed the wrong solid");
 
         auto shell_document = zima::document::PartDocument::create_default();
         shell_document.history.clear();
@@ -1901,7 +1903,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=46\n") != std::string::npos &&
+                    empty_text.find("format_version=47\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -5765,6 +5767,8 @@ int main() {
                     session.calculated_boundaries().front().volume == 1.0,
                 "Document revision did not own its calculated boundary");
         session.mark_saved();
+        const auto saved_revision_name =
+            session.document().history.front().name;
         require(!session.is_dirty(), "Savepoint did not mark current revision clean");
         auto revision_two = session.document();
         revision_two.history.front().name = "Edited";
@@ -5773,7 +5777,9 @@ int main() {
         session.commit(std::move(revision_two), {revision_two_result});
         require(session.is_dirty(), "Second transaction did not invalidate savepoint");
         require(session.undo(), "Undo failed");
-        require(!session.is_dirty() && session.document().history.front().name == "Vytažení",
+        require(!session.is_dirty() &&
+                    session.document().history.front().name ==
+                        saved_revision_name,
                 "Undo did not restore the saved revision");
         require(session.calculated_boundaries().front().volume == 1.0,
                 "Undo did not restore revision-owned calculated data");

@@ -2801,7 +2801,8 @@ PrimitiveData make_extrusion_data(
     }
     PrimitiveData result{prism.Shape(), {}, {}, {}};
     TopoDS_Shape first_boundary=prism.FirstShape(),last_boundary=prism.LastShape();
-    if(request.centerlines.origin_enabled||request.centerlines.centroid_enabled) {
+    if(request.centerlines.origin_enabled||request.centerlines.centroid_enabled||
+       request.centerlines.individual_centroids_enabled) {
         const auto distance_to=[&](const ExtrusionLimitView& limit,const std::optional<TopoDS_Face>& exact,Vec3 seed,Vec3 direction)->double {
             using namespace profile_centerlines;
             if(limit.planar)return dimension_dot(dimension_sub(limit.origin,seed),limit.normal)/dimension_dot(direction,limit.normal);
@@ -2838,10 +2839,43 @@ PrimitiveData make_extrusion_data(
 
     const std::string first_role = first_semantic_cap_is_start(request) ? "start" : "end";
     const std::string last_role = first_semantic_cap_is_start(request) ? "end" : "start";
-    const FaceReference first_cap_reference{owner_id,
+    FaceReference first_cap_reference{owner_id,
         profile_cap_semantic_key(first_role, request.profile_region_id), {}};
-    const FaceReference last_cap_reference{owner_id,
+    FaceReference last_cap_reference{owner_id,
         profile_cap_semantic_key(last_role, request.profile_region_id), {}};
+    // A planar Face has a free in-plane parameter direction. OCCT may choose
+    // its X direction from a different edge after an otherwise equivalent
+    // Boolean/replay, which would rotate a later TOP-constrained profile.
+    // Publish the cap frame from the authored profile instead. The sampling
+    // path below still validates it against the actual supporting plane.
+    const auto cap_radial=[&]() -> std::optional<gp_Vec> {
+        const gp_Vec axis(unit.x,unit.y,unit.z);
+        for(const auto& profile:profiles)for(const auto& edge:profile.edges) {
+            BRepAdaptor_Curve curve(edge);
+            gp_Pnt point;gp_Vec tangent;
+            curve.D1((curve.FirstParameter()+curve.LastParameter())*.5,
+                point,tangent);
+            tangent-=axis*tangent.Dot(axis);
+            if(tangent.SquareMagnitude()>1e-18) {
+                tangent.Normalize();return tangent;
+            }
+        }
+        return {};
+    }();
+    if(cap_radial) {
+        const auto cap_surface=[&](double station,double sign) {
+            SurfaceGeometry surface;
+            surface.kind=SurfaceGeometry::Kind::Plane;
+            surface.origin={profile_keep_point.X()+unit.x*station,
+                profile_keep_point.Y()+unit.y*station,
+                profile_keep_point.Z()+unit.z*station};
+            surface.axis={unit.x*sign,unit.y*sign,unit.z*sign};
+            surface.radial={cap_radial->X(),cap_radial->Y(),cap_radial->Z()};
+            return std::make_shared<const SurfaceGeometry>(surface);
+        };
+        first_cap_reference.surface=cap_surface(bounded_start,-1.);
+        last_cap_reference.surface=cap_surface(bounded_end,1.);
+    }
     if(!request.surface_result) {
         result.faces.push_back({prism.FirstShape(), first_cap_reference});
         result.faces.push_back({prism.LastShape(), last_cap_reference});
@@ -3052,6 +3086,7 @@ PrimitiveData make_extrusion_data(
              index < request.additional_profile_regions.size(); ++index) {
             auto additional_request = request;
             additional_request.centerlines.origin_enabled=additional_request.centerlines.centroid_enabled=false;
+            additional_request.centerlines.individual_centroids_enabled=false;
             additional_request.outer_profile =
                 request.additional_profile_regions[index].outer_profile;
             additional_request.inner_profiles =
@@ -3580,6 +3615,7 @@ PrimitiveData make_revolution_data(
         result.profile_references={};
         for(const auto& [key,seed]:profile_centerlines::seeds(request)) {
             auto line=request;line.centerlines.origin_enabled=true;line.centerlines.centroid_enabled=false;
+            line.centerlines.individual_centroids_enabled=false;
             line.centerlines.origin=seed;
             const gp_Vec radial(gp_Pnt(request.axis_point.x,request.axis_point.y,request.axis_point.z),gp_Pnt(seed.x,seed.y,seed.z));
             if(gp_Vec(contact->axis.Direction()).Crossed(radial).Magnitude()>contact->tolerance)
@@ -3608,6 +3644,7 @@ PrimitiveData make_revolution_data(
              index < request.additional_profile_regions.size(); ++index) {
             auto additional_request = request;
             additional_request.centerlines.origin_enabled=additional_request.centerlines.centroid_enabled=false;
+            additional_request.centerlines.individual_centroids_enabled=false;
             additional_request.outer_profile =
                 request.additional_profile_regions[index].outer_profile;
             additional_request.inner_profiles =
@@ -5401,7 +5438,6 @@ resolve_edge_treatment_contours(
     // tangent contour. That expansion is a geometric decision only: every
     // member must resolve back to an identity already persisted by ZIMA at
     // the input boundary. OCCT contour order must never create identity.
-    const TopologyReferenceIndex<EdgeReference, OwnedEdge> references(available);
     std::vector<std::pair<TopoDS_Edge, EdgeReference>> resolved;
     TopTools_IndexedMapOfShape actual_shapes;
     for (int contour = 1; contour <= algorithm.NbContours(); ++contour) {
@@ -5413,12 +5449,6 @@ resolve_edge_treatment_contours(
                     std::string(operation_name) + " contour edge");
             }
             if (actual_shapes.Contains(edge)) continue;
-            const auto reference = references.reference_for(edge);
-            if (reference.valid()) {
-                actual_shapes.Add(edge);
-                resolved.emplace_back(edge, reference);
-                continue;
-            }
             std::vector<EdgeReference> aliases;
             for (const auto& candidate : available) {
                 if (!candidate.shape.IsSame(edge) ||
@@ -5428,29 +5458,40 @@ resolve_edge_treatment_contours(
                 }
                 aliases.push_back(candidate.reference);
             }
-            // A batched Boolean can remove an intermediate split while all
-            // persisted identities of that physical contour remain selected.
-            // Accept that explicit complete alias set and retain every parent
-            // for generated Fillet/Chamfer topology. An unrequested alias (or
-            // an ambiguous contour expansion) remains an error.
-            const bool all_aliases_requested = aliases.size() > 1 &&
-                std::ranges::all_of(aliases, [&](const auto& alias) {
-                    return std::ranges::any_of(requested,
-                        [&](const auto& selected) {
-                            return selected.first.IsSame(edge) &&
-                                selected.second == alias;
-                        });
-                });
-            if (!all_aliases_requested) {
+            std::vector<EdgeReference> requested_aliases;
+            for (const auto& selected : requested) {
+                if (!selected.first.IsSame(edge) ||
+                    std::ranges::find(requested_aliases,
+                        selected.second) != requested_aliases.end()) {
+                    continue;
+                }
+                requested_aliases.push_back(selected.second);
+            }
+            if (!requested_aliases.empty()) {
+                if (!std::ranges::all_of(requested_aliases,
+                        [&](const auto& reference) {
+                            return std::ranges::find(aliases, reference) !=
+                                aliases.end();
+                        })) {
+                    throw std::runtime_error(std::string("The ") +
+                        std::string(operation_name) + " feature " +
+                        std::string(feature_id) +
+                        " selected an alias that is absent from its OCCT contour edge");
+                }
+                actual_shapes.Add(edge);
+                for (const auto& reference : requested_aliases) {
+                    resolved.emplace_back(edge, reference);
+                }
+                continue;
+            }
+            if (aliases.size() != 1) {
                 throw std::runtime_error(std::string("The ") +
                     std::string(operation_name) + " feature " +
                     std::string(feature_id) +
                     " contains a contour edge without an unambiguous persisted ZIMA identity");
             }
             actual_shapes.Add(edge);
-            for (const auto& alias : aliases) {
-                resolved.emplace_back(edge, alias);
-            }
+            resolved.emplace_back(edge, aliases.front());
         }
     }
 
@@ -5473,8 +5514,6 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
     const std::string& treatment_owner,
     std::string_view role) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
-    const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(
-        propagated_edges);
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
@@ -5546,9 +5585,24 @@ std::vector<OwnedEdge> complete_edge_treatment_edges(
         const auto edge = explorer.Current();
         if (visited.Contains(edge)) continue;
         visited.Add(edge);
-        if (const auto inherited = edge_references.reference_for(edge);
-            inherited.valid()) {
-            result.push_back({edge, inherited});
+        std::vector<EdgeReference> inherited_references;
+        for (const auto& propagated : propagated_edges) {
+            if (!propagated.shape.IsSame(edge) ||
+                !propagated.reference.valid() ||
+                std::ranges::find(inherited_references,
+                    propagated.reference) != inherited_references.end()) {
+                continue;
+            }
+            inherited_references.push_back(propagated.reference);
+        }
+        if (!inherited_references.empty()) {
+            // A direct Add block can retain several authored parents on one
+            // physical edge. OCCT history proves that every alias below has
+            // this exact descendant, so keep them all instead of replacing
+            // an intentionally multi-parent edge with a Fillet-owned name.
+            for (const auto& inherited : inherited_references) {
+                result.push_back({edge, inherited});
+            }
             continue;
         }
         if (const auto inherited = inherited_input_reference(
@@ -5591,8 +5645,6 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
     const std::string& treatment_owner,
     std::string_view role) {
     const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
-    const TopologyReferenceIndex<VertexReference, OwnedVertex> vertex_references(
-        propagated_vertices);
     TopTools_IndexedDataMapOfShapeListOfShape vertex_edges;
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
@@ -5605,9 +5657,20 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
         const auto vertex = explorer.Current();
         if (visited.Contains(vertex)) continue;
         visited.Add(vertex);
-        if (const auto inherited = vertex_references.reference_for(vertex);
-            inherited.valid()) {
-            result.push_back({vertex, inherited});
+        std::vector<VertexReference> inherited_references;
+        for (const auto& propagated : propagated_vertices) {
+            if (!propagated.shape.IsSame(vertex) ||
+                !propagated.reference.valid() ||
+                std::ranges::find(inherited_references,
+                    propagated.reference) != inherited_references.end()) {
+                continue;
+            }
+            inherited_references.push_back(propagated.reference);
+        }
+        if (!inherited_references.empty()) {
+            for (const auto& inherited : inherited_references) {
+                result.push_back({vertex, inherited});
+            }
             continue;
         }
         const auto incident_edges = referenced_ancestor_tokens(
@@ -6344,8 +6407,40 @@ BodyResult make_result(
         else reference.measured_area.reset();
         reference.contour_surface.reset();
         if (reference.valid()) if (const auto surface=analytic_surface(face)) {
-            auto& target=surface->kind==SurfaceGeometry::Kind::Torus?reference.contour_surface:reference.surface;
-            target=std::make_shared<const SurfaceGeometry>(*surface);
+            auto geometry=*surface;
+            if(reference.surface&&
+               reference.surface->kind==SurfaceGeometry::Kind::Plane&&
+               geometry.kind==SurfaceGeometry::Kind::Plane) {
+                const auto& authored=*reference.surface;
+                const gp_Vec authored_axis(authored.axis.x,authored.axis.y,
+                    authored.axis.z);
+                const gp_Vec actual_axis(geometry.axis.x,geometry.axis.y,
+                    geometry.axis.z);
+                const gp_Vec delta(gp_Pnt(authored.origin.x,authored.origin.y,
+                    authored.origin.z),gp_Pnt(geometry.origin.x,
+                    geometry.origin.y,geometry.origin.z));
+                if(authored_axis.SquareMagnitude()>1e-18&&
+                   actual_axis.SquareMagnitude()>1e-18&&
+                   std::abs(authored_axis.Normalized().Dot(
+                       actual_axis.Normalized()))>1.-1e-9&&
+                   std::abs(delta.Dot(actual_axis.Normalized()))<=1e-7) {
+                    gp_Vec radial(authored.radial.x,authored.radial.y,
+                        authored.radial.z);
+                    radial-=authored_axis.Normalized()*
+                        radial.Dot(authored_axis.Normalized());
+                    if(radial.SquareMagnitude()>1e-18) {
+                        radial.Normalize();geometry=authored;
+                        geometry.radial={radial.X(),radial.Y(),radial.Z()};
+                        const gp_Vec actual_normal=actual_axis.Normalized()*
+                            (surface->reversed?-1.:1.);
+                        geometry.reversed=authored_axis.Normalized().Dot(
+                            actual_normal)<0.;
+                    }
+                }
+            }
+            auto& target=geometry.kind==SurfaceGeometry::Kind::Torus?
+                reference.contour_surface:reference.surface;
+            target=std::make_shared<const SurfaceGeometry>(geometry);
         }
         const std::uint32_t base =
             static_cast<std::uint32_t>(result.mesh.vertices.size());
@@ -7003,6 +7098,7 @@ struct OcctKernel::HistoryContext {
     std::map<std::string,BodyResult> source_solids;
     bool final_boundary_first{};
     std::set<std::size_t> retained_output_boundaries;
+    std::set<std::size_t> full_output_boundaries;
     bool preview_wire{};
     TopoDS_Shape preview_input;
     bool direct_batch_active{};
@@ -7577,8 +7673,107 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
         operands.push_back(boundary_operand(tools[index],
             tool_history_indices[index]));
     }
-    const auto boundary=occt_boundary_union(operands,
-        std::max(1.0e-7,boolean_tolerance));
+    const auto batch_fuse_boundary=[&] {
+        std::vector<OwnedFace> source_faces;
+        std::vector<OwnedEdge> source_edges;
+        std::vector<OwnedVertex> source_vertices;
+        for(const auto& operand:operands) {
+            for(const auto& face:operand.faces)
+                for(const auto& reference:face.references)
+                    source_faces.push_back({face.shape,reference});
+            for(const auto& edge:operand.edges)
+                for(const auto& reference:edge.references)
+                    source_edges.push_back({edge.shape,reference});
+            for(const auto& vertex:operand.vertices)
+                for(const auto& reference:vertex.references)
+                    source_vertices.push_back({vertex.shape,reference});
+        }
+        TopTools_ListOfShape arguments,fuse_tools;
+        arguments.Append(operands.front().shape);
+        for(std::size_t index=1;index<operands.size();++index)
+            fuse_tools.Append(operands[index].shape);
+        BRepAlgoAPI_Fuse fuse;
+        fuse.SetArguments(arguments);
+        fuse.SetTools(fuse_tools);
+        fuse.SetRunParallel(true);
+        fuse.SetToFillHistory(true);
+        fuse.SetFuzzyValue(std::max(1.0e-7,boolean_tolerance));
+        fuse.Build();
+        if(!fuse.IsDone()||fuse.Shape().IsNull())
+            throw std::runtime_error(
+                "Batch Add Fuse did not produce a result");
+        auto propagated_faces=propagate_topology(
+            fuse,source_faces,std::vector<OwnedFace>{});
+        auto propagated_edges=propagate_topology(
+            fuse,source_edges,std::vector<OwnedEdge>{});
+        auto propagated_vertices=propagate_topology(
+            fuse,source_vertices,std::vector<OwnedVertex>{});
+        auto unified=unify_preserving_face_provenance(
+            fuse.Shape(),propagated_faces,propagated_edges,
+            propagated_vertices,std::max(1.0e-7,boolean_tolerance),true);
+        if(unified.shape.IsNull()||(!unified.validated&&
+           !BRepCheck_Analyzer(
+                unified.shape,true,true,false).IsValid()))
+            throw std::runtime_error(
+                "Batch Add Fuse produced an invalid protected result");
+
+        OcctBoundaryUnion result;
+        result.shape=std::move(unified.shape);
+        TopTools_IndexedMapOfShape faces,edges,vertices;
+        TopExp::MapShapes(result.shape,TopAbs_FACE,faces);
+        TopExp::MapShapes(result.shape,TopAbs_EDGE,edges);
+        TopExp::MapShapes(result.shape,TopAbs_VERTEX,vertices);
+        result.faces.resize(static_cast<std::size_t>(faces.Extent()));
+        result.edges.resize(static_cast<std::size_t>(edges.Extent()));
+        result.vertices.resize(static_cast<std::size_t>(vertices.Extent()));
+        for(int index=1;index<=faces.Extent();++index) {
+            auto& entry=result.faces[static_cast<std::size_t>(index-1)];
+            entry.shape=TopoDS::Face(faces(index));
+            entry.history_index=std::numeric_limits<std::size_t>::max();
+        }
+        for(int index=1;index<=edges.Extent();++index) {
+            auto& entry=result.edges[static_cast<std::size_t>(index-1)];
+            entry.shape=TopoDS::Edge(edges(index));
+            entry.history_index=std::numeric_limits<std::size_t>::max();
+        }
+        for(int index=1;index<=vertices.Extent();++index) {
+            auto& entry=result.vertices[static_cast<std::size_t>(index-1)];
+            entry.shape=TopoDS::Vertex(vertices(index));
+            entry.history_index=std::numeric_limits<std::size_t>::max();
+        }
+        const auto attach=[&](const auto& owned,const auto& members,
+                auto& metadata) {
+            for(const auto& source:owned) {
+                const int index=members.FindIndex(source.shape);
+                if(!index||!source.reference.valid())continue;
+                auto& entry=metadata[static_cast<std::size_t>(index-1)];
+                entry.references.push_back(source.reference);
+                entry.history_index=std::min(entry.history_index,
+                    history_of(source.reference,0));
+            }
+            for(auto& entry:metadata) {
+                ordered_unique(entry.references,entry.history_index==
+                        std::numeric_limits<std::size_t>::max()
+                    ?0:entry.history_index);
+                if(entry.history_index==
+                        std::numeric_limits<std::size_t>::max())
+                    entry.history_index=0;
+            }
+        };
+        attach(unified.faces,faces,result.faces);
+        attach(unified.edges,edges,result.edges);
+        attach(unified.vertices,vertices,result.vertices);
+        if(std::ranges::any_of(result.faces,[](const auto& face) {
+                return face.references.empty();
+            }))
+            throw std::runtime_error(
+                "Batch Add Fuse lost authored face ancestry");
+        return result;
+    };
+    const auto boundary=std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_FUSE")
+        ?occt_boundary_union(operands,
+            std::max(1.0e-7,boolean_tolerance))
+        :batch_fuse_boundary();
     const auto named=occt_boundary_named_topology(boundary,history_owners,
         std::max(1.0e-7,boolean_tolerance));
     std::vector<OwnedFace> faces;
@@ -7626,6 +7821,14 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
             aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive;
         result=make_result(boundary.shape,faces,edges,vertices,false,true,
             false,{},mesh_deflection,calculate_properties);
+    } else {
+        // A deferred history row owns a live native shape but intentionally no
+        // public mesh/archive or aggregate analysis. Mark its scalar values as
+        // pending: the default `true` would expose the empty packet's zero
+        // volume as a completed measurement.
+        result.physical_properties_current=false;
+        result.solid_present=TopExp_Explorer(
+            boundary.shape,TopAbs_SOLID).More();
     }
     result.resolved_up_to_limits=input.resolved_up_to_limits;
     for(const auto& tool:tools)
@@ -7926,6 +8129,12 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
             aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive;
         result=make_result(boundary.shape,faces,edges,vertices,false,true,
             false,{},mesh_deflection,calculate_properties);
+    } else {
+        // See calculate_add_block(): this is a calculated native boundary,
+        // not a measured empty Body.
+        result.physical_properties_current=false;
+        result.solid_present=TopExp_Explorer(
+            boundary.shape,TopAbs_SOLID).More();
     }
     result.resolved_up_to_limits=input.resolved_up_to_limits;
     for(const auto& tool:tools)
@@ -7935,16 +8144,34 @@ BodyResult OcctKernel::calculate_subtract_block(const BodyResult& input,
             tool.resolved_up_to_limits.end());
     result.source_fingerprint=source_fingerprint;
     if(!source_fingerprint.empty()) {
+        auto references=input.mesh.original_references;
+        for(const auto& tool:tools)
+            append_reference_geometry(references,
+                tool.mesh.original_references);
+        append_reference_geometry(references,
+            result.mesh.original_references);
+        result.mesh.original_references=references;
         live_cache_->boundaries.insert_or_assign(source_fingerprint,
             LiveCache::Boundary{boundary.shape,live_topology(),
                 nullptr,nullptr,false});
         std::erase(live_cache_->insertion_order,source_fingerprint);
         live_cache_->insertion_order.push_back(source_fingerprint);
+        live_cache_->copy_references.insert_or_assign(
+            source_fingerprint,std::move(references));
+        std::erase(live_cache_->copy_reference_order,
+            source_fingerprint);
+        live_cache_->copy_reference_order.push_back(source_fingerprint);
         while(live_cache_->insertion_order.size()>
                 kLiveShapeCacheLimit) {
             live_cache_->boundaries.erase(
                 live_cache_->insertion_order.front());
             live_cache_->insertion_order.pop_front();
+        }
+        while(live_cache_->copy_reference_order.size()>
+                kLiveShapeCacheLimit) {
+            live_cache_->copy_references.erase(
+                live_cache_->copy_reference_order.front());
+            live_cache_->copy_reference_order.pop_front();
         }
     }
     return result;
@@ -8644,6 +8871,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_recovering(
     }
     HistoryContext context;
     context.final_boundary_first=output_policy.final_boundary_first;
+    for(std::size_t index=0;index<operations.size();++index)
+        if(output_policy.retained_output_owners.contains(
+                operations[index].owner_id)) {
+            context.retained_output_boundaries.insert(index+1);
+            context.full_output_boundaries.insert(index+1);
+        }
     for(std::size_t index=1;index<operations.size();++index)
         if(output_policy.input_boundary_consumers.contains(operations[index].owner_id))
             context.retained_output_boundaries.insert(index);
@@ -8828,6 +9061,12 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         const auto placement=primitive_transform(branch.scope.translation,branch.scope.rotation_degrees);
         HistoryContext context;
         context.final_boundary_first=output_policy.final_boundary_first;
+        for(std::size_t index=0;index<branch.operations.size();++index)
+            if(output_policy.retained_output_owners.contains(
+                    branch.operations[index].owner_id)) {
+                context.retained_output_boundaries.insert(index+1);
+                context.full_output_boundaries.insert(index+1);
+            }
         for(std::size_t index=1;index<branch.operations.size();++index)
             if(output_policy.input_boundary_consumers.contains(
                     branch.operations[index].owner_id))
@@ -9160,7 +9399,8 @@ OcctKernel::evaluate_flat_history_batched(
         const std::vector<HistoryOperation>& operations,
         HistoryContext& context) const {
     if(operations.size()<2||!context.final_boundary_first||
-       context.preview_wire||context.direct_batch_active)
+       context.preview_wire||context.direct_batch_active||
+       aggregate_property_demand==AggregatePropertyDemand::All)
         return std::nullopt;
 
     const auto independent_add=[](const HistoryOperation& operation) {
@@ -9204,6 +9444,14 @@ OcctKernel::evaluate_flat_history_batched(
             return loft->make_solid;
         return false;
     };
+    const auto independent_subtract=[&](const HistoryOperation& operation) {
+        if(std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_SUBTRACT")||
+           operation.operation!=BooleanOperation::Subtract)
+            return false;
+        auto additive=operation;
+        additive.operation=BooleanOperation::Add;
+        return independent_add(additive);
+    };
 
     bool useful_block{};
     for(std::size_t index=0;index<operations.size();) {
@@ -9225,6 +9473,23 @@ OcctKernel::evaluate_flat_history_batched(
             useful_block=true;
         if(index==first)++index;
     }
+    for(std::size_t index=0;index<operations.size();) {
+        if(!independent_subtract(operations[index])) {++index;continue;}
+        std::set<std::string> sources;
+        const auto first=index;
+        while(index<operations.size()&&
+              independent_subtract(operations[index])&&
+              !context.retained_output_boundaries.contains(index+1)) {
+            if(operations[index].feature_copy&&
+               !sources.contains(operations[index].feature_copy->
+                   source_feature_id))
+                break;
+            sources.insert(operations[index].owner_id);
+            ++index;
+        }
+        if(index-first>1)useful_block=true;
+        if(index==first)++index;
+    }
     if(!useful_block)return std::nullopt;
 
     std::vector<std::string> history_owners;
@@ -9240,18 +9505,32 @@ OcctKernel::evaluate_flat_history_batched(
 
     std::vector<BodyResult> boundaries;
     boundaries.reserve(operations.size());
+    const bool trace_direct=
+        std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr||
+        std::getenv("ZIMA_CPP_PROFILE_DIRECT_STAGES")!=nullptr;
+    const auto elapsed_ms=[](const auto& start) {
+        return std::chrono::duration<double,std::milli>(
+            std::chrono::steady_clock::now()-start).count();
+    };
     const auto calculate_stage=[&](std::size_t operation_index) {
+        const auto stage_start=std::chrono::steady_clock::now();
         std::vector<HistoryOperation> prefix(
             operations.begin(),operations.begin()+
                 static_cast<std::ptrdiff_t>(operation_index+1));
         auto stage_context=context;
         stage_context.direct_batch_active=true;
         stage_context.defer_terminal_publication=
-            operation_index+1<operations.size();
+            operation_index+1<operations.size()&&
+            !context.retained_output_boundaries.contains(
+                operation_index+1);
         boundaries=evaluate_flat_history(prefix,boundaries,
             stage_context);
         context.original_faces=stage_context.original_faces;
         context.source_solids=std::move(stage_context.source_solids);
+        if(trace_direct)
+            std::cerr<<"[direct stage] index="<<operation_index
+                <<" owner="<<operations[operation_index].owner_id
+                <<" ms="<<elapsed_ms(stage_start)<<'\n';
     };
     const auto publish_construction=[](BodyResult& result) {
         const auto& originals=result.mesh.original_references;
@@ -9298,7 +9577,9 @@ OcctKernel::evaluate_flat_history_batched(
     };
 
     for(std::size_t index=0;index<operations.size();) {
-        if(index==0||!independent_add(operations[index])||
+        const bool subtract_block=independent_subtract(operations[index]);
+        if(index==0||
+           (!independent_add(operations[index])&&!subtract_block)||
            context.retained_output_boundaries.contains(index+1)) {
             calculate_stage(index++);
             continue;
@@ -9307,7 +9588,8 @@ OcctKernel::evaluate_flat_history_batched(
         std::set<std::string> block_owners;
         std::size_t end=index;
         while(end<operations.size()&&
-              independent_add(operations[end])&&
+              (subtract_block?independent_subtract(operations[end]):
+                   independent_add(operations[end]))&&
               !context.retained_output_boundaries.contains(end+1)) {
             if(operations[end].feature_copy&&
                !block_owners.contains(operations[end].feature_copy->
@@ -9316,7 +9598,7 @@ OcctKernel::evaluate_flat_history_batched(
             block_owners.insert(operations[end].owner_id);
             ++end;
         }
-        const bool continues_initial_block=index==1&&
+        const bool continues_initial_block=!subtract_block&&index==1&&
             independent_add(operations.front());
         if(end==index||(!continues_initial_block&&end-index<2)) {
             calculate_stage(index++);
@@ -9324,6 +9606,7 @@ OcctKernel::evaluate_flat_history_batched(
         }
 
         const auto& input=boundaries.back();
+        const auto block_start=std::chrono::steady_clock::now();
         std::map<std::string,BodyResult> source_tools;
         std::vector<BodyResult> tools;
         std::vector<std::size_t> tool_indices;
@@ -9332,6 +9615,7 @@ OcctKernel::evaluate_flat_history_batched(
         double tolerance=1.0e-7;
         for(std::size_t tool_index=index;tool_index<end;
                 ++tool_index) {
+            const auto tool_start=std::chrono::steady_clock::now();
             const auto& operation=operations[tool_index];
             BodyResult tool;
             if(operation.feature_copy) {
@@ -9382,31 +9666,130 @@ OcctKernel::evaluate_flat_history_batched(
             tool_indices.push_back(tool_index);
             tolerance=std::max(tolerance,
                 operation.boolean_tolerance);
+            if(trace_direct)
+                std::cerr<<"[direct Add tool] index="<<tool_index
+                    <<" owner="<<operation.owner_id
+                    <<" ms="<<elapsed_ms(tool_start)<<'\n';
         }
         const bool publish=end==operations.size();
-        auto direct=calculate_add_block(input,tools,tool_indices,
-            history_owners,tolerance,operations[end-1].mesh_deflection,
-            prefix_fingerprints[end-1],prefix_fingerprints,publish);
+        const auto union_start=std::chrono::steady_clock::now();
+        auto direct=subtract_block
+            ?calculate_subtract_block(input,tools,tool_indices,
+                history_owners,tolerance,
+                operations[end-1].mesh_deflection,
+                prefix_fingerprints[end-1],publish)
+            :calculate_add_block(input,tools,tool_indices,
+                history_owners,tolerance,
+                operations[end-1].mesh_deflection,
+                prefix_fingerprints[end-1],prefix_fingerprints,publish);
+        const auto union_ms=elapsed_ms(union_start);
+        // The direct union intentionally skips the intermediate Add boundary
+        // that originally named intersection edges. Resolve every later
+        // treatment reference owned by this block while that exact untreated
+        // boundary still exists, then carry the aliases through subsequent
+        // Fillet/Chamfer history. Once an earlier treatment shortens an edge,
+        // its old endpoint incidence no longer identifies the descendant.
+        const auto retain_future_intersection_aliases=[&] {
+            std::vector<EdgeReference> requested;
+            const auto append=[&](const auto& treatment) {
+                for(const auto& reference:treatment.edges) {
+                    if(!block_owners.contains(reference.owner_id)||
+                       !reference.semantic_key.starts_with(
+                           "boolean:add:intersection:between:")||
+                       std::ranges::find(requested,reference)!=
+                           requested.end())
+                        continue;
+                    requested.push_back(reference);
+                }
+            };
+            for(std::size_t future=end;future<operations.size();++future) {
+                if(operations[future].suppressed)continue;
+                if(const auto* fillet=std::get_if<FilletRequest>(
+                        &operations[future].primitive))append(*fillet);
+                else if(const auto* chamfer=std::get_if<ChamferRequest>(
+                        &operations[future].primitive))append(*chamfer);
+            }
+            if(requested.empty())return;
+            const auto boundary=live_cache_->boundaries.find(
+                prefix_fingerprints[end-1]);
+            if(boundary==live_cache_->boundaries.end()||
+               !boundary->second.topology)
+                throw DirectBatchReferenceFallback{};
+            auto topology=std::make_shared<LiveCache::Topology>(
+                *boundary->second.topology);
+            TopTools_IndexedMapOfShape faces;
+            TopExp::MapShapes(boundary->second.shape,TopAbs_FACE,faces);
+            std::vector<OcctBoundaryFace> ancestry(
+                static_cast<std::size_t>(faces.Extent()));
+            for(int face=1;face<=faces.Extent();++face)
+                ancestry[static_cast<std::size_t>(face-1)].shape=
+                    TopoDS::Face(faces(face));
+            for(const auto& owned:topology->faces) {
+                const int face=faces.FindIndex(owned.shape);
+                if(!face||!owned.reference.valid())continue;
+                auto& references=ancestry[
+                    static_cast<std::size_t>(face-1)].references;
+                if(std::ranges::find(references,owned.reference)==
+                   references.end())
+                    references.push_back(owned.reference);
+            }
+            std::vector<EdgeReference> unresolved;
+            unresolved.reserve(requested.size());
+            for(const auto& reference:requested)
+                if(std::ranges::none_of(topology->edges,
+                        [&](const auto& edge) {
+                            return edge.reference==reference;
+                        }))
+                    unresolved.push_back(reference);
+            const auto resolved=occt_resolve_add_intersection_edges(
+                boundary->second.shape,ancestry,unresolved,tolerance);
+            if(resolved.size()!=unresolved.size())
+                throw DirectBatchReferenceFallback{};
+            for(std::size_t index=0;index<resolved.size();++index)
+                topology->edges.push_back(
+                    {resolved[index].shape,unresolved[index]});
+            boundary->second.topology=std::move(topology);
+        };
+        if(!subtract_block) {
+            try {
+                retain_future_intersection_aliases();
+            } catch(const DirectBatchReferenceFallback&) {
+                throw;
+            } catch(const std::exception&) {
+                throw DirectBatchReferenceFallback{};
+            }
+        }
         std::vector<BodySnapshot> measurements=
             input.measurement_sources.get();
-        for(const auto& tool:tools)
+        for(std::size_t tool=0;tool<tools.size();++tool) {
             measurements.insert(measurements.end(),
-                tool.measurement_sources.begin(),
-                tool.measurement_sources.end());
+                tools[tool].measurement_sources.begin(),
+                tools[tool].measurement_sources.end());
+            if(tool+1<tools.size()) {
+                BodyResult deferred;
+                deferred.source_fingerprint=
+                    prefix_fingerprints[index+tool];
+                if(!measurements.empty())
+                    deferred.measurement_sources=measurements;
+                boundaries.push_back(std::move(deferred));
+            }
+        }
         if(!measurements.empty())
             direct.measurement_sources=std::move(measurements);
         if(publish)publish_construction(direct);
-        for(std::size_t boundary=index;boundary+1<end;++boundary) {
-            BodyResult deferred;
-            deferred.source_fingerprint=prefix_fingerprints[boundary];
-            boundaries.push_back(std::move(deferred));
-        }
         boundaries.push_back(std::move(direct));
-        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))
-            std::cerr<<"[direct Add block] first="<<index
-                <<" count="<<(end-index)<<" publish="<<publish<<'\n';
+        if(trace_direct)
+            std::cerr<<"[direct "<<(subtract_block?"Subtract":"Add")
+                <<" block] first="<<index
+                <<" count="<<(end-index)<<" publish="<<publish
+                <<" union_ms="<<union_ms
+                <<" total_ms="<<elapsed_ms(block_start)<<'\n';
         index=end;
     }
+    if(!boundaries.empty()&&
+       aggregate_property_demand==AggregatePropertyDemand::Final&&
+       !boundaries.back().physical_properties_current)
+        ensure_body_properties(boundaries.back());
     return boundaries;
 }
 
@@ -9422,7 +9805,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         if (!operation.suppressed && !operation.input_error.empty())
             throw std::runtime_error(operation.input_error);
     if(!context.direct_batch_active&&previous_boundaries.empty()&&
-       std::getenv("ZIMA_CPP_DIRECT_BATCH_REGEN")) {
+       !std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_REGEN")) {
         try {
             if(auto batched=evaluate_flat_history_batched(
                     operations,context))
@@ -10139,6 +10522,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         deferred.measurement_sources=measurement_sources;
                     return deferred;
                 }
+                if(context.full_output_boundaries.contains(operation_index+1))
+                    return make_operation_result(shape,faces,edges,vertices,
+                        original,persist,collect,hidden,
+                        calculate_body_properties);
                 const bool compact_this_boundary=compact_dependency_boundaries&&
                     (!final_first_boundaries||retained_final_first_boundaries.contains(
                         operation_index+1));
@@ -10233,6 +10620,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     return descendants.empty()?exact:descendants;
                 };
                 std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
+                // A direct Add block intentionally publishes a new canonical
+                // boundary identity.  A later treatment can still persist an
+                // older Boolean or treatment alias which is recovered from
+                // exact face ancestry below.  Make that proven alias visible
+                // to contour validation without changing the canonical input
+                // topology or deriving identity from OCCT contour order.
+                auto contour_available_edges=owned_topology->edges;
                 std::vector<VertexReference> selected_starts;
                 std::optional<std::vector<OcctBoundaryFace>>
                     structural_face_ancestry;
@@ -10262,15 +10656,28 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto structurally_resolved_history_edge=[&](
                         const EdgeReference& requested)
                         ->std::optional<TopoDS_Edge> {
-                    if(!requested.semantic_key.starts_with(
-                            "fillet:edge:from:")&&
-                       !requested.semantic_key.starts_with(
-                            "chamfer:edge:from:"))
+                    const bool boolean_intersection=
+                        requested.semantic_key.starts_with(
+                            "boolean:add:intersection:between:");
+                    const bool edge_treatment=
+                        requested.semantic_key.starts_with(
+                            "fillet:edge:from:")||
+                        requested.semantic_key.starts_with(
+                            "chamfer:edge:from:");
+                    if(!boolean_intersection&&!edge_treatment)
                         return {};
                     const auto& ancestry=current_face_ancestry();
-                    const auto resolved=occt_resolve_edge_treatment_edges(
-                        result_shape,ancestry,std::span(&requested,1),
-                        std::max(1.0e-7,operation.boolean_tolerance));
+                    const auto resolved=boolean_intersection
+                        ?occt_resolve_add_intersection_edges(
+                            result_shape,ancestry,
+                            std::span(&requested,1),
+                            std::max(1.0e-7,
+                                operation.boolean_tolerance))
+                        :occt_resolve_edge_treatment_edges(
+                            result_shape,ancestry,
+                            std::span(&requested,1),
+                            std::max(1.0e-7,
+                                operation.boolean_tolerance));
                     if(resolved.size()!=1)return {};
                     return resolved.front().shape;
                 };
@@ -10297,6 +10704,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         if(auto edge=structurally_resolved_history_edge(
                                 requested)) {
                             selected.emplace_back(*edge,requested);
+                            if(std::ranges::none_of(contour_available_edges,
+                                    [&](const auto& available) {
+                                        return available.shape.IsSame(*edge)&&
+                                            available.reference==requested;
+                                    }))
+                                contour_available_edges.push_back(
+                                    {*edge,requested});
                             resolved_request=true;
                             if(trace_treatment)std::fprintf(stderr,
                                 "Edge treatment %s resolved structural ancestry owner=%s\n",
@@ -10446,7 +10860,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                     const auto selected_seeds=selected;
                     selected = resolve_edge_treatment_contours(
-                        algorithm, selected, owned_topology->edges,
+                        algorithm, selected, contour_available_edges,
                         "Fillet", operation.owner_id);
                     treatment_phase("contours");
                     const auto accept_fillet_result=[&](auto& built,
@@ -11154,8 +11568,20 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if (operation.suppressed) {
                 auto boundary = boundaries.empty() ? BodyResult{} : boundaries.back();
                 if (persist_boundary_shape && !result_shape.IsNull()) {
-                    boundary.kernel_shape = serialize_kernel_shape(result_shape);
-                    boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
+                    // The input row may intentionally be a deferred final-first
+                    // packet. A terminal suppressed row still publishes the
+                    // real unchanged input body; copying that lightweight row
+                    // would otherwise leave the View and aggregate properties
+                    // empty even though the live OCCT shape is valid.
+                    boundary=make_operation_result(result_shape,
+                        owned_topology->faces,owned_topology->edges,
+                        owned_topology->vertices,true,true,true,
+                        owned_topology->hidden_display_edges);
+                    append_technological_surfaces(
+                        boundary,operation.mesh_deflection);
+                    append_reference_geometry(
+                        boundary.mesh.original_references,
+                        original_references);
                 } else if (!persist_boundary_shape&&boundary.physical_properties_current) {
                     boundary.kernel_shape.clear();
                     boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
@@ -11233,12 +11659,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 continue;
             }
             if(std::holds_alternative<SolidStateRequest>(operation.primitive)) {
-                const auto replay=solid_state_replay::prepare(operations,operation_index,*this);
+                const auto replay=solid_state_replay::prepare(
+                    operations,operation_index,*this);
                 HistoryContext replay_context;
                 replay_context.external_faces=context.external_faces;
                 replay_context.dependency_key=context.dependency_key;
                 replay_context.require_original_faces=true;
-                const auto rebuilt=evaluate_flat_history(replay,{},replay_context);
+                const auto rebuilt=evaluate_flat_history(
+                    replay,{},replay_context);
                 if(rebuilt.empty())throw std::invalid_argument("Select at least one eligible solid element.");
                 const auto found=live_cache_->boundaries.find(rebuilt.back().source_fingerprint);
                 if(found==live_cache_->boundaries.end())throw std::runtime_error("Solid state calculation is incomplete.");
@@ -11261,8 +11689,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     owned_topology->edges,owned_topology->vertices,true,persist_boundary_shape);
                 boundary.source_fingerprint=fingerprint(operations,operation_index+1);
                 boundary.mesh.original_references=original_references;
-                boundary.solid_state_reference_views.emplace(operation.owner_id,
-                    std::make_shared<const ViewerReferenceGeometry>(rebuilt.back().mesh.original_references));
+                boundary.solid_state_reference_views.emplace(
+                    operation.owner_id,
+                    std::make_shared<const ViewerReferenceGeometry>(
+                        rebuilt.back().mesh.original_references));
                 boundaries.push_back(std::move(boundary));
                 remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
                 continue;

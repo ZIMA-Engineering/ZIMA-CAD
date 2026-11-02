@@ -6,6 +6,20 @@
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+std::set<std::string> unbounded_external_line_ids(
+    const zima::sketcher::Sketch& sketch) {
+    std::set<std::string> result;
+    for(const auto& reference:sketch.external_references)
+        if(!reference.broken&&
+                (reference.infinite||reference.kind==
+                    zima::sketcher::ExternalReferenceKind::Axis)&&
+                zima::sketcher::external_reference_line(reference))
+            result.insert(reference.id);
+    return result;
+}
+}
+
 
 zima::sketcher::ConstraintKind AssemblyWorkspaceWindow::sketch_view_constraint_kind(zima::sketcher::ConstraintKind kind) const {
     using K=zima::sketcher::ConstraintKind;
@@ -135,11 +149,18 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
     {
         const auto owner_id=active_sketch_id_;
         const bool directional=kind!=zima::sketcher::ConstraintKind::Coincident;
-        viewer_->set_candidate_filter([owner_id,directional,selected_reference](const auto& candidate) {
+        const auto line_ids=unbounded_external_line_ids(*active_sketch());
+        viewer_->set_candidate_filter([owner_id,directional,selected_reference,line_ids](const auto& candidate) {
+            const auto external_id=sketch_external_reference_id_from_key(
+                candidate.semantic_key);
             return candidate.owner_id==owner_id &&
                 (selected_reference.empty()||(candidate.semantic_key!="point:"+selected_reference&&candidate.semantic_key!="external_point:"+selected_reference))&&
                 (!directional||candidate.kind!=zima::viewer::CandidateKind::SketchExternalReference ||
-                 candidate.semantic_key.starts_with("external_point:"));
+                 candidate.semantic_key.starts_with("external_point:"))&&
+                (!selected_reference.empty()||
+                 candidate.kind!=zima::viewer::CandidateKind::SketchExternalReference||
+                 candidate.semantic_key.starts_with("external_point:")||
+                 (external_id&&line_ids.contains(*external_id)));
         });
     }
     state_->setText(!pending_coincident_point_id_.empty()
@@ -699,6 +720,52 @@ void AssemblyWorkspaceWindow::accept_sketch_common_tangent_selection(
 void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
     const zima::viewer::ViewerCandidate& candidate) {
     if (!sketch_coincident_active_ || candidate.owner_id != active_sketch_id_) return;
+    const auto line_ids=unbounded_external_line_ids(*active_sketch());
+    const auto candidate_external_id=
+        candidate.kind==zima::viewer::CandidateKind::SketchExternalReference
+        ?sketch_external_reference_id_from_key(candidate.semantic_key)
+        :std::optional<std::string>{};
+    const bool candidate_external_line=candidate_external_id&&
+        line_ids.contains(*candidate_external_id);
+    if(pending_point_pair_constraint_kind_==
+            zima::sketcher::ConstraintKind::Coincident&&
+            pending_coincident_point_id_.empty()&&candidate_external_line) {
+        pending_coincident_point_id_="external_line:"+*candidate_external_id;
+        viewer_->set_selection_contract(
+            {zima::viewer::CandidateKind::SketchSegment});
+        const auto owner=active_sketch_id_;
+        viewer_->set_candidate_filter([owner](const auto& value) {
+            return value.owner_id==owner&&
+                value.kind==zima::viewer::CandidateKind::SketchSegment&&
+                value.semantic_key.starts_with("segment:");
+        });
+        state_->setText(tr(
+            "Totožnost: vyberte úsečku, která má ležet na externí přímce."));
+        return;
+    }
+    if(pending_coincident_point_id_.starts_with("external_line:")&&
+            candidate.kind==zima::viewer::CandidateKind::SketchSegment&&
+            candidate.semantic_key.starts_with("segment:")) {
+        try {
+            const auto line_id=pending_coincident_point_id_.substr(14);
+            const auto segment_id=candidate.semantic_key.substr(8);
+            if(!mutate_active_sketch([&](auto& sketch) {
+                    static_cast<void>(
+                        sketch.add_segment_on_external_line_constraint(
+                            segment_id,line_id));
+                }))return;
+            pending_coincident_point_id_.clear();
+            viewer_->set_candidate_filter({});
+            clear_completed_sketch_interaction();
+            preserve_view_on_refresh_=true;
+            refresh_tabs();refresh_scene();
+            state_->setText(tr(
+                "Vazba úsečky na externí přímku byla vytvořena. Vyberte další geometrii."));
+        }catch(const std::exception& error) {
+            state_->setText(QObject::tr(error.what()));
+        }
+        return;
+    }
     if (pending_point_pair_constraint_kind_ == zima::sketcher::ConstraintKind::Coincident &&
         pending_coincident_point_id_.empty() &&
         candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -707,12 +774,17 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchPoint,
                                         zima::viewer::CandidateKind::SketchExternalReference});
         const auto owner = active_sketch_id_;
-        viewer_->set_candidate_filter([owner](const auto& value) {
+        viewer_->set_candidate_filter([owner,line_ids](const auto& value) {
+            const auto external_id=sketch_external_reference_id_from_key(
+                value.semantic_key);
             return value.owner_id == owner &&
                 ((value.kind == zima::viewer::CandidateKind::SketchPoint && value.semantic_key.starts_with("point:")) ||
-                 (value.kind == zima::viewer::CandidateKind::SketchExternalReference && value.semantic_key.starts_with("external_point:")));
+                 (value.kind == zima::viewer::CandidateKind::SketchExternalReference &&
+                  (value.semantic_key.starts_with("external_point:")||
+                   (external_id&&line_ids.contains(*external_id)))));
         });
-        state_->setText(tr("Totožnost: vyberte bod, kterým má úsečka procházet."));
+        state_->setText(tr(
+            "Totožnost: vyberte bod, kterým má úsečka procházet, nebo externí přímku."));
         return;
     }
     if (pending_point_pair_constraint_kind_ != zima::sketcher::ConstraintKind::Coincident &&
@@ -860,6 +932,27 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         return;
     }
     if (!support_geometry_id.empty()) {
+        if(pending_coincident_point_id_.starts_with("segment:")&&
+                point_id.empty()&&candidate_external_line) {
+            try {
+                const auto segment_id=pending_coincident_point_id_.substr(8);
+                if(!mutate_active_sketch([&](auto& sketch) {
+                        static_cast<void>(
+                            sketch.add_segment_on_external_line_constraint(
+                                segment_id,support_geometry_id));
+                    }))return;
+                pending_coincident_point_id_.clear();
+                viewer_->set_candidate_filter({});
+                clear_completed_sketch_interaction();
+                preserve_view_on_refresh_=true;
+                refresh_tabs();refresh_scene();
+                state_->setText(tr(
+                    "Vazba úsečky na externí přímku byla vytvořena. Vyberte další geometrii."));
+            }catch(const std::exception& error) {
+                state_->setText(QObject::tr(error.what()));
+            }
+            return;
+        }
         const auto contact_point = segment_first ? point_id : pending_coincident_point_id_;
         try {
             if (!mutate_active_sketch([&](auto& sketch) {

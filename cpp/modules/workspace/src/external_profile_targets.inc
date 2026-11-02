@@ -81,7 +81,29 @@ document::ExtrusionParameters::EndTarget prepare_skeleton_end_target(
         if((!feature&&!body&&!boolean_owner)||(feature&&feature->suppressed)||(body&&body->suppressed)||
             source.calculated.back().calculation_errors.contains(local.owner_id))
             throw ProfileOperationError("missing_reference","The original extrusion target is unavailable.");
-        cached=capture->capture_reference_face_history(source.calculated,local);
+        try {
+            cached=capture->capture_reference_face_history(source.calculated,local);
+        } catch(const std::runtime_error& error) {
+            if(std::string_view(error.what())!=
+                    "The original extrusion target is unavailable.")throw;
+            // Ordinary native documents intentionally keep only the current
+            // final B-Rep.  A Boolean fragment still stores the oldest source
+            // identity, so explicitly calculate only through that defining
+            // operation when its exact face is no longer present in the saved
+            // packet.  This is reference capture during OK, not a persistent
+            // per-history cache or a picking-time regeneration.
+            const auto operations=group_solid_state_operations(
+                *capture,source.document,&source.calculated);
+            const auto owner=std::ranges::find(
+                operations,local.owner_id,&kernel::HistoryOperation::owner_id);
+            if(owner==operations.end())throw;
+            PartCalculationPolicy policy;
+            policy.calculation_operation_limit=static_cast<std::size_t>(
+                owner-operations.begin())+1;
+            const auto prefix=calculate_part(
+                *capture,source.document,nullptr,policy);
+            cached=capture->capture_reference_face_history(prefix,local);
+        }
     }
     // Viewer samples are already in the dependent Part frame. Native BRep
     // remains in the source Part frame and consumes the explicit frame chain.

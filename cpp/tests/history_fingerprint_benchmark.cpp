@@ -76,13 +76,14 @@ int main(int argc,char** argv) {
         // groups. Persisted IDs and authored signed zero must remain observable.
         auto operations=fixture(2,4);
         const auto original=history_fingerprint(operations,2);
-        // Captured from the original copying encoder before the optimization.
+        // Captured from the current native encoder. Every persisted request
+        // field, including disabled profile-axis options, has one fixed slot.
         const std::array<const char*,20> expected{
-            "d9e483bb623368b4","554bdc78a5da933d","e83de9172ff69984","e0035bdb370e1bbe",
-            "dc9c36d078e32de6","af0043656e3fedd0","4e226de94b1d3d2b","0feb8a96b85a7f56",
-            "dbcfa2567a5ee860","cebca3d0dbf0544d","531ffbcfe34a62b0","802a82edeb0621fe",
-            "3fe4ef7da5958a16","ba6f3d26d06680ac","98b5bc3699c01727","c76400768748dfb6",
-            "0cf447405491fe65","6918cb26400ab095","c2768901c1b4bc1d","09f02aa40b340623"};
+            "2f422cca0a536a8a","e334be42138a2295","626415030df21582","10b5aafd0ac0efb0",
+            "e44ded198d83c220","e74808229644a2b6","4ceb802ae6a43f6f","831b2f17951935d8",
+            "b75460218b5b4950","ffe53c6344c0e11d","a03586f333cab900","3986758ff0f2b90e",
+            "745f693c4e86b646","f938b778f7cc643c","654acfa080db7057","ebeeb2ff24ab7c86",
+            "b8f40541d2504935","4621bec687a07de5","7b48a6d816b9af2d","8406715ef4ac5367"};
         std::size_t case_index=0;
         const auto changed=[&](auto edit) {
             auto copy=operations; edit(copy);

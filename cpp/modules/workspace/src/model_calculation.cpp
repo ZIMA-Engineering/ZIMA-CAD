@@ -105,6 +105,95 @@ static kernel::HistoryOutputPolicy history_output_policy(
                 feature.feature_kind==document::FeatureKind::Chamfer||
                 feature.feature_kind==document::FeatureKind::DrillPoint)
             result.input_boundary_consumers.insert(feature.id);
+    // A Solid State boundary owns the transformed reference view consumed by
+    // later placement and by a subsequent Restore.  The forward OCCT shape is
+    // enough to continue geometry calculation, but the compact dependency
+    // packet cannot publish that semantic face/edge/point correspondence.
+    // State commands are uncommon, so retain precisely their output packets.
+    for(const auto& feature:document.history)
+        if(!feature.suppressed&&document::is_solid_state(feature.feature_kind))
+            result.retained_output_owners.insert(feature.id);
+
+    // Saved Body Properties remain analysis-only unless their Origin is used
+    // as a real placement/construction input.  In that case AggregateProperty
+    // demand is already exact; retain the measured history boundary as well so
+    // the refreshed centroid is available before the downstream placement is
+    // settled.  Unreferenced records continue to be completed in background.
+    if(!document.body_properties.empty()) {
+        std::set<std::string> referenced_origins;
+        const auto collect=[&](const document::ConstructionReference& reference) {
+            if(reference.instance_path.empty()&&reference.owner_id.ends_with(":origin"))
+                referenced_origins.insert(reference.owner_id);
+        };
+        for(const auto& body:document.body_history.bodies()) {
+            for(const auto& reference:body.scope.placement.references)collect(reference);
+            if(body.derived_copy)collect(body.derived_copy->reference);
+        }
+        for(const auto& reference:graph.references)
+            if(std::get<1>(reference).empty()&&std::get<2>(reference).ends_with(":origin"))
+                referenced_origins.insert(std::get<2>(reference));
+        const auto retain_last_feature=[&](const document::BodyHistory& body,
+                const std::string& through) {
+            std::size_t limit=body.entries.size();
+            if(!through.empty()) {
+                const auto found=std::ranges::find(body.entries,through,
+                    &document::PartHistoryEntry::id);
+                if(found!=body.entries.end())limit=static_cast<std::size_t>(
+                    found-body.entries.begin())+1;
+            }
+            while(limit) {
+                const auto& entry=body.entries[--limit];
+                if(entry.kind!=document::PartHistoryKind::Feature)continue;
+                const auto* feature=document.find_container(entry.id);
+                if(feature&&feature->feature_kind!=document::FeatureKind::Sketch) {
+                    result.retained_output_owners.insert(feature->id);
+                    break;
+                }
+            }
+        };
+        for(const auto& row:document.body_properties) {
+            if(!referenced_origins.contains(row.id+":origin"))continue;
+            if(const auto* body=document.body_history.find(row.body_id)) {
+                retain_last_feature(*body,row.after_object_id);
+            } else if(const auto* owner=document.body_history.owner(
+                    row.after_object_id)) {
+                retain_last_feature(*owner,row.after_object_id);
+            } else if(const auto* feature=document.find_container(
+                    row.after_object_id);
+                    feature&&feature->feature_kind!=document::FeatureKind::Sketch) {
+                result.retained_output_owners.insert(feature->id);
+            }
+        }
+    }
+    // A cursor inside history is an explicit output consumer.  Publish that
+    // exact Body boundary as part of the requested calculation; otherwise the
+    // final-first packet contains only dependency edges there and the View is
+    // blank immediately after inserting or editing a feature at the cursor.
+    if(const auto* body=document.body_history.find(
+            document.body_history.active_body_id());
+            body&&body->cursor<body->entries.size()) {
+        for(std::size_t index=body->cursor;index>0;--index) {
+            const auto& entry=body->entries[index-1];
+            if(entry.kind!=document::PartHistoryKind::Feature)continue;
+            const auto* feature=document.find_container(entry.id);
+            if(feature&&feature->feature_kind!=document::FeatureKind::Sketch) {
+                result.retained_output_owners.insert(feature->id);
+                break;
+            }
+        }
+    } else if(document.body_history.bodies().empty()&&
+            document.effective_history_cursor()<document.history_order.size()) {
+        const auto cursor=document.effective_history_cursor();
+        for(std::size_t index=cursor;index>0;--index) {
+            const auto& entry=document.history_order[index-1];
+            if(entry.kind!=document::PartHistoryKind::Feature)continue;
+            const auto* feature=document.find_container(entry.id);
+            if(feature&&feature->feature_kind!=document::FeatureKind::Sketch) {
+                result.retained_output_owners.insert(feature->id);
+                break;
+            }
+        }
+    }
     return result;
 }
 
@@ -676,40 +765,38 @@ std::optional<std::size_t> deferred_part_history_boundary(
 bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
         const document::PartDocument& document,
         std::vector<kernel::BodyResult>& current,
-        const std::size_t operation_count) {
+        const std::size_t operation_count,
+        const std::string& known_body_id,
+        const std::size_t known_body_index) {
     if(operation_count==0)return false;
-    const auto operations=group_solid_state_cached_operations(
-        document,&current);
-    const auto location=history_boundary_location(
-        operations,current,operation_count);
+    HistoryBoundaryLocation location;
+    if(!known_body_id.empty()) {
+        location.body_id=known_body_id;
+        location.body_index=known_body_index;
+        const auto found=current.back().body_boundaries.find(
+            location.body_id);
+        if(location.body_index==0||
+           found==current.back().body_boundaries.end()||
+           found->second.size()<location.body_index)
+            throw std::runtime_error(
+                "Known calculated Body history boundary is missing");
+    } else {
+        const auto operations=group_solid_state_cached_operations(
+            document,&current);
+        location=history_boundary_location(
+            operations,current,operation_count);
+    }
     if(complete_history_geometry(history_boundary(
             current,operation_count,location)))return false;
-    std::vector<kernel::BodyResult> materialization_source;
-    if(location.body_id.empty()) {
-        materialization_source.assign(current.begin(),
-            current.begin()+static_cast<std::ptrdiff_t>(operation_count-1));
-    } else {
-        // Body history vectors and snapshots are immutable/shared. Build the
-        // smallest previous-document packet instead of copying the complete
-        // final viewer mesh merely to truncate one local branch.
-        const auto& final=current.back();
-        kernel::BodyResult aggregate;
-        aggregate.source_fingerprint=final.source_fingerprint;
-        aggregate.calculation_errors=final.calculation_errors;
-        aggregate.ordered_up_to_failures=final.ordered_up_to_failures;
-        aggregate.body_boundaries=final.body_boundaries;
-        aggregate.body_inputs=final.body_inputs;
-        aggregate.body_outputs=final.body_outputs;
-        const auto& existing=final.body_boundaries.at(location.body_id).get();
-        std::vector<kernel::BodyResult> rows(existing.begin(),
-            existing.begin()+static_cast<std::ptrdiff_t>(location.body_index-1));
-        aggregate.body_boundaries[location.body_id]=std::move(rows);
-        materialization_source.push_back(std::move(aggregate));
-    }
     PartCalculationPolicy policy;
     policy.calculation_operation_limit=operation_count;
+    // This is an explicit exact prefix calculation.  Supplying even a compact
+    // previous-boundary packet selects incremental replay and prevents the
+    // kernel's direct grouped regeneration.  All authored inputs are already
+    // present in the document, so calculate the requested prefix directly and
+    // merge only its proven output into the immutable final-history packet.
     auto calculated=calculate_part(
-        kernel,document,&materialization_source,policy);
+        kernel,document,nullptr,policy);
     if(calculated.size()!=operation_count||calculated.empty()||
             !calculated.back().calculation_errors.empty())
         throw std::runtime_error("History boundary materialization failed");

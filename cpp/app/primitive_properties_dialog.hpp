@@ -278,6 +278,7 @@ private:
     std::function<void()> request_drill_point_face_selection_;
     QCheckBox* origin_centerline_{};
     QCheckBox* centroid_centerline_{};
+    QCheckBox* individual_centroid_centerlines_{};
     QComboBox* extrusion_direction_{};
     QComboBox* extrusion_extent_{};
     QLabel* extrusion_target_{};

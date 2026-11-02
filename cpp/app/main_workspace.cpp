@@ -9650,6 +9650,23 @@ int verify_selection_filter(QApplication& application,
         auto* combo=window.findChild<QComboBox*>("selectionFilterCombo");
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
         check(combo&&view&&combo->count()==7,"Missing user selection filters");
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* feature_item{};
+        for(QTreeWidgetItemIterator item(tree);*item;++item)
+            if((*item)->data(0,Qt::UserRole+3).toString()=="part-container") {
+                feature_item=*item;break;
+            }
+        check(feature_item,"Selection-filter fixture has no feature row");
+        tree->setCurrentItem(feature_item);flush();
+        auto camera=view->camera_state();camera[4]*=1.7F;
+        camera[5]+=43.F;camera[6]-=29.F;
+        view->set_camera_state(camera);camera=view->camera_state();
+        combo->setCurrentIndex(1);flush();
+        check(view->camera_state()==camera,
+            "Face selection filter fitted or recentered the camera");
+        combo->setCurrentIndex(0);flush();
+        check(view->camera_state()==camera,
+            "Resetting the selection filter fitted or recentered the camera");
         const auto assert_candidates=[&](int index,bool require_hit) {
             combo->setCurrentIndex(index);flush();view->fit_all();flush();
             std::size_t count=0;
@@ -9692,7 +9709,6 @@ int verify_selection_filter(QApplication& application,
             "Cannot insert repeated filter fixture Part");flush();
         for(int index=1;index<7;++index)assert_candidates(index,index==1||index==3||index==4);
         combo->setCurrentIndex(0);flush();
-        auto* tree=window.findChild<QTreeWidget*>("documentTree");
         QTreeWidgetItem* component{};
         for(QTreeWidgetItemIterator it(tree);*it;++it)
             if((*it)->data(0,Qt::UserRole).toString().toStdString()==inserted.data.at("occurrence").get<std::string>())component=*it;

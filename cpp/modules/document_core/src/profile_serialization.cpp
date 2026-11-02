@@ -19,6 +19,7 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
             container.extrusion.sheet_cut_clearance = source.at("sheet_cut_clearance");
             container.extrusion.origin_centerline = source.value("origin_centerline", false);
             container.extrusion.centroid_centerline = source.value("centroid_centerline", false);
+            container.extrusion.individual_centroid_centerlines = source.at("individual_centroid_centerlines");
             container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
             container.extrusion.profile_source = source.at("profile_source") == "internal"
                 ? ProfileSource::Internal : source.at("profile_source") == "external"
@@ -164,6 +165,7 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
             container.revolution.thickness_override=source.at("thickness_override");
             container.revolution.origin_centerline = source.value("origin_centerline", false);
             container.revolution.centroid_centerline = source.value("centroid_centerline", false);
+            container.revolution.individual_centroid_centerlines = source.at("individual_centroid_centerlines");
             container.revolution.sketch_id =
                 source.at("sketch_id").get<std::string>();
             container.revolution.profile_source = source.at("profile_source") == "internal"
@@ -229,6 +231,8 @@ void save_profile_parameters(const HistoryContainer& container, nlohmann::json& 
             serialized["sketch_id"] = container.extrusion.sketch_id;
             serialized["origin_centerline"] = container.extrusion.origin_centerline;
             serialized["centroid_centerline"] = container.extrusion.centroid_centerline;
+            serialized["individual_centroid_centerlines"] =
+                container.extrusion.individual_centroid_centerlines;
             serialized["sheet_cut"] = container.extrusion.sheet_cut;
             serialized["sheet_cut_clearance"] = container.extrusion.sheet_cut_clearance;
             serialized["profile_source"] = container.extrusion.profile_source ==
@@ -311,6 +315,8 @@ void save_profile_parameters(const HistoryContainer& container, nlohmann::json& 
             serialized["sketch_id"] = container.revolution.sketch_id;
             serialized["origin_centerline"] = container.revolution.origin_centerline;
             serialized["centroid_centerline"] = container.revolution.centroid_centerline;
+            serialized["individual_centroid_centerlines"] =
+                container.revolution.individual_centroid_centerlines;
             serialized["sheet_metal"]=container.revolution.sheet_metal;
             serialized["sheet_attachment"]=container.revolution.sheet_attachment;
             serialized["thickness_override"]=container.revolution.thickness_override;

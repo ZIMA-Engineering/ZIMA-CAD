@@ -290,13 +290,53 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         for(const auto& edge:display.edges)if(!edge.infinite&&edge.reference.owner_id==sketch->id)
             points.insert(points.end(),edge.points.begin(),edge.points.end());
         for(const auto& point:display.points)if(point.reference.owner_id==sketch->id&&!point.reference.semantic_key.starts_with("external_point:"))points.push_back(point.position);
+        const bool genuinely_empty=sketch->points.empty()&&
+            sketch->segments.empty()&&sketch->circles.empty()&&
+            sketch->arcs.empty()&&sketch->ellipses.empty()&&
+            sketch->elliptical_arcs.empty()&&sketch->bsplines.empty()&&
+            sketch->import_blocks.empty()&&sketch->offsets.empty()&&
+            sketch->texts.empty()&&sketch->symbols.empty()&&
+            sketch->external_references.empty();
+        if(genuinely_empty)points.clear();
         if(assembly_context) {
             const auto path=part?resolve_active_occurrence(part->session.document().document_id).value_or(std::string{}):workspace_.active_occurrence_path();
             if(!path.empty())for(auto& point:points)point=workspace_.occurrence_point_to_scene(
                 workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),point);
         }
-        if(points.empty())viewer_->fit_all();
-        else viewer_->fit_points(points);
+        if(points.empty()) {
+            const auto& scene=viewer_->mesh();
+            const bool has_model_context=!scene.triangles.empty()||
+                std::ranges::any_of(scene.edges,[&](const auto& edge) {
+                    return !edge.infinite&&!edge.points.empty()&&
+                        edge.reference.owner_id!=sketch->id&&
+                        !edge.reference.semantic_key.starts_with("origin:");
+                });
+            if(has_model_context) {
+                viewer_->fit_all();
+            } else {
+                // A genuinely empty Sketch has no geometric extent.  Frame a
+                // stable engineering-sized work area instead of falling back
+                // to monitor 1:1, which makes the user lose spatial context.
+                zima::kernel::ViewerMesh work_area;
+                zima::kernel::ViewerEdge diagonal;
+                diagonal.points={sketch->world_point(-250.,-250.),
+                    sketch->world_point(250.,250.)};
+                work_area.edges.push_back(std::move(diagonal));
+                auto placed=place_sketch_mesh(*sketch,std::move(work_area));
+                points=placed.edges.front().points;
+                if(assembly_context) {
+                    const auto path=part?resolve_active_occurrence(
+                        part->session.document().document_id).
+                            value_or(std::string{}):
+                        workspace_.active_occurrence_path();
+                    if(!path.empty())for(auto& point:points)
+                        point=workspace_.occurrence_point_to_scene(
+                            workspace_.displayed_document_id(),
+                            zima::assembly::InstancePath::decode(path),point);
+                }
+                viewer_->fit_points(points);
+            }
+        } else viewer_->fit_points(points);
     }
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }

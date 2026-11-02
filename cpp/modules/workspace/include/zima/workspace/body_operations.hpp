@@ -32,6 +32,7 @@ struct BodyGraphEdit {
     const std::string& body_id);
 [[nodiscard]] bool set_part_body_suppressed(Workspace&,const kernel::OcctKernel&,
     const std::string& document_id,const std::string& body_id,bool suppressed);
-[[nodiscard]] bool set_body_history_cursor(Workspace&,const std::string& document_id,
+[[nodiscard]] HistoryCursorChange set_body_history_cursor(
+    Workspace&,const kernel::OcctKernel&,const std::string& document_id,
     std::size_t index,const std::string& body_id = {});
 } // namespace zima::workspace

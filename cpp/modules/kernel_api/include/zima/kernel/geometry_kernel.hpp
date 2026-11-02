@@ -590,6 +590,7 @@ struct ProfileCenterlines {
     bool origin_enabled{}, centroid_enabled{};
     Vec3 origin, normal{0,0,1};
     std::string origin_id, profile_id;
+    bool individual_centroids_enabled{};
 };
 
 struct ExtrusionRequest {

@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/body_operations.hpp>
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <cmath>
@@ -154,7 +155,17 @@ void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
     auto second=zima::test::rectangular_feature(part,{6,6,6});second.placement.x=4;
     auto third=zima::test::rectangular_feature(part,{4,4,4});third.placement.x=-4;
     part.history={first,second,third};
-    const auto complete=workspace::calculate_part(kernel,part);
+    document::BodyHistoryGraph graph;
+    static_cast<void>(graph.create_body("Deferred history"));
+    for(const auto& feature:part.history)
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+    part.set_body_history(std::move(graph));
+    auto complete=workspace::calculate_part(kernel,part);
+    while(const auto deferred=workspace::deferred_part_history_boundary(
+            part,complete))
+        require(workspace::complete_part_history_boundary(
+            kernel,part,complete,*deferred),
+            "History fixture could not complete its baseline boundary");
     require(complete.size()==3&&std::ranges::all_of(complete,[](const auto& boundary) {
         return !boundary.mesh.triangles.empty();
     }),"History fixture did not start with complete boundaries");
@@ -173,6 +184,68 @@ void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
     const auto final_volume=measured_volume(kernel,deferred.back());
     const auto final_fingerprint=deferred.back().source_fingerprint;
     const auto final_ids=face_ids(deferred.back().mesh);
+
+    auto cursor_calculation_document=edited;
+    cursor_calculation_document.set_history_cursor(2);
+    const auto cursor_calculated=workspace::calculate_part(
+        kernel,cursor_calculation_document,&complete,policy);
+    const auto active_body=cursor_calculation_document.body_history.
+        active_body_id();
+    const auto retained=cursor_calculated.back().body_boundaries.find(
+        active_body);
+    require(retained!=cursor_calculated.back().body_boundaries.end()&&
+            retained->second.size()==3&&
+            !retained->second[1].mesh.triangles.empty()&&
+            !cursor_calculated.back().mesh.triangles.empty(),
+        "Calculation at a history cursor did not publish its visible Body");
+    std::vector<kernel::BodyResult> reopened_cursor_boundaries;
+    const auto reopened_cursor=document::PartDocument::from_serialized(
+        cursor_calculation_document.serialized(cursor_calculated),
+        &reopened_cursor_boundaries);
+    document::DocumentSession reopened_cursor_session(
+        reopened_cursor,std::move(reopened_cursor_boundaries));
+    require(!reopened_cursor_session.body_context_mesh().triangles.empty(),
+        "Save/reopen lost the calculated Body visible at the history cursor");
+
+    {
+        workspace::Workspace cursor_live;
+        cursor_live.add_part(edited,deferred);
+        auto* cursor_state=cursor_live.open_part(edited.document_id);
+        const auto body_id=
+            cursor_state->session.document().body_history.active_body_id();
+        const auto revision=cursor_state->session.revision();
+        const auto change=workspace::set_body_history_cursor(
+            cursor_live,kernel,edited.document_id,2,body_id);
+        require(change.changed&&change.boundary_materialized&&
+            cursor_state->session.revision()==revision+1&&
+            !cursor_state->session.body_context_mesh().triangles.empty(),
+            "History cursor did not materialize its exact visible Body");
+        require(measured_volume(kernel,
+                cursor_state->session.calculated_boundaries().back())==
+                    final_volume&&
+            cursor_state->session.calculated_boundaries().back().
+                source_fingerprint==final_fingerprint&&
+            face_ids(cursor_state->session.calculated_boundaries().back().mesh)==
+                final_ids,
+            "History cursor materialization changed the final result");
+        const auto generation=cursor_state->session.data_generation();
+        const auto* allocation=
+            cursor_state->session.calculated_boundaries().data();
+        const auto same=workspace::set_body_history_cursor(
+            cursor_live,kernel,edited.document_id,2,body_id);
+        require(!same.changed&&!same.boundary_materialized&&
+            cursor_state->session.data_generation()==generation&&
+            cursor_state->session.calculated_boundaries().data()==allocation,
+            "Unchanged history cursor recalculated or created a transaction");
+        require(cursor_state->session.undo()&&
+                cursor_state->session.document().body_history.find(body_id)->
+                    cursor==3&&
+                cursor_state->session.redo()&&
+                cursor_state->session.document().body_history.find(body_id)->
+                    cursor==2&&
+                !cursor_state->session.body_context_mesh().triangles.empty(),
+            "History cursor Undo/Redo lost the materialized Body");
+    }
 
     workspace::Workspace live;live.add_part(edited,std::move(deferred));
     auto* state=live.open_part(edited.document_id);
@@ -224,7 +297,12 @@ void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     auto cut=test::rectangular_feature(part,{2,2,2});
     cut.combine_mode=document::CombineMode::Subtract;
     part.history={stock,fillet,cut};
-    const auto complete=workspace::calculate_part(kernel,part);
+    auto complete=workspace::calculate_part(kernel,part);
+    while(const auto deferred=workspace::deferred_part_history_boundary(
+            part,complete))
+        require(workspace::complete_part_history_boundary(
+            kernel,part,complete,*deferred),
+            "Edge-treatment fixture could not complete its baseline boundary");
     require(complete.size()==3&&std::ranges::all_of(complete,[](const auto& boundary) {
         return !boundary.mesh.triangles.empty();
     }),"Edge-treatment history fixture did not start with complete boundaries");

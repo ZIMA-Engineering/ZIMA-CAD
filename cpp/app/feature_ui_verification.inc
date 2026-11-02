@@ -81,23 +81,27 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 probe.set_geometry_editing_presentation(true,construction.id);
                 probe.set_selection_contract({viewer::CandidateKind::SketchPoint,viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve});
                 probe.set_mesh(support);
-                const auto construction_hidden=image();const auto revision=probe.base_mesh_revision();
+                const auto construction_visible=image();const auto revision=probe.base_mesh_revision();
                 check(!probe.reference_visible(viewer::ReferenceVisibility::AxisPoints)&&
                     probe.base_mesh_revision()==revision,
-                    "Active Sketch exposed permanent construction endpoints");
-                const auto hidden_point=std::ranges::find_if(support.points,[](const auto& point){return point.construction;});
-                check(hidden_point!=support.points.end(),"Construction fixture lost its exclusive endpoint");
-                // Find the real point through the ordinary screen picker while
-                // its permanent marker is hidden. No surrogate point is made.
+                    "Active Sketch changed the permanent axis-point visibility setting");
+                const auto construction_point=std::ranges::find_if(support.points,[](const auto& point){return point.construction;});
+                check(construction_point!=support.points.end(),"Construction fixture lost its exclusive endpoint");
+                // Active Sketch points are authored editable geometry. Their
+                // marker and the picker use the same point, with no surrogate.
                 bool pickable=false;
                 for(int x=0;x<probe.width()&&!pickable;x+=2)for(int y=0;y<probe.height()&&!pickable;y+=2)
                     for(const auto& candidate:probe.selection_candidates_at(QPointF(x,y)))
-                        if(candidate.owner_id==construction.id&&candidate.semantic_key==hidden_point->reference.semantic_key)pickable=true;
-                check(pickable,"Hidden construction endpoint lost editable/snapping identity");
+                        if(candidate.owner_id==construction.id&&candidate.semantic_key==construction_point->reference.semantic_key)pickable=true;
+                check(pickable,"Visible construction endpoint lost editable/snapping identity");
                 std::erase_if(support.points,[](const auto& point){return point.construction;});
                 probe.set_mesh(support,false);
-                check(image()==construction_hidden,"Construction point toggle hid ordinary/shared profile points or changed curve wires");
-                std::cout<<"Active construction points: exact pixels, shared profile incidence, unchanged scene revision and real endpoint picking passed"<<std::endl;
+                check(image()!=construction_visible,"Active construction endpoint has no visible authored marker");
+                check(probe.mesh().edges.size()==support.edges.size()&&
+                    std::equal(probe.mesh().edges.begin(),probe.mesh().edges.end(),support.edges.begin(),
+                        [](const auto& left,const auto& right){return left.reference==right.reference&&left.points==right.points;}),
+                    "Updating active construction points changed the Sketch wires");
+                std::cout<<"Active construction points: authored markers, shared profile incidence, unchanged scene revision and real endpoint picking passed"<<std::endl;
                 // A modeled profile publishes only its visible construction
                 // curves outside Sketcher. Its shared native vertex is now
                 // presented solely as an axis endpoint, with the same ID.
@@ -155,7 +159,40 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                     auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
                     check(dialog,"Axes Feature properties missing");return dialog;
                 };
-                auto* dialog=open_properties();dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(false);
+                auto* dialog=open_properties();
+                auto* individual=dialog->findChild<QCheckBox*>("featureIndividualCentroidAxes");
+                check(individual&&individual->text()==translations.value("Osy jednotlivých profilů"),
+                    "Individual profile axes control is missing or untranslated");
+                check(!individual->isChecked(),"Individual profile axes must be opt-in");
+                auto* point=dialog->findChild<QCheckBox*>("featureShowPoint");
+                auto* text=dialog->findChild<QCheckBox*>("featureShowText");
+                check(point&&text&&!point->isChecked()&&!text->isChecked(),
+                    "Feature Point/Text controls have the wrong initial state");
+                point->setChecked(true);text->setChecked(true);
+                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto marker=std::ranges::find_if(view->mesh().points,[&](const auto& candidate) {
+                    return candidate.reference.owner_id==feature.id&&
+                        candidate.reference.semantic_key=="point";
+                });
+                check(marker!=view->mesh().points.end()&&marker->always_visible&&
+                    marker->label==feature.name,
+                    "Feature Point/Text checkboxes did not update the actual View marker");
+                dialog=open_properties();
+                point=dialog->findChild<QCheckBox*>("featureShowPoint");
+                text=dialog->findChild<QCheckBox*>("featureShowText");
+                check(point->isChecked()&&text->isChecked(),
+                    "Reopened Feature lost Point/Text choices");
+                point->setChecked(false);text->setChecked(false);
+                dialog->reject();flush();
+                const auto restored=std::ranges::find_if(view->mesh().points,[&](const auto& candidate) {
+                    return candidate.reference.owner_id==feature.id&&
+                        candidate.reference.semantic_key=="point";
+                });
+                check(restored!=view->mesh().points.end()&&restored->always_visible&&
+                    restored->label==feature.name,
+                    "Cancel changed the Feature Point/Text presentation");
+                dialog=open_properties();
+                dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(false);
                 dialog->findChild<QCheckBox*>("featureCentroidAxis")->setChecked(false);dialog->reject();flush();expect_axes();
                 dialog=open_properties();dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(false);
                 dialog->findChild<QCheckBox*>("featureCentroidAxis")->setChecked(false);
@@ -1070,12 +1107,16 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 01" && pending.feature.automatic_name==pending.name,
                     "GUI type switch did not update its automatic name");
                 check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
-                      pending.feature.centroid_centerline==inactive.centroid_centerline,"Type switch discarded inactive settings");
+                      pending.feature.centroid_centerline==inactive.centroid_centerline&&
+                      pending.feature.individual_centroid_centerlines==inactive.individual_centroid_centerlines,
+                      "Type switch discarded inactive settings");
                 check(dialog()->findChild<QGroupBox*>("featurePlaneGroup")->isVisible()==(type>=2),"Wrong work-plane controls for Feature type");
                 check(dialog()->findChild<QGroupBox*>("featureSketchGroup")->isVisible()==(type>=3),"Wrong Sketch controls for Feature type");
                 check(dialog()->findChild<QGroupBox*>("featureResultGroup")->isVisible()==(type==4),"Wrong modeling controls for Feature type");
                 check(dialog()->findChild<QCheckBox*>("featureOriginAxis")->isVisible()==(type==4)&&
-                      dialog()->findChild<QCheckBox*>("featureCentroidAxis")->isVisible()==(type==4),"Datum type exposes optional path checkboxes");
+                      dialog()->findChild<QCheckBox*>("featureCentroidAxis")->isVisible()==(type==4)&&
+                      dialog()->findChild<QCheckBox*>("featureIndividualCentroidAxes")->isVisible()==(type==4),
+                      "Datum type exposes optional path checkboxes");
                 check(dialog()->findChild<QCheckBox*>("featureSymmetric")->isVisible()==(type==1||type==4),"Wrong symmetry control for Feature type");
                 const auto source_count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id;});
                 check((source_count>0)==(type>=3),"Feature type published the wrong source geometry");
