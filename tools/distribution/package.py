@@ -64,15 +64,22 @@ def prepare_factory_config(runtime):
     contents = config.read_text(encoding='utf-8')
     lines = contents.splitlines(keepends=True)
     section = ''
-    replaced = 0
+    working_directory_replaced = 0
     for index, line in enumerate(lines):
         text = line.strip()
         if text.startswith('[') and text.endswith(']'):
             section = text[1:-1]
         elif section == 'Paths' and re.match(r'^WorkingDirectory\s*=', text):
             lines[index] = 'WorkingDirectory=~\n'
-            replaced += 1
-    if replaced != 1:
+            working_directory_replaced += 1
+        elif section == 'AI' and re.match(
+                r'^CodexExecutable(?:Windows|Linux)\s*=', text):
+            # A development checkout may remember its local Codex executable.
+            # A portable runtime must discover or receive its own executable;
+            # never publish an absolute build-host account path as a default.
+            key = line.split('=', 1)[0].rstrip()
+            lines[index] = key + '=\n'
+    if working_directory_replaced != 1:
         raise ValueError('Expected exactly one factory Paths/WorkingDirectory')
     config.write_text(''.join(lines), encoding='utf-8')
 

@@ -1199,6 +1199,13 @@ home path is embedded. Existing common, platform and project overrides retain
 priority. Development configuration remains unchanged. The CLI retains its
 explicit working-directory/current-directory contract.
 
+The package builders also clear development-only
+`AI/CodexExecutableWindows` and `AI/CodexExecutableLinux` values in the packaged
+factory config. A portable installation discovers or receives its own executable
+through installation-root user settings; it never inherits an absolute account
+path from the build host. The committed development configuration remains
+unchanged and the exact source copy still accompanies the package.
+
 User resource directories start empty. A custom resource library is selected
 through the corresponding directory setting. Until then, the program reads the
 selected version's factory library. This is directory selection, not an implicit

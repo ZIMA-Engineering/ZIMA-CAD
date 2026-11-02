@@ -69,15 +69,23 @@ class PackageTests(unittest.TestCase):
         self.assertIn(str(Path(os.environ['SystemRoot']) / 'System32'), environment['PATH'])
         self.assertFalse(any(k.upper().startswith(('QT_', 'QML', 'CSF_')) for k in environment))
 
-    def test_factory_working_directory_is_portable_home(self):
+    def test_factory_settings_remove_build_host_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp)
             (runtime / 'config').mkdir()
             config = runtime / 'config/config.ini'
-            config.write_text('[Paths]\nTemplates=templates\nWorkingDirectory=C:/build/private\n[Other]\nWorkingDirectory=keep\n', encoding='utf-8')
+            config.write_text(
+                '[AI]\n'
+                'CodexExecutableWindows=C:/Users/builder/AppData/Local/OpenAI/Codex/codex.exe\n'
+                'CodexExecutableLinux=/home/builder/.local/bin/codex\n'
+                'Model=\n'
+                '[Paths]\nTemplates=templates\nWorkingDirectory=C:/build/private\n'
+                '[Other]\nWorkingDirectory=keep\n', encoding='utf-8')
             package.prepare_factory_config(runtime)
             self.assertEqual(config.read_text(encoding='utf-8'),
-                '[Paths]\nTemplates=templates\nWorkingDirectory=~\n[Other]\nWorkingDirectory=keep\n')
+                '[AI]\nCodexExecutableWindows=\nCodexExecutableLinux=\nModel=\n'
+                '[Paths]\nTemplates=templates\nWorkingDirectory=~\n'
+                '[Other]\nWorkingDirectory=keep\n')
 
     def test_build_ids(self):
         self.assertEqual(package.version_id('2024022901'), '2024022901')
