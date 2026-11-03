@@ -9888,6 +9888,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             failed.input_error=error->second;operations.push_back(std::move(failed));continue;
         }
         try {
+            if(!container.suppressed&&
+                    !container.placement.references.empty()&&
+                    !container.placement.reference_valid)
+                throw std::runtime_error(
+                    "Navržené reference umístění prvku nelze vyřešit.");
         if(container.is_surface_result() && container.combine_mode==CombineMode::Subtract)
             throw std::runtime_error("A surface cannot subtract material.");
         if(container.feature_kind==FeatureKind::BoundarySurface) {

@@ -21,9 +21,13 @@ void Host::register_sketch_reference_commands() {
         {{"kind",true},{"owner",true},{"key",true},{"instance_path",false},{"profile",false,Type::Boolean}}},[this](Sketch& s,const Json& a) {
         const bool profile=a.value("profile",false);const auto source_kind=kind(a["kind"].get<std::string>());
         const bool outline=source_kind==Kind::Face&&sketcher::is_face_curve_key(a["key"].get<std::string>());
-        if(profile&&source_kind!=Kind::Edge&&!outline)invalid("Profile geometry requires an edge or an outline curve reference.");
+        if(profile&&source_kind!=Kind::Edge&&source_kind!=Kind::Face)
+            invalid("Profile geometry requires an edge or a circular face reference.");
+        const auto& key=a["key"].get_ref<const std::string&>();
+        const bool body_edge=source_kind==Kind::Edge&&!outline&&
+            (profile||sketcher::is_edge_treatment_body_edge_key(key));
         auto value=workspace::prepare_sketch_external_reference(workspace_,workspace_.active_document_id(),s,source_kind,
-            a["owner"].get<std::string>(),a["key"].get<std::string>(),a.value("instance_path",std::string{}),{},false,profile&&!outline);
+            a["owner"].get<std::string>(),key,a.value("instance_path",std::string{}),{},false,body_edge);
         const auto id=value.id;const auto source=value.source_document_id;
         s.add_external_reference(std::move(value));
         const auto endpoint_references=(source_kind==Kind::Edge||outline)?

@@ -616,6 +616,102 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(reference(current,projected).body_edge&&!reference(current,projected).broken,"Redo lost the body-edge source mode");
     }
     {
+        workspace::Workspace treatment_live;command_host::Options treatment_options;
+        treatment_options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
+        command_host::Host treatment_host(treatment_live,kernel,directory,treatment_options);
+        run(treatment_host,"new",{{"type","part"},{"name","fillet-references"}});
+        const auto doc=treatment_live.active_document_id();
+        const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(treatment_host,n,std::move(a));},
+            {{"length_mm","40"},{"width_mm","30"},{"height_mm","20"}}).data.at("container").get<std::string>();
+        const Json seed={{"owner",box},{"key",test::profile_key(treatment_live.open_part(doc)->session.document(),box,
+            "edge:x_max:y_min:z_max--x_max:y_min:z_min")}};
+        const auto fillet=run(treatment_host,"fillet.create",{{"routes",Json::array({Json{{"edges",Json::array({seed})}}})},
+            {"radius_mm",2}}).data.at("container").get<std::string>();
+        const auto& mesh=treatment_live.open_part(doc)->session.calculated_boundaries().back().mesh;
+        const auto edge=std::ranges::find_if(mesh.edges,[&](const auto& value) {
+            return value.reference.owner_id==fillet&&
+                sketcher::is_edge_treatment_body_edge_key(value.reference.semantic_key)&&
+                value.points.size()>1&&std::hypot(value.points.front().x-value.points.back().x,
+                    value.points.front().y-value.points.back().y)>1;
+        });
+        require(edge!=mesh.edges.end(),"Fillet fixture lacks a generated projected edge");
+        const auto edge_key=edge->reference.semantic_key;
+        const auto face=std::ranges::find_if(mesh.triangle_references,[&](const auto& value) {
+            return value.owner_id==fillet&&value.semantic_key.starts_with("fillet:face:")&&
+                value.surface&&value.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder&&
+                std::abs(value.surface->axis.z)>.999;
+        });
+        require(face!=mesh.triangle_references.end(),"Fillet fixture lacks a cylindrical rounded face");
+        const auto face_key=face->semantic_key;
+        const auto reference=[&](const auto& sketch,const std::string& id)->const sketcher::SketchExternalReference& {
+            const auto found=std::ranges::find(sketch.external_references,id,&sketcher::SketchExternalReference::id);
+            require(found!=sketch.external_references.end(),"Fillet Sketch reference is missing");return *found;
+        };
+        const auto create_sketch=[&](const char* name) {
+            return run(treatment_host,"sketch.create",{{"name",name}}).data.at("sketch").get<std::string>();
+        };
+        const auto edge_reference_sketch=create_sketch("Fillet edge reference");
+        const auto edge_reference_result=run(treatment_host,"sketch.reference.create",{{"sketch",edge_reference_sketch},
+            {"kind","edge"},{"owner",fillet},{"key",edge_key}}).data;
+        const auto edge_reference=edge_reference_result.at("reference").get<std::string>();
+        require(edge_reference_result.at("endpoint_references").size()==2,
+            "Fillet edge Reference did not expose both endpoints");
+        const auto edge_profile_sketch=create_sketch("Fillet edge outline");
+        const auto edge_profile=run(treatment_host,"sketch.reference.create",{{"sketch",edge_profile_sketch},
+            {"kind","edge"},{"owner",fillet},{"key",edge_key},{"profile",true}}).data.at("reference").get<std::string>();
+        const auto face_reference_sketch=create_sketch("Fillet face reference");
+        const auto face_reference=run(treatment_host,"sketch.reference.create",{{"sketch",face_reference_sketch},
+            {"kind","face"},{"owner",fillet},{"key",face_key}}).data.at("reference").get<std::string>();
+        const auto face_profile_sketch=create_sketch("Fillet face outline");
+        const auto face_profile_result=run(treatment_host,"sketch.reference.create",{{"sketch",face_profile_sketch},
+            {"kind","face"},{"owner",fillet},{"key",face_key},{"profile",true}}).data;
+        const auto face_profile=face_profile_result.at("reference").get<std::string>();
+        const auto verify=[&](double radius) {
+            const auto edge_sketch=workspace::document_sketch(treatment_live,doc,edge_reference_sketch);
+            const auto& edge_source=reference(edge_sketch,edge_reference);
+            require(edge_source.body_edge&&!edge_source.broken&&edge_source.cached_points.size()>1,
+                "Fillet result-edge Reference lost its calculated Body source");
+            require(std::ranges::count_if(edge_sketch.external_references,[&](const auto& value) {
+                return sketcher::is_external_endpoint_kind(value.kind)&&value.body_edge&&!value.broken&&
+                    value.source_owner_id==fillet&&value.source_semantic_key==edge_key;
+            })==2,"Fillet result-edge endpoint references are incomplete");
+            const auto outline=workspace::document_sketch(treatment_live,doc,edge_profile_sketch);
+            require(reference(outline,edge_profile).body_edge&&!reference(outline,edge_profile).broken&&
+                !outline.import_blocks.empty(),"Fillet edge did not retain its linked native outline");
+            const auto circle_reference=workspace::document_sketch(treatment_live,doc,face_reference_sketch);
+            const auto source_circle=sketcher::external_reference_circle(reference(circle_reference,face_reference));
+            require(source_circle&&std::abs((*source_circle)[2]-radius)<1e-6,
+                "Fillet cylindrical face did not produce its analytic reference circle");
+            const auto circle_profile=workspace::document_sketch(treatment_live,doc,face_profile_sketch);
+            const auto profile_source=sketcher::external_reference_circle(reference(circle_profile,face_profile));
+            require(profile_source&&circle_profile.circles.size()==1&&
+                std::abs(circle_profile.circles.front().radius-radius)<1e-6&&
+                std::abs(circle_profile.circles.front().radius-(*profile_source)[2])<1e-7,
+                "Fillet cylindrical face did not produce a linked native circle");
+        };
+        verify(2);
+        run(treatment_host,"fillet.set",{{"container",fillet},{"radius_mm",3}});verify(3);
+        run(treatment_host,"undo");verify(2);
+        run(treatment_host,"redo");verify(3);
+        run(treatment_host,"save");
+        const auto path=treatment_live.open_part(doc)->path;
+        auto reopened=document::PartDocument::load(path);
+        const auto reopened_bodies=kernel.evaluate_history(reopened.kernel_operations());
+        static_cast<void>(workspace::refresh_sketch_external_references(
+            reopened,reopened_bodies,&kernel));
+        for(const auto sketch_id:{edge_reference_sketch,edge_profile_sketch,face_reference_sketch,face_profile_sketch}) {
+            const auto found=std::ranges::find(reopened.sketches,sketch_id,&sketcher::Sketch::id);
+            require(found!=reopened.sketches.end()&&std::ranges::none_of(found->external_references,
+                [](const auto& value){return value.broken;}),
+                "Fillet edge/face reference failed native save/reopen");
+        }
+        const auto reopened_face=std::ranges::find(reopened.sketches,face_reference_sketch,&sketcher::Sketch::id);
+        const auto reopened_circle=sketcher::external_reference_circle(reference(*reopened_face,face_reference));
+        require(reopened_circle&&std::abs((*reopened_circle)[2]-3)<1e-6,
+            "Fillet face circle failed cold regeneration after native reopen");
+        std::cout<<"Fillet Sketch references: result edge/endpoints, native outline, cylindrical face circle, edit, Undo/Redo and cold save/reopen passed\n";
+    }
+    {
         auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{30,30,30});part.history.push_back(box);
         auto thread=document::PartDocument::create_thread_container();thread.placement.z=-15;thread.thread.bore_length=20;thread.thread.length_forward=15;part.history.push_back(thread);
         const auto calculated=kernel.evaluate_history(part.kernel_operations());

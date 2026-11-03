@@ -8,7 +8,7 @@ namespace zima::app {
 inline std::vector<viewer::CandidateKind> sketch_external_reference_candidate_kinds(bool profile,bool intersection=false,bool branches=false) {
     using Kind=viewer::CandidateKind;
     if(intersection)return branches?std::vector{Kind::SketchExternalReference}:std::vector{Kind::Face,Kind::Edge,Kind::SketchSegment,Kind::SketchCurve};
-    if(profile)return {Kind::Edge};
+    if(profile)return {Kind::Edge,Kind::Face};
     return {Kind::Edge,Kind::Face,Kind::Plane,Kind::SketchSegment,Kind::SketchCurve,
         Kind::SketchPoint,Kind::Vertex,Kind::Axis};
 }
@@ -19,9 +19,10 @@ inline bool sketch_external_reference_has_stable_geometry(
     if(intersection)return candidate.kind==viewer::CandidateKind::Face?candidate.geometry==viewer::CandidateGeometry::Display:
         (candidate.kind==viewer::CandidateKind::Edge||candidate.kind==viewer::CandidateKind::SketchSegment||candidate.kind==viewer::CandidateKind::SketchCurve)&&
         candidate.geometry==viewer::CandidateGeometry::OriginalReference&&!sketcher::is_face_curve_key(candidate.semantic_key);
-    if(profile)return candidate.kind==viewer::CandidateKind::Edge&&
-        (candidate.geometry==viewer::CandidateGeometry::Display||
-         (candidate.geometry==viewer::CandidateGeometry::OriginalReference&&sketcher::is_face_curve_key(candidate.semantic_key)));
+    if(profile&&candidate.kind==viewer::CandidateKind::Edge)return
+        candidate.geometry==viewer::CandidateGeometry::Display||
+        (candidate.geometry==viewer::CandidateGeometry::OriginalReference&&
+            sketcher::is_face_curve_key(candidate.semantic_key));
     // Whole planes and cylinders expose analytic supports. Other curved faces
     // retain the explicit Intersection path; never use arbitrary bulk outlines.
     if(candidate.kind==viewer::CandidateKind::Face) {
@@ -31,7 +32,10 @@ inline bool sketch_external_reference_has_stable_geometry(
             face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder);
     }
     return candidate.kind!=viewer::CandidateKind::Face&&
-        candidate.geometry==viewer::CandidateGeometry::OriginalReference;
+        (candidate.geometry==viewer::CandidateGeometry::OriginalReference||
+         (candidate.kind==viewer::CandidateKind::Edge&&
+          candidate.geometry==viewer::CandidateGeometry::Display&&
+          sketcher::is_edge_treatment_body_edge_key(candidate.semantic_key)));
 }
 
 // The caller retains the offered Display candidate for hover/confirmation.

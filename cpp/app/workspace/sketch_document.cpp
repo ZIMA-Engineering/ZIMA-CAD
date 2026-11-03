@@ -66,7 +66,7 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
             ? sketch_external_intersection_active_
                 ? tr("Intersection: select a source face or curve.")
                 : sketch_external_profile_active_
-                ? tr("Reference → obrys: vyberte hranu nebo obrysovou křivku.")
+                ? tr("Reference → obrys: vyberte hranu, kruhovou plochu nebo obrysovou křivku.")
                 : tr("Reference: vyberte hranu, obrysovou křivku, vrchol, osu "
                      "nebo rovinu. Pravým tlačítkem lze přepínat kandidáty.")
             : tr("Režim referencí byl ukončen."));
@@ -79,7 +79,8 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     const auto kind=sketch_external_reference_kind(candidate);
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
-         candidate.kind != zima::viewer::CandidateKind::Edge) ||
+         candidate.kind != zima::viewer::CandidateKind::Edge&&
+         candidate.kind != zima::viewer::CandidateKind::Face) ||
         !sketch_external_reference_has_stable_geometry(candidate,sketch_external_profile_active_,false,&viewer_->mesh()) ||
         !kind) return;
     try {
@@ -93,8 +94,13 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
                 "External reference requires an exact component occurrence");
             path.erase(0,prefix.size());
         }
+        const bool body_edge=candidate.kind==viewer::CandidateKind::Edge&&
+            !sketcher::is_face_curve_key(source.semantic_key)&&
+            (sketch_external_profile_active_||
+             (candidate.geometry==viewer::CandidateGeometry::Display&&
+              sketcher::is_edge_treatment_body_edge_key(source.semantic_key)));
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
-            source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_&&!sketcher::is_face_curve_key(source.semantic_key));
+            source.owner_id,source.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,body_edge);
         if(candidate.kind==viewer::CandidateKind::Face&&!reference.infinite&&
            !(reference.exact_spline&&sketcher::external_reference_circle(reference)))
             throw std::runtime_error("Source face cannot be projected into the Sketch plane");

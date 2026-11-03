@@ -51,8 +51,14 @@ int verify_external_circular_profiles_ui(QApplication& application,const std::fi
         const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
         const auto stored=snapshot();
         const auto& result=*std::ranges::find(stored.sketches,target.id,&sketcher::Sketch::id);
-        if(!verify(result.external_references.size()==1&&result.import_blocks.size()==1&&result.bsplines.empty()&&
-            result.circles.size()==(closed?2u:1u)&&result.arcs.size()==(closed?0u:1u),"Mouse contour insertion did not retain the analytic type"))return 1;
+        const bool analytic_type=result.external_references.size()==(closed?1u:3u)&&result.import_blocks.size()==1&&
+            result.bsplines.empty()&&result.circles.size()==(closed?2u:1u)&&
+            result.arcs.size()==(closed?0u:1u);
+        if(!analytic_type)std::cerr<<"External circular profile mismatch closed="<<closed
+            <<" references="<<result.external_references.size()
+            <<" imports="<<result.import_blocks.size()<<" splines="<<result.bsplines.size()
+            <<" circles="<<result.circles.size()<<" arcs="<<result.arcs.size()<<'\n';
+        if(!verify(analytic_type,"Mouse contour insertion did not retain the analytic type"))return 1;
         if(!verify(result.import_blocks.front().external_profile.has_value(),"Mouse contour insertion lost native projection metadata"))return 1;
         const auto points=result.points;const auto curves=result.circles;const auto arcs=result.arcs;
         window.findChild<QAction*>("undoAction")->trigger();flush();const auto undone=snapshot();

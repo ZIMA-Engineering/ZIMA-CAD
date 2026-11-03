@@ -44,7 +44,7 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
     if (route>=parameters.routes.size()) return result;
     const auto selected=segment ? parameters.routes[route] :
         actual_edge_treatment_intervals(parameters.routes[route]);
-    std::set<std::size_t> appended;
+    std::set<std::pair<bool,std::size_t>> appended;
     for (std::size_t i=0;i<selected.size();++i) {
         if (segment && i!=*segment) continue;
         std::vector<std::size_t> exact,descendants;
@@ -54,8 +54,27 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
             else if(kernel::edge_reference_matches_or_descends_from(
                         reference,selected[i]))descendants.push_back(edge_index);
         }
-        const auto& resolved=descendants.empty()?exact:descendants;
-        for(const auto edge_index:resolved)if(appended.insert(edge_index).second)
+        if(!exact.empty()) {
+            for(const auto edge_index:exact)
+                if(appended.insert({false,edge_index}).second)
+                    result.push_back(input.edges[edge_index]);
+            continue;
+        }
+        if(!kernel::is_boolean_intersection_interval(selected[i])) {
+            bool found_original=false;
+            for(std::size_t edge_index=0;
+                    edge_index<input.original_references.edges.size();
+                    ++edge_index) {
+                const auto& edge=input.original_references.edges[edge_index];
+                if(edge.reference!=selected[i])continue;
+                found_original=true;
+                if(appended.insert({true,edge_index}).second)
+                    result.push_back(edge);
+            }
+            if(found_original)continue;
+        }
+        for(const auto edge_index:descendants)
+            if(appended.insert({false,edge_index}).second)
             result.push_back(input.edges[edge_index]);
     }
     return result;

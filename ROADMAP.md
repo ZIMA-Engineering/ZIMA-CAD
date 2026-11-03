@@ -53,6 +53,25 @@ prototypes still require discussion. FEM, voice/pointer context and direct mesh
 editing are queued design work. See [the detailed queue](doc/FASTENER_REMAINING_WORK.md).
 New native persisted or protected placement contracts require the agreed review.
 
+### Progressive ZIMA-owned surface and sweep construction (agreed 2026-11-03)
+
+ZIMA-CAD will progressively own the mathematical construction of the geometry it
+authors: profiles, ordered paths, transported section frames, Sweep/Loft surfaces,
+end conditions and the semantic ancestry of their edges and faces. The reusable
+implementation must serve Fillet, Chamfer and general Sweep/Loft operations rather
+than creating unrelated command-specific approximations. Exact line, arc and
+analytic-surface cases should remain analytic; general cases may produce explicit
+B-spline/NURBS surfaces at the document's configured modeling tolerance.
+
+OCCT remains the supported B-Rep and topology backend. Initially it receives the
+ZIMA-defined curves and surfaces, creates or trims `TopoDS` topology, sews shells,
+closes solids and performs intersections and Boolean operations. This direction
+does not propose an immediate replacement of OCCT, duplicate Windows/Linux
+algorithms or reduced precision. Each migrated layer must preserve stable source
+ancestry, side identity, native persistence, Undo/Redo and equivalent calculated
+results, and must be adopted only with focused geometry, performance and
+save/reopen verification.
+
 ## Earlier priorities and queued requests (2026-10-07)
 
 ### Shared operation activity indicator (requested 2026-10-07)

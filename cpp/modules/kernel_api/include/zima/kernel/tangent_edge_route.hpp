@@ -67,6 +67,7 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
     // it only when the persisted identity names one connected curve. A live
     // hover/click retains the exact offered runtime edge above.
     const bool seed_chain=seed_segments.size()==1||edge_treatment_chain(seed_segments).has_value();
+    const bool has_exact_pick=seed_index.has_value();
     if (!seed_index) {
         if(!seed_chain)return {};
         seed_index=seed_indices.front();
@@ -110,14 +111,39 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
         return zima::kernel::Vec3{tangent.x/length,
             tangent.y/length,tangent.z/length};
     };
+    const auto material_angle_signature=[&](std::size_t index,int end)
+            ->std::optional<double> {
+        const auto& edge=edges[index];
+        if(edge.edge_treatment_side_directions.size()!=2||
+           edge.edge_treatment_side_directions[0].size()!=edge.points.size()||
+           edge.edge_treatment_side_directions[1].size()!=edge.points.size())
+            return std::nullopt;
+        const auto sample=end==0?std::size_t{}:edge.points.size()-1;
+        const auto& first=edge.edge_treatment_side_directions[0][sample];
+        const auto& second=edge.edge_treatment_side_directions[1][sample];
+        const double first_length=std::hypot(std::hypot(first.x,first.y),first.z);
+        const double second_length=std::hypot(std::hypot(second.x,second.y),second.z);
+        if(!std::isfinite(first_length)||!std::isfinite(second_length)||
+           first_length<=1.0e-12||second_length<=1.0e-12)
+            return std::nullopt;
+        return std::clamp((first.x*second.x+first.y*second.y+
+            first.z*second.z)/(first_length*second_length),-1.,1.);
+    };
     std::set<std::size_t> selected{*seed_index};
     std::vector<std::size_t> pending{*seed_index};
-    if(seed_chain)for(const auto index:seed_indices)if(selected.insert(index).second)pending.push_back(index);
+    // A live pick identifies one calculated fragment exactly. Let ordinary
+    // tangent traversal add only compatible continuations. Programmatic
+    // restoration still starts from every connected fragment represented by
+    // the one persisted source identity, because no runtime index exists.
+    if(seed_chain&&!has_exact_pick)
+        for(const auto index:seed_indices)
+            if(selected.insert(index).second)pending.push_back(index);
     std::set<VertexKey> visited_vertices;
     while (!pending.empty()) {
         const auto current = pending.back(); pending.pop_back();
         for (int end = 0; end < 2; ++end) {
             const auto current_direction = direction(current, end);
+            const auto current_material=material_angle_signature(current,end);
             const auto vertex = endpoint_key(edges[current], end);
             if (!current_direction || !vertex) continue;
             // Once the route has crossed one vertex, do not enter the same
@@ -129,6 +155,16 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
                 if (candidate.edge == current || selected.contains(candidate.edge)) continue;
                 const auto candidate_direction = direction(candidate.edge, candidate.end);
                 if (!candidate_direction) continue;
+                const auto candidate_material=material_angle_signature(
+                    candidate.edge,candidate.end);
+                // Geometric tangency alone is insufficient at a Boolean
+                // branch: the same authored curve can continue from a real
+                // corner into an old smooth seam.  When both calculated
+                // fragments publish their exact face-side directions, retain
+                // only a continuation with the same material opening.
+                if(current_material&&candidate_material&&
+                   std::abs(*current_material-*candidate_material)>1.0e-6)
+                    continue;
                 const double alignment =
                     current_direction->x * candidate_direction->x +
                     current_direction->y * candidate_direction->y +

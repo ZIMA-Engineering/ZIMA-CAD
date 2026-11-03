@@ -6,6 +6,7 @@
 #include <zima/workspace/primitive_operations.hpp>
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -129,7 +130,29 @@ void siblings_survive(Fixture& f, const std::vector<kernel::ViewerEdge>& source,
                 sibling.reference.owner_id+":"+
                 sibling.reference.semantic_key+" while treating "+
                 treated.owner_id+":"+treated.semantic_key);
-        require(found->points == sibling.points, "Treating one fragment changed another fragment's geometry");
+        const bool same_points=found->points.size()==sibling.points.size()&&
+            std::ranges::equal(found->points,sibling.points,[](const auto& a,
+                    const auto& b) {
+                return std::abs(a.x-b.x)<=1e-9&&
+                    std::abs(a.y-b.y)<=1e-9&&
+                    std::abs(a.z-b.z)<=1e-9;
+            });
+        if(!same_points) {
+            std::ostringstream message;
+            message<<std::setprecision(17)
+                <<"Treating one fragment changed another fragment's geometry: "
+                <<sibling.reference.owner_id<<':'<<sibling.reference.semantic_key
+                <<" before="<<sibling.points.size()<<" after="<<found->points.size();
+            if(!sibling.points.empty()&&!found->points.empty())
+                message<<" before endpoints=("<<sibling.points.front().x<<','
+                    <<sibling.points.front().y<<','<<sibling.points.front().z
+                    <<")-("<<sibling.points.back().x<<','<<sibling.points.back().y
+                    <<','<<sibling.points.back().z<<") after endpoints=("
+                    <<found->points.front().x<<','<<found->points.front().y<<','
+                    <<found->points.front().z<<")-("<<found->points.back().x<<','
+                    <<found->points.back().y<<','<<found->points.back().z<<')';
+            throw std::runtime_error(message.str());
+        }
     }
 }
 void exercise(fs::path directory, const std::string& name) {
@@ -279,8 +302,8 @@ void split_again(const fs::path& directory) {
     const Json stale_args = {{"distance_a_mm", .2}, {"routes", Json::array({Json{{"edges", Json::array({ref(original)})}}})}};
     const auto rejected = f.host.execute({{"command", "chamfer.create"}, {"arguments", stale_args}});
     require(!rejected.ok && rejected.code == "invalid_reference" && f.state().session.revision() == revision,
-        "An obsolete parent selected a child or committed a partial treatment");
-    std::cout << "Repeated split: child ancestry, sibling isolation, split-parent Fillet/Chamfer resolution and obsolete-parent creation rejection passed\n";
+        "An obsolete Boolean parent selected a child or committed a partial treatment");
+    std::cout << "Repeated split: child ancestry, sibling isolation, split-parent Fillet/Chamfer resolution and obsolete Boolean-parent creation rejection passed\n";
 }
 
 void bounded_fillet_recovery() {
@@ -472,15 +495,23 @@ void zima_fragment_survival() {
             kernel::FilletRequest::Mode::Constant,1,1,false,{},
             kernel::EdgeTreatmentCalculationMethod::Zima,{1},{{}}},
         kernel::BooleanOperation::Add};
+    const auto chamfer=kernel::HistoryOperation{
+        "fragment-chamfer",
+        kernel::ChamferRequest{{original_reference},
+            kernel::ChamferRequest::Mode::EqualDistance,1,1,
+            0.7853981633974483,false,
+            kernel::EdgeTreatmentCalculationMethod::Zima,{1},{{}}},
+        kernel::BooleanOperation::Add};
     const auto evaluate=[&](double cutter_z,double cutter_height,
+            const kernel::HistoryOperation& selected_treatment,
             std::size_t* detected_survivors=nullptr) {
         auto cutter=test::ProfilePrism{5,5,cutter_height};
         cutter.translation={18,-1,cutter_z};
         const auto cut=prism("fragment-cutter",cutter,
             kernel::BooleanOperation::Subtract);
-        kernel::OcctKernel kernel;
+        kernel::OcctKernel incremental_kernel;
         const std::vector<kernel::HistoryOperation> input{stock,cut};
-        const auto before=kernel.evaluate_history(input);
+        const auto before=incremental_kernel.evaluate_history(input);
         std::size_t survivors{};
         for(const auto& edge:before.back().mesh.edges)
             if(edge.points.size()>=2&&
@@ -493,10 +524,20 @@ void zima_fragment_survival() {
                 ++survivors;
         if(detected_survivors)*detected_survivors=survivors;
         auto complete=input;
-        complete.push_back(treatment);
-        return std::pair{survivors,kernel.evaluate_history(complete)};
+        complete.push_back(selected_treatment);
+        const auto incremental=incremental_kernel.evaluate_history_incremental(
+            complete,before);
+        kernel::OcctKernel cold_kernel;
+        const auto cold=cold_kernel.evaluate_history(complete);
+        require(incremental.size()==cold.size()&&
+                incremental.back().calculation_errors==
+                    cold.back().calculation_errors,
+            "Adding a ZIMA treatment to a calculated Body changed cold/incremental error state");
+        if(incremental.back().calculation_errors.empty())
+            near(incremental.back().volume,cold.back().volume,1.0e-5);
+        return std::pair{survivors,incremental};
     };
-    const auto [two_fragments,two]=evaluate(10,10);
+    const auto [two_fragments,two]=evaluate(10,10,treatment);
     require(two_fragments==2&&two.size()==3&&
             two.back().calculation_errors.empty()&&
             std::ranges::any_of(two.back().mesh.triangle_references,
@@ -504,7 +545,7 @@ void zima_fragment_survival() {
                     return face.owner_id=="fragment-fillet";
                 }),
         "ZIMA Fillet did not follow both surviving fragments");
-    const auto [one_fragment,one]=evaluate(0,20);
+    const auto [one_fragment,one]=evaluate(0,20,treatment);
     require(one_fragment==1&&one.size()==3&&
             one.back().calculation_errors.empty()&&
             std::ranges::any_of(one.back().mesh.triangle_references,
@@ -515,14 +556,23 @@ void zima_fragment_survival() {
     bool all_fragments_unresolved{};
     std::size_t no_fragments=std::numeric_limits<std::size_t>::max();
     try {
-        static_cast<void>(evaluate(0,30,&no_fragments));
+        static_cast<void>(evaluate(0,30,treatment,&no_fragments));
     } catch(const std::invalid_argument& error) {
         all_fragments_unresolved=std::string_view(error.what())==
             "Fillet/Chamfer original edge reference is unresolved.";
     }
     require(no_fragments==0&&all_fragments_unresolved,
         "ZIMA Fillet did not become unresolved after every fragment disappeared");
-    std::cout<<"ZIMA fragment survival: two, one and zero descendants passed\n";
+    const auto [chamfer_fragments,chamfer_result]=evaluate(10,10,chamfer);
+    require(chamfer_fragments==2&&chamfer_result.size()==3&&
+            chamfer_result.back().calculation_errors.empty()&&
+            std::ranges::any_of(
+                chamfer_result.back().mesh.triangle_references,
+                [](const auto& face) {
+                    return face.owner_id=="fragment-chamfer";
+                }),
+        "ZIMA Chamfer did not use the retained original edge supports");
+    std::cout<<"ZIMA fragment survival: Fillet two/one/zero and Chamfer source descendants passed\n";
 }
 
 void assembly_targets(const fs::path& directory) {

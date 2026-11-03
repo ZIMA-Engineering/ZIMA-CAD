@@ -6,6 +6,12 @@ namespace zima::sketcher {
 // The selector is part of the persisted source identity, never a mesh index.
 inline constexpr std::string_view face_curve_prefix="sketch-outline:";
 inline bool is_face_curve_key(std::string_view key) { return key.starts_with(face_curve_prefix); }
+// Fillet and Chamfer publish exact persisted result-edge identities. Unlike an
+// anonymous Boolean/result fragment, these edges can be refreshed from the
+// calculated Body before a later Sketch.
+inline bool is_edge_treatment_body_edge_key(std::string_view key) {
+    return key.starts_with("fillet:edge:")||key.starts_with("chamfer:edge:");
+}
 inline std::string face_curve_source_key(const std::string& key) {
     if(!is_face_curve_key(key))return key;
     const auto separator=key.find(':',face_curve_prefix.size());

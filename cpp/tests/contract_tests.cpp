@@ -1301,6 +1301,30 @@ int main() {
             input.edges.back().reference=second_boolean;
             input.edges.push_back(input.edges[1]);
             input.edges.back().reference=source_continuation;
+            auto original_choice=input;
+            original_choice.original_references.edges={input.edges[0]};
+            original_choice.original_references.edges.front().points={
+                {-7.0,0.0,0.0},{-6.0,0.0,0.0}};
+            std::erase_if(original_choice.edges,[&](const auto& edge) {
+                return edge.reference==refs[0];
+            });
+            auto original_route=parameters;
+            original_route.routes={{refs[0]}};
+            const auto original_wire=zima::document::treatment_selection_wire(
+                original_route,0,std::nullopt,original_choice);
+            require(original_wire.size()==1&&
+                    original_wire.front().reference==refs[0]&&
+                    original_wire.front().points==
+                        original_choice.original_references.edges.front().points,
+                "Original edge selection preview expanded to current split descendants");
+            auto current_exact=input.edges[0];
+            current_exact.points={{8.0,0.0,0.0},{9.0,0.0,0.0}};
+            original_choice.edges.push_back(current_exact);
+            const auto current_wire=zima::document::treatment_selection_wire(
+                original_route,0,std::nullopt,original_choice);
+            require(current_wire.size()==1&&
+                    current_wire.front().points==current_exact.points,
+                "Ordinary current edge selection was replaced by retained source geometry");
             boolean_route.routes={{refs[2],source_continuation,
                 first_boolean,second_boolean,refs[3]}};
             const auto actual_wire=zima::document::treatment_selection_wire(

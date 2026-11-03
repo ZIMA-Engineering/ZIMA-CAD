@@ -182,8 +182,12 @@ void verify_sketch_reference_icons(QApplication& application) {
             "Sketch reference icon is not entirely brown");
         const auto reference_outline=rendered("sketch-reference-outline");
         require(pixels_near(reference_outline,reference_points)>40&&
-                pixels_near(reference_outline,outline)>20,
-            "Reference contour icon lost its brown reference or white contour");
+                pixels_near(reference_outline,outline)>20&&
+                pixels_near(reference_outline,reference_points,
+                    QRect(18,18,12,12))<5&&
+                pixels_near(reference_outline,outline,
+                    QRect(18,18,12,12))>5,
+            "Reference contour icon is not one white line with brown endpoints");
         const auto intersection=rendered("sketch-intersection");
         require(pixels_near(intersection,reference_points,
                     QRect(4,28,16,16))>8&&
@@ -196,12 +200,18 @@ void verify_sketch_reference_icons(QApplication& application) {
             "Intersection icon does not distinguish reference and crossing endpoints");
         const auto intersection_outline=rendered(
             "sketch-intersection-outline");
-        require(pixels_near(intersection_outline,reference_points)>30&&
-                pixels_near(intersection_outline,neutral)>30&&
-                pixels_near(intersection_outline,outline)>20,
-            "Intersection contour icon does not retain its base icon and white contour");
+        require(pixels_near(intersection_outline,reference_points)<5&&
+                pixels_near(intersection_outline,outline,
+                    QRect(4,28,16,16))>8&&
+                pixels_near(intersection_outline,outline,
+                    QRect(28,4,16,16))>8&&
+                pixels_near(intersection_outline,neutral,
+                    QRect(4,4,16,16))>8&&
+                pixels_near(intersection_outline,neutral,
+                    QRect(28,28,16,16))>8,
+            "Intersection contour icon is not the base intersection with a white line and white endpoints");
     }
-    std::cout<<"Sketch reference icons: brown references, base intersections and white outline marks passed Light/Dark/Light\n";
+    std::cout<<"Sketch reference icons: brown reference, white reference contour and white intersection contour passed Light/Dark/Light\n";
 }
 
 // Mesh interaction in this executable is driven by explicit synthetic events.

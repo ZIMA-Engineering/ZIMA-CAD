@@ -6,6 +6,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <TopoDS_Solid.hxx>
 #include <NCollection_List.hxx>
 
 #include <cstddef>
@@ -78,6 +79,16 @@ struct OcctPlanarEdgeEndFaces {
     TopoDS_Face last;
 };
 
+// Optional exact source support for a persisted original edge. The selected
+// edge and these two faces belong to the same original solid, while `input`
+// remains the current Body receiving the completed treatment tool. A null
+// material keeps the ordinary current-input adjacency path.
+struct OcctPlanarEdgeSupport {
+    TopoDS_Face first;
+    TopoDS_Face second;
+    TopoDS_Solid material;
+};
+
 [[nodiscard]] OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     const TopoDS_Shape& input,
     std::span<const TopoDS_Edge> edges,
@@ -86,6 +97,7 @@ struct OcctPlanarEdgeEndFaces {
     std::span<const OcctPlanarEdgeEndFaces> end_faces = {},
     OcctPlanarEdgeFilletEndMode end_mode =
         OcctPlanarEdgeFilletEndMode::Perpendicular,
-    std::span<const std::size_t> route_edge_counts = {});
+    std::span<const std::size_t> route_edge_counts = {},
+    std::span<const OcctPlanarEdgeSupport> supports = {});
 
 } // namespace zima::kernel

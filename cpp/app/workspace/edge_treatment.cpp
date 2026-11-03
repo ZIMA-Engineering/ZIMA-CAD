@@ -30,15 +30,19 @@ std::optional<RouteEndpoint> route_endpoint(
         std::size_t end) {
     const auto route=zima::document::actual_edge_treatment_intervals(
         authored_route);
+    zima::document::EdgeTreatmentParameters parameters;
+    parameters.routes={authored_route};
+    const auto resolved=zima::document::treatment_selection_wire(
+        parameters,0,std::nullopt,mesh);
     const auto terminals=zima::workspace::edge_treatment_route_endpoints(
-        mesh.edges,route);
+        resolved,route);
     if(terminals.size()!=2)return {};
     const auto terminal=[&](const zima::kernel::VertexReference& value) {
         return std::ranges::find(terminals,value)!=terminals.end();
     };
     const auto scan=[&](const zima::kernel::EdgeReference& reference,
             bool reverse)->std::optional<RouteEndpoint> {
-        for(const auto& edge:mesh.edges) {
+        for(const auto& edge:resolved) {
             if(edge.reference!=reference||edge.points.empty()||
                edge.edge_treatment_endpoint_references.size()!=2)continue;
             for(const std::size_t endpoint:reverse
@@ -335,6 +339,12 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
     if (edge_treatment_selection_ && part != nullptr) {
         std::set<std::pair<std::string,std::string>> input_edges;
         std::set<std::pair<std::string,std::string>> original_edges;
+        const bool original_selection_allowed=
+            edge_treatment_preview_parameters_.calculation_method!=
+                zima::document::EdgeTreatmentParameters::CalculationMethod::Occt&&
+            (*edge_treatment_selection_!=zima::document::FeatureKind::Fillet||
+             edge_treatment_preview_parameters_.fillet_mode==
+                zima::document::EdgeTreatmentParameters::FilletMode::Constant);
         if(input)for(const auto& edge:input->mesh.edges)
             if(!edge.parameter_seam && edge.reference.valid())
                 input_edges.emplace(edge.reference.owner_id,edge.reference.semantic_key);
@@ -382,6 +392,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
              input_edges = std::make_shared<const decltype(input_edges)>(std::move(input_edges)),
              original_edges = std::make_shared<const decltype(original_edges)>(
                 std::move(original_edges)),
+             original_selection_allowed,
              preview_owner = edge_treatment_preview_owner_id_](
                 const auto& candidate) {
                 if (candidate.kind == zima::viewer::CandidateKind::Dimension) {
@@ -397,6 +408,10 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
                     ?input_edges->contains(identity)
                     :candidate.geometry==
                         zima::viewer::CandidateGeometry::OriginalReference&&
+                        original_selection_allowed&&
+                        !zima::kernel::is_boolean_intersection_interval({
+                            candidate.owner_id,candidate.semantic_key,{}})&&
+                        !input_edges->contains(identity)&&
                         original_edges->contains(identity);
             }, false);
         }
@@ -448,54 +463,34 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         });
     }
     const auto* part = workspace_.open_part(workspace_.active_document_id());
+    const auto* input=part==nullptr?nullptr:
+        zima::workspace::calculated_operation_input(part->session,
+            part->session.document().find_container(
+                edge_treatment_preview_owner_id_)
+                ?edge_treatment_preview_owner_id_:std::string{});
     if (!edge_treatment_selection_ || part == nullptr ||
-        pending_edge_treatment_groups_.empty()) {
+        input==nullptr||pending_edge_treatment_groups_.empty()) {
         viewer_->set_transient_edges({});
         viewer_->set_transient_dimensions({});
         return;
     }
     const std::string instance_path = resolve_active_occurrence(
         part->session.document().document_id).value_or(std::string{});
-    const auto* displayed_assembly =
-        workspace_.open_assembly(workspace_.displayed_document_id());
-    const auto decoded_path = instance_path.empty()
-        ? std::optional<zima::assembly::InstancePath>{}
-        : std::optional{zima::assembly::InstancePath::decode(instance_path)};
     std::vector<std::vector<zima::kernel::ViewerEdge>> display_groups;
     std::vector<zima::kernel::VertexReference> route_start_vertices;
     const auto authored_start_count=edge_treatment_preview_parameters_.route_start_vertices.size();
     display_groups.reserve(pending_edge_treatment_groups_.size());
     route_start_vertices.reserve(pending_edge_treatment_groups_.size());
+    auto display_parameters=edge_treatment_preview_parameters_;
+    display_parameters.routes=pending_edge_treatment_groups_;
     for (std::size_t group_index=0;group_index<pending_edge_treatment_groups_.size();++group_index) {
-        const auto group=zima::document::actual_edge_treatment_intervals(
-            pending_edge_treatment_groups_[group_index]);
-        std::vector<zima::kernel::ViewerEdge> display_group;
-        display_group.reserve(group.size());
-        for (const auto& stored : group) {
-            auto displayed_reference = stored;
-            displayed_reference.instance_path = instance_path;
-            auto edges = viewer_->display_edges(displayed_reference);
-            for (auto& edge : edges) {
-                if (displayed_assembly != nullptr && decoded_path) {
-                    for (auto& point : edge.points) {
-                        point = workspace_.occurrence_point_from_scene(
-                            displayed_assembly->session.document().document_id,
-                            *decoded_path, point);
-                    }
-                    for (auto& side : edge.edge_treatment_side_directions) {
-                        for (auto& direction : side) {
-                            direction = workspace_.occurrence_direction_from_scene(
-                                displayed_assembly->session.document().document_id,
-                                *decoded_path, direction);
-                        }
-                    }
-                }
-                // Preview is in the active Part frame, including semantic R1.
-                for(auto& endpoint:edge.edge_treatment_endpoint_references)
-                    endpoint.instance_path.clear();
-                display_group.push_back(std::move(edge));
-            }
-        }
+        auto display_group=zima::document::treatment_selection_wire(
+            display_parameters,group_index,std::nullopt,input->mesh);
+        // The shared transient transform places this active-Part wire in its
+        // Assembly occurrence. Keep the persisted route endpoints Part-local.
+        for(auto& edge:display_group)
+            for(auto& endpoint:edge.edge_treatment_endpoint_references)
+                endpoint.instance_path.clear();
         // Opening Properties must never choose a different R1 merely because
         // the viewer orders edges differently. An unavailable stored endpoint
         // is retained for explicit validation at OK, not silently repaired.
@@ -585,7 +580,12 @@ void AssemblyWorkspaceWindow::restore_edge_treatment_route(std::size_t group) {
     if(part)if(const auto* input=zima::workspace::calculated_operation_input(part->session,
         part->session.document().find_container(edge_treatment_preview_owner_id_)?edge_treatment_preview_owner_id_:std::string{})) {
         auto& starts=edge_treatment_preview_parameters_.route_start_vertices;starts.resize(pending_edge_treatment_groups_.size());
-        const auto ends=zima::workspace::edge_treatment_route_endpoints(input->mesh.edges,pending_edge_treatment_groups_[group]);
+        auto parameters=edge_treatment_preview_parameters_;
+        parameters.routes=pending_edge_treatment_groups_;
+        const auto wire=zima::document::treatment_selection_wire(
+            parameters,group,std::nullopt,input->mesh);
+        const auto ends=zima::workspace::edge_treatment_route_endpoints(
+            wire,pending_edge_treatment_groups_[group]);
         if(std::ranges::find(ends,starts[group])==ends.end())starts[group]={};
         if(edge_treatment_dialog_)edge_treatment_dialog_->set_edge_route_start_vertices(starts);
     }

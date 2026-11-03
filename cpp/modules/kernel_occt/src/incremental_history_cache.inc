@@ -74,7 +74,8 @@ const auto capture_native_frame=[&](const std::string& key,const TopoDS_Shape& s
     }
     for(auto layer=context.original_faces;layer!=native_original_before;layer=layer->previous) {
         if(!layer){native_history_enabled=false;return;}
-        frame.original_layers.emplace_back(snapshot_native_history_sources(layer->faces,layer->edges,layer->vertices));
+        frame.original_layers.emplace_back(snapshot_native_history_sources(
+            layer->faces,layer->edges,layer->vertices,layer->shape));
     }
     std::ranges::reverse(frame.original_layers);
     const auto owner=operations[current_operation].owner_id;
@@ -139,8 +140,17 @@ const auto restore_native_prefix=[&](std::size_t count) {
             }
             for(const auto& layer:frame.original_layers) {
                 auto data=restore_native_history_data(layer);
+                // history-v1 packets written before exact original-edge
+                // support stored only a compound of loose subshapes. It has
+                // no material solid and cannot safely drive a source-edge
+                // treatment; reject that optional cache and rebuild the
+                // authored prefix instead of silently treating descendants.
+                if(retain_original_edges&&!data.edges.empty()&&
+                   !TopExp_Explorer(data.shape,TopAbs_SOLID).More())
+                    return fail("original-source-shape");
                 originals=std::make_shared<OriginalFaces>(OriginalFaces{std::move(data.faces),originals,
-                    std::move(data.edges),std::move(data.vertices)});
+                    std::move(data.edges),std::move(data.vertices),
+                    std::move(data.shape)});
             }
             append_reference_geometry(references,*frame.reference_delta);
             if(frame.copy_source) {

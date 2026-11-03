@@ -450,6 +450,229 @@ double body_envelope_extension(const TopoDS_Shape& material,
     return diagonal+cross_span+tolerance;
 }
 
+struct TangentFilletProfile {
+    FilletProfile profile;
+    gp_Pnt plane_contact;
+    gp_Pnt cylinder_contact;
+    gp_Pnt center;
+    double span{};
+};
+
+TangentFilletProfile tangent_plane_cylinder_profile(
+        const gp_Pnt& origin,const gp_Dir& path_tangent,
+        const gp_Dir& first_inward,const gp_Dir& second_inward,
+        const TopoDS_Face& first_face,const TopoDS_Face& second_face,
+        double radius,double tolerance) {
+    const BRepAdaptor_Surface first_surface(first_face,true);
+    const BRepAdaptor_Surface second_surface(second_face,true);
+    const bool first_is_plane=first_surface.GetType()==GeomAbs_Plane;
+    const bool second_is_plane=second_surface.GetType()==GeomAbs_Plane;
+    const bool first_is_cylinder=first_surface.GetType()==GeomAbs_Cylinder;
+    const bool second_is_cylinder=second_surface.GetType()==GeomAbs_Cylinder;
+    if(!((first_is_plane&&second_is_cylinder)||
+         (second_is_plane&&first_is_cylinder)))
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent transition requires one plane and one cylinder");
+    const auto& plane_surface=first_is_plane?first_surface:second_surface;
+    const auto& cylinder_surface=first_is_cylinder?first_surface:second_surface;
+    const auto plane=plane_surface.Plane();
+    const auto cylinder=cylinder_surface.Cylinder();
+    const auto axis=cylinder.Axis();
+    const double angular_tolerance=std::max(1.0e-9,
+        tolerance/std::max(1.,cylinder.Radius()));
+    if(!axis.Direction().IsParallel(path_tangent,angular_tolerance)||
+       plane.Distance(origin)>tolerance)
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent plane and cylinder do not follow the route");
+    const gp_Vec axis_offset(axis.Location(),origin);
+    const gp_Pnt cylinder_center=axis.Location().Translated(
+        gp_Vec(axis.Direction())*axis_offset.Dot(gp_Vec(axis.Direction())));
+    gp_Vec radial(cylinder_center,origin);
+    if(std::abs(radial.Magnitude()-cylinder.Radius())>tolerance||
+       radial.SquareMagnitude()<=1.0e-18)
+        throw std::invalid_argument(
+            "Planar edge Fillet route is not on its cylindrical support");
+    radial.Normalize();
+    const auto plane_normal=plane.Axis().Direction();
+    if(!plane_normal.IsParallel(gp_Dir(radial),angular_tolerance))
+        throw std::invalid_argument(
+            "Planar edge Fillet plane is not tangent to its cylindrical support");
+    gp_Vec inward=gp_Vec(first_inward)+gp_Vec(second_inward);
+    if(inward.SquareMagnitude()<=1.0e-18)
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent transition has no common material direction");
+    inward.Normalize();
+    if(std::abs(inward.Dot(radial))>angular_tolerance||
+       std::abs(inward.Dot(gp_Vec(path_tangent)))>angular_tolerance)
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent transition directions are inconsistent");
+
+    // Cross-section of a rolling circle between a tangent plane and cylinder.
+    // The new radius must pass beyond the degenerate plane/cylinder contact:
+    // its axial-plane offset is exactly 2*sqrt(R*r).  Closing the profile with
+    // the original cylinder arc (rather than a second straight helper) keeps
+    // the Boolean tool equal to the real material that the Fillet adds.
+    const double offset=2.*std::sqrt(cylinder.Radius()*radius);
+    const gp_Pnt center=origin.Translated(
+        inward*offset-radial*radius);
+    const gp_Pnt plane_contact=origin.Translated(inward*offset);
+    gp_Vec center_from_cylinder(cylinder_center,center);
+    if(center_from_cylinder.SquareMagnitude()<=1.0e-18)
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent transition center is degenerate");
+    center_from_cylinder.Normalize();
+    const gp_Pnt cylinder_contact=cylinder_center.Translated(
+        center_from_cylinder*cylinder.Radius());
+
+    const auto arc_middle=[](const gp_Pnt& arc_center,
+            const gp_Pnt& first,const gp_Pnt& last,double arc_radius) {
+        gp_Vec first_radial(arc_center,first),last_radial(arc_center,last);
+        first_radial.Normalize();last_radial.Normalize();
+        gp_Vec middle=first_radial+last_radial;
+        if(middle.SquareMagnitude()<=1.0e-18)
+            throw std::invalid_argument(
+                "Planar edge Fillet tangent transition arc is ambiguous");
+        middle.Normalize();
+        return arc_center.Translated(middle*arc_radius);
+    };
+    const auto fillet_arc=GC_MakeArcOfCircle(plane_contact,
+        arc_middle(center,plane_contact,cylinder_contact,radius),
+        cylinder_contact).Value();
+    const auto support_arc=GC_MakeArcOfCircle(cylinder_contact,
+        arc_middle(cylinder_center,cylinder_contact,origin,
+            cylinder.Radius()),origin).Value();
+    if(fillet_arc.IsNull()||support_arc.IsNull())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct its tangent transition arcs");
+    TangentFilletProfile result;
+    result.profile.circular_edge=BRepBuilderAPI_MakeEdge(fillet_arc).Edge();
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(result.profile.circular_edge);
+    wire.Add(BRepBuilderAPI_MakeEdge(support_arc).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(origin,plane_contact).Edge());
+    if(!wire.IsDone())
+        throw std::runtime_error(
+            "Planar edge Fillet could not close its tangent transition profile");
+    result.profile.wire=wire.Wire();
+    result.plane_contact=plane_contact;
+    result.cylinder_contact=cylinder_contact;
+    result.center=center;
+    result.span=offset+2.*radius;
+    return result;
+}
+
+Cutter make_tangent_plane_cylinder_cutter(
+        const TopoDS_Face& first_face,const TopoDS_Face& second_face,
+        const EdgePath& path,const gp_Dir& first_inward,
+        const gp_Dir& second_inward,double radius,double tolerance,
+        const TopoDS_Solid& material,
+        const OcctPlanarEdgeEndFaces& end_faces,bool profile_only,
+        OcctPlanarEdgeFilletEndMode end_mode) {
+    if(path.kind!=EdgeFilletPathKind::Linear)
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent plane-cylinder transition requires a straight route");
+    const auto midpoint=tangent_plane_cylinder_profile(path.middle,
+        path.first_tangent,first_inward,second_inward,first_face,second_face,
+        radius,tolerance);
+    const auto analytic=[&](const TangentFilletProfile& profile,
+            double extension) {
+        const bool first_plane=BRepAdaptor_Surface(first_face,true).GetType()==
+            GeomAbs_Plane;
+        return PlanarFilletAnalyticRemovalDomain{
+            point(path.first),point(path.last),
+            vector(path.first_tangent.XYZ()),
+            vector(first_inward.XYZ()),vector(second_inward.XYZ()),
+            point(first_plane?profile.plane_contact:profile.cylinder_contact),
+            point(first_plane?profile.cylinder_contact:profile.plane_contact),
+            point(profile.center),radius,extension,path.kind,{},{},0.,0.};
+    };
+    if(profile_only)
+        return {{},{},analytic(midpoint,0.),true,midpoint.profile.wire,
+            midpoint.profile.circular_edge,{}};
+
+    const gp_Pnt interior((path.middle.X()+midpoint.plane_contact.X()+
+            midpoint.cylinder_contact.X())/3.,
+        (path.middle.Y()+midpoint.plane_contact.Y()+
+            midpoint.cylinder_contact.Y())/3.,
+        (path.middle.Z()+midpoint.plane_contact.Z()+
+            midpoint.cylinder_contact.Z())/3.);
+    BRepClass3d_SolidClassifier classifier(material,interior,tolerance);
+    if(classifier.State()!=TopAbs_OUT)
+        throw std::invalid_argument(
+            "Planar edge Fillet tangent transition does not bound an additive material pocket");
+
+    auto effective_end_faces=end_faces;
+    if(end_mode==OcctPlanarEdgeFilletEndMode::AutomaticBodyEnvelope) {
+        if(effective_end_faces.first.IsNull())
+            effective_end_faces.first=automatic_angled_end_face(material,
+                first_face,second_face,path.first,path.first_tangent,tolerance);
+        if(effective_end_faces.last.IsNull())
+            effective_end_faces.last=automatic_angled_end_face(material,
+                first_face,second_face,path.last,path.last_tangent,tolerance);
+    }
+    const auto extension=[&](const TopoDS_Face& face,
+            const gp_Pnt& endpoint,const gp_Dir& tangent) {
+        if(face.IsNull())return 0.;
+        const BRepAdaptor_Surface support(face,true);
+        if(support.GetType()!=GeomAbs_Plane||
+           support.Plane().Distance(endpoint)>tolerance)
+            throw std::invalid_argument(
+                "Planar edge Fillet end face does not contain the route endpoint");
+        BRepClass_FaceClassifier face_classifier(face,endpoint,tolerance);
+        if(face_classifier.State()!=TopAbs_IN&&
+           face_classifier.State()!=TopAbs_ON)
+            throw std::invalid_argument(
+                "Planar edge Fillet end face does not contain the route endpoint");
+        const double incidence=std::abs(
+            support.Plane().Axis().Direction().Dot(tangent));
+        return incidence<=1.0e-8?0.:
+            midpoint.span/incidence+tolerance;
+    };
+    const double first_extension=extension(effective_end_faces.first,
+        path.first,path.first_tangent);
+    const double last_extension=extension(effective_end_faces.last,
+        path.last,path.last_tangent);
+    const gp_Pnt source_origin=path.first.Translated(
+        -gp_Vec(path.first_tangent)*first_extension);
+    const auto source=tangent_plane_cylinder_profile(source_origin,
+        path.first_tangent,first_inward,second_inward,first_face,second_face,
+        radius,tolerance);
+    BRepBuilderAPI_MakeFace section(source.profile.wire);
+    if(!section.IsDone())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct its tangent transition section");
+    BRepPrimAPI_MakePrism prism(section.Face(),gp_Vec(path.first_tangent)*
+        (path.length+first_extension+last_extension),false,true);
+    prism.Build();
+    if(!prism.IsDone()||prism.Shape().IsNull()||
+       !BRepCheck_Analyzer(prism.Shape()).IsValid())
+        throw std::runtime_error(
+            "Planar edge Fillet could not construct a valid tangent transition tool");
+    std::vector<TopoDS_Face> circular_faces;
+    for(const auto& generated:prism.Generated(source.profile.circular_edge))
+        if(generated.ShapeType()==TopAbs_FACE)
+            circular_faces.push_back(TopoDS::Face(generated));
+    if(circular_faces.empty())
+        throw std::runtime_error(
+            "Planar edge Fillet tangent transition omitted its circular face");
+    TopoDS_Shape tool=prism.Shape();
+    const auto tangent_to_end=[](const TopoDS_Face& face,
+            const gp_Dir& tangent) {
+        return !face.IsNull()&&
+            std::abs(BRepAdaptor_Surface(face,true).Plane().Axis().
+                Direction().Dot(tangent))<=1.0e-8;
+    };
+    if(!tangent_to_end(effective_end_faces.first,path.first_tangent))
+        clip_fillet_tool(tool,circular_faces,effective_end_faces.first,
+            path.middle,tolerance);
+    if(!tangent_to_end(effective_end_faces.last,path.last_tangent))
+        clip_fillet_tool(tool,circular_faces,effective_end_faces.last,
+            path.middle,tolerance);
+    return {tool,std::move(circular_faces),
+        analytic(source,std::max(first_extension,last_extension)),true,
+        midpoint.profile.wire,midpoint.profile.circular_edge,{}};
+}
+
 Cutter make_cutter(const TopoDS_Edge& edge,
         const TopoDS_Face& first_face,
         const TopoDS_Face& second_face,double radius,double tolerance,
@@ -482,6 +705,10 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         edge,second_face,curve,anchor_parameter,
         anchor_tangent,tolerance);
     const double interior_angle=first_inward.Angle(second_inward);
+    if(interior_angle<=1.0e-6)
+        return make_tangent_plane_cylinder_cutter(first_face,second_face,
+            path,first_inward,second_inward,radius,tolerance,
+            material,end_faces,profile_only,end_mode);
     if(!(interior_angle>1.0e-6&&
          interior_angle<std::numbers::pi-1.0e-6))
         throw std::invalid_argument(
@@ -570,6 +797,17 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         effective_end_faces.last.IsNull()&&
         !has_perpendicular_terminal_face(material,first_face,second_face,
             path.last,path.last_tangent,tolerance);
+    const auto tangent_to_end_face=[](const TopoDS_Face& face,
+            const gp_Dir& tangent) {
+        if(face.IsNull())return false;
+        const BRepAdaptor_Surface support(face,true);
+        return support.GetType()==GeomAbs_Plane&&std::abs(
+            support.Plane().Axis().Direction().Dot(tangent))<=1.0e-8;
+    };
+    const bool tangent_first=tangent_to_end_face(
+        effective_end_faces.first,path.first_tangent);
+    const bool tangent_last=tangent_to_end_face(
+        effective_end_faces.last,path.last_tangent);
     const auto axial_extension=[&](const TopoDS_Face& face,
             const gp_Pnt& endpoint,const gp_Dir& tangent,
             double cross_span) {
@@ -587,9 +825,7 @@ Cutter make_cutter(const TopoDS_Edge& edge,
                 "Planar edge Fillet end face does not contain the route endpoint");
         const auto normal=support.Plane().Axis().Direction();
         const double incidence=std::abs(normal.Dot(tangent));
-        if(incidence<=1.0e-8)
-            throw std::invalid_argument(
-                "Planar edge Fillet end face is parallel to the route");
+        if(incidence<=1.0e-8)return 0.;
         return cross_span/incidence+tolerance;
     };
     const gp_Pnt anchor_first_tangent=anchor_point.Translated(
@@ -706,10 +942,12 @@ Cutter make_cutter(const TopoDS_Edge& edge,
         throw std::runtime_error(
             "Planar edge Fillet cutter omitted its circular face");
     const gp_Pnt interior=path.middle;
-    clip_fillet_tool(tool,circular_faces,effective_end_faces.first,interior,
-        tolerance);
-    clip_fillet_tool(tool,circular_faces,effective_end_faces.last,interior,
-        tolerance);
+    if(!tangent_first)
+        clip_fillet_tool(tool,circular_faces,effective_end_faces.first,
+            interior,tolerance);
+    if(!tangent_last)
+        clip_fillet_tool(tool,circular_faces,effective_end_faces.last,
+            interior,tolerance);
     return {tool,std::move(circular_faces),analytic_domain(extension),
         adds_material,midpoint_profile.wire,
         midpoint_profile.circular_edge,{}};
@@ -771,12 +1009,19 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         current=endpoints(ordered.back())[1];
     }
 
-    auto anchor=route[route.size()/2];
-    for(const auto index:route)
-        if(edge_path(jobs[index].edge,tolerance).kind==
-                EdgeFilletPathKind::Circular) {
-            anchor=index;break;
-        }
+    // Construct the exact profile on an analytic route member and let the
+    // pipe carry it over the remaining connected curve.  A circle is the
+    // strongest anchor because it establishes radial transport; otherwise a
+    // line avoids imposing a false circle model on a following ellipse or
+    // another OCCT curve produced by an earlier feature intersection.
+    std::optional<std::size_t> circular_anchor,line_anchor;
+    for(const auto index:route) {
+        const auto kind=BRepAdaptor_Curve(jobs[index].edge).GetType();
+        if(kind==GeomAbs_Circle&&!circular_anchor)circular_anchor=index;
+        if(kind==GeomAbs_Line&&!line_anchor)line_anchor=index;
+    }
+    const auto anchor=circular_anchor.value_or(line_anchor.value_or(
+        route[route.size()/2]));
     auto profile=make_cutter(jobs[anchor].edge,jobs[anchor].first_face,
         jobs[anchor].second_face,radius,tolerance,jobs[anchor].material,
         {},true);
@@ -855,6 +1100,15 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         !has_perpendicular_terminal_face(end_job.material,
             end_job.first_face,end_job.second_face,end_point,end_outward,
             tolerance);
+    const auto tangent_to_end_face=[](const TopoDS_Face& face,
+            const gp_Dir& tangent) {
+        if(face.IsNull())return false;
+        const BRepAdaptor_Surface support(face,true);
+        return support.GetType()==GeomAbs_Plane&&std::abs(
+            support.Plane().Axis().Direction().Dot(tangent))<=1.0e-8;
+    };
+    const bool tangent_first=tangent_to_end_face(start_face,start_outward);
+    const bool tangent_last=tangent_to_end_face(end_face,end_outward);
     const gp_Pnt analytic_start(
         profile.analytic_domain.source_start.x,
         profile.analytic_domain.source_start.y,
@@ -873,9 +1127,13 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
         const BRepAdaptor_Surface support(face,true);
         const double incidence=std::abs(
             support.Plane().Axis().Direction().Dot(outward));
-        if(incidence<=1.0e-8)
-            throw std::invalid_argument(
-                "Planar edge Fillet end face is parallel to the route");
+        // A route can finish tangent to a selected Up To face.  Its exact
+        // terminal vertex then already supplies the longitudinal limit; the
+        // supporting plane cannot provide a second line/plane intersection
+        // and must not cause an artificial axial extension.  A longitudinal
+        // half-space clip would cut the profile along the complete route, so
+        // the tangent-face flags below intentionally skip that clip as well.
+        if(incidence<=1.0e-8)return 0.;
         return cross_span/incidence+tolerance;
     };
     const double first_extension=extension(start_face,start_outward,
@@ -921,10 +1179,12 @@ Cutter make_route_cutter(const std::vector<CutterJob>& jobs,
     profile.solid=sweep.Shape();
     profile.circular_faces=std::move(circular_faces);
     const auto anchor_path=edge_path(jobs[anchor].edge,tolerance);
-    clip_fillet_tool(profile.solid,profile.circular_faces,start_face,
-        anchor_path.middle,tolerance);
-    clip_fillet_tool(profile.solid,profile.circular_faces,end_face,
-        anchor_path.middle,tolerance);
+    if(!tangent_first)
+        clip_fillet_tool(profile.solid,profile.circular_faces,start_face,
+            anchor_path.middle,tolerance);
+    if(!tangent_last)
+        clip_fillet_tool(profile.solid,profile.circular_faces,end_face,
+            anchor_path.middle,tolerance);
     profile.source_jobs.assign(route.begin(),route.end());
     return profile;
 }
@@ -936,7 +1196,8 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
         double radius,double tolerance,
         std::span<const OcctPlanarEdgeEndFaces> end_faces,
         OcctPlanarEdgeFilletEndMode end_mode,
-        std::span<const std::size_t> route_edge_counts) {
+        std::span<const std::size_t> route_edge_counts,
+        std::span<const OcctPlanarEdgeSupport> supports) {
     if(input.IsNull()||edges.empty())
         throw std::invalid_argument(
             "Planar edge Fillet requires a Body and selected edges");
@@ -952,6 +1213,9 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
            std::size_t{})!=edges.size())
         throw std::invalid_argument(
             "Planar edge Fillet route sizes do not match selected edges");
+    if(!supports.empty()&&supports.size()!=edges.size())
+        throw std::invalid_argument(
+            "Planar edge Fillet supports must be parallel to selected edges");
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,
         edge_faces);
@@ -962,29 +1226,52 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     const auto preparation_started=Clock::now();
     std::vector<CutterJob> jobs;
     jobs.reserve(edges.size());
-    for(const auto& edge:edges) {
+    for(std::size_t requested_index=0;requested_index<edges.size();
+            ++requested_index) {
+        const auto& edge=edges[requested_index];
         if(requested_edges.Contains(edge))
             throw std::invalid_argument(
                 "Planar edge Fillet received the same edge more than once");
         requested_edges.Add(edge);
-        const int face_index=edge_faces.FindIndex(edge);
-        const int solid_index=edge_solids.FindIndex(edge);
-        if(!face_index||!solid_index)
-            throw std::invalid_argument(
-                "Planar edge Fillet edge is absent from the input Body");
         std::vector<TopoDS_Face> faces;
-        for(const auto& value:edge_faces.FindFromIndex(face_index)) {
-            const auto face=TopoDS::Face(value);
-            if(std::ranges::none_of(faces,[&](const auto& current) {
-                    return current.IsSame(face);
-                }))faces.push_back(face);
-        }
         std::vector<TopoDS_Solid> solids;
-        for(const auto& value:edge_solids.FindFromIndex(solid_index)) {
-            const auto solid=TopoDS::Solid(value);
-            if(std::ranges::none_of(solids,[&](const auto& current) {
-                    return current.IsSame(solid);
-                }))solids.push_back(solid);
+        const bool exact_source=!supports.empty()&&
+            !supports[requested_index].material.IsNull();
+        if(exact_source) {
+            const auto& support=supports[requested_index];
+            if(support.first.IsNull()||support.second.IsNull()||
+               support.first.IsSame(support.second))
+                throw std::invalid_argument(
+                    "Planar edge Fillet original support is invalid");
+            TopTools_IndexedMapOfShape first_edges,second_edges,
+                material_edges;
+            TopExp::MapShapes(support.first,TopAbs_EDGE,first_edges);
+            TopExp::MapShapes(support.second,TopAbs_EDGE,second_edges);
+            TopExp::MapShapes(support.material,TopAbs_EDGE,material_edges);
+            if(!first_edges.Contains(edge)||!second_edges.Contains(edge)||
+               !material_edges.Contains(edge))
+                throw std::invalid_argument(
+                    "Planar edge Fillet original support does not contain its edge");
+            faces={support.first,support.second};
+            solids={support.material};
+        } else {
+            const int face_index=edge_faces.FindIndex(edge);
+            const int solid_index=edge_solids.FindIndex(edge);
+            if(!face_index||!solid_index)
+                throw std::invalid_argument(
+                    "Planar edge Fillet edge is absent from the input Body");
+            for(const auto& value:edge_faces.FindFromIndex(face_index)) {
+                const auto face=TopoDS::Face(value);
+                if(std::ranges::none_of(faces,[&](const auto& current) {
+                        return current.IsSame(face);
+                    }))faces.push_back(face);
+            }
+            for(const auto& value:edge_solids.FindFromIndex(solid_index)) {
+                const auto solid=TopoDS::Solid(value);
+                if(std::ranges::none_of(solids,[&](const auto& current) {
+                        return current.IsSame(solid);
+                    }))solids.push_back(solid);
+            }
         }
         if(faces.size()!=2||solids.size()!=1)
             throw std::invalid_argument(
@@ -1012,6 +1299,56 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             offset+=count;
         }
     }
+    const auto smooth_fragment=[&](std::size_t index) {
+        const auto& job=jobs.at(index);
+        const BRepAdaptor_Curve curve(job.edge);
+        const auto path=edge_path(job.edge,tolerance);
+        gp_Pnt point;gp_Vec derivative;
+        curve.D1(path.middle_parameter,point,derivative);
+        if(derivative.SquareMagnitude()<=1.0e-18)return false;
+        const gp_Dir tangent(derivative);
+        const auto first=inward_direction(job.edge,job.first_face,curve,
+            path.middle_parameter,tangent,tolerance);
+        const auto second=inward_direction(job.edge,job.second_face,curve,
+            path.middle_parameter,tangent,tolerance);
+        return first.Angle(second)>=std::numbers::pi-1.0e-6;
+    };
+    const auto connected=[&](std::size_t first,std::size_t second) {
+        TopTools_IndexedMapOfShape first_vertices,second_vertices;
+        TopExp::MapShapes(jobs[first].edge,TopAbs_VERTEX,first_vertices);
+        TopExp::MapShapes(jobs[second].edge,TopAbs_VERTEX,second_vertices);
+        for(int index=1;index<=first_vertices.Extent();++index)
+            if(second_vertices.Contains(first_vertices.FindKey(index)))
+                return true;
+        return false;
+    };
+    std::vector<std::vector<std::size_t>> active_routes;
+    active_routes.reserve(routes.size());
+    for(const auto& route:routes) {
+        const bool has_active=std::ranges::any_of(route,
+            [&](const auto index){return !smooth_fragment(index);});
+        if(!has_active) {
+            active_routes.push_back(route);
+            continue;
+        }
+        std::vector<std::size_t> current;
+        for(const auto index:route) {
+            if(smooth_fragment(index)) {
+                if(!current.empty()) {
+                    active_routes.push_back(std::move(current));
+                    current.clear();
+                }
+                continue;
+            }
+            if(!current.empty()&&!connected(current.back(),index)) {
+                active_routes.push_back(std::move(current));
+                current.clear();
+            }
+            current.push_back(index);
+        }
+        if(!current.empty())active_routes.push_back(std::move(current));
+    }
+    routes=std::move(active_routes);
     std::vector<std::vector<SharedEndpoint>> route_endpoints;
     route_endpoints.reserve(routes.size());
     for(const auto& route:routes) {
@@ -1065,9 +1402,22 @@ OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
             if(endpoint.jobs.size()!=2)continue;
             const auto shared=BRep_Tool::Pnt(endpoint.vertex);
             const auto tangent_at_shared=[&](std::size_t job_index) {
-                const auto path=edge_path(jobs[job_index].edge,tolerance);
-                return shared.Distance(path.first)<=shared.Distance(path.last)
-                    ?path.first_tangent:path.last_tangent;
+                const BRepAdaptor_Curve curve(jobs[job_index].edge);
+                const auto first_parameter=curve.FirstParameter();
+                const auto last_parameter=curve.LastParameter();
+                const auto first=curve.Value(first_parameter);
+                const auto last=curve.Value(last_parameter);
+                const auto parameter=shared.Distance(first)<=
+                        shared.Distance(last)
+                    ?first_parameter:last_parameter;
+                gp_Pnt point;
+                gp_Vec derivative;
+                curve.D1(parameter,point,derivative);
+                if(point.Distance(shared)>tolerance||
+                   derivative.SquareMagnitude()<=1.0e-18)
+                    throw std::invalid_argument(
+                        "Planar edge Fillet route has no finite terminal tangent");
+                return gp_Dir(derivative);
             };
             const auto first=tangent_at_shared(endpoint.jobs[0]);
             const auto second=tangent_at_shared(endpoint.jobs[1]);

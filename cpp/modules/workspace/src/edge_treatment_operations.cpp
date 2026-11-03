@@ -98,15 +98,31 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     if(has_end_faces&&parameters.calculation_method==
             Parameters::CalculationMethod::Occt)
         throw Error("invalid_arguments","OCCT edge treatment does not support selected end faces; use ZIMA or Automatic.");
-    const auto available=group_edges(input->mesh.edges);std::set<Key> unique;
+    const auto available=group_edges(input->mesh.edges);
+    const auto original_available=group_edges(
+        input->mesh.original_references.edges);
+    const bool original_source_allowed=
+        parameters.calculation_method!=Parameters::CalculationMethod::Occt&&
+        (!fillet||parameters.fillet_mode==Parameters::FilletMode::Constant);
+    std::set<Key> unique;
     for(std::size_t i=0;i<parameters.routes.size();++i) {
         const auto& route=parameters.routes[i];
         if(route.empty())throw Error("invalid_reference","Select at least one input edge route.");
+        Groups route_available;
+        std::vector<kernel::ViewerEdge> route_edges;
         for(const auto& ref:route) {
-            const auto found=available.find(key(ref));
-            if(!ref.valid()||!ref.instance_path.empty()||found==available.end()||
-                (found->second.size()!=1&&!kernel::edge_treatment_chain(found->second)))
+            const auto current=available.find(key(ref));
+            const auto original=original_available.find(key(ref));
+            const auto* found=current!=available.end()?&current->second:
+                original_source_allowed&&
+                    !kernel::is_boolean_intersection_interval(ref)&&
+                    original!=original_available.end()
+                    ?&original->second:nullptr;
+            if(!ref.valid()||!ref.instance_path.empty()||found==nullptr||
+                (found->size()!=1&&!kernel::edge_treatment_chain(*found)))
                 throw Error("invalid_reference","Select an unambiguous edge of the calculated input body.");
+            route_available.emplace(key(ref),*found);
+            for(const auto* edge:*found)route_edges.push_back(*edge);
             if(!unique.insert(key(ref)).second)throw Error("invalid_reference","An input edge may belong to only one selected route.");
         }
         const auto start=i<parameters.route_start_vertices.size()?parameters.route_start_vertices[i]:kernel::VertexReference{};
@@ -118,18 +134,18 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                 throw Error("invalid_reference","Select a local persisted end face or leave the end perpendicular.");
         if(!start.instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
         if(fillet&&parameters.fillet_mode==Parameters::FilletMode::Linear) {
-            const auto ends=endpoints(available,route);
+            const auto ends=endpoints(route_available,route);
             if(!start.valid()||!start.instance_path.empty()||std::ranges::find(ends,start)==ends.end())
                 throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");
             std::vector<std::size_t> selected_indices;
             for(std::size_t edge_index=0;
-                    edge_index<input->mesh.edges.size();++edge_index)
-                if(!input->mesh.edges[edge_index].parameter_seam&&
+                    edge_index<route_edges.size();++edge_index)
+                if(!route_edges[edge_index].parameter_seam&&
                    std::ranges::find(route,
-                       input->mesh.edges[edge_index].reference)!=route.end())
+                       route_edges[edge_index].reference)!=route.end())
                     selected_indices.push_back(edge_index);
             const auto plan=kernel::build_edge_treatment_route_plan(
-                input->mesh.edges,selected_indices,start);
+                route_edges,selected_indices,start);
             if(!plan||
                !kernel::edge_treatment_route_supports_linear_fillet(*plan))
                 throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");

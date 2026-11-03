@@ -602,6 +602,57 @@ void verify_failed_source_reference_is_reported_downstream(
             repaired.history.back().placement.reference_valid,
         "A dependent reference did not recover when its source geometry returned");
 }
+void verify_independent_history_continues_after_failure(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{10,10,10});
+    auto broken=test::rectangular_feature(part,{4,4,4});
+    broken.extrusion.sketch_id="missing-profile";
+    part.history={stock,broken};
+    auto failed=workspace::calculate_part_with_resolved_references(kernel,part);
+    require(failed.size()==2&&
+            failed.back().calculation_errors.contains(broken.id),
+        "Broken-history fixture did not retain its failed container");
+    near(measured_volume(kernel,failed.back()),1000,
+        "Failed container changed its last valid Body");
+
+    auto continued=part;
+    auto cut=test::rectangular_feature(continued,{2,2,2});
+    cut.combine_mode=document::CombineMode::Subtract;
+    continued.history.push_back(cut);
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,continued,&failed);
+    require(calculated.size()==3&&
+            calculated.back().calculation_errors.contains(broken.id)&&
+            !calculated.back().calculation_errors.contains(cut.id),
+        "Independent container did not continue after a failed predecessor");
+    near(measured_volume(kernel,calculated.back()),992,
+        "Independent downstream Cut was not applied to the last valid Body");
+
+    std::vector<kernel::BodyResult> reopened_boundaries;
+    auto reopened=document::PartDocument::from_serialized(
+        continued.serialized(calculated),&reopened_boundaries);
+    auto regenerated=workspace::calculate_part_with_resolved_references(
+        kernel,reopened,&reopened_boundaries);
+    require(regenerated.back().calculation_errors.contains(broken.id)&&
+            !regenerated.back().calculation_errors.contains(cut.id),
+        "Save/reopen changed failed-history continuation");
+    near(measured_volume(kernel,regenerated.back()),992,
+        "Save/reopen lost the independent downstream result");
+
+    workspace::Workspace live;
+    live.add_part(part,std::move(failed));
+    auto* state=live.open_part(part.document_id);
+    state->session.commit(continued,std::move(calculated));
+    require(state->session.undo(),
+        "Failed-history continuation could not be undone");
+    near(measured_volume(kernel,state->session.calculated_boundaries().back()),
+        1000,"Undo did not restore the failed predecessor boundary");
+    require(state->session.redo(),
+        "Failed-history continuation could not be redone");
+    near(measured_volume(kernel,state->session.calculated_boundaries().back()),
+        992,"Redo did not restore the independent downstream result");
+}
 void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
     auto stock=test::rectangular_feature(part,{10,10,10});
@@ -711,6 +762,7 @@ int main(){try{
     verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);
     verify_history_boundary_placement_isolation(kernel);
     verify_failed_source_reference_is_reported_downstream(kernel);
+    verify_independent_history_continues_after_failure(kernel);
     verify_edge_treatment_preserves_history_boundary_placement(kernel);
     verify_recovery_policy(kernel);
     verify_deferred_history_boundary(kernel);verify_retained_edge_treatment_boundary(kernel);

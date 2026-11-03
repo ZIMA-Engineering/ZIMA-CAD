@@ -283,6 +283,73 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(state->session.document().dimension_layouts==layouts&&std::abs(measured_volume()-volume)>.1,"Combined edit lost annotation or geometry");
     run(host,"undo");require(state->session.document().dimension_layouts.empty()&&*state->session.document().find_container(treatment.id)==treatment,"Combined geometry/layout edit took multiple Undo steps");
     near(measured_volume(),volume);
+
+    // Automatic/ZIMA may deliberately use an authored source edge after a
+    // later Boolean split it into current-body fragments. OCCT remains limited
+    // to exact current-body topology and must reject that explicit source.
+    run(host,"new",{{"type","part"},{"name","original-edge-treatment"}});
+    const auto source_box=zima::test::rectangular_commands(
+        [&](const char* n,commands::Json a){return run(host,n,std::move(a));},
+        {{"length_mm","20"},{"width_mm","20"},{"one_sided",true},
+         {"height_mm","30"}}).data.at("container").get<std::string>();
+    state=live.open_part(live.active_document_id());
+    const kernel::EdgeReference source_edge{source_box,
+        test::profile_key(state->session.document(),source_box,
+            "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
+    zima::test::rectangular_commands(
+        [&](const char* n,commands::Json a){return run(host,n,std::move(a));},
+        {{"length_mm","5"},{"width_mm","5"},{"one_sided",true},
+         {"height_mm","10"},{"combine","subtract"},
+         {"placement",{{"x",8},{"y",-8}}}});
+    const auto& split_input=state->session.calculated_boundaries().back();
+    require(std::ranges::none_of(split_input.mesh.edges,
+                [&](const auto& edge){return edge.reference==source_edge;})&&
+            std::ranges::any_of(split_input.mesh.original_references.edges,
+                [&](const auto& edge){return edge.reference==source_edge;}),
+        "Original-edge command fixture did not split and retain its source edge");
+    auto original_args=Json{{"distance_a_mm",1},
+        {"routes",Json::array({Json{{"edges",Json::array({Json{
+            {"owner",source_edge.owner_id},{"key",source_edge.semantic_key}}})}}})}};
+    const auto split_volume=measured_volume();
+    const auto source_treatment=run(host,"chamfer.create",original_args).data
+        .at("container").get<std::string>();
+    require(state->session.calculated_boundaries().back().calculation_errors.empty()&&
+            std::abs(measured_volume()-split_volume)>.001,
+        "Automatic Chamfer did not use the explicitly selected original edge");
+    const auto treated_volume=measured_volume();
+    const auto original_path=directory/"original-edge-treatment.prtz";
+    state->session.document().save(original_path,
+        state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> restored_boundaries;
+    auto restored_document=document::PartDocument::load(original_path,
+        &restored_boundaries);
+    kernel::OcctKernel restored_kernel;
+    workspace::Workspace restored_live;
+    const auto restored_id=restored_document.document_id;
+    restored_live.add_part(std::move(restored_document),
+        std::move(restored_boundaries));
+    auto edited=*restored_live.open_part(restored_id)->session.document()
+        .find_container(source_treatment);
+    edited.edge_treatment.primary_size=.75;
+    require(workspace::commit_edge_treatment(restored_live,restored_kernel,
+            restored_id,std::move(edited),
+            workspace::EdgeTreatmentEditMode::Replace)&&
+            restored_live.open_part(restored_id)->session
+                .calculated_boundaries().back().calculation_errors.empty(),
+        "Save/reopen lost the native support for an original-edge treatment");
+    auto restored_result=restored_live.open_part(restored_id)->session
+        .calculated_boundaries().back();
+    restored_kernel.ensure_body_properties(restored_result);
+    require(std::abs(restored_result.volume-treated_volume)>.001,
+        "Editing a reopened original-edge treatment reused stale geometry");
+    run(host,"undo");near(measured_volume(),split_volume);
+    original_args["calculation_method"]="occt";
+    const auto original_revision=state->session.revision();
+    const auto rejected_original=host.execute(
+        {{"command","chamfer.create"},{"arguments",original_args}});
+    require(!rejected_original.ok&&rejected_original.code=="invalid_reference"&&
+            state->session.revision()==original_revision,
+        "OCCT accepted an original edge absent from the calculated Body");
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);

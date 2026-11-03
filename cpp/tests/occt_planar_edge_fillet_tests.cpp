@@ -17,6 +17,7 @@
 #include <GProp_GProps.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <gp_Circ.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -423,6 +424,74 @@ AngledEndFixture angled_end_fixture() {
         "Wedge fixture did not expose a straight edge with an angled end face");
 }
 
+struct TangentEndFixture {
+    TopoDS_Shape shape;
+    std::array<TopoDS_Edge,2> route;
+    TopoDS_Face end_face;
+};
+
+TangentEndFixture tangent_end_fixture() {
+    const gp_Pnt p0(0,0,0),p1(20,0,0),p2(25,5,0),
+        p3(25,20,0),p4(0,20,0);
+    BRepBuilderAPI_MakeWire wire;
+    wire.Add(BRepBuilderAPI_MakeEdge(p0,p1).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(
+        gp_Circ(gp_Ax2(gp_Pnt(20,5,0),gp_Dir(0,0,1)),5.),
+        -std::numbers::pi/2.,0.).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(p2,p3).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(p3,p4).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(p4,p0).Edge());
+    require(wire.IsDone(),
+        "Tangent end fixture could not construct its profile");
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,10),false,true);
+    prism.Build();
+    require(prism.IsDone()&&
+            BRepCheck_Analyzer(prism.Shape(),true,true,false).IsValid(),
+        "Tangent end fixture could not construct its solid");
+
+    TangentEndFixture result;
+    result.shape=prism.Shape();
+    for(TopExp_Explorer item(result.shape,TopAbs_EDGE);
+            item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        gp_Pnt first,last;
+        curve.D0(curve.FirstParameter(),first);
+        curve.D0(curve.LastParameter(),last);
+        if(std::abs(first.Z())>1.0e-9||std::abs(last.Z())>1.0e-9)
+            continue;
+        if(curve.GetType()==GeomAbs_Line&&
+           ((first.Distance(p0)<1.0e-9&&last.Distance(p1)<1.0e-9)||
+            (first.Distance(p1)<1.0e-9&&last.Distance(p0)<1.0e-9)))
+            result.route[0]=edge;
+        if(curve.GetType()==GeomAbs_Circle&&
+           ((first.Distance(p1)<1.0e-9&&last.Distance(p2)<1.0e-9)||
+            (first.Distance(p2)<1.0e-9&&last.Distance(p1)<1.0e-9)))
+            result.route[1]=edge;
+    }
+    for(TopExp_Explorer item(result.shape,TopAbs_FACE);
+            item.More();item.Next()) {
+        const auto candidate=TopoDS::Face(item.Current());
+        const BRepAdaptor_Surface support(candidate,true);
+        if(support.GetType()!=GeomAbs_Plane||
+           support.Plane().Distance(p2)>1.0e-9||
+           std::abs(std::abs(support.Plane().Axis().Direction().X())-1.)>
+                1.0e-9)
+            continue;
+        const auto state=BRepClass_FaceClassifier(
+            candidate,p2,1.0e-7).State();
+        if(state==TopAbs_IN||state==TopAbs_ON) {
+            result.end_face=candidate;
+            break;
+        }
+    }
+    require(!result.route[0].IsNull()&&!result.route[1].IsNull()&&
+            !result.end_face.IsNull(),
+        "Tangent end fixture lost its route or terminal face");
+    return result;
+}
+
 } // namespace
 
 int main() try {
@@ -599,7 +668,23 @@ int main() try {
         near(area(automatic.Shape()),area(result.Shape()),
             "Automatic ZIMA Fillet area differs from the explicit angled end");
     }
-    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled ends, exact cylinder ancestry and rejection checks passed\n";
+    {
+        std::cerr<<"fillet-test: tangent Up To end\n";
+        const auto fixture=tangent_end_fixture();
+        std::array<zima::kernel::OcctPlanarEdgeEndFaces,2> ends{};
+        ends[1].last=fixture.end_face;
+        const std::array route_sizes{std::size_t{2}};
+        const auto result=zima::kernel::occt_planar_edge_fillet(
+            fixture.shape,fixture.route,1.,1.0e-7,ends,
+            zima::kernel::OcctPlanarEdgeFilletEndMode::Perpendicular,
+            route_sizes);
+        require(BRepCheck_Analyzer(result.Shape(),true,true,false).IsValid()&&
+                result.fillet_faces.size()==2&&
+                std::ranges::all_of(result.fillet_faces,
+                    [](const auto& faces){return !faces.empty();}),
+            "ZIMA Fillet did not accept a route tangent to its Up To face");
+    }
+    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled/tangent Up To ends, exact cylinder ancestry and rejection checks passed\n";
     return 0;
 } catch(const std::exception& error) {
     std::cerr<<error.what()<<'\n';return 1;

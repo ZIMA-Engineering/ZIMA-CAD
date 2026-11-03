@@ -780,6 +780,17 @@ Equal Radius and Concentric accept external circles/arcs. Sources may be edges
 or a single circular outline/section of an external face. External geometry stays
 read-only; the native Sketch circle/arc changes radius or center respectively.
 
+Reference and Reference Profile accept exact calculated result edges generated
+by Fillet and Chamfer in addition to authored edges. An ordinary finite edge
+retains the read-only edge and its independently selectable start/end references;
+Reference Profile also creates a linked native line, arc, circle or spline with
+the source's analytic type where available. Selecting a circular planar face or
+a cylindrical face whose axis is normal to the Sketch creates a read-only circle;
+Reference Profile creates the corresponding linked native circle. A noncircular
+or obliquely projected face is rejected without changing the Sketch. These result
+references follow the generating Fillet/Chamfer identity rather than an anonymous
+OCCT edge index.
+
 Center/radius recognition checks all persisted reference points without OCCT,
 independent of uniform sampling. Ellipses, invalid references and multiple face
 contours are not treated as one circle. Coplanar faces provide finite outlines;

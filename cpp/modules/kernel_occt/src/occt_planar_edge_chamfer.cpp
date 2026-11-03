@@ -279,7 +279,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         std::span<const OcctPlanarEdgeChamferSelection> selections,
         OcctPlanarEdgeChamferMode mode,double distance_a,
         double distance_b_or_angle,double tolerance,
-        std::span<const OcctPlanarEdgeEndFaces> end_faces) {
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        std::span<const OcctPlanarEdgeSupport> supports) {
     if(input.IsNull()||selections.empty())
         throw std::invalid_argument(
             "ZIMA Chamfer requires a Body and selected edges");
@@ -297,12 +298,17 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     if(!end_faces.empty()&&end_faces.size()!=selections.size())
         throw std::invalid_argument(
             "ZIMA Chamfer end faces must be parallel to selected edges");
+    if(!supports.empty()&&supports.size()!=selections.size())
+        throw std::invalid_argument(
+            "ZIMA Chamfer supports must be parallel to selected edges");
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces,edge_solids;
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_FACE,edge_faces);
     TopExp::MapShapesAndAncestors(input,TopAbs_EDGE,TopAbs_SOLID,edge_solids);
     TopTools_IndexedMapOfShape requested_edges,requested_vertices;
     std::vector<Tool> tools;
-    for(const auto& selection:selections) {
+    for(std::size_t selection_index=0;
+            selection_index<selections.size();++selection_index) {
+        const auto& selection=selections[selection_index];
         const auto& edge=selection.edge;
         if(requested_edges.Contains(edge))
             throw std::invalid_argument(
@@ -317,22 +323,43 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
                     "ZIMA Chamfer does not yet support selected edges sharing an endpoint");
             requested_vertices.Add(vertex);
         }
-        const int face_index=edge_faces.FindIndex(edge);
-        const int solid_index=edge_solids.FindIndex(edge);
-        if(!face_index||!solid_index)
-            throw std::invalid_argument(
-                "ZIMA Chamfer edge is absent from the input Body");
         std::vector<TopoDS_Face> faces;
-        for(const auto& value:edge_faces.FindFromIndex(face_index)) {
-            const auto face=TopoDS::Face(value);
-            if(std::ranges::none_of(faces,[&](const auto& current) {
-                    return current.IsSame(face);}))faces.push_back(face);
-        }
         std::vector<TopoDS_Solid> solids;
-        for(const auto& value:edge_solids.FindFromIndex(solid_index)) {
-            const auto solid=TopoDS::Solid(value);
-            if(std::ranges::none_of(solids,[&](const auto& current) {
-                    return current.IsSame(solid);}))solids.push_back(solid);
+        const bool exact_source=!supports.empty()&&
+            !supports[selection_index].material.IsNull();
+        if(exact_source) {
+            const auto& support=supports[selection_index];
+            if(support.first.IsNull()||support.second.IsNull()||
+               support.first.IsSame(support.second))
+                throw std::invalid_argument(
+                    "ZIMA Chamfer original support is invalid");
+            TopTools_IndexedMapOfShape first_edges,second_edges,
+                material_edges;
+            TopExp::MapShapes(support.first,TopAbs_EDGE,first_edges);
+            TopExp::MapShapes(support.second,TopAbs_EDGE,second_edges);
+            TopExp::MapShapes(support.material,TopAbs_EDGE,material_edges);
+            if(!first_edges.Contains(edge)||!second_edges.Contains(edge)||
+               !material_edges.Contains(edge))
+                throw std::invalid_argument(
+                    "ZIMA Chamfer original support does not contain its edge");
+            faces={support.first,support.second};
+            solids={support.material};
+        } else {
+            const int face_index=edge_faces.FindIndex(edge);
+            const int solid_index=edge_solids.FindIndex(edge);
+            if(!face_index||!solid_index)
+                throw std::invalid_argument(
+                    "ZIMA Chamfer edge is absent from the input Body");
+            for(const auto& value:edge_faces.FindFromIndex(face_index)) {
+                const auto face=TopoDS::Face(value);
+                if(std::ranges::none_of(faces,[&](const auto& current) {
+                        return current.IsSame(face);}))faces.push_back(face);
+            }
+            for(const auto& value:edge_solids.FindFromIndex(solid_index)) {
+                const auto solid=TopoDS::Solid(value);
+                if(std::ranges::none_of(solids,[&](const auto& current) {
+                        return current.IsSame(solid);}))solids.push_back(solid);
+            }
         }
         if(faces.size()!=2||solids.size()!=1)
             throw std::invalid_argument(
@@ -507,13 +534,14 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
 OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         const TopoDS_Shape& input,std::span<const TopoDS_Edge> edges,
         double distance,double tolerance,
-        std::span<const OcctPlanarEdgeEndFaces> end_faces) {
+        std::span<const OcctPlanarEdgeEndFaces> end_faces,
+        std::span<const OcctPlanarEdgeSupport> supports) {
     std::vector<OcctPlanarEdgeChamferSelection> selections;
     selections.reserve(edges.size());
     for(const auto& edge:edges)selections.push_back({edge,{}});
     return occt_planar_edge_chamfer(input,selections,
         OcctPlanarEdgeChamferMode::EqualDistance,distance,distance,
-        tolerance,end_faces);
+        tolerance,end_faces,supports);
 }
 
 const NCollection_List<TopoDS_Shape>& OcctPlanarEdgeChamferResult::Modified(

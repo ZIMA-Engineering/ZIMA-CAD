@@ -1046,8 +1046,9 @@ int main() {
                 std::ranges::find(reference_kinds,zima::viewer::CandidateKind::Plane)!=reference_kinds.end(),
                 "Ordinary Reference command did not retain its individual source kinds");
             require(zima::app::sketch_external_reference_candidate_kinds(true)==
-                std::vector{zima::viewer::CandidateKind::Edge},
-                "Reference to outline stopped selecting calculated body edges");
+                std::vector{zima::viewer::CandidateKind::Edge,
+                    zima::viewer::CandidateKind::Face},
+                "Reference to outline stopped selecting body edges or circular faces");
             for(const auto kind:{zima::viewer::CandidateKind::Edge,zima::viewer::CandidateKind::Axis,
                     zima::viewer::CandidateKind::Plane,zima::viewer::CandidateKind::Vertex,
                     zima::viewer::CandidateKind::SketchSegment,zima::viewer::CandidateKind::SketchCurve,
@@ -1060,6 +1061,13 @@ int main() {
             require(!zima::app::sketch_external_reference_has_stable_geometry(
                 {zima::viewer::CandidateKind::Edge,0,0,"anonymous-result","edge",{},zima::viewer::CandidateGeometry::Display},false),
                 "Ordinary Sketch references admitted an operational result edge");
+            require(zima::app::sketch_external_reference_has_stable_geometry(
+                {zima::viewer::CandidateKind::Edge,0,0,"round","fillet:edge:from:source",{},
+                    zima::viewer::CandidateGeometry::Display},false)&&
+                zima::app::sketch_external_reference_has_stable_geometry(
+                {zima::viewer::CandidateKind::Edge,0,0,"bevel","chamfer:edge:from:source",{},
+                    zima::viewer::CandidateGeometry::Display},false),
+                "Ordinary Sketch references rejected stable Fillet/Chamfer result edges");
             const auto containers=zima::viewer::filter_candidates(
                 zima::viewer::ordered_viewer_candidates(fragment,{0,0,0},{0,0,1},.01),
                 {zima::viewer::CandidateKind::Container});

@@ -7735,6 +7735,28 @@ int edge_route_probe(const std::filesystem::path& source,
                 <<" first="<<surface_name(pair.first)
                 <<" second="<<surface_name(pair.second)
                 <<" count="<<count<<'\n';
+        for(std::size_t segment_index=0;
+                segment_index<supports.segments.size();++segment_index) {
+            const auto& segment=supports.segments[segment_index];
+            std::cout<<"edge_route_segment route="<<route_index
+                <<" segment="<<segment_index
+                <<" edge_owner="<<segment.edge.owner_id
+                <<" curve="<<curve_name(segment.curve_kind)
+                <<" continuity="<<segment.continuity_order<<'\n';
+            for(std::size_t face_index=0;
+                    face_index<segment.adjacent_faces.size();++face_index) {
+                const auto& face=segment.adjacent_faces[face_index];
+                std::cout<<"edge_route_face route="<<route_index
+                    <<" segment="<<segment_index
+                    <<" face="<<face_index
+                    <<" kind="<<surface_name(face.kind)
+                    <<" reversed="<<face.reversed;
+                for(const auto& reference:face.references)
+                    std::cout<<" alias_owner="<<reference.owner_id
+                        <<" alias_key="<<reference.semantic_key;
+                std::cout<<'\n';
+            }
+        }
     }
     return 0;
 }

@@ -20,13 +20,20 @@ PrimitiveData restore_native_history_data(const BodyResult& snapshot,
 }
 
 BodyResult snapshot_native_history_sources(const std::vector<OwnedFace>& faces,
-        const std::vector<OwnedEdge>& edges={},const std::vector<OwnedVertex>& vertices={}) {
+        const std::vector<OwnedEdge>& edges={},
+        const std::vector<OwnedVertex>& vertices={},
+        TopoDS_Shape source_shape={}) {
     if(faces.empty()&&edges.empty()&&vertices.empty())return {};
-    PrimitiveData data;TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
-    for(const auto& face:faces)builder.Add(compound,face.shape);
-    for(const auto& edge:edges)builder.Add(compound,edge.shape);
-    for(const auto& vertex:vertices)builder.Add(compound,vertex.shape);
-    data.shape=compound;data.faces=faces;data.edges=edges;data.vertices=vertices;
+    PrimitiveData data;
+    if(source_shape.IsNull()) {
+        TopoDS_Compound compound;BRep_Builder builder;
+        builder.MakeCompound(compound);
+        for(const auto& face:faces)builder.Add(compound,face.shape);
+        for(const auto& edge:edges)builder.Add(compound,edge.shape);
+        for(const auto& vertex:vertices)builder.Add(compound,vertex.shape);
+        data.shape=compound;
+    } else data.shape=std::move(source_shape);
+    data.faces=faces;data.edges=edges;data.vertices=vertices;
     return snapshot_native_history_data(data);
 }
 

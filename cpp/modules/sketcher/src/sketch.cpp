@@ -8465,13 +8465,19 @@ std::string Sketch::add_external_profile_geometry(
         external_references.end(), [&](const auto& value) {
             return value.id == reference_id &&
                 (value.kind == ExternalReferenceKind::Edge ||
-                 (value.kind == ExternalReferenceKind::Face && is_face_curve_key(value.source_semantic_key))) && !value.broken;
+                 value.kind == ExternalReferenceKind::Face) && !value.broken;
         });
-    const bool outline=reference!=external_references.end()&&reference->kind==ExternalReferenceKind::Face;
+    const bool outline=reference!=external_references.end()&&
+        reference->kind==ExternalReferenceKind::Face&&
+        is_face_curve_key(reference->source_semantic_key);
+    const bool circular_face=reference!=external_references.end()&&
+        reference->kind==ExternalReferenceKind::Face&&!outline&&
+        external_reference_circle(*reference).has_value();
     if (reference == external_references.end() || (outline?
-            (reference->cached_paths.size()!=1||reference->cached_paths.front().size()!=2):reference->cached_points.size()<2)) {
+            (reference->cached_paths.size()!=1||reference->cached_paths.front().size()!=2):
+            circular_face?reference->cached_paths.size()!=1:reference->cached_points.size()<2)) {
         throw std::invalid_argument(
-            "External profile requires a valid projected edge");
+            "Profile geometry requires an edge or a circular face reference.");
     }
     const auto on_source = [&](const std::string& point) {
         return std::ranges::any_of(constraints,[&](const auto& constraint) {
@@ -8535,7 +8541,8 @@ std::string Sketch::add_external_profile_geometry(
         next.validate();
         *this=std::move(next); return id;
     }
-    const auto& source = outline?reference->cached_paths.front():reference->cached_points;
+    const auto& source = outline||circular_face?
+        reference->cached_paths.front():reference->cached_points;
     const auto& first = source.front();
     const auto& last = source.back();
     const double dx = last[0] - first[0];
