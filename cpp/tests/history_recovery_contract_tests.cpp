@@ -34,16 +34,22 @@ int main(int argc, char** argv) {
         auto absent = operations;
         absent[1].primitive = kernel::FilletRequest{
             {{"removed", "missing-edge", {}}}, 1};
-        const auto absent_results = kernel.evaluate_history(absent);
+        const auto absent_results = kernel.evaluate_history_recovering(absent);
         require(absent_results.size() == 3 &&
-                absent_results[1].calculation_errors.empty() &&
+                absent_results[1].calculation_errors.contains("broken") &&
+                absent_results.back().calculation_errors.contains("later") &&
                 std::abs(absent_results[1].volume -
                     absent_results[0].volume) < 1e-8,
-            "A treatment with no surviving source edge was not an unchanged no-op boundary");
-        const auto absent_reused =
-            kernel.evaluate_history_incremental(absent, absent_results);
-        require(absent_reused.back().calculation_errors.empty(),
-            "Incremental evaluation rejected a persisted no-op treatment");
+            "A treatment whose complete original edge disappeared was not unresolved");
+        bool absent_reuse_rejected = false;
+        try {
+            static_cast<void>(kernel.evaluate_history_incremental(
+                absent, absent_results));
+        } catch (const std::exception&) {
+            absent_reuse_rejected = true;
+        }
+        require(absent_reuse_rejected,
+            "Incremental evaluation accepted a cached unresolved treatment");
         auto repaired = operations;
         repaired[1].primitive = kernel::FilletRequest{{{"first", "generated:lower-right", {}}}, 1};
         auto recalculated = kernel.evaluate_history_recovering(repaired, results);

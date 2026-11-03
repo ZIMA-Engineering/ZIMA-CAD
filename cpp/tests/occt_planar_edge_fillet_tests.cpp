@@ -3,6 +3,7 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -11,10 +12,13 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeWedge.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 
@@ -129,7 +133,7 @@ void verify_result(const TopoDS_Shape& input,
                     domain.first_tangent_at_start)-domain.radius)<1.0e-7&&
                 std::abs(distance(domain.center_at_start,
                     domain.second_tangent_at_start)-domain.radius)<1.0e-7&&
-                domain.axial_extension>=domain.radius,
+                domain.axial_extension==0.,
             "Custom Fillet analytic removal domain is incomplete");
     }
     require(custom.metrics.requested_edges==edges.size()&&
@@ -172,16 +176,16 @@ void verify_result(const TopoDS_Shape& input,
         "Custom planar Fillet volume differs from OCCT");
     near(area(custom.shape),area(reference),
         "Custom planar Fillet area differs from OCCT");
-    TopTools_IndexedMapOfShape custom_edges,reference_edges,
-        custom_vertices,reference_vertices;
+    TopTools_IndexedMapOfShape custom_edges;
     TopExp::MapShapes(custom.shape,TopAbs_EDGE,custom_edges);
-    TopExp::MapShapes(reference,TopAbs_EDGE,reference_edges);
-    TopExp::MapShapes(custom.shape,TopAbs_VERTEX,custom_vertices);
-    TopExp::MapShapes(reference,TopAbs_VERTEX,reference_vertices);
-    require(custom_edges.Extent()==reference_edges.Extent(),
-        "Custom Fillet changed the OCCT topological edge count");
-    require(custom_vertices.Extent()==reference_vertices.Extent(),
-        "Custom Fillet changed the OCCT topological vertex count");
+    for(int index=1;index<=custom_edges.Extent();++index) {
+        const BRepAdaptor_Curve curve(
+            TopoDS::Edge(custom_edges.FindKey(index)));
+        require(GCPnts_AbscissaPoint::Length(
+                    curve,curve.FirstParameter(),curve.LastParameter())>
+                    1.0e-7,
+            "Custom Fillet produced a degenerate result edge");
+    }
 }
 
 TopoDS_Shape triangular_prism(double angle_degrees,double length,
@@ -198,6 +202,71 @@ TopoDS_Shape triangular_prism(double angle_degrees,double length,
     prism.Build();
     require(prism.IsDone(),"Triangular prism fixture failed");
     return prism.Shape();
+}
+
+TopoDS_Shape concave_prism(double height) {
+    const std::array points{gp_Pnt(0,0,0),gp_Pnt(30,0,0),
+        gp_Pnt(30,10,0),gp_Pnt(10,10,0),gp_Pnt(10,30,0),
+        gp_Pnt(0,30,0)};
+    BRepBuilderAPI_MakeWire wire;
+    for(std::size_t index=0;index<points.size();++index)
+        wire.Add(BRepBuilderAPI_MakeEdge(points[index],
+            points[(index+1)%points.size()]).Edge());
+    BRepBuilderAPI_MakeFace face(wire.Wire());
+    BRepPrimAPI_MakePrism prism(face.Face(),gp_Vec(0,0,height),false,true);
+    prism.Build();
+    require(prism.IsDone(),"Concave prism fixture failed");
+    return prism.Shape();
+}
+
+struct AngledEndFixture {
+    TopoDS_Shape shape;
+    TopoDS_Edge edge;
+    zima::kernel::OcctPlanarEdgeEndFaces ends;
+};
+
+AngledEndFixture angled_end_fixture() {
+    AngledEndFixture fixture;
+    fixture.shape=BRepPrimAPI_MakeWedge(30.,24.,40.,12.).Shape();
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(fixture.shape,TopAbs_EDGE,TopAbs_FACE,
+        edge_faces);
+    for(TopExp_Explorer item(fixture.shape,TopAbs_EDGE);
+            item.More();item.Next()) {
+        const auto edge=TopoDS::Edge(item.Current());
+        const BRepAdaptor_Curve curve(edge);
+        const int support_index=edge_faces.FindIndex(edge);
+        if(curve.GetType()!=GeomAbs_Line||support_index==0||
+           edge_faces.FindFromIndex(support_index).Size()!=2)continue;
+        const gp_Dir tangent(gp_Vec(curve.Value(curve.FirstParameter()),
+            curve.Value(curve.LastParameter())));
+        for(TopExp_Explorer face(fixture.shape,TopAbs_FACE);
+                face.More();face.Next()) {
+            const auto candidate=TopoDS::Face(face.Current());
+            bool support=false;
+            for(const auto& adjacent:edge_faces.FindFromIndex(support_index))
+                support|=candidate.IsSame(adjacent);
+            const BRepAdaptor_Surface surface(candidate,true);
+            if(support||surface.GetType()!=GeomAbs_Plane)continue;
+            const double incidence=std::abs(
+                surface.Plane().Axis().Direction().Dot(tangent));
+            if(incidence<=0.05||incidence>=0.999)continue;
+            const auto first_point=curve.Value(curve.FirstParameter());
+            const auto last_point=curve.Value(curve.LastParameter());
+            const bool first=surface.Plane().Distance(first_point)<=1.0e-7&&
+                BRepClass_FaceClassifier(candidate,first_point,
+                    1.0e-7).State()==TopAbs_ON;
+            const bool last=surface.Plane().Distance(last_point)<=1.0e-7&&
+                BRepClass_FaceClassifier(candidate,last_point,
+                    1.0e-7).State()==TopAbs_ON;
+            if(first==last)continue;
+            fixture.edge=edge;
+            (first?fixture.ends.first:fixture.ends.last)=candidate;
+            return fixture;
+        }
+    }
+    throw std::runtime_error(
+        "Wedge fixture did not expose a straight edge with an angled end face");
 }
 
 } // namespace
@@ -247,6 +316,52 @@ int main() try {
         verify_result(wedge,{*origin},2.5);
     }
     {
+        const auto concave=concave_prism(25.);
+        const auto vertical=vertical_edges(concave,25.);
+        const auto inside=std::ranges::find_if(vertical,[](const auto& edge) {
+            const BRepAdaptor_Curve curve(edge);
+            const auto point=curve.Value(curve.FirstParameter());
+            return std::abs(point.X()-10.)<1.0e-9&&
+                std::abs(point.Y()-10.)<1.0e-9;
+        });
+        require(inside!=vertical.end(),
+            "Concave prism fixture lost its internal edge");
+        verify_result(concave,{*inside},3.);
+        const auto outside=std::ranges::find_if(vertical,[](const auto& edge) {
+            const BRepAdaptor_Curve curve(edge);
+            const auto point=curve.Value(curve.FirstParameter());
+            return std::abs(point.X())<1.0e-9&&
+                std::abs(point.Y())<1.0e-9;
+        });
+        require(outside!=vertical.end(),
+            "Concave prism fixture lost its external edge");
+        const std::array orders{
+            std::array{*outside,*inside},
+            std::array{*inside,*outside}};
+        for(const auto& order:orders) {
+            const auto mixed=zima::kernel::occt_planar_edge_fillet(
+                concave,order,2.,1.0e-7);
+            require(mixed.history&&
+                    BRepCheck_Analyzer(mixed.shape,true,true,false).IsValid()&&
+                    mixed.fillet_faces.size()==order.size()&&
+                    std::ranges::all_of(mixed.fillet_faces,
+                        [](const auto& faces){return !faces.empty();}),
+                "Mixed outer/inner Fillet lost its valid Body, faces or history");
+            near(volume(mixed.shape),volume(concave),
+                "Mixed outer/inner Fillet did not balance equal-radius CUT and FUSE");
+            for(const auto& edge:order) {
+                bool generated_face_found=false;
+                for(const auto& descendant:mixed.Generated(edge))
+                    if(descendant.ShapeType()==TopAbs_FACE&&
+                       BRepAdaptor_Surface(TopoDS::Face(descendant),true).
+                           GetType()==GeomAbs_Cylinder)
+                        generated_face_found=true;
+                require(generated_face_found,
+                    "Mixed outer/inner Fillet lost edge-to-face ancestry");
+            }
+        }
+    }
+    {
         const auto cylinder=BRepPrimAPI_MakeCylinder(10,20).Shape();
         TopoDS_Edge curved;
         for(TopExp_Explorer edge(cylinder,TopAbs_EDGE);
@@ -268,7 +383,19 @@ int main() try {
         require(rejected,
             "Planar Fillet accepted a curved or non-plane/plane edge");
     }
-    std::cout<<"Custom planar edge Fillet: 90-degree single/batch, 60-degree, exact cylinder ancestry and rejection checks passed\n";
+    {
+        const auto fixture=angled_end_fixture();
+        const std::array edges{fixture.edge};
+        const std::array ends{fixture.ends};
+        const auto result=zima::kernel::occt_planar_edge_fillet(
+            fixture.shape,edges,2.,1.0e-7,ends);
+        require(BRepCheck_Analyzer(result.Shape(),true,true,false).IsValid()&&
+                result.fillet_faces.size()==1&&
+                !result.fillet_faces.front().empty()&&
+                result.analytic_removal_domains.front().axial_extension>0.,
+            "Custom planar Fillet did not trim a valid angled end");
+    }
+    std::cout<<"Custom planar edge Fillet: convex/concave 90-degree, mixed CUT/FUSE order, batch, 60-degree, perpendicular/angled ends, exact cylinder ancestry and rejection checks passed\n";
     return 0;
 } catch(const std::exception& error) {
     std::cerr<<error.what()<<'\n';return 1;

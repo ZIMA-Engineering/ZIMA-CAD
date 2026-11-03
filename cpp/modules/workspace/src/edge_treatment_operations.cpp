@@ -91,6 +91,13 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     if(!input||input->mesh.edges.empty())throw Error("missing_input","Edge treatment requires a calculated input body.");
     if(parameters.routes.empty())throw Error("invalid_reference","Select at least one input edge route.");
     if(parameters.route_start_vertices.size()>parameters.routes.size())throw Error("invalid_reference","Each edge route may have only one R1 endpoint.");
+    if(parameters.route_end_faces.size()!=parameters.routes.size())
+        throw Error("invalid_reference","Each edge route requires exactly two end-face slots.");
+    const bool has_end_faces=std::ranges::any_of(parameters.route_end_faces,
+        [](const auto& ends) {return ends.first.valid()||ends.last.valid();});
+    if(has_end_faces&&parameters.calculation_method==
+            Parameters::CalculationMethod::Occt)
+        throw Error("invalid_arguments","OCCT edge treatment does not support selected end faces; use ZIMA or Automatic.");
     const auto available=group_edges(input->mesh.edges);std::set<Key> unique;
     for(std::size_t i=0;i<parameters.routes.size();++i) {
         const auto& route=parameters.routes[i];
@@ -103,6 +110,12 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
             if(!unique.insert(key(ref)).second)throw Error("invalid_reference","An input edge may belong to only one selected route.");
         }
         const auto start=i<parameters.route_start_vertices.size()?parameters.route_start_vertices[i]:kernel::VertexReference{};
+        for(const auto* face:{&parameters.route_end_faces[i].first,
+                &parameters.route_end_faces[i].last})
+            if((face->valid()&&!face->instance_path.empty())||
+               (!face->valid()&&(!face->owner_id.empty()||
+                                 !face->semantic_key.empty())))
+                throw Error("invalid_reference","Select a local persisted end face or leave the end perpendicular.");
         if(!start.instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
         if(fillet&&parameters.fillet_mode==Parameters::FilletMode::Linear) {
             const auto ends=endpoints(available,route);

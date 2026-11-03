@@ -6470,7 +6470,10 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
     if (geometry_id.empty()) throw std::invalid_argument("Geometry ID is required");
     auto next = *this;
     const auto source_edge=std::ranges::find(next.external_references,geometry_id,&SketchExternalReference::id);
-    if(source_edge!=next.external_references.end() && source_edge->kind==ExternalReferenceKind::Edge) {
+    if(source_edge!=next.external_references.end() &&
+            (source_edge->kind==ExternalReferenceKind::Edge ||
+             (source_edge->kind==ExternalReferenceKind::Face &&
+              is_face_curve_key(source_edge->source_semantic_key)))) {
         std::vector<std::string> children;
         for(const auto& endpoint:next.external_references) {
             if(is_external_endpoint_kind(endpoint.kind) && endpoint.source_document_id==source_edge->source_document_id &&
@@ -8344,6 +8347,75 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
     *this = std::move(next);
 }
 
+std::vector<std::string> Sketch::add_external_edge_endpoints(
+        const std::string& reference_id) {
+    const auto source=std::ranges::find(external_references,reference_id,
+        &SketchExternalReference::id);
+    if(source==external_references.end()||source->broken||source->infinite)
+        return {};
+    const bool outline=source->kind==ExternalReferenceKind::Face&&
+        is_face_curve_key(source->source_semantic_key);
+    if(source->kind!=ExternalReferenceKind::Edge&&!outline)return {};
+    const auto* points=outline&&source->cached_paths.size()==1?
+        &source->cached_paths.front():&source->cached_points;
+    if(points->size()<2)return {};
+    const auto& first=points->front();
+    const auto& last=points->back();
+    const double scale=std::max({1.0,std::abs(first[0]),std::abs(first[1]),
+        std::abs(last[0]),std::abs(last[1])});
+    const double dx=last[0]-first[0],dy=last[1]-first[1];
+    const double length=std::hypot(dx,dy);
+    bool closed=length<=scale*1.0e-10;
+    if(source->exact_spline&&source->exact_spline->poles.size()>=2) {
+        const auto& exact_first=source->exact_spline->poles.front();
+        const auto& exact_last=source->exact_spline->poles.back();
+        const double exact_scale=std::max({1.0,std::abs(exact_first.x),
+            std::abs(exact_first.y),std::abs(exact_last.x),
+            std::abs(exact_last.y)});
+        closed=std::hypot(exact_last.x-exact_first.x,
+            exact_last.y-exact_first.y)<=exact_scale*1.0e-10;
+    }
+    if(closed)
+        return {}; // Closed projected curves have no distinct ends.
+    auto next=*this;
+    std::vector<std::string> result;
+    result.reserve(2);
+    for(std::size_t index=0;index<2;++index) {
+        const auto kind=index==0?ExternalReferenceKind::EdgeStart:
+            ExternalReferenceKind::EdgeEnd;
+        const auto existing=std::ranges::find_if(next.external_references,
+            [&](const auto& candidate) {
+                return candidate.kind==kind&&
+                    candidate.body_edge==source->body_edge&&
+                    candidate.source_document_id==source->source_document_id&&
+                    candidate.source_owner_id==source->source_owner_id&&
+                    candidate.source_semantic_key==source->source_semantic_key&&
+                    candidate.source_instance_path==source->source_instance_path&&
+                    candidate.context_assembly_document_id==
+                        source->context_assembly_document_id&&
+                    candidate.context_instance_path==source->context_instance_path&&
+                    candidate.intersection==source->intersection&&
+                    candidate.curve_intersection==source->curve_intersection;
+            });
+        if(existing!=next.external_references.end()) {
+            result.push_back(existing->id);
+            continue;
+        }
+        auto endpoint=*source;
+        endpoint.id=make_id();
+        endpoint.kind=kind;
+        endpoint.cached_points={index==0?first:last};
+        endpoint.cached_paths.clear();
+        endpoint.exact_spline.reset();
+        endpoint.infinite=false;
+        result.push_back(endpoint.id);
+        next.external_references.push_back(std::move(endpoint));
+    }
+    next.validate();
+    *this=std::move(next);
+    return result;
+}
+
 std::string Sketch::add_external_profile_geometry(
     const std::string& reference_id) {
     const auto reference = std::find_if(external_references.begin(),
@@ -8504,25 +8576,18 @@ std::string Sketch::add_external_profile_geometry(
         point_ids = {segment->first_point_id, segment->second_point_id};
         // A projected line is ordinary editable geometry. Each endpoint has
         // independent support on the source edge and its corresponding end.
+        const auto endpoint_ids=next.add_external_edge_endpoints(reference_id);
+        if(endpoint_ids.size()!=2)
+            throw std::runtime_error("External profile edge has no distinct endpoints");
         for (std::size_t index=0; index<2; ++index) {
-            auto endpoint = *reference;
-            endpoint.id = make_id();
-            endpoint.kind = index==0 ? ExternalReferenceKind::EdgeStart : ExternalReferenceKind::EdgeEnd;
-            endpoint.cached_points = {index==0 ? first : last};
-            endpoint.cached_paths.clear();
-            endpoint.exact_spline.reset();
-            endpoint.infinite = false;
-            const auto existing = std::ranges::find_if(next.external_references, [&](const auto& candidate) {
-                return candidate.kind==endpoint.kind && candidate.source_document_id==endpoint.source_document_id &&
-                    candidate.body_edge==endpoint.body_edge &&
-                    candidate.source_owner_id==endpoint.source_owner_id && candidate.source_semantic_key==endpoint.source_semantic_key &&
-                    candidate.source_instance_path==endpoint.source_instance_path &&
-                    candidate.context_assembly_document_id==endpoint.context_assembly_document_id &&
-                    candidate.context_instance_path==endpoint.context_instance_path && candidate.intersection==endpoint.intersection&&candidate.curve_intersection==endpoint.curve_intersection;
-            });
-            const auto endpoint_id = existing==next.external_references.end() ? endpoint.id : existing->id;
-            if(existing==next.external_references.end())next.external_references.push_back(std::move(endpoint));
-            next.constraints.push_back({make_id(), ConstraintKind::PointReference, point_ids[index], endpoint_id});
+            if(!std::ranges::any_of(next.constraints,[&](const auto& constraint) {
+                    return !constraint.suppressed&&
+                        constraint.kind==ConstraintKind::PointReference&&
+                        constraint.first_point_id==point_ids[index]&&
+                        constraint.second_point_id==endpoint_ids[index];
+                }))
+                next.constraints.push_back({make_id(), ConstraintKind::PointReference,
+                    point_ids[index], endpoint_ids[index]});
             SketchConstraint support{make_id(), ConstraintKind::PointOnLine, point_ids[index]};
             support.geometry_id=reference_id;
             next.constraints.push_back(std::move(support));
@@ -8944,7 +9009,7 @@ bool Sketch::refresh_external_references(
         if(is_external_endpoint_kind(reference.kind)&&is_face_curve_key(reference.source_semantic_key)) {
             const auto paths=next.external_face_reference_paths(source_geometry,
                 {reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path});
-            if(paths&&paths->size()==1&&paths->front().size()==2)
+            if(paths&&paths->size()==1&&paths->front().size()>=2)
                 resolved=std::vector<std::array<double,2>>{reference.kind==ExternalReferenceKind::EdgeStart?
                     paths->front().front():paths->front().back()};
         } else if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
@@ -15319,7 +15384,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
         };
         const auto matching_support = [&](const SketchExternalReference& endpoint, const std::string& reference_id) {
             const auto support=std::ranges::find(external_references,reference_id,&SketchExternalReference::id);
-            return support!=external_references.end() && support->kind==ExternalReferenceKind::Edge &&
+            return support!=external_references.end() &&
+                (support->kind==ExternalReferenceKind::Edge ||
+                 (support->kind==ExternalReferenceKind::Face &&
+                  is_face_curve_key(support->source_semantic_key))) &&
                 support->source_document_id==endpoint.source_document_id && support->source_owner_id==endpoint.source_owner_id &&
                 support->source_semantic_key==endpoint.source_semantic_key && support->source_instance_path==endpoint.source_instance_path &&
                 support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path &&

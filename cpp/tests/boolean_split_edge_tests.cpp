@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <set>
 #include <BRepTools.hxx>
@@ -424,6 +425,91 @@ void bounded_fillet_recovery() {
     std::cout<<"Bounded treatments: source recovery, intersection/source priority, Fillet/Chamfer filtering and reused prefix passed\n";
 }
 
+void zima_fragment_survival() {
+    const auto prism=[](std::string owner,test::ProfilePrism value,
+            kernel::BooleanOperation operation=kernel::BooleanOperation::Add) {
+        kernel::FeatureGroupRequest group;
+        group.children.emplace_back(
+            static_cast<kernel::ExtrusionRequest>(value));
+        return kernel::HistoryOperation{
+            std::move(owner),std::move(group),operation};
+    };
+    const auto stock=prism("fragment-stock",{20,20,30});
+    kernel::OcctKernel stock_kernel;
+    const auto stock_result=stock_kernel.evaluate_history({stock});
+    const auto original=std::ranges::find_if(
+        stock_result.back().mesh.edges,[](const auto& edge) {
+            if(edge.points.size()<2)return false;
+            const auto& first=edge.points.front();
+            const auto& last=edge.points.back();
+            return std::abs(first.x-20)<1.0e-6&&
+                std::abs(last.x-20)<1.0e-6&&
+                std::abs(first.y)<1.0e-6&&
+                std::abs(last.y)<1.0e-6&&
+                std::abs(std::abs(first.z-last.z)-30)<1.0e-6;
+        });
+    require(original!=stock_result.back().mesh.edges.end(),
+        "ZIMA fragment fixture has no original vertical edge");
+    const auto original_reference=original->reference;
+    const auto treatment=kernel::HistoryOperation{
+        "fragment-fillet",
+        kernel::FilletRequest{{original_reference},
+            kernel::FilletRequest::Mode::Constant,1,1,false,{},
+            kernel::EdgeTreatmentCalculationMethod::Zima,{1},{{}}},
+        kernel::BooleanOperation::Add};
+    const auto evaluate=[&](double cutter_z,double cutter_height,
+            std::size_t* detected_survivors=nullptr) {
+        auto cutter=test::ProfilePrism{5,5,cutter_height};
+        cutter.translation={18,-1,cutter_z};
+        const auto cut=prism("fragment-cutter",cutter,
+            kernel::BooleanOperation::Subtract);
+        kernel::OcctKernel kernel;
+        const std::vector<kernel::HistoryOperation> input{stock,cut};
+        const auto before=kernel.evaluate_history(input);
+        std::size_t survivors{};
+        for(const auto& edge:before.back().mesh.edges)
+            if(edge.points.size()>=2&&
+                    std::ranges::all_of(edge.points,[](const auto& point) {
+                        return std::abs(point.x-20)<1.0e-6&&
+                            std::abs(point.y)<1.0e-6;
+                    })&&
+                    std::abs(edge.points.front().z-
+                        edge.points.back().z)>1.0e-6)
+                ++survivors;
+        if(detected_survivors)*detected_survivors=survivors;
+        auto complete=input;
+        complete.push_back(treatment);
+        return std::pair{survivors,kernel.evaluate_history(complete)};
+    };
+    const auto [two_fragments,two]=evaluate(10,10);
+    require(two_fragments==2&&two.size()==3&&
+            two.back().calculation_errors.empty()&&
+            std::ranges::any_of(two.back().mesh.triangle_references,
+                [](const auto& face) {
+                    return face.owner_id=="fragment-fillet";
+                }),
+        "ZIMA Fillet did not follow both surviving fragments");
+    const auto [one_fragment,one]=evaluate(0,20);
+    require(one_fragment==1&&one.size()==3&&
+            one.back().calculation_errors.empty()&&
+            std::ranges::any_of(one.back().mesh.triangle_references,
+                [](const auto& face) {
+                    return face.owner_id=="fragment-fillet";
+                }),
+        "ZIMA Fillet became unresolved after only one fragment disappeared");
+    bool all_fragments_unresolved{};
+    std::size_t no_fragments=std::numeric_limits<std::size_t>::max();
+    try {
+        static_cast<void>(evaluate(0,30,&no_fragments));
+    } catch(const std::invalid_argument& error) {
+        all_fragments_unresolved=std::string_view(error.what())==
+            "Fillet/Chamfer original edge reference is unresolved.";
+    }
+    require(no_fragments==0&&all_fragments_unresolved,
+        "ZIMA Fillet did not become unresolved after every fragment disappeared");
+    std::cout<<"ZIMA fragment survival: two, one and zero descendants passed\n";
+}
+
 void assembly_targets(const fs::path& directory) {
     Fixture f(directory);
     f.run("new", {{"type", "part"}, {"name", "assembly-split-source"}});
@@ -622,9 +708,14 @@ int main(int argc, char** argv) { try {
         bounded_fillet_recovery();
         require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
     }
+    if(argc>1&&std::string(argv[1])=="--zima-fragments-only") {
+        zima_fragment_survival();
+        require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
+    }
     for (const auto* name : {"open", "closed", "offset", "shell", "three-solids", "solid"}) exercise(directory, name);
     split_again(directory);
     bounded_fillet_recovery();
+    zima_fragment_survival();
     if(argc<2||std::string(argv[1])!="--part-only")assembly_targets(directory);
     require(directory.parent_path() == root, "Invalid test cleanup path"); fs::remove_all(directory);
     return 0;

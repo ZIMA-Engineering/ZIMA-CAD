@@ -282,6 +282,7 @@ private:
     void toggle_orientation_highlight(std::size_t row);
     void refresh_orientation_controls();
     void refresh_rotation_field_states();
+    void preserve_resolved_orientation_as_absolute();
     void notify_changed();
 };
 

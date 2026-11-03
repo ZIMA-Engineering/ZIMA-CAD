@@ -695,6 +695,12 @@ public:
     [[nodiscard]] static SketchExternalReference create_external_reference(
         ExternalReferenceKind kind);
     void add_external_reference(SketchExternalReference reference);
+    // Every finite open projected edge exposes its two source endpoints as
+    // independent read-only point references. Closed and infinite curves do
+    // not invent endpoints. Existing endpoints are reused by source identity
+    // so Reference and Reference -> Outline share one contract.
+    [[nodiscard]] std::vector<std::string> add_external_edge_endpoints(
+        const std::string& reference_id);
     [[nodiscard]] std::string add_external_profile_geometry(
         const std::string& reference_id);
     [[nodiscard]] std::optional<zima::kernel::BSplineGeometry> project_external_spline(

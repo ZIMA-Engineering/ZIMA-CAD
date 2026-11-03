@@ -1903,7 +1903,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=47\n") != std::string::npos &&
+                    empty_text.find("format_version=48\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -5966,6 +5966,51 @@ int main() {
                         1.0e-9,
                 "Single FRONT did not overwrite constrained absolute RX/RZ "
                 "while preserving the editable absolute RY");
+
+        zima::kernel::ViewerReferenceGeometry legacy_orientation_geometry;
+        legacy_orientation_geometry.axes.push_back({
+            {}, {0.0, 0.0, -1.0}, 100.0,
+            {"axis-negative-z", "axis", {}}, {}});
+        zima::document::Placement legacy_one_front;
+        legacy_one_front.absolute_rotation_x = -90.0;
+        legacy_one_front.absolute_rotation_y = 0.0;
+        legacy_one_front.absolute_rotation_z = 180.0;
+        legacy_one_front.rotation_x = -90.0;
+        legacy_one_front.rotation_y = 0.0;
+        legacy_one_front.rotation_z = 180.0;
+        legacy_one_front.references = {{{}, "axis-negative-z", "axis",
+            0.0, false, "front", true, true}};
+        require(zima::document::reparameterize_single_orientation_placement(
+                    legacy_one_front, legacy_orientation_geometry) &&
+                    std::abs(legacy_one_front.absolute_rotation_x + 90.0) <
+                        1.0e-9 &&
+                    std::abs(std::abs(
+                        legacy_one_front.absolute_rotation_y) - 180.0) <
+                        1.0e-9 &&
+                    std::abs(legacy_one_front.absolute_rotation_z) < 1.0e-9 &&
+                    std::abs(legacy_one_front.rotation_x + 90.0) < 1.0e-9 &&
+                    std::abs(legacy_one_front.rotation_y) < 1.0e-9 &&
+                    std::abs(legacy_one_front.rotation_z - 180.0) < 1.0e-9,
+                "One-FRONT format normalization changed the resolved frame");
+        const auto normalized_one_front = legacy_one_front;
+        require(zima::document::resolve_placement(
+                    legacy_one_front, legacy_orientation_geometry) &&
+                    legacy_one_front.reference_valid &&
+                    legacy_one_front.references ==
+                        normalized_one_front.references &&
+                    std::abs(legacy_one_front.absolute_rotation_x -
+                        normalized_one_front.absolute_rotation_x) < 1.0e-9 &&
+                    std::abs(legacy_one_front.absolute_rotation_y -
+                        normalized_one_front.absolute_rotation_y) < 1.0e-9 &&
+                    std::abs(legacy_one_front.absolute_rotation_z -
+                        normalized_one_front.absolute_rotation_z) < 1.0e-9 &&
+                    std::abs(legacy_one_front.rotation_x -
+                        normalized_one_front.rotation_x) < 1.0e-9 &&
+                    std::abs(legacy_one_front.rotation_y -
+                        normalized_one_front.rotation_y) < 1.0e-9 &&
+                    std::abs(legacy_one_front.rotation_z -
+                        normalized_one_front.rotation_z) < 1.0e-9,
+                "Normalized one-FRONT placement was not idempotent");
 
         const std::vector<zima::document::ConstructionReference> top_only_refs{
             {{}, "axis-y", "axis", 0.0, false, "top", true}};

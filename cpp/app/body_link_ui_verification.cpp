@@ -50,7 +50,10 @@ int verify_body_link(QApplication& application,AssemblyWorkspaceWindow& window,c
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("bodyLinkDialog"),"Link OK failed");
         auto* part=window.workspace_.open_part(target.document_id);check(part->session.document().body_history.find(id),"Link was not inserted");
-        check(std::abs(part->session.calculated_boundaries().back().volume-8000)<1e-7,"Selected scaled Body has wrong geometry");
+        auto linked=part->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(linked);
+        check(std::abs(linked.volume-8000)<1e-7,
+            "Selected scaled Body has wrong geometry");
         part->session.document().save(target_file,part->session.calculated_boundaries());
         window.show_body_properties(id);flush();dialog=dynamic_cast<BodyPropertiesDialog*>(window.findChild<QDialog*>("bodyLinkDialog"));
         check(dialog&&dialog->pending_value().link->body_id=="scaled-source","Link did not reopen for editing");

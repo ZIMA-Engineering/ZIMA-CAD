@@ -55,6 +55,7 @@ public:
     void set_working_directory(const QString& path);
     void set_working_directory_action(QAction* action);
     void reload_settings(const ApplicationSettings& settings);
+    void refresh_contents();
     void refresh_materials();
     void navigate(const QString& path, bool track_history = true);
 

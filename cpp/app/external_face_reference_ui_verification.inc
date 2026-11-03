@@ -257,14 +257,40 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
             const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
             const auto saved=snapshot();const auto& sketch=*std::ranges::find(saved.sketches,sketch_id,&sketcher::Sketch::id);
             const auto& original=*std::ranges::find(part.sketches,sketch_id,&sketcher::Sketch::id);
-            check(sketch.external_references.size()==original.external_references.size()+1,"Mouse selection did not insert one edge reference");
-            const auto& ref=sketch.external_references.back();check(ref.kind==sketcher::ExternalReferenceKind::Edge&&!ref.infinite&&!ref.broken,
+            check(sketch.external_references.size()==original.external_references.size()+3,
+                "Mouse selection did not insert one edge and its two endpoint references");
+            const auto ref_it=std::ranges::find_if(sketch.external_references,
+                [&](const auto& reference) {
+                    return reference.kind==sketcher::ExternalReferenceKind::Edge&&
+                        std::ranges::find(original.external_references,reference.id,
+                            &sketcher::SketchExternalReference::id)==
+                            original.external_references.end();
+                });
+            check(ref_it!=sketch.external_references.end(),
+                "Individual edge reference record is missing");
+            const auto& ref=*ref_it;check(!ref.infinite&&!ref.broken,
                 "Individual edge selection did not retain finite original support");
             check(ref.cached_paths.empty()||ref.cached_paths.size()==1,"Individual edge selection projected multiple face contours");
             check(std::equal(original.external_references.begin(),original.external_references.end(),sketch.external_references.begin()),
                 "Adding an edge rewrote a stored face reference");
             const auto source=app::sketch_external_reference_source_candidate(*cap);
             check(ref.source_owner_id==source.owner_id&&ref.source_semantic_key==source.semantic_key,"Edge acceptance changed the exact offered source identity");
+            const auto endpoints=std::ranges::count_if(sketch.external_references,
+                [&](const auto& reference) {
+                    return sketcher::is_external_endpoint_kind(reference.kind)&&
+                        reference.source_owner_id==source.owner_id&&
+                        reference.source_semantic_key==source.semantic_key;
+                });
+            check(endpoints==2,
+                "Individual edge does not expose both source endpoints as point references");
+            for(const auto& reference:sketch.external_references)
+                if(sketcher::is_external_endpoint_kind(reference.kind)&&
+                   reference.source_owner_id==source.owner_id&&
+                   reference.source_semantic_key==source.semantic_key)
+                    check(std::ranges::any_of(view->mesh().points,[&](const auto& point) {
+                        return point.reference.owner_id==sketch_id&&
+                            point.reference.semantic_key=="external_point:"+reference.id;
+                    }),"External edge endpoint is not published to View picking");
             check(saved.history==part.history,"Adding an edge reference changed feature parameters");
             window.findChild<QAction*>("undoAction")->trigger();flush();auto undone=snapshot();
             check(std::ranges::find(undone.sketches,sketch_id,&sketcher::Sketch::id)->external_references==original.external_references,"Edge reference Undo failed");

@@ -78,7 +78,8 @@ QStringList tokens(const QString& text) {
 
 int verify_translations(QApplication& application, QWidget& parent) {
     using namespace zima;
-    QTemporaryDir directory;
+    QTemporaryDir directory(QDir::current().filePath(
+        QStringLiteral("translation-contract-XXXXXX")));
     check(directory.isValid(), "Cannot create translation test directory");
     const auto catalogue = std::filesystem::path(__FILE__).parent_path()
         .parent_path().parent_path() / "config/localization";
@@ -374,7 +375,8 @@ int verify_translations(QApplication& application, QWidget& parent) {
             invalid.buttons()->button(QDialogButtonBox::Cancel)->click();
         }
         {
-            check(QDir(directory.path()).mkpath("nested"), "Cannot create directory navigation fixture");
+            const auto nested=directory.filePath("nested-"+languages[language]);
+            check(QDir().mkpath(nested), "Cannot create directory navigation fixture");
             bool inspected = false;
             bool labels_match = true;
             QTimer::singleShot(0, &parent, [&] {
@@ -391,7 +393,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
                     labels_match &= accept && accept->text() == settings.translations.value("button.select");
                 };
                 verify_label("initial");
-                chooser->setDirectory(directory.filePath("nested"));
+                chooser->setDirectory(nested);
                 if (name) name->setText(".");
                 verify_label("nested");
                 chooser->setDirectory(directory.path());
@@ -714,9 +716,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
             app::PrimitivePropertiesDialog properties(feature,false,true,[](auto){},&parent);
             properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
             check(properties.windowTitle()==settings.qt_translations.value("Vlastnosti prvku"),"Feature title is untranslated");
-            check(properties.findChild<QCheckBox*>("featureShowPoint")->text()==settings.qt_translations.value("Bod")&&
-                properties.findChild<QCheckBox*>("featureShowText")->text()==settings.qt_translations.value("Text"),
-                "Feature visibility switches are untranslated");
+            check(!properties.findChild<QCheckBox*>("featureShowPoint")&&
+                !properties.findChild<QCheckBox*>("featureShowText"),
+                "Removed Feature Point/Text switches are still present");
             auto* individual_profile_axes=properties.findChild<QCheckBox*>("featureIndividualCentroidAxes");
             check(individual_profile_axes&&
                 individual_profile_axes->text()==settings.qt_translations.value("Osy jednotlivých profilů")&&

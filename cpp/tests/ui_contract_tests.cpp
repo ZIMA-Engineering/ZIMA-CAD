@@ -69,6 +69,7 @@
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QShortcut>
 #include <QTimer>
 #include <QTableWidget>
 #include <QToolButton>
@@ -659,7 +660,10 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
     auto part=document::PartDocument::create_default();
     auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
     auto profile=sketcher::Sketch::create_default();profile.owner_container_id=flat.id;flat.flat.sketch_id=profile.id;
-    profile.add_segment(0,0,40,0);profile.add_segment(40,0,40,30);profile.add_segment(40,30,0,30);profile.add_segment(0,30,0,0);
+    static_cast<void>(profile.add_segment(0,0,40,0));
+    static_cast<void>(profile.add_segment(40,0,40,30));
+    static_cast<void>(profile.add_segment(40,30,0,30));
+    static_cast<void>(profile.add_segment(0,30,0,0));
     part.history={flat};part.sketches={profile};part.resolve_constructions();
     kernel::OcctKernel kernel;const auto result=kernel.evaluate_history(part.kernel_operations()).back();
     const auto& geometry=result.mesh.original_references;
@@ -697,7 +701,7 @@ void verify_flat_attachment_dialog(QWidget& parent) {
     auto source=document::PartDocument::create_default();
     auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
     auto section=sketcher::Sketch::create_default();section.owner_container_id=bend.id;
-    section.add_segment(0,0,40,0);bend.bend.sketch_id=section.id;
+    static_cast<void>(section.add_segment(0,0,40,0));bend.bend.sketch_id=section.id;
     source.history={bend};source.sketches={section};source.resolve_constructions();
     kernel::OcctKernel kernel;const auto body=kernel.evaluate_history(source.kernel_operations()).back();
     auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
@@ -710,7 +714,7 @@ void verify_flat_attachment_dialog(QWidget& parent) {
     int accepted=0,rejected=0;
     for(const auto& edge:body.mesh.original_references.edges) {
         const document::ConstructionReference reference{{},edge.reference.owner_id,edge.reference.semantic_key};
-        bool allowed=false;try {document::flat_sheet_references(edge);allowed=true;}catch(const std::exception&){}
+        bool allowed=false;try {static_cast<void>(document::flat_sheet_references(edge));allowed=true;}catch(const std::exception&){}
         require(dialog.sheet_reference_allowed(0,reference)==allowed,"Flat hover contract accepts an invalid Bend edge");
         if(!allowed){require(!dialog.set_reference(0,reference,"Rejected"),"Flat click bypassed edge filter");++rejected;continue;}
         require(dialog.set_reference(0,reference,"Outer"),"Flat rejected outer Bend boundary");++accepted;
@@ -819,6 +823,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     view.set_document_origin("document:origin");
     view.set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
     view.set_reference_visibility(viewer::ReferenceVisibility::Points,true);
+    view.set_reference_visibility(viewer::ReferenceVisibility::AxisPoints,true);
     std::vector<kernel::VertexReference> references{
         {"document:origin","origin:point",{}},
         {"feature:origin","origin:point",{}},
@@ -1462,6 +1467,55 @@ static void verify_tree_branches(QApplication& application,QWidget& parent) {
     std::cout<<"Tree branch guides: Light/Dark/Light solid elbows, contrast, disclosure and selection passed\n";
 }
 
+static void verify_hole_step(QApplication& application,QWidget& parent) {
+    auto hole=zima::document::PartDocument::create_hole_container();
+    bool hole_committed=false;
+    auto* hole_create=new zima::app::PrimitivePropertiesDialog(
+        hole,false,false,[&](auto){hole_committed=true;},&parent);
+    hole_create->show();application.processEvents();
+    auto* parameters=hole_create->findChild<QWidget*>("holeParameters");
+    auto* diameter=hole_create->findChild<QDoubleSpinBox*>("holeDiameter");
+    require(parameters&&diameter&&!parameters->isEnabled(),
+        "New Hole exposed parameters before its first placement input");
+    zima::document::ConstructionReference first_reference;
+    first_reference.owner_id="fixture-point";
+    first_reference.semantic_key="point";
+    require(hole_create->set_reference(0,first_reference,
+                QStringLiteral("Fixture point"))&&parameters->isEnabled(),
+        "Hole parameters did not unlock after the first valid placement input");
+    diameter->setValue(12.5);
+    require(hole_create->pending_value().hole.diameter==12.5,
+        "Unlocked Hole parameters did not retain their edited value");
+    hole_create->buttons()->button(QDialogButtonBox::Cancel)->click();
+    application.processEvents();
+    require(!hole_committed,"Cancel committed a stepped Hole creation");
+
+    auto* hole_edit=new zima::app::PrimitivePropertiesDialog(
+        hole,true,false,[](auto){},&parent);
+    hole_edit->show();application.processEvents();
+    require(hole_edit->findChild<QWidget*>("holeParameters")->isEnabled(),
+        "Existing Hole did not open with all parameter fields available");
+    hole_edit->buttons()->button(QDialogButtonBox::Cancel)->click();
+    application.processEvents();
+    std::cout<<"Hole staged entry: locked creation, unlock, value retention, Cancel and edit passed\n";
+}
+
+static void verify_edge_treatment_fragments(QWidget& parent) {
+    zima::kernel::ViewerMesh mesh;
+    mesh.edges.push_back({{{-10,0,0},{0,0,0}},
+        {"route-owner","edge:split",{}}});
+    mesh.edges.push_back({{{0,4,0},{10,4,0}},
+        {"route-owner","edge:split",{}}});
+    zima::viewer::MeshView view(&parent);
+    view.set_mesh(std::move(mesh));
+    const auto fragments=view.display_edges(
+        {"route-owner","edge:split",{}});
+    require(fragments.size()==2&&fragments.front().points.front().x==-10&&
+            fragments.back().points.back().x==10,
+        "Fillet/Chamfer preview omitted a calculated fragment sharing one stable edge identity");
+    std::cout<<"Fillet/Chamfer stable edge fragments passed\n";
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
@@ -1519,6 +1573,8 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_REFERENCE_ICONS_ONLY")){verify_sketch_reference_icons(application);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLE_STEP_ONLY")){verify_hole_step(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENTS_ONLY")){verify_edge_treatment_fragments(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
         // These scoped suites exercise their own widgets and synthetic events;
         // unrelated physical desktop cursor ownership belongs to the full suite.
@@ -1584,6 +1640,143 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_WIRE_ONLY")) {verify_face_wire(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet(
+                "ZIMA_VERIFY_EDGE_TREATMENT_METHOD_ONLY")) {
+            const std::vector<zima::kernel::EdgeReference> edges{
+                {"source","edge",{}}};
+            zima::document::HistoryContainer committed;
+            auto* fillet=new zima::app::PrimitivePropertiesDialog(
+                zima::document::PartDocument::create_fillet_container(edges),
+                false,false,[&](auto value) {
+                    committed=std::move(value);
+                },&parent);
+            fillet->show();application.processEvents();
+            auto* fillet_mode=fillet->findChild<QComboBox*>(
+                "edgeTreatmentType");
+            auto* fillet_automatic=fillet->findChild<QCheckBox*>(
+                "edgeTreatmentMethodAutomatic");
+            auto* fillet_zima=fillet->findChild<QCheckBox*>(
+                "edgeTreatmentMethodZima");
+            auto* fillet_occt=fillet->findChild<QCheckBox*>(
+                "edgeTreatmentMethodOcct");
+            require(fillet_mode&&fillet_automatic&&fillet_zima&&
+                    fillet_occt&&
+                    fillet->minimumWidth()>=680&&
+                    fillet_automatic->isChecked()&&
+                    !fillet_zima->isChecked()&&!fillet_occt->isChecked(),
+                "Constant Fillet did not default to Automatic");
+            auto* route_tree=fillet->findChild<QTreeWidget*>(
+                "edgeTreatmentEdges");
+            auto* first_end=fillet->findChild<QTableWidget*>(
+                "edgeEndFace_0_0");
+            auto* last_end=fillet->findChild<QTableWidget*>(
+                "edgeEndFace_0_1");
+            require(route_tree&&route_tree->topLevelItemCount()>=1&&
+                    !route_tree->topLevelItem(0)->isExpanded()&&
+                    first_end&&last_end,
+                "Fillet route was expanded by default or omitted its two end-face fields");
+            int end_requests{},end_autos{};
+            fillet->set_edge_end_face_callbacks(
+                [&](std::size_t route,std::size_t end) {
+                    require(route==0&&end==0,
+                        "End-face entry requested the wrong route end");
+                    ++end_requests;
+                },
+                [&](std::size_t route,std::size_t end) {
+                    require(route==0&&end==0,
+                        "End-face Auto requested the wrong route end");
+                    ++end_autos;
+                });
+            QMetaObject::invokeMethod(first_end,"cellClicked",
+                Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,1));
+            auto auto_buttons=first_end->findChildren<QToolButton*>();
+            const auto auto_button=std::ranges::find_if(auto_buttons,
+                [](const auto* button) {return button->text()=="A";});
+            require(end_requests==1&&auto_button!=auto_buttons.end(),
+                "End-face reference cell did not arm input or expose Auto");
+            (*auto_button)->click();
+            require(end_autos==1,
+                "End-face Auto action did not request detection");
+            fillet->set_edge_route_end_faces({{{"stock","face:end",{}},{}}});
+            first_end=fillet->findChild<QTableWidget*>("edgeEndFace_0_0");
+            require(first_end&&!fillet_occt->isEnabled()&&
+                    fillet->pending_value().edge_treatment.
+                        route_end_faces[0].first.valid(),
+                "Stored end face did not disable OCCT or enter the pending definition");
+            const auto shortcuts=first_end->findChildren<QShortcut*>();
+            require(shortcuts.size()==1,
+                "End-face field omitted its Delete shortcut");
+            QMetaObject::invokeMethod(shortcuts.front(),"activated",
+                Qt::DirectConnection);
+            require(!fillet->pending_value().edge_treatment.
+                        route_end_faces[0].first.valid()&&end_requests==2&&
+                    fillet_occt->isEnabled(),
+                "Delete did not keep an explicit perpendicular end and reactivate input");
+            fillet_zima->click();
+            require(!fillet_automatic->isChecked()&&
+                    fillet_zima->isChecked()&&!fillet_occt->isChecked(),
+                "Fillet method checkboxes are not mutually exclusive");
+            fillet_occt->click();
+            fillet_automatic->click();
+            fillet_mode->setCurrentIndex(
+                fillet_mode->findData("linear"));
+            require(fillet_automatic->isChecked()&&
+                    fillet_zima->isEnabled()&&fillet_occt->isEnabled(),
+                "Variable Fillet changed or disabled the explicit method choices");
+            fillet_mode->setCurrentIndex(
+                fillet_mode->findData("constant"));
+            fillet->buttons()->button(QDialogButtonBox::Ok)->click();
+            application.processEvents();
+            require(committed.feature_kind==
+                        zima::document::FeatureKind::Fillet&&
+                    committed.edge_treatment.calculation_method==
+                        zima::document::EdgeTreatmentParameters::
+                            CalculationMethod::Automatic,
+                "Fillet Properties did not commit Automatic");
+
+            committed={};
+            auto* chamfer=new zima::app::PrimitivePropertiesDialog(
+                zima::document::PartDocument::create_chamfer_container(edges),
+                false,false,[&](auto value) {
+                    committed=std::move(value);
+                },&parent);
+            chamfer->show();application.processEvents();
+            auto* chamfer_mode=chamfer->findChild<QComboBox*>(
+                "edgeTreatmentType");
+            auto* chamfer_automatic=chamfer->findChild<QCheckBox*>(
+                "edgeTreatmentMethodAutomatic");
+            auto* chamfer_zima=chamfer->findChild<QCheckBox*>(
+                "edgeTreatmentMethodZima");
+            auto* chamfer_occt=chamfer->findChild<QCheckBox*>(
+                "edgeTreatmentMethodOcct");
+            require(chamfer_mode&&chamfer_automatic&&chamfer_zima&&
+                    chamfer_occt,
+                "Chamfer method controls are missing");
+            require(chamfer->minimumWidth()>=680,
+                "Chamfer Properties did not reserve another table-column width");
+            for(const char* mode:{"equal_distance","two_distances",
+                    "distance_angle"}) {
+                chamfer_mode->setCurrentIndex(
+                    chamfer_mode->findData(mode));
+                require(chamfer_automatic->isChecked()&&
+                        chamfer_zima->isEnabled()&&chamfer_occt->isEnabled(),
+                    "A x A, A x B or A + angle changed the method controls");
+            }
+            chamfer_zima->click();
+            chamfer->buttons()->button(QDialogButtonBox::Ok)->click();
+            application.processEvents();
+            require(committed.feature_kind==
+                        zima::document::FeatureKind::Chamfer&&
+                    committed.edge_treatment.chamfer_mode==
+                        zima::document::EdgeTreatmentParameters::
+                            ChamferMode::DistanceAngle&&
+                    committed.edge_treatment.calculation_method==
+                        zima::document::EdgeTreatmentParameters::
+                            CalculationMethod::Zima,
+                "Chamfer Properties did not commit ZIMA A + angle");
+            std::cout<<"ZIMA/OCCT Fillet and Chamfer method selection passed\n";
+            return 0;
+        }
         {
             QToolButton command(&parent);
             command.setGeometry(20,20,180,40);
@@ -2187,6 +2380,8 @@ int main(int argc, char* argv[]) {
                 "OK did not commit inline-edited Box width/height");
         require(committed.placement.x == 42.0,
                 "OK did not commit container placement");
+
+        verify_hole_step(application,parent);
 
         auto fillet = initial;
         fillet.feature_kind = zima::document::FeatureKind::Fillet;
@@ -3070,6 +3265,9 @@ int main(int argc, char* argv[]) {
             for(auto& vertex:ambiguous.edges[1].edge_treatment_endpoint_references)vertex.semantic_key+=":other";
             zima::viewer::MeshView ambiguous_view(&parent);ambiguous_view.setGeometry(0,0,500,360);
             ambiguous_view.set_mesh(std::move(ambiguous));
+            require(ambiguous_view.display_edges(
+                    {"route-owner-a","edge:left",{}}).size()==2,
+                "Fillet/Chamfer preview omitted a visible fragment sharing one stable edge identity");
             auto restored=tangent_seed;restored.geometry_index=std::numeric_limits<std::size_t>::max();
             require(ambiguous_view.tangent_edge_route(restored).empty(),
                 "Programmatic route restoration guessed the first ambiguous mesh edge");
@@ -3999,10 +4197,24 @@ int main(int argc, char* argv[]) {
                 "edgeTreatmentFlip");
             auto* treatment_reverse = treatment_dialog->findChild<QPushButton*>(
                 "edgeTreatmentReverse");
+            auto* treatment_method_automatic =
+                treatment_dialog->findChild<QCheckBox*>(
+                    "edgeTreatmentMethodAutomatic");
+            auto* treatment_method_zima = treatment_dialog->findChild<QCheckBox*>(
+                "edgeTreatmentMethodZima");
+            auto* treatment_method_occt = treatment_dialog->findChild<QCheckBox*>(
+                "edgeTreatmentMethodOcct");
             require(treatment_type != nullptr && treatment_primary != nullptr &&
                         treatment_secondary != nullptr && treatment_angle != nullptr &&
-                        treatment_flip != nullptr && treatment_reverse != nullptr,
+                        treatment_flip != nullptr && treatment_reverse != nullptr &&
+                        treatment_method_automatic != nullptr &&
+                        treatment_method_zima != nullptr &&
+                        treatment_method_occt != nullptr,
                     "Fillet/Chamfer edit did not expose the shared mode Properties UI");
+            require(treatment_method_automatic->isChecked() &&
+                        !treatment_method_zima->isChecked() &&
+                        !treatment_method_occt->isChecked(),
+                    "A new Fillet/Chamfer did not default to Automatic calculation");
             int treatment_preview_updates = 0;
             double previewed_treatment_size = 0.0;
             treatment_dialog->set_preview_callback(
@@ -4023,8 +4235,12 @@ int main(int argc, char* argv[]) {
                     treatment_type->findData("linear"));
                 require(treatment_secondary->isVisible() &&
                             treatment_reverse->isVisible() &&
-                            !treatment_flip->isVisible(),
-                    "Variable Fillet mode did not reveal R2 and direction only");
+                            !treatment_flip->isVisible() &&
+                            treatment_method_automatic->isEnabled() &&
+                            treatment_method_zima->isEnabled() &&
+                            treatment_method_occt->isEnabled() &&
+                            treatment_method_automatic->isChecked(),
+                    "Variable Fillet mode did not preserve the selectable calculation method");
                 require(treatment_dialog->set_inline_parameter_value(
                             "secondary", 4.5) &&
                             treatment_secondary->value() == 4.5,
@@ -4036,8 +4252,12 @@ int main(int argc, char* argv[]) {
                     treatment_type->findData("distance_angle"));
                 require(treatment_angle->isVisible() &&
                             treatment_flip->isVisible() &&
-                            !treatment_secondary->isVisible(),
-                    "A + angle Chamfer mode did not reveal angle and FLIP only");
+                            !treatment_secondary->isVisible() &&
+                            treatment_method_automatic->isEnabled() &&
+                            treatment_method_zima->isEnabled() &&
+                            treatment_method_occt->isEnabled() &&
+                            treatment_method_automatic->isChecked(),
+                    "A + angle Chamfer mode did not retain the selectable ZIMA method, angle and FLIP");
                 require(treatment_dialog->set_inline_parameter_value(
                             "treatment_angle", 37.5) &&
                             treatment_angle->value() == 37.5,
@@ -4074,10 +4294,14 @@ int main(int argc, char* argv[]) {
                         (kind == zima::document::FeatureKind::Fillet
                             ? committed_treatment.edge_treatment.fillet_mode ==
                                   zima::document::EdgeTreatmentParameters::FilletMode::Linear &&
-                              committed_treatment.edge_treatment.reverse
+                              committed_treatment.edge_treatment.reverse &&
+                              committed_treatment.edge_treatment.calculation_method ==
+                                  zima::document::EdgeTreatmentParameters::CalculationMethod::Automatic
                             : committed_treatment.edge_treatment.chamfer_mode ==
                                   zima::document::EdgeTreatmentParameters::ChamferMode::TwoDistances &&
-                              committed_treatment.edge_treatment.flip),
+                              committed_treatment.edge_treatment.flip &&
+                              committed_treatment.edge_treatment.calculation_method ==
+                                  zima::document::EdgeTreatmentParameters::CalculationMethod::Automatic),
                     "Fillet/Chamfer Properties lost its mode, edge identity or values");
         }
         auto imported_step_initial =

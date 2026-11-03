@@ -34,14 +34,40 @@ Parameters parse_routes(const Json& values) {
     for(const auto& value:values) {
         if(!value.is_object()||!value.contains("edges")||!value.at("edges").is_array()||value.at("edges").empty())
             throw Error("invalid_arguments","Each route requires a nonempty edges array and an optional start reference.");
-        for(const auto& [key,field]:value.items())if(key!="edges"&&key!="start")
-            throw Error("invalid_arguments","Each route requires a nonempty edges array and an optional start reference.");
+        for(const auto& [key,field]:value.items())if(key!="edges"&&key!="start"&&
+                key!="first_face"&&key!="last_face")
+            throw Error("invalid_arguments","Each route supports edges, start, first_face and last_face.");
         total+=value.at("edges").size();if(total>10000)throw Error("invalid_arguments","Too many selected input edges.");
         std::vector<kernel::EdgeReference> edges;for(const auto& edge:value.at("edges"))edges.push_back(parse_reference<kernel::EdgeReference>(edge));
         result.routes.push_back(std::move(edges));
         result.route_start_vertices.push_back(value.contains("start")&&!value.at("start").is_null()?parse_reference<kernel::VertexReference>(value.at("start")):kernel::VertexReference{});
+        result.route_end_faces.push_back({
+            value.contains("first_face")&&!value.at("first_face").is_null()
+                ?parse_reference<kernel::FaceReference>(value.at("first_face"))
+                :kernel::FaceReference{},
+            value.contains("last_face")&&!value.at("last_face").is_null()
+                ?parse_reference<kernel::FaceReference>(value.at("last_face"))
+                :kernel::FaceReference{}});
     }
     return result;
+}
+const char* calculation_method_name(
+        Parameters::CalculationMethod method) {
+    using Method=Parameters::CalculationMethod;
+    switch(method) {
+    case Method::Automatic:return "automatic";
+    case Method::Zima:return "zima";
+    case Method::Occt:return "occt";
+    }
+    throw Error("invalid_arguments","Unsupported edge treatment mode.");
+}
+Parameters::CalculationMethod calculation_method(
+        const std::string& name) {
+    using Method=Parameters::CalculationMethod;
+    if(name=="automatic")return Method::Automatic;
+    if(name=="zima")return Method::Zima;
+    if(name=="occt")return Method::Occt;
+    throw Error("invalid_arguments","Unsupported edge treatment mode.");
 }
 Json details(const workspace::PartState& state,const document::HistoryContainer& feature) {
     const auto& doc=state.session.document();const auto* body=doc.body_owner_for_object(feature.id);
@@ -49,10 +75,18 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
     auto routes=Json::array();for(std::size_t i=0;i<params.routes.size();++i) {
         auto edges=Json::array();for(const auto& edge:params.routes[i])edges.push_back(reference(edge));
         const auto start=i<params.route_start_vertices.size()?params.route_start_vertices[i]:kernel::VertexReference{};
-        routes.push_back({{"edges",std::move(edges)},{"start",start.valid()?reference(start):Json(nullptr)}});
+        const auto ends=i<params.route_end_faces.size()
+            ?params.route_end_faces[i]:Parameters::RouteEndFaces{};
+        routes.push_back({{"edges",std::move(edges)},
+            {"start",start.valid()?reference(start):Json(nullptr)},
+            {"first_face",ends.first.valid()?reference(ends.first):Json(nullptr)},
+            {"last_face",ends.last.valid()?reference(ends.last):Json(nullptr)}});
     }
     Json data={{"document",doc.document_id},{"container",feature.id},{"feature",feature.feature_id},{"name",feature.name},
-        {"body",body?body->scope.id:std::string{}},{"routes",std::move(routes)},{"value_locks",feature.value_locks},{"revision",state.session.revision()}};
+        {"body",body?body->scope.id:std::string{}},{"routes",std::move(routes)},
+        {"calculation_method",calculation_method_name(
+            params.calculation_method)},
+        {"value_locks",feature.value_locks},{"revision",state.session.revision()}};
     if(fillet) {
         data["mode"]=params.fillet_mode==Parameters::FilletMode::Linear?"linear":"constant";
         data["radius_mm"]=params.primary_size;data["radius_end_mm"]=params.secondary_size;data["reverse"]=params.reverse;
@@ -104,7 +138,9 @@ void Host::register_edge_treatment_commands() {
             args.push_back({fillet?"radius_mm":"distance_a_mm",false,Type::Number});
             args.push_back({fillet?"radius_end_mm":"distance_b_mm",false,Type::Number});
             if(!fillet)args.push_back({"angle_degrees",false,Type::Number});
-            args.push_back({fillet?"reverse":"flip",false,Type::Boolean});args.push_back({"name",false});args.push_back({"document",false});
+            args.push_back({fillet?"reverse":"flip",false,Type::Boolean});
+            args.push_back({"calculation_method",false});
+            args.push_back({"name",false});args.push_back({"document",false});
             dispatcher_.add({prefix+(create?".create":".set"),fillet?(create?tr("Create a Fillet on persisted input edge routes."):tr("Change Fillet radii, direction and input routes.")):
                 (create?tr("Create a Chamfer on persisted input edge routes."):tr("Change Chamfer distances, side and input routes.")),std::move(args),true},[this,fillet,create](const Json& args) {
                 const auto checked=target(args);if(!checked.ok)return checked;const auto id=workspace_.active_document_id();
@@ -124,7 +160,7 @@ void Host::register_edge_treatment_commands() {
                             throw Error("invalid_arguments","Specify a nonempty object name.");
                     }
                     auto& params=feature.edge_treatment;
-                    if(args.contains("routes")){params.routes=selected.routes;params.route_start_vertices=selected.route_start_vertices;}
+                    if(args.contains("routes")){params.routes=selected.routes;params.route_start_vertices=selected.route_start_vertices;params.route_end_faces=selected.route_end_faces;}
                     if(args.contains("mode")) {
                         const auto mode=args.at("mode").get<std::string>();
                         if(fillet&&mode=="constant")params.fillet_mode=Parameters::FilletMode::Constant;
@@ -138,6 +174,9 @@ void Host::register_edge_treatment_commands() {
                     if(args.contains(first))params.primary_size=args.at(first).get<double>();if(args.contains(second))params.secondary_size=args.at(second).get<double>();
                     if(args.contains("angle_degrees"))params.angle_degrees=args.at("angle_degrees").get<double>();
                     if(args.contains("reverse"))params.reverse=args.at("reverse").get<bool>();if(args.contains("flip"))params.flip=args.at("flip").get<bool>();
+                    if(args.contains("calculation_method"))
+                        params.calculation_method=calculation_method(
+                            args.at("calculation_method").get<std::string>());
                     const auto container=feature.id;
                     const bool changed=workspace::commit_edge_treatment(workspace_,kernel_,id,std::move(feature),create?workspace::EdgeTreatmentEditMode::Create:workspace::EdgeTreatmentEditMode::Replace);
                     if(changed)change_=Change{ChangeKind::Model,id};auto data=details(*state,treatment(state,container,fillet));data["changed"]=changed;return Result::success(std::move(data));

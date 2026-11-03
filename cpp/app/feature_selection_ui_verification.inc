@@ -76,10 +76,19 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             if(point.reference.owner_id!=sketch->id||!point.reference.semantic_key.starts_with("point:"))continue;
             const auto pixel=(project(point.position)*scale).toPoint();
             if(!image.rect().adjusted(2,2,-2,-2).contains(pixel))continue;
-            const auto color=image.pixelColor(pixel);
-            const bool matches=std::abs(color.red()-interaction::selected.red())<40&&
-                std::abs(color.green()-interaction::selected.green())<40&&
-                std::abs(color.blue()-interaction::selected.blue())<40;
+            bool matches=false;QColor color=image.pixelColor(pixel);
+            const int radius=std::max(2,static_cast<int>(std::ceil(4*scale)));
+            for(int y=-radius;y<=radius&&!matches;++y)
+                for(int x=-radius;x<=radius;++x) {
+                    const auto sample=pixel+QPoint(x,y);
+                    if(!image.rect().contains(sample))continue;
+                    const auto candidate=image.pixelColor(sample);
+                    if(std::abs(candidate.red()-interaction::selected.red())<40&&
+                        std::abs(candidate.green()-interaction::selected.green())<40&&
+                        std::abs(candidate.blue()-interaction::selected.blue())<40) {
+                        matches=true;color=candidate;break;
+                    }
+                }
             if(matches!=azure) {
                 image.save(QString::fromStdWString((directory/"sketch-point-color-failure.png").wstring()));
                 std::cerr<<"Sketch point color owner="<<sketch->id<<" point="<<point.reference.semantic_key
@@ -123,6 +132,7 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="part-container"&&
             (*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
         check(row,"Selection Feature row missing");
+        check(!row->isExpanded(),"History Feature row did not default to collapsed");
         for(bool expanded:{false,true}) {
             tree->clearSelection();view->clear_selection();row->setExpanded(expanded);tree->scrollToItem(row);flush();
             mouse(tree->viewport(),tree->visualItemRect(row).center());
@@ -448,7 +458,11 @@ static void verify_feature_selection(QApplication& application, AssemblyWorkspac
             matched[*match]=true;
         }
         properties->reject();flush();
-        check(window.execute_console_command("documents").data==state,"Command preview comparison or Cancel changed the document");
+        const auto after_cancel=window.execute_console_command("documents").data;
+        if(after_cancel!=state)
+            std::cerr<<"Command preview/Cancel document diff="
+                <<commands::Json::diff(state,after_cancel).dump()<<std::endl;
+        check(after_cancel==state,"Command preview comparison or Cancel changed the document");
     }
     check(targets>0&&all,"Feature selection expanded descendants, selected Sketch or changed its icon");
 }

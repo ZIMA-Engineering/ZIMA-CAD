@@ -28,6 +28,10 @@ struct PartCalculationPolicy {
     std::string edited_document_id;
     std::optional<std::size_t> edited_history_limit;
     bool refresh_physical_properties{};
+    // Offline verification may require complete persisted/viewer packets for
+    // every history boundary. Ordinary interactive calculation keeps the
+    // final-boundary-first policy and its compact intermediate packets.
+    bool publish_complete_history{};
     // The editing command proved that every local Sketch projection frame and
     // its persisted external-reference state are unchanged. The settling
     // calculation still verifies an identical calculated source prefix before

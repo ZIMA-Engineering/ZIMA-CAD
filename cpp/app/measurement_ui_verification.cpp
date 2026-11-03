@@ -247,6 +247,7 @@ try{
         for(auto* child:window.findChildren<QDialog*>())if(auto* d=dynamic_cast<MassPropertiesDialog*>(child);d&&d->isVisible())return d;
         return nullptr;
     };
+    view->set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
     mass_action->trigger();flush();check(mass_dialog(),"Body properties did not open");
     check(mass_action->text()==QObject::tr("Měření tělesa")&&mass_dialog()->windowTitle()==QObject::tr("Měření tělesa"),"Body measurement is confused with Body placement properties");
     check(mass_dialog()->parentWidget()==&window&&(mass_dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Body properties uses a native window");
@@ -260,6 +261,10 @@ try{
     mass_dialog()->resize(460,430);flush();
     check(mass_dialog()->current().integrals&&std::abs(mass_dialog()->current().volume-6000)<1e-8,"Body properties shows wrong geometry");
     const auto draft_id=mass_dialog()->current().id;
+    check(std::ranges::any_of(view->mesh().points,[&](const auto& p){
+            return p.reference.owner_id==part.document_id+":origin"&&
+                p.reference.semantic_key=="origin:point";
+        }),"Body measurement preview removed the visible Part Origin");
     check(execute("body_properties.list").data.at("total")==0,"Opening body measurement inserted a record");
     for(QTreeWidgetItemIterator it(tree);*it;++it)check((*it)->data(0,Qt::UserRole).toString().toStdString()!=draft_id,"Preview appeared in Tree before Save");
     check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==draft_id+":origin","Initial centroid preview is not azure");

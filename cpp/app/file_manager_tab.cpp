@@ -318,6 +318,24 @@ QStringList metadata_parameter_ids(QSettings& metadata){
     QStringList ids;for(const auto& value:metadata.value(QStringLiteral("Directory/Parameters")).toStringList())for(QString id:value.split(QLatin1Char(','),Qt::SkipEmptyParts)){id=id.trimmed();if(!id.isEmpty()&&!ids.contains(id))ids.push_back(id);}return ids;
 }
 
+QString native_parameter_key(const FileManagerNativeParameters& data,const QString& requested){
+    QStringList candidates=data.order;
+    for(const auto& keys:{data.values.keys(),data.units.keys(),data.labels.keys(),data.localized_values.keys()})
+        for(const auto& key:keys)if(!candidates.contains(key))candidates.push_back(key);
+    for(const auto& key:candidates)if(key.compare(requested,Qt::CaseInsensitive)==0)return key;
+    QString match;
+    for(const auto& key:candidates){
+        bool matches=false;
+        const auto labels=data.labels.value(key);
+        for(auto label=labels.cbegin();label!=labels.cend();++label)
+            if(label.value().trimmed().compare(requested.trimmed(),Qt::CaseInsensitive)==0){matches=true;break;}
+        if(!matches)continue;
+        if(!match.isEmpty()&&match.compare(key,Qt::CaseInsensitive)!=0)return {};
+        match=key;
+    }
+    return match;
+}
+
 QString translated_value(QSettings& metadata, const QString& base,
                          const QString& language) {
     const QString selected = metadata_string(metadata,base + QLatin1Char('/') + language).trimmed();
@@ -1072,7 +1090,7 @@ void FileManagerTab::refresh_files(){
     QStringList headers{tr("Název souboru"),tr("Náhled"),tr("Typ"),tr("Velikost"),tr("Změněno")};
     const auto parameter_unit_suffix=[&](const QString& parameter){
         QSet<QString> units;
-        for(const auto& data:native_parameters)if(data.values.contains(parameter))units.insert(data.units.value(parameter));
+        for(const auto& data:native_parameters){const QString native=native_parameter_key(data,parameter);if(!native.isEmpty())units.insert(data.units.value(native));}
         if(units.size()==1&&!units.constBegin()->isEmpty()&&*units.constBegin()!="1")return QStringLiteral(" [%1]").arg(*units.constBegin());
         return QString{};
     };
@@ -1089,14 +1107,18 @@ void FileManagerTab::refresh_files(){
         auto* item=new FileEntryItem(files_);item->setData(0,Qt::UserRole+3,info.isDir());item->setData(0,Qt::UserRole,info.absoluteFilePath());item->setData(0,Qt::UserRole+1,logical_file_id(info));item->setCheckState(0,Qt::Unchecked);const QString thumbnail=entry_thumbnail(info,current_directory_,settings_.language,&metadata,&thumbnail_sources.directories);item->setData(0,Qt::UserRole+4,thumbnail);const auto type_icon=native_file_icon(info);item->setIcon(0,type_icon.isNull()?QFileIconProvider().icon(info):type_icon);item->setIcon(file_preview_column,compact_preview_icon(thumbnail));item->setText(0,info.isDir()?directory_label(info.absoluteFilePath(),settings_.language):info.fileName());item->setText(2,info.isDir()?tr("Adresář"):info.suffix().toLower());item->setText(3,info.isDir()?QString{}:QLocale().formattedDataSize(info.size()));item->setText(4,QLocale().toString(info.lastModified(),QLocale::ShortFormat));
         const QString id=logical_file_id(info);const auto native=native_parameters.constFind(info.absoluteFilePath());item->setData(0,Qt::UserRole+2,native==native_parameters.cend()?QStringLiteral("metadata"):QStringLiteral("zima-cad"));
         metadata.beginGroup("Parts");for(int p=0;p<parameters.size();++p){
-            const QString parameter=parameters[p],key=id+QLatin1Char('/')+parameter;QString value;bool localized=false;
-            if(native!=native_parameters.cend()){
-                const auto variants=native->localized_values.value(parameter);localized=std::ranges::any_of(variants.keys(),[](const QString& language){return !language.isEmpty();});
-                value=variants.value(settings_.language,variants.value(QString{},native->values.value(parameter)));
-            }else for(const auto& language:{"cs","en","de","fr","ru"})localized=localized||metadata.contains(key+QLatin1Char('/')+language);
-            if(value.isEmpty())value=metadata_string(metadata,key+QLatin1Char('/')+settings_.language);
-            if(value.isEmpty())value=metadata_string(metadata,key);
-            if(value.isEmpty())for(const auto& language:{"cs","en","de","fr","ru"}){value=metadata_string(metadata,key+QLatin1Char('/')+language);if(!value.isEmpty())break;}
+            const QString parameter=parameters[p],key=id+QLatin1Char('/')+parameter;
+            const QString native_parameter=native==native_parameters.cend()?QString{}:native_parameter_key(*native,parameter);
+            QString value;bool localized=false;
+            if(!native_parameter.isEmpty()){
+                const auto variants=native->localized_values.value(native_parameter);localized=std::ranges::any_of(variants.keys(),[](const QString& language){return !language.isEmpty();});
+                value=variants.value(settings_.language,variants.value(QString{},native->values.value(native_parameter)));
+            }else {
+                for(const auto& language:{"cs","en","de","fr","ru"})localized=localized||metadata.contains(key+QLatin1Char('/')+language);
+                value=metadata_string(metadata,key+QLatin1Char('/')+settings_.language);
+                if(value.isEmpty())value=metadata_string(metadata,key);
+                if(value.isEmpty())for(const auto& language:{"cs","en","de","fr","ru"}){value=metadata_string(metadata,key+QLatin1Char('/')+language);if(!value.isEmpty())break;}
+            }
             if(native==native_parameters.cend()){
                 bool local=metadata.contains(key);for(const auto& language:{"cs","en","de","fr","ru"})local=local||metadata.contains(key+QLatin1Char('/')+language);
                 if(local){if(metadata.contains(key+QLatin1Char('/')+settings_.language))value=metadata_string(metadata,key+QLatin1Char('/')+settings_.language);else if(metadata.contains(key))value=metadata_string(metadata,key);}
@@ -1109,11 +1131,11 @@ void FileManagerTab::refresh_files(){
                     }
                 }
             }
-            item->setText(file_parameter_first_column+p,value);if(native!=native_parameters.cend())item->setToolTip(file_parameter_first_column+p,value+QLatin1Char(' ')+native->units.value(parameter));item->setData(file_parameter_first_column+p,Qt::UserRole+5,localized);if(editable&&(version>=3||native!=native_parameters.cend()||parameter_sources.directories.size()>1))item->setFlags(item->flags()|Qt::ItemIsEditable);
-            if(native!=native_parameters.cend()&&editable&&!native->unsaved){
-                const QString mirror=QStringLiteral("Parts/%1/%2").arg(id,parameter);if(native->units.contains(parameter))mirror_updates.insert(mirror+QStringLiteral("/Unit"),native->units.value(parameter));if(native->values.contains(parameter))mirror_updates.insert(mirror,native->values.value(parameter));
-                const auto variants=native->localized_values.value(parameter);for(auto it=variants.cbegin();it!=variants.cend();++it)mirror_updates.insert(it.key().isEmpty()?mirror:mirror+QLatin1Char('/')+it.key(),it.value());
-                const auto labels=native->labels.value(parameter);for(auto it=labels.cbegin();it!=labels.cend();++it){const QString label_key=QStringLiteral("Parameters/%1/Label").arg(parameter)+(it.key().isEmpty()?QString{}:QLatin1Char('/')+it.key());if(!existing_labels.contains(label_key))mirror_updates.insert(label_key,it.value());}
+            item->setText(file_parameter_first_column+p,value);if(!native_parameter.isEmpty())item->setToolTip(file_parameter_first_column+p,value+QLatin1Char(' ')+native->units.value(native_parameter));item->setData(file_parameter_first_column+p,Qt::UserRole+5,localized);item->setData(file_parameter_first_column+p,Qt::UserRole+6,native_parameter);if(editable&&(version>=3||native!=native_parameters.cend()||parameter_sources.directories.size()>1))item->setFlags(item->flags()|Qt::ItemIsEditable);
+            if(!native_parameter.isEmpty()&&editable&&!native->unsaved){
+                const QString mirror=QStringLiteral("Parts/%1/%2").arg(id,parameter);if(native->units.contains(native_parameter))mirror_updates.insert(mirror+QStringLiteral("/Unit"),native->units.value(native_parameter));if(native->values.contains(native_parameter))mirror_updates.insert(mirror,native->values.value(native_parameter));
+                const auto variants=native->localized_values.value(native_parameter);for(auto it=variants.cbegin();it!=variants.cend();++it)mirror_updates.insert(it.key().isEmpty()?mirror:mirror+QLatin1Char('/')+it.key(),it.value());
+                const auto labels=native->labels.value(native_parameter);for(auto it=labels.cbegin();it!=labels.cend();++it){const QString label_key=QStringLiteral("Parameters/%1/Label").arg(parameter)+(it.key().isEmpty()?QString{}:QLatin1Char('/')+it.key());if(!existing_labels.contains(label_key))mirror_updates.insert(label_key,it.value());}
             }
         }metadata.endGroup();
         if(native!=native_parameters.cend()&&editable&&!native->unsaved&&!parameters.isEmpty()){mirror_updates.insert(QStringLiteral("Files/%1/Provider").arg(id),"zima-cad");mirror_updates.insert(QStringLiteral("Files/%1/Path").arg(id),info.fileName());mirror_updates.insert(QStringLiteral("Files/%1/ModifiedUtc").arg(id),info.lastModified().toUTC().toString(Qt::ISODateWithMs));}
@@ -1300,9 +1322,11 @@ void FileManagerTab::save_parameter(const QModelIndex &index) {
       refresh_files();
       return;
     }
+    const QString mapped_parameter=item->data(index.column(),Qt::UserRole+6).toString();
     const QString native_error =
         native_parameter_edit_requested(item->data(0, Qt::UserRole).toString(),
-                                        parameter, item->text(index.column()));
+                                        mapped_parameter.isEmpty()?parameter:mapped_parameter,
+                                        item->text(index.column()));
     if (!native_error.isEmpty()) {
       if (isVisible())
         QMessageBox::critical(this, tr("Uložení selhalo"), native_error);
@@ -1386,6 +1410,7 @@ void FileManagerTab::edit_project(const QString& directory,bool create){
 }
 
 FileManagerTab::~FileManagerTab(){save_column_layout();}
+void FileManagerTab::refresh_contents(){native_parameter_cache_.clear();refresh_directory();}
 void FileManagerTab::refresh_materials(){
     for(auto it=native_parameter_cache_.begin();it!=native_parameter_cache_.end();)if(QFileInfo(it.key()).suffix().compare("matz",Qt::CaseInsensitive)==0)it=native_parameter_cache_.erase(it);else ++it;
     refresh_overview();refresh_files();update_actions();

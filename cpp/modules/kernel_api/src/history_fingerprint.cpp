@@ -939,11 +939,13 @@ std::string encode_history_fingerprint(
                 if constexpr (std::is_same_v<Request, FilletRequest>) {
                     // R1 is mapped from each persisted request to all matching
                     // runtime edge uses. Earlier multi-route caches are unsafe.
-                    u64(1); // Fillet calculation schema.
+                    u64(4); // Fillet calculation schema with route ends.
                     byte(static_cast<std::uint8_t>(primitive.mode));
                     u64(std::bit_cast<std::uint64_t>(primitive.radius_start));
                     u64(std::bit_cast<std::uint64_t>(primitive.radius_end));
                     byte(primitive.reverse ? 1U : 0U);
+                    byte(static_cast<std::uint8_t>(
+                        primitive.calculation_method));
                     u64(primitive.contour_start_vertices.size());
                     for (const auto& vertex :
                          primitive.contour_start_vertices) {
@@ -955,12 +957,25 @@ std::string encode_history_fingerprint(
                             byte(value);
                     }
                 } else {
+                    u64(3); // Chamfer calculation schema with route ends.
                     byte(static_cast<std::uint8_t>(primitive.mode));
                     u64(std::bit_cast<std::uint64_t>(primitive.distance_a));
                     u64(std::bit_cast<std::uint64_t>(primitive.distance_b));
                     u64(std::bit_cast<std::uint64_t>(primitive.angle_radians));
                     byte(primitive.flip ? 1U : 0U);
+                    byte(static_cast<std::uint8_t>(
+                        primitive.calculation_method));
                 }
+                u64(primitive.route_edge_counts.size());
+                for(const auto count:primitive.route_edge_counts)u64(count);
+                u64(primitive.route_end_faces.size());
+                for(const auto& ends:primitive.route_end_faces)
+                    for(const auto* face:{&ends.first,&ends.last}) {
+                        u64(face->owner_id.size());
+                        for(const unsigned char value:face->owner_id)byte(value);
+                        u64(face->semantic_key.size());
+                        for(const unsigned char value:face->semantic_key)byte(value);
+                    }
             }
         }, operation.primitive);
         if constexpr(Capture)++stream->first;

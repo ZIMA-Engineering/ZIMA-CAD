@@ -10,6 +10,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLineEdit>
 #include <QVBoxLayout>
 #include <array>
@@ -39,8 +40,14 @@ public:
         active_->setEnabled(!initial_.suppressed&&!initial_.link);
         if(initial_.link)active_->hide();
         visible_ = new QCheckBox(tr("Viditelné"), this);
+        visible_->setObjectName("bodyVisible");
         visible_->setChecked(initial_.visible);
-        form->addRow(active_); form->addRow(visible_);
+        auto* body_state = new QHBoxLayout;
+        body_state->setContentsMargins(0,0,0,0);
+        body_state->addWidget(active_);
+        body_state->addWidget(visible_);
+        body_state->addStretch(1);
+        form->addRow(body_state);
         content_layout()->addLayout(form);
         placement_ = new zima::ui::ContainerPlacementSection(this,content_layout(),true,false,decimal_places);
         placement_->reference_table()->setObjectName("bodyReferenceTable");

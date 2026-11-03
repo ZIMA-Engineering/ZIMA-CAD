@@ -451,7 +451,10 @@ void DocumentSession::update_calculated_cache_only(
         std::make_shared<const std::vector<zima::kernel::BodyResult>>(
             std::move(calculated_boundaries));
     current_->native_cache.reset();
-    current_->calculated_state_dirty = true;
+    // This path completes a disposable intermediate viewer/rollback cache.
+    // Authored data, derived document metadata and final geometry are proven
+    // unchanged, so opening and cancelling Properties must not turn a saved
+    // document dirty merely because an omitted cache row was materialized.
     ++data_generation_;
 }
 

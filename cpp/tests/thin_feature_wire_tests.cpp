@@ -161,6 +161,7 @@ void rectangular_matrix(const kernel::OcctKernel& engine) {
             auto treatment=document::PartDocument::create_fillet_container({edges[0],edges[1]});
             treatment.edge_treatment.primary_size=treatment.edge_treatment.secondary_size=radius;
             treatment.edge_treatment.routes={{edges[0]},{edges[1]}};
+            treatment.edge_treatment.route_end_faces.resize(treatment.edge_treatment.routes.size());
             require(workspace::commit_edge_treatment(live,engine,doc.document_id,treatment,workspace::EdgeTreatmentEditMode::Create),
                 "Two-edge Thin fillet did not commit");
             auto& state=*live.open_part(doc.document_id);

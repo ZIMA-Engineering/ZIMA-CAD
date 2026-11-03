@@ -419,10 +419,7 @@ void ContainerPlacementSection::set_orientation_base_rotation(
         // the container jump. Fold the last calculated world frame into the
         // now-editable absolute values and clear the reference-only
         // modifiers so they cannot be applied a second time.
-        absolute_rotation_values_ = resolved_rotation_values_;
-        orientation_back_ = false;
-        orientation_quarter_turns_ = 0;
-        refresh_orientation_controls();
+        preserve_resolved_orientation_as_absolute();
     }
     // Clear corrections only once the reference solver reports an unreferenced
     // frame. Updating DOF widgets before that result must retain loaded angles.
@@ -444,6 +441,19 @@ void ContainerPlacementSection::set_orientation_base_rotation(
         }
     }
     refresh_rotation_field_states();
+}
+
+void ContainerPlacementSection::preserve_resolved_orientation_as_absolute() {
+    absolute_rotation_values_ = resolved_rotation_values_;
+    orientation_back_ = false;
+    orientation_quarter_turns_ = 0;
+    picked_rotation_offset_values_ = {};
+    for (auto* correction : rotation_offset_) {
+        if (correction == nullptr) continue;
+        const QSignalBlocker blocker(correction);
+        correction->setValue(0.0);
+    }
+    refresh_orientation_controls();
 }
 
 void ContainerPlacementSection::set_resolved_rotation(
@@ -911,6 +921,23 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     const auto removed = zima::document::remove_placement_reference(
         {references_, orientation_references_, empty_reference_locks_}, with_orientation_, index);
     if (!removed.changed) return;
+    const auto remaining = combined_references(3);
+    const bool has_orientation_driver = std::ranges::any_of(
+        remaining, [](const auto& reference) {
+            return reference.orientation_drives_rotation;
+        });
+    const auto position_count = std::ranges::count_if(
+        remaining, [](const auto& reference) {
+            return !reference.orientation_only;
+        });
+    // The changed callback immediately publishes a preview. Preserve the
+    // currently displayed world frame before that callback when removal has
+    // made orientation free; waiting for the subsequent solver result would
+    // let one preview use stale loaded absolute angles and visibly jump.
+    if (orientation_reference_driven_ && !has_orientation_driver &&
+        (!position_rows_can_define_rotation_ || position_count < 3)) {
+        preserve_resolved_orientation_as_absolute();
+    }
     if(index<3)for(auto& ref:references_){ref.solution_branch=0;ref.branch_sources.clear();}
     if (index < 3) {
         highlighted_reference_rows_.erase(index);

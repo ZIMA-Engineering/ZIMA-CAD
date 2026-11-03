@@ -22,6 +22,15 @@ tools use brown lines and filled brown points; their outline variants retain the
 same brown point language. These toolbar colors distinguish read-only external
 geometry from newly authored Sketch points without changing View colors.
 
+Every finite open projected edge publishes its start and end as independent,
+read-only reference crosses in the View. This applies to straight edges, arcs,
+open splines and individually selected face-outline generators. Closed curves
+and infinite supports do not invent endpoints. The larger brown cross remains a
+cross during ordinary display, hover, confirmation and box selection, so it is
+visually distinct from an authored Sketch point. Endpoint identities follow
+explicit refresh, native save/reopen and Undo/Redo; deleting the parent
+reference also removes its derived endpoint references.
+
 The Drawing shortcut above the Tree is hidden while editing a Sketch. Finish
 the Sketch to restore ordinary document navigation. See the
 [visibility verification](verification/20261021-sketch-drawing-shortcut.md).

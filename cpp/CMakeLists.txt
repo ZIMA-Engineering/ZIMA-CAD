@@ -485,6 +485,7 @@ add_library(zima_kernel_occt
     modules/kernel_occt/src/curve_plane_intersection.cpp
     modules/kernel_occt/src/occt_boundary_intersection_graph.cpp
     modules/kernel_occt/src/occt_boundary_union.cpp
+    modules/kernel_occt/src/occt_planar_edge_chamfer.cpp
     modules/kernel_occt/src/occt_planar_edge_fillet.cpp
     modules/kernel_occt/src/ordered_up_to.cpp
     modules/kernel_occt/src/sheet_exchange.cpp
@@ -881,6 +882,12 @@ if(ZIMA_BUILD_TESTS)
         PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
     add_test(NAME zima_cpp_occt_planar_edge_fillet_tests
         COMMAND zima_cpp_occt_planar_edge_fillet_tests)
+    add_executable(zima_cpp_occt_planar_edge_chamfer_tests
+        tests/occt_planar_edge_chamfer_tests.cpp)
+    target_link_libraries(zima_cpp_occt_planar_edge_chamfer_tests
+        PRIVATE zima_kernel_occt TKPrim TKBool TKTopAlgo TKGeomAlgo)
+    add_test(NAME zima_cpp_occt_planar_edge_chamfer_tests
+        COMMAND zima_cpp_occt_planar_edge_chamfer_tests)
     enable_testing()
     add_test(NAME zima_cpp_symbol_library COMMAND zima_symbol_library_tool
         "${CMAKE_SOURCE_DIR}/../config/symbols/drawing-conventions/ZE-PROJECTION-METHOD.symz"
@@ -899,7 +906,7 @@ if(ZIMA_BUILD_TESTS)
 
     if(WIN32)
         set(ZIMA_GUI_TEST_ENVIRONMENT
-            "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=Fusion")
+            "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --disable-gpu-compositing --no-sandbox")
     else()
         set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
@@ -1133,6 +1140,21 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_curve_presentation_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CURVE_PRESENTATION_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_hole_step_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_hole_step_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HOLE_STEP_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_edge_treatment_fragments_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_edge_treatment_fragments_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENTS_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_edge_treatment_method_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_edge_treatment_method_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EDGE_TREATMENT_METHOD_ONLY=1"
         TIMEOUT 60 RUN_SERIAL TRUE)
     add_executable(zima_cpp_operation_activity_tests tests/operation_activity_tests.cpp)
     target_link_libraries(zima_cpp_operation_activity_tests PRIVATE zima_ui zima_workspace)
@@ -1748,6 +1770,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_derived_copy_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_derived_copy_command_tests COMMAND zima_cpp_derived_copy_command_tests)
     set_tests_properties(zima_cpp_derived_copy_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_opening_axis_copy_contract
+        COMMAND zima_cpp_derived_copy_command_tests --opening-axis-only)
+    set_tests_properties(zima_cpp_opening_axis_copy_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_derived_copy_query_tests tests/derived_copy_query_tests.cpp)
     target_link_libraries(zima_cpp_derived_copy_query_tests PRIVATE zima_command_host)

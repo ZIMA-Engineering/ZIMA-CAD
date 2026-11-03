@@ -4,7 +4,8 @@
 #include <QJsonObject>
 
 inline void verify_portable_factory_file_manager_ui(QApplication& application) {
-    QTemporaryDir temporary;check(temporary.isValid(),"Portable File Manager fixture unavailable");
+    QTemporaryDir temporary(QDir::current().filePath("portable-file-manager-test-XXXXXX"));
+    check(temporary.isValid(),"Portable File Manager fixture unavailable");
     const QString root=temporary.path()+QString::fromUtf8("/Updated CAD Š");
 #ifdef _WIN32
     const QString platform="windows",executable="/zima-cad-cpp.exe";
@@ -38,7 +39,9 @@ inline void verify_portable_factory_file_manager_ui(QApplication& application) {
     check(tab.current_directory()==tables,"Clicking updated engineering source did not open its current version directory");
     auto* files=tab.findChild<QTreeWidget*>("fileManagerFiles");check(files&&files->topLevelItemCount()==1,"Updated library contents are missing from File Manager");
     check(files->topLevelItem(0)->text(0)=="Fasteners","Updated library metadata is not displayed");
-    check(found.front()->toolTip()==QDir::toNativeSeparators(tables),"Updated source is marked unavailable");
+    const auto native_tables=QDir::toNativeSeparators(tables);
+    check(found.front()->toolTip().endsWith(QLatin1Char('\n')+native_tables),
+        "Updated source is marked unavailable or has the wrong current-version path");
     check(!QFileInfo::exists(root+"/config/lib"),"GUI test accidentally supplied the old incorrect shared directory");
     std::cout<<"Actual File Manager click opened a newly installed factory library with older shared settings\n";
 }

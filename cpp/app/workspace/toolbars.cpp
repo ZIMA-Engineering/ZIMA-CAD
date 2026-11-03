@@ -28,7 +28,10 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     save_action_->setEnabled(has_document);
     save_as_action_->setEnabled(has_document);
     close_document_action_->setEnabled(has_document||web||files||preview);
+    regenerate_document_action_->setVisible(has_document);
     regenerate_document_action_->setEnabled(has_document);
+    refresh_file_manager_action_->setVisible(files);
+    refresh_file_manager_action_->setEnabled(files);
     fit_view_action_->setEnabled(has_document);
     selection_action_->setEnabled(has_document);
     selection_filter_combo_->setEnabled(has_document &&
@@ -73,10 +76,15 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         application_actions_[static_cast<std::size_t>(ApplicationMode::Drawing)]
             ->setEnabled(true);
         active_application_ = ApplicationMode::Drawing;
-    } else if (workspace_.open_part(workspace_.active_document_id()) != nullptr) {
-        for (const auto mode : {ApplicationMode::Modeling, ApplicationMode::SheetMetal}) {
-            application_actions_[static_cast<std::size_t>(mode)]->setEnabled(true);
-        }
+    } else if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
+        const bool active_body = !part->session.document().body_history.active_body_id().empty();
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Modeling)]
+            ->setEnabled(true);
+        if (active_body)
+            application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]
+                ->setEnabled(true);
+        else
+            active_application_ = ApplicationMode::Modeling;
         if (!application_actions_[static_cast<std::size_t>(active_application_)]
                  ->isEnabled()) {
             active_application_ = ApplicationMode::Modeling;
@@ -134,7 +142,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         : active_application_ == ApplicationMode::Surface ? tr("Plochy")
         : active_application_ == ApplicationMode::Piping ? tr("Potrubí")
         : tr("Výkres");
-    if(!drawing && active_sketch_id_.empty() && workspace_.open_part(workspace_.active_document_id())) {
+    const auto* toolbar_part = workspace_.open_part(workspace_.active_document_id());
+    const bool toolbar_body = toolbar_part &&
+        !toolbar_part->session.document().body_history.active_body_id().empty();
+    const bool part_root = toolbar_part && !toolbar_body &&
+        !drawing && active_sketch_id_.empty();
+    if(!drawing && active_sketch_id_.empty() && toolbar_body) {
         for(const auto mode:{ApplicationMode::Modeling,ApplicationMode::SheetMetal}) {
             const auto index=static_cast<std::size_t>(mode);
             auto* action=application_actions_[index];
@@ -148,7 +161,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             }
         }
         tools_toolbar_->addSeparator();
-    } else {
+    } else if (!part_root) {
         auto* heading = new QLabel(heading_text, tools_toolbar_);
         heading->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         heading->setFont(tree_->font());
@@ -294,7 +307,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         mirror_action_->setEnabled(!properties_dialog_);
         pattern_action_->setEnabled(!properties_dialog_);
         body_scale_action_->setEnabled(modeling_part&&!properties_dialog_&&!active_body);
-        if(!active_body){add_command(mirror_action_);add_command(pattern_action_);add_command(body_scale_action_);}
         if (const auto* part = workspace_.open_part(workspace_.active_document_id());
             part && workspace_.active_document_id() == workspace_.displayed_document_id()) {
             if (!create_body_action_) {
@@ -307,16 +319,20 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             }
             const auto& graph = part->session.document().body_history;
             create_body_action_->setEnabled(!properties_dialog_ && graph.active_body_id().empty());
-            if (graph.active_body_id().empty()) add_command(create_body_action_);
             auto* boolean = body_boolean_action_;
             boolean->setEnabled(!properties_dialog_ && graph.active_body_id().empty() &&
                 graph.available_before(graph.insertion_cursor()).size() >= 2);
             boolean->setToolTip(tr("Součet, rozdíl nebo průnik dvou dostupných výsledků těles před místem vložení."));
-            if (graph.active_body_id().empty()) add_command(boolean);
-            if (graph.active_body_id().empty()) tools_toolbar_->addSeparator();
-            if (graph.active_body_id().empty() && (!graph.bodies().empty() ||
-                    part->session.document().history_order.empty())) { add_symbol_group(); return; }
+            if (!active_body) {
+                add_command(create_body_action_);
+                add_command(mirror_action_);
+                add_command(pattern_action_);
+                add_command(body_scale_action_);
+                add_command(boolean);
+                return;
+            }
         }
+        if(!modeling_part){add_command(mirror_action_);add_command(pattern_action_);}
         add_command(selection_action_);
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
         add_group_separator();

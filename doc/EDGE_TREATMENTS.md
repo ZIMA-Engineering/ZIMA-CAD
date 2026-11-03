@@ -12,6 +12,13 @@ operation selector and an existing feature cannot be converted to the other
 type. Both operations accept one or more edges, selected with Ctrl+click or
 removed from the list.
 
+Both windows expose three mutually exclusive calculation choices: Automatic,
+ZIMA and OCCT. Every open route also has independent first and last end-face
+fields. A valid face clips the generated treatment at that route endpoint;
+clearing the field restores the perpendicular end. The shared reference-cell
+controls provide replacement, inspection and Delete without changing route
+ownership.
+
 A visually continuous route may contain several OCCT edges after Boolean
 splits. The properties tree stores both the route and its individual members.
 Removing a child removes only that edge and preserves the remaining route;
@@ -24,16 +31,25 @@ implementation and selection workflow, configured with a fixed operation type.
 
 ## Calculation contract
 
-- Fillet uses `BRepFilletAPI_MakeFillet` and `radius`.
-- Chamfer uses `BRepFilletAPI_MakeChamfer` in its one-distance symmetric mode
-  and stores `distance`.
+- Explicit OCCT Fillet uses `BRepFilletAPI_MakeFillet`; explicit OCCT Chamfer
+  uses `BRepFilletAPI_MakeChamfer`.
+- Explicit ZIMA constructs supported straight planar Fillets and Chamfers as
+  profile extrusions and Boolean operations. Automatic selects that path only
+  when its geometry contract is satisfied and otherwise retains OCCT.
+- The current ZIMA contract requires a straight open route, supported planar
+  adjacent faces and, when present, planar end faces containing the exact route
+  endpoints. A selected end face may be angled. Explicit ZIMA rejects an
+  unsupported case instead of silently changing method.
+- End-face fields are invalid in explicit OCCT mode. Automatic end-face
+  inference supplies only a face that satisfies the same endpoint test.
 - Both store the full `edge_refs` list and mirror its first entry in legacy
   `edge_ref`.
 - The effective selected intervals are first submitted in one OCCT builder
   operation. A bounded recovery is used only when that combined operation
   fails, as described below.
-- Apply is a transient preview during creation and updates the same feature
-  during editing; OK is Apply plus commit/close.
+- Creation and editing publish only a transient preview while Properties is
+  open. OK validates, calculates, commits and closes; Cancel discards the
+  pending values and restores the unchanged history boundary.
 - A failed build keeps the last valid body and leaves Properties open.
 
 The general tree and view rollback rules are defined in
@@ -146,10 +162,10 @@ Windows machine. The synthetic regression covers fresh and reused-prefix
 single-edge Fillet recovery, exact joint-versus-original priority for both
 Fillet and Chamfer, recursive split-parent resolution, stable public feature
 ownership, and ordinary fragment
-save/reopen, regeneration and Undo/Redo contracts. The production implementation
-still uses OCCT treatment surfaces. A future native ZIMA treatment generator can
-consume the same explicit intersection curve, two support faces and endpoint
-ancestry; that generator is not claimed by this correction.
+save/reopen, regeneration and Undo/Redo contracts. That 2026-10-28 release still
+used OCCT treatment surfaces. The later ZIMA planar builder consumes the same
+explicit route, support faces and endpoint ancestry under the bounded contract
+below.
 
 There is no native file-format or precision change. Localization review found no
 new or changed user-visible text, so the existing `cs`, `en`, `de`, `fr` and `ru`
@@ -159,3 +175,59 @@ same shared C++ path is used on both platforms.
 The route/branch display-order observation from the original investigation is
 not changed by this geometry correction. It requires a separate UI-only audit of
 both traversal directions before any ordering change.
+
+## ZIMA planar construction and route survival (2026-11-03)
+
+The ZIMA Fillet builder creates the supported circular section along the exact
+straight route and fuses or subtracts the resulting treatment as required by the
+two adjacent planar faces. Chamfer has a separate planar builder using its
+distance/angle definition. Both builders share stable-reference resolution and
+end clipping, not duplicated platform-specific geometry.
+
+Each route persists two end-face slots even when both are empty. The selected
+face must contain the corresponding open-route endpoint. A perpendicular empty
+end and a valid angled planar end are both finite supported cases. If a later edit
+makes the face invalid, calculation reports the reference error without reaching
+an unsafe Boolean call. OCCT mode cannot accept end faces.
+
+Boolean edits may split or consume selected source edges. Calculation resolves
+every surviving current fragment with the selected ancestry. The treatment stays
+resolved while at least one fragment remains, and the cyan preview publishes all
+matching fragments. It becomes unresolved only after all fragments disappear;
+no coordinate-nearest replacement is invented.
+
+Curved routes, arbitrary blend transitions, unrelated holes crossing the
+treatment and advanced cap shapes remain outside this first ZIMA contract.
+Automatic provides the existing OCCT fallback for unsupported geometry. The
+format-48 migration makes calculation method and end-face slots mandatory and
+rewrites repository-owned assets only after calculated-contract and native
+readback verification.
+
+### Windows verification
+
+The user project `POKUS.prtz` was copied to an isolated build directory and left
+unchanged. Fillet06 was changed from an OCCT radius of 12 mm to a ZIMA radius of
+17 mm, exceeding the preceding Fillet05 radius of 15 mm. The command calculated,
+saved and reopened without an error; the following Hole and Pattern also remained
+calculated. This verifies that the preceding Fillet radius is not an artificial
+upper bound for a later independent treatment.
+
+The synthetic Boolean regression starts with one persisted vertical edge. A
+subtractive feature first splits it into two surviving fragments, then moves so
+only one original fragment survives, and finally consumes it completely. The
+ZIMA Fillet resolves and treats both fragments in the first state, remains
+resolved on the single surviving fragment in the second, and becomes unresolved
+only in the zero-fragment state. This regression runs both independently through
+`zima_cpp_boolean_split_edge_tests --zima-fragments-only` and as part of the full
+Boolean suite.
+
+The format-47-to-48 offline migration regenerated and reopened all twelve
+remaining repository test fixtures from their authored history. Every fixture
+passed exact native readback, unchanged authored-history and preserved calculated
+contract checks. Existing Fillets and Chamfers are explicitly migrated to OCCT
+so a format update cannot silently select a different geometry implementation.
+
+Localization review covered Czech, English, German, French and Russian. The
+verification diagnostics and this documentation add no user-visible application
+text. Linux geometry execution remains deferred to the Linux host; Windows and
+Linux compile the same shared implementation.

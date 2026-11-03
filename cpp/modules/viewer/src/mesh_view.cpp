@@ -172,6 +172,16 @@ void draw_circular_marker(QPainter& painter, const QPointF& center,
     painter.drawPolygon(polygon);
 }
 
+void draw_external_reference_cross(QPainter& painter,const QPointF& center,
+    const QColor& color,double radius=5.25,double width=2.0) {
+    painter.setPen(QPen(color,width,Qt::SolidLine,Qt::RoundCap));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawLine(center+QPointF(-radius,-radius),
+        center+QPointF(radius,radius));
+    painter.drawLine(center+QPointF(-radius,radius),
+        center+QPointF(radius,-radius));
+}
+
 }  // namespace
 
 struct MeshView::Impl {
@@ -1837,6 +1847,16 @@ std::optional<zima::kernel::ViewerEdge> MeshView::display_edge(
     return found == impl_->mesh.edges.end()
         ? std::nullopt
         : std::optional<zima::kernel::ViewerEdge>{*found};
+}
+
+std::vector<zima::kernel::ViewerEdge> MeshView::display_edges(
+    const zima::kernel::EdgeReference& reference) const {
+    std::vector<zima::kernel::ViewerEdge> result;
+    if (!reference.valid()) return result;
+    for (const auto& edge : impl_->mesh.edges) {
+        if (edge.reference == reference) result.push_back(edge);
+    }
+    return result;
 }
 
 std::optional<zima::kernel::ViewerPoint> MeshView::candidate_point(
@@ -4125,10 +4145,15 @@ if (impl_->show_origins) {
     }();
     const bool authored_preview=!impl_->geometry_editing_presentation&&
         (ordinary_preview_candidate||impl_->inspected_container||!impl_->container_inspection_wire.empty());
+    std::vector<kernel::ViewerEdge> ordinary_preview_wire;
     std::set<std::string> ordinary_sketch_point_owners;
-    if(ordinary_preview_candidate)for(const auto& edge:impl_->mesh.edges) {
-        if(is_sketch_wire_edge(edge)&&candidate_recolors_wire_edge(*ordinary_preview_candidate,edge))
-            ordinary_sketch_point_owners.insert(edge.reference.owner_id);
+    if(ordinary_preview_candidate) {
+        ordinary_preview_wire=impl_->container_preview_wire(
+            ordinary_preview_candidate->owner_id,
+            ordinary_preview_candidate->instance_path);
+        for(const auto& edge:ordinary_preview_wire)
+            if(is_sketch_wire_edge(edge))
+                ordinary_sketch_point_owners.insert(edge.reference.owner_id);
     }
     // Source-less imported wire and explicit editing still use their existing
     // result-edge batches. Authored feature hover/selection uses one preview.
@@ -4598,10 +4623,7 @@ if (impl_->show_origins) {
                 data.insert(data.end(),{float(p.x),float(p.y),float(p.z),0.F,0.F,1.F});
         };
         if(inspecting_source)for(const auto& edge:impl_->container_inspection_wire)append(edge);
-        else {
-            const auto& candidate=impl_->inspected_container?impl_->inspected_container:ordinary_preview_candidate;
-            for(const auto& edge:impl_->container_preview_wire(candidate->owner_id,candidate->instance_path))append(edge);
-        }
+        else for(const auto& edge:ordinary_preview_wire)append(edge);
         impl_->selected_source_vertex_count=static_cast<GLsizei>(data.size()/6);
         impl_->selected_source_native_sketch=native_strokes&&!model_strokes;
         if(!data.empty()&&data!=impl_->selected_source_data) {
@@ -5147,12 +5169,8 @@ if (impl_->show_origins) {
                !impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path}))continue;
             const QColor color = point.reference.semantic_key.ends_with(
                 ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
-            painter.setPen(QPen(color, 1.8));
             const QPointF center = project(point.position);
-            painter.drawLine(center + QPointF(-4.0, -4.0),
-                             center + QPointF(4.0, 4.0));
-            painter.drawLine(center + QPointF(-4.0, 4.0),
-                             center + QPointF(4.0, -4.0));
+            draw_external_reference_cross(painter,center,color);
         }
         if (sketch_geometry_visible) {
             qulonglong painted_transient_sketch_edges{};
@@ -6192,10 +6210,11 @@ if (impl_->show_origins) {
                          highlighted->semantic_key.starts_with("external_point:"))) &&
                        highlighted->geometry_index < selectable_points.size() &&
                        impl_->helper_point_visible(selectable_points[highlighted->geometry_index],true)) {
-                painter.setPen(QPen(color, 2.0));
-                painter.setBrush(color);
-                painter.drawEllipse(project(
-                    selectable_points[highlighted->geometry_index].position), 5.0, 5.0);
+                const auto center=project(
+                    selectable_points[highlighted->geometry_index].position);
+                if(highlighted->kind==CandidateKind::SketchExternalReference)
+                    draw_external_reference_cross(painter,center,color,5.75,2.3);
+                else draw_circular_marker(painter,center,color,5.0);
             }
             // A constraint marker is an independently selectable record.
             // Selecting it colours only its glyph (drawn above); participant
@@ -6299,8 +6318,13 @@ if (impl_->show_origins) {
                         (selected.kind == CandidateKind::SketchExternalReference &&
                          selected.semantic_key.starts_with("external_point:"))) &&
                        selected.geometry_index < impl_->mesh.points.size()) {
-                painter.drawEllipse(project(
-                    impl_->mesh.points[selected.geometry_index].position), 5.0, 5.0);
+                const auto center=project(
+                    impl_->mesh.points[selected.geometry_index].position);
+                if(selected.kind==CandidateKind::SketchExternalReference)
+                    draw_external_reference_cross(painter,center,
+                        interaction::selected,5.75,2.3);
+                else draw_circular_marker(painter,center,
+                    interaction::selected,5.0);
             }
         }
         if (impl_->sketch_box_start && impl_->sketch_box_end) {

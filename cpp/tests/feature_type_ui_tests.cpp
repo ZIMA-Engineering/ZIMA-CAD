@@ -302,19 +302,15 @@ int main(int argc,char** argv) {
         auto* text_display=dialog.findChild<QCheckBox*>("featureShowText");
         auto* origin_axis=dialog.findChild<QCheckBox*>("featureOriginAxis");
         auto* centroid_axis=dialog.findChild<QCheckBox*>("featureCentroidAxis");
-        if(!axis_display||!point_display||!text_display||!origin_axis||!centroid_axis||
-           axis_display->parentWidget()!=point_display->parentWidget()||
-           axis_display->parentWidget()!=text_display->parentWidget()||
+        if(!axis_display||point_display||text_display||!origin_axis||!centroid_axis||
            axis_display->parentWidget()!=origin_axis->parentWidget()||
            axis_display->parentWidget()!=centroid_axis->parentWidget()||
-           std::abs(text_display->geometry().center().y()-
-               origin_axis->geometry().center().y())>2||
            std::abs(origin_axis->geometry().center().y()-
                centroid_axis->geometry().center().y())>2||
-           !(text_display->geometry().right()<origin_axis->geometry().left()&&
+           !(type->geometry().right()<origin_axis->geometry().left()&&
              origin_axis->geometry().right()<centroid_axis->geometry().left())||
            axis_display->isChecked())
-            throw std::runtime_error("Axis display checkbox is absent from the Point/Text row or has an enabled default");
+            throw std::runtime_error("Feature Point/Text switches remain visible or the shared type row is invalid");
         type->setCurrentIndex(1);flush();
         if(!axis_display->isVisible())throw std::runtime_error("Axis display checkbox is hidden for Axis type");
         axis_display->setChecked(true);flush();
@@ -428,11 +424,11 @@ int main(int argc,char** argv) {
         first_draft->setValue(-7.5);second_draft->setValue(2.25);
         for(int pass=0;pass<3;++pass)for(int i=0;i<5;++i) {
             type->setCurrentIndex(i);flush();
-            const auto* point_toggle=dialog.findChild<QCheckBox*>("featureShowPoint");
-            const auto* text_toggle=dialog.findChild<QCheckBox*>("featureShowText");
-            if(type->geometry().right()>=point_toggle->geometry().left()||
-                point_toggle->geometry().right()>=text_toggle->geometry().left())
-                throw std::runtime_error("Feature type and visibility switches overlap");
+            const auto* origin_toggle=dialog.findChild<QCheckBox*>("featureOriginAxis");
+            if(dialog.findChild<QCheckBox*>("featureShowPoint")||
+               dialog.findChild<QCheckBox*>("featureShowText")||
+               type->geometry().right()>=origin_toggle->geometry().left())
+                throw std::runtime_error("Removed Feature visibility switches remain or type controls overlap");
             if(pass==0&&i==4)dialog.grab().save(QDir::tempPath()+"/zima-feature-visibility-properties.png");
             const auto pending=dialog.pending_value();
             if(pending.feature.sides[0].draft_angle_degrees!=-7.5||pending.feature.sides[1].draft_angle_degrees!=2.25)

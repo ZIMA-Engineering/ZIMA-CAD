@@ -34,4 +34,40 @@ const kernel::BodyResult* calculated_operation_input(const document::DocumentSes
     }
     return count&&count<=boundaries->size()?&boundaries->at(count-1):nullptr;
 }
+
+const kernel::BodyResult* calculated_operation_output(
+        const document::DocumentSession& session,const std::string& id) {
+    const auto& doc=session.document();const auto& calculated=session.calculated_boundaries();
+    if(id.empty()||calculated.empty()||!doc.find_container(id))return nullptr;
+    std::size_t count{};bool found_id{};
+    const std::vector<kernel::BodyResult>* boundaries=&calculated;
+    if(!doc.body_history.bodies().empty()) {
+        const auto* body=doc.body_owner_for_object(id);if(!body)return nullptr;
+        for(const auto& entry:body->entries) {
+            if(entry.kind==document::PartHistoryKind::Feature) {
+                const auto* feature=doc.find_container(entry.id);
+                if(feature&&feature->feature_kind!=document::FeatureKind::Sketch)++count;
+            }
+            if(entry.id==id){found_id=true;break;}
+        }
+        const auto body_rows=calculated.back().body_boundaries.find(body->scope.id);
+        if(body_rows==calculated.back().body_boundaries.end())return nullptr;
+        boundaries=&body_rows->second.get();
+    } else if(doc.history_order.empty()) {
+        for(const auto& feature:doc.history) {
+            if(feature.feature_kind!=document::FeatureKind::Sketch)++count;
+            if(feature.id==id){found_id=true;break;}
+        }
+    } else {
+        for(const auto& entry:doc.history_order) {
+            if(entry.kind==document::PartHistoryKind::Feature) {
+                const auto* feature=doc.find_container(entry.id);
+                if(feature&&feature->feature_kind!=document::FeatureKind::Sketch)++count;
+            }
+            if(entry.id==id){found_id=true;break;}
+        }
+    }
+    return found_id&&count&&count<=boundaries->size()
+        ?&boundaries->at(count-1):nullptr;
+}
 } // namespace zima::workspace

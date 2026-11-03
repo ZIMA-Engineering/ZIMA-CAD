@@ -4,13 +4,12 @@
 #include <zima/document/placement_json.hpp>
 #include <zima/document/history_reference_view.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/solid_straightening.hpp>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
-#include <BRepTools.hxx>
-#include <BRep_Builder.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp_Explorer.hxx>
@@ -20,15 +19,14 @@
 #include <cmath>
 #include <iostream>
 #include <numbers>
-#include <sstream>
 
 using namespace zima;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double actual,double expected){check(std::isfinite(actual)&&std::abs(actual-expected)<1e-7,"Rigid transfer exceeds probe tolerance");}
 TopoDS_Shape shape(const kernel::BodyResult& result) {
-    TopoDS_Shape s;BRep_Builder builder;std::istringstream stream(result.kernel_shape);
-    BRepTools::Read(s,stream,builder);check(!s.IsNull(),"Probe shape is missing");return s;
+    auto s=kernel::read_calculated_body_shape(result);
+    check(!s.IsNull(),"Probe shape is missing");return s;
 }
 double volume(const TopoDS_Shape& s) {
     GProp_GProps properties;BRepGProp::VolumeProperties(s,properties);return properties.Mass();

@@ -29,8 +29,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto after=part->session.document().sections.front();
     require(after.sketch.id==before.sketch.id&&after.sketch.segments.front().id==before.sketch.segments.front().id&&
         after.sketch.find_point(first)->y==2&&after.sketch.find_point(second)->y==2,"Section point edits lost geometry or stable identities");
-    require(part->session.calculated_boundaries().back().source_fingerprint==fingerprint&&
-        std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-6,"Section sketch edit changed calculated body geometry");
+    const auto& calculated=part->session.calculated_boundaries().back();
+    if(calculated.source_fingerprint!=fingerprint||!calculated.has_solid()||
+       (calculated.physical_properties_current&&
+        std::abs(calculated.volume-6000)>=1e-6))
+        throw std::runtime_error("Section sketch edit changed calculated body geometry: before="+
+            fingerprint+", after="+calculated.source_fingerprint+
+            ", volume="+std::to_string(calculated.volume)+
+            ", physical_current="+
+            std::to_string(calculated.physical_properties_current));
     require(!run(host,"section.sketch.edit",{{"object",id},{"operations",edits}}).at("changed").get<bool>(),"Unchanged batch added history");
     run(host,"undo");require(document::serialize_sections(part->session.document().sections)==document::serialize_sections({before}),"Undo did not restore whole Section batch");
     run(host,"redo");
@@ -75,7 +82,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"section.sketch.edit",{{"object",id},{"operations",Json::array({request("sketch.reference.refresh"),request("sketch.reference.delete",{{"reference",ref}})})}});
     require(part->session.document().sections.front().sketch.external_references.empty()&&part->session.document().sections.front().sketch.segments==unlinked,
         "Detaching a Section reference changed its native trace");
-    run(host,"undo");require(part->session.document().sections.front().sketch.external_references.size()==1,"Undo did not restore Section reference identity");
+    run(host,"undo");require(part->session.document().sections.front().sketch.external_references.size()==3,
+        "Undo did not restore the Section edge and its endpoint identities");
     run(host,"redo");
     run(host,"save");const auto saved=document::PartDocument::load(dir/"section-sketch.prtz");
     require(document::serialize_sections(saved.sections)==document::serialize_sections(part->session.document().sections),"Native Part lost rebuilt Section Sketch");
@@ -89,7 +97,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto assembly_before=owner->session.revision();
     run(host,"section.sketch.edit",{{"object",assembly_section},{"operations",Json::array({reference(one),reference(two)})}});
     const auto& refs=owner->session.document().sections.front().sketch.external_references;
-    require(refs.size()==2&&refs[0].source_instance_path!=refs[1].source_instance_path&&refs[0].source_document_id==doc&&refs[1].source_document_id==doc,
+    std::vector<const sketcher::SketchExternalReference*> edges;
+    for(const auto& reference:refs)
+        if(reference.kind==sketcher::ExternalReferenceKind::Edge)
+            edges.push_back(&reference);
+    require(refs.size()==6&&edges.size()==2&&
+        edges[0]->source_instance_path!=edges[1]->source_instance_path&&
+        edges[0]->source_document_id==doc&&edges[1]->source_document_id==doc,
         "Section merged original edges from repeated Assembly occurrences");
     require(owner->session.revision()==assembly_before+1&&owner->session.document().components.front().calculated_source.shares_with(packet)&&
         live.open_part(doc)->session.revision()==source_revision,"Section batch changed source data or committed more than once");

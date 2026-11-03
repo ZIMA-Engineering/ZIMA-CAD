@@ -117,6 +117,57 @@ void removal_widget() {
     require(callbacks==std::vector<std::size_t>{99,88,2}&&section.references().size()==2&&section.references()[1]==second,
         "GUI did not remove trailing position while retaining the earlier hole");
 }
+void final_removal_preserves_frame() {
+    QWidget owner;auto* layout=new QVBoxLayout(&owner);ui::ContainerPlacementSection section(&owner,layout,true,true);
+    document::Placement initial;
+    initial.x=4;initial.y=5;initial.z=6;
+    initial.absolute_rotation_x=1;initial.absolute_rotation_y=2;initial.absolute_rotation_z=3;
+    initial.rotation_x=17;initial.rotation_y=-23;initial.rotation_z=91;
+    initial.rotation_offset_x=7;initial.rotation_offset_y=8;initial.rotation_offset_z=9;
+    initial.orientation_back=true;initial.orientation_quarter_turns=1;
+    section.initialize_numeric_values(initial);
+    auto first=plane("origin","yz"),second=plane("origin","xz"),third=plane("origin","xy");
+    auto front=first,top=second;front.orientation_only=top.orientation_only=true;
+    front.orientation_drives_rotation=top.orientation_drives_rotation=true;
+    front.orientation_role="front";top.orientation_role="top";
+    section.initialize_from_references({first,second,third,front,top},{});
+    section.set_rotation_constraint_state({0,{true,true,true}});
+    section.set_orientation_base_rotation({10,20,30},true);
+    section.set_resolved_rotation({17,-23,91});
+    section.refresh_reference_table();section.refresh_orientation_table();
+    int previews=0;document::Placement final_preview;
+    section.set_changed_callback([&] {
+        ++previews;
+        auto preview=section.numeric_placement();
+        preview.references=section.combined_references(3);
+        if(preview.references.empty()) {
+            kernel::Vec3 base;bool from_reference=true;
+            require(document::resolve_placement(preview,{},&base,&from_reference),
+                "Free placement failed after removing its last reference");
+            require(!from_reference,"Empty placement remained reference-driven");
+            final_preview=preview;
+            section.set_rotation_constraint_state({3,{false,false,false}});
+            section.set_orientation_base_rotation(base,false);
+            section.set_resolved_rotation({preview.rotation_x,preview.rotation_y,preview.rotation_z});
+        }
+    });
+    const auto click=[&](int row) {
+        auto* cell=section.reference_table()->cellWidget(row,0);
+        auto* button=cell?cell->findChild<QPushButton*>():nullptr;
+        require(button!=nullptr,"The STEP placement row has no remove button");button->click();
+    };
+    click(2);click(1);click(0);
+    require(previews==3&&section.combined_references(3).empty(),
+        "Bottom-up STEP reference removal did not publish every preview");
+    require(final_preview.x==4&&final_preview.y==5&&final_preview.z==6&&
+        final_preview.rotation_x==17&&final_preview.rotation_y==-23&&final_preview.rotation_z==91,
+        "Removing the last STEP reference changed its displayed frame");
+    require(final_preview.absolute_rotation_x==17&&final_preview.absolute_rotation_y==-23&&
+        final_preview.absolute_rotation_z==91&&!final_preview.orientation_back&&
+        final_preview.orientation_quarter_turns==0&&final_preview.rotation_offset_x==0&&
+        final_preview.rotation_offset_y==0&&final_preview.rotation_offset_z==0,
+        "The released STEP frame retained stale reference-only modifiers");
+}
 void mesh_capture() {
     QWidget owner;auto* layout=new QVBoxLayout(&owner);ui::ContainerPlacementSection section(&owner,layout,true);
     kernel::ViewerReferenceGeometry geometry;
@@ -140,4 +191,4 @@ void repeated_source() {
     require(orientation[1].owner_id.empty(),"Replacing a position reference with itself duplicated its automatic FRONT into TOP");
 }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();mesh_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();final_removal_preserves_frame();mesh_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

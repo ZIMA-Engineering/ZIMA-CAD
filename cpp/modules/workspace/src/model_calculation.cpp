@@ -268,7 +268,7 @@ std::vector<zima::kernel::BodyResult> calculate_part(
         // Dependency analysis retains the exact earlier inputs that are
         // actually consumed; all other history rows stay as lightweight live
         // native boundaries instead of publishing a full mesh/B-Rep packet.
-        history_output_policy(document,true));
+        history_output_policy(document,!policy.publish_complete_history));
     validate_part_calculation(document,calculated,policy);
     return calculated;
 }
@@ -725,6 +725,20 @@ HistoryBoundaryLocation history_boundary_location(
     return result;
 }
 
+HistoryBoundaryLocation history_boundary_location(
+        const std::vector<kernel::HistoryOperation>& operations,
+        const std::size_t operation_count) {
+    if(operation_count==0||operation_count>operations.size())
+        throw std::out_of_range(
+            "History boundary materialization is outside the operation plan");
+    HistoryBoundaryLocation result;
+    result.body_id=operations[operation_count-1].body.id;
+    if(result.body_id.empty())return result;
+    for(std::size_t index=0;index<operation_count;++index)
+        if(operations[index].body.id==result.body_id)++result.body_index;
+    return result;
+}
+
 const kernel::BodyResult& history_boundary(
         const std::vector<kernel::BodyResult>& calculated,
         const std::size_t operation_count,
@@ -734,11 +748,17 @@ const kernel::BodyResult& history_boundary(
         location.body_index-1];
 }
 
-bool complete_history_geometry(const kernel::BodyResult& value) {
+bool complete_history_geometry(const kernel::BodyResult& value,
+        const kernel::HistoryOperation& operation) {
     // A compact dependency row may intentionally contain identity-bearing
     // sampled edges only. That is sufficient for reference settling, but it is
-    // not the real rollback body required by Properties.
-    return !value.mesh.triangles.empty();
+    // not the real rollback body required by Properties. A deliberately empty
+    // datum Feature is already complete without a solid viewer mesh.
+    if(!value.mesh.triangles.empty())return true;
+    const auto* group=std::get_if<kernel::FeatureGroupRequest>(
+        &operation.primitive);
+    return group&&group->allow_empty&&group->children.empty()&&
+        value.kernel_shape.empty();
 }
 }
 
@@ -757,7 +777,7 @@ std::optional<std::size_t> deferred_part_history_boundary(
         const auto location=history_boundary_location(
             operations,calculated,index+1);
         if(!complete_history_geometry(history_boundary(
-                calculated,index+1,location)))return index+1;
+                calculated,index+1,location),operation))return index+1;
     }
     return std::nullopt;
 }
@@ -769,6 +789,11 @@ bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
         const std::string& known_body_id,
         const std::size_t known_body_index) {
     if(operation_count==0)return false;
+    const auto operations=group_solid_state_cached_operations(
+        document,&current);
+    if(operation_count>operations.size())throw std::out_of_range(
+        "History boundary materialization is outside the operation plan");
+    const auto& operation=operations[operation_count-1];
     HistoryBoundaryLocation location;
     if(!known_body_id.empty()) {
         location.body_id=known_body_id;
@@ -781,13 +806,24 @@ bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
             throw std::runtime_error(
                 "Known calculated Body history boundary is missing");
     } else {
-        const auto operations=group_solid_state_cached_operations(
-            document,&current);
-        location=history_boundary_location(
-            operations,current,operation_count);
+        location=history_boundary_location(operations,operation_count);
     }
-    if(complete_history_geometry(history_boundary(
-            current,operation_count,location)))return false;
+    if(current.size()>=operation_count) {
+        if(location.body_id.empty()) {
+            if(complete_history_geometry(
+                    current[operation_count-1],operation))
+                return false;
+        } else {
+            const auto found=current.back().body_boundaries.find(
+                location.body_id);
+            if(found==current.back().body_boundaries.end()||
+                    found->second.size()<location.body_index)
+                throw std::runtime_error(
+                    "Calculated Body history boundary is missing");
+            if(complete_history_geometry(found->second[
+                    location.body_index-1],operation))return false;
+        }
+    }
     PartCalculationPolicy policy;
     policy.calculation_operation_limit=operation_count;
     // This is an explicit exact prefix calculation.  Supplying even a compact
@@ -811,9 +847,16 @@ bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
                 "Materialized Body history boundary is missing");
         body_boundary=found->second[location.body_index-1];
     }
-    if(!complete_history_geometry(body_boundary))
+    if(!complete_history_geometry(body_boundary,operation))
         throw std::runtime_error(
             "Materialized history boundary has no geometry");
+    if(current.size()<operation_count) {
+        // A document saved without a calculated cache can still contain a
+        // valid earlier input before a broken downstream feature. Publish the
+        // explicitly calculated prefix for editing that embedded Sketch.
+        current=std::move(calculated);
+        return true;
+    }
     // The top-level row carries the global operation-prefix fingerprint. The
     // nested row carries the Body-local prefix fingerprint. They describe the
     // same shape here, but are distinct persistence contracts.

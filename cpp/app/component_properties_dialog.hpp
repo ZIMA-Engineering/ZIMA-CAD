@@ -65,6 +65,8 @@ public:
 
     // Updates a pending drag pose and recalculates its transient preview.
     void set_pending_placement(const zima::assembly::ComponentPlacement& placement);
+    [[nodiscard]] bool set_inline_placement_value(
+        const std::string& key, double value);
     void set_placement_error(const QString& message);
     void set_solved_placement(const zima::assembly::ComponentPlacement& placement,
         const zima::assembly::ComponentConstraintState& state);

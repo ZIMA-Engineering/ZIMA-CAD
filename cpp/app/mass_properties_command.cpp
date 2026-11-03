@@ -33,6 +33,12 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
                 if(!row.body_id.empty())input=source_doc.place_body_mesh(std::move(input),row.body_id);
                 append_mesh(mesh,std::move(input));
             }
+            // The measurement preview replaces the ordinary scene with its
+            // exact history input. Preserve the Part Origin when the user had
+            // Origins displayed; the centroid frame is added independently
+            // below and must not make the document datum disappear.
+            if(viewer_->reference_visible(viewer::ReferenceVisibility::Origins))
+                append_mesh(mesh,source_doc.origin_viewer_mesh());
         }catch(const std::exception&){} // A broken record remains editable and removable.
         append_mesh(mesh,document::body_properties_origin(shown,tr("Těžiště").toStdString()));
         viewer_->set_mesh(std::move(mesh),false);

@@ -4,10 +4,60 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
+#include <zima/document/part_document.hpp>
 #include "../file_dialog.hpp"
+
+#include <array>
+#include <cmath>
+#include <iterator>
+#include <string_view>
 
 namespace zima::app {
 using namespace workspace_detail;
+
+namespace {
+
+std::vector<zima::kernel::ViewerDimension> component_placement_dimensions(
+        const zima::assembly::PartOccurrence& component,
+        const zima::assembly::ComponentConstraintState& state,
+        const std::string& instance_path) {
+    zima::document::Placement placement;
+    placement.x = component.placement.x;
+    placement.y = component.placement.y;
+    placement.z = component.placement.z;
+    placement.rotation_x = component.placement.rotation_x;
+    placement.rotation_y = component.placement.rotation_y;
+    placement.rotation_z = component.placement.rotation_z;
+    placement.absolute_rotation_x = component.placement.rotation_x;
+    placement.absolute_rotation_y = component.placement.rotation_y;
+    placement.absolute_rotation_z = component.placement.rotation_z;
+    auto result = zima::document::container_placement_dimensions(
+        component.occurrence_id, placement, {});
+    std::erase_if(result, [&](auto& dimension) {
+        constexpr std::string_view prefix{"parameter:placement:"};
+        if (!dimension.reference.semantic_key.starts_with(prefix)) return true;
+        const auto key = std::string_view{dimension.reference.semantic_key}.substr(
+            prefix.size());
+        const std::array keys{
+            std::string_view{"x"}, std::string_view{"y"},
+            std::string_view{"z"}, std::string_view{"rotation_x"},
+            std::string_view{"rotation_y"}, std::string_view{"rotation_z"}};
+        const auto found = std::ranges::find(keys, key);
+        if (found == keys.end() || std::abs(dimension.value) <= 1.0e-12)
+            return true;
+        const auto index = static_cast<std::size_t>(found - keys.begin());
+        const auto lock_key = std::string("placement:") + std::string(key);
+        const bool locked = component.value_locks.contains(lock_key);
+        if (!state.coordinate_free[index] && !locked) return true;
+        dimension.reference.instance_path = instance_path;
+        dimension.value_lock_key = lock_key;
+        dimension.locked = locked;
+        return false;
+    });
+    return result;
+}
+
+} // namespace
 
 
 void AssemblyWorkspaceWindow::select_container(const std::string& container_id) {
@@ -217,7 +267,8 @@ void AssemblyWorkspaceWindow::show_component_properties(
     preserve_view_on_refresh_ = true;
     refresh_scene();
     dialog->set_preview_callback(
-        [this, dialog, reference_scene_prefix, assembly_id = address->owner_assembly_document_id,
+        [this, dialog, reference_scene_prefix, instance_path,
+         assembly_id = address->owner_assembly_document_id,
          occurrence_id = address->occurrence_id](const auto& preview) {
             const auto* assembly = workspace_.open_assembly(assembly_id);
             if (assembly == nullptr) return;
@@ -230,11 +281,42 @@ void AssemblyWorkspaceWindow::show_component_properties(
             *found = preview;
             try {
                 next.calculate_placement_references();
-                dialog->set_solved_placement(next.find_occurrence(occurrence_id)->placement,
-                    next.component_constraint_state(occurrence_id));
-                viewer_->set_mesh(reference_scene_prefix.occurrence_ids.empty() ? next.build_scene() :
-                    workspace_.build_scene_with_assembly_override(workspace_.displayed_document_id(),
-                        reference_scene_prefix, next), false);
+                const auto* solved = next.find_occurrence(occurrence_id);
+                const auto state = next.component_constraint_state(occurrence_id);
+                dialog->set_solved_placement(solved->placement, state);
+                auto scene = reference_scene_prefix.occurrence_ids.empty()
+                    ? next.build_scene()
+                    : workspace_.build_scene_with_assembly_override(
+                        workspace_.displayed_document_id(), reference_scene_prefix, next);
+                auto dimensions = component_placement_dimensions(
+                    *solved, state, instance_path);
+                if (!reference_scene_prefix.occurrence_ids.empty()) {
+                    const auto top = workspace_.displayed_document_id();
+                    const auto point = [this, &top, &reference_scene_prefix](auto value) {
+                        return workspace_.occurrence_point_to_scene(
+                            top, reference_scene_prefix, value);
+                    };
+                    const auto direction = [this, &top, &reference_scene_prefix](auto value) {
+                        return workspace_.occurrence_direction_to_scene(
+                            top, reference_scene_prefix, value);
+                    };
+                    for (auto& dimension : dimensions) {
+                        dimension.witness_first = point(dimension.witness_first);
+                        dimension.witness_second = point(dimension.witness_second);
+                        dimension.line_first = point(dimension.line_first);
+                        dimension.line_second = point(dimension.line_second);
+                        dimension.plane_normal = direction(dimension.plane_normal);
+                        if (dimension.measurement_direction)
+                            dimension.measurement_direction = direction(
+                                *dimension.measurement_direction);
+                        if (dimension.label_position)
+                            dimension.label_position = point(*dimension.label_position);
+                    }
+                }
+                scene.dimensions.insert(scene.dimensions.end(),
+                    std::make_move_iterator(dimensions.begin()),
+                    std::make_move_iterator(dimensions.end()));
+                viewer_->set_mesh(std::move(scene), false);
             } catch (const std::exception& error) {
                 dialog->set_placement_error(QObject::tr(error.what()));
             }

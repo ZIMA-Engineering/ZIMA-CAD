@@ -44,6 +44,32 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         return place(std::move(wire));
     }
     const auto* input=workspace::calculated_operation_input(session,owner);
+    const auto has_spatial_bounds=[](const kernel::ViewerMesh& mesh) {
+        if(!mesh.vertices.empty())return true;
+        const auto has_points=[](const auto& edges) {
+            return std::ranges::any_of(edges,[](const auto& edge) {
+                return !edge.construction&&!edge.points.empty();
+            });
+        };
+        return has_points(mesh.edges)||has_points(mesh.original_references.edges);
+    };
+    // A final-first cache may omit an intermediate input mesh. For a Through
+    // All extrusion, its persisted operation result still carries the exact
+    // finite span created from that input. Reuse only that already calculated
+    // packet so ordinary selection remains analytical and never invokes OCCT.
+    if(feature->feature_kind==document::FeatureKind::Feature&&
+            feature->feature.type==document::FeatureType::Modeling&&
+            (!input||!has_spatial_bounds(input->mesh))) {
+        bool through_all{};
+        for(std::size_t side=0;side<2;++side) {
+            const auto parameters=feature->feature.effective_side(side);
+            through_all|=parameters.operation==document::FeatureSideOperation::Extrusion&&
+                parameters.extrusion_extent==document::EndCondition::ThroughAll;
+        }
+        if(through_all)if(const auto* output=
+                workspace::calculated_operation_output(session,owner);
+                output&&has_spatial_bounds(output->mesh))input=output;
+    }
     const kernel::ViewerMesh empty;
     const auto& input_mesh=input?input->mesh:empty;
     using document::FeatureKind;

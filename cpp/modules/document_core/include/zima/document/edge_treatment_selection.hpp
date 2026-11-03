@@ -89,10 +89,12 @@ inline void remove_treatment_selection(document::EdgeTreatmentParameters& parame
     const auto original=parameters.routes[route];
     if (segment && *segment>=original.size()) throw std::runtime_error("Segment již neexistuje");
     parameters.route_start_vertices.resize(parameters.routes.size());
+    parameters.route_end_faces.resize(parameters.routes.size());
     const auto old_start=parameters.route_start_vertices[route];
     if (!segment || original.size()==1) {
         parameters.routes.erase(parameters.routes.begin()+route);
         parameters.route_start_vertices.erase(parameters.route_start_vertices.begin()+route);
+        parameters.route_end_faces.erase(parameters.route_end_faces.begin()+route);
         return;
     }
     using Vertex=kernel::VertexReference;
@@ -150,7 +152,13 @@ inline void remove_treatment_selection(document::EdgeTreatmentParameters& parame
     }
     parameters.routes.erase(parameters.routes.begin()+route);
     parameters.route_start_vertices.erase(parameters.route_start_vertices.begin()+route);
+    parameters.route_end_faces.erase(parameters.route_end_faces.begin()+route);
     parameters.routes.insert(parameters.routes.begin()+route,groups.begin(),groups.end());
     parameters.route_start_vertices.insert(parameters.route_start_vertices.begin()+route,starts.begin(),starts.end());
+    // Removing a segment creates new route endpoints. Reusing the old end
+    // faces would attach them to the wrong geometry, so the new fragments are
+    // deliberately perpendicular until the user runs Auto or picks a face.
+    parameters.route_end_faces.insert(parameters.route_end_faces.begin()+route,
+        groups.size(),document::EdgeTreatmentParameters::RouteEndFaces{});
 }
 }

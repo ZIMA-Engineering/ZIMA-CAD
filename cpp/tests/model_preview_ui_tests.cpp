@@ -48,13 +48,24 @@ void datum_marker_visibility(QApplication& app) {
     const auto transform=[](auto& points){for(auto& point:points){point.position.y-=45;point.reference.instance_path="assembly/nested/part";}};
     transform(native.points);transform(native.original_references.points);
     for(auto& value:native.original_references.axes){value.point.y-=45;value.reference.instance_path="assembly/nested/part";}
+    const auto native_begin=mesh.points.size();
     mesh.points.insert(mesh.points.end(),native.points.begin(),native.points.end());
+    std::optional<std::size_t> native_point;
+    std::vector<std::size_t> native_axis_ends;
+    for(std::size_t index=native_begin;index<mesh.points.size();++index) {
+        const auto& key=mesh.points[index].reference.semantic_key;
+        if(key=="point")native_point=index;
+        else if(key.starts_with("point:from:"))native_axis_ends.push_back(index);
+    }
+    check(native_point.has_value()&&native_axis_ends.size()==2,
+        "Native Feature Axis point identities are incomplete");
     // Match the Assembly packet after its hidden-axis line has been omitted.
     mesh.original_references.points=native.original_references.points;
     mesh.original_references.axes=native.original_references.axes;
     viewer::MeshView view;view.resize(900,600);view.show();view.set_mesh(mesh);
     view.set_projection_mode(viewer::ProjectionMode::Orthographic);view.set_standard_view(viewer::StandardView::Top);
     for(int i=0;i<10;++i)flush(app); // Let the ordinary view animation settle before comparing frames.
+    view.set_reference_visibility(ReferenceVisibility::AxisPoints,true);
     view.fit_points({{-50,-50,0},{50,50,0}});view.set_selection_contract({CandidateKind::Container});flush(app);
     const auto world=[&](QPointF pixel) {
         const auto ray=view.ray_at(pixel);check(ray.has_value(),"Datum picking ray is absent");
@@ -72,29 +83,52 @@ void datum_marker_visibility(QApplication& app) {
         return std::ranges::any_of(candidates,[&](const auto& candidate){
             const auto& reference=mesh.points[point].reference;
             const auto owner=reference.owner_id.ends_with(":origin")?reference.owner_id.substr(0,reference.owner_id.size()-7):reference.owner_id;
-            return (candidate.owner_id==reference.owner_id||candidate.kind==CandidateKind::Container&&candidate.owner_id==owner)&&
-                (candidate.semantic_key==reference.semantic_key||(candidate.kind==CandidateKind::Container&&candidate.semantic_key.empty()))&&candidate.instance_path==reference.instance_path;
+            const bool exact=candidate.owner_id==reference.owner_id&&
+                candidate.semantic_key==reference.semantic_key;
+            const bool container_point=candidate.kind==CandidateKind::Container&&
+                candidate.owner_id==owner&&
+                (candidate.semantic_key==reference.semantic_key||
+                 candidate.marker_derived&&candidate.semantic_key.empty());
+            return (exact||container_point)&&candidate.instance_path==reference.instance_path;
         });
     };
     check(offered(2)&&offered(3)&&offered(4),"Visible datum/standalone marker cannot be picked");
-    check(offered(6)&&offered(7)&&offered(8),"Native Feature Axis markers cannot be picked in the nested occurrence");
+    check(offered(*native_point)&&std::ranges::all_of(native_axis_ends,offered),
+        "Native Feature Axis markers cannot be picked in the nested occurrence");
     const auto camera=view.camera_state();const auto visible=view.grabFramebuffer();
     view.set_reference_visibility(ReferenceVisibility::Axes,false);view.set_reference_visibility(ReferenceVisibility::Planes,false);flush(app);
     check(!offered(0)&&!offered(1)&&!offered(2)&&!offered(4)&&!offered(5)&&offered(3),"Hidden Axis/Plane retained selectable helper points or hid a standalone Point");
-    check(!offered(6)&&!offered(7)&&!offered(8),"Hidden native Feature Axis retained its center/side markers");
+    const bool hidden_native_point=offered(*native_point);
+    const std::array hidden_native_ends{offered(native_axis_ends[0]),offered(native_axis_ends[1])};
+    if(!hidden_native_point||hidden_native_ends[0]||hidden_native_ends[1])
+        throw std::runtime_error("Hidden native Feature Axis visibility mismatch: point="+
+            std::to_string(hidden_native_point)+" start="+std::to_string(hidden_native_ends[0])+
+            " end="+std::to_string(hidden_native_ends[1]));
     const auto hidden=view.grabFramebuffer();check(hidden!=visible,"Datum visibility did not change the rendered frame");
-    auto stripped=mesh;stripped.axes.clear();stripped.edges.clear();stripped.points={mesh.points[3]};
+    auto stripped=mesh;stripped.axes.clear();stripped.edges.clear();
+    stripped.points={mesh.points[3],mesh.points[*native_point]};
     view.set_mesh(stripped,false);flush(app);const auto stripped_frame=view.grabFramebuffer();
     if(hidden!=stripped_frame){hidden.save("datum-hidden.png");stripped_frame.save("datum-stripped.png");}
     check(hidden==stripped_frame,"Hidden datum helper points remain painted");
     view.set_mesh(mesh,false);view.set_selection_contract({CandidateKind::Vertex,CandidateKind::SketchPoint});flush(app);
     check(offered(0)&&offered(2)&&offered(4)&&offered(5),"Explicit point entry cannot consume hidden datum markers");
-    check(offered(6)&&offered(7)&&offered(8),"Explicit point entry lost the native Feature Axis side identities");
+    check(offered(*native_point)&&std::ranges::all_of(native_axis_ends,offered),
+        "Explicit point entry lost the native Feature Axis side identities");
     view.set_selection_contract({CandidateKind::Container});view.set_constraint_reference_highlights({"marker-axis:entity"},{});flush(app);
     check(view.grabFramebuffer()!=hidden,"Independent reference inspection cannot expose the hidden Axis endpoints");
     view.set_constraint_reference_highlights({},{{"marker-plane:origin","point",{}}});flush(app);check(offered(4),"Independent inspection cannot expose a hidden Plane defining point");
     view.set_constraint_reference_highlights({},{});view.set_reference_visibility(ReferenceVisibility::Axes,true);view.set_reference_visibility(ReferenceVisibility::Planes,true);flush(app);
-    check(offered(2)&&offered(4)&&view.mesh().points.size()==mesh.points.size()&&view.camera_state()==camera,"Visibility restoration changed native markers or camera");
+    const std::array restored{offered(2),offered(4),offered(*native_point),
+        offered(native_axis_ends[0]),offered(native_axis_ends[1])};
+    const bool point_count_restored=view.mesh().points.size()==mesh.points.size();
+    const bool camera_restored=view.camera_state()==camera;
+    if(!std::ranges::all_of(restored,[](bool value){return value;})||
+            !point_count_restored||!camera_restored)
+        throw std::runtime_error("Visibility restoration mismatch: axis="+
+            std::to_string(restored[0])+" plane="+std::to_string(restored[1])+
+            " point="+std::to_string(restored[2])+" start="+std::to_string(restored[3])+
+            " end="+std::to_string(restored[4])+" count="+
+            std::to_string(point_count_restored)+" camera="+std::to_string(camera_restored));
 }
 }
 int main(int argc,char** argv){
@@ -108,8 +142,16 @@ int main(int argc,char** argv){
                 const QString logo=QFileInfo(metadata.fileName()).absoluteDir().filePath("logo-text.svg");if(!QFileInfo::exists(logo))continue;++logos;const QIcon icon(logo);for(const auto background:{QColor("#ffffff"),QColor("#25292e")}){QImage image(64,64,QImage::Format_ARGB32);image.fill(background);QPainter painter(&image);icon.paint(&painter,image.rect());painter.end();int visible=0;for(int y=0;y<64;++y)for(int x=0;x<64;++x)visible+=image.pixelColor(x,y)!=background;check(visible>100,"Symbol category logo vanished in a theme");}
             }
         }check(metadata_count==35&&logos==15,"Factory library metadata/branding inventory differs");
-        QTemporaryDir fixture;check(fixture.isValid(),"Cannot create preview fixture");
-        const QString independent_title=fixture.filePath("independent.tblz");check(QFile::copy(QDir(repository).filePath("config/formats/ZE-TITLE-BLOCK.tblz"),independent_title),"Cannot isolate the title block");
+        // Keep the large native fixture inside the build tree. Windows app
+        // sandboxes may expose QDir::tempPath() while rejecting a later file
+        // copy into that package-managed location.
+        QTemporaryDir fixture(QDir::current().filePath("model-preview-test-XXXXXX"));
+        check(fixture.isValid(),"Cannot create preview fixture");
+        const QString independent_title=fixture.filePath("independent.tblz");
+        QFile title_source(QDir(repository).filePath("config/formats/ZE-TITLE-BLOCK.tblz"));
+        if(!title_source.copy(independent_title))
+            throw std::runtime_error(("Cannot isolate the title block: "+title_source.errorString()+
+                " ["+title_source.fileName()+" -> "+independent_title+"]").toStdString());
         const auto title=zima::document::PartDocument::load(std::filesystem::u8path(independent_title.toStdString()));int embedded_logos=0;
         for(const auto& sketch:title.sketches)if(sketch.drawing_template)for(const auto& image:sketch.drawing_template->images){if(image.name!="ZIMA-Engineering.svg")continue;++embedded_logos;const auto bytes=QByteArray::fromBase64(QByteArray::fromStdString(image.data_base64));QImage rendered;check(image.format=="svg"&&bytes.size()>5000&&rendered.loadFromData(bytes,"SVG")&&!rendered.isNull(),"Title-block logo requires an external SVG or cannot render from its native data");}
         check(embedded_logos==5&&!QFileInfo::exists(fixture.filePath("ZIMA-Engineering.svg")),"Title-block language variants do not keep independent embedded logos");

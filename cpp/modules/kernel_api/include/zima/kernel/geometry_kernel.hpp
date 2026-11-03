@@ -854,18 +854,34 @@ struct FeatureGroupRequest {
     std::vector<ReferencePlane> reference_planes;
 };
 
+enum class EdgeTreatmentCalculationMethod { Automatic, Zima, Occt };
+
+struct EdgeTreatmentRouteEndFaces {
+    FaceReference first;
+    FaceReference last;
+    bool operator==(const EdgeTreatmentRouteEndFaces&) const = default;
+};
+
 struct FilletRequest {
     enum class Mode { Constant, Linear };
     FilletRequest() = default;
     FilletRequest(std::vector<EdgeReference> selected_edges, double radius)
         : edges(std::move(selected_edges)), radius_start(radius),
-          radius_end(radius) {}
+          radius_end(radius),
+          calculation_method(EdgeTreatmentCalculationMethod::Occt) {}
     FilletRequest(std::vector<EdgeReference> selected_edges, Mode selected_mode,
                   double start, double end, bool reversed,
-                  std::vector<VertexReference> contour_starts = {})
+                  std::vector<VertexReference> contour_starts = {},
+                  EdgeTreatmentCalculationMethod selected_method =
+                      EdgeTreatmentCalculationMethod::Occt,
+                  std::vector<std::size_t> selected_route_edge_counts = {},
+                  std::vector<EdgeTreatmentRouteEndFaces> selected_end_faces = {})
         : edges(std::move(selected_edges)), mode(selected_mode),
           radius_start(start), radius_end(end), reverse(reversed),
-          contour_start_vertices(std::move(contour_starts)) {}
+          contour_start_vertices(std::move(contour_starts)),
+          calculation_method(selected_method),
+          route_edge_counts(std::move(selected_route_edge_counts)),
+          route_end_faces(std::move(selected_end_faces)) {}
     std::vector<EdgeReference> edges;
     Mode mode{Mode::Constant};
     double radius_start{1.0};
@@ -875,6 +891,10 @@ struct FilletRequest {
     // the same semantic R1 endpoint, allowing whichever member seeds OCCT to
     // recover the intended contour direction.
     std::vector<VertexReference> contour_start_vertices;
+    EdgeTreatmentCalculationMethod calculation_method{
+        EdgeTreatmentCalculationMethod::Occt};
+    std::vector<std::size_t> route_edge_counts;
+    std::vector<EdgeTreatmentRouteEndFaces> route_end_faces;
 };
 
 struct ChamferRequest {
@@ -882,18 +902,29 @@ struct ChamferRequest {
     ChamferRequest() = default;
     ChamferRequest(std::vector<EdgeReference> selected_edges, double distance)
         : edges(std::move(selected_edges)), distance_a(distance),
-          distance_b(distance) {}
+          distance_b(distance),
+          calculation_method(EdgeTreatmentCalculationMethod::Occt) {}
     ChamferRequest(std::vector<EdgeReference> selected_edges, Mode selected_mode,
-                   double first, double second, double angle, bool flipped)
+                   double first, double second, double angle, bool flipped,
+                   EdgeTreatmentCalculationMethod selected_method =
+                       EdgeTreatmentCalculationMethod::Occt,
+                   std::vector<std::size_t> selected_route_edge_counts = {},
+                   std::vector<EdgeTreatmentRouteEndFaces> selected_end_faces = {})
         : edges(std::move(selected_edges)), mode(selected_mode),
           distance_a(first), distance_b(second), angle_radians(angle),
-          flip(flipped) {}
+          flip(flipped), calculation_method(selected_method),
+          route_edge_counts(std::move(selected_route_edge_counts)),
+          route_end_faces(std::move(selected_end_faces)) {}
     std::vector<EdgeReference> edges;
     Mode mode{Mode::EqualDistance};
     double distance_a{1.0};
     double distance_b{1.0};
     double angle_radians{0.7853981633974483};
     bool flip{};
+    EdgeTreatmentCalculationMethod calculation_method{
+        EdgeTreatmentCalculationMethod::Occt};
+    std::vector<std::size_t> route_edge_counts;
+    std::vector<EdgeTreatmentRouteEndFaces> route_end_faces;
 };
 
 struct ShellRequest {

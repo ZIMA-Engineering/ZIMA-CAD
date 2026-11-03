@@ -164,33 +164,10 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
                 check(individual&&individual->text()==translations.value("Osy jednotlivých profilů"),
                     "Individual profile axes control is missing or untranslated");
                 check(!individual->isChecked(),"Individual profile axes must be opt-in");
-                auto* point=dialog->findChild<QCheckBox*>("featureShowPoint");
-                auto* text=dialog->findChild<QCheckBox*>("featureShowText");
-                check(point&&text&&!point->isChecked()&&!text->isChecked(),
-                    "Feature Point/Text controls have the wrong initial state");
-                point->setChecked(true);text->setChecked(true);
-                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-                const auto marker=std::ranges::find_if(view->mesh().points,[&](const auto& candidate) {
-                    return candidate.reference.owner_id==feature.id&&
-                        candidate.reference.semantic_key=="point";
-                });
-                check(marker!=view->mesh().points.end()&&marker->always_visible&&
-                    marker->label==feature.name,
-                    "Feature Point/Text checkboxes did not update the actual View marker");
-                dialog=open_properties();
-                point=dialog->findChild<QCheckBox*>("featureShowPoint");
-                text=dialog->findChild<QCheckBox*>("featureShowText");
-                check(point->isChecked()&&text->isChecked(),
-                    "Reopened Feature lost Point/Text choices");
-                point->setChecked(false);text->setChecked(false);
+                check(!dialog->findChild<QCheckBox*>("featureShowPoint")&&
+                    !dialog->findChild<QCheckBox*>("featureShowText"),
+                    "Removed Feature Point/Text controls returned to Properties");
                 dialog->reject();flush();
-                const auto restored=std::ranges::find_if(view->mesh().points,[&](const auto& candidate) {
-                    return candidate.reference.owner_id==feature.id&&
-                        candidate.reference.semantic_key=="point";
-                });
-                check(restored!=view->mesh().points.end()&&restored->always_visible&&
-                    restored->label==feature.name,
-                    "Cancel changed the Feature Point/Text presentation");
                 dialog=open_properties();
                 dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(false);
                 dialog->findChild<QCheckBox*>("featureCentroidAxis")->setChecked(false);dialog->reject();flush();expect_axes();
@@ -262,8 +239,9 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         auto* shortcut=window.findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i));
         check(shortcut&&shortcut->isEnabled()&&!shortcut->icon().isNull(),"Feature shortcut missing or disabled");
         shortcut->trigger();flush();check(dialog(),"Feature shortcut did not open shared dialog");
-        check(!dialog()->findChild<QCheckBox*>("featureShowPoint")->isChecked()&&
-            !dialog()->findChild<QCheckBox*>("featureShowText")->isChecked(),"New Feature did not start with Point/Text disabled");
+        check(!dialog()->findChild<QCheckBox*>("featureShowPoint")&&
+            !dialog()->findChild<QCheckBox*>("featureShowText"),
+            "Removed Feature Point/Text controls returned to creation Properties");
         const auto check_collapsed=[&] {
             bool found=false;
             for(QTreeWidgetItemIterator row(window.findChild<QTreeWidget*>("documentTree"));*row;++row)
@@ -274,7 +252,6 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
             check(found,"Pending Feature tree row missing");
         };
         check_collapsed();
-        dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(false);flush();check_collapsed();
         const auto preset=dialog()->pending_value().feature;
         check(preset.type==static_cast<document::FeatureType>(std::min(i,4)),"Feature shortcut selected wrong type");
         if(i==5)check(preset.sides[0].operation==document::FeatureSideOperation::Revolution&&
@@ -411,11 +388,20 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
                 std::to_string(resolved.y)+","+std::to_string(resolved.z));
         // At tangency the local Jacobian leaves Y free; numeric fields retain
         // a seed. Verify the actually published preview point instead.
-        const auto& points=pick_view->mesh().points;
-        const auto point=std::ranges::find_if(points,[&](const auto& p) {
-            return p.reference.owner_id==dialog()->pending_value().container_origin.id&&p.reference.semantic_key=="point";
-        });
-        check(point!=points.end(),"Cylinder contact preview point missing");
+        const auto matches_preview_point=[&](const auto& p) {
+            const auto& pending=dialog()->pending_value();
+            return (p.reference.owner_id==pending.container_origin.id&&
+                    p.reference.semantic_key=="point") ||
+                (p.display_owner_id==pending.id&&
+                    p.reference.semantic_key=="container:origin-marker");
+        };
+        const kernel::ViewerPoint* point{};
+        for(const auto* points:{&pick_view->mesh().points,
+                &pick_view->transient_context_mesh().points}) {
+            const auto found=std::ranges::find_if(*points,matches_preview_point);
+            if(found!=points->end()){point=&*found;break;}
+        }
+        check(point,"Cylinder contact preview point missing");
         check(std::hypot(point->position.x-resolved.x,point->position.y-resolved.y,point->position.z-resolved.z)<1e-6,
             "Published cylinder preview violates the resolved contact");
         check(dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Valid edited cylinder contact disabled OK");
@@ -533,15 +519,24 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     check(std::abs(std::hypot(value.placement.x,value.placement.y)-5)<1e-7,"Surface placement left cylinder");
     mode->setCurrentIndex(1);flush();value=dialog()->pending_value();const auto axis_id=value.id;
     check(value.placement.references.front().use_axis,"Axis mode did not update definition");
-    dialog()->findChild<QCheckBox*>("featureShowPoint")->setChecked(false);
-    dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(false);flush();
+    check(!dialog()->findChild<QCheckBox*>("featureShowPoint")&&
+        !dialog()->findChild<QCheckBox*>("featureShowText"),
+        "Removed Feature Point/Text controls returned to surface placement Properties");
     auto* preview_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     check(preview_view,"Feature preview view missing");
-    const auto visible_origin=std::ranges::find_if(preview_view->mesh().points,[&](const auto& p) {
-        return p.reference.owner_id==axis_id&&p.reference.semantic_key=="point";
-    });
-    check(visible_origin!=preview_view->mesh().points.end()&&visible_origin->always_visible&&!visible_origin->label.empty(),
-        "Properties hid the origin or name when idle visibility was disabled");
+    const kernel::ViewerPoint* visible_origin{};
+    for(const auto* points:{&preview_view->mesh().points,
+            &preview_view->transient_context_mesh().points}) {
+        const auto found=std::ranges::find_if(*points,[&](const auto& p) {
+            return (p.reference.owner_id==axis_id&&
+                    p.reference.semantic_key=="point") ||
+                (p.display_owner_id==axis_id&&
+                    p.reference.semantic_key=="container:origin-marker");
+        });
+        if(found!=points->end()){visible_origin=&*found;break;}
+    }
+    check(visible_origin&&visible_origin->always_visible,
+        "Properties hid the automatic Feature origin marker");
     check(std::abs(value.placement.z-10)<1e-7&&std::abs(value.feature.effective_side(0).length-10)<1e-7&&
         std::abs(value.feature.effective_side(1).length-10)<1e-7,"Axis extent was not derived from whole face");
     window.grab().save(QString::fromStdString((directory/"feature-surface-axis-ui.png").string()));
@@ -560,15 +555,13 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==axis_id){item=*i;break;}
     check(item,"Axis tree item missing");window.show_tree_item_properties(item);flush();check(dialog(),"Axis edit missing");
     mode=dialog()->findChild<QComboBox*>("placementReferenceType0");check(mode&&mode->currentData().toBool(),"Reopened axis mode lost");
-    check(!dialog()->findChild<QCheckBox*>("featureShowPoint")->isChecked()&&
-        !dialog()->findChild<QCheckBox*>("featureShowText")->isChecked(),"Reopened visibility settings lost");
+    check(!dialog()->findChild<QCheckBox*>("featureShowPoint")&&
+        !dialog()->findChild<QCheckBox*>("featureShowText"),
+        "Removed Feature Point/Text controls returned after reopen");
     auto* axis_display=dialog()->findChild<QCheckBox*>("featureShowAxis3D");
-    check(axis_display&&axis_display->isVisible()&&!axis_display->isChecked()&&
-        axis_display->parentWidget()==dialog()->findChild<QCheckBox*>("featureShowPoint")->parentWidget(),
-        "Axis Show in 3D is missing from the Point/Text row");
+    check(axis_display&&axis_display->isVisible()&&!axis_display->isChecked(),
+        "Axis Show in 3D is missing from Properties");
     axis_display->click();flush();
-    dialog()->findChild<QCheckBox*>("featureShowPoint")->setChecked(true);
-    dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(true);
     mode->setCurrentIndex(0);flush();dialog()->reject();flush();run("save");
     check(document::PartDocument::load(path).find_container(axis_id)->placement.references.front().use_axis,"Cancel changed mode");
     check(!document::PartDocument::load(path).find_container(axis_id)->feature.show_point&&

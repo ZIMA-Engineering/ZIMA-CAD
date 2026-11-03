@@ -516,8 +516,6 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     } else {
         row->setIcon(0, resource_icon("sketch"));
     }
-    if (!feature || feature->feature_kind != zima::document::FeatureKind::Feature)
-        row->setExpanded(true);
 }
 
 void AssemblyWorkspaceWindow::add_part_tree_children(
@@ -884,7 +882,6 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
                 sketch == sketches.end() ? nullptr : &*sketch, true);
             tree_reference_state_.apply(item, assembly_document_id, container.id,
                 feature_reference_issue(container, assembly->session.document(), references));
-            item->setExpanded(true);
         }
         for (std::size_t cut_index = 0;
              cut_index < assembly->session.document().cuts.size(); ++cut_index) {
@@ -910,7 +907,6 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
                     ? nullptr : &*owned_sketch, true);
             tree_reference_state_.apply(item,assembly_document_id,cut.definition.id,
                 feature_reference_issue(cut.definition,assembly->session.document(),references));
-            item->setExpanded(true);
             if (cut.definition.suppressed || (assembly_cut_rollback_ &&
                     cut_index > assembly_cut_rollback_->cut_index)) {
                 item->setForeground(0, QBrush(QColor(125, 125, 125)));

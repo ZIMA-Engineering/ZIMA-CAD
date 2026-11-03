@@ -291,7 +291,7 @@ void verify_attached_history(std::filesystem::path directory) {
         for(const auto& ref:profile.external_references)check(ref.source_document_id==id&&!ref.broken,"Body-local Flat reference lost its Part source");
         const auto defaults=document::sheet_metal_defaults(state->session.document());
         const auto expected=40*std::numbers::pi/2*(5+thickness*.5)*thickness+40*12*thickness;
-        near(state->session.calculated_boundaries().back().volume,expected);
+        near(measured_volume(kernel,state->session.calculated_boundaries().back()),expected);
         near(state->session.document().find_container(flat)->flat.thickness,thickness);
     }
     run(host,"save");std::vector<kernel::BodyResult> cached;
@@ -301,13 +301,15 @@ void verify_attached_history(std::filesystem::path directory) {
     check(!host.execute({{"command","flat.set"},{"arguments",{{"container",flat},{"thickness_mm",3.}}}}).ok,"Attached Flat accepted independent thickness");
     check(state->session.revision()==revision,"Rejected Flat edit changed history");
     run(host,"undo");run(host,"redo");
-    near(state->session.calculated_boundaries().back().volume,cached.back().volume);
+    near(measured_volume(kernel,state->session.calculated_boundaries().back()),
+        measured_volume(kernel,cached.back()));
     const auto bend_sketch=state->session.document().find_container(bend)->bend.sketch_id;
     check(workspace::mutate_document_sketch(live,id,bend_sketch,[&](auto& s) {
         check(s.set_dimension_value(s.id+":position:last",52.),"Cannot lengthen source Bend");
     }),"Bend width edit was ignored");
     run(host,"regenerate");
-    near(state->session.calculated_boundaries().back().volume,52*std::numbers::pi/2*6*2+52*12*2);
+    near(measured_volume(kernel,state->session.calculated_boundaries().back()),
+        52*std::numbers::pi/2*6*2+52*12*2);
     run(host,"new",{{"type","part"},{"name","opposite-bend-edge"}});
     const auto flip_id=live.active_document_id();
     const auto base=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.}}).data.at("container").get<std::string>();

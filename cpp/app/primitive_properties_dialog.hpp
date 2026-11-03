@@ -130,6 +130,15 @@ public:
     void set_edge_groups(std::vector<EdgeGroup> groups);
     void set_edge_route_start_vertices(
         std::vector<zima::kernel::VertexReference> vertices);
+    void set_edge_route_end_faces(
+        std::vector<zima::document::EdgeTreatmentParameters::RouteEndFaces>
+            faces);
+    void set_edge_end_face_callbacks(
+        std::function<void(std::size_t, std::size_t)> request,
+        std::function<void(std::size_t, std::size_t)> automatic,
+        std::function<void(std::size_t, std::size_t, bool)> inspect = {});
+    void set_edge_end_face_selection_active(
+        std::optional<std::pair<std::size_t,std::size_t>> active);
     void set_dimension_layouts(const std::vector<zima::kernel::DimensionLayoutEntry>&);
     [[nodiscard]] const std::vector<zima::kernel::DimensionLayoutEntry>& dimension_layouts() const { return dimension_layouts_; }
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(const zima::kernel::EdgeReference&) const;
@@ -249,6 +258,7 @@ private:
     QLabel* twist_developed_length_{};
     QComboBox* twist_direction_{};
     QComboBox* hole_type_{};
+    QWidget* hole_parameters_widget_{};
     QDoubleSpinBox* hole_diameter_{};
     QComboBox* hole_bore_end_{};
     QDoubleSpinBox* hole_bore_length_{};
@@ -325,6 +335,9 @@ private:
     std::function<void(bool)> profile_pick_request_;
     std::function<void(zima::document::HistoryContainer)> edit_sketch_;
     std::function<void(const zima::document::HistoryContainer&)> preview_;
+    QCheckBox* treatment_method_automatic_{};
+    QCheckBox* treatment_method_zima_{};
+    QCheckBox* treatment_method_occt_{};
     QComboBox* treatment_type_{};
     QLabel* treatment_primary_label_{};
     QLabel* treatment_secondary_label_{};
@@ -339,6 +352,19 @@ private:
     std::vector<EdgeGroup> edge_groups_;
     std::function<void(std::size_t, std::optional<std::size_t>)> remove_edge_;
     std::function<void(std::size_t)> restore_route_;
+    struct EdgeEndFaceField {
+        std::size_t route{},end{};
+        QTableWidget* table{};
+        zima::ui::ReferenceCellItem* item{};
+        QWidget* indicator{};
+        QToolButton* eye{};
+    };
+    std::vector<EdgeEndFaceField> edge_end_face_fields_;
+    std::optional<std::pair<std::size_t,std::size_t>>
+        active_edge_end_face_;
+    std::function<void(std::size_t,std::size_t)> request_edge_end_face_;
+    std::function<void(std::size_t,std::size_t)> auto_edge_end_face_;
+    std::function<void(std::size_t,std::size_t,bool)> inspect_edge_end_face_;
     QDoubleSpinBox* shell_thickness_{};
     QTableWidget* shell_face_list_{};
     QTableWidget* shell_source_table_{};
@@ -365,6 +391,7 @@ private:
     void toggle_extrusion_target_highlight(const std::string& side);
     void refresh_extrusion_target_styles();
     void notify_preview();
+    void refresh_hole_step_state();
     void refresh_edge_treatment_fields();
 };
 

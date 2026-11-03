@@ -42,7 +42,20 @@ int verify_sketch_keypoint_contact_ui(QApplication& application,const std::files
                     for(unsigned n=0;n<offered.size();++n)if(offered[n].owner_id==sketch.id&&offered[n].semantic_key==key){pos=QPointF(x,y);active=n;break;}
                     if(pos)break;
                 }
-                if(!pos)throw std::runtime_error("C+K candidate missing: "+key);
+                if(!pos) {
+                    const auto shown=std::ranges::find_if(view->mesh().points,[&](const auto& value) {
+                        return value.reference.owner_id==sketch.id&&
+                            value.reference.semantic_key==key;
+                    });
+                    viewer::ViewerCandidate probe{viewer::CandidateKind::SketchExternalReference,
+                        0,shown==view->mesh().points.end()?0:static_cast<std::size_t>(
+                            std::distance(view->mesh().points.begin(),shown)),sketch.id,key};
+                    const auto filter=view->candidate_filter();
+                    throw std::runtime_error("C+K candidate missing: "+key+
+                        " shown="+std::to_string(shown!=view->mesh().points.end())+
+                        " filter="+std::to_string(!filter||filter(probe))+
+                        " contract="+std::to_string(view->selection_contract().size()));
+                }
                 mouse(*pos,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
                 for(unsigned n=0;n<active;++n){mouse(*pos,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);mouse(*pos,QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);}
                 if(!view->hovered_candidate()||view->hovered_candidate()->semantic_key!=key)

@@ -94,9 +94,9 @@ model, history and translations passed initially. Logs:
 at this milestone: 195 commands. Earlier results above concern queries only.
 
 ```json
-{"command":"fillet.create","arguments":{"radius_mm":2,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}]}]}}
-{"command":"fillet.set","arguments":{"container":"FILLET-ID","mode":"linear","radius_mm":2,"radius_end_mm":5,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"start":{"owner":"POINT-OWNER","key":"R1-POINT-KEY"}}]}}
-{"command":"chamfer.create","arguments":{"mode":"two_distances","distance_a_mm":2,"distance_b_mm":5,"flip":false,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}]}]}}
+{"command":"fillet.create","arguments":{"calculation_method":"automatic","radius_mm":2,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"first_face":null,"last_face":{"owner":"FACE-OWNER","key":"FACE-KEY"}}]}}
+{"command":"fillet.set","arguments":{"container":"FILLET-ID","calculation_method":"zima","mode":"linear","radius_mm":2,"radius_end_mm":5,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"start":{"owner":"POINT-OWNER","key":"R1-POINT-KEY"},"first_face":null,"last_face":null}]}}
+{"command":"chamfer.create","arguments":{"calculation_method":"occt","mode":"two_distances","distance_a_mm":2,"distance_b_mm":5,"flip":false,"routes":[{"edges":[{"owner":"SOURCE-ID","key":"EDGE-KEY"}],"first_face":null,"last_face":null}]}}
 ```
 
 - Fillet `mode`: `constant` or `linear`. `radius_mm` is R/R1, `radius_end_mm` R2;
@@ -106,18 +106,25 @@ at this milestone: 195 commands. Earlier results above concern queries only.
   the other support face using existing stable original-face identity ordering.
 - Dimensions match Properties ranges: 0.001–1000000 mm, angle 0.1–89.9 degrees.
   Arguments are JSON numbers in mm regardless of display units; defaults 1 mm/45°.
+- `calculation_method` is `automatic`, `zima` or `occt`. Automatic uses the
+  supported straight-planar ZIMA construction and retains OCCT outside that
+  boundary. Explicit ZIMA rejects unsupported geometry. Explicit OCCT rejects
+  nonempty end-face fields.
 - `routes` completely replaces 1–10000 nonempty routes, at most 10000 edges total.
-  Each has `edges` and optional `start` (or `null`). References contain string
-  `owner`, `key`, optional empty `instance_path`. Each edge may be selected once.
+  Each has `edges`, optional `start`, and optional `first_face`/`last_face`
+  references (or `null`). An end face must be local, planar and contain the exact
+  corresponding endpoint of the open route. References contain string `owner`,
+  `key`, optional empty `instance_path`. Each edge may be selected once.
 - Variable Fillet requires an explicit original R1 endpoint for every connected
   open route. CLI never guesses direction; retrieve ends through queries. Closed
   circles without two endpoints permit constant Fillet.
 - Optional `name` and active-document `document`. `.get` can read another open Part.
   Mutations require the active owning Body and cannot edit derived copies.
 
-`.get` returns container/feature/Body IDs, parameters, original routes, saved starts,
-`value_locks` and revision. `.create/.set` add `changed`. Identical patches do not
-recalculate. GUI lock keys are shared: `primary`, `secondary`, `treatment_angle`.
+`.get` returns container/feature/Body IDs, parameters, calculation method, original
+routes, saved starts, both end-face slots, `value_locks` and revision.
+`.create/.set` add `changed`. Identical patches do not recalculate. GUI lock keys
+are shared: `primary`, `secondary`, `treatment_angle`.
 Missing/ambiguous edges, wrong R1, foreign-Body edges and invalid dimensions leave
 no partial mutation. Kernel checks feasibility at explicit commit.
 

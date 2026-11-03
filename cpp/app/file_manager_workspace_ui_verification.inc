@@ -52,7 +52,9 @@ int verify_file_manager_workspace(QApplication& application) {
     try {
         const QString performance_source=qEnvironmentVariable("ZIMA_FILE_MANAGER_PERFORMANCE_SOURCE");
         if(!performance_source.isEmpty()){
-            QTemporaryDir fixture;check(fixture.isValid(),"Cannot create performance fixture");
+            QTemporaryDir fixture(QDir::current().filePath(
+                QStringLiteral("file-manager-performance-XXXXXX")));
+            check(fixture.isValid(),"Cannot create performance fixture");
             const QString copied=fixture.filePath(QFileInfo(performance_source).fileName());check(QFile::copy(performance_source,copied),"Cannot isolate performance document");
             QSettings config(fixture.filePath("config.ini"),QSettings::IniFormat);config.setValue("Paths/WorkingDirectory",fixture.path());config.sync();
             zima::app::AssemblyWorkspaceWindow host(fixture.path(),fixture.path());host.resize(1366,768);host.show();flush();
@@ -74,13 +76,18 @@ int verify_file_manager_workspace(QApplication& application) {
             std::cout<<"FILE_MANAGER_PERFORMANCE bytes="<<QFileInfo(copied).size()<<" first_ms="<<first_ms<<" native_read_ms="<<read_ms<<" warm_ms="<<warm_ms<<" parameters="<<parameters.order.size()<<'\n';
             host.close();return 0;
         }
-        QTemporaryDir directory;check(directory.isValid(),"Cannot create File Manager workspace fixture");
+        QTemporaryDir directory(QDir::current().filePath(
+            QStringLiteral("file-manager-workspace-XXXXXX")));
+        check(directory.isValid(),"Cannot create File Manager workspace fixture");
         QSettings settings(directory.filePath("config.ini"),QSettings::IniFormat);settings.setValue("Paths/WorkingDirectory",directory.path());settings.setValue("Application/Language","cs");settings.sync();
         QDir().mkpath(directory.filePath("0000-index"));{QSettings metadata(directory.filePath("0000-index/metadata.ini"),QSettings::IniFormat);metadata.setValue("Directory/Parameters","name");metadata.sync();}
         zima::app::AssemblyWorkspaceWindow window(directory.path(),directory.path());
         window.resize(1366,768);window.show();flush();check_window_menu(window);
         check(window.execute_console_command("new part file-manager-context").ok,"Cannot create File Manager CAD context");
-        check(window.execute_console_command("save").ok,"Cannot save File Manager CAD context");flush();check_window_menu(window);
+        const auto initial_save=window.execute_console_command("save");
+        if(!initial_save.ok)throw std::runtime_error("Cannot save File Manager CAD context: "+
+            initial_save.code+": "+initial_save.message);
+        flush();check_window_menu(window);
         const QString part_path=directory.filePath("file-manager-context.prtz");check(QFileInfo::exists(part_path),"File Manager native fixture was not saved");
         const QString thumbnail=directory.filePath("0000-index/thumbnails/file-manager-context.prtz.png");QImage saved_thumbnail(thumbnail);check(!saved_thumbnail.isNull()&&saved_thumbnail.width()<=320&&saved_thumbnail.height()<=240,"Save did not create a bounded PNG preview");
         auto* tabs=window.findChild<QTabBar*>("documentTabs");check(tabs,"Document tabs missing");
@@ -91,6 +98,9 @@ int verify_file_manager_workspace(QApplication& application) {
         check_window_menu(window);
         auto* files=window.findChild<QStackedWidget*>("fileManagerStack");auto* browser=window.findChild<QStackedWidget*>("browserStack");auto* cad=window.findChild<QSplitter*>("documentSplitter");
         check(files&&files->isVisible()&&browser&&!browser->isVisible()&&cad&&!cad->isVisible(),"File Manager did not exclusively replace the document area");
+        auto* refresh=window.findChild<QAction*>("refreshFileManagerAction");auto* regenerate=window.findChild<QAction*>("regenerateDocumentAction");auto* view_toolbar=window.findChild<QToolBar*>("viewToolbar");
+        check(refresh&&refresh->isVisible()&&refresh->isEnabled()&&refresh->shortcut()==QKeySequence(Qt::Key_F5)&&regenerate&&!regenerate->isVisible(),"File Manager did not replace Regenerate with its F5 Refresh action");
+        QAction* first_visible{};for(auto* candidate:view_toolbar->actions())if(candidate->isVisible()){first_visible=candidate;break;}check(first_visible==refresh,"File Manager Refresh is not the first View action in the Regenerate slot");
         auto* table=window.findChild<QTreeWidget*>("fileManagerFiles");check(table,"File Manager file table missing");
         auto* live_manager=dynamic_cast<zima::app::FileManagerTab*>(files->currentWidget());check(live_manager,"Active File Manager is missing");
         auto* retained_view=live_manager->findChild<QTabWidget*>("fileManagerViews");check(retained_view&&retained_view->currentIndex()==1,"New File Manager did not start in Files");
@@ -108,7 +118,7 @@ int verify_file_manager_workspace(QApplication& application) {
         check(tabs->tabData(tabs->currentIndex()).toString().startsWith("web:")&&browser->isVisible()&&!files->isVisible(),"Browser switch retained the File Manager surface");check_window_menu(window);
         int file_index=-1,document_index=-1;for(int index=0;index<tabs->count();++index){const auto id=tabs->tabData(index);if(file_index<0&&id.toString().startsWith("files:"))file_index=index;if(id==document)document_index=index;}
         check(file_index>=0&&document_index>=0,"File Manager or CAD tab disappeared");tabs->setCurrentIndex(file_index);flush();check(files->isVisible()&&!browser->isVisible()&&!cad->isVisible(),"Returning to File Manager retained another surface");
-        tabs->setCurrentIndex(document_index);flush();check(cad->isVisible()&&!files->isVisible()&&!browser->isVisible(),"Returning to CAD retained a utility surface");
+        tabs->setCurrentIndex(document_index);flush();check(cad->isVisible()&&!files->isVisible()&&!browser->isVisible(),"Returning to CAD retained a utility surface");check(regenerate->isVisible()&&regenerate->isEnabled()&&!refresh->isVisible(),"Returning to CAD did not restore Regenerate in the shared View slot");
         const int before_open=tabs->count();choose_document(window,{});check(tabs->count()==before_open&&tabs->tabData(tabs->currentIndex())==document,"Cancelling File Open changed the CAD tabs or active context");
         tabs->setCurrentIndex(file_index);flush();const auto file_tab=tabs->tabData(tabs->currentIndex());choose_document(window,{});check(tabs->count()==before_open&&tabs->tabData(tabs->currentIndex())==file_tab&&files->isVisible(),"Cancelling File Open duplicated or replaced the existing File Manager");
         choose_document(window,part_path);check(tabs->count()==before_open&&tabs->tabData(tabs->currentIndex())==document&&cad->isVisible(),"File Open did not reuse the existing native document without adding a File Manager tab");

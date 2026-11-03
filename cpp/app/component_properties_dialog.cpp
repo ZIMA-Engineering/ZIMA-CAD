@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <string_view>
 
 namespace zima::app {
 
@@ -367,6 +368,22 @@ void ComponentPropertiesDialog::set_pending_placement(
         field->setValue(values[i]);
     }
     notify_preview();
+}
+
+bool ComponentPropertiesDialog::set_inline_placement_value(
+        const std::string& key, double value) {
+    const std::array keys{
+        std::string_view{"x"}, std::string_view{"y"},
+        std::string_view{"z"}, std::string_view{"rotation_x"},
+        std::string_view{"rotation_y"}, std::string_view{"rotation_z"}};
+    const auto found = std::ranges::find(keys, key);
+    if (found == keys.end()) return false;
+    const auto index = static_cast<std::size_t>(found - keys.begin());
+    auto* field = index < 3 ? translation_[index] : rotation_[index - 3];
+    if (field == nullptr || !field->isEnabled() || field->isReadOnly() ||
+        value < field->minimum() || value > field->maximum()) return false;
+    field->setValue(value);
+    return true;
 }
 
 void ComponentPropertiesDialog::set_reference_request_callback(

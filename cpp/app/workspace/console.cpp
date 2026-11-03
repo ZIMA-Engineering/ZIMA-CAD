@@ -208,7 +208,9 @@ void AssemblyWorkspaceWindow::create_command_console() {
     auto* toggle=console_dock_->toggleViewAction();toggle->setObjectName("showCommandConsoleAction");
     toggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+C")));
     toggle->setIcon(resource_icon("terminal"));
-    view_toolbar_->insertAction(view_toolbar_->actions().value(1),toggle);
+    // Keep Regenerate and File Manager Refresh in the shared first toolbar slot.
+    // The console toggle belongs with the remaining view controls.
+    view_toolbar_->insertAction(custom_body_color_action_,toggle);
     if(auto* menu=findChild<QMenu*>("viewMenu")){menu->addSeparator();menu->addAction(toggle);}
     connect(console_dock_,&QDockWidget::visibilityChanged,this,[this](bool visible){if(visible)console_->focus_input();});
 }

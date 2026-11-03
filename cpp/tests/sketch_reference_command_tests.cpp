@@ -156,6 +156,63 @@ void verify_frame_reference_retirement() {
 
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     verify_frame_reference_retirement();
+    {
+        auto sketch=sketcher::Sketch::create_default();
+        auto edge=sketcher::Sketch::create_external_reference(
+            sketcher::ExternalReferenceKind::Edge);
+        edge.source_document_id="read-only-part";
+        edge.source_owner_id="source-feature";
+        edge.source_semantic_key="edge:line";
+        edge.cached_points={{-4,3},{12,3}};
+        const auto edge_id=edge.id;
+        sketch.add_external_reference(edge);
+        const auto endpoints=sketch.add_external_edge_endpoints(edge_id);
+        require(endpoints.size()==2&&sketch.external_references.size()==3,
+            "A finite external edge did not expose exactly two endpoints");
+        require(sketch.external_references[1].kind==
+                    sketcher::ExternalReferenceKind::EdgeStart&&
+                sketch.external_references[2].kind==
+                    sketcher::ExternalReferenceKind::EdgeEnd&&
+                sketch.external_references[1].cached_points==
+                    std::vector<std::array<double,2>>{{-4,3}}&&
+                sketch.external_references[2].cached_points==
+                    std::vector<std::array<double,2>>{{12,3}},
+            "External edge endpoint identities or positions are wrong");
+        const auto stable=sketch.serialized();
+        require(sketch.add_external_edge_endpoints(edge_id)==endpoints&&
+                sketch.serialized()==stable,
+            "Repeated endpoint publication duplicated or changed references");
+        const auto mesh=sketch.viewer_mesh();
+        for(const auto& endpoint:endpoints)
+            require(std::ranges::any_of(mesh.points,[&](const auto& point) {
+                return point.reference.owner_id==sketch.id&&
+                    point.reference.semantic_key=="external_point:"+endpoint;
+            }),"External edge endpoint is not independently pickable");
+        const auto reopened=sketcher::Sketch::from_serialized(stable);
+        require(reopened.external_references==sketch.external_references,
+            "External edge endpoints changed during save/reopen");
+        auto removed=reopened;removed.remove_geometry(edge_id);
+        require(removed.external_references.empty(),
+            "Deleting an external edge left its derived endpoints behind");
+        auto part=document::PartDocument::create_default();
+        auto feature=document::PartDocument::create_sketch_container();
+        auto authored=sketch;authored.owner_container_id=feature.id;
+        part.history={feature};part.sketches={authored};
+        document::BodyHistoryGraph graph;
+        static_cast<void>(graph.create_body("External endpoint references"));
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+        part.set_body_history(graph);
+        document::DocumentSession transaction(part,{});
+        transaction.commit(part,{});
+        auto changed=transaction.document();changed.sketches.front().remove_geometry(edge_id);
+        transaction.commit(changed,{});
+        require(transaction.undo()&&transaction.document().sketches.front().
+                serialized()==authored.serialized(),
+            "Undo did not restore an external edge with its endpoints");
+        require(transaction.redo()&&transaction.document().sketches.front().
+                external_references.empty(),
+            "Redo did not remove an external edge with its endpoints");
+    }
     for(bool reverse:{false,true})
     for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::DistanceX,
             sketcher::DimensionKind::DistanceY,sketcher::DimensionKind::Angle})
@@ -385,10 +442,21 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto sketch=run(curve_host,"sketch.create",{{"plane","XZ"},{"name","Individual generators"}}).data.at("sketch").get<std::string>();
         const auto current=[&]{return workspace::document_sketch(curves,doc,sketch);};
         for(int side:{-1,1})run(curve_host,"sketch.reference.create",{{"sketch",sketch},{"kind","face"},{"owner",cylinder},{"key",sketcher::face_curve_key(face->semantic_key,side)}});
-        require(current().external_references.size()==2,"Opposite outline identities were merged");
-        for(const auto& ref:current().external_references)require(!ref.broken&&!ref.infinite&&ref.cached_paths.size()==1&&ref.cached_paths.front().size()==2,"Individual outline contains the whole source face");
-        run(curve_host,"undo");require(current().external_references.size()==1,"Outline creation Undo failed");
-        run(curve_host,"redo");require(current().external_references.size()==2,"Outline creation Redo failed");
+        require(current().external_references.size()==6,"Opposite outline identities or endpoints were merged");
+        std::vector<sketcher::SketchExternalReference> identities;
+        for(const auto& ref:current().external_references)
+            if(ref.kind==sketcher::ExternalReferenceKind::Face) {
+                require(!ref.broken&&!ref.infinite&&ref.cached_paths.size()==1&&
+                    ref.cached_paths.front().size()==2,
+                    "Individual outline contains the whole source face");
+                identities.push_back(ref);
+            }
+        require(identities.size()==2&&
+            std::ranges::count_if(current().external_references,[](const auto& ref) {
+                return sketcher::is_external_endpoint_kind(ref.kind);
+            })==4,"Finite face outlines did not expose both endpoint references");
+        run(curve_host,"undo");require(current().external_references.size()==3,"Outline creation Undo failed");
+        run(curve_host,"redo");require(current().external_references.size()==6,"Outline creation Redo failed");
         const auto original=current().external_references.front();
         const auto point=run(curve_host,"sketch.point.create",{{"sketch",sketch},{"position",{5,-6}}}).data.at("point");
         run(curve_host,"sketch.constraint.create",{{"sketch",sketch},{"kind","point_on_line"},{"points",{point}},{"geometry",{original.id}}});
@@ -402,12 +470,32 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(current().constraints==contacts&&current().external_references.front()==original,"Reference replacement lost contacts or selected side");
         run(curve_host,"undo");run(curve_host,"redo");
         require(current().constraints==contacts&&current().external_references.front()==original,"Reference replacement Undo/Redo lost identity");
-        const auto identities=current().external_references;
+        const auto before_delete=current().serialized();
+        run(curve_host,"sketch.reference.delete",{{"sketch",sketch},{"reference",original.id}});
+        require(current().external_references.size()==3&&
+                std::ranges::none_of(current().external_references,[&](const auto& ref) {
+                    return ref.source_owner_id==original.source_owner_id&&
+                        ref.source_semantic_key==original.source_semantic_key;
+                }),"Deleting a face-outline reference left its derived endpoints behind");
+        run(curve_host,"undo");
+        require(current().serialized()==before_delete,
+            "Face-outline deletion Undo did not restore the parent and endpoints");
+        run(curve_host,"redo");
+        require(current().external_references.size()==3,
+            "Face-outline deletion Redo did not remove the parent and endpoints");
+        run(curve_host,"undo");
+        require(current().serialized()==before_delete,
+            "Face-outline deletion second Undo changed reference identity");
         for(double offset:{100.,-100.,0.}) {
             run(curve_host,"sketch.set",{{"sketch",sketch},{"plane_offset_mm",offset}});
             run(curve_host,"regenerate");
             const auto refreshed=current();
-            for(std::size_t i=0;i<2;++i)require(refreshed.external_references[i]==identities[i],"Normal frame displacement or regeneration changed an individual outline identity/cache");
+            for(const auto& identity:identities) {
+                const auto found=std::ranges::find(refreshed.external_references,
+                    identity.id,&sketcher::SketchExternalReference::id);
+                require(found!=refreshed.external_references.end()&&*found==identity,
+                    "Normal frame displacement or regeneration changed an individual outline identity/cache");
+            }
         }
         unsigned profile_cases=0;
         for(const auto& support:identities)for(bool reversed:{false,true}) {
@@ -466,9 +554,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             require(curves.open_part(doc)->session.document().serialized()==source_before,"Generator matrix changed its read-only source");
         }
         std::cout<<"Finite outline profiles: "<<profile_cases<<" length/X/Y/angle, driving/reference, locked/unlocked, endpoint orders, repeated rejected edits/drags, source height changes, native roundtrip and Undo/Redo checks passed\n";
+        auto persisted=current().external_references;
         const auto file=directory/"individual-outlines-roundtrip.prtz";run(curve_host,"save_as",{{"path",file.string()}});
         const auto reopened=document::PartDocument::load(file);
-        auto persisted=identities;for(auto& reference:persisted)reference.source_document_id=reopened.document_id;
+        for(auto& reference:persisted)reference.source_document_id=reopened.document_id;
         require(reopened.sketches.back().external_references==persisted,"Individual outlines failed native save/reopen");
     }
     workspace::Workspace live;command_host::Options options;
@@ -503,7 +592,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto body_points=reference(current,projected).cached_points;
         require(!reference(current,original).body_edge&&reference(current,projected).body_edge&&original_points!=body_points,
             "External Geometry used the untrimmed original edge");
-        require(std::ranges::all_of(current.external_references,[&](const auto& r){return r.id==original||r.body_edge;}),"Projected endpoint lost its body-edge source");
+        require(std::ranges::all_of(current.external_references,[&](const auto& r) {
+            return r.id==original||r.body_edge||
+                (sketcher::is_external_endpoint_kind(r.kind)&&
+                 r.source_owner_id==reference(current,original).source_owner_id&&
+                 r.source_semantic_key==reference(current,original).source_semantic_key);
+        }),"Projected endpoint lost its original/body-edge source mode");
         run(host,"save");
         const auto reopened=document::PartDocument::load(directory/"body-edge-projection.prtz");
         require(reference(reopened.sketches.back(),projected)==reference(current,projected),"Body edge mode did not survive native save/reopen");
@@ -562,7 +656,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         sketch.plane_reference_owner_id.clear();sketch.refresh_default_frame();
         require(sketch.refresh_external_references({},source,true)&&!sketch.external_references.front().broken&&sketch.constraints==constraints,
             "Restoring the Sketch frame did not recover its point and constraints");
-        source.axes.clear();sketch.refresh_external_references(part.document_id,source);
+        source.axes.clear();
+        static_cast<void>(sketch.refresh_external_references(
+            part.document_id, source));
         require(sketch.external_references.front().broken&&sketch.constraints==constraints,"Deleted source erased its dependent constraints");
         sketch.remove_geometry(id);
         require(sketch.external_references.empty()&&std::ranges::none_of(sketch.constraints,[](const auto& constraint){
@@ -691,11 +787,19 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     command("sketch.curve.retain",{{"geometry",curve},{"intervals",{{.1,.9}}}});
     cached=state->session.calculated_boundaries();auto& moved=cached.back().mesh.original_references.edges.back();for(auto& p:moved.points)p.x+=.01;for(auto& p:moved.exact_spline->poles)p.x+=.01;
     const auto expected=sketcher::offset_curve_geometry(*moved.exact_spline,-.1);state->session.commit(state->session.document(),std::move(cached));
-    command("sketch.reference.refresh");require(!current().external_references.back().broken,"Trimmed source became broken after a small change");
+    command("sketch.reference.refresh");
+    const auto refreshed_curve=current();
+    const auto refreshed_curve_reference=std::ranges::find(
+        refreshed_curve.external_references,spline_ref,
+        &sketcher::SketchExternalReference::id);
+    require(refreshed_curve_reference!=refreshed_curve.external_references.end()&&
+        !refreshed_curve_reference->broken,
+        "Trimmed source became broken after a small change");
     verify_display();
     for(int i=0;i<=256;++i){const auto a=kernel::bspline_value(current().supporting_curve(offset),i/256.),b=kernel::bspline_value(expected,i/256.);require(std::hypot(a.x-b.x,a.y-b.y)<1e-8,"Offset did not follow trimmed exact projection");}
     const auto retained=current().points;cached=state->session.calculated_boundaries();cached.back().mesh.original_references.edges.pop_back();state->session.commit(state->session.document(),std::move(cached));
-    require(command("sketch.reference.refresh").at("broken_references").size()==1 && current().points==retained,"Missing source destroyed its last valid geometry");
+    require(command("sketch.reference.refresh").at("broken_references").size()==3 && current().points==retained,
+        "Missing open curve or its endpoint references destroyed the last valid geometry");
     command("sketch.reference.delete",{{"reference",spline_ref}});require(current().points==retained,"Detaching broken spline changed its poles");
     run(host,"save");const auto reopened=document::PartDocument::load(directory/"references.prtz");const auto saved_sketch=std::ranges::find(reopened.sketches,current().id,&sketcher::Sketch::id); require(saved_sketch!=reopened.sketches.end() && saved_sketch->serialized()==current().serialized(),"Native Part lost projected geometry or references");
     // Embedded Helical profiles obey the same preceding-source rule.
@@ -715,13 +819,22 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto before_snapshot=live.open_assembly(top.document_id)->session.document().components.front().calculated_source;
     for(const auto& occurrence:{first,second}) {
         auto args=edge_args;args["sketch"]=top_sketch;const auto path=assembly::InstancePath{{parent.occurrence_id,occurrence.occurrence_id}};args["instance_path"]=path.encoded();
-        run(host,"sketch.reference.create",args);const auto projected=workspace::document_sketch(live,top.document_id,top_sketch);
+        const auto created=run(host,"sketch.reference.create",args).data.at("reference").get<std::string>();
+        const auto projected=workspace::document_sketch(live,top.document_id,top_sketch);
+        const auto projected_reference=std::ranges::find(projected.external_references,
+            created,&sketcher::SketchExternalReference::id);
         const auto world=live.occurrence_point_to_scene(top.document_id,path,edge.points.front());const auto local=projected.local_point(world);
-        require(projected.external_references.back().source_instance_path==path.encoded() && std::hypot(projected.external_references.back().cached_points.front()[0]-local[0],projected.external_references.back().cached_points.front()[1]-local[1])<1e-8,"Projection resolved the wrong nested occurrence");
+        require(projected_reference!=projected.external_references.end()&&
+            projected_reference->source_instance_path==path.encoded() &&
+            std::hypot(projected_reference->cached_points.front()[0]-local[0],
+                projected_reference->cached_points.front()[1]-local[1])<1e-8,
+            "Projection resolved the wrong nested occurrence");
     }
     require(live.size()==2 && live.open_assembly(top.document_id)->session.document().components.front().calculated_source.shares_with(before_snapshot),"Projection loaded dependencies or replaced the Assembly snapshot");
     auto ambiguous=edge_args;ambiguous["sketch"]=top_sketch;require(!host.execute({{"command","sketch.reference.create"},{"arguments",ambiguous}}).ok,"Assembly source without occurrence was accepted");
-    run(host,"save");const auto loaded=assembly::AssemblyDocument::load(directory/"references.asmz");require(loaded.sketches.back().external_references.size()==2,"Assembly lost repeated reference occurrences");
+    run(host,"save");const auto loaded=assembly::AssemblyDocument::load(directory/"references.asmz");
+    require(loaded.sketches.back().external_references.size()==6,
+        "Assembly lost repeated edge or endpoint reference occurrences");
 }
 }
 int main(){try{kernel::OcctKernel kernel;

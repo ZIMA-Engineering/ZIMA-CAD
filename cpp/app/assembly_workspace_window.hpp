@@ -271,6 +271,7 @@ private:
     QAction* insert_action_{};
     QMenu* insert_menu_{};
     QAction* regenerate_document_action_{};
+    QAction* refresh_file_manager_action_{};
     QAction* regenerate_action_{};
     QAction* save_action_{};
     QAction* save_as_action_{};
@@ -474,6 +475,8 @@ private:
         pending_edge_treatment_groups_;
     std::vector<zima::kernel::EdgeReference> pending_edge_treatment_seeds_;
     std::optional<zima::viewer::ViewerCandidate> edge_treatment_hover_seed_;
+    std::optional<std::pair<std::size_t,std::size_t>>
+        edge_treatment_end_face_pick_;
     zima::document::EdgeTreatmentParameters edge_treatment_preview_parameters_;
     std::string edge_treatment_preview_owner_id_;
     bool shell_face_selection_active_{};
@@ -811,6 +814,10 @@ private:
     void remove_edge_treatment_member(
         std::size_t group, std::optional<std::size_t> member);
     void restore_edge_treatment_route(std::size_t group);
+    void request_edge_treatment_end_face(std::size_t route,std::size_t end);
+    void auto_edge_treatment_end_face(std::size_t route,std::size_t end);
+    void inspect_edge_treatment_end_face(
+        std::size_t route,std::size_t end,bool inspected);
     [[nodiscard]] bool finish_edge_treatment_selection();
     void start_shell(bool surface_only=false);
     void configure_shell_source_entry(PrimitivePropertiesDialog* dialog);

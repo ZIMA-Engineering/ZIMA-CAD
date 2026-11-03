@@ -255,6 +255,8 @@ void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
     const auto* document_address=&state->session.document();
     const auto* container_address=state->session.document().find_container(first.id);
     const bool undo_before=state->session.can_undo();
+    require(!state->session.is_dirty(),
+        "Fresh deferred-boundary fixture unexpectedly started dirty");
     require(workspace::materialize_part_history_input_boundary(
         live,kernel,edited.document_id,third.id),
         "Deferred input boundary was not materialized for Properties");
@@ -262,8 +264,9 @@ void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
         "Materialized rollback boundary has no viewer geometry");
     require(state->session.revision()==revision&&
         state->session.can_undo()==undo_before&&
-        state->session.document().serialized()==authored,
-        "Boundary materialization changed authored history or Undo");
+        state->session.document().serialized()==authored&&
+        !state->session.is_dirty(),
+        "Boundary materialization changed authored history, Undo or dirty state");
     require(&state->session.document()==document_address&&
         state->session.document().find_container(first.id)==container_address,
         "Cache-only boundary materialization invalidated editor document pointers");
@@ -327,6 +330,33 @@ void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     require(face_ids(deferred[1].mesh)==face_ids(reference[1].mesh),
         "Retained Fillet output changed its own face identities");
 }
+void verify_edge_treatment_end_face(const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,20,30});
+    const kernel::EdgeReference edge{stock.id,test::profile_key(part,stock,
+        "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
+    auto fillet=document::PartDocument::create_fillet_container({edge});
+    fillet.edge_treatment.primary_size=2.;
+    fillet.edge_treatment.calculation_method=
+        document::EdgeTreatmentParameters::CalculationMethod::Zima;
+    fillet.edge_treatment.route_end_faces[0].first={stock.id,
+        test::profile_key(part,stock,"z_max"),{}};
+    part.history={stock,fillet};
+    const auto calculated=workspace::calculate_part(kernel,part);
+    require(calculated.size()==2&&
+            calculated.back().calculation_errors.empty()&&
+            std::ranges::any_of(calculated.back().mesh.triangle_references,
+                [&](const auto& face) {return face.owner_id==fillet.id;}),
+        "ZIMA Fillet did not calculate with a persisted endpoint face");
+    require(part.serialized().dump().find("route_end_faces")!=std::string::npos,
+        "Native Part omitted edge-treatment endpoint faces");
+    auto rejected=part;
+    rejected.history.back().edge_treatment.calculation_method=
+        document::EdgeTreatmentParameters::CalculationMethod::Occt;
+    const auto occt=workspace::calculate_part(kernel,rejected);
+    require(!occt.back().calculation_errors.empty(),
+        "OCCT accepted a ZIMA-only endpoint-face definition");
+}
 void verify_assembly(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
     auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
@@ -368,6 +398,7 @@ int main(){try{
     kernel::OcctKernel kernel;
     verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);verify_recovery_policy(kernel);
     verify_deferred_history_boundary(kernel);verify_retained_edge_treatment_boundary(kernel);
+    verify_edge_treatment_end_face(kernel);
     verify_assembly(kernel);
     std::cout<<"Model calculation: reference convergence, deferred rollback materialization, source identity, Undo, error policy, explicit Assembly refresh and cuts passed without Qt.\n";
     return 0;

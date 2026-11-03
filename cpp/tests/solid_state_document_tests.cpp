@@ -126,6 +126,8 @@ void invalid_fillet_state() {
         require(rims.size()==2,"Invalid Fillet fixture lacks its two authored rim edges");
         auto fillet=document::PartDocument::create_fillet_container(rims);
         fillet.edge_treatment.primary_size=2;
+        fillet.edge_treatment.calculation_method=
+            document::EdgeTreatmentParameters::CalculationMethod::Occt;
         require(workspace::commit_edge_treatment(live,kernel,id,fillet,workspace::EdgeTreatmentEditMode::Create),
             "Initial end-rim Fillet failed");
         auto straight=document::PartDocument::create_solid_state_container();straight.solid_state.coefficient=.9;

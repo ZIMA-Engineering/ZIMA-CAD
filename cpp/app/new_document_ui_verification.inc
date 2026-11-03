@@ -6,7 +6,9 @@ int verify_new_document_options(QApplication& application) {
         const auto length=qEnvironmentVariable("ZIMA_VERIFY_NEW_DOCUMENT_LENGTH","in");
         check(length=="mm"||length=="in","Unsupported start-template units");
         for(const QString language:{"cs","en","de","fr","ru"}) {
-            QTemporaryDir directory;
+            QTemporaryDir directory(QDir::current().filePath(
+                QStringLiteral("build/new-document-test-XXXXXX")));
+            check(directory.isValid(),"Cannot create New Document test directory");
             QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
             config.setValue("Application/Language",language);
             config.setValue("Application/UseISOFont",true);
@@ -211,7 +213,10 @@ int verify_new_document_options(QApplication& application) {
             check(window.close(),"New Document tests left unsaved changes");
         }
         {
-            QTemporaryDir directory;QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
+            QTemporaryDir directory(QDir::current().filePath(
+                QStringLiteral("build/new-document-naming-test-XXXXXX")));
+            check(directory.isValid(),"Cannot create New Document naming test directory");
+            QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
             for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,true);
             config.sync();
             app::AssemblyWorkspaceWindow window(directory.path());window.show();flush();

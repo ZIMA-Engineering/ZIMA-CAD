@@ -619,8 +619,51 @@ EdgeTreatmentParameters::ChamferMode chamfer_mode(const std::string& name) {
     throw std::runtime_error("Invalid persisted Chamfer mode");
 }
 
+const char* edge_treatment_calculation_method_name(
+        EdgeTreatmentParameters::CalculationMethod method) {
+    using Method=EdgeTreatmentParameters::CalculationMethod;
+    switch(method) {
+    case Method::Automatic:return "automatic";
+    case Method::Zima:return "zima";
+    case Method::Occt:return "occt";
+    }
+    throw std::invalid_argument(
+        "Invalid edge-treatment calculation method");
+}
+
+EdgeTreatmentParameters::CalculationMethod
+edge_treatment_calculation_method(const std::string& name) {
+    using Method=EdgeTreatmentParameters::CalculationMethod;
+    if(name=="automatic")return Method::Automatic;
+    if(name=="zima")return Method::Zima;
+    if(name=="occt")return Method::Occt;
+    throw std::runtime_error(
+        "Invalid persisted edge-treatment calculation method");
+}
+
+zima::kernel::EdgeTreatmentCalculationMethod kernel_calculation_method(
+        EdgeTreatmentParameters::CalculationMethod method) {
+    using DocumentMethod=EdgeTreatmentParameters::CalculationMethod;
+    using KernelMethod=zima::kernel::EdgeTreatmentCalculationMethod;
+    switch(method) {
+    case DocumentMethod::Automatic:return KernelMethod::Automatic;
+    case DocumentMethod::Zima:return KernelMethod::Zima;
+    case DocumentMethod::Occt:return KernelMethod::Occt;
+    }
+    throw std::invalid_argument(
+        "Invalid edge-treatment calculation method");
+}
+
 bool valid_edge_treatment_values(
     FeatureKind kind, const EdgeTreatmentParameters& parameters) {
+    if (parameters.route_end_faces.size() > parameters.routes.size() ||
+        std::ranges::any_of(parameters.route_end_faces,
+            [](const auto& ends) {
+                return (ends.first.valid() &&
+                        !ends.first.instance_path.empty()) ||
+                    (ends.last.valid() &&
+                        !ends.last.instance_path.empty());
+            })) return false;
     if (!std::isfinite(parameters.primary_size) ||
         parameters.primary_size <= 0.0) return false;
     if (kind == FeatureKind::Fillet) {
@@ -752,12 +795,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "47") {
+    if (native_format != "48") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 71},
+        {"format_version", 72},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -954,7 +997,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "47"},
+        {"format_version", "48"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -2807,6 +2850,24 @@ PlacementRotationMatrix placement_rotation_matrix_multiply(
         }
     }
     return result;
+}
+
+PlacementRotationMatrix placement_rotation_matrix_transpose(
+    const PlacementRotationMatrix& value) {
+    PlacementRotationMatrix result{};
+    for (int row = 0; row < 3; ++row)
+        for (int column = 0; column < 3; ++column)
+            result[row][column] = value[column][row];
+    return result;
+}
+
+bool placement_rotation_matrices_equal(const PlacementRotationMatrix& left,
+        const PlacementRotationMatrix& right, double tolerance = 1.0e-9) {
+    for (int row = 0; row < 3; ++row)
+        for (int column = 0; column < 3; ++column)
+            if (std::abs(left[row][column] - right[row][column]) > tolerance)
+                return false;
+    return true;
 }
 
 zima::kernel::Vec3 placement_euler_degrees_from_rotation_matrix(
@@ -4768,6 +4829,73 @@ bool resolve_placement(
         if (base_rotation) *base_rotation = previous_absolute_rotation;
     }
     return placement.reference_valid;
+}
+
+bool reparameterize_single_orientation_placement(
+        Placement& placement,
+        const zima::kernel::ViewerReferenceGeometry& geometry) {
+    const auto directions = placement_resolve_directions(
+        placement.references, geometry,
+        {placement.x, placement.y, placement.z}, true);
+    if (!directions.valid || directions.front.has_value() ==
+            directions.top.has_value()) return false;
+    const auto base = placement_frame_base_rotation_degrees(
+        directions.front, directions.top);
+    if (!base) return false;
+
+    const zima::kernel::Vec3 previous_degrees{
+        placement.rotation_x, placement.rotation_y, placement.rotation_z};
+    const auto previous = placement_rotation_matrix_from_euler_degrees(
+        previous_degrees);
+    const auto prefix_degrees = placement_apply_view_orientation_degrees(
+        *base, placement.orientation_back,
+        placement.orientation_quarter_turns, {});
+    const auto prefix = placement_rotation_matrix_from_euler_degrees(
+        prefix_degrees);
+    const auto local = placement_rotation_matrix_multiply(
+        placement_rotation_matrix_transpose(prefix), previous);
+    constexpr double degrees_per_radian = 180.0 / std::numbers::pi;
+
+    auto candidate = placement;
+    if (directions.front) {
+        const auto without_z = placement_rotation_matrix_multiply(
+            placement_rotation_matrix_from_euler_degrees(
+                {0.0, 0.0, -placement.rotation_offset_z}), local);
+        const auto free_rotation = placement_rotation_matrix_multiply(
+            without_z, placement_rotation_matrix_from_euler_degrees(
+                {-placement.rotation_offset_x, 0.0, 0.0}));
+        candidate.absolute_rotation_x = base->x;
+        candidate.absolute_rotation_y = std::atan2(
+            free_rotation[0][2], free_rotation[0][0]) *
+            degrees_per_radian;
+        candidate.absolute_rotation_z = base->z;
+    } else {
+        const auto known = placement_rotation_matrix_from_euler_degrees({
+            placement.rotation_offset_x, placement.rotation_offset_y, 0.0});
+        const auto free_rotation = placement_rotation_matrix_multiply(
+            local, placement_rotation_matrix_transpose(known));
+        candidate.absolute_rotation_x = base->x;
+        candidate.absolute_rotation_y = base->y;
+        candidate.absolute_rotation_z = std::atan2(
+            free_rotation[1][0], free_rotation[0][0]) *
+            degrees_per_radian;
+    }
+    const bool resolved = resolve_placement(candidate, geometry);
+    const auto candidate_matrix = placement_rotation_matrix_from_euler_degrees({
+        candidate.rotation_x, candidate.rotation_y, candidate.rotation_z});
+    if (!resolved ||
+            std::abs(candidate.x - placement.x) > 1.0e-9 ||
+            std::abs(candidate.y - placement.y) > 1.0e-9 ||
+            std::abs(candidate.z - placement.z) > 1.0e-9 ||
+            !placement_rotation_matrices_equal(previous,
+                candidate_matrix)) return false;
+    // Only the parameterization changes. Preserve the exact authored final
+    // Euler values, position, references, branch choices and validity flag;
+    // the following ordinary resolve must reproduce that same frame.
+    placement.absolute_rotation_x = candidate.absolute_rotation_x;
+    placement.absolute_rotation_y = candidate.absolute_rotation_y;
+    placement.absolute_rotation_z = candidate.absolute_rotation_z;
+    return true;
 }
 
 PointConstraintState point_constraint_state(
@@ -7187,9 +7315,6 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     if (!needs_input_bounds) {
         return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document,up_to_path_correction);
     }
-    if (through_all_input.vertices.empty()) {
-        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,reference_document,up_to_path_correction);
-    }
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
     if (sketch == sketches.end()) return {};
@@ -7209,23 +7334,43 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const auto& origin = profile_edge->points.front();
     double farthest_forward{};
     double farthest_reverse{};
-    zima::kernel::Vec3 lower = through_all_input.vertices.front();
-    zima::kernel::Vec3 upper = lower;
-    for (const auto& point : through_all_input.vertices) {
-        lower.x = std::min(lower.x, point.x); lower.y = std::min(lower.y, point.y);
-        lower.z = std::min(lower.z, point.z); upper.x = std::max(upper.x, point.x);
-        upper.y = std::max(upper.y, point.y); upper.z = std::max(upper.z, point.z);
+    std::optional<zima::kernel::Vec3> lower;
+    zima::kernel::Vec3 upper;
+    const auto include = [&](const zima::kernel::Vec3& point) {
+        if (!lower) { lower=point;upper=point;return; }
+        lower->x = std::min(lower->x, point.x);
+        lower->y = std::min(lower->y, point.y);
+        lower->z = std::min(lower->z, point.z);
+        upper.x = std::max(upper.x, point.x);
+        upper.y = std::max(upper.y, point.y);
+        upper.z = std::max(upper.z, point.z);
+    };
+    for (const auto& point : through_all_input.vertices) include(point);
+    // Final-first checkpoints may deliberately omit the unused face
+    // triangulation while retaining the exact body edges. The analytical
+    // Through All preview still needs the same finite input envelope as the
+    // Properties rollback preview; deriving it from persisted edge samples
+    // avoids both an OCCT calculation and the misleading +/-1000 mm fallback.
+    if (!lower) for (const auto& edge : through_all_input.edges)
+        if (!edge.construction && !edge.overlay)
+            for (const auto& point : edge.points) include(point);
+    if (!lower) for (const auto& edge : through_all_input.original_references.edges)
+        if (!edge.construction)
+            for (const auto& point : edge.points) include(point);
+    if (!lower) {
+        return extrusion_preview_edges(container,1000,0,draft_angle_degrees,
+            reference_document,up_to_path_correction);
     }
     for (unsigned mask = 0; mask < 8; ++mask) {
-        const zima::kernel::Vec3 corner{mask & 1 ? upper.x : lower.x,
-            mask & 2 ? upper.y : lower.y, mask & 4 ? upper.z : lower.z};
+        const zima::kernel::Vec3 corner{mask & 1 ? upper.x : lower->x,
+            mask & 2 ? upper.y : lower->y, mask & 4 ? upper.z : lower->z};
         const double projection = (corner.x-origin.x)*unit.x +
             (corner.y-origin.y)*unit.y + (corner.z-origin.z)*unit.z;
         farthest_forward = std::max(farthest_forward, projection);
         farthest_reverse = std::max(farthest_reverse, -projection);
     }
-    const double diagonal = std::hypot(std::hypot(upper.x-lower.x,
-        upper.y-lower.y), upper.z-lower.z);
+    const double diagonal = std::hypot(std::hypot(upper.x-lower->x,
+        upper.y-lower->y), upper.z-lower->z);
     const double margin = std::max(1.0, diagonal * 1.0e-4);
     return extrusion_preview_edges(container,
         std::max(1.0, farthest_forward + margin),
@@ -8025,6 +8170,7 @@ HistoryContainer PartDocument::create_fillet_container(
     container.name = "Zaoblení";
     container.feature_kind = FeatureKind::Fillet;
     container.edge_treatment.routes.push_back(std::move(edges));
+    container.edge_treatment.route_end_faces.emplace_back();
     return container;
 }
 
@@ -8043,6 +8189,7 @@ HistoryContainer PartDocument::create_chamfer_container(
     container.name = "Sražení";
     container.feature_kind = FeatureKind::Chamfer;
     container.edge_treatment.routes.push_back(std::move(edges));
+    container.edge_treatment.route_end_faces.emplace_back();
     return container;
 }
 
@@ -10584,6 +10731,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 : zima::kernel::FilletRequest::Mode::Constant;
             std::vector<zima::kernel::VertexReference> contour_starts;
             std::vector<zima::kernel::EdgeReference> calculation_edges;
+            std::vector<std::size_t> route_edge_counts;
+            std::vector<zima::kernel::EdgeTreatmentRouteEndFaces>
+                route_end_faces;
             for (std::size_t route = 0;
                  route < container.edge_treatment.routes.size(); ++route) {
                 const auto selected_route=actual_edge_treatment_intervals(
@@ -10594,8 +10744,14 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     : zima::kernel::VertexReference{};
                 calculation_edges.insert(calculation_edges.end(),
                     selected_route.begin(),selected_route.end());
+                route_edge_counts.push_back(selected_route.size());
                 contour_starts.insert(contour_starts.end(),
                     selected_route.size(), start);
+                const auto ends=route<
+                        container.edge_treatment.route_end_faces.size()
+                    ?container.edge_treatment.route_end_faces[route]
+                    :EdgeTreatmentParameters::RouteEndFaces{};
+                route_end_faces.push_back({ends.first,ends.last});
             }
             primitive = zima::kernel::FilletRequest{
                 std::move(calculation_edges),
@@ -10603,7 +10759,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.primary_size,
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.reverse,
-                std::move(contour_starts)};
+                std::move(contour_starts),
+                kernel_calculation_method(
+                    container.edge_treatment.calculation_method),
+                std::move(route_edge_counts),
+                std::move(route_end_faces)};
         } else if (container.feature_kind == FeatureKind::Chamfer) {
             require_default_sketch_feature_placement(container.placement);
             const auto mode = container.edge_treatment.chamfer_mode ==
@@ -10614,11 +10774,23 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     ? zima::kernel::ChamferRequest::Mode::DistanceAngle
                     : zima::kernel::ChamferRequest::Mode::EqualDistance;
             std::vector<zima::kernel::EdgeReference> calculation_edges;
-            for(const auto& route:container.edge_treatment.routes) {
+            std::vector<std::size_t> route_edge_counts;
+            std::vector<zima::kernel::EdgeTreatmentRouteEndFaces>
+                route_end_faces;
+            for(std::size_t route_index=0;
+                    route_index<container.edge_treatment.routes.size();
+                    ++route_index) {
+                const auto& route=container.edge_treatment.routes[route_index];
                 const auto selected_route=
                     actual_edge_treatment_intervals(route);
                 calculation_edges.insert(calculation_edges.end(),
                     selected_route.begin(),selected_route.end());
+                route_edge_counts.push_back(selected_route.size());
+                const auto ends=route_index<
+                        container.edge_treatment.route_end_faces.size()
+                    ?container.edge_treatment.route_end_faces[route_index]
+                    :EdgeTreatmentParameters::RouteEndFaces{};
+                route_end_faces.push_back({ends.first,ends.last});
             }
             primitive = zima::kernel::ChamferRequest{
                 std::move(calculation_edges),
@@ -10626,7 +10798,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.primary_size,
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
-                container.edge_treatment.flip};
+                container.edge_treatment.flip,
+                kernel_calculation_method(
+                    container.edge_treatment.calculation_method),
+                std::move(route_edge_counts),
+                std::move(route_end_faces)};
         } else if (is_solid_state(container.feature_kind)) {
             require_default_sketch_feature_placement(container.placement);
             if(container.combine_mode!=CombineMode::Add)throw std::invalid_argument("Solid state requires an additive history operation.");
@@ -12063,10 +12239,25 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 source.at("angle_degrees").get<double>();
             container.edge_treatment.flip = source.at("flip").get<bool>();
             container.edge_treatment.reverse = source.at("reverse").get<bool>();
+            container.edge_treatment.calculation_method =
+                edge_treatment_calculation_method(
+                    source.at("calculation_method").get<std::string>());
             for (const auto& vertex : source.at("route_start_vertices")) {
                 container.edge_treatment.route_start_vertices.push_back({
                     vertex.at("owner").get<std::string>(),
                     vertex.at("key").get<std::string>(), {}});
+            }
+            for (const auto& ends : source.at("route_end_faces")) {
+                const auto load_face=[](const nlohmann::json& value) {
+                    return value.is_null()
+                        ? zima::kernel::FaceReference{}
+                        : zima::kernel::FaceReference{
+                            value.at("owner").get<std::string>(),
+                            value.at("key").get<std::string>(), {}};
+                };
+                container.edge_treatment.route_end_faces.push_back({
+                    load_face(ends.at("first")),
+                    load_face(ends.at("last"))});
             }
             const auto treatment_edges =
                 container.edge_treatment.flattened_edges();
@@ -13218,12 +13409,33 @@ nlohmann::json PartDocument::serialized(
             serialized["angle_degrees"] = container.edge_treatment.angle_degrees;
             serialized["flip"] = container.edge_treatment.flip;
             serialized["reverse"] = container.edge_treatment.reverse;
+            serialized["calculation_method"] =
+                edge_treatment_calculation_method_name(
+                    container.edge_treatment.calculation_method);
             serialized["route_start_vertices"] = nlohmann::json::array();
             for (const auto& vertex :
                  container.edge_treatment.route_start_vertices) {
                 serialized["route_start_vertices"].push_back({
                     {"owner", vertex.owner_id},
                     {"key", vertex.semantic_key}});
+            }
+            serialized["route_end_faces"] = nlohmann::json::array();
+            for (std::size_t route_index = 0;
+                 route_index < container.edge_treatment.routes.size();
+                 ++route_index) {
+                const auto ends = route_index <
+                        container.edge_treatment.route_end_faces.size()
+                    ? container.edge_treatment.route_end_faces[route_index]
+                    : EdgeTreatmentParameters::RouteEndFaces{};
+                const auto save_face=[](const zima::kernel::FaceReference& face) {
+                    return face.valid()
+                        ? nlohmann::json{{"owner",face.owner_id},
+                            {"key",face.semantic_key}}
+                        : nlohmann::json(nullptr);
+                };
+                serialized["route_end_faces"].push_back({
+                    {"first",save_face(ends.first)},
+                    {"last",save_face(ends.last)}});
             }
         }
         serialized_history.push_back(std::move(serialized));
@@ -13335,7 +13547,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 71},
+        {"format_version", 72},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

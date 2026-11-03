@@ -6,6 +6,7 @@
 #include <iostream>
 #include <set>
 #include <limits>
+#include <string_view>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
@@ -22,8 +23,8 @@ std::set<std::string> y_copy_faces(const kernel::BodyResult& body) {
     std::set<std::string> result;for(const auto& ref:body.mesh.original_references.triangle_references)
         if(ref.semantic_key.starts_with("pattern:copy-x0-y1-z0:"))result.insert(ref.semantic_key);return result;
 }
-void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
-    {
+void verify_opening_axis_copy(const kernel::OcctKernel& kernel,fs::path dir,
+        bool compare_existing_geometry=false) {
         auto opening_part=document::PartDocument::create_default();
         auto block=zima::test::rectangular_feature(opening_part,{40,40,40});
         auto opening=document::PartDocument::create_thread_container();opening.placement.z=-20;
@@ -40,14 +41,56 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
         require(std::ranges::any_of(choices.items,[&](const auto& source){return source.id==opening.id;}),"Opening is missing from Pattern sources");
         const auto copy=run(opening_host,"pattern.create",{{"source",opening.id},{"linear",Json::array({{{"axis","x"},{"count",2},{"spacing_mm",10}}})}}).data.at("object").get<std::string>();
         auto* state=opening_live.open_part(opening_id);
-        auto explicit_part=opening_part;
-        auto second=document::PartDocument::create_thread_container();second.placement=opening.placement;second.placement.x=10;
-        explicit_part.history.push_back(second);bodies.insert({document::PartHistoryKind::Feature,second.id});explicit_part.set_body_history(bodies);
-        const auto explicit_result=kernel.evaluate_history(explicit_part.kernel_operations());
-        near(state->session.calculated_boundaries().back().volume,explicit_result.back().volume);
+        const auto opening_axes=[&]() -> const std::vector<kernel::ViewerAxis>& {
+            return state->session.calculated_boundaries().back().mesh.
+                original_references.axes;
+        };
+        const auto source_axis=std::ranges::find_if(opening_axes(),[&](const auto& axis) {
+            return axis.reference.owner_id==opening.id&&
+                axis.reference.semantic_key=="axis:primary";
+        });
+        const auto copied_axis_key="pattern:copy-x1-y0-z0:"+
+            kernel::mirror_source_key(opening.id,"axis:primary");
+        const auto copy_axis=std::ranges::find_if(opening_axes(),[&](const auto& axis) {
+            return axis.reference.owner_id==copy&&
+                axis.reference.semantic_key==copied_axis_key;
+        });
+        require(source_axis!=opening_axes().end()&&copy_axis!=opening_axes().end(),
+            "Opening Pattern did not copy its stable axis reference");
+        near(copy_axis->point.x-source_axis->point.x,10.);
+        near(copy_axis->point.y,source_axis->point.y);
+        near(copy_axis->point.z,source_axis->point.z);
+        if(compare_existing_geometry) {
+            auto explicit_part=opening_part;
+            auto second=document::PartDocument::create_thread_container();second.placement=opening.placement;second.placement.x=10;
+            explicit_part.history.push_back(second);bodies.insert({document::PartHistoryKind::Feature,second.id});explicit_part.set_body_history(bodies);
+            const auto explicit_result=kernel.evaluate_history(explicit_part.kernel_operations());
+            near(state->session.calculated_boundaries().back().volume,explicit_result.back().volume);
+        }
         const auto path=dir/"opening-pattern.prtz";state->session.document().save(path,state->session.calculated_boundaries());
-        require(document::PartDocument::load(path).find_container(copy)->derived_copy.source_id==opening.id,"Opening Pattern lost its persisted source");
-    }
+        std::vector<kernel::BodyResult> reopened_packets;
+        const auto reopened=document::PartDocument::load(path,&reopened_packets);
+        require(reopened.find_container(copy)->derived_copy.source_id==opening.id,
+            "Opening Pattern lost its persisted source");
+        require(!reopened_packets.empty()&&std::ranges::any_of(
+            reopened_packets.back().mesh.original_references.axes,
+            [&](const auto& axis) {
+                return axis.reference.owner_id==copy&&
+                    axis.reference.semantic_key==copied_axis_key;
+            }),"Save/reopen lost the copied Opening axis");
+        run(opening_host,"undo");
+        require(std::ranges::none_of(opening_axes(),[&](const auto& axis) {
+            return axis.reference.owner_id==copy;
+        }),"Undo retained the copied Opening axis");
+        run(opening_host,"redo");
+        require(std::ranges::any_of(opening_axes(),[&](const auto& axis) {
+            return axis.reference.owner_id==copy&&
+                axis.reference.semantic_key==copied_axis_key;
+        }),"Redo changed or lost the copied Opening axis identity");
+    std::cout<<"Opening Pattern axis copy, save/reopen and Undo/Redo passed\n";
+}
+void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
+    verify_opening_axis_copy(kernel,dir,true);
     auto document=document::PartDocument::create_default();document::BodyHistoryGraph graph;
     auto box=zima::test::rectangular_feature(document,{10,10,10});
     auto solid=zima::test::rectangular_feature(document,{2,4,6});solid.placement.x=3;
@@ -367,8 +410,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         "Copy calculation saved, regenerated or edited the authoritative source Part");
 }
 }
-int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-copy-command-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(dir),"Cannot create copy command directory");kernel::OcctKernel kernel;verify(kernel,dir);
+int main(int argc,char* argv[]){try{const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-copy-command-"+document::PartDocument::create_default().document_id);
+    require(fs::create_directory(dir),"Cannot create copy command directory");kernel::OcctKernel kernel;
+    if(argc==2&&std::string_view(argv[1])=="--opening-axis-only")verify_opening_axis_copy(kernel,dir);else verify(kernel,dir);
     require(dir.parent_path()==root,"Unexpected copy command cleanup path");fs::remove_all(dir);
     std::cout<<"Derived copy commands: independent geometry, references, modes, locks, boundaries, atomic errors, native files and Undo passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

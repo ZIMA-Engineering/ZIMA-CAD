@@ -98,7 +98,11 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         if(candidate.kind==viewer::CandidateKind::Face&&!reference.infinite&&
            !(reference.exact_spline&&sketcher::external_reference_circle(reference)))
             throw std::runtime_error("Source face cannot be projected into the Sketch plane");
-        const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
+        const auto reference_id=reference.id;
+        const auto reference_kind=reference.kind;
+        pending.add_external_reference(std::move(reference));
+        if(reference_kind==sketcher::ExternalReferenceKind::Edge)
+            static_cast<void>(pending.add_external_edge_endpoints(reference_id));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit
         // publishes the derived Assembly dependency together with the Sketch.

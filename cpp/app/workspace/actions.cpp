@@ -1,5 +1,6 @@
 #include <zima/workspace/named_view_operations.hpp>
 #include "workspace_internal.hpp"
+#include "../file_manager_tab.hpp"
 #include "ordinary_selection.hpp"
 #include <zima/workspace/document_operations.hpp>
 #include "tool_button_style.hpp"
@@ -151,6 +152,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(regenerate_document_action_, &QAction::triggered, this,
         [this] { regenerate_active_document(); });
     edit->addAction(regenerate_document_action_);
+    refresh_file_manager_action_=make_action(tr("Aktualizovat"),"regenerate");
+    refresh_file_manager_action_->setObjectName("refreshFileManagerAction");
+    refresh_file_manager_action_->setShortcut(QKeySequence(QStringLiteral("F5")));
+    refresh_file_manager_action_->setToolTip(tr("Znovu načte seznam souborů, metadata, náhledy a HTML přehled (F5)"));
+    refresh_file_manager_action_->setVisible(false);
+    connect(refresh_file_manager_action_,&QAction::triggered,this,[this] {
+        if(auto* manager=dynamic_cast<FileManagerTab*>(active_file_manager_.data()))
+            manager->refresh_contents();
+    });
     edit->addSeparator();
     undo_action_ = make_action(tr("Zpět"), "undo");
     redo_action_ = make_action(tr("Znovu"), "redo");
@@ -1009,6 +1019,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     view_toolbar_->setIconSize(QSize(16, 16));
     view_toolbar_->setStyleSheet(toolbar_separator_style() + command_button_style());
     view_toolbar_->addAction(regenerate_document_action_);
+    view_toolbar_->addAction(refresh_file_manager_action_);
     view_toolbar_->addAction(custom_body_color_action_);
     measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
     measure_action_->setObjectName("measureAction");

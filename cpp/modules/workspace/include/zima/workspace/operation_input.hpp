@@ -6,4 +6,9 @@ namespace zima::workspace {
 // original-reference hydration, or copy of the full triangulation is needed.
 [[nodiscard]] const kernel::BodyResult* calculated_operation_input(
     const document::DocumentSession&,const std::string& container_id={});
+// Read the already calculated result immediately after a stored feature. This
+// is used only when a compact cache intentionally omitted its input geometry;
+// it never regenerates the Part.
+[[nodiscard]] const kernel::BodyResult* calculated_operation_output(
+    const document::DocumentSession&,const std::string& container_id);
 } // namespace zima::workspace

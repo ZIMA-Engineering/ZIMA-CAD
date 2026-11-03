@@ -84,6 +84,16 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 if(status&&dof&&status->isVisible()&&dof->isVisible()&&
                     std::abs(status->mapTo(dialog.get(),status->rect().center()).y()-dof->mapTo(dialog.get(),dof->rect().center()).y())>1)
                     errors<<"placement status is not beside degrees of freedom";
+                if(name=="body") {
+                    auto* active=dialog->findChild<QCheckBox*>("bodyActive");
+                    auto* visible=dialog->findChild<QCheckBox*>("bodyVisible");
+                    if(!active||!visible||active->parentWidget()!=visible->parentWidget()||
+                            std::abs(active->mapTo(dialog.get(),active->rect().center()).y()-
+                                visible->mapTo(dialog.get(),visible->rect().center()).y())>1||
+                            active->mapTo(dialog.get(),active->rect().center()).x()>=
+                                visible->mapTo(dialog.get(),visible->rect().center()).x())
+                        errors<<"Active Body and Visible are not beside each other";
+                }
                 if(!parent.rect().contains(dialog->geometry()))errors<<"window exceeds parent";
                 for(auto* widget:dialog->findChildren<QWidget*>()) {
                     if(!widget->isVisible() || !widget->parentWidget())continue;

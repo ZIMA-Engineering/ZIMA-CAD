@@ -337,6 +337,10 @@ public:
     // topology or changes the common picking candidate list.
     [[nodiscard]] std::optional<zima::kernel::ViewerEdge> display_edge(
         const zima::kernel::EdgeReference& reference) const;
+    // One persisted edge may have several visible calculated fragments after
+    // a Boolean. Fillet/Chamfer previews must cover every exact occurrence.
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> display_edges(
+        const zima::kernel::EdgeReference& reference) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerPoint> candidate_point(
         const ViewerCandidate& candidate) const;
     [[nodiscard]] std::optional<zima::kernel::ViewerAxis> candidate_axis(

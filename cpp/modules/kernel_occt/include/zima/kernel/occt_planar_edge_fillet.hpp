@@ -37,10 +37,9 @@ struct PlanarFilletAnalyticRemovalDomain {
     double axial_extension{};
 };
 
-// Experimental exact builder for convex, straight plane/plane edges. It
-// constructs the circular removal domains directly and applies all of them in
-// one Boolean. The ordinary Fillet path and native persistence remain
-// unchanged until geometry and identity equivalence are proved.
+// Exact builder for straight plane/plane edges. It constructs the circular
+// treatment domains directly, batches consecutive edges with the same
+// material sense and applies mixed outer/inner edges in authored order.
 struct OcctPlanarEdgeFilletResult {
     TopoDS_Shape shape;
     occ::handle<BRepTools_History> history;
@@ -61,10 +60,19 @@ struct OcctPlanarEdgeFilletResult {
     [[nodiscard]] bool IsDeleted(const TopoDS_Shape&) const;
 };
 
+// Faces are already resolved against the current input Body. A null face is
+// the explicit perpendicular end. Non-null faces must be planar and contain
+// the matching curve-parameter endpoint of the selected edge.
+struct OcctPlanarEdgeEndFaces {
+    TopoDS_Face first;
+    TopoDS_Face last;
+};
+
 [[nodiscard]] OcctPlanarEdgeFilletResult occt_planar_edge_fillet(
     const TopoDS_Shape& input,
     std::span<const TopoDS_Edge> edges,
     double radius,
-    double tolerance);
+    double tolerance,
+    std::span<const OcctPlanarEdgeEndFaces> end_faces = {});
 
 } // namespace zima::kernel

@@ -293,10 +293,22 @@ container_placement_dimensions(
 struct EdgeTreatmentParameters {
     enum class FilletMode { Constant, Linear };
     enum class ChamferMode { EqualDistance, TwoDistances, DistanceAngle };
+    enum class CalculationMethod { Automatic, Zima, Occt };
     // One persisted user route contains every original edge selected by one
     // contour operation. Keeping the grouping in ZIMA data means reopening
     // Properties never has to guess it from current OCCT topology.
     std::vector<std::vector<zima::kernel::EdgeReference>> routes;
+    struct RouteEndFaces {
+        // An empty reference is an explicit perpendicular end. Auto detection
+        // is a one-shot authoring action and is never inferred while loading
+        // or regenerating the feature.
+        zima::kernel::FaceReference first;
+        zima::kernel::FaceReference last;
+        bool operator==(const RouteEndFaces&) const = default;
+    };
+    // Parallel to routes. Each stored face must contain the corresponding
+    // open route endpoint. Closed routes retain two empty references.
+    std::vector<RouteEndFaces> route_end_faces;
     // One stable endpoint per route. R1 belongs to this endpoint; R2 belongs
     // to the other end. OCCT may orient its internal spine either way, so the
     // explicit calculation maps this ZIMA intent to OCCT First/LastVertex.
@@ -311,6 +323,7 @@ struct EdgeTreatmentParameters {
     // the semantic start/end radii without relying on OCCT enumeration.
     bool flip{};
     bool reverse{};
+    CalculationMethod calculation_method{CalculationMethod::Automatic};
     [[nodiscard]] std::vector<zima::kernel::EdgeReference>
     flattened_edges() const {
         std::vector<zima::kernel::EdgeReference> result;
@@ -549,6 +562,15 @@ struct HelicalSweepParameters {
     Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
     zima::kernel::Vec3* base_rotation = nullptr,
     bool* orientation_from_reference = nullptr);
+// Re-expresses a valid one-direction placement without moving its resolved
+// frame. Older definitions could store the remaining free roll in a
+// constrained world-Euler component. Current placement data stores that roll
+// in the single editable local component (FRONT: RY, TOP: RZ). This helper is
+// intentionally explicit so native-format conversion can normalize authored
+// factory data without making ordinary regeneration guess at user intent.
+[[nodiscard]] bool reparameterize_single_orientation_placement(
+    Placement& placement,
+    const zima::kernel::ViewerReferenceGeometry& geometry);
 
 // Point-only policy: a plane parallel to the first circular reference has a
 // derived distance. Authored offsets remain persisted for a later tilt.

@@ -33,7 +33,8 @@ verify_material_manager(QApplication &application, QWidget &parent,
     check(file.open(QIODevice::ReadOnly), "Cannot read material fixture");
     return file.readAll();
   };
-  QTemporaryDir fixture;
+  QTemporaryDir fixture(QDir::current().filePath(
+      QStringLiteral("material-manager-contract-XXXXXX")));
   check(fixture.isValid(), "Cannot create material manager fixture");
   check(QDir().mkpath(fixture.filePath("Materials")),"Cannot create material tree fixture");
   for(const auto* path:{"0000-index","Materials/0000-INDEX","Materials/Visible"})

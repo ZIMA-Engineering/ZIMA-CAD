@@ -335,8 +335,10 @@ regeneration. References, endpoints, and ambiguity:
 
 `fillet.create/get/set` supports constant and variable fillets, explicit R1 ends,
 and direction reversal. `chamfer.create/get/set` supports equal/two distances,
-distance plus angle, and FLIP. Commands share GUI commit and accept JSON dimensions
-in mm. Route examples and R1 rules: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
+distance plus angle, and FLIP. Both select Automatic, ZIMA or OCCT calculation and
+persist optional first/last route end faces. Commands share GUI commit and accept
+JSON dimensions in mm. Route examples, end faces and R1 rules:
+[EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
 
 `edge_treatment.remove` removes one edge or an entire user route using `container`,
 `route` (zero-based persisted-list index), and optional original `edge` reference.

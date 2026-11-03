@@ -243,6 +243,19 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 static_cast<void>(zima::workspace::commit_component_properties(workspace_,edit,value));
                 guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
             }
+            if (component_placement_dialog_ &&
+                candidate.semantic_key.starts_with("parameter:placement:") &&
+                candidate.owner_id == component_placement_dialog_->occurrence_id() &&
+                candidate.instance_path == properties_dialog_instance_path_) {
+                const auto key = candidate.semantic_key.substr(
+                    std::string_view{"parameter:placement:"}.size());
+                if (!component_placement_dialog_->set_inline_placement_value(
+                        key, next_value))
+                    throw std::runtime_error("This dimension is not directly editable");
+                guarded->hide();
+                guarded->deleteLater();
+                return;
+            }
             const auto edit_sketch=[candidate,next_value](zima::sketcher::Sketch& sketch){
                 auto next=run_background_task([source=sketch,candidate,next_value]() mutable {
                     if(candidate.semantic_key.starts_with("dimension:")){

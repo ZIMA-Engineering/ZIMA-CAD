@@ -24,8 +24,12 @@ void Host::register_sketch_reference_commands() {
         if(profile&&source_kind!=Kind::Edge&&!outline)invalid("Profile geometry requires an edge or an outline curve reference.");
         auto value=workspace::prepare_sketch_external_reference(workspace_,workspace_.active_document_id(),s,source_kind,
             a["owner"].get<std::string>(),a["key"].get<std::string>(),a.value("instance_path",std::string{}),{},false,profile&&!outline);
-        const auto id=value.id;const auto source=value.source_document_id;s.add_external_reference(std::move(value));
+        const auto id=value.id;const auto source=value.source_document_id;
+        s.add_external_reference(std::move(value));
+        const auto endpoint_references=(source_kind==Kind::Edge||outline)?
+            s.add_external_edge_endpoints(id):std::vector<std::string>{};
         Json data={{"reference",id},{"source_document",source}};
+        if(!endpoint_references.empty())data["endpoint_references"]=endpoint_references;
         if(profile)data["geometry"]=s.add_external_profile_geometry(id);return data;
     });
     add_sketch_command({"sketch.reference.project",tr("Create native profile geometry linked to an existing projected edge."),{{"reference",true}}},[](Sketch& s,const Json& a) {

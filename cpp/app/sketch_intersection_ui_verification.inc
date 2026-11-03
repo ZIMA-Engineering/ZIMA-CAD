@@ -145,10 +145,16 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
             if(mode!=2) {
                 check(offered->semantic_key.find(references[0])!=std::string::npos&&offered->semantic_key.find(references[1])!=std::string::npos,"Intersection lost one support");
                 const auto p=view->candidate_point(*offered);check(p&&std::hypot(p->position.x-27,p->position.y-20)<1e-8,"Intersection candidate has wrong coordinates");
-                mouse(crossing,QEvent::MouseButtonPress,Qt::RightButton);mouse(crossing,QEvent::MouseButtonRelease,Qt::RightButton);
-                check(view->hovered_candidate()&&view->hovered_candidate()!=offered,"RMB did not cycle the common crossing candidates");
-                mouse(screen(34,32),QEvent::MouseMove,Qt::NoButton);mouse(crossing,QEvent::MouseMove,Qt::NoButton);
-                check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==offered->semantic_key,"Hover did not restore the CC candidate");
+                // After the first Rectangle corner, RMB intentionally starts
+                // orientation-axis entry. Candidate cycling is verified by
+                // the Point and first-corner Rectangle cases where RMB has no
+                // command-specific meaning.
+                if(mode!=3) {
+                    mouse(crossing,QEvent::MouseButtonPress,Qt::RightButton);mouse(crossing,QEvent::MouseButtonRelease,Qt::RightButton);
+                    check(view->hovered_candidate()&&view->hovered_candidate()!=offered,"RMB did not cycle the common crossing candidates");
+                    mouse(screen(34,32),QEvent::MouseMove,Qt::NoButton);mouse(crossing,QEvent::MouseMove,Qt::NoButton);
+                    check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==offered->semantic_key,"Hover did not restore the CC candidate");
+                }
             }
             if(mode>=2) {
                 const auto before=view->grabFramebuffer();view->set_transient_labels({});flush();const auto after=view->grabFramebuffer();

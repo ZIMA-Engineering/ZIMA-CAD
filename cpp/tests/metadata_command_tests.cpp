@@ -73,7 +73,7 @@ void verify_parameter_inspection(const fs::path& directory) {
     const auto path=directory/"metadata-buffer.prtz";
     {
         std::ofstream output(path,std::ios::binary);
-        output<<"[Cache]\r\ndata="<<std::string(16*1024*1024,'x')<<"\r\n[Document]\r\nformat_version=47\r\ntype=part\r\n[UserParameters]\r\nOrder=NAME,EMPTY\r\n[UserParameterLabels]\r\nNAME\\cs=Příliš žluťoučký\r\n[UserParameterValues]\r\nData=";
+        output<<"[Cache]\r\ndata="<<std::string(16*1024*1024,'x')<<"\r\n[Document]\r\nformat_version=48\r\ntype=part\r\n[UserParameters]\r\nOrder=NAME,EMPTY\r\n[UserParameterLabels]\r\nNAME\\cs=Příliš žluťoučký\r\n[UserParameterValues]\r\nData=";
         output<<Json({{"NAME",{{"",std::string(65536,'x')+"=,\\ř"},{"ru","Проверка"}}},{"EMPTY",{{"",""}}}}).dump();
     }
     const auto data=document::read_native_user_parameters(path);
@@ -124,6 +124,7 @@ void verify_failed_sheet_settings(const kernel::OcctKernel& kernel,fs::path dire
     const auto edge=std::ranges::find_if(edges,[](const auto& e){return !e.parameter_seam&&e.edge_treatment_side_references.size()==2;});
     require(edge!=edges.end(),"Failed sheet fixture has no input edge");
     static_cast<void>(host.execute({{"command","fillet.create"},{"arguments",{{"radius_mm",100},
+        {"calculation_method","occt"},
         {"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",edge->reference.owner_id},{"key",edge->reference.semantic_key}}})}}})}}}}));
     const auto failed=state->session.document().history.back();
     require(failed.feature_kind==document::FeatureKind::Fillet&&state->session.calculated_boundaries().back().calculation_errors.contains(failed.id),"Fixture did not retain a failed feature");

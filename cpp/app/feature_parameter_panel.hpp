@@ -44,11 +44,8 @@ public:
         : QWidget(parent), initial_(std::move(initial)) {
         content_=new QVBoxLayout(this);content_->setContentsMargins(0,0,0,0);
         type_=feature_type_control(this,initial_.type);
-        show_point_=new QCheckBox(tr("Bod"),this);show_point_->setObjectName("featureShowPoint");
-        show_text_=new QCheckBox(tr("Text"),this);show_text_->setObjectName("featureShowText");
         show_axis_3d_=new QCheckBox(tr("Zobrazovat ve 3D"),this);show_axis_3d_->setObjectName("featureShowAxis3D");
         show_axis_3d_->setChecked(initial_.axis_visible_in_3d);
-        show_point_->setChecked(initial_.show_point);show_text_->setChecked(initial_.show_text);
         plane_group_=new QGroupBox(tr("Rovina"),this);
         plane_group_->setObjectName("featurePlaneGroup");
         auto* sketch_form=new QFormLayout(plane_group_);
@@ -234,7 +231,6 @@ public:
         value.result_type=result_->currentIndex()==1?document::ProfileResultType::Surface:
             result_->currentIndex()==2?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
         value.symmetric=symmetric_;value.origin_centerline=origin_axis_->isChecked();
-        value.show_point=show_point_->isChecked();value.show_text=show_text_->isChecked();
         value.axis_visible_in_3d=show_axis_3d_->isChecked();
         value.centroid_centerline=centroid_axis_->isChecked();
         value.individual_centroid_centerlines=individual_centroid_axes_->isChecked();
@@ -245,7 +241,7 @@ public:
     QWidget* type_row() {
         auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
         type_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-        layout->addWidget(type_);layout->addWidget(show_point_);layout->addWidget(show_text_);
+        layout->addWidget(type_);
         // Visibility and authored-axis controls describe the profile itself.
         // Keep them together instead of mixing the axes with symmetric extent,
         // direction and side swapping on the operation row below.
@@ -362,8 +358,6 @@ public:
         for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
         if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
-        if(!isAncestorOf(show_point_))connect(show_point_,&QCheckBox::toggled,this,notify);
-        if(!isAncestorOf(show_text_))connect(show_text_,&QCheckBox::toggled,this,notify);
         if(!isAncestorOf(show_axis_3d_))connect(show_axis_3d_,&QCheckBox::toggled,this,notify);
     }
 protected:
@@ -391,7 +385,6 @@ private:
     };
     QVBoxLayout* content_{};
     QComboBox* type_{};
-    QCheckBox *show_point_{},*show_text_{};
     QCheckBox* show_axis_3d_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
     QCheckBox* symmetric_control_{};

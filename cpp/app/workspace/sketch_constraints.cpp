@@ -160,6 +160,8 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
                 (!selected_reference.empty()||
                  candidate.kind!=zima::viewer::CandidateKind::SketchExternalReference||
                  candidate.semantic_key.starts_with("external_point:")||
+                 (!directional&&candidate.semantic_key.starts_with(
+                     "sketch_curve_keypoint:"))||
                  (external_id&&line_ids.contains(*external_id)));
         });
     }

@@ -1168,8 +1168,10 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Grid OK did not close the dialog"))return 1;
     std::vector<kernel::BodyResult> grid_boundaries;const auto grid_part=document::PartDocument::load(path,&grid_boundaries);
+    auto grid_output=grid_boundaries.back().body_outputs.at(grid_id).get();
+    kernel.ensure_body_properties(grid_output);
     if(!verify(grid_part.body_history.find(grid_id)->derived_copy->pattern->linear==expected_grid&&
-        std::abs(grid_boundaries.back().body_outputs.at(grid_id)->volume-11*192)<1e-7,"UI grid geometry or persistence is incorrect"))return 1;
+        std::abs(grid_output.volume-11*192)<1e-7,"UI grid geometry or persistence is incorrect"))return 1;
     // Command-first workflow arms the shared Tree/View source field.
     tree->clearSelection();view->clear_selection();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
@@ -1403,8 +1405,10 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     const auto subtract_document=document::PartDocument::load(history_path,&subtract_boundaries);
     // Centered 8x6 and 6x8 rectangles union to 60 mm2. Positive copies
     // refill the original cut; three repeated 2x1x4 cutters remove 24 mm3.
+    auto subtract_output=subtract_boundaries.back().body_outputs.at(first).get();
+    kernel.ensure_body_properties(subtract_output);
     if(!verify(subtract_document.find_container(subtract_pattern)->derived_copy.subtract_source&&
-        std::abs(subtract_boundaries.back().body_outputs.at(first)->volume-((2*8*6-6*6)*4-3*2*1*4))<1e-7,
+        std::abs(subtract_output.volume-((2*8*6-6*6)*4-3*2*1*4))<1e-7,
         "GUI Pattern turned a subtractive solid into positive copies"))return 1;
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
@@ -2187,10 +2191,14 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]);static_cast<void>(section.add_circle(0,0,.4));dialog->set_sketch(2,section);
     const auto check_axis_presentation=[&] {
         const auto saved_mesh=placement_view->mesh();const auto saved_camera=placement_view->camera_state();
+        const bool saved_axes=placement_view->reference_visible(zima::viewer::ReferenceVisibility::Axes);
+        const bool saved_axis_points=placement_view->reference_visible(zima::viewer::ReferenceVisibility::AxisPoints);
         if(!verify(std::ranges::any_of(saved_mesh.axes,[&](const auto& a){return a.reference.owner_id==feature_id&&a.reference.semantic_key.starts_with("helical:rotation-axis:");}),"Rotation axis is missing from visible View geometry"))return false;
         zima::kernel::ViewerMesh points_only;
         for(const auto& point:saved_mesh.points)if(point.reference.owner_id==feature_id&&point.reference.semantic_key.starts_with("helical:axis-point:"))points_only.points.push_back(point);
         if(!verify(points_only.points.size()==2,"Rotation axis endpoint markers missing from View"))return false;
+        placement_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,true);
+        placement_view->set_reference_visibility(zima::viewer::ReferenceVisibility::AxisPoints,true);
         placement_view->set_mesh(points_only,false);
         placement_view->fit_points({points_only.points[0].position,points_only.points[1].position});
         const auto frame=placement_view->grabFramebuffer();int brown=0;
@@ -2199,6 +2207,8 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
             if(std::abs(color.red()-173)<8&&std::abs(color.green()-110)<8&&std::abs(color.blue()-46)<8)++brown;
         }
         placement_view->set_mesh(saved_mesh,false);placement_view->set_camera_state(saved_camera);
+        placement_view->set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,saved_axes);
+        placement_view->set_reference_visibility(zima::viewer::ReferenceVisibility::AxisPoints,saved_axis_points);
         return verify(brown>10,"Helical axis endpoint markers are not brown");
     };
     if(!check_axis_presentation())return 1;
@@ -3116,8 +3126,9 @@ int verify_pending_container_tree(QApplication& application,
             : parent_dialog->pending_sweep_value().container_origin.id;
         const auto point_parent_origin_id = parent_dialog->pending_value().container_origin.id;
         auto* pending = find(assembly ? "assembly-construction" : "part-container", parent_id);
-        if (!verify(pending && pending->background(0).color() == QColor("#4DD811") &&
-                !find(marker), "Pending container did not replace insertion marker in green")) return 1;
+        if (!verify(pending && !pending->isExpanded() &&
+                pending->background(0).color() == QColor("#4DD811") &&
+                !find(marker), "Pending container did not replace the insertion marker as a collapsed green row")) return 1;
         click_row(find("construction-origin", origin_id));
         if (!verify(parent_dialog->populated_references().empty(),
                 "Container accepted its own local origin and introduced a cycle")) return 1;
@@ -3180,7 +3191,8 @@ int verify_pending_container_tree(QApplication& application,
         click_row(find("document-origin"));
         created->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
         auto* committed = find(assembly ? "assembly-construction" : "part-construction", created_id);
-        if (!verify(committed && find(marker), "OK did not keep the container and restore marker")) return 1;
+        if (!verify(committed && !committed->isExpanded() && find(marker),
+                "OK did not keep the container collapsed and restore the marker")) return 1;
         window.show_tree_item_properties(committed); flush();
         if (!verify(dialog() && !find(marker), "Editing an existing container retained insertion marker")) return 1;
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
@@ -3935,6 +3947,20 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if (!verify(!tree_menu_offered(first.id) && !tree_menu_offered(second.id) &&
             !view_menu_offered(first.id) && !view_menu_offered(second.id),
             "Tree/View offered feature menus without an active Body")) return 1;
+    auto* root_toolbar=window.findChild<QToolBar*>("toolsToolbar");
+    const std::array<const char*,5> root_command_names{
+        "createBodyAction","mirrorAction","patternAction","bodyScaleAction",
+        "bodyBooleanAction"};
+    if (!verify(root_toolbar && root_toolbar->actions().size()==root_command_names.size(),
+            "Part root shows application headings or unrelated Body commands")) return 1;
+    for(std::size_t index=0;index<root_command_names.size();++index)
+        if(!verify(root_toolbar->actions()[index]==window.findChild<QAction*>(root_command_names[index]),
+                "Part root Body commands are not in their required order"))return 1;
+    if(!verify(window.findChild<QAction*>("applicationModeAction0")->isEnabled() &&
+            !window.findChild<QAction*>("applicationModeAction2")->isEnabled() &&
+            !window.findChild<QToolButton*>("modelingModeButton") &&
+            !window.findChild<QToolButton*>("sheetMetalModeButton"),
+            "Part root exposes Modeling or Sheet Metal workspace selectors"))return 1;
     const auto origin_extent = [&](const std::string& owner) {
         double extent = 0;
         for (const auto& axis : viewer->mesh().axes)
@@ -3947,6 +3973,11 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
             "Document activation must display only Document Origin")) return 1;
     if (!verify(activate_from_tree(row("part-body",a),"activateBodyAction"),
             "First Body context menu did not activate its history")) return 1;
+    if(!verify(window.findChild<QAction*>("applicationModeAction0")->isEnabled() &&
+            window.findChild<QAction*>("applicationModeAction2")->isEnabled() &&
+            window.findChild<QToolButton*>("modelingModeButton") &&
+            window.findChild<QToolButton*>("sheetMetalModeButton"),
+            "Active Body did not restore Modeling and Sheet Metal selectors"))return 1;
     if (!verify(tree_menu_offered(first.id) && !tree_menu_offered(second.id) && view_menu_offered(first.id),
             "Tree/View feature menus did not follow activation of the first Body")) return 1;
     if (!verify(origin_extent(a+":origin") > 0 && origin_extent(b+":origin")==0 &&
@@ -4617,13 +4648,34 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         const auto result_it=std::ranges::find(saved.sketches,original.id,&zima::sketcher::Sketch::id);
         if(!verify(result_it!=saved.sketches.end(),"Saved owned profile Sketch missing"))return 1;
         const auto& result=*result_it;
-        if(!verify(result.external_references.size()==original.external_references.size()+(accept?1:0),"Parent OK/Cancel lost or leaked external reference"))return 1;
+        constexpr std::size_t edge_reference_records=3; // edge + two source endpoints
+        if(!verify(result.external_references.size()==original.external_references.size()+
+                (accept?edge_reference_records:0),
+            "Parent OK/Cancel lost or leaked an edge reference or its endpoints"))return 1;
         if(supplied.isEmpty()&&!verify(result.import_blocks.size()==original.import_blocks.size()+(accept?1:0)&&result.circles.size()==original.circles.size()+(accept?1:0),"Parent OK/Cancel lost or leaked imported DXF geometry"))return 1;
         if(!accept&&!verify(result.serialized()==original.serialized(),"Cancel changed original profile"))return 1;
-        if(accept&&!verify(result.external_references.back().source_owner_id==chosen.owner_id&&result.external_references.back().source_semantic_key==chosen.semantic_key,"Confirmed edge identity changed"))return 1;
+        const auto saved_reference=std::ranges::find_if(result.external_references,
+            [&](const auto& reference) {
+                return reference.kind==zima::sketcher::ExternalReferenceKind::Edge&&
+                    reference.source_owner_id==chosen.owner_id&&
+                    reference.source_semantic_key==chosen.semantic_key;
+            });
+        if(accept&&!verify(saved_reference!=result.external_references.end(),
+                "Confirmed edge identity changed"))return 1;
+        if(accept) {
+            const auto endpoints=std::ranges::count_if(result.external_references,
+                [&](const auto& reference) {
+                    return zima::sketcher::is_external_endpoint_kind(reference.kind)&&
+                        reference.source_owner_id==chosen.owner_id&&
+                        reference.source_semantic_key==chosen.semantic_key;
+                });
+            if(!verify(endpoints==2,
+                    "Confirmed edge did not persist its two independently selectable endpoints"))return 1;
+        }
         if(context) {
-            if(accept&&!verify(result.external_references.back().context_assembly_document_id==top.document_id&&
-                result.external_references.back().context_instance_path==target_path,"GUI reference lost its exact Part context"))return 1;
+            if(accept&&!verify(saved_reference->context_assembly_document_id==top.document_id&&
+                saved_reference->context_instance_path==target_path,
+                "GUI reference lost its exact Part context"))return 1;
             if(!accept&&!verify(top_state()==initial_top,"Cancel changed the reference dependency owner"))return 1;
             window.deactivate_active_occurrence_for_test();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto saved_top=zima::assembly::AssemblyDocument::load(assembly_file);
@@ -9012,6 +9064,48 @@ int verify_component_references(QApplication& application, const std::filesystem
 
     window.show_tree_item_properties(find(second,second_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open component properties"))return 1;
+    {
+        constexpr std::string_view key{"parameter:placement:x"};
+        const auto dimension = std::ranges::find_if(
+            view->mesh().dimensions, [&](const auto& value) {
+                return value.reference.owner_id == second &&
+                    value.reference.semantic_key == key &&
+                    value.reference.instance_path == second_path;
+            });
+        if(!verify(dimension != view->mesh().dimensions.end() &&
+            std::abs(dimension->value-50.0)<1e-9,
+            "Open Component Properties omitted its free X placement dimension"))return 1;
+        std::optional<QPointF> hit;
+        for(int y=2;y<view->height()&&!hit;y+=2)
+            for(int x=2;x<view->width()&&!hit;x+=2) {
+                const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                if(!candidates.empty() &&
+                    candidates.front().kind==viewer::CandidateKind::Dimension &&
+                    candidates.front().owner_id==second &&
+                    candidates.front().semantic_key==key &&
+                    candidates.front().instance_path==second_path)
+                    hit=QPointF(x,y);
+            }
+        if(!verify(hit.has_value(),
+            "Component placement X dimension is not an interactive View candidate"))return 1;
+        QMouseEvent double_click(QEvent::MouseButtonDblClick,*hit,
+            QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,
+            Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&double_click);flush();
+        auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+        if(!verify(editor&&editor->isVisible(),
+            "Component placement dimension double-click did not open its editor"))return 1;
+        editor->setText(QStringLiteral("57"));
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+        QApplication::sendEvent(editor,&enter);flush();
+        if(!verify(std::abs(dialog()->pending_value().placement.x-57.0)<1e-9 &&
+            std::abs(assembly::AssemblyDocument::load(assembly_path)
+                .find_occurrence(second)->placement.x-50.0)<1e-9,
+            "Component placement dimension did not update only the pending Properties value"))return 1;
+        if(!verify(dialog()->set_inline_placement_value("x",50.0),
+            "Component placement X could not be restored after inline editing"))return 1;
+        flush();
+    }
     dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
     std::optional<viewer::ViewerCandidate> visible_face;
     QPointF visible_face_position;
