@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026110303](releases/2026110303.md#windows-publication-acceptance)
+was published at `2026-11-03T19:59:56Z` from immutable source
+`ddce1fb339cea000b709b8c59cab0e8ff6844749`. Routed ZIMA Fillet/Chamfer,
+failed-history durability and exact Sketch references to calculated treatment
+geometry are listed in the release record. Candidate and signed native smoke
+each load all 1,185 factory native assets. The signed manifest binds 17,442
+archive entries, exact source, stable channel and the Windows runtime. All three
+anonymous public downloads match the accepted signed files. Trusted 2701 offers
+0303 as installable without download or installation and its root files remain
+unchanged. Native Linux execution is not established by this Windows acceptance.
+See the
+[publication evidence](verification/20261103-windows-0303-publication.json).
+
 Signed Windows [2026103101](releases/2026103101.md#windows-publication-acceptance)
 was published at `2026-10-31T22:04:50Z` from immutable source
 `4896c5a34daf1f79d52c36c7b0f308915d91211b`. Final-first history publication,

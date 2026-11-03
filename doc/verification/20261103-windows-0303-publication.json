@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "product": "ZIMA-CAD",
+  "version": "2026110303",
+  "platform": "windows-x64",
+  "tag": "ZIMA-CAD-2026110303",
+  "commit": "ddce1fb339cea000b709b8c59cab0e8ff6844749",
+  "publishedAt": "2026-11-03T19:59:56Z",
+  "releaseUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110303",
+  "archive": {
+    "name": "ZIMA-CAD-2026110303.zip",
+    "size": 937543693,
+    "sha256": "bf6760110a5c58cd777e58accc0486d07c0446612e85b584757f47684c8ae1c0",
+    "unpackedSize": 3187772408,
+    "fileCount": 17442
+  },
+  "updateManifest": {
+    "name": "update-manifest.json",
+    "size": 703,
+    "sha256": "49197bf7226eaa8668154f767de2df7aa02faaa1d98189013595385b6541fb07"
+  },
+  "updateSignature": {
+    "name": "update-manifest.sig",
+    "size": 176,
+    "sha256": "2ae70e02c680b2824cc99785a2f9a650e3c4abfb3f7846153e0828d98007eb6b"
+  },
+  "sourceTreeSha256": "2d270039313e173dcec60391d33a5fa3d7e1b5320bd2be7e55deafc347cfe21f",
+  "candidate": {
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185
+  },
+  "signed": {
+    "windowsNativeSmoke": "passed",
+    "productionTrust": "passed",
+    "applicationLifecycle": "passed"
+  },
+  "publicDownloads": {
+    "anonymous": true,
+    "zip": "matched",
+    "manifest": "matched",
+    "signature": "matched"
+  },
+  "updaterDiscovery": {
+    "installedVersion": "2026102701",
+    "trusted": true,
+    "availableVersion": "2026110303",
+    "installable": true,
+    "downloadPerformed": false,
+    "installationPerformed": false,
+    "rootFilesUnchanged": true
+  },
+  "verificationBoundary": {
+    "protectedUserModelsCommitted": false,
+    "nativeFormatChanged": false,
+    "localizationCatalogsChanged": true,
+    "linuxExecution": "not-run-on-windows-host",
+    "remainingLimits": [
+      "ZIMA Fillet does not yet support variable radius, arbitrary spline routes, general free-form adjacent faces, unrelated hole-intersection restoration or advanced multi-face terminal transitions.",
+      "ZIMA Chamfer retains its supported straight-route scope.",
+      "Finite geometry, Sketcher, GUI, persistence and performance matrices do not prove every possible topology or interaction sequence.",
+      "Native Linux compilation, execution and timing require the Linux host."
+    ]
+  }
+}
