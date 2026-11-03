@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <stdexcept>
 
 namespace zima::workspace {
@@ -71,11 +72,83 @@ static void validate_part_calculation(const document::PartDocument& document,
     }
 }
 
+struct HistoryBoundaryReferenceDemand {
+    std::string output_owner;
+    std::vector<document::ConstructionReference> references;
+};
+
+static std::map<std::string,HistoryBoundaryReferenceDemand>
+history_boundary_reference_demands(
+        const document::PartDocument& document,
+        const std::vector<kernel::HistoryOperation>& operations) {
+    const auto graph=part_history_dependency_graph(document);
+    std::map<std::string,const kernel::HistoryOperation*> operation_by_owner;
+    for(const auto& operation:operations)
+        operation_by_owner.emplace(operation.owner_id,&operation);
+    std::map<std::string,std::vector<document::ConstructionReference>>
+        references_by_consumer;
+    for(const auto& [consumer,path,owner,key]:graph.references) {
+        const auto alias=graph.owners.find(owner);
+        if(alias==graph.owners.end()||
+           !operation_by_owner.contains(alias->second))continue;
+        references_by_consumer[consumer].push_back(
+            {path,owner,key});
+    }
+    std::map<std::string,HistoryBoundaryReferenceDemand> result;
+    const auto visit=[&](const std::vector<document::PartHistoryEntry>& entries,
+            const std::string& body_id) {
+        std::string previous_output;
+        for(const auto& entry:entries) {
+            if(!previous_output.empty())
+                if(const auto requested=references_by_consumer.find(entry.id);
+                        requested!=references_by_consumer.end()) {
+                    const auto& boundary=*operation_by_owner.at(
+                        previous_output);
+                    auto& demand=result[entry.id];
+                    for(const auto& reference:requested->second) {
+                        const auto source=graph.owners.find(
+                            reference.owner_id);
+                        if(source==graph.owners.end())continue;
+                        const auto source_operation=operation_by_owner.find(
+                            source->second);
+                        if(source_operation==operation_by_owner.end()||
+                           source_operation->second->body.id!=boundary.body.id)
+                            continue;
+                        demand.output_owner=previous_output;
+                        demand.references.push_back(reference);
+                    }
+                    if(demand.references.empty())result.erase(entry.id);
+                }
+            if(const auto operation=operation_by_owner.find(entry.id);
+                    operation!=operation_by_owner.end()&&
+                    operation->second->body.id==body_id)
+                previous_output=entry.id;
+        }
+    };
+    if(document.body_history.bodies().empty())
+        visit(document.history_order,{});
+    else for(const auto& body_id:document.body_history.order())
+        if(const auto* body=document.body_history.find(body_id);
+                body&&!body->suppressed)
+            visit(body->entries,body_id);
+    return result;
+}
+
 static kernel::HistoryOutputPolicy history_output_policy(
-    const document::PartDocument& document,const bool final_boundary_first) {
+    const document::PartDocument& document,const bool final_boundary_first,
+    const std::vector<kernel::HistoryOperation>& operations) {
     kernel::HistoryOutputPolicy result;
     result.final_boundary_first=final_boundary_first;
     if(!result.final_boundary_first)return result;
+    for(const auto& [consumer,demand]:
+            history_boundary_reference_demands(document,operations)) {
+        static_cast<void>(consumer);
+        auto& requested=result.reference_output_owners[
+            demand.output_owner];
+        for(const auto& reference:demand.references)
+            requested.emplace(reference.owner_id,
+                reference.semantic_key,reference.instance_path);
+    }
     const auto graph=part_history_dependency_graph(document);
     visit_document_sketches(document,[&](const auto& sketch) {
         const bool needs_input=std::ranges::any_of(
@@ -268,7 +341,8 @@ std::vector<zima::kernel::BodyResult> calculate_part(
         // Dependency analysis retains the exact earlier inputs that are
         // actually consumed; all other history rows stay as lightweight live
         // native boundaries instead of publishing a full mesh/B-Rep packet.
-        history_output_policy(document,!policy.publish_complete_history));
+        history_output_policy(document,!policy.publish_complete_history,
+            operations));
     validate_part_calculation(document,calculated,policy);
     return calculated;
 }
@@ -292,6 +366,274 @@ static kernel::ViewerReferenceGeometry construction_resolution_geometry(
     for(const auto& body:document.body_history.bodies())
         references.insert(references.end(),body.scope.placement.references.begin(),body.scope.placement.references.end());
     return document::PlacementReferenceGeometryIndex(calculated.back().mesh.original_references,references).select(references);
+}
+
+static kernel::ViewerReferenceGeometry select_visible_references(
+        const kernel::ViewerMesh& source,
+        const std::vector<document::ConstructionReference>& references) {
+    using Key=kernel::HistoryReferenceIdentity;
+    std::set<Key> requested;
+    for(const auto& reference:references)
+        requested.emplace(reference.owner_id,reference.semantic_key,
+            reference.instance_path);
+    const auto accepts=[&](const auto& reference) {
+        return requested.contains({reference.owner_id,
+            reference.semantic_key,reference.instance_path});
+    };
+    if(source.triangles.size()!=source.triangle_references.size()*3)
+        throw std::invalid_argument(
+            "Calculated history reference packet is invalid");
+    kernel::ViewerReferenceGeometry result;
+    for(std::size_t triangle=0;
+            triangle<source.triangle_references.size();++triangle) {
+        const auto& reference=source.triangle_references[triangle];
+        if(!reference.valid()||!accepts(reference))continue;
+        const auto base=static_cast<std::uint32_t>(result.vertices.size());
+        for(std::size_t corner=0;corner<3;++corner) {
+            const auto index=source.triangles[3*triangle+corner];
+            if(index>=source.vertices.size())throw std::invalid_argument(
+                "Calculated history reference packet is invalid");
+            result.vertices.push_back(source.vertices[index]);
+            result.triangles.push_back(base+
+                static_cast<std::uint32_t>(corner));
+        }
+        result.triangle_references.push_back(reference);
+    }
+    for(const auto& edge:source.edges)
+        if(edge.reference.valid()&&accepts(edge.reference))
+            result.edges.push_back(edge);
+    for(const auto& point:source.points)
+        if(point.reference.valid()&&accepts(point.reference))
+            result.points.push_back(point);
+    for(const auto& axis:source.axes)
+        if(axis.reference.valid()&&accepts(axis.reference))
+            result.axes.push_back(axis);
+    return result;
+}
+
+static kernel::ViewerReferenceGeometry select_boundary_references(
+        const kernel::BodyResult& boundary,
+        const std::vector<document::ConstructionReference>& references) {
+    const document::PlacementReferenceGeometryIndex originals(
+        boundary.mesh.original_references,references);
+    auto result=originals.select(references);
+    std::vector<document::ConstructionReference> missing;
+    for(const auto& reference:references)
+        if(!originals.contains(reference))missing.push_back(reference);
+    if(!missing.empty())append_reference_geometry(result,
+        select_visible_references(boundary.mesh,missing));
+    return result;
+}
+
+static const kernel::BodyResult* find_exact_operation_output(
+        const std::vector<kernel::HistoryOperation>& operations,
+        const std::vector<kernel::BodyResult>& calculated,
+        const std::string& owner) {
+    const auto operation=std::ranges::find(operations,owner,
+        &kernel::HistoryOperation::owner_id);
+    if(operation==operations.end())return nullptr;
+    const auto global_index=static_cast<std::size_t>(
+        operation-operations.begin());
+    if(global_index>=calculated.size())return nullptr;
+    if(operation->body.id.empty())return &calculated[global_index];
+    std::size_t local_index{};
+    for(auto current=operations.begin();current<=operation;++current)
+        if(current->body.id==operation->body.id)++local_index;
+    if(calculated.empty())return nullptr;
+    const auto body=calculated.back().body_boundaries.find(
+        operation->body.id);
+    if(body==calculated.back().body_boundaries.end()||
+       body->second.size()<local_index)return nullptr;
+    return &body->second[local_index-1];
+}
+
+static const kernel::BodyResult& exact_operation_output(
+        const std::vector<kernel::HistoryOperation>& operations,
+        const std::vector<kernel::BodyResult>& calculated,
+        const std::string& owner) {
+    const auto* result=find_exact_operation_output(
+        operations,calculated,owner);
+    if(!result)throw std::runtime_error(
+        "Calculated history reference output is missing");
+    return *result;
+}
+
+static void remove_reference_identities(
+        kernel::ViewerReferenceGeometry& geometry,
+        const std::set<kernel::HistoryReferenceIdentity>& identities) {
+    const auto keep=[&](const auto& reference) {
+        return !identities.contains({reference.owner_id,
+            reference.semantic_key,reference.instance_path});
+    };
+    std::erase_if(geometry.edges,[&](const auto& edge) {
+        return !keep(edge.reference);
+    });
+    std::erase_if(geometry.points,[&](const auto& point) {
+        return !keep(point.reference);
+    });
+    std::erase_if(geometry.axes,[&](const auto& axis) {
+        return !keep(axis.reference);
+    });
+    std::size_t retained{};
+    for(std::size_t triangle=0;
+            triangle<geometry.triangle_references.size();++triangle) {
+        if(!keep(geometry.triangle_references[triangle]))continue;
+        if(retained!=triangle) {
+            geometry.triangle_references[retained]=
+                std::move(geometry.triangle_references[triangle]);
+            for(std::size_t corner=0;corner<3;++corner)
+                geometry.triangles[retained*3+corner]=
+                    geometry.triangles[triangle*3+corner];
+        }
+        ++retained;
+    }
+    geometry.triangle_references.resize(retained);
+    geometry.triangles.resize(retained*3);
+    std::vector<std::uint32_t> remap(geometry.vertices.size(),
+        std::numeric_limits<std::uint32_t>::max());
+    std::vector<kernel::Vec3> vertices;
+    vertices.reserve(std::min(
+        geometry.vertices.size(),geometry.triangles.size()));
+    for(auto& index:geometry.triangles) {
+        if(index>=geometry.vertices.size())throw std::invalid_argument(
+            "Calculated history reference packet is invalid");
+        auto& target=remap[index];
+        if(target==std::numeric_limits<std::uint32_t>::max()) {
+            target=static_cast<std::uint32_t>(vertices.size());
+            vertices.push_back(geometry.vertices[index]);
+        }
+        index=target;
+    }
+    geometry.vertices=std::move(vertices);
+}
+
+static void replace_exact_operation_references(
+        const std::vector<kernel::HistoryOperation>& operations,
+        std::vector<kernel::BodyResult>& calculated,
+        const std::string& owner,
+        const std::set<kernel::HistoryReferenceIdentity>& identities,
+        const kernel::ViewerReferenceGeometry& replacement) {
+    const auto operation=std::ranges::find(operations,owner,
+        &kernel::HistoryOperation::owner_id);
+    if(operation==operations.end())throw std::runtime_error(
+        "History reference output operation is missing");
+    const auto global_index=static_cast<std::size_t>(
+        operation-operations.begin());
+    const auto replace=[&](kernel::BodyResult& boundary) {
+        remove_reference_identities(
+            boundary.mesh.original_references,identities);
+        append_reference_geometry(
+            boundary.mesh.original_references,replacement);
+        boundary.history_reference_coverage.insert(
+            identities.begin(),identities.end());
+    };
+    if(operation->body.id.empty()) {
+        replace(calculated.at(global_index));
+        return;
+    }
+    std::size_t local_index{};
+    for(auto current=operations.begin();current<=operation;++current)
+        if(current->body.id==operation->body.id)++local_index;
+    auto body=calculated.back().body_boundaries.find(
+        operation->body.id);
+    if(body==calculated.back().body_boundaries.end()||
+       body->second.size()<local_index)
+        throw std::runtime_error(
+            "Calculated Body history reference output is missing");
+    auto local=body->second.get();
+    replace(local[local_index-1]);
+    body->second=std::move(local);
+}
+
+static document::HistoryReferenceViews placement_history_reference_views(
+        const document::PartDocument& document,
+        const std::vector<kernel::HistoryOperation>& operations,
+        std::vector<kernel::BodyResult>& calculated,
+        const std::vector<kernel::BodyResult>* baseline) {
+    document::HistoryReferenceViews result;
+    if(calculated.empty())return result;
+    using Key=kernel::HistoryReferenceIdentity;
+    for(const auto& [consumer,demand]:
+            history_boundary_reference_demands(document,operations)) {
+        std::vector<document::ConstructionReference> requested;
+        std::set<Key> identities;
+        for(const auto& reference:demand.references)
+            if(identities.emplace(reference.owner_id,
+                    reference.semantic_key,reference.instance_path).second)
+                requested.push_back(reference);
+        if(requested.empty())continue;
+        auto& boundary=exact_operation_output(operations,calculated,
+            demand.output_owner);
+        if(baseline)if(const auto* saved=find_exact_operation_output(
+                operations,*baseline,demand.output_owner)) {
+            const auto operation=std::ranges::find(operations,
+                demand.output_owner,&kernel::HistoryOperation::owner_id);
+            const auto global_index=static_cast<std::size_t>(
+                operation-operations.begin());
+            const bool same_output=global_index<baseline->size()&&
+                baseline->at(global_index).source_fingerprint==
+                    calculated.at(global_index).source_fingerprint&&
+                saved->source_fingerprint==boundary.source_fingerprint;
+            if(same_output) {
+                auto saved_geometry=select_boundary_references(
+                    *saved,requested);
+                const document::PlacementReferenceGeometryIndex index(
+                    saved_geometry,requested);
+                if(std::ranges::all_of(requested,[&](const auto& reference) {
+                        return index.contains(reference);
+                    })) {
+                    replace_exact_operation_references(operations,calculated,
+                        demand.output_owner,identities,saved_geometry);
+                }
+            }
+        }
+        const auto& resolved_boundary=exact_operation_output(
+            operations,calculated,demand.output_owner);
+        const bool output_failed=calculated.back().calculation_errors.contains(
+            demand.output_owner);
+        for(const auto& reference:requested)
+            if(!output_failed&&
+               !resolved_boundary.history_reference_coverage.contains({
+                    reference.owner_id,reference.semantic_key,
+                    reference.instance_path}))
+                throw std::runtime_error(
+                    "Exact history reference boundary was not calculated");
+        document::HistoryReferenceView view;
+        for(const auto& reference:requested)
+            view.owners.emplace(reference.owner_id,
+                reference.instance_path);
+        // A failed operation has no valid authored output boundary.  Its
+        // recovery packet intentionally contains the last valid input and may
+        // not carry exact-output coverage.  Publishing that input as the
+        // failed operation's geometry would silently retarget later
+        // references.  An empty exact view instead leaves the original
+        // identities unresolved, so the first dependent container is marked
+        // failed and can recover when the source geometry returns.
+        if(!output_failed)
+            view.geometry=select_boundary_references(
+                resolved_boundary,requested);
+        if(const auto* body=document.body_history.owner(consumer)) {
+            kernel::ViewerMesh placed;
+            placed.original_references=std::move(view.geometry);
+            view.geometry=document.place_body_mesh(std::move(placed),
+                body->scope.id).original_references;
+        }
+        result.emplace(consumer,std::move(view));
+    }
+    return result;
+}
+
+static void merge_history_reference_views(
+        document::HistoryReferenceViews& target,
+        document::HistoryReferenceViews source) {
+    for(auto& [entry,view]:source) {
+        auto& existing=target[entry];
+        document::history_reference_detail::retain(existing.geometry,
+            view.owners,false);
+        document::history_reference_detail::append(existing.geometry,
+            view.geometry);
+        existing.owners.insert(view.owners.begin(),view.owners.end());
+    }
 }
 
 static std::vector<zima::kernel::BodyResult>
@@ -400,8 +742,19 @@ calculate_part_reference_state(
             unchanged_source_prefix && unchanged_reference_inputs;
         if(!reuse_reference_resolution) {
             auto reference_geometry=construction_resolution_geometry(document,calculated);
-            const auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
+            auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
                 document::solid_state_reference_views(document,calculated.back(),reference_geometry);
+            if(!calculated.empty()) {
+                const auto resolved_operations=
+                    group_solid_state_cached_operations(document,&calculated);
+                if(resolved_operations.size()!=calculated.size())
+                    throw std::runtime_error(
+                        "Calculated history reference plan is inconsistent");
+                merge_history_reference_views(state_views,
+                    placement_history_reference_views(document,
+                        resolved_operations,calculated,
+                        policy.history_reference_baseline));
+            }
             phase("reference preparation");
             document.resolve_constructions(std::move(reference_geometry),state_views);
             phase("reference resolution");
@@ -660,15 +1013,14 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     relation_policy.refresh_physical_properties=false;
     if(!next.relations.empty())relation_policy.reject_errors=true;
     const auto& current=part->session.calculated_boundaries();
+    relation_policy.history_reference_baseline=
+        current.empty()?nullptr:&current;
     auto calculated = calculate_part_with_resolved_references(kernel, next,
         kernel.has_current_calculation(current)?&current:nullptr, relation_policy);
-    if(!calculated.empty()&&!calculated.back().solid_state_reference_views.empty()) {
-        auto geometry=construction_reference_source_geometry(calculated);
-        const auto views=document::solid_state_reference_views(next,calculated.back(),geometry);
-        next.resolve_constructions(std::move(geometry),views);
-    } else next.resolve_constructions(calculated.empty()
-        ? zima::kernel::ViewerReferenceGeometry{}
-        : calculated.back().mesh.original_references);
+    // The calculation above has already settled construction and placement
+    // references against their exact history/state views.  Resolving them a
+    // second time from the final Body would discard those immutable input
+    // boundaries and let a later Fillet change an earlier placement.
     const bool references_changed =
         refresh_sketch_external_references(next, calculated) |
         workspace.refresh_context_external_references(next) |

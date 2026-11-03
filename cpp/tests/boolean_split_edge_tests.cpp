@@ -118,11 +118,17 @@ void unique_edges(const kernel::BodyResult& result) {
         require(edge.edge_treatment_endpoint_references[0] != edge.edge_treatment_endpoint_references[1], "Fragment endpoints share identity");
     }
 }
-void siblings_survive(Fixture& f, const std::vector<kernel::ViewerEdge>& source, const kernel::EdgeReference& treated) {
+void siblings_survive(Fixture& f, const std::vector<kernel::ViewerEdge>& source,
+        const kernel::EdgeReference& treated,const char* operation) {
     for (const auto& sibling : source) {
         if (sibling.reference == treated) continue;
         const auto found = std::ranges::find(f.result().mesh.edges, sibling.reference, &kernel::ViewerEdge::reference);
-        require(found != f.result().mesh.edges.end(), "Treating one fragment consumed a disconnected sibling");
+        if(found==f.result().mesh.edges.end())
+            throw std::runtime_error(std::string(operation)+
+                " consumed or replaced disconnected sibling "+
+                sibling.reference.owner_id+":"+
+                sibling.reference.semantic_key+" while treating "+
+                treated.owner_id+":"+treated.semantic_key);
         require(found->points == sibling.points, "Treating one fragment changed another fragment's geometry");
     }
 }
@@ -154,7 +160,8 @@ void exercise(fs::path directory, const std::string& name) {
             const auto id = f.run(fillet ? "fillet.create" : "chamfer.create", {
                 {fillet ? "radius_mm" : "distance_a_mm", .5}, {"routes", Json::array({Json{{"edges", Json::array({ref(edge.reference)})}}})}}).at("container");
             require(std::abs(f.volume() - original_volume) > .01, "Treatment did not change the calculated solid");
-            siblings_survive(f, edges, edge.reference);
+            siblings_survive(f, edges, edge.reference,
+                fillet?"Fillet":"Chamfer");
             f.run("undo"); near(f.volume(), original_volume);
             require(!f.state().session.document().find_container(id), "Treatment did not undo in one step");
         }
@@ -165,7 +172,7 @@ void exercise(fs::path directory, const std::string& name) {
     const auto start = selected.edge_treatment_endpoint_references.front();
     const auto fillet = f.run("fillet.create", {{"mode", "linear"}, {"radius_mm", .25}, {"radius_end_mm", .5},
         {"routes", Json::array({Json{{"edges", Json::array({ref(selected.reference)})}, {"start", ref(start)}}})}}).at("container").get<std::string>();
-    siblings_survive(f, edges, selected.reference);
+    siblings_survive(f, edges, selected.reference,"Variable Fillet");
     for(const auto& [owner,error]:f.result().calculation_errors)throw std::runtime_error(name+" variable Fillet "+owner+": "+error);
     require(f.volume()>0,"Variable Fillet lost its solid result");
     const auto value = f.volume();
@@ -224,6 +231,13 @@ void split_again(const fs::path& directory) {
         if (edge.reference.owner_id == cutter.id && longitudinal(edge) &&
             std::abs(edge.points.front().x - a.x) < 1e-6 && std::abs(edge.points.front().z - a.z) < 1e-6) children.push_back(edge);
     require(children.size() == 2, "Second cut did not retain both fragment children");
+    for(const auto& child:children)
+        require(child.edge_treatment_side_directions.size()==2&&
+            std::ranges::all_of(child.edge_treatment_side_directions,
+                [&](const auto& directions) {
+                    return directions.size()==child.points.size();
+                }),
+            "A surviving split descendant lacks the two aligned face guides required by the Fillet/Chamfer preview");
     const auto verify_parent_resolution=[&](bool fillet) {
         auto operations=f.state().session.document().kernel_operations();
         const std::string owner=fillet
@@ -258,7 +272,8 @@ void split_again(const fs::path& directory) {
         near(*child.measured_length, 2);
         require(child.reference.semantic_key.find(original.semantic_key) != std::string::npos, "Second split lost recoverable parent ancestry");
         f.run("fillet.create", {{"radius_mm", .2}, {"routes", Json::array({Json{{"edges", Json::array({ref(child.reference)})}}})}});
-        siblings_survive(f, children, child.reference); f.run("undo");
+        siblings_survive(f, children, child.reference,
+            "Repeated split Fillet"); f.run("undo");
     }
     const auto revision = f.state().session.revision();
     const Json stale_args = {{"distance_a_mm", .2}, {"routes", Json::array({Json{{"edges", Json::array({ref(original)})}}})}};

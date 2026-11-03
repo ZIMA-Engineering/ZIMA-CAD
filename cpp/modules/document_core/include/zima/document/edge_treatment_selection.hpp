@@ -12,57 +12,29 @@ namespace zima::document {
 inline std::vector<kernel::EdgeReference> edge_treatment_intervals_from_seed(
         const std::vector<kernel::EdgeReference>& route,
         const kernel::EdgeReference& seed) {
-    const bool has_intersection=std::ranges::any_of(route,[](const auto& edge) {
-        return kernel::is_boolean_intersection_interval(edge);
-    });
-    if(!has_intersection)return route;
-    const bool intersection_seed=
-        kernel::is_boolean_intersection_interval(seed);
-    std::vector<kernel::EdgeReference> selected;
-    for(const auto& edge:route)
-        if(kernel::is_boolean_intersection_interval(edge)==intersection_seed)
-            selected.push_back(edge);
-    // A stale candidate must never make the offered route disappear. Keep the
-    // exact viewer route for explicit validation instead of guessing a rail.
-    return selected.empty()?route:selected;
+    static_cast<void>(seed);
+    // Exact persisted endpoint identities and exact curve tangents already
+    // prove one unambiguous continuous route. Do not discard a circular or
+    // ordinary segment merely because another member is a Boolean interval:
+    // mixed-provenance line/arc routes are valid authored treatment paths.
+    return route;
 }
 
 inline std::vector<kernel::EdgeReference> actual_edge_treatment_intervals(
         const std::vector<kernel::EdgeReference>& route) {
-    std::vector<kernel::EdgeReference> intersections;
-    for (const auto& reference : route)
-        if (kernel::is_boolean_intersection_interval(reference))
-            intersections.push_back(reference);
-    // A Boolean joint can consist of one or several persisted intervals. Once
-    // a route contains any such interval, tangent source edges are only route
-    // discovery context and must not be presented or treated themselves.
-    return intersections.empty() ? route : intersections;
+    return route;
 }
 
 inline std::vector<kernel::ViewerEdge> edge_treatment_intervals_from_seed(
         const std::vector<kernel::ViewerEdge>& route,
         const kernel::EdgeReference& seed) {
-    const bool has_intersection=std::ranges::any_of(route,[](const auto& edge) {
-        return kernel::is_boolean_intersection_interval(edge.reference);
-    });
-    if(!has_intersection)return route;
-    const bool intersection_seed=
-        kernel::is_boolean_intersection_interval(seed);
-    std::vector<kernel::ViewerEdge> selected;
-    for(const auto& edge:route)
-        if(kernel::is_boolean_intersection_interval(edge.reference)==
-               intersection_seed)
-            selected.push_back(edge);
-    return selected.empty()?route:selected;
+    static_cast<void>(seed);
+    return route;
 }
 
 inline std::vector<kernel::ViewerEdge> actual_edge_treatment_intervals(
         const std::vector<kernel::ViewerEdge>& route) {
-    std::vector<kernel::ViewerEdge> intersections;
-    for (const auto& edge : route)
-        if (kernel::is_boolean_intersection_interval(edge.reference))
-            intersections.push_back(edge);
-    return intersections.empty() ? route : intersections;
+    return route;
 }
 
 inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
@@ -72,10 +44,19 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
     if (route>=parameters.routes.size()) return result;
     const auto selected=segment ? parameters.routes[route] :
         actual_edge_treatment_intervals(parameters.routes[route]);
+    std::set<std::size_t> appended;
     for (std::size_t i=0;i<selected.size();++i) {
         if (segment && i!=*segment) continue;
-        for (const auto& edge : input.edges)
-            if (edge.reference==selected[i]) result.push_back(edge);
+        std::vector<std::size_t> exact,descendants;
+        for (std::size_t edge_index=0;edge_index<input.edges.size();++edge_index) {
+            const auto& reference=input.edges[edge_index].reference;
+            if(reference==selected[i])exact.push_back(edge_index);
+            else if(kernel::edge_reference_matches_or_descends_from(
+                        reference,selected[i]))descendants.push_back(edge_index);
+        }
+        const auto& resolved=descendants.empty()?exact:descendants;
+        for(const auto edge_index:resolved)if(appended.insert(edge_index).second)
+            result.push_back(input.edges[edge_index]);
     }
     return result;
 }

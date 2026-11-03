@@ -2,6 +2,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/edge_treatment_chain.hpp>
+#include <zima/kernel/edge_treatment_route_plan.hpp>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -123,18 +124,6 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
             // junction again from the newly added edge and accidentally take
             // a different branch back out of it.
             if (!visited_vertices.insert(*vertex).second) continue;
-            std::vector<std::size_t> incident_edges;
-            for(const auto& candidate:endpoints[*vertex])
-                incident_edges.push_back(candidate.edge);
-            std::sort(incident_edges.begin(),incident_edges.end());
-            incident_edges.erase(std::unique(incident_edges.begin(),
-                incident_edges.end()),incident_edges.end());
-            // Tangent propagation is a curve continuation, not a choice at a
-            // topological junction.  Even when exactly one of several exits
-            // is geometrically tangent, a third incident edge is
-            // an authored termination and must stop automatic Fillet/Chamfer
-            // selection.  The user can still select the next edge explicitly.
-            if(incident_edges.size()!=2)continue;
             std::vector<std::size_t> continuations;
             for (const auto candidate : endpoints[*vertex]) {
                 if (candidate.edge == current || selected.contains(candidate.edge)) continue;
@@ -144,35 +133,51 @@ inline std::vector<EdgeReference> tangent_edge_route(const std::vector<ViewerEdg
                     current_direction->x * candidate_direction->x +
                     current_direction->y * candidate_direction->y +
                     current_direction->z * candidate_direction->z;
-                // Both vectors point away from their common endpoint. A
-                // continuous route therefore has antiparallel tangents. The
-                // old abs(dot) also accepted a curve that doubled back on the
-                // same side, which could pull a disconnected-looking Fillet
-                // boundary into the selected route.
-                // The exact native curve derivatives must be antiparallel.
+                // Both vectors point from the common endpoint into their
+                // respective edges. A real continuation is therefore
+                // antiparallel. Parallel vectors describe a 180-degree return
+                // along the side the route just came from; tangency alone must
+                // never absorb that reversing segment.
                 // This is only a floating-point equality allowance, not an
                 // authored angle threshold: a real corner, however small,
                 // remains a route boundary.
                 constexpr double exact_tangent_dot_tolerance=1.0e-8;
-                if (alignment <= -1.+exact_tangent_dot_tolerance)
+                if (alignment<=-1.+exact_tangent_dot_tolerance)
                     continuations.push_back(candidate.edge);
             }
-            std::sort(continuations.begin(), continuations.end());
-            continuations.erase(std::unique(continuations.begin(), continuations.end()),
-                                continuations.end());
+            std::sort(continuations.begin(),continuations.end());
+            continuations.erase(std::unique(continuations.begin(),
+                continuations.end()),continuations.end());
             if (continuations.size() != 1) continue;
             selected.insert(continuations.front());
             pending.push_back(continuations.front());
         }
     }
+    std::vector<std::size_t> ordered_indices(selected.begin(),selected.end());
+    if(const auto plan=build_edge_treatment_route_plan(edges,ordered_indices)) {
+        ordered_indices.clear();
+        ordered_indices.reserve(plan->segments.size());
+        for(const auto& segment:plan->segments)
+            ordered_indices.push_back(segment.edge_index);
+        // A picked edge already has an authored point order.  Preserve that
+        // direction for the complete route instead of letting the lexical
+        // identity of a terminal decide which end is shown first.
+        const auto picked=std::ranges::find_if(plan->segments,
+            [&](const auto& segment) {
+                return edges[segment.edge_index].reference==seed;
+            });
+        if(picked!=plan->segments.end()&&picked->reversed)
+            std::ranges::reverse(ordered_indices);
+    }
     std::vector<zima::kernel::EdgeReference> result;
     result.reserve(selected.size());
     std::set<std::tuple<std::string_view,std::string_view,std::string_view>> identities;
-    for (const auto index : selected) {
+    for (const auto index : ordered_indices) {
         const auto& reference=edges[index].reference;
         if(identities.emplace(reference.owner_id,reference.semantic_key,reference.instance_path).second)
             result.push_back(reference);
     }
     return result;
 }
+
 } // namespace zima::kernel

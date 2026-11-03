@@ -23,10 +23,11 @@ struct OcctPlanarEdgeFilletMetrics {
     double validation_ms{};
 };
 
-// TopoDS-independent exact definition of one constant-radius planar Fillet
-// removal domain. This is derived in-memory experiment data, not native-file
-// persistence. The circular sector at source_start is swept along
-// axis_direction beyond both source endpoints by axial_extension.
+enum class EdgeFilletPathKind { Linear, Circular };
+
+// TopoDS-independent exact definition of one constant-radius ZIMA Fillet
+// domain. This is derived in-memory calculation data, not native-file
+// persistence. A circular sector is swept by translation or exact revolution.
 struct PlanarFilletAnalyticRemovalDomain {
     Vec3 source_start,source_end;
     Vec3 axis_direction;
@@ -35,6 +36,15 @@ struct PlanarFilletAnalyticRemovalDomain {
     Vec3 center_at_start;
     double radius{};
     double axial_extension{};
+    EdgeFilletPathKind path_kind{EdgeFilletPathKind::Linear};
+    Vec3 revolution_axis_point,revolution_axis_direction;
+    double path_radius{};
+    double sweep_angle_radians{};
+};
+
+enum class OcctPlanarEdgeFilletEndMode {
+    Perpendicular,
+    AutomaticBodyEnvelope
 };
 
 // Exact builder for straight plane/plane edges. It constructs the circular
@@ -73,6 +83,9 @@ struct OcctPlanarEdgeEndFaces {
     std::span<const TopoDS_Edge> edges,
     double radius,
     double tolerance,
-    std::span<const OcctPlanarEdgeEndFaces> end_faces = {});
+    std::span<const OcctPlanarEdgeEndFaces> end_faces = {},
+    OcctPlanarEdgeFilletEndMode end_mode =
+        OcctPlanarEdgeFilletEndMode::Perpendicular,
+    std::span<const std::size_t> route_edge_counts = {});
 
 } // namespace zima::kernel

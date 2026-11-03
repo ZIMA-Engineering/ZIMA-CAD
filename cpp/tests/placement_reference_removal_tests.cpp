@@ -4,15 +4,19 @@
 #include "sweep_test_support.hpp"
 #include <cmath>
 #include <iostream>
+#include <source_location>
 
 using namespace zima;
 using commands::Json;
 namespace fs = std::filesystem;
 namespace {
 void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
-void near(double value, double expected) {
+void near(double value, double expected,
+        const std::source_location where=std::source_location::current()) {
     if (!std::isfinite(value) || std::abs(value - expected) > 1e-6)
-        throw std::runtime_error("Expected " + std::to_string(expected) + ", got " + std::to_string(value));
+        throw std::runtime_error("Line "+std::to_string(where.line())+
+            ": expected " + std::to_string(expected) + ", got " +
+            std::to_string(value));
 }
 Json run(command_host::Host& host, const char* name, Json args = Json::object()) {
     const auto result = host.execute({{"command", name}, {"arguments", std::move(args)}});
@@ -79,19 +83,30 @@ void body(const kernel::OcctKernel& kernel, fs::path directory) {
     zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host, n,std::move(a));},{{"length_mm", "10"}, {"width_mm", "10"}, {"height_mm", "10"}});
     const auto object = run(host, "body.create", {{"name", "Framed body"}}).at("body").get<std::string>();
     const auto state = [&]() -> workspace::PartState& { return *live.open_part(id); };
+    const auto measured_volume=[&] {
+        auto measured=state().session.calculated_boundaries().back();
+        kernel.ensure_body_properties(measured);
+        return measured.volume;
+    };
     const auto bound = *state().session.document().body_history.find(object);
     const auto baseline = state().session.calculated_boundaries().back();
     require(bound.scope.placement.references.front().semantic_key == "origin:plane:xy", "Unexpected Body origin fixture");
     run(host, "placement.reference.remove", {{"object", object}, {"index", 0}});
     const auto freed = *state().session.document().body_history.find(object);
     require(freed.scope.placement.references.size() == 3, "Body removal lost unrelated origin planes or retained paired TOP");
-    near(state().session.calculated_boundaries().back().volume, 1000);
+    if(!state().session.calculated_boundaries().back().calculation_errors.empty()) {
+        std::string detail;
+        for(const auto& [owner,error]:state().session.calculated_boundaries().back().calculation_errors)
+            detail+=owner+": "+error+"; ";
+        throw std::runtime_error("Body removal calculation failed: "+detail);
+    }
+    near(measured_volume(), 1000);
     run(host, "undo"); require(*state().session.document().body_history.find(object) == bound, "Body removal Undo failed");
     run(host, "redo"); require(*state().session.document().body_history.find(object) == freed, "Body removal Redo failed");
     run(host, "placement.set", {{"object", object}, {"values", {{"z", 7}}}});
     const auto min_z = [](const auto& mesh) { return std::ranges::min(mesh.vertices, {}, &kernel::Vec3::z).z; };
     near(min_z(state().session.calculated_boundaries().back().mesh) - min_z(baseline.mesh), 7);
-    near(state().session.calculated_boundaries().back().volume, 1000); run(host, "save");
+    near(measured_volume(), 1000); run(host, "save");
     require(document::PartDocument::load(directory / "body.prtz").body_history == state().session.document().body_history, "Native Body lost removal or unlocked translation");
 }
 void sweeps(const kernel::OcctKernel& kernel, fs::path directory) {

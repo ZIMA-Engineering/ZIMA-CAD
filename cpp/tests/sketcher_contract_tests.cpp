@@ -24,6 +24,7 @@
 #include "sketch_corner_annotation_study.hpp"
 #include "sketch_coordinate_incidence_study.hpp"
 #include "sketch_external_dimension_study.hpp"
+#include "perpendicular_junction_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -33,6 +34,8 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        if(std::getenv("ZIMA_CPP_VERIFY_PERPENDICULAR_JUNCTION_ONLY"))
+            return run_perpendicular_junction_study();
         run_sketch_external_dimension_study();
         run_sketch_corner_annotation_study();
         if(const auto* path=std::getenv("ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC"))return run_trimmed_rectangle_arc_study(path);

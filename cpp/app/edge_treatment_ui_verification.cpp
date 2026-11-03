@@ -7,6 +7,7 @@
 #include "assembly_workspace_window.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "drawing_depth_view.hpp"
+#include "workspace/workspace_internal.hpp"
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/shading.hpp>
 #include <QApplication>
@@ -14,6 +15,7 @@
 #include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <numbers>
 #include <QAction>
@@ -196,6 +198,64 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(radius_visible(),"Double-clicking the rounded surface omitted its radius annotation");
             check(selected_feature(),"Double-clicking the rounded surface lost its selected Tree feature");
             check(run("documents").at(0).at("revision")==revision,"Surface inspection created a transaction");
+            if(qEnvironmentVariableIsSet(
+                    "ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENT_PRESENTATION")) {
+                auto* pending=edit(owner);
+                const auto parameters=pending->pending_value().edge_treatment;
+                auto* rows=pending->findChild<QTreeWidget*>(
+                    "edgeTreatmentEdges");
+                std::vector<std::vector<kernel::ViewerEdge>> groups;
+                std::size_t persisted_count{},resolved_count{};
+                for(std::size_t route=0;route<parameters.routes.size();++route) {
+                    const auto active=document::actual_edge_treatment_intervals(
+                        parameters.routes[route]);
+                    persisted_count+=active.size();
+                    std::vector<kernel::ViewerEdge> fragments;
+                    for(const auto& stored:active) {
+                        auto resolved=view->display_edges(stored);
+                        fragments.insert(fragments.end(),
+                            std::make_move_iterator(resolved.begin()),
+                            std::make_move_iterator(resolved.end()));
+                    }
+                    resolved_count+=fragments.size();
+                    const auto* row=rows&&route<static_cast<std::size_t>(
+                        rows->topLevelItemCount())
+                        ?rows->topLevelItem(static_cast<int>(route)):nullptr;
+                    bool count_ok{};
+                    const auto presented=row?row->text(1).section(' ',0,0)
+                        .toULongLong(&count_ok):0;
+                    check(row&&count_ok&&presented==fragments.size(),
+                        "Treatment Properties does not report every current route fragment");
+                    for(const auto& fragment:fragments)
+                        check(fragment.edge_treatment_side_directions.size()==2&&
+                            std::ranges::all_of(
+                                fragment.edge_treatment_side_directions,
+                                [&](const auto& directions) {
+                                    return directions.size()==
+                                        fragment.points.size();
+                                }),
+                            "A displayed route fragment lacks preview face guides");
+                    groups.push_back(std::move(fragments));
+                }
+                check(resolved_count>persisted_count,
+                    "User-model fixture does not exercise a stable route resolved into several fragments");
+                const auto expected=workspace_detail::
+                    edge_treatment_preview_wire(groups,parameters,
+                        pending->feature_kind(),owner);
+                const auto& published=view->transient_edges();
+                check(!expected.edges.empty()&&
+                    published.size()==expected.edges.size()&&
+                    std::equal(expected.edges.begin(),expected.edges.end(),
+                        published.begin(),[](const auto& first,
+                            const auto& second) {
+                            return first.points==second.points;
+                        }),
+                    "Properties did not publish the complete analytical preview for every resolved fragment");
+                finish(false);
+                check(run("documents").at(0).at("revision")==revision,
+                    "Fragment presentation inspection changed the document");
+                std::cout<<"User-model treatment fragments: stable parent, all current rows, face guides, complete preview and Cancel passed\n";
+            }
             window.grab().save(QString::fromStdString((directory/"user-model-fillet-inspection.png").string()));
             std::cout<<"User-model rounded surface: single-click Tree selection, double-click radius and unchanged revision passed\n";return 0;
         }

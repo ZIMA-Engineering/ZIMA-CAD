@@ -45,7 +45,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     run(host,"fillet.get",{{"container",id}});require(!run(host,"fillet.set",{{"container",id},{"radius_mm",2}}).data.at("changed").get<bool>(),"Fillet equal patch committed");
     require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Fillet read/no-op recalculated");
-    for(const auto& patch:std::vector<Json>{{{"radius_mm",0}},{{"radius_mm",1000001}},{{"radius_mm",500}},{{"mode","nonsense"}},{{"mode","linear"}},
+    for(const auto& patch:std::vector<Json>{{{"radius_mm",0}},{{"radius_mm",1000001}},{{"mode","nonsense"}},{{"mode","linear"}},
         {{"routes",Json::array()}},{{"routes",Json::array({Json{{"edges",Json::array({edge,edge})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key","missing"}}})}}})}},
         {{"routes",Json::array({Json{{"edges",Json::array({edge})},{"start",Json{{"owner",box},{"key","missing"}}}}})},{"mode","linear"}},
@@ -54,6 +54,36 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         auto args=patch;args["container"]=id;require(!host.execute({{"command","fillet.set"},{"arguments",args}}).ok,"Invalid Fillet accepted");
         require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&*state->session.document().find_container(id)==original,"Invalid Fillet partly committed");
     }
+    // A well-formed definition that the geometry kernel cannot currently
+    // construct remains authored and red, so its exact references can be
+    // inspected and corrected instead of being discarded by OK.
+    run(host,"fillet.set",{{"container",id},{"radius_mm",500}});
+    require(state->session.document().find_container(id)->edge_treatment.primary_size==500&&
+            state->session.calculated_boundaries().back().calculation_errors.contains(id),
+        "Failed Fillet geometry was rejected instead of being retained as a history error");
+    const auto failed_definition=*state->session.document().find_container(id);
+    const auto failed_path=directory/"failed-fillet.prtz";
+    state->session.document().save(failed_path,
+        state->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> failed_saved;
+    const auto failed_reopened=document::PartDocument::load(
+        failed_path,&failed_saved);
+    require(*failed_reopened.find_container(id)==failed_definition&&
+            !failed_saved.empty()&&
+            failed_saved.back().calculation_errors.contains(id),
+        "Failed Fillet definition/error was lost after save and reopen");
+    run(host,"undo");
+    require(*state->session.document().find_container(id)==original&&
+            state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Undo did not restore the valid Fillet after a failed edit");
+    run(host,"redo");
+    require(*state->session.document().find_container(id)==failed_definition&&
+            state->session.calculated_boundaries().back().calculation_errors.contains(id),
+        "Redo lost the failed Fillet definition/error");
+    run(host,"fillet.set",{{"container",id},{"radius_mm",2}});
+    require(*state->session.document().find_container(id)==original&&
+            state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Corrected Fillet did not recover from its stored error");
     const Json opposite={{"owner",box},{"key",test::profile_key(state->session.document(),box,"edge:x_min:y_max:z_max--x_min:y_max:z_min")}};
     const auto disconnected=Json::array({Json{{"edges",Json::array({edge,opposite})},{"start",end}}});
     require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{"mode","linear"},{"routes",disconnected}}}}).code=="invalid_reference","Linear Fillet accepted disconnected routes under one R1");

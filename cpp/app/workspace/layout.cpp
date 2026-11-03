@@ -1167,33 +1167,12 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_world_pointer_callback([this](const auto& origin, const auto& direction) {
         if(measurement_dialog_)return;
         if(template_region_ray(origin,direction,false))return;
-        // Fillet/Chamfer click already expands one persisted edge into its
-        // complete unambiguous tangent route. Preview that exact same route
-        // from the viewer's current offered candidate so hover, RMB cycling
-        // and LMB confirmation never describe different operations.
+        // Hover identifies only the exact edge under the cursor. The complete
+        // logical treatment route becomes cyan only after confirmation; do
+        // not add a second, weaker route-wide hover overlay.
         if (edge_treatment_selection_) {
-            std::optional<zima::viewer::ViewerCandidate> hover_seed;
-            if (const auto candidate = viewer_->offered_candidate();
-                candidate &&
-                candidate->kind == zima::viewer::CandidateKind::Edge &&
-                candidate->geometry ==
-                    zima::viewer::CandidateGeometry::Display) {
-                hover_seed = *candidate;
-                if (hover_seed != edge_treatment_hover_seed_) {
-                    std::set<zima::viewer::EdgeKey> hovered_route;
-                    const zima::kernel::EdgeReference seed{
-                        candidate->owner_id,candidate->semantic_key,{}};
-                    const auto route=
-                        zima::document::edge_treatment_intervals_from_seed(
-                            viewer_->tangent_edge_route(*candidate),seed);
-                    for (const auto& edge : route) {
-                        hovered_route.insert(zima::viewer::edge_key(edge));
-                    }
-                    viewer_->set_feature_hover_edges(std::move(hovered_route));
-                }
-            }
-            if (!hover_seed) viewer_->set_feature_hover_edges({});
-            edge_treatment_hover_seed_ = std::move(hover_seed);
+            viewer_->set_feature_hover_edges({});
+            edge_treatment_hover_seed_.reset();
         } else {
             edge_treatment_hover_seed_.reset();
 

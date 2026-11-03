@@ -4397,6 +4397,49 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         // distort the remaining participants into a different initial branch.
         static_cast<void>(seed_circular_equations(next,{point_id},true));
     auto solved = next.solve_impl(100, false, {point_id});
+    if(solved.status==SolveStatus::Conflicting) {
+        // A shared vertex of two perpendicular Segments follows the circle
+        // whose diameter joins the opposite endpoints.  A screen ray is not
+        // expected to land exactly on that one-dimensional locus.  Project
+        // the requested vertex before pinning it again, just as the existing
+        // circular and midpoint drag paths project their constrained handle.
+        // The common solver still verifies every persisted equation and keeps
+        // the operation atomic when another constraint makes the move invalid.
+        for(const auto& perpendicular:next.constraints) {
+            if(perpendicular.suppressed||perpendicular.kind!=ConstraintKind::Perpendicular)continue;
+            const auto first=std::ranges::find(next.segments,perpendicular.geometry_id,&SketchSegment::id);
+            const auto second=std::ranges::find(next.segments,perpendicular.second_geometry_id,&SketchSegment::id);
+            if(first==next.segments.end()||second==next.segments.end())continue;
+            const auto opposite=[&](const SketchSegment& segment)->std::optional<std::string> {
+                if(segment.first_point_id==point_id)return segment.second_point_id;
+                if(segment.second_point_id==point_id)return segment.first_point_id;
+                return std::nullopt;
+            };
+            const auto first_end=opposite(*first),second_end=opposite(*second);
+            if(!first_end||!second_end||*first_end==*second_end)continue;
+            const auto* a=find_point(*first_end);const auto* b=find_point(*second_end);
+            if(!a||!b)continue;
+            const double center_x=(a->x+b->x)*.5,center_y=(a->y+b->y)*.5;
+            const double radius=std::hypot(b->x-a->x,b->y-a->y)*.5;
+            double dx=x-center_x,dy=y-center_y,length=std::hypot(dx,dy);
+            if(radius<=1e-12)continue;
+            if(length<=1e-12) {
+                dx=original_x-center_x;dy=original_y-center_y;length=std::hypot(dx,dy);
+                if(length<=1e-12)continue;
+            }
+            auto projected=next;
+            // A failed nonlinear fit is allowed to leave its private candidate
+            // away from the last valid branch.  Seed this analytic retry from
+            // the original native points, never from those discarded
+            // intermediate coordinates.
+            projected.points=points;
+            auto* anchor=projected.find_point(point_id);
+            anchor->x=center_x+radius*dx/length;anchor->y=center_y+radius*dy/length;
+            const auto checked=projected.solve_impl(100,false,{point_id});
+            if(checked.status==SolveStatus::Conflicting||checked.status==SolveStatus::Invalid)continue;
+            next=std::move(projected);solved=checked;break;
+        }
+    }
     const bool midpoint_component=std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
         (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);});
     // Fit the actual handle before the generic distance fallback releases its
@@ -10316,6 +10359,102 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
                 next=std::move(candidate);result=checked;
             }
+        }
+    }
+    if(result.status==SolveStatus::Conflicting&&
+       dimension_kind==DimensionKind::Distance) {
+        // A length on either arm of two Segments meeting at a perpendicular
+        // native junction selects one of the intersections between the arm's
+        // length circle and the Thales circle of the two opposite endpoints.
+        // Sequential distance/perpendicular corrections can fold or stall
+        // before reaching that branch. Seed the nearest exact intersection,
+        // then let the common solver verify every remaining equation.
+        const auto driver=std::ranges::find(
+            next.dimensions,dimension_id,&SketchDimension::id);
+        if(driver!=next.dimensions.end())
+        for(const auto& perpendicular:constraints) {
+            if(perpendicular.suppressed||
+               perpendicular.kind!=ConstraintKind::Perpendicular)continue;
+            const auto first=std::ranges::find(
+                segments,perpendicular.geometry_id,&SketchSegment::id);
+            const auto second=std::ranges::find(
+                segments,perpendicular.second_geometry_id,
+                &SketchSegment::id);
+            if(first==segments.end()||second==segments.end())continue;
+            std::string junction;
+            for(const auto& candidate:{first->first_point_id,
+                    first->second_point_id})
+                if(candidate==second->first_point_id||
+                   candidate==second->second_point_id) {
+                    if(!junction.empty()) {junction.clear();break;}
+                    junction=candidate;
+                }
+            if(junction.empty())continue;
+            const auto opposite=[&](const SketchSegment& segment) {
+                return segment.first_point_id==junction
+                    ?segment.second_point_id:segment.first_point_id;
+            };
+            const auto first_opposite=opposite(*first);
+            const auto second_opposite=opposite(*second);
+            const bool drives_first=
+                (driver->first_point_id==junction&&
+                 driver->second_point_id==first_opposite)||
+                (driver->second_point_id==junction&&
+                 driver->first_point_id==first_opposite);
+            const bool drives_second=
+                (driver->first_point_id==junction&&
+                 driver->second_point_id==second_opposite)||
+                (driver->second_point_id==junction&&
+                 driver->first_point_id==second_opposite);
+            if(drives_first==drives_second)continue;
+            const auto driven_anchor=drives_first
+                ?first_opposite:second_opposite;
+            const auto other_anchor=drives_first
+                ?second_opposite:first_opposite;
+            const auto* a=find_point(driven_anchor);
+            const auto* b=find_point(other_anchor);
+            const auto* old=find_point(junction);
+            if(!a||!b||!old||!(driver->value>0.))continue;
+            const double thales_x=(a->x+b->x)*.5;
+            const double thales_y=(a->y+b->y)*.5;
+            const double thales_radius=
+                std::hypot(b->x-a->x,b->y-a->y)*.5;
+            const double dx=thales_x-a->x;
+            const double dy=thales_y-a->y;
+            const double centers=std::hypot(dx,dy);
+            if(centers<=1.0e-12||thales_radius<=1.0e-12||
+               driver->value>centers+thales_radius+1.0e-10||
+               driver->value<std::abs(centers-thales_radius)-1.0e-10)
+                continue;
+            const double along=(driver->value*driver->value-
+                thales_radius*thales_radius+centers*centers)/
+                (2.*centers);
+            const double height_squared=driver->value*driver->value-
+                along*along;
+            if(height_squared<-1.0e-9)continue;
+            const double height=std::sqrt(std::max(0.,height_squared));
+            const double ux=dx/centers,uy=dy/centers;
+            const double base_x=a->x+along*ux;
+            const double base_y=a->y+along*uy;
+            const std::array first_solution{
+                base_x-height*uy,base_y+height*ux};
+            const std::array second_solution{
+                base_x+height*uy,base_y-height*ux};
+            const auto& solution=std::hypot(
+                    first_solution[0]-old->x,
+                    first_solution[1]-old->y)<=std::hypot(
+                    second_solution[0]-old->x,
+                    second_solution[1]-old->y)
+                ?first_solution:second_solution;
+            auto candidate=*this;
+            candidate.dimensions=next.dimensions;
+            auto* point=candidate.find_point(junction);
+            point->x=solution[0];point->y=solution[1];
+            const auto checked=candidate.solve_impl(
+                100,needs_rank_for_redundancy);
+            if(checked.status==SolveStatus::Conflicting||
+               checked.status==SolveStatus::Invalid)continue;
+            next=std::move(candidate);result=checked;break;
         }
     }
     if(result.status==SolveStatus::Conflicting && seed_circular_equations(next,{}))

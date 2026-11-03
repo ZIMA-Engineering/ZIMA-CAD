@@ -20,6 +20,7 @@
 #include <set>
 #include <span>
 #include <type_traits>
+#include <tuple>
 #include <utility>
 #include <stdexcept>
 
@@ -109,6 +110,58 @@ struct EdgeReference {
             instance_path==other.instance_path;
     }
 };
+
+// Boolean operations give every new boundary fragment its own operational
+// identity while retaining the exact length-delimited parent reference in the
+// semantic key.  A persisted modeling reference may therefore resolve to one
+// or several surviving descendants after a later operation splits its edge.
+// Keep this ancestry parser independent of OCCT so calculation, command
+// presentation and Tree inspection can follow the same persisted contract.
+[[nodiscard]] inline std::optional<EdgeReference> split_edge_parent_reference(
+        const EdgeReference& candidate) {
+    constexpr std::string_view marker=":split-edge:from:";
+    const std::string_view key=candidate.semantic_key;
+    const auto parent_offset=key.find(marker);
+    if(parent_offset==std::string_view::npos)return std::nullopt;
+    std::size_t offset=parent_offset+marker.size();
+    const auto field=[&]() -> std::optional<std::string> {
+        const auto separator=key.find(':',offset);
+        if(separator==std::string_view::npos)return std::nullopt;
+        std::size_t length{};
+        const auto text=key.substr(offset,separator-offset);
+        const auto parsed=std::from_chars(
+            text.data(),text.data()+text.size(),length);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size()||
+           separator+1+length>key.size())return std::nullopt;
+        offset=separator+1+length;
+        return std::string(key.substr(separator+1,length));
+    };
+    auto owner=field();
+    auto semantic=field();
+    auto instance=field();
+    if(!owner||!semantic||!instance||
+       !key.substr(offset).starts_with(":between:"))return std::nullopt;
+    EdgeReference parent{std::move(*owner),std::move(*semantic),
+        std::move(*instance)};
+    // Native Part references have no occurrence path.  The viewer adds the
+    // exact occurrence to the child packet, and that same occurrence also
+    // qualifies every local ancestor encoded in its semantic identity.
+    if(parent.instance_path.empty())parent.instance_path=candidate.instance_path;
+    return parent.valid()?std::optional{std::move(parent)}:std::nullopt;
+}
+
+[[nodiscard]] inline bool edge_reference_matches_or_descends_from(
+        const EdgeReference& candidate,const EdgeReference& requested) {
+    auto current=candidate;
+    for(unsigned depth=0;depth<64;++depth) {
+        if(current==requested)return true;
+        const auto parent=split_edge_parent_reference(current);
+        if(!parent)return false;
+        current=*parent;
+    }
+    // Malformed or cyclic ancestry is never guessed into a valid selection.
+    return false;
+}
 
 // Boolean intersection intervals are persisted topology, not geometric
 // proximity guesses. Edge treatments and their presentation share this
@@ -1213,6 +1266,9 @@ struct KernelRigidPlacement {
 };
 inline constexpr const char* kernel_body_compound = "ZIMA-BODY-COMPOUND-V1";
 
+using HistoryReferenceIdentity =
+    std::tuple<std::string, std::string, std::string>; // owner, semantic key, occurrence
+
 struct KernelHistoryCache;
 
 struct BodyResult {
@@ -1225,6 +1281,11 @@ struct BodyResult {
     // Ephemeral proof of calculation by a live kernel instance. Never serialized.
     // A loaded native snapshot intentionally has no proof.
     std::shared_ptr<const void> calculation_provenance;
+    // Exact history-boundary reference requests evaluated for this packet.
+    // Coverage is retained even when a requested entity no longer exists at
+    // that boundary, so reference settling cannot fall back to final geometry.
+    // This is disposable calculation evidence and is never native storage.
+    std::set<HistoryReferenceIdentity> history_reference_coverage;
     // Original-source evaluation geometry at each solid-state boundary. These
     // immutable packets are not selectable topology and never enter mesh.
     // Native persistence retains them for reference resolution without OCCT.

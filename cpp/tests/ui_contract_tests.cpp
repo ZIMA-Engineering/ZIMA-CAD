@@ -165,6 +165,7 @@ int pixels_near(const QImage& image,const QColor& expected,
 void verify_sketch_reference_icons(QApplication& application) {
     using namespace zima::app;
     const QColor reference_points("#AD6E2E");
+    const QColor outline("#FFFFFF");
     for(const auto& theme:{QStringLiteral("light"),QStringLiteral("dark"),
             QStringLiteral("light")}) {
         ApplicationSettings appearance;appearance.theme=theme;
@@ -176,13 +177,13 @@ void verify_sketch_reference_icons(QApplication& application) {
             require(!image.isNull(),"Sketch reference icon did not render");
             return image;
         };
-        for(const auto* name:{"sketch-reference",
-                "sketch-reference-outline"}) {
-            const auto image=rendered(name);
-            require(pixels_near(image,reference_points)>20&&
-                    pixels_near(image,neutral)>20,
-                "Sketch reference icon lost its brown points or neutral wire");
-        }
+        const auto reference=rendered("sketch-reference");
+        require(pixels_near(reference,reference_points)>60,
+            "Sketch reference icon is not entirely brown");
+        const auto reference_outline=rendered("sketch-reference-outline");
+        require(pixels_near(reference_outline,reference_points)>40&&
+                pixels_near(reference_outline,outline)>20,
+            "Reference contour icon lost its brown reference or white contour");
         const auto intersection=rendered("sketch-intersection");
         require(pixels_near(intersection,reference_points,
                     QRect(4,28,16,16))>8&&
@@ -193,14 +194,14 @@ void verify_sketch_reference_icons(QApplication& application) {
                 pixels_near(intersection,neutral,
                     QRect(28,28,16,16))>8,
             "Intersection icon does not distinguish reference and crossing endpoints");
-        const auto contour=rendered("sketch-intersection-outline");
-        require(pixels_near(contour,reference_points)>40&&
-                pixels_near(contour,neutral)>60&&
-                pixels_near(contour,neutral,QRect(0,32,14,16))>8&&
-                pixels_near(contour,neutral,QRect(34,0,14,14))>8,
-            "Intersection contour icon lost its reference contour or crossing segment");
+        const auto intersection_outline=rendered(
+            "sketch-intersection-outline");
+        require(pixels_near(intersection_outline,reference_points)>30&&
+                pixels_near(intersection_outline,neutral)>30&&
+                pixels_near(intersection_outline,outline)>20,
+            "Intersection contour icon does not retain its base icon and white contour");
     }
-    std::cout<<"Sketch reference icons: neutral wires, brown reference points and crossing endpoints passed Light/Dark/Light\n";
+    std::cout<<"Sketch reference icons: brown references, base intersections and white outline marks passed Light/Dark/Light\n";
 }
 
 // Mesh interaction in this executable is driven by explicit synthetic events.
@@ -1501,19 +1502,60 @@ static void verify_hole_step(QApplication& application,QWidget& parent) {
 }
 
 static void verify_edge_treatment_fragments(QWidget& parent) {
+    const zima::kernel::EdgeReference authored{
+        "route-owner","edge:split",{}};
+    const auto encode=[](const zima::kernel::EdgeReference& reference) {
+        const auto field=[](const std::string& value) {
+            return std::to_string(value.size())+":"+value;
+        };
+        return field(reference.owner_id)+field(reference.semantic_key)+
+            field(reference.instance_path);
+    };
+    const auto child_reference=[&](std::string owner,
+            const zima::kernel::EdgeReference& source,std::string suffix) {
+        return zima::kernel::EdgeReference{std::move(owner),
+            "boolean:cut:split-edge:from:"+encode(source)+
+                ":between:"+std::move(suffix),{}};
+    };
+    const auto first_child=child_reference("first-cut",authored,"first");
+    const auto second_child=child_reference("second-cut",authored,"second");
+    const auto nested_child=child_reference(
+        "third-cut",second_child,"nested");
     zima::kernel::ViewerMesh mesh;
-    mesh.edges.push_back({{{-10,0,0},{0,0,0}},
-        {"route-owner","edge:split",{}}});
-    mesh.edges.push_back({{{0,4,0},{10,4,0}},
-        {"route-owner","edge:split",{}}});
+    mesh.edges.push_back({{{-20,0,0},{-15,0,0}},authored});
+    mesh.edges.push_back({{{-10,0,0},{0,0,0}},first_child});
+    mesh.edges.push_back({{{0,4,0},{10,4,0}},nested_child});
+    for(auto& edge:mesh.edges) {
+        edge.edge_treatment_side_directions={
+            std::vector(edge.points.size(),zima::kernel::Vec3{0,1,0}),
+            std::vector(edge.points.size(),zima::kernel::Vec3{0,0,1})};
+    }
     zima::viewer::MeshView view(&parent);
     view.set_mesh(std::move(mesh));
-    const auto fragments=view.display_edges(
-        {"route-owner","edge:split",{}});
+    const auto fragments=view.display_edges(authored);
     require(fragments.size()==2&&fragments.front().points.front().x==-10&&
-            fragments.back().points.back().x==10,
-        "Fillet/Chamfer preview omitted a calculated fragment sharing one stable edge identity");
-    std::cout<<"Fillet/Chamfer stable edge fragments passed\n";
+            fragments.back().points.back().x==10&&
+            fragments.front().edge_treatment_side_directions.size()==2&&
+            fragments.back().edge_treatment_side_directions.size()==2,
+        "Fillet/Chamfer preview did not prefer all recursively split descendants over a stale parent");
+
+    auto fillet=zima::document::PartDocument::create_fillet_container(
+        {authored});
+    auto* dialog=new zima::app::PrimitivePropertiesDialog(
+        fillet,false,false,[](auto){},&parent);
+    dialog->set_edge_groups({{authored}},{fragments});
+    auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");
+    const auto* route=rows?rows->topLevelItem(0):nullptr;
+    const auto* member=route&&route->childCount()==1?route->child(0):nullptr;
+    require(rows&&rows->columnCount()==5&&rows->topLevelItemCount()==2&&
+            route&&route->isExpanded()&&route->text(1)==QStringLiteral("2 objektů")&&
+            member&&member->isExpanded()&&member->childCount()==2&&
+            member->child(0)->text(2)==QStringLiteral("1.1.1")&&
+            member->child(1)->text(2)==QStringLiteral("1.1.2")&&
+            dialog->findChild<QWidget*>("edgeMemberRemove0_0"),
+        "Fillet/Chamfer Properties did not keep one always-visible stable route with all current fragments beneath it");
+    dialog->deleteLater();
+    std::cout<<"Fillet/Chamfer stable descendant fragments and always-visible Properties route passed\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -1672,9 +1714,9 @@ int main(int argc, char* argv[]) {
             auto* last_end=fillet->findChild<QTableWidget*>(
                 "edgeEndFace_0_1");
             require(route_tree&&route_tree->topLevelItemCount()>=1&&
-                    !route_tree->topLevelItem(0)->isExpanded()&&
+                    route_tree->topLevelItem(0)->isExpanded()&&
                     first_end&&last_end,
-                "Fillet route was expanded by default or omitted its two end-face fields");
+                "Fillet route did not expose its segments directly or omitted its two end-face fields");
             int end_requests{},end_autos{};
             fillet->set_edge_end_face_callbacks(
                 [&](std::size_t route,std::size_t end) {
@@ -2404,7 +2446,7 @@ int main(int argc, char* argv[]) {
                 "Fillet create/edit dialog does not use a Properties title");
         auto* fillet_routes = fillet_dialog->findChild<QTreeWidget*>(
             "edgeTreatmentEdges");
-        require(fillet_routes != nullptr && fillet_routes->columnCount() == 4 &&
+        require(fillet_routes != nullptr && fillet_routes->columnCount() == 5 &&
                     fillet_routes->topLevelItemCount() == 2 &&
                     fillet_routes->topLevelItem(0)->childCount() == 3,
                 "One Fillet route was split into separate one-object routes");

@@ -33,15 +33,20 @@ implementation and selection workflow, configured with a fixed operation type.
 
 - Explicit OCCT Fillet uses `BRepFilletAPI_MakeFillet`; explicit OCCT Chamfer
   uses `BRepFilletAPI_MakeChamfer`.
-- Explicit ZIMA constructs supported straight planar Fillets and Chamfers as
-  profile extrusions and Boolean operations. Automatic selects that path only
-  when its geometry contract is satisfied and otherwise retains OCCT.
-- The current ZIMA contract requires a straight open route, supported planar
-  adjacent faces and, when present, planar end faces containing the exact route
-  endpoints. A selected end face may be angled. Explicit ZIMA rejects an
-  unsupported case instead of silently changing method.
-- End-face fields are invalid in explicit OCCT mode. Automatic end-face
-  inference supplies only a face that satisfies the same endpoint test.
+- Explicit ZIMA constructs supported planar Fillets and Chamfers from their
+  exact section profiles, route sweeps and Boolean operations. Automatic selects
+  that path only when its geometry contract is satisfied and otherwise retains
+  OCCT.
+- The current ZIMA Fillet contract accepts an ordered open route of straight or
+  circular segments with one unique forward-tangent continuation. Chamfer keeps
+  its straight-segment contract. Both require supported planar adjacent faces
+  and, when present, planar end faces containing the exact route endpoints. A
+  selected end face may be angled. Explicit ZIMA rejects an unsupported case
+  instead of silently changing method.
+- End-face fields are invalid in explicit OCCT mode. Automatic first uses a
+  perpendicular terminal face or one uniquely inferred angled planar face. A
+  subtractive Fillet falls back to the actual Body envelope only for a complex
+  unresolved terminal; it never extends through a known perpendicular cap.
 - Both store the full `edge_refs` list and mirror its first entry in legacy
   `edge_ref`.
 - The effective selected intervals are first submitted in one OCCT builder
@@ -131,13 +136,14 @@ fragment bounded only by faces from one source feature remains an original edge,
 even when it is collinear with the joint. Text contained in a length-delimited
 parent reference is never mistaken for the current interval's role.
 
-At an overlapping pick the real joint is offered before the original edge. RMB
-cycling still exposes the original edge, and the selected seed determines which
-side of that choice forms the tangent route. Selecting the joint retains only its
-actual intersection intervals; selecting the original edge retains the source
-route instead. The same seed-aware route is shared by hover, confirmation and
-Restore Route. Persisted mixed routes from the earlier implementation are reduced
-per route before calculation, so preview and output use the same physical rail.
+At an overlapping pick the current calculated edge is offered before its explicit
+original-reference alternative. RMB cycling can still select that original edge.
+A current edge seed grows into one ordered route only through a unique exact
+forward-tangent continuation; an explicit original-reference seed remains exactly
+that one authored edge. Hover shows only the candidate under the pointer, while
+confirmation, Properties and the cyan preview share the complete selected route.
+A collinear 180-degree return terminates the route instead of being appended as a
+final segment, and a branch or ambiguous continuation also stops safely.
 
 The normal combined OCCT calculation remains the primary path. On failure, a
 constant single-edge Fillet immediately following an additive Feature can retain
@@ -145,10 +151,10 @@ that standalone operand, fillet the exact authored edge there, and then fuse the
 treated operand with the real preceding body. A cold or reused native prefix
 reconstructs only the required source branch before applying the same recovery.
 For a failed constant multi-edge Fillet or multi-edge Chamfer, the kernel applies
-the persisted intersection intervals as deterministic independent patches and
-publishes one final history boundary. If an earlier patch completely consumes a
-later interval, that interval is skipped; the kernel never selects a nearby
-replacement by coordinates.
+the persisted resolved edges as deterministic independent patches and publishes
+one final history boundary. If an earlier patch completely consumes a later
+fragment, that fragment is skipped; the kernel never selects a nearby replacement
+by coordinates.
 
 Edge resolution now recognizes recursively persisted Boolean split ancestry.
 Actual split descendants take precedence over a transitional parent alias. A
@@ -180,9 +186,20 @@ both traversal directions before any ordering change.
 
 The ZIMA Fillet builder creates the supported circular section along the exact
 straight route and fuses or subtracts the resulting treatment as required by the
-two adjacent planar faces. Chamfer has a separate planar builder using its
-distance/angle definition. Both builders share stable-reference resolution and
-end clipping, not duplicated platform-specific geometry.
+two adjacent planar faces. Its closed section is exactly one circular arc and
+the two straight support-face segments meeting at the source edge. It has no
+auxiliary outside extension. Chamfer has a separate planar builder using its
+distance/angle definition; its closed section is exactly the treatment line and
+the two support-face segments, a three-line triangle. Both builders use the
+document modeling tolerance, share stable-reference resolution and end clipping,
+and do not duplicate platform-specific geometry.
+
+The exact support segments may leave redundant coplanar Boolean seams. A local
+same-domain cleanup removes only those new seams while protecting surviving
+authored input boundaries and their non-coplanar descendants. Cleanup history is
+merged into the treatment history so stable references continue through later
+operations. The calculation does not replace the configured tolerance with a
+larger fixed modeling value.
 
 Each route persists two end-face slots even when both are empty. The selected
 face must contain the corresponding open-route endpoint. A perpendicular empty
@@ -190,13 +207,25 @@ end and a valid angled planar end are both finite supported cases. If a later ed
 makes the face invalid, calculation reports the reference error without reaching
 an unsafe Boolean call. OCCT mode cannot accept end faces.
 
-Boolean edits may split or consume selected source edges. Calculation resolves
-every surviving current fragment with the selected ancestry. The treatment stays
-resolved while at least one fragment remains, and the cyan preview publishes all
-matching fragments. It becomes unresolved only after all fragments disappear;
-no coordinate-nearest replacement is invented.
+A placed history container resolves each body-topology reference from the exact
+calculated output immediately before that container, never from a later final
+Body. Ordinary regeneration retains only the requested face, edge or point in a
+disposable reference packet; it does not retain an intermediate display mesh,
+B-Rep archive or aggregate-property calculation. The packet is rebuilt after a
+native reopen and is not a persisted format field. Repeated regeneration keeps
+the resolved frame stable, while an actual change to the preceding source updates
+the placement through the ordinary Undo/Redo transaction contract.
 
-Curved routes, arbitrary blend transitions, unrelated holes crossing the
+Boolean edits may split or consume selected source edges. Calculation, View and
+Properties recursively resolve every surviving current fragment through the
+same exact length-delimited ancestry. The stable authored route remains one
+group. Its authored segments and any read-only numbered current fragments are
+shown directly; this table has no expand/collapse interaction. The cyan preview
+publishes every matching fragment with both adjacent-face guides. The treatment
+stays resolved while at least one fragment remains and becomes unresolved only
+after all fragments disappear; no coordinate-nearest replacement is invented.
+
+Spline routes, arbitrary blend transitions, unrelated holes crossing the
 treatment and advanced cap shapes remain outside this first ZIMA contract.
 Automatic provides the existing OCCT fallback for unsupported geometry. The
 format-48 migration makes calculation method and end-face slots mandatory and
@@ -211,6 +240,14 @@ unchanged. Fillet06 was changed from an OCCT radius of 12 mm to a ZIMA radius of
 saved and reopened without an error; the following Hole and Pattern also remained
 calculated. This verifies that the preceding Fillet radius is not an artificial
 upper bound for a later independent treatment.
+
+The protected user project `TOP.prtz` was opened read-only. The Fillet07 seed
+resolves to the two exact forward-tangent segments that meet at its internal
+four-edge junction. On a disposable copy, committing those two segments with
+the ZIMA method at the authored 6 mm radius calculates, saves and reopens without
+a calculation error. The source file SHA-256 remained
+`272E199D667DF9BD715AAFB8DDBE6B06007CB401FC717EE77617FC0C813663F3`
+throughout this verification.
 
 The synthetic Boolean regression starts with one persisted vertical edge. A
 subtractive feature first splits it into two surviving fragments, then moves so

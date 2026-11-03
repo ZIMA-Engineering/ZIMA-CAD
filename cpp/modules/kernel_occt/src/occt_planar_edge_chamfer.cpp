@@ -14,12 +14,14 @@
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRep_Tool.hxx>
+#include <BRepTools.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Solid.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -144,10 +146,8 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         throw std::invalid_argument(
             "ZIMA Chamfer could not classify the material wedge");
 
-    const double overlap=std::max(100.*tolerance,
-        std::max({distance_a,distance_b,length})*1.0e-6);
     const auto axial_extension=[&](const TopoDS_Face& face,
-            const gp_Pnt& endpoint) {
+            const gp_Pnt& endpoint,double cross_span) {
         if(face.IsNull())return 0.;
         const BRepAdaptor_Surface support(face,true);
         if(support.GetType()!=GeomAbs_Plane)
@@ -165,31 +165,29 @@ Tool make_tool(const TopoDS_Edge& edge,const TopoDS_Face& first_face,
         if(incidence<=1.0e-8)
             throw std::invalid_argument(
                 "ZIMA Chamfer end face is parallel to the route");
-        return 2.*(distance_a+distance_b+overlap)/incidence+
-            100.*tolerance;
+        return cross_span/incidence+100.*tolerance;
     };
-    const double first_extension=axial_extension(end_faces.first,first);
-    const double last_extension=axial_extension(end_faces.last,last);
+    // The exact Chamfer profile is one triangle: the authored treatment line
+    // and the two support-face segments meeting at the source edge. Closing
+    // it outside the corner creates unnecessary coplanar seams and can retain
+    // the auxiliary overlap as visible material for an additive Chamfer.
+    const double cross_span=2.*(distance_a+distance_b);
+    const double first_extension=axial_extension(
+        end_faces.first,first,cross_span);
+    const double last_extension=axial_extension(
+        end_faces.last,last,cross_span);
     const gp_Pnt origin=first.Translated(
         -gp_Vec(tangent)*first_extension);
     const gp_Pnt first_tangent=origin.Translated(
         gp_Vec(first_direction)*distance_a);
     const gp_Pnt second_tangent=origin.Translated(
         gp_Vec(second_direction)*distance_b);
-    const gp_Pnt first_outer=first_tangent.Translated(
-        -gp_Vec(second_direction)*overlap);
-    const gp_Pnt outside_corner=origin.Translated(
-        -(gp_Vec(first_direction)+gp_Vec(second_direction))*overlap);
-    const gp_Pnt second_outer=second_tangent.Translated(
-        -gp_Vec(first_direction)*overlap);
     const auto treatment_edge=
         BRepBuilderAPI_MakeEdge(first_tangent,second_tangent).Edge();
     BRepBuilderAPI_MakeWire wire;
     wire.Add(treatment_edge);
-    wire.Add(BRepBuilderAPI_MakeEdge(second_tangent,second_outer).Edge());
-    wire.Add(BRepBuilderAPI_MakeEdge(second_outer,outside_corner).Edge());
-    wire.Add(BRepBuilderAPI_MakeEdge(outside_corner,first_outer).Edge());
-    wire.Add(BRepBuilderAPI_MakeEdge(first_outer,first_tangent).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(second_tangent,origin).Edge());
+    wire.Add(BRepBuilderAPI_MakeEdge(origin,first_tangent).Edge());
     if(!wire.IsDone())
         throw std::runtime_error(
             "ZIMA Chamfer could not construct its tool wire");
@@ -357,6 +355,8 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
     }
 
     OcctPlanarEdgeChamferResult result;
+    result.treatment_domains.reserve(tools.size());
+    for(const auto& tool:tools)result.treatment_domains.push_back(tool.solid);
     TopoDS_Shape current=input;
     const auto apply=[&](auto& operation,std::size_t first,
             std::size_t last) {
@@ -393,6 +393,73 @@ OcctPlanarEdgeChamferResult occt_planar_edge_chamfer(
         }
         first=last;
     }
+    // The two support sides of the exact triangular tool lie on the original
+    // planes. OCCT may retain their end sections as coplanar Boolean seams.
+    // Remove only those redundant new seams while protecting surviving input
+    // boundaries and their non-coplanar descendants.
+    ShapeUpgrade_UnifySameDomain cleanup(current,true,true,false);
+    cleanup.SetLinearTolerance(tolerance);
+    cleanup.SetAngularTolerance(1.0e-9);
+    TopTools_IndexedMapOfShape current_edges,input_edges;
+    TopExp::MapShapes(current,TopAbs_EDGE,current_edges);
+    TopExp::MapShapes(input,TopAbs_EDGE,input_edges);
+    TopTools_IndexedDataMapOfShapeListOfShape current_edge_faces;
+    TopExp::MapShapesAndAncestors(current,TopAbs_EDGE,TopAbs_FACE,
+        current_edge_faces);
+    const auto redundant_coplanar_seam=[&](const TopoDS_Shape& edge) {
+        const int edge_index=current_edge_faces.FindIndex(edge);
+        if(!edge_index)return false;
+        const auto& adjacent=current_edge_faces.FindFromIndex(edge_index);
+        if(adjacent.Extent()!=2)return false;
+        auto iterator=adjacent.cbegin();
+        const BRepAdaptor_Surface first_surface(
+            TopoDS::Face(*iterator),true);
+        ++iterator;
+        const BRepAdaptor_Surface second_surface(
+            TopoDS::Face(*iterator),true);
+        return first_surface.GetType()==GeomAbs_Plane&&
+            second_surface.GetType()==GeomAbs_Plane&&
+            first_surface.Plane().Axis().Direction().IsParallel(
+                second_surface.Plane().Axis().Direction(),1.0e-9)&&
+            first_surface.Plane().Distance(
+                second_surface.Plane().Location())<=tolerance;
+    };
+    // Keep all current non-seam boundaries, including unchanged disconnected
+    // split descendants that OCCT does not necessarily list in the Boolean
+    // Modified/Generated history.
+    for(int index=1;index<=current_edges.Extent();++index) {
+        const auto& edge=current_edges.FindKey(index);
+        if(!redundant_coplanar_seam(edge)) {
+            cleanup.KeepShape(edge);
+            continue;
+        }
+        const bool existing_boundary=std::ranges::any_of(
+            std::views::iota(1,input_edges.Extent()+1),
+            [&](int input_index) {
+                return BRepTools::Compare(TopoDS::Edge(edge),
+                    TopoDS::Edge(input_edges.FindKey(input_index)));
+            });
+        if(existing_boundary)cleanup.KeepShape(edge);
+    }
+    for(int index=1;index<=input_edges.Extent();++index) {
+        const auto& source=input_edges.FindKey(index);
+        if(current_edges.Contains(source))cleanup.KeepShape(source);
+        for(const auto* descendants:{&result.history->Modified(source),
+                &result.history->Generated(source)})
+            for(const auto& descendant:*descendants)
+                if(descendant.ShapeType()==TopAbs_EDGE&&
+                   current_edges.Contains(descendant)&&
+                   !redundant_coplanar_seam(descendant))
+                    cleanup.KeepShape(descendant);
+    }
+    cleanup.Build();
+    if(cleanup.Shape().IsNull())
+        throw std::runtime_error(
+            "ZIMA Chamfer could not remove auxiliary result seams");
+    if(const auto cleanup_history=cleanup.History();
+            !cleanup_history.IsNull())
+        result.history->Merge(cleanup_history);
+    current=cleanup.Shape();
     result.shape=current;
     TopTools_IndexedMapOfShape result_faces;
     TopExp::MapShapes(result.shape,TopAbs_FACE,result_faces);

@@ -1280,6 +1280,9 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_perpendicular_junction_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_perpendicular_junction_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_PERPENDICULAR_JUNCTION_ONLY=1" TIMEOUT 180)
     add_executable(zima_cpp_rounded_tangent_wing_tests tests/rounded_tangent_wing_tests.cpp)
     add_executable(zima_cpp_rolled_l_profile_tests tests/rolled_l_profile_tests.cpp)
     target_link_libraries(zima_cpp_rolled_l_profile_tests PRIVATE zima_sketcher)
@@ -2155,6 +2158,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_sketch_grips_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_perpendicular_junction_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_perpendicular_junction_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_SKETCH_ONLY=1;ZIMA_VERIFY_PERPENDICULAR_JUNCTION_UI_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/coordinate-incidence-ui")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/rounded-tangent-wing-ui")
     add_test(NAME zima_cpp_rounded_tangent_wing_ui_contract COMMAND zima-cad-cpp --verify-startup

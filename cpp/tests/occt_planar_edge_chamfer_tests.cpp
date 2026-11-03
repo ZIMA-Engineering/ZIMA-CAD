@@ -87,15 +87,23 @@ TopoDS_Shape concave_prism(double height) {
 
 void verify_result(const TopoDS_Shape& input,
         const std::vector<TopoDS_Edge>& edges,double distance,
-        double expected_volume) {
+        double expected_volume,int expected_face_count,
+        double tolerance=1.0e-7) {
     const auto custom=zima::kernel::occt_planar_edge_chamfer(
-        input,edges,distance,1.0e-7);
+        input,edges,distance,tolerance);
     require(!custom.Shape().IsNull()&&custom.history&&
             BRepCheck_Analyzer(custom.Shape(),true,true,false).IsValid()&&
+            custom.treatment_domains.size()==edges.size()&&
             custom.chamfer_faces.size()==edges.size()&&
             std::ranges::all_of(custom.chamfer_faces,
                 [](const auto& faces){return !faces.empty();}),
         "Custom planar Chamfer omitted its valid body, history or faces");
+    for(const auto& domain:custom.treatment_domains) {
+        TopTools_IndexedMapOfShape domain_faces;
+        TopExp::MapShapes(domain,TopAbs_FACE,domain_faces);
+        require(domain_faces.Extent()==5,
+            "Custom Chamfer tool is not one exact triangular prism");
+    }
     for(const auto& faces:custom.chamfer_faces)
         for(const auto& face:faces) {
             require(BRepAdaptor_Surface(face,true).GetType()==GeomAbs_Plane,
@@ -132,6 +140,10 @@ void verify_result(const TopoDS_Shape& input,
     }
     near(volume(custom.Shape()),expected_volume,
         "Custom planar Chamfer volume is wrong");
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(custom.Shape(),TopAbs_FACE,result_faces);
+    require(result_faces.Extent()==expected_face_count,
+        "Custom planar Chamfer retained auxiliary coplanar faces");
 }
 
 void verify_asymmetric(const TopoDS_Shape& input,const TopoDS_Edge& edge,
@@ -246,9 +258,9 @@ int main() try {
     require(box_edges.size()==4,
         "Box fixture did not expose four vertical edges");
     verify_result(box,{box_edges.front()},3.,
-        box_volume-.5*3.*3.*box_height);
+        box_volume-.5*3.*3.*box_height,7,0.001);
     verify_result(box,box_edges,2.,
-        box_volume-4.*.5*2.*2.*box_height);
+        box_volume-4.*.5*2.*2.*box_height,10,0.001);
     TopTools_IndexedDataMapOfShapeListOfShape box_edge_faces;
     TopExp::MapShapesAndAncestors(box,TopAbs_EDGE,TopAbs_FACE,
         box_edge_faces);
@@ -289,7 +301,7 @@ int main() try {
     require(inside!=concave_edges.end(),
         "Concave prism fixture lost its internal edge");
     verify_result(concave,{*inside},3.,
-        volume(concave)+.5*3.*3.*concave_height);
+        volume(concave)+.5*3.*3.*concave_height,9,0.001);
     const auto outside=std::ranges::find_if(concave_edges,
         [](const auto& edge) {
             const BRepAdaptor_Curve curve(edge);
@@ -299,8 +311,8 @@ int main() try {
         });
     require(outside!=concave_edges.end(),
         "Concave prism fixture lost its external edge");
-    verify_result(concave,{*outside,*inside},3.,volume(concave));
-    verify_result(concave,{*inside,*outside},3.,volume(concave));
+    verify_result(concave,{*outside,*inside},3.,volume(concave),10,0.001);
+    verify_result(concave,{*inside,*outside},3.,volume(concave),10,0.001);
 
     {
         const auto fixture=angled_end_fixture();

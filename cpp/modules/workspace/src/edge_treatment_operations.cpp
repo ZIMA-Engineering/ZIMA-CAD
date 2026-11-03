@@ -150,14 +150,14 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     if(stored)*next.find_container(feature.id)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);next.history.push_back(std::move(feature));}
     const auto& previous=state->session.calculated_boundaries();
-    // Same construction-resolution sequence as the existing Properties OK.
-    // Fillet/Chamfer do not expose an independent placement operation.
-    auto references=construction_reference_source_geometry(previous);
-    append_reference_geometry(references,next.origin_viewer_mesh().original_references);
-    append_reference_geometry(references,next.construction_viewer_mesh().original_references);
-    next.resolve_constructions(references);
     auto policy=feature_definition_calculation_policy(before,previous,feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(feature_id);}
+    // A geometrically unsatisfied Fillet/Chamfer definition is still useful
+    // authored history: it keeps the exact selected routes/end faces visible
+    // and editable while the Tree reports the calculation failure. Structural
+    // and reference-shape validation above remains transactional and rejects
+    // malformed definitions before they enter the document.
+    policy.reject_errors=false;
     // Preserve the Tree route-edit contract: dependent placements and Sketch
     // projections must describe the same explicitly calculated result.
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);

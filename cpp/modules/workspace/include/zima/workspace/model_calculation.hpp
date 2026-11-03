@@ -48,6 +48,11 @@ struct PartCalculationPolicy {
     // Internal calculation boundary used to complete one deferred history
     // packet. It never changes the authored cursor or persisted document.
     std::optional<std::size_t> calculation_operation_limit;
+    // A cold explicit regeneration still recalculates native OCCT geometry.
+    // This independently verified saved calculation supplies only immutable
+    // stable-reference frames for unchanged operation-output fingerprints, so
+    // a kernel replay cannot reverse an existing face side or placement.
+    const std::vector<kernel::BodyResult>* history_reference_baseline{};
 };
 
 // Validated new definitions and already failed features retain their native

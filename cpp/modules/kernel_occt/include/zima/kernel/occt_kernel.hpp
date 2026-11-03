@@ -3,6 +3,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 #include <memory>
+#include <map>
 #include <span>
 #include <set>
 #include <string>
@@ -23,6 +24,11 @@ struct HistoryOutputPolicy {
     // Sketch body-edge projection or exact face intersection). Their immediate
     // preceding boundary must remain complete.
     std::set<std::string> input_boundary_consumers;
+    // Exact reference identities required from a particular operation output.
+    // These produce only a narrow placement packet, never a complete retained
+    // viewer/B-Rep boundary.
+    std::map<std::string,std::set<HistoryReferenceIdentity>>
+        reference_output_owners;
     // Owners whose output is currently displayed, for example the operation
     // immediately before an active history cursor.  Retaining it during the
     // same calculation avoids a second OCCT replay just to publish the scene.

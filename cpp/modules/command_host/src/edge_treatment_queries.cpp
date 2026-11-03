@@ -89,7 +89,8 @@ void Host::register_edge_treatment_queries() {
                     throw QueryError("invalid_arguments","Reference fields must be supported text fields.");
                 const kernel::EdgeReference seed{value.at("owner"),value.at("key"),value.value("instance_path",std::string{})};
                 if(!seed.valid()||!seed.instance_path.empty())throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
-                const auto route=kernel::tangent_edge_route(source.result.mesh.edges,seed);
+                const auto route=kernel::tangent_edge_route(
+                    source.result.mesh.edges,seed);
                 if(route.empty())throw QueryError("invalid_reference","Select an unambiguous edge of the calculated input body.");
                 auto members=Json::array();std::map<Key,std::pair<Json,std::size_t>> vertices;bool complete_endpoints=true;
                 for(const auto& reference:route) {

@@ -17,12 +17,45 @@ int main(){try {
     auto separate=b;separate.edge_treatment_endpoint_references.front().semantic_key="different-point";
     check(tangent_edge_route({a,separate},a.reference).size()==1,"Spatial coincidence replaced exact endpoint identity");
     auto branch=edge("branch",{1,0,0},{2,.1,0},"v1","branch-end");
-    check(tangent_edge_route({a,b,branch},a.reference).size()==1,"Ambiguous junction was traversed");
+    check(tangent_edge_route({a,b,branch},a.reference)==
+        std::vector<EdgeReference>{a.reference,b.reference},
+        "The unique exact tangent continuation stopped at an unrelated branch");
     auto tee=edge("tee",{1,0,0},{1,1,0},"v1","tee-end");
-    check(tangent_edge_route({a,b,tee},a.reference).size()==1,
-        "A topological T junction was crossed through its tangent pair");
+    check(tangent_edge_route({a,b,tee},a.reference)==
+        std::vector<EdgeReference>{a.reference,b.reference},
+        "The unique exact tangent continuation stopped at a T junction");
+    auto ambiguous_tangent=edge("ambiguous-tangent",{1,0,0},{3,0,0},
+        "v1","ambiguous-end");
+    check(tangent_edge_route({a,b,ambiguous_tangent},a.reference).size()==1,
+        "A genuinely ambiguous tangent junction was traversed");
+    {
+        auto left=edge("left",{-1,1,0},{0,1,0},"left-end","arc-start");
+        auto arc=edge("radius",{0,1,0},{1,0,0},"arc-start","arc-end");
+        const double weight=std::sqrt(.5);
+        BSplineGeometry exact;exact.degree=2;
+        exact.poles={{0,1,0},{1,1,0},{1,0,0}};
+        exact.knots={0,0,0,1,1,1};exact.weights={1,weight,1};
+        exact.validate();arc.exact_spline=std::move(exact);
+        auto right=edge("right",{1,0,0},{1,-1,0},"arc-end","right-end");
+        const auto mixed=tangent_edge_route({right,arc,left,tee},arc.reference);
+        check(mixed==std::vector<EdgeReference>{left.reference,arc.reference,right.reference},
+            "A line-radius-line route was not returned as three ordered segments");
+    }
     auto back=edge("back",{1,0,0},{.2,.1,0},"v1","back-end");
     check(tangent_edge_route({a,back},a.reference).size()==1,"Route doubled back on itself");
+    auto tangent_return=edge("tangent-return",{1,0,0},{.25,0,0},
+        "v1","return-end");
+    check(tangent_edge_route({a,tangent_return},a.reference).size()==1,
+        "A sharp tangent return was mistaken for forward continuation");
+    auto beyond_return=edge("beyond-return",{.25,0,0},{-.5,0,0},
+        "return-end","beyond-end");
+    check(tangent_edge_route({a,tangent_return,beyond_return},a.reference).size()==1,
+        "A sharp tangent return propagated into a different smooth chain");
+    auto reversed_storage=edge("reversed-storage",{2,0,0},{1,0,0},
+        "v2","v1");
+    check(tangent_edge_route({a,reversed_storage},a.reference)==
+            std::vector<EdgeReference>{a.reference,reversed_storage.reference},
+        "A forward continuation depended on stored point order");
     const auto shallow_angle=.5*std::numbers::pi/180.;
     auto shallow=edge("shallow",{1,0,0},
         {1+std::cos(shallow_angle),std::sin(shallow_angle),0},

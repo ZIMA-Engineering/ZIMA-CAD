@@ -1305,35 +1305,32 @@ int main() {
                 first_boolean,second_boolean,refs[3]}};
             const auto actual_wire=zima::document::treatment_selection_wire(
                 boolean_route,0,std::nullopt,input);
-            require(actual_wire.size()==2&&
-                    actual_wire[0].reference==first_boolean&&
-                    actual_wire[1].reference==second_boolean&&
+            require(actual_wire.size()==5&&
+                    actual_wire[0].reference==refs[2]&&
+                    actual_wire[1].reference==source_continuation&&
+                    actual_wire[2].reference==first_boolean&&
+                    actual_wire[3].reference==second_boolean&&
+                    actual_wire[4].reference==refs[3]&&
                     zima::document::treatment_selection_wire(
                         boolean_route,0,0,input).front().reference==refs[2],
-                "Treatment route preview retained tangent source edges beside the actual Boolean intersection");
+                "Treatment route preview changed the exact persisted selection");
             const auto intersection_choice=
                 zima::document::edge_treatment_intervals_from_seed(
                     boolean_route.routes.front(),first_boolean);
             const auto source_choice=
                 zima::document::edge_treatment_intervals_from_seed(
                     boolean_route.routes.front(),source_continuation);
-            require(intersection_choice.size()==2&&
-                    std::ranges::find(intersection_choice,first_boolean)!=
-                        intersection_choice.end()&&
-                    source_choice.size()==3&&
-                    std::ranges::find(source_choice,source_continuation)!=
-                        source_choice.end()&&
-                    std::ranges::none_of(source_choice,[](const auto& edge) {
-                        return zima::kernel::is_boolean_intersection_interval(
-                            edge);
-                    }),
-                "Treatment hover did not preserve the explicit intersection/source-edge choice");
+            require(intersection_choice==boolean_route.routes.front()&&
+                    source_choice==boolean_route.routes.front(),
+                "Selection filtering changed an already validated logical route");
             boolean_route.routes={{refs[2],first_boolean,refs[3]}};
             const auto partial_wire=zima::document::treatment_selection_wire(
                 boolean_route,0,std::nullopt,input);
-            require(partial_wire.size()==1&&
-                    partial_wire.front().reference==first_boolean,
-                "Treatment route preview did not limit a partial Boolean intersection to its one surviving interval");
+            require(partial_wire.size()==3&&
+                    partial_wire[0].reference==refs[2]&&
+                    partial_wire[1].reference==first_boolean&&
+                    partial_wire[2].reference==refs[3],
+                "Treatment route preview filtered mixed-provenance segments a second time");
             zima::document::remove_treatment_selection(parameters,0,0,input);
             require(parameters.routes.size()==2 && parameters.routes[0].size()==2 &&
                 parameters.routes[1].size()==1 && parameters.primary_size==2 && parameters.secondary_size==4 &&

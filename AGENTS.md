@@ -1072,3 +1072,20 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
 - This is a development and format-change safeguard, not a claim that a
   background directory watcher or automatic backup service is running.
 - This requirement was requested by the user on 2026-10-23.
+
+## Permissive native modeling with durable results (mandatory)
+
+- ZIMA-owned modeling algorithms must allow unusual but geometrically valid
+  combinations. Do not reject an operation merely because it is uncommon,
+  aesthetically questionable or difficult to classify in advance.
+- Apply authored inputs in a documented deterministic order, then validate the
+  actual result. Accept the operation when it produces a valid, closed,
+  manifold and repeatably regenerable Body with preserved reference ancestry.
+  Reject demonstrably invalid, degenerate, non-manifold or unstable results
+  without modifying the document or creating an Undo transaction.
+- Prefer result-based durability checks over increasingly restrictive input
+  heuristics. Conservative prevalidation remains appropriate where executing
+  the input could crash the kernel, violate a protected contract or make the
+  operation nondeterministic.
+- This principle was agreed with the user on 2026-11-02 while defining mixed
+  additive and subtractive ZIMA Fillet and Chamfer behavior.

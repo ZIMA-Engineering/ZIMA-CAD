@@ -1460,6 +1460,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         edge_list_->setHeaderLabels({tr("Trasa"), tr("Objekty"),
             QStringLiteral("#"),QString{},tr("Koncová plocha")});
         edge_list_->setTreePosition(2);
+        // Treatment routes are grouped for deletion and end conditions, but
+        // their segments are always visible. There is no collapsed/expanded
+        // interaction in this table.
+        edge_list_->setItemsExpandable(false);
+        edge_list_->setRootIsDecorated(false);
         for(int column:{2,3})edge_list_->header()->setSectionResizeMode(column,QHeaderView::Fixed);
         edge_list_->setColumnWidth(2,64);edge_list_->setColumnWidth(3,34);
         edge_list_->header()->moveSection(edge_list_->header()->visualIndex(2),0);
@@ -1950,7 +1955,17 @@ void PrimitivePropertiesDialog::set_edge_references(
 }
 
 void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
+    const bool same_groups=groups==edge_groups_;
+    set_edge_groups(std::move(groups),same_groups
+        ?edge_display_fragments_
+        :std::vector<std::vector<zima::kernel::ViewerEdge>>{});
+}
+
+void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups,
+        std::vector<std::vector<zima::kernel::ViewerEdge>> displayed_fragments) {
     edge_groups_ = std::move(groups);
+    edge_display_fragments_=std::move(displayed_fragments);
+    edge_display_fragments_.resize(edge_groups_.size());
     initial_.edge_treatment.routes = edge_groups_;
     initial_.edge_treatment.route_end_faces.resize(edge_groups_.size());
     if (edge_list_ == nullptr) return;
@@ -2062,9 +2077,11 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
     for (std::size_t group_index = 0; group_index < edge_groups_.size(); ++group_index) {
         const auto& group = edge_groups_[group_index];
         if (group.empty()) continue;
+        const auto& displayed=edge_display_fragments_[group_index];
+        const auto displayed_count=displayed.empty()?group.size():displayed.size();
         auto* route = new QTreeWidgetItem(edge_list_, {
             tr("Trasa %1").arg(group_index + 1),
-            tr("%1 objektů").arg(group.size())});
+            tr("%1 objektů").arg(displayed_count)});
         route->setData(0, Qt::UserRole, static_cast<uint>(group_index));
         route->setText(2,QString::number(group_index+1));
         route->setSizeHint(0,QSize(edge_list_->fontMetrics().horizontalAdvance(route->text(0))+16,34));
@@ -2088,6 +2105,32 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
             action->setObjectName(QString("edgeMemberRemove%1_%2").arg(group_index).arg(member));
             zima::ui::set_reference_row_populated(action,true);
             edge_list_->setItemWidget(child,3,zima::ui::centered_cell_widget(action));
+            std::vector<const zima::kernel::ViewerEdge*> fragments;
+            for(const auto& fragment:displayed)
+                if(zima::kernel::edge_reference_matches_or_descends_from(
+                        fragment.reference,edge))fragments.push_back(&fragment);
+            const bool resolved_as_fragments=fragments.size()>1||
+                (fragments.size()==1&&fragments.front()->reference!=edge);
+            if(resolved_as_fragments) {
+                for(std::size_t fragment_index=0;
+                        fragment_index<fragments.size();++fragment_index) {
+                    const auto& reference=fragments[fragment_index]->reference;
+                    auto* fragment=new QTreeWidgetItem(child,{QString{},
+                        QString::fromStdString(reference.owner_id+" / "+
+                            reference.semantic_key)});
+                    fragment->setData(0,Qt::UserRole,
+                        static_cast<uint>(group_index));
+                    fragment->setData(0,Qt::UserRole+1,
+                        static_cast<uint>(member));
+                    fragment->setData(0,Qt::UserRole+2,
+                        static_cast<uint>(fragment_index));
+                    fragment->setText(2,QStringLiteral("%1.%2.%3")
+                        .arg(group_index+1).arg(member+1)
+                        .arg(fragment_index+1));
+                    fragment->setSizeHint(0,QSize(16,34));
+                }
+                child->setExpanded(true);
+            }
             const bool first=member==0;
             const bool last=member+1==group.size();
             if(first||last) {
@@ -2101,7 +2144,7 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
                 edge_list_->setItemWidget(child,4,end_widget);
             }
         }
-        route->setExpanded(false);
+        route->setExpanded(true);
     }
     // The command already owns edge entry throughout its lifetime. This row
     // makes the offered input visible without creating an empty model route.

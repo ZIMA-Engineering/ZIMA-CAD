@@ -4233,6 +4233,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
 
 int verify_body_sketch_ui(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
+    const bool perpendicular_junction_only=qEnvironmentVariableIsSet(
+        "ZIMA_VERIFY_PERPENDICULAR_JUNCTION_UI_ONLY");
     auto document=PartDocument::create_default();
     auto container=PartDocument::create_sketch_container();
     auto sketch=zima::sketcher::Sketch::create_default();
@@ -4241,6 +4243,26 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
     static_cast<void>(sketch.add_segment(0,0,0,10));
     const auto tangent_first=sketch.add_circle(5,0,2);
     const auto tangent_second=sketch.add_circle(15,0,2);
+    std::string perpendicular_junction;
+    if(perpendicular_junction_only) {
+        const auto base=sketch.add_segment(30,0,50,0,1.0e-8);
+        const auto first=sketch.add_segment(30,0,40,10,1.0e-8);
+        const auto second=sketch.add_segment(50,0,40,10,1.0e-8);
+        const auto base_segment=*std::ranges::find(
+            sketch.segments,base,&zima::sketcher::SketchSegment::id);
+        const auto first_segment=*std::ranges::find(
+            sketch.segments,first,&zima::sketcher::SketchSegment::id);
+        const auto second_segment=*std::ranges::find(
+            sketch.segments,second,&zima::sketcher::SketchSegment::id);
+        perpendicular_junction=first_segment.second_point_id;
+        if(second_segment.second_point_id!=perpendicular_junction)
+            throw std::runtime_error(
+                "Perpendicular GUI fixture did not share its junction");
+        sketch.set_point_fixed(base_segment.first_point_id,true);
+        sketch.set_point_fixed(base_segment.second_point_id,true);
+        static_cast<void>(sketch.add_segment_pair_constraint(first,second,
+            zima::sketcher::ConstraintKind::Perpendicular));
+    }
     for (const auto circle : std::vector(sketch.circles)) {
         sketch.set_point_fixed(circle.center_point_id,true);
         sketch.apply_dimension(sketch.create_circle_radius_dimension(circle.id));
@@ -4350,6 +4372,115 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
         }) && std::ranges::none_of(viewer->mesh().axes,[&](const auto& axis) {
             return axis.reference.owner_id==body_id+":origin";
         }),"Sketcher displays Body Origin instead of its container Origin")) return 1;
+    if(perpendicular_junction_only) {
+        const auto before=*sketch.find_point(perpendicular_junction);
+        std::optional<QPointF> picked;
+        for(int y=15;y<viewer->height()-15&&!picked;y+=2)
+            for(int x=15;x<viewer->width()-15&&!picked;x+=2) {
+                const auto candidates=viewer->selection_candidates_at(
+                    QPointF(x,y));
+                if(std::ranges::any_of(candidates,[&](const auto& candidate) {
+                        return candidate.kind==
+                                zima::viewer::CandidateKind::SketchPoint&&
+                            candidate.owner_id==sketch.id&&
+                            candidate.semantic_key==
+                                "point:"+perpendicular_junction;
+                    }))picked=QPointF(x,y);
+            }
+        if(!verify(picked.has_value(),
+                "Perpendicular shared junction is not pickable"))return 1;
+        const auto mouse=[&](QEvent::Type type,QPointF position,
+                Qt::MouseButton button,Qt::MouseButtons buttons) {
+            QMouseEvent event(type,position,QPointF(
+                viewer->mapToGlobal(position.toPoint())),button,buttons,
+                Qt::NoModifier);
+            QApplication::sendEvent(viewer,&event);flush();
+        };
+        mouse(QEvent::MouseMove,*picked,Qt::NoButton,Qt::NoButton);
+        mouse(QEvent::MouseButtonPress,*picked,Qt::LeftButton,
+            Qt::LeftButton);
+        mouse(QEvent::MouseMove,*picked+QPointF(28,-19),Qt::NoButton,
+            Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease,*picked+QPointF(28,-19),
+            Qt::LeftButton,Qt::NoButton);
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        bool returned{};
+        for(auto* dialog:window.findChildren<QDialog*>())
+            if(dialog->isVisible()&&
+               dialog->findChild<QPushButton*>("sketchOpenButton")) {
+                dialog->findChild<QDialogButtonBox*>()->button(
+                    QDialogButtonBox::Cancel)->click();flush();
+                returned=true;break;
+            }
+        if(!verify(returned,
+                "Perpendicular Sketch did not return to Properties"))return 1;
+        const auto save=window.findChild<QAction*>("saveDocumentAction");
+        const auto undo=window.findChild<QAction*>("undoAction");
+        const auto redo=window.findChild<QAction*>("redoAction");
+        save->trigger();flush();
+        const auto load_junction=[&]() {
+            const auto reopened=PartDocument::load(path);
+            const auto stored=std::ranges::find(reopened.sketches,
+                sketch.id,&zima::sketcher::Sketch::id);
+            if(stored==reopened.sketches.end())
+                throw std::runtime_error(
+                    "Perpendicular GUI Sketch disappeared");
+            const auto* junction=stored->find_point(
+                perpendicular_junction);
+            if(!junction)throw std::runtime_error(
+                "Perpendicular GUI junction disappeared");
+            const auto perpendicular=std::ranges::find_if(
+                stored->constraints,[](const auto& constraint) {
+                    return !constraint.suppressed&&constraint.kind==
+                        zima::sketcher::ConstraintKind::Perpendicular;
+                });
+            if(perpendicular==stored->constraints.end())
+                throw std::runtime_error(
+                    "Perpendicular GUI constraint disappeared");
+            const auto first=std::ranges::find(stored->segments,
+                perpendicular->geometry_id,
+                &zima::sketcher::SketchSegment::id);
+            const auto second=std::ranges::find(stored->segments,
+                perpendicular->second_geometry_id,
+                &zima::sketcher::SketchSegment::id);
+            if(first==stored->segments.end()||
+               second==stored->segments.end())
+                throw std::runtime_error(
+                    "Perpendicular GUI segments disappeared");
+            const auto opposite=[&](const auto& segment) {
+                return segment.first_point_id==perpendicular_junction
+                    ?segment.second_point_id:segment.first_point_id;
+            };
+            const auto* a=stored->find_point(opposite(*first));
+            const auto* b=stored->find_point(opposite(*second));
+            const double ux=a->x-junction->x;
+            const double uy=a->y-junction->y;
+            const double vx=b->x-junction->x;
+            const double vy=b->y-junction->y;
+            if(std::abs(ux*vx+uy*vy)>1.0e-7)
+                throw std::runtime_error(
+                    "Perpendicular GUI drag lost its equation");
+            return *junction;
+        };
+        const auto moved=load_junction();
+        if(!verify(std::hypot(moved.x-before.x,moved.y-before.y)>1.0e-4,
+                "Perpendicular mouse drag did not move its shared point"))
+            return 1;
+        if(!verify(undo&&undo->isEnabled(),
+                "Perpendicular mouse drag has no Undo"))return 1;
+        undo->trigger();flush();save->trigger();flush();
+        const auto undone=load_junction();
+        if(!verify(std::hypot(undone.x-before.x,undone.y-before.y)<1.0e-8,
+                "Perpendicular mouse drag Undo changed the source"))return 1;
+        if(!verify(redo&&redo->isEnabled(),
+                "Perpendicular mouse drag has no Redo"))return 1;
+        redo->trigger();flush();save->trigger();flush();
+        const auto redone=load_junction();
+        if(!verify(std::hypot(redone.x-moved.x,redone.y-moved.y)<1.0e-8,
+                "Perpendicular mouse drag Redo was not stable"))return 1;
+        std::cout<<"Perpendicular shared junction: actual View drag, equation, Undo/Redo and native reopen passed\n";
+        return 0;
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_GRIPS_ONLY")) {
         for(const auto& source:sketch.dimensions) {
             QTreeWidgetItem* dimension_row=nullptr;

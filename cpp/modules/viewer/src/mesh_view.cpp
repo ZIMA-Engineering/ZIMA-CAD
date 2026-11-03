@@ -1851,12 +1851,16 @@ std::optional<zima::kernel::ViewerEdge> MeshView::display_edge(
 
 std::vector<zima::kernel::ViewerEdge> MeshView::display_edges(
     const zima::kernel::EdgeReference& reference) const {
-    std::vector<zima::kernel::ViewerEdge> result;
-    if (!reference.valid()) return result;
+    std::vector<zima::kernel::ViewerEdge> exact,descendants;
+    if (!reference.valid()) return exact;
     for (const auto& edge : impl_->mesh.edges) {
-        if (edge.reference == reference) result.push_back(edge);
+        if(edge.reference==reference)exact.push_back(edge);
+        else if(zima::kernel::edge_reference_matches_or_descends_from(
+                edge.reference,reference))descendants.push_back(edge);
     }
-    return result;
+    // The calculation contract gives current split descendants precedence if
+    // a transitional packet ever contains both them and the obsolete parent.
+    return descendants.empty()?exact:descendants;
 }
 
 std::optional<zima::kernel::ViewerPoint> MeshView::candidate_point(
@@ -1895,6 +1899,8 @@ std::optional<zima::kernel::ViewerAxis> MeshView::candidate_axis(
 std::vector<zima::kernel::EdgeReference> MeshView::tangent_edge_route(
     const ViewerCandidate& seed) const {
     if (seed.kind != CandidateKind::Edge) return {};
+    if(seed.geometry==CandidateGeometry::OriginalReference)
+        return {{seed.owner_id,seed.semantic_key,seed.instance_path}};
     const auto& edges = seed.geometry == CandidateGeometry::OriginalReference
         ? impl_->mesh.original_references.edges : impl_->mesh.edges;
     return zima::kernel::tangent_edge_route(edges,

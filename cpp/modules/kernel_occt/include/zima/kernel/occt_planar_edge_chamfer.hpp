@@ -12,11 +12,15 @@
 
 namespace zima::kernel {
 
-// Exact straight plane/plane Chamfer. The profile is swept between square end
-// planes; mixed subtractive/additive edges are applied in authored order.
+// Exact straight plane/plane Chamfer. Its triangular three-line profile is
+// swept between end planes; mixed subtractive/additive edges are applied in
+// authored order.
 struct OcctPlanarEdgeChamferResult {
     TopoDS_Shape shape;
     occ::handle<BRepTools_History> history;
+    // Derived in-memory exact triangular tool domains. They are exposed for
+    // geometric verification and are never native-file persistence.
+    std::vector<TopoDS_Shape> treatment_domains;
     std::vector<std::vector<TopoDS_Face>> chamfer_faces;
     std::vector<TopoDS_Edge> source_edges;
     std::vector<NCollection_List<TopoDS_Shape>> generated_from_edges;

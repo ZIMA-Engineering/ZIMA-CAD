@@ -1,6 +1,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <cmath>
@@ -124,6 +125,249 @@ void verify_profile_frame_convergence(const kernel::OcctKernel& kernel){
         require(session.redo(),"Frame-only regeneration was not redoable");
         require(session.calculated_boundaries().back().source_fingerprint==fingerprint,"Redo lost resolved calculation");
     }
+}
+void verify_history_boundary_placement_isolation(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,16,12});
+    auto attached=test::rectangular_feature(part,{4,4,4});
+    const auto face_key=test::profile_key(part,stock,"x_max");
+    document::ConstructionReference face{{},stock.id,face_key};
+    face.supports_offset=true;
+    face.orientation_role="front";
+    face.orientation_drives_rotation=true;
+    attached.placement.references={face};
+    part.history={stock,attached};
+    document::BodyHistoryGraph graph;
+    const auto body_id=graph.create_body("Boundary placement");
+    graph.insert({document::PartHistoryKind::Feature,stock.id});
+    graph.insert({document::PartHistoryKind::Feature,attached.id});
+    graph.set_history_cursor(body_id,graph.find(body_id)->entries.size());
+    part.set_body_history(std::move(graph));
+
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part);
+    require(calculated.back().calculation_errors.empty()&&
+        part.history[1].placement.reference_valid,
+        "Boundary placement fixture did not calculate");
+    const auto identity=kernel::HistoryReferenceIdentity{
+        stock.id,face_key,std::string{}};
+    const auto& stock_boundary=calculated.back().body_boundaries.at(
+        body_id)[0];
+    require(stock_boundary.history_reference_coverage.contains(identity),
+        "Exact placement input boundary was not retained");
+    const auto requested=[&](const auto& reference) {
+        return reference.owner_id==stock.id&&
+            reference.semantic_key==face_key&&
+            reference.instance_path.empty();
+    };
+    require(!stock_boundary.mesh.original_references.triangle_references.
+            empty()&&std::ranges::all_of(
+                stock_boundary.mesh.original_references.triangle_references,
+                requested)&&std::ranges::all_of(
+                stock_boundary.mesh.original_references.edges,
+                [&](const auto& edge){return requested(edge.reference);})&&
+            std::ranges::all_of(
+                stock_boundary.mesh.original_references.points,
+                [&](const auto& point){return requested(point.reference);})&&
+            std::ranges::all_of(
+                stock_boundary.mesh.original_references.axes,
+                [&](const auto& axis){return requested(axis.reference);}),
+        "Exact placement packet retained unrelated reference geometry");
+    require(stock_boundary.mesh.triangles.empty(),
+        "Exact placement packet retained an intermediate display mesh");
+    require(stock_boundary.kernel_shape.empty(),
+        "Exact placement packet retained an intermediate B-Rep archive");
+    require(!stock_boundary.physical_properties_current,
+        "Exact placement packet calculated intermediate aggregate properties");
+    const auto stable=part.history[1].placement;
+
+    auto poisoned=calculated;
+    std::size_t changed_faces{};
+    for(auto& reference:poisoned.back().mesh.original_references.
+            triangle_references)
+        if(reference.owner_id==stock.id&&
+           reference.semantic_key==face_key&&reference.surface) {
+            auto surface=std::make_shared<kernel::SurfaceGeometry>(
+                *reference.surface);
+            surface->reversed=!surface->reversed;
+            reference.surface=std::move(surface);
+            ++changed_faces;
+        }
+    require(changed_faces>0,
+        "Boundary placement fixture has no final source face");
+    auto final_driven=part;
+    final_driven.resolve_constructions(
+        poisoned.back().mesh.original_references);
+    require(final_driven.history[1].placement!=stable,
+        "Final-face side perturbation did not exercise placement orientation");
+
+    auto exact=part;
+    auto repeated=workspace::calculate_part_with_resolved_references(
+        kernel,exact,&poisoned);
+    require(exact.history[1].placement==stable,
+        "Later final geometry changed an earlier placement input");
+    const auto once=exact.history[1].placement;
+    repeated=workspace::calculate_part_with_resolved_references(
+        kernel,exact,&repeated);
+    require(exact.history[1].placement==once,
+        "Exact boundary placement changed on repeated regeneration");
+
+    std::vector<kernel::BodyResult> reopened_boundaries;
+    auto reopened=document::PartDocument::from_serialized(
+        part.serialized(calculated),&reopened_boundaries);
+    require(reopened_boundaries.back().body_boundaries.at(body_id)[0].
+        history_reference_coverage.empty(),
+        "Disposable boundary coverage leaked into native storage");
+    auto reopened_calculated=
+        workspace::calculate_part_with_resolved_references(
+            kernel,reopened,&reopened_boundaries);
+    require(reopened.history[1].placement==stable&&
+        reopened_calculated.back().body_boundaries.at(body_id)[0].
+            history_reference_coverage.contains(identity),
+        "Save/reopen did not rebuild the exact placement boundary");
+
+    std::vector<kernel::BodyResult> cold_boundaries;
+    auto cold_document=document::PartDocument::from_serialized(
+        part.serialized(calculated),&cold_boundaries);
+    auto archived_local=cold_boundaries.back().body_boundaries.at(
+        body_id).get();
+    std::size_t reversed_faces{};
+    for(auto& reference:archived_local[0].mesh.original_references.
+            triangle_references)
+        if(reference.owner_id==stock.id&&
+           reference.semantic_key==face_key&&reference.surface) {
+            auto surface=std::make_shared<kernel::SurfaceGeometry>(
+                *reference.surface);
+            surface->reversed=!surface->reversed;
+            reference.surface=std::move(surface);
+            ++reversed_faces;
+        }
+    require(reversed_faces>0,
+        "Cold boundary fixture has no archived oriented face");
+    cold_boundaries.back().body_boundaries.at(body_id)=archived_local;
+    document::HistoryReferenceViews archived_views;
+    auto& archived_view=archived_views[attached.id];
+    archived_view.owners.emplace(stock.id,std::string{});
+    archived_view.geometry=
+        archived_local[0].mesh.original_references;
+    cold_document.resolve_constructions(
+        cold_boundaries.back().mesh.original_references,archived_views);
+    const auto archived_frame=cold_document.history[1].placement;
+    require(archived_frame!=stable,
+        "Cold boundary fixture did not distinguish its archived face side");
+    workspace::Workspace cold_live;
+    cold_live.add_part(cold_document,std::move(cold_boundaries));
+    kernel::OcctKernel cold_kernel;
+    static_cast<void>(workspace::regenerate_part(cold_live,cold_kernel,
+        cold_document.document_id));
+    const auto* cold_state=cold_live.open_part(cold_document.document_id);
+    require(cold_state&&cold_state->session.document().history[1].placement==
+            archived_frame,
+        "Cold regeneration replaced an unchanged archived reference frame");
+    static_cast<void>(cold_state->session.document().serialized(
+        cold_state->session.calculated_boundaries()));
+
+    auto changed=part;
+    test::resize_rectangular_feature(changed,changed.history[0],
+        {24,16,12});
+    workspace::Workspace live;
+    live.add_part(changed,calculated);
+    auto* state=live.open_part(changed.document_id);
+    static_cast<void>(workspace::regenerate_part(
+        live,kernel,changed.document_id));
+    const auto moved=state->session.document().history[1].placement;
+    require(moved.reference_valid&&moved!=stable,
+        "A changed preceding source did not update placement");
+    const auto revision=state->session.revision();
+    static_cast<void>(workspace::regenerate_part(
+        live,kernel,changed.document_id));
+    require(state->session.revision()==revision&&
+        state->session.document().history[1].placement==moved,
+        "Stable boundary regeneration created a transaction or moved placement");
+    require(state->session.undo()&&
+        state->session.document().history[1].placement==stable&&
+        state->session.redo()&&
+        state->session.document().history[1].placement==moved,
+        "Boundary placement Undo/Redo lost either resolved frame");
+}
+void verify_edge_treatment_preserves_history_boundary_placement(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,16,12});
+    auto attached=test::rectangular_feature(part,{4,4,4});
+    const auto face_key=test::profile_key(part,stock,"x_max");
+    document::ConstructionReference face{{},stock.id,face_key};
+    face.supports_offset=true;
+    face.orientation_role="front";
+    face.orientation_drives_rotation=true;
+    attached.placement.references={face};
+    part.history={stock,attached};
+    document::BodyHistoryGraph graph;
+    const auto body_id=graph.create_body("Treatment boundary placement");
+    graph.insert({document::PartHistoryKind::Feature,stock.id});
+    graph.insert({document::PartHistoryKind::Feature,attached.id});
+    graph.set_history_cursor(body_id,graph.find(body_id)->entries.size());
+    part.set_body_history(std::move(graph));
+
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part);
+    require(calculated.back().calculation_errors.empty()&&
+            part.history[1].placement.reference_valid,
+        "Treatment placement fixture did not calculate");
+    const auto stable=part.history[1].placement;
+
+    auto poisoned=calculated;
+    std::size_t changed_faces{};
+    for(auto& reference:poisoned.back().mesh.original_references.
+            triangle_references)
+        if(reference.owner_id==stock.id&&
+           reference.semantic_key==face_key&&reference.surface) {
+            auto surface=std::make_shared<kernel::SurfaceGeometry>(
+                *reference.surface);
+            surface->reversed=!surface->reversed;
+            reference.surface=std::move(surface);
+            ++changed_faces;
+        }
+    require(changed_faces>0,
+        "Treatment fixture has no final source face to perturb");
+    auto final_driven=part;
+    final_driven.resolve_constructions(
+        poisoned.back().mesh.original_references);
+    require(final_driven.history[1].placement!=stable,
+        "Treatment fixture did not distinguish final and history boundaries");
+
+    const kernel::ViewerEdge* selected{};
+    double longest{};
+    for(const auto& edge:calculated.back().mesh.edges) {
+        if(!edge.reference.valid()||!edge.reference.instance_path.empty()||
+           edge.points.size()!=2)continue;
+        const auto& a=edge.points[0];const auto& b=edge.points[1];
+        const auto length=std::sqrt(
+            (a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)+
+            (a.z-b.z)*(a.z-b.z));
+        if(length>longest){longest=length;selected=&edge;}
+    }
+    require(selected,"Treatment fixture has no straight input edge");
+    auto fillet=document::PartDocument::create_fillet_container(
+        {selected->reference});
+    fillet.edge_treatment.primary_size=.25;
+    fillet.edge_treatment.calculation_method=
+        document::EdgeTreatmentParameters::CalculationMethod::Zima;
+    const auto fillet_id=fillet.id;
+
+    workspace::Workspace live;
+    live.add_part(part,std::move(poisoned));
+    require(workspace::commit_edge_treatment(live,kernel,part.document_id,
+            std::move(fillet),workspace::EdgeTreatmentEditMode::Create),
+        "Treatment fixture did not commit");
+    const auto* state=live.open_part(part.document_id);
+    require(state&&state->session.document().history[1].placement==stable,
+        "Edge treatment resolved an older placement from final geometry");
+    require(state->session.document().find_container(fillet_id)&&
+            state->session.calculated_boundaries().back().calculation_errors.
+                empty(),
+        "Edge treatment failed after exact-boundary placement resolution");
 }
 void verify_recovery_policy(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
@@ -290,6 +534,74 @@ void verify_deferred_history_boundary(const kernel::OcctKernel& kernel){
         face_ids(background_candidate.back().mesh)==final_ids,
         "Private idle completion changed the final result or left a deferred row");
 }
+void verify_failed_source_reference_is_reported_downstream(
+        const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    auto stock=test::rectangular_feature(part,{20,20,20});
+    const kernel::EdgeReference edge{stock.id,test::profile_key(part,stock,
+        "edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
+    auto fillet=document::PartDocument::create_fillet_container({edge});
+    fillet.edge_treatment.primary_size=2;
+    part.history={stock,fillet};
+    const auto rounded=workspace::calculate_part(kernel,part);
+    const auto generated_face=std::ranges::find_if(
+        rounded.back().mesh.original_references.triangle_references,
+        [&](const auto& face) {return face.owner_id==fillet.id;});
+    require(generated_face!=rounded.back().mesh.original_references.
+            triangle_references.end(),
+        "Failed-reference fixture has no Fillet output face");
+
+    auto attached=test::rectangular_feature(part,{2,2,2});
+    attached.placement.references={{{},generated_face->owner_id,
+        generated_face->semantic_key}};
+    part.history.push_back(attached);
+    document::BodyHistoryGraph graph;
+    const auto body_id=graph.create_body("Failed reference");
+    for(const auto& feature:part.history)
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+    graph.set_history_cursor(body_id,graph.find(body_id)->entries.size());
+    part.set_body_history(std::move(graph));
+    auto calculated=workspace::calculate_part_with_resolved_references(
+        kernel,part);
+    require(calculated.back().calculation_errors.empty()&&
+            part.history.back().placement.reference_valid,
+        "Failed-reference fixture did not calculate initially");
+
+    auto changed=part;
+    auto source_sketch=std::ranges::find(changed.sketches,
+        stock.extrusion.sketch_id,&sketcher::Sketch::id);
+    require(source_sketch!=changed.sketches.end(),
+        "Failed-reference fixture lost its source Sketch");
+    auto circle=sketcher::Sketch::create_default();
+    circle.id=source_sketch->id;
+    circle.owner_container_id=stock.id;
+    static_cast<void>(circle.add_circle(0,0,8));
+    *source_sketch=std::move(circle);
+    const auto policy=workspace::feature_definition_calculation_policy(
+        part,calculated,stock.id);
+    auto failed=workspace::calculate_part_with_resolved_references(
+        kernel,changed,&calculated,policy);
+    const auto& errors=failed.back().calculation_errors;
+    require(!errors.contains(stock.id)&&errors.contains(fillet.id)&&
+            errors.contains(attached.id),
+        "A valid source edit did not leave missing dependent references as history errors");
+    require(!changed.history.back().placement.reference_valid&&
+            changed.history.back().placement.references.front().owner_id==
+                fillet.id&&
+            changed.history.back().placement.references.front().semantic_key==
+                generated_face->semantic_key,
+        "A missing dependent reference was retargeted or removed instead of becoming unresolved");
+
+    auto repaired=changed;
+    *std::ranges::find(repaired.sketches,stock.extrusion.sketch_id,
+        &sketcher::Sketch::id)=*std::ranges::find(part.sketches,
+            stock.extrusion.sketch_id,&sketcher::Sketch::id);
+    const auto recovered=workspace::calculate_part_with_resolved_references(
+        kernel,repaired,&failed);
+    require(recovered.back().calculation_errors.empty()&&
+            repaired.history.back().placement.reference_valid,
+        "A dependent reference did not recover when its source geometry returned");
+}
 void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
     auto stock=test::rectangular_feature(part,{10,10,10});
@@ -396,7 +708,11 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 }
 int main(){try{
     kernel::OcctKernel kernel;
-    verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);verify_recovery_policy(kernel);
+    verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);
+    verify_history_boundary_placement_isolation(kernel);
+    verify_failed_source_reference_is_reported_downstream(kernel);
+    verify_edge_treatment_preserves_history_boundary_placement(kernel);
+    verify_recovery_policy(kernel);
     verify_deferred_history_boundary(kernel);verify_retained_edge_treatment_boundary(kernel);
     verify_edge_treatment_end_face(kernel);
     verify_assembly(kernel);

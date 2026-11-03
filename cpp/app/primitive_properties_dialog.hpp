@@ -128,6 +128,8 @@ public:
     void set_edge_references(std::vector<zima::kernel::EdgeReference> edges);
     using EdgeGroup = std::vector<zima::kernel::EdgeReference>;
     void set_edge_groups(std::vector<EdgeGroup> groups);
+    void set_edge_groups(std::vector<EdgeGroup> groups,
+        std::vector<std::vector<zima::kernel::ViewerEdge>> displayed_fragments);
     void set_edge_route_start_vertices(
         std::vector<zima::kernel::VertexReference> vertices);
     void set_edge_route_end_faces(
@@ -350,6 +352,8 @@ private:
     QTreeWidget* edge_list_{};
     QPushButton* restore_route_button_{};
     std::vector<EdgeGroup> edge_groups_;
+    std::vector<std::vector<zima::kernel::ViewerEdge>>
+        edge_display_fragments_;
     std::function<void(std::size_t, std::optional<std::size_t>)> remove_edge_;
     std::function<void(std::size_t)> restore_route_;
     struct EdgeEndFaceField {
