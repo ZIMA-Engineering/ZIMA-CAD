@@ -95,7 +95,9 @@ int main(int argc,char** argv) {
                 text.value="Ra 6.3";sketcher::rebuild_text_contours(text,true);
                 for(const auto& [key,row]:edited.variants) {
                     const auto sketches=edited.evaluate(key);
-                    const auto& shown=*std::ranges::find(sketches,field.sketch_id,&sketcher::Sketch::id);
+                    if(edited.id=="ze:general-surface-texture:iso21920"&&key=="empty") {check(sketches.empty(),"Empty roughness exposes a text Sketch");continue;}
+                    const auto source=std::ranges::find(sketches,field.sketch_id,&sketcher::Sketch::id);
+                    check(source!=sketches.end(),"Visible roughness variant lost its text Sketch");const auto& shown=*source;
                     check(std::ranges::find(shown.texts,field.text_id,&sketcher::SketchText::id)->value=="Ra 6.3","A redundant roughness row override masks the authored text");
                 }
             }
@@ -257,7 +259,17 @@ int main(int argc,char** argv) {
                 check(std::ranges::none_of(layout.lines,[](const auto& line){return line.pen==drawing::DrawingPen::White;}),"Edge symbol retained a thick white stroke");
             }
             check(std::ranges::all_of(layout.lines,[&](const auto& line){return line.field_id=="symbol:"+instance.id;}),"Symbol strokes have no common editing identity");
-            for(const auto& [key,row]:definition.variants)check(!definition.evaluate(key).empty(),"Catalog variant has no sketches");
+            for(const auto& [key,row]:definition.variants) {
+                const bool empty=definition.id=="ze:general-surface-texture:iso21920"&&key=="empty";
+                check(definition.evaluate(key).empty()==empty,"Catalog variant has unexpected sketch visibility");
+                if(empty) {
+                    auto blank=instance;blank.variant=key;
+                    check(symbols::instance_mesh(blank).edges.empty(),"Empty roughness variant emitted geometry");
+                    auto empty_sheet=sheet;empty_sheet.title_block_symbols={blank};
+                    const auto blank_layout=drawing::title_block_layout(empty_sheet,{});
+                    check(blank_layout.lines.empty()&&blank_layout.texts.empty(),"Empty roughness left brackets, marks or text in the title block");
+                }
+            }
         }
         const auto tolerance_root=root/"config/symbols/geometric-tolerances";int tolerance_count=0;
         for(const auto& entry:std::filesystem::directory_iterator(tolerance_root))if(entry.path().extension()==".symz") {

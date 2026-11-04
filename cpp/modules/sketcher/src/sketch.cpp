@@ -3741,6 +3741,13 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             return !dependent || dependent->fixed || externally_linked.contains(id);
         });
         const bool circular_junction=std::ranges::any_of(next.constraints,[&](const auto& c) {
+            if(!c.suppressed&&c.kind==ConstraintKind::Tangent&&!c.first_point_id.empty()&&component.contains(c.first_point_id)) {
+                for(const auto& [curve,line]:{std::pair{c.geometry_id,c.second_geometry_id},std::pair{c.second_geometry_id,c.geometry_id}}) {
+                    const auto data=tangent_curve_data(next,curve);
+                    if(data&&data->circular_radius&&!data->external_center&&
+                       segment_curve_endpoint_tangent_residual(next,line,curve))return true;
+                }
+            }
             if(!c.suppressed && c.kind==ConstraintKind::Tangent && !c.first_point_id.empty() && component.contains(c.first_point_id)) {
                 const auto curve=is_base_sketch_axis(c.geometry_id)?c.second_geometry_id:
                     is_base_sketch_axis(c.second_geometry_id)?c.geometry_id:std::string{};
@@ -4474,33 +4481,66 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             next=std::move(projected);solved=checked;break;
         }
     }
-    const bool midpoint_component=std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
-        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);});
-    // Fit the actual handle before the generic distance fallback releases its
-    // pin. A free midpoint-centred rigid profile must follow the cursor rather
-    // than redistribute its displacement among the other vertices.
-    if(solved.status==SolveStatus::Conflicting&&midpoint_component&&seed_circular_equations(next,{point_id},true))
+    // Fit every supported coupled graph with the actual handle pinned before
+    // the distance fallback releases it. Closed line linkages need this just
+    // like midpoint/arc graphs: sequential length corrections can stall even
+    // when the requested handle position satisfies all locked lengths.
+    if((solved.status==SolveStatus::Conflicting||solved.status==SolveStatus::Invalid)&&seed_circular_equations(next,{point_id},true))
         solved=next.solve_impl(100,false,{point_id});
-    if(solved.status==SolveStatus::Conflicting&&midpoint_component) {
-        // A screen ray need not lie exactly on the remaining free path of a
-        // midpoint-centred component. Project through the same equations when
-        // pinning both cursor coordinates is impossible. Include intentionally
-        // relaxed drag dimensions when checking whether movement is permitted.
+    if(solved.status==SolveStatus::Conflicting||solved.status==SolveStatus::Invalid) {
+        // A mouse ray generally misses a one-dimensional curved path. Project
+        // through the actual equations, including the dimensions deliberately
+        // relaxed for this gesture. A straight extrapolation of two fitted
+        // poses does not stay on a linkage's curved path.
+        auto baseline=*this;baseline.dimensions=next.dimensions;baseline.constraints=next.constraints;
+        const auto mobility=baseline.solve_impl(100,true);
+        if(mobility.status==SolveStatus::Solved)return false;
+        bool curve_path=mobility.status==SolveStatus::UnderConstrained&&mobility.remaining_degrees_of_freedom==1;
+        if(mobility.status==SolveStatus::UnderConstrained&&mobility.remaining_degrees_of_freedom>1) {
+            // Unrelated free geometry must not hide this handle's real motion.
+            // Conversely a two-dimensional handle outside its feasible region
+            // is an unreachable request, not a one-dimensional path projection.
+            auto pinned=baseline;pinned.find_point(point_id)->fixed=true;
+            const auto remaining=pinned.solve_impl(100,true);
+            curve_path=(remaining.status==SolveStatus::Solved||remaining.status==SolveStatus::UnderConstrained)&&
+                mobility.remaining_degrees_of_freedom==remaining.remaining_degrees_of_freedom+1;
+        }
+        auto projected=baseline;
+        auto* requested=projected.find_point(point_id);requested->x=x;requested->y=y;
+        const bool projection_fitted=curve_path&&seed_circular_equations(projected,{},true,true);
+        if(projection_fitted) {
+            // Alternating projections approach the cursor without treating its
+            // two coordinates as additional model constraints. Each iterate
+            // satisfies the native equations; keep only an improving iterate.
+            for(unsigned iteration=0;iteration<24;++iteration) {
+                const auto* previous=projected.find_point(point_id);
+                const double distance=std::hypot(previous->x-x,previous->y-y);
+                if(distance<1e-9)break;
+                auto closer=projected;auto* anchor=closer.find_point(point_id);anchor->x=x;anchor->y=y;
+                if(!seed_circular_equations(closer,{},true,true))break;
+                const auto* moved=closer.find_point(point_id);
+                const double improvement=distance-std::hypot(moved->x-x,moved->y-y);
+                if(improvement<=1e-10)break;
+                projected=std::move(closer);
+            }
+            const auto checked=projected.solve_impl(100,false,{});
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                next=std::move(projected);solved=checked;
+            }
+        }
+    }
+    if(solved.status==SolveStatus::Conflicting&&std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
+        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);})) {
+        // Retain the established projection for a higher-mobility midpoint
+        // graph. It must still fit with the resulting handle pinned: a cursor
+        // outside a two-dimensional feasible region cannot move its boundary.
         auto baseline=*this;baseline.dimensions=next.dimensions;
         if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
         auto projected=next;
-        // Refine both endpoints of the direction estimate: otherwise existing
-        // solve roundoff is magnified when a small fit becomes a full drag.
         if(seed_circular_equations(baseline,{},true,true)&&seed_circular_equations(projected,{},true,true)) {
             const auto checked=projected.solve_impl(100,false,{});
             if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
-                // An unpinned minimum-change fit shares the displacement
-                // between all participating points. Use its permitted direction
-                // to project the cursor, then fit with that real point pinned.
-                // The final fit must succeed; never publish an attenuated drag
-                // or assume that a curved free path is a straight line.
-                const auto* p=projected.find_point(point_id);
-                const auto* start=baseline.find_point(point_id);
+                const auto* p=projected.find_point(point_id);const auto* start=baseline.find_point(point_id);
                 const double dx=p->x-start->x,dy=p->y-start->y,squared=dx*dx+dy*dy;
                 if(squared>1e-18) {
                     const double along=((x-start->x)*dx+(y-start->y)*dy)/squared;
@@ -4527,7 +4567,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         // If the existing equations leave no DOF, projection would only
         // normalize roundoff and must not create a drag transaction. Rank is
         // needed only on this fallback, never on the ordinary drag path.
-        auto baseline=*this;
+        auto baseline=*this;baseline.dimensions=next.dimensions;
         if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
         solved=next.solve_impl(100,false,{});
         if(solved.status==SolveStatus::Conflicting&&seed_circular_equations(next,{}))
@@ -10415,35 +10455,12 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && seed_equal_length_components(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
-    if(result.status==SolveStatus::Conflicting&&arcs.empty()&&circles.empty()&&
-       ellipses.empty()&&elliptical_arcs.empty()&&bsplines.empty()&&
-       std::ranges::any_of(next.constraints,[](const auto& constraint) {
-           return !constraint.suppressed&&
-               (constraint.kind==ConstraintKind::Parallel||
-                constraint.kind==ConstraintKind::Perpendicular);
-       })) {
-        // The rectilinear seed intentionally handles only axis-aligned linear
-        // equations. An otherwise line-only profile may also couple oblique
-        // branches through Parallel/Perpendicular constraints. Fit that graph
-        // simultaneously from its last valid branch, then retain the ordinary
-        // solver as the final authority for every persisted equation.
-        auto candidate=*this;candidate.dimensions=next.dimensions;
-        if(seed_circular_equations(candidate,{},true)) {
-            const auto checked=candidate.solve_impl(100,needs_rank_for_redundancy);
-            if(checked.status!=SolveStatus::Conflicting&&
-               checked.status!=SolveStatus::Invalid) {
-                next=std::move(candidate);result=checked;
-            }
-        }
-    }
-    if(result.status==SolveStatus::Conflicting && (!arcs.empty()||!circles.empty()||std::ranges::any_of(next.dimensions,[](const auto& d){
-        return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
-    })||std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
-        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);}))) {
-        // Sequential endpoint corrections can distort a shared arc/line graph,
-        // line directions or an anchored midpoint. Fit the requested equations
-        // from the last valid branch, including ordinary linear dimensions on
-        // circular profiles, then retain ordinary final validation.
+    if(result.status==SolveStatus::Conflicting) {
+        // The bounded fitter owns its supported equation set. Plain point/line
+        // linkages need the same coupled retry as arc and midpoint graphs;
+        // another geometry-kind gate otherwise rejects a rotated slider that
+        // the existing axis-aligned path can edit. Start from the last valid
+        // branch and retain ordinary final validation of every equation.
         auto candidate=*this;candidate.dimensions=next.dimensions;
         if(seed_circular_equations(candidate,{},true)) {
             const auto checked=candidate.solve_impl(100,needs_rank_for_redundancy);
@@ -13803,6 +13820,39 @@ SolveResult Sketch::solve_impl(
         return constraint.kind==ConstraintKind::PointOnCircle &&
             keypoint_contacts.contains({constraint.first_point_id,constraint.geometry_id});
     };
+    const auto immutable_rank_point=[&](const SketchPoint& point) {
+        if(immutable(point))return true;
+        return std::ranges::any_of(constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointReference&&
+            c.first_point_id==point.id&&(c.second_point_id=="sketch_origin"||std::ranges::any_of(external_references,[&](const auto& ref){
+                return ref.id==c.second_point_id&&is_external_point_kind(ref.kind)&&ref.cached_points.size()==1;}));});
+    };
+    const auto immutable_rank_line=[&](const std::string& id) {
+        const auto segment=std::ranges::find(segments,id,&SketchSegment::id);
+        if(segment!=segments.end()&&
+           (!immutable_rank_point(*find_point(segment->first_point_id))||!immutable_rank_point(*find_point(segment->second_point_id))))
+            return decltype(segment_or_external_line(*this,id)){};
+        return segment_or_external_line(*this,id);
+    };
+    std::map<std::string,std::pair<std::string,std::array<double,2>>> isolated_line_distances;
+    for(const auto& dimension:dimensions)if(!dimension.suppressed&&dimension.driving&&
+        dimension.kind==DimensionKind::Distance&&dimension.geometry_id.empty()&&dimension.value>1e-9) {
+        for(const auto& [anchor_id,driven_id]:{std::pair{dimension.first_point_id,dimension.second_point_id},
+                std::pair{dimension.second_point_id,dimension.first_point_id}}) {
+            const auto* anchor=find_point(anchor_id);const auto* driven=find_point(driven_id);
+            if(!driven||immutable_rank_point(*driven)||(anchor&&!immutable_rank_point(*anchor)))continue;
+            const auto position=anchor?std::optional{std::array{anchor->x,anchor->y}}:external_point_position(*this,anchor_id);
+            if(!position)continue;
+            for(const auto& contact:constraints)if(!contact.suppressed&&contact.kind==ConstraintKind::PointOnLine&&contact.first_point_id==driven_id)
+                if(const auto line=immutable_rank_line(contact.geometry_id)) {
+                    const double dx=line->second[0],dy=line->second[1],squared=dx*dx+dy*dy;
+                    const double along=(((*position)[0]-line->first[0])*dx+((*position)[1]-line->first[1])*dy)/squared;
+                    const std::array projected{line->first[0]+along*dx,line->first[1]+along*dy};
+                    if(std::hypot(driven->x-projected[0],driven->y-projected[1])<=1e-8&&
+                       std::abs(std::hypot((*position)[0]-projected[0],(*position)[1]-projected[1])-dimension.value)<=1e-9)
+                        isolated_line_distances.emplace(dimension.id,std::pair{driven_id,projected});
+                }
+        }
+    }
     const auto residuals = [&]() {
         std::vector<double> result;
         // Endpoint incidence is part of a native Arc definition, rather than
@@ -13970,7 +14020,10 @@ SolveResult Sketch::solve_impl(
                 const auto target = point_on_line_target(
                     *this, constraint.second_geometry_id,
                     midpoint_x, midpoint_y);
-                result.push_back(target ? std::hypot(
+                if(const auto line=immutable_rank_line(constraint.second_geometry_id))
+                    result.push_back(((midpoint_x-line->first[0])*line->second[1]-(midpoint_y-line->first[1])*line->second[0])/
+                        std::hypot(line->second[0],line->second[1]));
+                else result.push_back(target ? std::hypot(
                     midpoint_x - (*target)[0], midpoint_y - (*target)[1])
                     : std::numeric_limits<double>::infinity());
                 continue;
@@ -14009,6 +14062,16 @@ SolveResult Sketch::solve_impl(
             }
             if (constraint.kind == ConstraintKind::PointOnLine) {
                 const auto* point = find_point(constraint.first_point_id);
+                // At a solved straight support, Euclidean projection distance
+                // is an absolute value at zero. Its one-sided columns invent
+                // a different normal after rotating the Sketch. Rank needs the
+                // signed incidence equation; the ordinary solve still checks
+                // the real finite support and its endpoint bounds.
+                if(const auto line=immutable_rank_line(constraint.geometry_id)) {
+                    result.push_back(((point->x-line->first[0])*line->second[1]-(point->y-line->first[1])*line->second[0])/
+                        std::hypot(line->second[0],line->second[1]));
+                    continue;
+                }
                 const auto target = point_on_line_target(
                     *this, constraint.geometry_id, point->x, point->y);
                 result.push_back(target ? std::hypot(
@@ -14050,6 +14113,16 @@ SolveResult Sketch::solve_impl(
         }
         for (const auto& dimension : dimensions) {
             if (dimension.suppressed || !dimension.driving) continue;
+            if(const auto isolated=isolated_line_distances.find(dimension.id);isolated!=isolated_line_distances.end()) {
+                // At the minimum point-to-line distance, the circle meets the
+                // line at one isolated point. Its first-order length gradient
+                // is parallel to the existing line normal and misses the
+                // finite restriction along the line. Count that exact contact
+                // locus rather than inventing mobility from a singular row.
+                const auto* point=find_point(isolated->second.first);
+                result.push_back(point->x-isolated->second.second[0]);result.push_back(point->y-isolated->second.second[1]);
+                continue;
+            }
             if (dimension.kind == DimensionKind::EllipseRotation) {
                 const auto ellipse = std::find_if(ellipses.begin(), ellipses.end(),
                     [&](const auto& value) { return value.id == dimension.geometry_id; });
@@ -14443,10 +14516,16 @@ SolveResult Sketch::solve_impl(
             constraint.kind == ConstraintKind::Midpoint ||
             constraint.kind == ConstraintKind::Symmetric ||
             constraint.kind == ConstraintKind::PointReference ? 2 : 1;
+        const bool smooth_tangent=constraint.kind==ConstraintKind::Tangent&&
+            (native_circular_tangent_contact(*this,constraint)||
+             segment_curve_endpoint_tangent_residual(*this,constraint.geometry_id,constraint.second_geometry_id).has_value()||
+             segment_curve_endpoint_tangent_residual(*this,constraint.second_geometry_id,constraint.geometry_id).has_value());
         append_equations(count,
             {constraint.first_point_id, constraint.second_point_id,
              constraint.geometry_id, constraint.second_geometry_id},
-            constraint.kind==ConstraintKind::Symmetric||constraint.kind==ConstraintKind::EqualLength);
+            constraint.kind==ConstraintKind::Symmetric||constraint.kind==ConstraintKind::EqualLength||smooth_tangent||
+            (constraint.kind==ConstraintKind::PointOnLine&&immutable_rank_line(constraint.geometry_id).has_value())||
+            (constraint.kind==ConstraintKind::MidpointOnLine&&immutable_rank_line(constraint.second_geometry_id).has_value()));
     }
     for (const auto& dimension : dimensions) {
         if (dimension.suppressed || !dimension.driving) continue;
@@ -14457,12 +14536,13 @@ SolveResult Sketch::solve_impl(
               dimension.kind == DimensionKind::DistanceLineSymmetric) &&
                     !dimension.third_geometry_id.empty())
                 ? 2 : 1;
-        const auto equation_count = dimension.kind == DimensionKind::DistanceLineSymmetric
-            ? count * 2 : count;
+        const auto equation_count = isolated_line_distances.contains(dimension.id)?2:
+            dimension.kind == DimensionKind::DistanceLineSymmetric?count*2:count;
         append_equations(equation_count,
             {dimension.first_point_id, dimension.second_point_id,
              dimension.geometry_id, dimension.second_geometry_id,
-             dimension.third_geometry_id});
+             dimension.third_geometry_id},
+            (dimension.kind==DimensionKind::Distance&&std::abs(dimension.value)>1e-9)||dimension.kind==DimensionKind::Angle);
     }
     const auto base = residuals();
     if (equation_columns.size() != base.size()) {
@@ -15978,7 +16058,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
                         const double cursor_from_first = normalized(cursor_angle - ra);
                         sweep_radians = cursor_from_first <= counterclockwise
                             ? counterclockwise : counterclockwise - tau;
-                        displayed_value = sweep_radians * 180.0 / pi;
+                        // Ray order and label position choose the sector and
+                        // drawing direction. An automatically measured ordinary
+                        // angle remains a magnitude; retain an explicitly
+                        // authored negative value without borrowing its sign
+                        // from the clockwise presentation sweep.
+                        displayed_value = std::copysign(std::abs(sweep_radians * 180.0 / pi),dimension.value);
                     } else {
                         if (dimension.angle_sector == 1) {
                             first_ray[0] = -first_ray[0];

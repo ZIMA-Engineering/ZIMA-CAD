@@ -27,6 +27,11 @@ using namespace zima;
 namespace {
 void check(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
 void wait(int milliseconds) { QEventLoop loop; QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit); loop.exec(); }
+class PaintCounter final : public QObject {
+public:
+    unsigned paints{};
+    bool eventFilter(QObject*,QEvent* event) override {if(event->type()==QEvent::Paint)++paints;return false;}
+};
 class TestProperties final : public ui::PropertiesSubWindow {
 public:
     explicit TestProperties(QWidget* parent) : PropertiesSubWindow("Activity test", parent) {
@@ -106,7 +111,7 @@ void verify_exact_preview_lifecycle(const document::PartDocument& part,const std
 int main(int argc, char** argv) {
     QApplication app(argc,argv);
     try {
-        QWidget window; window.resize(1200,900);
+        QWidget window;window.setAttribute(Qt::WA_DontShowOnScreen); window.resize(1200,900);
         NavigationView view(&window); view.setGeometry(280,0,920,840);
         view.setStyleSheet("background:#151e28;");
         QLineEdit input(&window); input.setText("unchanged");
@@ -117,6 +122,21 @@ int main(int argc, char** argv) {
             app.processEvents(); check(!activity.overlay()->isVisible(),"Fast work flashes the overlay");
         }
         wait(280); check(!activity.active()&&!activity.overlay()->isVisible(),"Retired delayed timer showed activity");
+        {
+            PaintCounter paints;activity.overlay()->installEventFilter(&paints);
+            ui::OperationActivity::Scope immediate(&activity,"Closing document",nullptr,ui::OperationActivity::Presentation::Immediate);
+            check(activity.overlay()->isVisible()&&paints.paints>0,"Synchronous work started before immediate activity was painted");
+            {
+                ui::OperationActivity::Scope nested(&activity,"Restoring Assembly view");
+                check(activity.overlay()->isVisible(),"Nested work hid immediate activity");
+            }
+            check(activity.overlay()->isVisible(),"Ending nested work hid the owning activity");
+        }
+        check(!activity.active()&&!activity.overlay()->isVisible(),"Immediate activity did not retire");
+        {
+            ui::OperationActivity::Scope fast(&activity,"Next fast operation");
+            app.processEvents();check(!activity.overlay()->isVisible(),"Immediate presentation changed the ordinary delay");
+        }
         int starts{},finishes{};
         std::unique_ptr<workspace::CalculationExecutionScope> execution;
         const auto owner_thread=std::this_thread::get_id();

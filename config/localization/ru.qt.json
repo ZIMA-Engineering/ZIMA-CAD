@@ -1,4 +1,11 @@
 {
+  "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Размер: OK сохраняет размер и подготавливает следующий. Двойной щелчок средней кнопкой завершает команду.",
+  "Připravuji pohled…": "Подготовка вида…",
+  "Zavírám dokument %1…": "Закрытие документа %1…",
+  "Dokument zavřen.": "Документ закрыт.",
+  "Zavírání dokumentu nebylo dokončeno.": "Закрытие документа не завершено.",
+  "Obnovuji zobrazení po zavření dokumentu…": "Восстановление вида после закрытия документа…",
+  "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Универсальный размер: щёлкните дугу ещё раз для переключения R/⌀; щёлкните свободное место для размещения размера.",
   "Koncová plocha": "Концевая грань",
   "OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.": "OCCT не поддерживает выбранные концевые грани. Используйте ZIMA или Автоматически.",
   "Kolmo – vyberte plochu": "Перпендикулярно — выберите грань",
@@ -2664,5 +2671,6 @@
   "Body os": "Точки осей",
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Показать или скрыть точки осей и вспомогательных кривых",
   "Invalid compressed document data.": "Недопустимые сжатые данные документа.",
-  "External extrusion targets must belong to a Skeleton Part.": "Внешние цели вытягивания должны принадлежать детали Skeleton."
+  "External extrusion targets must belong to a Skeleton Part.": "Внешние цели вытягивания должны принадлежать детали Skeleton.",
+  "Prázdná varianta": "Пустой вариант"
 }

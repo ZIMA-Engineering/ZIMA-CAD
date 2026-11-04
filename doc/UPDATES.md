@@ -1,5 +1,17 @@
 # Application updates
 
+Signed Windows [2026110403](releases/2026110403.md#windows-publication-acceptance)
+was published at `2026-11-04T21:44:30Z` from immutable source
+`e32c89f8377cfd6e7d00e267cdba39515e460035`. The finite Sketcher mechanism/profile review,
+Drawing performance and interaction repairs, closed nested appearance and Empty
+general-roughness variant passed their recorded checks. Candidate and signed
+native smoke each loaded all 1,185 factory assets; production trust, twelve
+packaged GUI suites, exact factory comparisons and all three anonymous public
+downloads passed. Trusted 0402 offers 0403 without downloading or installing it.
+Native schemas and Qt/OCCT pins are unchanged from 0402; native Linux execution
+remains separate. See the
+[publication evidence](verification/20261104-windows-0403-publication.json).
+
 Signed Windows [2026110402](releases/2026110402.md#windows-publication-acceptance)
 was published at `2026-11-04T16:09:11Z` from immutable source
 `20b9be37c854210b09c4b75b99d3eaa4335fa037`. Current transient Origins, exact native

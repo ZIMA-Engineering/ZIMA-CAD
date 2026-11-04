@@ -641,6 +641,35 @@ std::optional<OccurrenceAddress> resolve_document_occurrence(
         occurrence.source_document_id, occurrence.source_kind, instance_path};
 }
 
+std::optional<kernel::Appearance> Workspace::occurrence_appearance(
+    const std::string& top_id, const assembly::InstancePath& path) const {
+    const auto* top = open_assembly(top_id);
+    if (!top || path.occurrence_ids.empty()) return std::nullopt;
+    const auto* source = &top->session.document();
+    auto owner_file = top->path;
+    for (std::size_t i = 0; i < path.occurrence_ids.size(); ++i) {
+        const auto* component = source->find_occurrence(path.occurrence_ids[i]);
+        if (!component) return std::nullopt;
+        if (i + 1 == path.occurrence_ids.size())
+            return workspace::occurrence_appearance(*this, *component);
+        if (component->source_kind != assembly::ComponentSourceKind::Assembly)
+            return std::nullopt;
+        auto file = component->source_path;
+        if (file.is_relative()) file = owner_file.parent_path() / file;
+        if (!file.empty()) file = std::filesystem::absolute(file).lexically_normal();
+        if (const auto* open = open_assembly(component->source_document_id)) {
+            source = &open->session.document();
+            owner_file = open->path.empty() ? file : open->path;
+        } else {
+            const auto cached = native_assembly_cache_.find({file, component->source_document_id});
+            if (cached == native_assembly_cache_.end()) return std::nullopt;
+            source = &cached->second.document;
+            owner_file = file;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::filesystem::path> Workspace::occurrence_source_file(
     const std::string& top_id, const zima::assembly::InstancePath& requested) const {
     const auto* top = open_assembly(top_id);

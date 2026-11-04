@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QTableWidget>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/sketcher/sketch.hpp>
@@ -14,6 +15,7 @@
 namespace zima::app {
 class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
   public:
+    bool finishing_command() const { return finishing_command_; }
     using ViewResolver = std::function<const drawing::DrawingView *(const std::string &)>;
     DrawingDimensionDialog(drawing::DrawingDimension initial, bool creating, ViewResolver view,
                            std::function<void(drawing::DrawingDimension)> commit, QWidget *parent)
@@ -459,6 +461,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         const auto *widget = qobject_cast<QWidget *>(watched);
         if (isVisible() && widget && parentWidget() &&
             (widget == parentWidget() || parentWidget()->isAncestorOf(widget))) {
+            if(creating_&&event->type()==QEvent::MouseButtonDblClick&&
+                static_cast<QMouseEvent*>(event)->button()==Qt::MiddleButton) {
+                QScopedValueRollback<bool> finishing(finishing_command_,true);
+                if(!bindings_complete()){reject();return true;}
+                return PropertiesSubWindow::eventFilter(watched,event);
+            }
             if (event->type() == QEvent::MouseButtonPress) {
                 const auto *mouse = static_cast<QMouseEvent *>(event);
                 if (mouse->button() == Qt::MiddleButton) {
@@ -752,6 +760,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     std::function<void(drawing::DrawingDimension)> commit_;
     std::function<void()> changed_;
     bool creating_{}, extended_{}, placing_{}, rebuilding_{}, branch_entry_{}, chain_command_{}, seed_adopted_{};
+    bool finishing_command_{};
     bool automatic_placement_{true};
     int active_{-1}, segment_{}, draft_row_{-1};
     std::vector<int> modes_;

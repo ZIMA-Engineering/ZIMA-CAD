@@ -4,6 +4,9 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <zima/kernel/surface_results.hpp>
 #include <zima/document/native_read_capture.hpp>
 namespace zima::workspace {
@@ -96,6 +99,12 @@ struct DrawingProjection::Impl {
     }
 
     Entry& get(const drawing::DrawingView& view,bool metadata=true) {
+        const auto started=std::chrono::steady_clock::now();
+        const auto stamp=[&](const char* stage) {
+            if(std::getenv("ZIMA_DRAWING_PROFILE_NATIVE"))
+                std::fprintf(stderr,"drawing source %s %.3f ms\n",stage,
+                    std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
+        };
         auto path=view.source_path;
         if(!path.empty()&&path.is_relative()&&!drawing_path.empty())path=drawing_path.parent_path()/path;
         path=path.lexically_normal();
@@ -118,8 +127,11 @@ struct DrawingProjection::Impl {
             if(metadata&&!entry.metadata_ready) {
                 auto& source=entry.source;
                 source.bom=build_bom_rows_for_source(source.document_id,source.path,&*loaded);
+                stamp("BOM");
                 source.annotations=drawing_annotation_sources(&*loaded,source.document_id,source.path);
+                stamp("annotations");
                 source.sections=source_sections(&*loaded,source.document_id,source.path);
+                stamp("sections");
                 entry.metadata_ready=true;
             }
             return entry;
@@ -156,6 +168,7 @@ struct DrawingProjection::Impl {
             }
         }
         auto [id,mesh]=read_drawing_source(&*loaded,path,view.source_document_id);
+        stamp("viewer packet");
         ++source_loads;
         auto& entry=*sources.emplace(key,std::make_shared<Entry>(Entry{Source{std::move(id),std::move(path),std::move(mesh)}})).first->second;
         entry.part_source=loaded->open_part(entry.source.document_id)!=nullptr;

@@ -27,6 +27,7 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/view_orientation.hpp>
 #include <zima/drawing/annotation_guides.hpp>
 #include "drawing_shading.hpp"
 #include "drawing_depth_view.hpp"
@@ -62,6 +63,7 @@
 #include <stdexcept>
 #include <chrono>
 #include <zima/workspace/drawing_projection.hpp>
+#include <zima/ui/operation_activity.hpp>
 
 namespace {
 void require(bool value, const char* message) { if(!value) throw std::runtime_error(message); }
@@ -123,6 +125,7 @@ void verify_view_properties_layout(QDialog* dialog) {
 }
 
 #include "drawing_performance_probe.inc"
+#include "drawing_empty_roughness_ui.inc"
 
 void verify_drawing_depth_rendering() {
     using namespace zima::drawing;
@@ -199,7 +202,7 @@ int verify_drawing_source_picker() {
         for(const auto& source_path:{part_path,assembly_path}) {
             zima::workspace::Workspace workspace;auto drawing=zima::drawing::DrawingDocument::create_default();
             workspace.add_drawing(drawing);workspace.activate(drawing.document_id);workspace.display_top_level(drawing.document_id);
-            zima::app::DrawingWindow window(&workspace,false);window.edit_workspace_document(drawing.document_id);window.resize(1200,850);window.show();flush();
+            zima::app::DrawingWindow window(&workspace,false);window.setAttribute(Qt::WA_DontShowOnScreen);window.edit_workspace_document(drawing.document_id);window.resize(1200,850);window.show();flush();
             auto* insert=window.findChild<QAction*>("insertDrawingViewAction");require(insert,"Insert View missing");
             auto* canvas=window.findChild<QWidget*>("drawingCanvas");require(canvas,"Drawing canvas missing");
             bool unexpected_picker=false;QTimer guard;
@@ -232,7 +235,7 @@ int verify_drawing_source_picker() {
                             std::abs(color.red()-color.green())<5&&std::abs(color.red()-color.blue())<5;
                     }
                     image.save("build/drawing-insert-properties-preview.png");
-                    require(changed>20,"Placed view properties display only a frame instead of model geometry");
+                    require(changed<=20,"Ordinary creation Properties prepared model strokes instead of retaining its lightweight frame");
                 }
                 std::cout<<"Placed "<<source_path.extension().string()<<" preview "
                     <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-preview_start).count()<<" ms\n";
@@ -441,6 +444,7 @@ int verify_drawing_source_picker() {
 }
 int verify_drawing_ui() {
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EMPTY_ROUGHNESS_ONLY"))return verify_empty_roughness_ui();
         if(const auto output=qEnvironmentVariable("ZIMA_VERIFY_TITLE_BLOCK_EDGES");!output.isEmpty()) {
             const auto directory=std::filesystem::path(output.toStdString());std::filesystem::create_directories(directory);
             for(const auto* language:{"CS","EN","DE","FR","RU"}) {
@@ -532,8 +536,8 @@ int verify_drawing_ui() {
             std::cout<<"Solid state drawing GUI: regeneration, dimension, detail, section, rendering and exports passed\n";
             return 0;
         }
-        if(QGuiApplication::platformName()!="offscreen"&&QGuiApplication::platformName()!="minimal")verify_drawing_depth_rendering();
         if(const auto input=qEnvironmentVariable("ZIMA_DRAWING_PROFILE_INPUT");!input.isEmpty())return profile_drawing_ui(input);
+        if(QGuiApplication::platformName()!="offscreen"&&QGuiApplication::platformName()!="minimal")verify_drawing_depth_rendering();
         {
             QTemporaryDir temporary;require(temporary.isValid(),"Quick export fixture failed");
             const auto previous=QDir::currentPath();struct Restore {QString path;~Restore(){QDir::setCurrent(path);}} restore{previous};
@@ -576,7 +580,7 @@ int verify_drawing_ui() {
         drawing.source_document_id=part.document_id; drawing.source_path="source.prtz";
         drawing.source_name=part.name; workspace.add_drawing(drawing);
         workspace.activate(drawing.document_id); workspace.display_top_level(drawing.document_id);
-        zima::app::DrawingWindow window(&workspace,false);
+        zima::app::DrawingWindow window(&workspace,false);window.setAttribute(Qt::WA_DontShowOnScreen);
         window.edit_workspace_document(drawing.document_id); window.resize(1920,1000); window.show(); flush();
         require(!workspace.open_drawing(drawing.document_id)->is_dirty(),"Opening Drawing marked it dirty");
         auto* canvas=window.findChild<QWidget*>("drawingCanvas");
@@ -748,6 +752,25 @@ int verify_drawing_ui() {
         action("projectDrawingViewAction")->trigger();
         QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape);flush();
         require(count()==1&&!dialog()&&workspace.open_drawing(drawing.document_id)->revision()==projection_revision,"Canceled projection changed the drawing");
+        for(const auto delta:std::array{QPointF(220,70),QPointF(220,-70),QPointF(-220,70),QPointF(-220,-70),
+                                      QPointF(70,220),QPointF(-70,220),QPointF(70,-220),QPointF(-70,-220)}) {
+            window.select_view_for_test(original.id);action("projectDrawingViewAction")->trigger();
+            mouse(canvas,QEvent::MouseMove,center+delta,Qt::NoButton,Qt::NoButton);click(canvas,center+delta);
+            require(count()==2&&!dialog(),"Diagonal cursor failed to create a direct cardinal projection");
+            const auto child=state.sheets.front().views.back();
+            const auto expected=zima::drawing::cardinal_projection_direction({-delta.x(),-delta.y()});
+            require(child.projection_direction==expected&&child.parent_view_id==original.id&&child.scale==original.scale&&child.source_document_id==original.source_document_id,
+                "Off-axis projected placement changed source, scale or cardinal direction");
+            require(expected==zima::drawing::ProjectionDirection::Left||expected==zima::drawing::ProjectionDirection::Right
+                ?std::abs(child.y-original.y)<1e-8:std::abs(child.x-original.x)<1e-8,"Off-axis projection retained diagonal placement");
+            QTemporaryDir projection_directory;require(projection_directory.isValid(),"Projection round-trip directory unavailable");
+            const auto projection_file=std::filesystem::path(projection_directory.filePath("cardinal.drwz").toStdWString());
+            state.save(projection_file);const auto reopened=zima::drawing::DrawingDocument::load(projection_file);
+            require(reopened.sheets.front().views.back().projection_direction==expected,"Cardinal projection did not round-trip");
+            require(workspace.open_drawing(drawing.document_id)->undo(),"Off-axis projection has no atomic Undo");
+            window.edit_workspace_document(drawing.document_id);flush();require(count()==1,"Projection Undo retained a child");
+        }
+        std::cout<<"Eight diagonal cursor placements snap to four cardinal views, inherit parent inputs and undo atomically\n";
         window.select_view_for_test(original.id);
         action("projectDrawingViewAction")->trigger();
         require(canvas->cursor().shape()==Qt::ArrowCursor,"Projected placement must retain the arrow cursor");

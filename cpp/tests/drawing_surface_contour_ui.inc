@@ -12,6 +12,10 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
     require(std::ranges::count_if(targets,[](const auto& curve){return curve.circular;})==2,"Actual bolt has no pair of circular contour references");
     std::vector<std::pair<ProjectedMeasurementCurve,DrawingDimensionKind>> cases;
     for(const auto& target:targets) {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ROUNDED_SHAFT_CONTOURS_ONLY")) {
+            if(target.circular){cases.emplace_back(target,DrawingDimensionKind::Radius);cases.emplace_back(target,DrawingDimensionKind::Diameter);}
+            continue;
+        }
         cases.emplace_back(target,target.circular?DrawingDimensionKind::Radius:DrawingDimensionKind::Linear);
         if(target.line)cases.emplace_back(target,DrawingDimensionKind::Angular);
     }
@@ -24,7 +28,7 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
         const auto midpoint=target.circular?target.points[target.points.size()/2]:Point2{(target.points.front().x+target.points.back().x)/2,(target.points.front().y+target.points.back().y)/2};
         view.x=sheet.width_mm()/2+midpoint.x*view.scale;view.y=sheet.height_mm()/2-midpoint.y*view.scale;
         workspace::Workspace live;live.add_drawing(document);
-        app::DrawingWindow window(&live,false);window.resize(1300,900);window.edit_workspace_document(document.document_id);window.show();flush();
+        app::DrawingWindow window(&live,false);window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1300,900);window.edit_workspace_document(document.document_id);window.show();flush();
         auto* canvas=window.findChild<QWidget*>("drawingCanvas");require(canvas,"Contour canvas missing");
         const auto point=[&](Point2 p){const auto box=window.sheet_rectangle_for_test();const auto ratio=box.height()/sheet.height_mm();return QPointF(box.right()-view.x*ratio+p.x*view.scale*ratio,box.bottom()-view.y*ratio-p.y*view.scale*ratio);};
         window.findChild<QAction*>("drawingDimensionAction")->trigger();flush();
@@ -77,6 +81,7 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
         }
         auto* ok=dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok);require(ok&&ok->isEnabled(),"Contour dimension cannot commit");ok->click();flush();
         const auto dimensions=window.document_for_test().sheets.front().dimensions;require(dimensions.size()==1,"Contour dimension not committed");
+        mouse(canvas,QEvent::MouseButtonDblClick,{5,5},Qt::MiddleButton,Qt::MiddleButton);flush();
         const auto id=dimensions.back().id;
         const auto created=dimensions;auto* state=live.open_drawing(document.document_id);
         require(state->undo()&&state->document().sheets.front().dimensions.empty(),"GUI contour creation has no atomic Undo");
@@ -95,7 +100,8 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
                 const auto& changed=window.document_for_test().sheets.front().dimensions.front();
                 const auto evaluated=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),changed);
                 const double radius=std::hypot(target.cosine_axis.x,target.cosine_axis.y);
-                require(evaluated.state==MeasurementState::Resolved&&std::abs(evaluated.presentations.front().value-radius)<1e-8,"Actual radius changed during GUI drag");
+                const double expected=kind==DrawingDimensionKind::Diameter?2*radius:radius;
+                require(evaluated.state==MeasurementState::Resolved&&std::abs(evaluated.presentations.front().value-expected)<1e-8,"Actual circular size changed during GUI drag");
                 const auto rim=evaluated.presentations.front().witness_second;
                 require(std::abs(std::hypot(rim.x-target.center->x,rim.y-target.center->y)-radius)<1e-8,"GUI arrow escaped radius");
                 const auto after=window.document_for_test().sheets.front().dimensions;
@@ -124,6 +130,10 @@ int verify_surface_contour_ui(const std::filesystem::path& path) {
         window.grab().save(QString::fromStdString((std::filesystem::path("build")/("contour-ui-"+std::to_string(radii)+"-"+std::to_string(lines)+"-"+std::to_string(angles)+".png")).string()));
     }
     if(high_zoom){require(angles==8,"High-zoom chamfer references missing");std::cout<<"Actual bolt high-zoom GUI: four chamfer references accept linear and angular hover along their length\n";return 0;}
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ROUNDED_SHAFT_CONTOURS_ONLY")) {
+        require(radii==4,"Both rounding sides were not dimensioned by radius and diameter");
+        std::cout<<"Actual rounded shaft GUI: four R/diameter creations, twelve label drags, Undo/Redo and native reopen passed\n";return 0;
+    }
     require(radii==2&&lines>=2&&angles>=2,"Both fillet and chamfer sides were not exercised");
     std::cout<<"Actual bolt contour GUI: "<<radii<<" radii, "<<lines<<" chamfer spans, "<<angles<<" chamfer angles passed\n";return 0;
 }

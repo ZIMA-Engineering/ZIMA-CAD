@@ -74,6 +74,8 @@ drawing::Point2 projection_placement(drawing::ProjectionDirection direction,doub
     invalid_view();return {};
 }
 void edit_drawing_view(drawing::DrawingDocument& document,const std::string& sheet_id,drawing::DrawingView accepted,bool creating,DrawingProjection& projection,bool pending_hatch) {
+    if(creating&&!accepted.detail_view&&!accepted.parent_view_id.empty()&&
+        !drawing::is_cardinal_projection(accepted.projection_direction))invalid_view();
     auto next=document;auto* sheet=next.find_sheet(sheet_id);
     if(!sheet)throw DrawingOperationError("sheet_not_found","The drawing sheet does not exist.");
     const auto found=std::ranges::find(sheet->views,accepted.id,&drawing::DrawingView::id);

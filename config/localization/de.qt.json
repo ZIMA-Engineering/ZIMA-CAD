@@ -1,4 +1,11 @@
 {
+  "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Bemaßung: OK speichert das Maß und beginnt ein weiteres. Ein Doppelklick mit der mittleren Maustaste beendet den Befehl.",
+  "Připravuji pohled…": "Ansicht wird vorbereitet…",
+  "Zavírám dokument %1…": "Dokument %1 wird geschlossen…",
+  "Dokument zavřen.": "Dokument geschlossen.",
+  "Zavírání dokumentu nebylo dokončeno.": "Das Schließen des Dokuments wurde nicht abgeschlossen.",
+  "Obnovuji zobrazení po zavření dokumentu…": "Ansicht nach dem Schließen des Dokuments wird wiederhergestellt…",
+  "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Universelle Bemaßung: Erneut auf den Bogen klicken, um R/⌀ umzuschalten; zum Platzieren in einen freien Bereich klicken.",
   "Koncová plocha": "Endfläche",
   "OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.": "OCCT unterstützt keine ausgewählten Endflächen. Verwenden Sie ZIMA oder Automatisch.",
   "Kolmo – vyberte plochu": "Senkrecht – Fläche auswählen",
@@ -2664,5 +2671,6 @@
   "Body os": "Achsenpunkte",
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Punkte von Achsen und Konstruktionskurven ein- oder ausblenden",
   "Invalid compressed document data.": "Ungültige komprimierte Dokumentdaten.",
-  "External extrusion targets must belong to a Skeleton Part.": "Externe Austragungsziele müssen zu einem Skeleton-Teil gehören."
+  "External extrusion targets must belong to a Skeleton Part.": "Externe Austragungsziele müssen zu einem Skeleton-Teil gehören.",
+  "Prázdná varianta": "Leer"
 }

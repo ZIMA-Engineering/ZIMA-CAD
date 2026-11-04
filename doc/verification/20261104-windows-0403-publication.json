@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "product": "ZIMA-CAD",
+  "version": "2026110403",
+  "platform": "windows-x64",
+  "tag": "ZIMA-CAD-2026110403",
+  "commit": "e32c89f8377cfd6e7d00e267cdba39515e460035",
+  "publishedAt": "2026-11-04T21:44:30Z",
+  "releaseUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110403",
+  "latestStable": true,
+  "archive": {
+    "fileCount": 17475,
+    "name": "ZIMA-CAD-2026110403.zip",
+    "sha256": "c89103985daea26d422b9534c5b3884a1f4c5731a3d2724609703102cb4f795d",
+    "size": 937979416,
+    "unpackedSize": 3188941428
+  },
+  "updateManifest": {
+    "name": "update-manifest.json",
+    "size": 703,
+    "sha256": "fc56203bdc19ffec3334a55d0cf4d55ce05eda78c19f8cac1a28c4c925b7d18c"
+  },
+  "updateSignature": {
+    "name": "update-manifest.sig",
+    "size": 176,
+    "sha256": "55d6045749db37cb5ba01c7f8e8a278bc10ebae8606288c767079de481d5ae9d"
+  },
+  "sourceTreeSha256": "24087a16c69923defed855034b01f12ad86738c8a507b1832d37620ee0272d84",
+  "candidate": {
+    "cleanTaggedSource": true,
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185,
+    "dependencyArchiveCrcSha256Checks": "passed"
+  },
+  "signed": {
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185,
+    "productionTrust": "passed",
+    "guiCliUpdaterBuildIdentity": "passed",
+    "exactFactoryFileComparisons": 1185,
+    "immutableFilesCheckedAfterGui": 17474,
+    "developerSdkRemovedFromPath": true,
+    "hiddenVerificationWindows": true,
+    "packagedGuiSuites": [
+      {
+        "case": "camera-and-six-start-templates",
+        "seconds": 110.937,
+        "exitCode": 0
+      },
+      {
+        "case": "external-midpoint",
+        "seconds": 5.11,
+        "exitCode": 0
+      },
+      {
+        "case": "native-datum-feature04",
+        "seconds": 6.547,
+        "exitCode": 0
+      },
+      {
+        "case": "actual-radius150",
+        "seconds": 10.906,
+        "exitCode": 0
+      },
+      {
+        "case": "complex-sheet-dimensions",
+        "seconds": 16.641,
+        "exitCode": 0
+      },
+      {
+        "case": "current02-holes-and-placement",
+        "seconds": 9.094,
+        "exitCode": 0
+      },
+      {
+        "case": "mirror-and-trim",
+        "seconds": 18.656,
+        "exitCode": 0
+      },
+      {
+        "case": "mechanisms",
+        "seconds": 16.75,
+        "exitCode": 0
+      },
+      {
+        "case": "arc-size",
+        "seconds": 112.578,
+        "exitCode": 0
+      },
+      {
+        "case": "angle-sectors",
+        "seconds": 21.578,
+        "exitCode": 0
+      },
+      {
+        "case": "nested-appearance-and-close",
+        "seconds": 1.844,
+        "exitCode": 0
+      },
+      {
+        "case": "trim-junctions",
+        "seconds": 3.609,
+        "exitCode": 0
+      }
+    ],
+    "emptyRoughnessNativeFamily": "passed",
+    "emptyRoughnessGui": "10 local five-language cases; not a packaged GUI suite"
+  },
+  "publicDownloads": {
+    "authenticatedDraftDownloads": "all-three-assets-matched",
+    "anonymousDownloads": [
+      {
+        "name": "ZIMA-CAD-2026110403.zip",
+        "size": 937979416,
+        "sha256": "c89103985daea26d422b9534c5b3884a1f4c5731a3d2724609703102cb4f795d",
+        "anonymous": true,
+        "matched": true
+      },
+      {
+        "name": "update-manifest.json",
+        "size": 703,
+        "sha256": "fc56203bdc19ffec3334a55d0cf4d55ce05eda78c19f8cac1a28c4c925b7d18c",
+        "anonymous": true,
+        "matched": true
+      },
+      {
+        "name": "update-manifest.sig",
+        "size": 176,
+        "sha256": "55d6045749db37cb5ba01c7f8e8a278bc10ebae8606288c767079de481d5ae9d",
+        "anonymous": true,
+        "matched": true
+      }
+    ]
+  },
+  "updaterDiscovery": {
+    "installedVersion": "2026110402",
+    "availableVersion": "2026110403",
+    "trusted": true,
+    "installable": true,
+    "downloadPerformed": false,
+    "installationPerformed": false,
+    "rootFilesUnchanged": true
+  },
+  "verificationBoundary": {
+    "protectedUserModelsCommitted": false,
+    "originalUserFilesOverwritten": false,
+    "nativePersistedContractsChangedFrom0402": false,
+    "changedFactoryAssets": [
+      "config/symbols/general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz",
+      "config/formats/ZE-TITLE-BLOCK.tblz"
+    ],
+    "factoryEmptyDefinitions": "native saved/reopened; other authored variants and embedded geometry retained",
+    "sketcherFiniteVariants": {
+      "mechanisms": 324,
+      "tangentSliders": 432,
+      "uProfiles": 1440,
+      "swivelProfiles": 180,
+      "trimFragments": 96,
+      "angleSectors": 768
+    },
+    "reviewMatrix": "doc/verification/20261104-sketcher-drawing-review.md",
+    "bom": "Saved Drawing has its one correct immediate-subassembly row and upwards repeat region; absent imported parameters explain blank descriptive cells. Earlier draft defect not reproduced.",
+    "linuxNativeBuildRuntimeGuiTiming": "not-run-on-windows-host",
+    "exhaustiveSketcherTopologyOrArbitrarySurfaceAcceptance": false,
+    "extendedPackagedApplicationLifecycleSuite": "not-rerun; packaged startup and nested-appearance/close suite passed",
+    "liveUpdateInstallationOrActivationPerformed": false,
+    "localization": "cs/en/de/fr/ru catalogs and affected local GUI passed; publication documentation adds no UI strings"
+  }
+}

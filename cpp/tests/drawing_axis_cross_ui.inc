@@ -64,7 +64,7 @@ int verify_drawing_axis_cross_ui() {
             view.model_annotations.push_back(axis);
         }
         doc.sheets.front().views={view};live.add_drawing(doc);auto* state=live.open_drawing(doc.document_id);
-        app::DrawingWindow window(&live,false);window.resize(1300,900);window.edit_workspace_document(doc.document_id);window.show();flush();
+        app::DrawingWindow window(&live,false);window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1300,900);window.edit_workspace_document(doc.document_id);window.show();flush();
         auto* canvas=window.findChild<QWidget*>("drawingCanvas");require(canvas,"Axis-cross canvas missing");
         const auto point=[&](double x,double y){const auto box=window.sheet_rectangle_for_test();const double scale=box.height()/doc.sheets.front().height_mm();
             return QPointF(box.right()-view.x*scale+x*view.scale*scale,box.bottom()-view.y*scale-y*view.scale*scale);};
@@ -95,7 +95,9 @@ int verify_drawing_axis_cross_ui() {
         if(kind==DrawingDimensionKind::Chain)pick(canvas,arm(50,vertical));
         require(state->revision()==revision,"Axis-cross preview committed before OK");
         pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        require(!properties(),"Axis-cross OK did not close properties");
+        require(properties()&&properties()->value().kind==kind,"Axis-cross OK did not continue the same command");
+        mouse(canvas,QEvent::MouseButtonDblClick,{5,5},Qt::MiddleButton,Qt::MiddleButton);flush();
+        require(!properties(),"Empty repeated axis-cross command did not end");
         const auto committed=state->document().sheets.front().dimensions;
         require(committed.size()==(kind==DrawingDimensionKind::Chain?2:1),"Axis-cross command committed the wrong number of dimensions");
         for(std::size_t index=0;index<committed.size();++index) {

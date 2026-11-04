@@ -10,6 +10,7 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/file_path.hpp>
 #include <QThreadPool>
+#include <QScopeGuard>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -240,6 +241,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     if (tab_index < 0) tab_index = tabs_->currentIndex();
     if (tab_index < 0 || tab_index >= tabs_->count()) return;
     const std::string id = tabs_->tabData(tab_index).toString().toStdString();
+    const auto closing_label=tabs_->tabText(tab_index);
     if(id==workspace_.active_document_id())persist_sketch_views();
     const auto* state = workspace_.find(id);
     if (state == nullptr) return;
@@ -260,6 +262,13 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
             if(!workspace_.find(id) || workspace::document_needs_save(workspace_,id))return;
         }
     }
+    // Closing and restoring the remaining document may transfer calculated
+    // source data and rebuild a large Assembly scene. Publish the shared
+    // activity before that synchronous phase, after any Save/Cancel prompt.
+    ui::OperationActivity::InputBlock input_block(viewer_);
+    begin_status_operation(tr("Zavírám dokument %1…").arg(closing_label),true);
+    bool closed=false;
+    const auto finish=qScopeGuard([&]{finish_status_operation(closed?tr("Dokument zavřen."):tr("Zavírání dokumentu nebylo dokončeno."),closed);});
     const auto release=[](workspace::DocumentState&& state) {
         // Closing must detach the tab immediately. Destruction of the large
         // immutable native history and its OCCT archives has no UI work and
@@ -271,6 +280,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     if(workspace_.open_part(id)||workspace_.open_assembly(id))
         workspace::visit_document_sketches(workspace_,id,[&](const auto& sketch){sketch_views.push_back(sketch.id);return true;});
     if (workspace::close_document(workspace_,id,discard,release)!=workspace::CloseDocumentResult::Closed) return;
+    closed=true;
     for(const auto& sketch:sketch_views)sketch_view_states_.erase(sketch);
     sketch_view_state_id_.clear();
     active_sketch_id_.clear();
@@ -284,6 +294,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     selected_sketch_bspline_id_.clear();
     selected_sketch_text_id_.clear();
     cancel_sketch_segment();
+    update_status_operation(tr("Obnovuji zobrazení po zavření dokumentu…"));
     refresh_tabs();
     refresh_scene();
 }

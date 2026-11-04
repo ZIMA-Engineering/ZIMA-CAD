@@ -1,5 +1,37 @@
 # Linux build and distribution handoff - 2026-09-15
 
+## Sketcher mechanisms and Drawing review (2026-11-04)
+
+Windows release 2026110403 uses the shared C++ mechanism/profile fitter,
+point-locus dragging, Trim EqualRadius relations, positive automatic angle
+sectors, nested occurrence appearance, Drawing indexes/private workers and
+cardinal projected-view creation. Native schemas, the Windows Qt 6.11.0 kit and
+the shared OCCT 8.0.1 pin are unchanged from 0402. Use the committed general-roughness and title-block
+assets containing the optional Empty variant. Do not regenerate another set of
+Linux-only factory definitions.
+
+Run the native mechanism, engineering-profile, trim-fragment and angle-sector
+targets plus the existing Sketcher contracts. Exercise the registered mechanism,
+Arc R/diameter, angular-sector, nested appearance/close, repeated Drawing
+dimension and Empty roughness GUI suites on the actual Linux desktop. Check
+dependent history/reference recovery, native reopening, Undo/Redo, ordinary
+creation frames, projected directions, drawing picking/sections/breaks/details,
+export and all five languages. Windows counts and representative timings are in
+[the finite review](verification/20261104-sketcher-drawing-review.md); they do
+not establish Linux performance or acceptance. Continue the existing native
+Linux SDK, packaging, signing and publication gates below.
+
+Windows publication is complete from immutable tag `ZIMA-CAD-2026110403`, source
+`e32c89f8377cfd6e7d00e267cdba39515e460035`. Candidate and signed native smoke,
+1,185 factory comparisons, twelve packaged GUI suites, all three anonymous
+downloads and trusted 0402 updater discovery passed. See the
+[publication evidence](verification/20261104-windows-0403-publication.json).
+Fetch the source branch `codex/sketcher-mechanisms` and tags to receive this
+handoff and its publication record. Preserve local changes and user projects.
+Inspect the Linux host and complete Qt kit before selecting its toolchain;
+Windows acceptance does not establish Linux dependency versions or execution.
+Use a new build ID for the Linux release; do not replace published Windows assets.
+
 ## OCCT 8.0.1 transition (2026-10-24; native Linux acceptance pending)
 
 The shared dependency recipes and CMake version gate now target OCCT 8.0.1.

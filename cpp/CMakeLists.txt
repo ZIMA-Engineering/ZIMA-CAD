@@ -561,6 +561,14 @@ if(ZIMA_BUILD_TESTS)
         qt6keychain Qt6::WebEngineWidgets Qt6::WebChannel Qt6::Svg Qt6::Quick Qt6::OpenGLWidgets)
     target_compile_options(zima_browser_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_browser_ui COMMAND zima_browser_ui_tests)
+    add_executable(zima_browser_bookmark_menu_tests tests/browser_bookmark_menu_tests.cpp
+        browser/browser.cpp browser/browser.hpp browser/credentials.cpp browser/credentials.hpp
+        app/file_dialog.cpp app/resource_icon.cpp app/application_settings.cpp app/zima_resources.qrc)
+    set_target_properties(zima_browser_bookmark_menu_tests PROPERTIES AUTOMOC ON AUTORCC ON)
+    target_link_libraries(zima_browser_bookmark_menu_tests PRIVATE zima_browser_store zima_ui
+        qt6keychain Qt6::WebEngineWidgets Qt6::WebChannel Qt6::Svg Qt6::Quick Qt6::OpenGLWidgets)
+    target_compile_options(zima_browser_bookmark_menu_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_browser_bookmark_menu_tests COMMAND zima_browser_bookmark_menu_tests)
     add_executable(zima_file_manager_ui_tests tests/file_manager_ui_tests.cpp
         app/file_manager_tab.cpp app/file_dialog.cpp app/resource_icon.cpp
         app/application_settings.cpp app/zima_resources.qrc)
@@ -910,6 +918,9 @@ if(ZIMA_BUILD_TESTS)
     else()
         set(ZIMA_GUI_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
+    set_tests_properties(zima_browser_bookmark_menu_tests PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_portable_font_contract_tests tests/portable_font_contract_tests.cpp)
     target_link_libraries(zima_cpp_portable_font_contract_tests PRIVATE Qt6::Core Qt6::Gui)
     target_compile_options(zima_cpp_portable_font_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
@@ -1293,6 +1304,18 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_executable(zima_cpp_sketch_mechanism_tests tests/sketch_mechanism_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_mechanism_tests PRIVATE zima_sketcher zima_document_core)
+    add_test(NAME zima_cpp_sketch_mechanism_tests COMMAND zima_cpp_sketch_mechanism_tests)
+    add_executable(zima_cpp_sketch_engineering_profile_tests tests/sketch_engineering_profile_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_engineering_profile_tests PRIVATE zima_sketcher zima_document_core)
+    add_test(NAME zima_cpp_sketch_engineering_profile_tests COMMAND zima_cpp_sketch_engineering_profile_tests)
+    add_executable(zima_cpp_sketch_trim_fragment_tests tests/sketch_trim_fragment_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_trim_fragment_tests PRIVATE zima_sketcher zima_document_core)
+    add_test(NAME zima_cpp_sketch_trim_fragment_tests COMMAND zima_cpp_sketch_trim_fragment_tests)
+    add_executable(zima_cpp_sketch_angle_sector_tests tests/sketch_angle_sector_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_angle_sector_tests PRIVATE zima_sketcher zima_document_core)
+    add_test(NAME zima_cpp_sketch_angle_sector_tests COMMAND zima_cpp_sketch_angle_sector_tests)
     add_test(NAME zima_cpp_sketch_mirror_center_drag_tests COMMAND zima_cpp_sketcher_contract_tests)
     set_tests_properties(zima_cpp_sketch_mirror_center_drag_tests PROPERTIES
         ENVIRONMENT "ZIMA_CPP_VERIFY_MIRROR_DRAG_ONLY=1")
@@ -2342,6 +2365,14 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_DRAWING=${CMAKE_BINARY_DIR}/solid-state-drawing-gui/views.drwz"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." FIXTURES_REQUIRED solid_state_drawing_gui RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_view_controls_ui_contract COMMAND zima-cad-drawing-harness --verify-view-controls)
+    add_test(NAME zima_cpp_drawing_repeat_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    add_test(NAME zima_cpp_empty_roughness_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    set_tests_properties(zima_cpp_empty_roughness_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EMPTY_ROUGHNESS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    set_tests_properties(zima_cpp_drawing_repeat_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DRAWING_REPEAT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_solid_state_drawing_chain_gui_fixture COMMAND zima_cpp_solid_state_drawing_tests --curved-chain)
     set_tests_properties(zima_cpp_solid_state_drawing_chain_gui_fixture PROPERTIES
         ENVIRONMENT "ZIMA_SOLID_STATE_DRAWING_FIXTURE=${CMAKE_BINARY_DIR}/solid-state-drawing-chain-gui"
@@ -2422,6 +2453,16 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_coincident_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_angle_sector_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_angle_sector_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ANGLE_SECTOR_ONLY=1"
+        RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME zima_cpp_assembly_presentation_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_assembly_presentation_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ASSEMBLY_PRESENTATION_ONLY=1"
+        RUN_SERIAL TRUE TIMEOUT 120)
     set_tests_properties(zima_cpp_sketch_coincident_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY=1"
@@ -2472,6 +2513,16 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_corner_chain_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_equal_endpoint_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_entry_view_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_mechanism_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_mechanism_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_MECHANISM_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_sketch_arc_size_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_arc_size_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_ARC_SIZE_ONLY=1"
+        TIMEOUT 240 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_sketch_entry_view_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ENTRY_VIEW_ONLY=1"

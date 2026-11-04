@@ -864,7 +864,7 @@ private:
     void save_active_assembly();
     void save_active_document();
     void save_active_document_as();
-    void begin_status_operation(const QString& message);
+    void begin_status_operation(const QString& message, bool immediate = false);
     void update_status_operation(
         const QString& message, int value = -1, int maximum = -1);
     void finish_status_operation(const QString& message, bool success = true);

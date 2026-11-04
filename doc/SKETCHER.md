@@ -157,6 +157,16 @@ straight Intersection branches. Parallel line pairs retain parallelism when an
 unlocked distance follows dragging. Reference sources remain read-only; broken
 supports and curved display chords are excluded.
 
+Selecting an Arc with Universal dimension initially offers its radius. Clicking
+the same Arc again switches between R and diameter before placing the label;
+a fast second click works too. The pending choice does not modify the Sketch.
+Automatic line-angle sectors display a positive magnitude; an explicitly
+authored negative value retains its sign.
+
+The [mechanism and profile review](verification/20261104-sketcher-drawing-review.md)
+records repeated dimension edits and dragging, off-path cursor projection,
+native/external supports, Mirror/Trim junctions and finite verification limits.
+
 ## Tool confirmation
 
 When a Polyline continues from an Arc, snapping the new Segment's other end to

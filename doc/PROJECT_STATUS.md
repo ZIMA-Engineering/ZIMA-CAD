@@ -1,32 +1,30 @@
 # Current project status
 
-Reviewed on 2026-10-28 against the current shared C++ implementation, focused
+Reviewed on 2026-11-04 against the current shared C++ implementation, focused
 native/GUI contracts and the live GitHub release list. Dated proposals and
 historical release records remain evidence for their original scope; they are
 not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026102801](releases/2026102801.md#windows-publication-acceptance)
+Signed Windows [2026110403](releases/2026110403.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-10-28T04:17:11Z` from immutable source
-`5021b0d341ae484657d1a6454439ec91957eef77` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-04T21:44:30Z` from immutable source
+`e32c89f8377cfd6e7d00e267cdba39515e460035` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,408 immutable archive entries, anonymous public downloads,
-and trusted 2026102701 updater discovery pass.
-Native Linux execution remains a separate host requirement.
+signature/trust, 17,475 archive entries, anonymous public downloads,
+twelve packaged GUI suites and trusted 2026110402 updater discovery pass.
+Native Linux execution remains a separate host requirement. See the
+[publication evidence](verification/20261104-windows-0403-publication.json).
 
-The release includes deferred/background output-only physical analysis,
-reversible native history reuse, exact-radius Thin correction and activated
-Skeleton occurrence context. See the [release record](releases/2026102801.md)
-and
-[publication evidence](verification/20261028-windows-2801-publication.json).
+The release adds the finite Sketch mechanism/profile review, Drawing performance
+and interaction repairs, closed nested appearance and an Empty general-roughness
+variant. Its native schema is unchanged from 0402, which introduced the approved
+Sketch view memory and external midpoint persistence changes.
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
-This release changes neither the native format version nor the protected
-container-placement, geometry-side, reference-identity or precision contracts.
-
-The authored native format and precision remain unchanged. The
+The protected container-placement, geometry-side, reference-identity and
+precision contracts remain authoritative. The
 [measured performance/gate](performance/20261028-background-analysis-and-history-cache.md)
 records both the released improvements and the unresolved late-history Solid
 Fillet cost. Production parallel history batching remains disabled until exact
@@ -106,7 +104,7 @@ evidence. Published 2501 and every older signed release remain immutable.
 
 | Work | Current boundary / next step |
 | --- | --- |
-| Current correction/release batch | Windows 2026102801 is published and accepted with deferred/background physical analysis, reversible native history reuse, exact-radius Thin correction and activated Skeleton occurrence context. Native Linux verification remains separate. |
+| Current correction/release batch | Windows 2026110402 is published. The 2026110403 mechanism/Drawing review and Empty general-roughness variant are undergoing final packaging acceptance; see the linked finite matrix. Native Linux verification remains separate. |
 | Skeleton interaction | New Feature opening measures 0.280--0.353 s, Default Origin 0.272--0.280 s and the representative Sketch move about 6 ms. The 32-operation Skeleton opens in about 7.4 s; cold explicit regeneration measures about 68.9 s after physical analysis leaves the critical path, while exact Save adds about 30 s. A late Solid Fillet edit/Undo/Redo succeeds, but its dependent suffix remains about 26 s. Production parallel batching and immediate Escape cancellation remain gated on exact identity and cooperative OCCT cancellation. |
 | Remaining fasteners | Cast wing-nut studies and toothed/fan washers remain unfinished. Preserve source-dimension discrepancies and private user edits. Two-part locking nuts are excluded. See [library queue](FASTENER_REMAINING_WORK.md). |
 | Sketch intersection references | Native source/branch association and editor commands are implemented in the documented finite scope. Arbitrary curved arrangements and the native Linux matrix remain unverified. See [editor verification](verification/20261022-sketch-intersection-editor.md). |

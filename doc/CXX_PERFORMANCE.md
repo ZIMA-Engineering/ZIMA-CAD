@@ -1,5 +1,12 @@
 # C++ performance measurements
 
+The [2026-11-04 Sketcher and drawing review](verification/20261104-sketcher-drawing-review.md#performance-evidence)
+records exact picking-result comparisons on a large native Drawing. Picker
+preparation decreased from 52.7 s to 0.311 s; changed view confirmations measured
+43--73 s before and 2.5--2.9 s after. Cold source preparation remains separate.
+These figures concern those operations on one Windows fixture, not complete CAD
+or regeneration speed, and have no corresponding native Linux measurement.
+
 The 2026-10-26 [Skeleton history-edit investigation](performance/20261026-skeleton-history-edit.md)
 measures the reported final Thin Feature on a 26-operation user Skeleton. It
 confirms that the native history cache is useful: a warm edit restores 25

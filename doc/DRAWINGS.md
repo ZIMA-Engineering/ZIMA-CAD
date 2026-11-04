@@ -196,10 +196,24 @@ frame appears only on hover/selection. Tree and View select the same view;
 clicking outside views clears selection.
 
 **Projected View** in the context menu attaches a preview to the cursor and
-snaps direction every 45° according to parent and sheet projection method.
+snaps to Right, Top, Left or Bottom according to the dominant cursor direction,
+parent and sheet projection method. A diagonal cursor movement selects one of
+these four directions. Placement click inserts the view directly; Escape
+cancels before insertion. The child inherits source, scale and display settings.
 Children store parent ID, direction and camera. Moving a parent moves children;
 child movement stays on the projection ray. Name/label and custom versus sheet
 scale are saved in `.drwz`.
+
+Ordinary new-view Properties keeps a lightweight bounding frame, including
+orientation changes, until OK prepares the geometry. Long view preparation uses
+the shared centered activity indicator and keeps painting and timers responsive.
+This does not replace persisted measurement/reference geometry with an image.
+
+When creating manual dimensions, normal OK saves the dimension and opens a fresh
+dialog of the same kind. Each accepted dimension has its own Undo transaction.
+A short middle click ends reference entry. A middle double-click confirms a
+complete pending dimension and ends the command; in an empty next dialog it
+ends without creating another dimension. Cancel discards only the current draft.
 
 Views retain source linkage and last calculated projection. Opening/tab switching
 invokes neither OCCT nor automatic dependency refresh. **Regenerate** explicitly

@@ -18,7 +18,9 @@ public:
     explicit OperationActivity(QWidget* window, QWidget* view);
     ~OperationActivity() override;
     using Token = std::uint64_t;
-    [[nodiscard]] Token begin(const QString& message, QWidget* confirmation_indicator = nullptr);
+    enum class Presentation { Deferred, Immediate };
+    [[nodiscard]] Token begin(const QString& message, QWidget* confirmation_indicator = nullptr,
+        Presentation presentation = Presentation::Deferred);
     bool update_message(Token token, const QString& message);
     void end(Token token);
     [[nodiscard]] bool active() const { return !frames_.empty(); }
@@ -31,7 +33,8 @@ public:
 
     class Scope final {
     public:
-        Scope(OperationActivity* activity, const QString& message, QWidget* indicator = nullptr);
+        Scope(OperationActivity* activity, const QString& message, QWidget* indicator = nullptr,
+            Presentation presentation = Presentation::Deferred);
         ~Scope();
         Scope(const Scope&) = delete;
         Scope& operator=(const Scope&) = delete;
@@ -54,6 +57,7 @@ protected:
 private:
     struct Frame { Token token; QString message; QPointer<QWidget> indicator; };
     void refresh();
+    void show_overlay();
     void place_overlay();
     QPointer<QWidget> window_;
     QPointer<QWidget> view_;

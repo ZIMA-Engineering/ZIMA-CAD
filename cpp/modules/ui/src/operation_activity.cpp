@@ -122,15 +122,7 @@ OperationActivity::OperationActivity(QWidget* window, QWidget* view)
     appearance_timer_->setInterval(250);
     animation_timer_ = new QTimer(this);
     animation_timer_->setInterval(40);
-    connect(appearance_timer_, &QTimer::timeout, this, [this] {
-        if (!active()) return;
-        refresh();
-        place_overlay();
-        overlay_->show();
-        overlay_->raise();
-        animation_timer_->start();
-        refresh();
-    });
+    connect(appearance_timer_, &QTimer::timeout, this, &OperationActivity::show_overlay);
     connect(animation_timer_, &QTimer::timeout, this, [this] {
         angle_ = (angle_ + 16) % 360;
         const auto animate = [this](QWidget* widget) {
@@ -152,7 +144,7 @@ OperationActivity::~OperationActivity() {
     delete overlay_;
 }
 
-OperationActivity::Token OperationActivity::begin(const QString& message, QWidget* indicator) {
+OperationActivity::Token OperationActivity::begin(const QString& message, QWidget* indicator, Presentation presentation) {
     const bool first = !active();
     const auto token = ++next_token_;
     frames_.push_back({token, message, indicator});
@@ -163,7 +155,19 @@ OperationActivity::Token OperationActivity::begin(const QString& message, QWidge
         appearance_timer_->start();
     }
     refresh();
+    if(presentation==Presentation::Immediate) {
+        show_overlay();
+        // Synchronous owners may not return to the event loop until work ends.
+        // Paint now without dispatching input or reentering document commands.
+        overlay_->repaint();
+    }
     return token;
+}
+
+void OperationActivity::show_overlay() {
+    if(!active())return;
+    appearance_timer_->stop();refresh();place_overlay();
+    overlay_->show();overlay_->raise();animation_timer_->start();refresh();
 }
 
 bool OperationActivity::update_message(Token token, const QString& message) {
@@ -229,8 +233,8 @@ QWidget* OperationActivity::create_confirmation_indicator(QWidget* parent) {
     return widget;
 }
 
-OperationActivity::Scope::Scope(OperationActivity* activity, const QString& message, QWidget* indicator)
-    : activity_(activity), token_(activity ? activity->begin(message, indicator) : 0) {}
+OperationActivity::Scope::Scope(OperationActivity* activity, const QString& message, QWidget* indicator, Presentation presentation)
+    : activity_(activity), token_(activity ? activity->begin(message, indicator,presentation) : 0) {}
 OperationActivity::Scope::~Scope() { if (activity_) activity_->end(token_); }
 OperationActivity::InputBlock::InputBlock(QWidget* navigation_view) {
     input_blocks.push_back({navigation_view});

@@ -184,7 +184,7 @@ Tab::Tab(Runtime& runtime,QWidget* parent):QWidget(parent),runtime_(runtime) {
     connect(forward,&QAction::triggered,view_,&QWebEngineView::forward);
     connect(refresh,&QAction::triggered,view_,&QWebEngineView::reload);
     connect(address_,&QLineEdit::returnPressed,this,[this]{navigate(QUrl::fromUserInput(address_->text().trimmed()));});
-    connect(pin_,&QAction::triggered,this,[this]{update_pin();edit_bookmark(nullptr,false,true);});
+    connect(pin_,&QAction::triggered,this,[this]{update_pin();edit_bookmark({},false,true);});
     connect(view_,&QWebEngineView::urlChanged,this,[this](const QUrl& url){address_->setText(url.toString());update_pin();});
     connect(view_,&QWebEngineView::titleChanged,this,[this]{emit title_changed();});
     const auto history=[this,back,forward]{back->setEnabled(view_->history()->canGoBack());forward->setEnabled(view_->history()->canGoForward());};
@@ -198,25 +198,38 @@ Tab::Tab(Runtime& runtime,QWidget* parent):QWidget(parent),runtime_(runtime) {
         if(!item->data(0,Qt::UserRole+1).toBool())navigate(QUrl(item->data(0,Qt::UserRole+2).toString()));
     });
     tree->middle_click=[this](QTreeWidgetItem* item){
-        if(!item->data(0,Qt::UserRole+1).toBool()&&runtime_.new_page)
-            if(auto* page=runtime_.new_page())page->setUrl(QUrl(item->data(0,Qt::UserRole+2).toString()));
+        const bool folder=item->data(0,Qt::UserRole+1).toBool();
+        const auto url=QUrl(item->data(0,Qt::UserRole+2).toString());
+        if(!folder&&runtime_.new_page)if(auto* page=runtime_.new_page())page->setUrl(url);
     };
     connect(add,&QAction::triggered,this,[this,header]{
         QMenu menu(this);auto* bookmark=menu.addAction(tr("Add bookmark"));auto* folder=menu.addAction(tr("Add folder"));
         const auto action=menu.exec(header->mapToGlobal(QPoint(0,header->height())));
-        if(action)edit_bookmark(nullptr,action==folder,action==bookmark);
+        if(action)edit_bookmark({},action==folder,action==bookmark);
     });
     connect(tree,&QTreeWidget::customContextMenuRequested,this,[this](const QPoint& position){
         auto* item=tree_->itemAt(position);if(!item)return;
+        // exec() runs an event loop: icon/bookmark notifications may rebuild
+        // either tab's Tree while this menu remains open. Retain model identity,
+        // never a QTreeWidgetItem across that boundary.
+        const auto id=item->data(0,Qt::UserRole).toString();
+        const bool folder=item->data(0,Qt::UserRole+1).toBool();
         QMenu menu(this);QAction* open=nullptr;
-        if(!item->data(0,Qt::UserRole+1).toBool())open=menu.addAction(tr("Open in new tab"));
+        if(!folder)open=menu.addAction(tr("Open in new tab"));
         auto* edit=menu.addAction(tr("Edit bookmark"));auto* remove=menu.addAction(tr("Remove"));
         const auto action=menu.exec(tree_->viewport()->mapToGlobal(position));
-        if(action==open&&open&&runtime_.new_page){if(auto* page=runtime_.new_page())page->setUrl(QUrl(item->data(0,Qt::UserRole+2).toString()));}
-        else if(action==edit)edit_bookmark(item,item->data(0,Qt::UserRole+1).toBool());
+        QJsonObject current;bool has_children=false;
+        for(const auto& value:runtime_.bookmarks.items()) {
+            const auto record=value.toObject();if(record.value("id")==id)current=record;
+            if(record.value("parent")==id)has_children=true;
+        }
+        if(current.isEmpty())return;
+        const auto current_url=QUrl(current.value("url").toString());
+        if(action==open&&open&&runtime_.new_page){if(auto* page=runtime_.new_page())page->setUrl(current_url);}
+        else if(action==edit)edit_bookmark(id,current.value("folder").toBool());
         else if(action==remove){
-            if(item->childCount()&&QMessageBox::question(this,tr("Remove folder"),tr("Remove this folder and all its bookmarks?"))!=QMessageBox::Yes)return;
-            QString error;if(!runtime_.bookmarks.remove(item->data(0,Qt::UserRole).toString(),&error))report(error);
+            if(has_children&&QMessageBox::question(this,tr("Remove folder"),tr("Remove this folder and all its bookmarks?"))!=QMessageBox::Yes)return;
+            QString error;if(!runtime_.bookmarks.remove(id,&error))report(error);
         }
     });
     refresh_tree();
@@ -234,10 +247,13 @@ QString Tab::selected_folder()const{
     if(!item->data(0,Qt::UserRole+1).toBool())item=item->parent();
     return item?item->data(0,Qt::UserRole).toString():QString{};
 }
-void Tab::edit_bookmark(QTreeWidgetItem* item,bool folder,bool currentPage){
+void Tab::edit_bookmark(QString id,bool folder,bool currentPage){
     QJsonObject original;
-    if(item)for(const auto& v:runtime_.bookmarks.items())if(v.toObject().value("id")==item->data(0,Qt::UserRole).toString())original=v.toObject();
-    if(!item&&currentPage)for(const auto& v:runtime_.bookmarks.items())
+    if(!id.isEmpty()) {
+        for(const auto& v:runtime_.bookmarks.items())if(v.toObject().value("id")==id)original=v.toObject();
+        if(original.isEmpty())return;
+    }
+    if(id.isEmpty()&&currentPage)for(const auto& v:runtime_.bookmarks.items())
         if(v.toObject().value("url").toString()==url().toString()){original=v.toObject();break;}
     auto* dialog=new BookmarkDialog(runtime_.bookmarks,original,
         !original.isEmpty()?original.value("parent").toString():selected_folder(),

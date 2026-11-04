@@ -1,4 +1,11 @@
 {
+  "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Dimension: OK saves the dimension and starts another. Double-click the middle button to end the command.",
+  "Připravuji pohled…": "Preparing view…",
+  "Zavírám dokument %1…": "Closing document %1…",
+  "Dokument zavřen.": "Document closed.",
+  "Zavírání dokumentu nebylo dokončeno.": "Document closing did not complete.",
+  "Obnovuji zobrazení po zavření dokumentu…": "Restoring the view after closing the document…",
+  "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Universal dimension: click the arc again to switch R/⌀; click empty space to place the dimension.",
   "Koncová plocha": "End face",
   "OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.": "OCCT does not support selected end faces. Use ZIMA or Automatic.",
   "Kolmo – vyberte plochu": "Perpendicular – select a face",
@@ -2664,5 +2671,6 @@
   "Body os": "Axis points",
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Show or hide points of axes and construction curves",
   "Invalid compressed document data.": "Invalid compressed document data.",
-  "External extrusion targets must belong to a Skeleton Part.": "External extrusion targets must belong to a Skeleton Part."
+  "External extrusion targets must belong to a Skeleton Part.": "External extrusion targets must belong to a Skeleton Part.",
+  "Prázdná varianta": "Empty"
 }

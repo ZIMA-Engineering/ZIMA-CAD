@@ -1,4 +1,11 @@
 {
+  "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.",
+  "Připravuji pohled…": "Připravuji pohled…",
+  "Zavírám dokument %1…": "Zavírám dokument %1…",
+  "Dokument zavřen.": "Dokument zavřen.",
+  "Zavírání dokumentu nebylo dokončeno.": "Zavírání dokumentu nebylo dokončeno.",
+  "Obnovuji zobrazení po zavření dokumentu…": "Obnovuji zobrazení po zavření dokumentu…",
+  "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.",
   "Koncová plocha": "Koncová plocha",
   "OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.": "OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.",
   "Kolmo – vyberte plochu": "Kolmo – vyberte plochu",
@@ -2664,5 +2671,6 @@
   "Body os": "Body os",
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Zobrazit nebo skrýt body os a konstrukčních čar",
   "Invalid compressed document data.": "Neplatná komprimovaná data dokumentu.",
-  "External extrusion targets must belong to a Skeleton Part.": "Externí cíle tažení musí patřit dílu Skeleton."
+  "External extrusion targets must belong to a Skeleton Part.": "Externí cíle tažení musí patřit dílu Skeleton.",
+  "Prázdná varianta": "Prázdná varianta"
 }

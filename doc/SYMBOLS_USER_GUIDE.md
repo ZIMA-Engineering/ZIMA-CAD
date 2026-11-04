@@ -97,6 +97,13 @@ Select a symbol in the View or Tree to open Properties or remove it. The model
 **Symbols** display filter is independent of Sketches and Dimensions; hidden
 symbols are not offered by the picker.
 
+The general ISO 21920 surface-texture symbol used in title blocks includes an
+**Empty** variant for sheets requiring no general roughness indication, such as
+an Assembly drawing. It contains no mark, brackets or text. Existing inserted
+copies also offer Empty in Properties; selecting it stores the optional blank
+row in that instance's own definition. Cancel and unchanged OK preserve the
+original definition and the library file. Undo restores the visible mark.
+
 A selected leader exposes three purple handles: the arrow contact, the elbow
 and the shelf end. In a model, dragging the grip opens Properties and changes only the
 pending offset; OK commits and Cancel restores the original placement. Clicking

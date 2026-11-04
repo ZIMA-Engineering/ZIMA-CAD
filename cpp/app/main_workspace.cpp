@@ -1,6 +1,7 @@
 ﻿#include "sketch_tangent_test_equations.hpp"
 #include "../tests/preview_refresh_probe.hpp"
 #include "../tests/sketch_coupled_dimension_study.hpp"
+#include "../tests/sketch_mechanism_study.hpp"
 #include "sketch_external_reference_kind.hpp"
 #include "../tests/rounded_tangent_wing_study.hpp"
 #include "../tests/midpoint_profile_study.hpp"
@@ -7158,6 +7159,10 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
 #include "native_datum_feature_ui_verification.inc"
 using zima::test::check_coupled_equations;
 #include "sketch_coupled_dimension_ui_verification.inc"
+#include "sketch_mechanism_ui_verification.inc"
+#include "sketch_arc_size_ui_verification.inc"
+#include "assembly_presentation_ui_verification.inc"
+#include "sketch_angle_sector_ui_verification.inc"
 #include "sketch_external_midpoint_ui_verification.inc"
 #include "sketch_circle_endpoint_ui_verification.inc"
 
@@ -10610,6 +10615,14 @@ int verify_startup_contract(
         return verify_native_datum_feature_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COUPLED_DIMENSION_SOURCE"))
         return verify_sketch_coupled_dimension_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MECHANISM_ONLY"))
+        return verify_sketch_mechanism_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_SIZE_ONLY"))
+        return verify_sketch_arc_size_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_PRESENTATION_ONLY"))
+        return verify_assembly_presentation_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ANGLE_SECTOR_ONLY"))
+        return verify_sketch_angle_sector_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_MIDPOINT_UI_ONLY"))
         return verify_sketch_external_midpoint_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MIRROR_ONLY"))

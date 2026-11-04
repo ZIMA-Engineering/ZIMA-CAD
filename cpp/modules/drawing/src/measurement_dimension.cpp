@@ -3,12 +3,16 @@
 #include <zima/drawing/dimension_text.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <mutex>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <numbers>
 #include <sstream>
 #include <tuple>
+#include <type_traits>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/drawing/model_annotations.hpp>
@@ -415,7 +419,14 @@ std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(Measuremen
 }
 
 kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const ProjectionCamera& camera) {
+    const auto started=std::chrono::steady_clock::now();
+    const auto stamp=[&](const char* stage) {
+        if(std::getenv("ZIMA_DRAWING_PROFILE_NATIVE"))
+            std::fprintf(stderr,"drawing profiles %s %.3f ms\n",stage,
+                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
+    };
     auto result=mesh;
+    stamp("copy");
     // An edge-on circular rim must reach its analytic extrema even when its
     // display samples miss the quarter turns. Otherwise adjacent exact cone
     // generators stop at the true rim while the sampled rim leaves a gap.
@@ -451,6 +462,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
     };
     for(auto& edge:result.edges)complete_circle(edge);
     for(auto& edge:result.original_references.edges)complete_circle(edge);
+    stamp("circular extrema");
     std::set<std::tuple<std::string,std::string,std::string>> seen;
     using FaceKey=std::tuple<std::string,std::string,std::string>;
     std::map<FaceKey,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces;
@@ -458,8 +470,19 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
     const auto face_key=[](const auto& face){return FaceKey{face.owner_id,face.semantic_key,face.instance_path};};
     for(const auto& face:mesh.original_references.triangle_references)if(face.surface)surfaces.try_emplace(face_key(face),face.surface);
     for(const auto& face:mesh.triangle_references)if(face.surface)surfaces[face_key(face)]=face.surface;
+    // A calculated face support can also be owned by its exact boundary
+    // adjacency. Native drawing packets retain that analytic metadata even
+    // when the display triangles share a compact face-reference table.
+    for(const auto* edges:{&mesh.original_references.edges,&mesh.edges})
+        for(const auto& edge:*edges)for(const auto& face:edge.edge_treatment_side_references)
+            if(face.surface)surfaces.try_emplace(face_key(face),face.surface);
     for(const auto& face:mesh.original_references.triangle_references)if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
+    for(const auto& edge:mesh.original_references.edges)for(const auto& face:edge.edge_treatment_side_references)
+        if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
     for(const auto& face:mesh.triangle_references)if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
+    for(const auto& edge:mesh.edges)for(const auto& face:edge.edge_treatment_side_references)
+        if(face.contour_surface)surfaces[face_key(face)]=face.contour_surface;
+    stamp("surface map");
     const auto inherit_surface=[&](const auto& face) {
         auto current=face_key(face);
         for(unsigned depth=0;depth<64&&!surfaces.contains(face_key(face));++depth) {
@@ -474,6 +497,19 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
     for(const auto& edge:mesh.edges)for(const auto& face:edge.edge_treatment_side_references)inherit_surface(face);
     for(const auto& edge:mesh.edges)if(!edge.parameter_seam)
         for(const auto& face:edge.edge_treatment_side_references)boundaries[face_key(face)].push_back(&edge);
+    stamp("surface ancestry and boundaries");
+    // A clipped cone needs only its own native face samples. Retain their
+    // original order and exact identity, including the occurrence path, rather
+    // than scanning every triangle of the Assembly for each trimming plane.
+    std::optional<std::map<FaceKey,std::vector<std::size_t>>> face_triangles;
+    const auto triangles_for=[&](const auto& face)->const std::vector<std::size_t>& {
+        if(!face_triangles) {
+            face_triangles.emplace();
+            for(std::size_t i=0;i<mesh.triangle_references.size();++i)
+                (*face_triangles)[face_key(mesh.triangle_references[i])].push_back(i);
+        }
+        return face_triangles->at(face_key(face));
+    };
     for(const auto& face:mesh.triangle_references) {
         const kernel::EdgeReference reference{face.owner_id,face.semantic_key,face.instance_path};
         if(!reference.valid()||!seen.insert(key(reference)).second)continue;
@@ -481,17 +517,22 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
         if(analytic==surfaces.end())continue;
         const auto& surface=*analytic->second;
         const bool torus=surface.kind==kernel::SurfaceGeometry::Kind::Torus;
-        if(!torus&&surface.kind!=kernel::SurfaceGeometry::Kind::Cone)continue;
+        const bool cylinder=surface.kind==kernel::SurfaceGeometry::Kind::Cylinder;
+        if(!torus&&!cylinder&&surface.kind!=kernel::SurfaceGeometry::Kind::Cone)continue;
         // Meridian contours are circular only when the rotational axis lies
-        // in the drawing plane. Oblique silhouettes need a different conic.
-        if(std::abs(kernel::dimension_dot(surface.axis,camera.depth))>1e-9)continue;
+        // in the drawing plane. Cylinder generators remain exact straight
+        // lines in every non-axial view, including oblique shaft views.
+        const double alignment=std::abs(kernel::dimension_dot(surface.axis,camera.depth));
+        if(cylinder?kernel::dimension_dot(kernel::dimension_cross(surface.axis,camera.depth),
+            kernel::dimension_cross(surface.axis,camera.depth))<=1e-24:alignment>1e-9)continue;
+        const double slope=surface.kind==kernel::SurfaceGeometry::Kind::Cone?std::tan(surface.semi_angle):0.;
         if(torus&&(!surface.complete_profile||surface.radius<=surface.minor_radius||
             std::floor((surface.v_min+pi/2+1e-9)/pi)!=std::floor((surface.v_max+pi/2-1e-9)/pi)))continue;
         std::vector<std::pair<kernel::Vec3,kernel::Vec3>> clipping_planes;
         std::optional<double> cone_angle_origin;
         double cone_angle_min=0,cone_angle_max=0;
         if(!torus) {
-            // Only a complete cone band bounded by its two exact circular
+            // Only a complete rotational band bounded by its two exact circular
             // rims is rectangular in parameter space. Reject cut/holed bands.
             std::set<decltype(key(reference))> seen_edges;unsigned rings=0;bool complete=true;
             for(const auto* pointer:boundaries[face_key(face)]) {
@@ -505,7 +546,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                     const auto delta=kernel::dimension_sub(circle->center,surface.origin);
                     const double axial=kernel::dimension_dot(delta,surface.axis);
                     const auto off=kernel::dimension_sub(delta,kernel::dimension_scale(surface.axis,axial));
-                    if(kernel::dimension_dot(off,off)>1e-14||std::abs(circle->radius-surface.radius-axial*std::tan(surface.semi_angle))>1e-7||
+                    if(kernel::dimension_dot(off,off)>1e-14||std::abs(circle->radius-surface.radius-axial*slope)>1e-7||
                         std::min(std::abs(axial-surface.axial_min),std::abs(axial-surface.axial_max))>1e-7)complete=false;
                 }
                 ++rings;
@@ -540,7 +581,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                     }
                     if(!plane){certified=false;break;}
                     double low=0,high=0;
-                    for(std::size_t i=0;i<mesh.triangle_references.size();++i)if(face_key(mesh.triangle_references[i])==face_key(face)) {
+                    for(const auto i:triangles_for(face)) {
                         kernel::Vec3 center{};
                         for(unsigned corner=0;corner<3;++corner)center=kernel::dimension_add(center,mesh.vertices[mesh.triangles[i*3+corner]]);
                         center=kernel::dimension_scale(center,1./3);
@@ -555,7 +596,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                 }
                 if(!certified)continue;
                 const auto y=kernel::dimension_cross(surface.axis,surface.radial);
-                for(std::size_t i=0;i<mesh.triangle_references.size();++i)if(face_key(mesh.triangle_references[i])==face_key(face))
+                for(const auto i:triangles_for(face))
                     for(unsigned corner=0;corner<3;++corner) {
                         const auto delta=kernel::dimension_sub(mesh.vertices[mesh.triangles[i*3+corner]],surface.origin);
                         const double angle=std::atan2(kernel::dimension_dot(delta,y),kernel::dimension_dot(delta,surface.radial));
@@ -563,7 +604,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                         const double relative=std::remainder(angle-*cone_angle_origin,2*pi);
                         cone_angle_min=std::min(cone_angle_min,relative);cone_angle_max=std::max(cone_angle_max,relative);
                     }
-                // A planar clipping plane can intersect opposite cone sectors.
+                // A planar trim can intersect opposite rotational sectors.
                 // Certify the fragment's local angular sector before emitting a
                 // generator; the exact planes still determine both endpoints.
                 if(!cone_angle_origin||cone_angle_max-cone_angle_min>=pi-1e-9)continue;
@@ -602,7 +643,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
                 for(int i=0;i<=samples;++i)edge.points.push_back(at(surface.v_min+span*i/samples));
             }else {
                 const auto start=kernel::dimension_add(surface.origin,kernel::dimension_scale(radial,surface.radius));
-                const auto direction=kernel::dimension_add(surface.axis,kernel::dimension_scale(radial,std::tan(surface.semi_angle)));
+                const auto direction=kernel::dimension_add(surface.axis,kernel::dimension_scale(radial,slope));
                 double low=surface.axial_min,high=surface.axial_max;
                 for(const auto& [origin,normal]:clipping_planes) {
                     const double value=kernel::dimension_dot(kernel::dimension_sub(start,origin),normal);
@@ -617,6 +658,7 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh& mesh,const Pro
             result.edges.push_back(std::move(edge));
         }
     }
+    stamp("contours");
     return result;
 }
 
@@ -719,20 +761,29 @@ std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const Drawin
     }
     return result;
 }
-std::vector<std::vector<Point2>> measurement_reference_geometry(
-    const DrawingView &view, const kernel::EdgeReference &ref) {
+namespace {
+template<class Edges,class Annotations>
+std::vector<std::vector<Point2>> reference_geometry(
+    const DrawingView &view, const kernel::EdgeReference &ref,
+    const Edges& edges,const Annotations& annotations) {
+    const auto value=[](const auto& entry)->const auto& {
+        if constexpr(std::is_pointer_v<std::decay_t<decltype(entry)>>)return *entry;
+        else return entry;
+    };
     std::vector<std::vector<Point2>> result;
     if (!ref.valid())
         return result;
-    for (const auto &edge : view.projected_edges)
+    for (const auto &entry : edges) {const auto& edge=value(entry);
         if (inherited_edge(edge.source, ref) && !edge.hatch && (!edge.silhouette||edge.thread) && drawing_edge_visible(view, edge))
             result.push_back(edge.points);
-    for (const auto &item : view.model_annotations)
+    }
+    for (const auto &entry : annotations) {const auto& item=value(entry);
         if (!origin_annotation(item.source) && item.kind == ModelAnnotationKind::Axis && item.model_axis && item.visible && !item.unresolved &&
             kernel::EdgeReference{item.source.owner_id, item.source.semantic_id, item.source.instance_path} == ref)
             for (auto &curve : axis_annotation_geometry(view, item).curves)
                 result.push_back(std::move(curve));
-    if(const auto parent=axis_cross_parent(ref))for(const auto& item:view.model_annotations) {
+    }
+    if(const auto parent=axis_cross_parent(ref))for(const auto& entry:annotations) {const auto& item=value(entry);
         if(origin_annotation(item.source)||item.kind!=ModelAnnotationKind::Axis||!item.model_axis||!item.visible||item.unresolved||
             kernel::EdgeReference{item.source.owner_id,item.source.semantic_id,item.source.instance_path}!=parent->first)continue;
         auto geometry=axis_annotation_geometry(view,item);
@@ -743,6 +794,11 @@ std::vector<std::vector<Point2>> measurement_reference_geometry(
     std::vector<std::vector<Point2>> clipped;
     for(const auto& line:result)for(auto fragment:break_fragments(view,line))clipped.push_back(std::move(fragment));
     return clipped;
+}
+} // namespace
+std::vector<std::vector<Point2>> measurement_reference_geometry(
+    const DrawingView &view, const kernel::EdgeReference &ref) {
+    return reference_geometry(view,ref,view.projected_edges,view.model_annotations);
 }
 std::vector<std::pair<Point2, double>> dimension_intersections(const ProjectedMeasurementCurve &a,
                                                                const ProjectedMeasurementCurve &b) {
@@ -1011,9 +1067,32 @@ struct PickPreparation {
     explicit PickPreparation(const DrawingView& view):input(view),curves(projected_measurement_curves(view)) {
         // Depth is tested against the current view, not a cached raster or solid.
         input.projected_triangles.clear();input.output_source.reset();
+        using Identity=decltype(key(kernel::EdgeReference{}));
+        std::set<Identity> displayed_sources;
+        std::map<Identity,std::vector<const ProjectedEdge*>> source_edges;
+        std::map<Identity,std::vector<const ModelAnnotation*>> source_axes;
+        // Index the exact inputs once. Each source list retains View order,
+        // including Boolean ancestry, independent occurrences and axis crosses.
+        // The common fragment/visibility/clipping implementation remains the
+        // authority; only its candidate traversal is narrowed here.
+        for(const auto& edge:view.projected_edges) {
+            displayed_sources.insert(key(edge.source));
+            auto source=edge.source;std::set<Identity> visited;
+            for(unsigned depth=0;depth<64&&visited.insert(key(source)).second;++depth) {
+                source_edges[key(source)].push_back(&edge);
+                const auto parent=inherited_parent(source);if(!parent)break;source=*parent;
+            }
+        }
+        for(const auto& item:view.model_annotations)if(item.kind==ModelAnnotationKind::Axis) {
+            const kernel::EdgeReference source{item.source.owner_id,item.source.semantic_id,item.source.instance_path};
+            source_axes[key(source)].push_back(&item);
+            for(const auto stroke:{AxisCrossStroke::Horizontal,AxisCrossStroke::Vertical})
+                source_axes[key(axis_cross_reference(source,stroke))].push_back(&item);
+        }
         for(const auto& curve:curves) {
-            displayed.push_back(curve.axis||std::ranges::any_of(view.projected_edges,[&](const auto& e){return e.source==curve.source;}));
-            fragments.push_back(measurement_reference_geometry(view,curve.source));
+            const auto identity=key(curve.source);
+            displayed.push_back(curve.axis||displayed_sources.contains(identity));
+            fragments.push_back(reference_geometry(view,curve.source,source_edges[identity],source_axes[identity]));
             PickBounds box;
             for(const auto& fragment:fragments.back())for(auto p:fragment)box.include(p);
             for(auto p:curve.points)box.include(p);

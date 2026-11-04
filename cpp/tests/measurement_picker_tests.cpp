@@ -87,6 +87,34 @@ void verify() {
     view.projected_triangles.front().vertex_depths={-1,-1,-1};compare(picker,view,{25,2.5},2,{});
     require(!picker.candidates(view,{25,2.5},2,{}).empty(),"Changed depth did not restore cached contacts");
 }
+void verify_ancestry_and_axis_crosses() {
+    using zima::kernel::EdgeReference;
+    DrawingView view;view.camera={{1,0,0},{0,1,0},{0,0,1}};view.display_style=DisplayStyle::HiddenEdges;
+    MeasurementGeometry geometry;
+    const auto child=[](const EdgeReference& parent,const std::string& owner) {
+        const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
+        return EdgeReference{owner,"boolean:cut:split-edge:from:"+field(parent.owner_id)+field(parent.semantic_key)+field(parent.instance_path)+":between:a:b",parent.instance_path};
+    };
+    for(const std::string path:{"one","two"}) {
+        EdgeReference parent{"authored","straight",path};
+        MeasurementCurve curve;curve.source=parent;curve.line=true;curve.points={{0,0,0},{30,0,0}};geometry.curves.push_back(curve);
+        const auto first=child(parent,"cut"),second=child(first,"cut-again");
+        ProjectedEdge a;a.source=second;a.points={{0,0},{8,0}};view.projected_edges.push_back(a);
+        a.source=first;a.points={{20,0},{30,0}};view.projected_edges.push_back(a);
+        ModelAnnotation axis;axis.source={"source","axis","shaft",path};axis.kind=ModelAnnotationKind::Axis;
+        axis.model_axis=std::array<zima::kernel::Vec3,2>{{{15,0,0},{0,0,1}}};axis.visible=true;view.model_annotations.push_back(axis);
+    }
+    view.measurement_geometry=share_measurement_geometry(std::move(geometry));
+    MeasurementPicker picker;
+    for(bool broken:{false,true}) {
+        if(broken)view.breaks.push_back({"break",false,3,3,1});
+        for(int mode=-1;mode<=int(DimensionAttachmentKind::Intersection);++mode) {
+            MeasurementPickRequest request;request.mode=mode;
+            for(double x:{0.,2.,7.,15.,22.,27.,30.})for(double y:{0.,.25,3.})compare(picker,view,{x,y},.5,request);
+        }
+    }
+    std::cout<<"Prepared picker: repeated occurrences, nested Boolean ancestry, axis crosses and breaks match the common full traversal\n";
+}
 void benchmark(const char* path) {
     const auto document=DrawingDocument::load(path);
     double total_before=0,total_after=0,total_preparation=0;std::size_t count=0;
@@ -118,6 +146,6 @@ void benchmark(const char* path) {
 }
 }
 int main(int argc,char** argv) {
-    try {verify();if(argc==2)benchmark(argv[1]);std::cout<<"Measurement picker equivalence and invalidation passed\n";return 0;}
+    try {verify();verify_ancestry_and_axis_crosses();if(argc==2)benchmark(argv[1]);std::cout<<"Measurement picker equivalence and invalidation passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
