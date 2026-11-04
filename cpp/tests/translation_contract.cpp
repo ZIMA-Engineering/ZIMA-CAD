@@ -379,9 +379,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(QDir().mkpath(nested), "Cannot create directory navigation fixture");
             bool inspected = false;
             bool labels_match = true;
-            QTimer::singleShot(0, &parent, [&] {
+            QTimer chooser_ready;
+            chooser_ready.setInterval(10);
+            QObject::connect(&chooser_ready, &QTimer::timeout, &parent, [&] {
                 auto* chooser = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
                 if (!chooser) return;
+                chooser_ready.stop();
                 auto* buttons = chooser->findChild<QDialogButtonBox*>();
                 auto* accept = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
                 auto* name = chooser->findChild<QLineEdit*>("fileNameEdit");
@@ -401,6 +404,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 verify_label("parent");
                 chooser->reject();
             });
+            chooser_ready.start();
             const auto selected = app::choose_directory(&parent, "Directory translation test",
                 directory.path(), settings.translations);
             check(inspected && selected.isEmpty(), "Directory chooser inspection or Cancel failed");

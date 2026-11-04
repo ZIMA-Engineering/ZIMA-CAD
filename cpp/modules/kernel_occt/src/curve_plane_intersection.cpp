@@ -27,7 +27,11 @@ std::vector<long double> roots(Polynomial controls) {
     const auto degree=controls.size()-1;Polynomial derivative(degree);
     for(std::size_t i=0;i<degree;++i)derivative[i]=degree*(controls[i+1]-controls[i]);
     auto partitions=roots(std::move(derivative));partitions.insert(partitions.begin(),0);partitions.push_back(1);
-    const auto epsilon=128*std::numeric_limits<long double>::epsilon();
+    // Poles, plane distances and OCCT Bezier conversion use double inputs.
+    // Wider intermediate arithmetic cannot remove their existing rounding
+    // error (notably after a rigid translation). Keep its bound independent
+    // of whether the platform gives long double additional precision.
+    const auto epsilon=128*static_cast<long double>(std::numeric_limits<double>::epsilon());
     std::vector<long double> result;
     for(const auto t:partitions)if(std::abs(value(controls,t))<=epsilon)result.push_back(t);
     for(std::size_t i=1;i<partitions.size();++i) {

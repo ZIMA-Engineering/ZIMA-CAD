@@ -38,6 +38,13 @@ void contacts() {
         const auto tangent=query(bezier({.16,-.24,.36}));check(tangent.points.size()==1,"A quadratic tangency did not produce exactly one contact");
         near(tangent.points.front().parameter,3.2);check(tangent.points.front().kind==CurvePlaneContactKind::Tangent,"Tangency was misclassified");
         check(tangent.points.front().orientation==(opposite?-1:1),"Tangency support side certificate is incorrect");
+        auto separated=bezier({.16,-.24,.36});for(auto& pole:separated.poles)pole.z+=1e-9;
+        check(query(separated).points.empty(),"A separated quadratic invented a tangent contact");
+        auto crossing_pair=bezier({.16,-.24,.36});for(auto& pole:crossing_pair.poles)pole.z-=1e-9;
+        const auto pair=query(crossing_pair);check(pair.points.size()==2,"Near-tangent crossings were merged or lost");
+        for(const auto& contact:pair.points)check(contact.kind==CurvePlaneContactKind::Crossing,"A near-tangent crossing was misclassified");
+        check(pair.points[0].orientation==(opposite?1:-1)&&pair.points[1].orientation==(opposite?-1:1),
+            "Near-tangent crossing directions lost the plane side");
         const auto endpoint=query(bezier({0,1}));check(endpoint.points.size()==1&&endpoint.points.front().kind==CurvePlaneContactKind::Endpoint,"First endpoint contact was lost or duplicated");near(endpoint.points.front().parameter,2);
         const auto last=query(bezier({-1,0}));check(last.points.size()==1&&last.points.front().kind==CurvePlaneContactKind::Endpoint,"Last endpoint contact was lost or duplicated");near(last.points.front().parameter,5);
         const auto missing=query(bezier({1,2}));check(missing.points.empty()&&missing.coincident_intervals.empty(),"A disjoint curve invented a contact");
