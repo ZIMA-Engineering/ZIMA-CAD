@@ -135,9 +135,10 @@ private:
 
 
 void AssemblyWorkspaceWindow::begin_status_operation(
-    const QString& message) {
+    const QString& message, bool immediate) {
     if (!operation_activity_->update_message(status_activity_token_, message))
-        status_activity_token_ = operation_activity_->begin(message);
+        status_activity_token_ = operation_activity_->begin(message,nullptr,immediate
+            ?ui::OperationActivity::Presentation::Immediate:ui::OperationActivity::Presentation::Deferred);
     ++operation_progress_generation_;
     operation_progress_->setRange(0, 0);
     operation_progress_->setFormat(message);

@@ -1,5 +1,6 @@
 #include <zima/symbols/definition.hpp>
 #include <zima/symbols/native_document.hpp>
+#include <zima/document/engineering_metadata.hpp>
 #include <nlohmann/json.hpp>
 #include <QFile>
 #include <zima/sketcher/text_geometry.hpp>
@@ -124,6 +125,7 @@ symbols::Definition general_roughness() {
         row.sketches.push_back(extra.id);d.sketches.push_back(std::move(extra));
     }
     texture_colors(d,sketcher::SketchTextColor::Green);
+    d.variants["empty"]={};
     d.validate();return d;
 }
 symbols::Definition edges() {
@@ -277,6 +279,42 @@ symbols::Definition datum_feature() {
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
     try {
+        if(argc==3&&std::string(argv[1])=="--add-general-roughness-empty") {
+            const auto root=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
+            const auto file=root/"config/symbols/general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz";
+            auto part=document::PartDocument::load(file);
+            const auto previous=symbols::native_definition(part);
+            if(previous.id!="ze:general-surface-texture:iso21920")throw std::runtime_error("Wrong general roughness definition");
+            auto table=document::parse_family_table(part.family_table);
+            if(std::ranges::none_of(table.instances,[](const auto& row){return row.id=="empty";})) {
+                document::FamilyInstance empty;empty.id="empty";empty.name="Empty";empty.shared_name=false;
+                empty.labels={{"cs","Prázdná varianta"},{"en","Empty"},{"de","Leer"},{"fr","Vide"},{"ru","Пустой вариант"}};
+                for(const auto& column:table.columns) {
+                    const auto& binding=table.bindings.at(column);
+                    if(binding.kind!="feature"&&binding.kind!="body")throw std::runtime_error("Unexpected roughness Family column");
+                    empty.values[column]="no";
+                }
+                table.instances.push_back(std::move(empty));part.family_table=document::serialize_family_table(table);
+            }
+            const auto definition=symbols::native_definition(part);part.symbol_editor_definition=definition.serialized();part.save(file);
+            auto current=nlohmann::json::parse(symbols::Definition::load(file).serialized());
+            current["variants"].erase("empty");auto expected=nlohmann::json::parse(previous.serialized());expected["variants"].erase("empty");
+            if(current!=expected||!definition.evaluate("empty").empty())throw std::runtime_error("Empty variant changed existing roughness geometry");
+            std::vector<std::filesystem::path> titles{root/"config/formats/ZE-TITLE-BLOCK.tblz"};
+            unsigned updated{};
+            for(const auto& title:titles) {
+                auto authored=document::PartDocument::load(title);bool changed=false;
+                for(auto& sketch:authored.sketches)for(auto& symbol:sketch.symbols) {
+                    auto embedded=symbols::Definition::from_serialized(symbol.definition);
+                    if(embedded.id==definition.id){embedded.variants.try_emplace("empty");symbol.definition=embedded.serialized();changed=true;++updated;}
+                }
+                if(!changed)throw std::runtime_error("Title block has no general roughness instance: "+title.string());
+                authored.save(title);
+                const auto reopened=document::PartDocument::load(title);
+                if(reopened.serialized()!=authored.serialized())throw std::runtime_error("Title block native round-trip changed its authored definition");
+            }
+            std::cout<<"General roughness Empty variant and "<<updated<<" embedded factory title-block instances saved and reopened; existing variants unchanged\n";return 0;
+        }
         if(argc==3&&std::string(argv[1])=="--create-bend-note") {
             const auto path=std::filesystem::u8path(argv[2]);
             if(std::filesystem::exists(path))throw std::invalid_argument("Bend-note library already exists");
@@ -409,7 +447,8 @@ int main(int argc,char** argv) {
                 throw std::runtime_error("Catalog roundtrip differs: "+path.string()+" "+nlohmann::json::diff(nlohmann::json::parse(definition.serialized()),nlohmann::json::parse(reopened.serialized())).dump());
             for(const auto& [variant,value]:definition.variants) {
                 sketcher::SymbolInstance instance;instance.id="preview";instance.definition=definition.serialized();instance.variant=variant;
-                const auto mesh=symbols::instance_mesh(instance);if(mesh.edges.empty())throw std::runtime_error("Empty catalog variant");
+                const auto mesh=symbols::instance_mesh(instance);
+                if(mesh.edges.empty()&&!(definition.id=="ze:general-surface-texture:iso21920"&&variant=="empty"))throw std::runtime_error("Unexpected empty catalog variant");
                 painter.save();painter.translate(100,180+row*290);painter.scale(16,-16);QPainterPath letters;
                 for(const auto& edge:mesh.edges) {
                     QPolygonF points;for(const auto& p:edge.points)points<<QPointF(p.x,p.y);

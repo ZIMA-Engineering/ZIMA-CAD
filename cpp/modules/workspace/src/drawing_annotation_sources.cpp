@@ -8,6 +8,8 @@
 #include <cctype>
 #include <zima/document/file_path.hpp>
 #include <functional>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
@@ -102,6 +104,20 @@ drawing_annotation_sources(const Workspace *workspace,
                            const std::filesystem::path &root_path) {
   std::vector<drawing::ModelAnnotationSource> result;
   std::set<std::string> stack;
+  struct PartSeed {
+    kernel::ViewerMesh mesh;
+    kernel::ModelEnvelope envelope;
+    std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> frames;
+    std::vector<kernel::DimensionLayoutEntry> layouts;
+    std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
+    std::map<std::string,drawing::ThreadDesignation> threads;
+    std::vector<symbols::Placement> symbols;
+  };
+  // One read transaction has immutable source inputs. Reuse its prepared local
+  // annotations across repeated Parts, before applying each exact occurrence's
+  // placement/mirror/pattern. No source cache survives this operation.
+  std::map<std::tuple<std::string,std::filesystem::path,bool>,PartSeed> part_seeds;
+  unsigned reused_parts{};
   const auto append = [](kernel::ViewerMesh &target,
                          kernel::ViewerMesh source) {
     target.dimensions.insert(target.dimensions.end(), source.dimensions.begin(),
@@ -126,9 +142,11 @@ drawing_annotation_sources(const Workspace *workspace,
     std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
     std::map<std::string,drawing::ThreadDesignation> threads;
     std::vector<symbols::Placement> native_symbols;
+    bool part_source=false;
     const auto part_mesh = [&](const document::PartDocument &part,
                                const kernel::ViewerMesh &calculated,
                                const std::map<std::string,std::string>& calculation_errors) {
+      part_source=true;
       if (part.document_id != id)
         throw std::runtime_error(
             "Annotation source document identity mismatch");
@@ -389,7 +407,13 @@ drawing_annotation_sources(const Workspace *workspace,
     };
     auto extension=path.extension().string();
     std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
-    if (workspace && workspace->open_part(id))
+    const auto seed_key=std::tuple{id,path.empty()?path:std::filesystem::absolute(path).lexically_normal(),occurrence.occurrence_ids.empty()};
+    if(const auto cached=part_seeds.find(seed_key);cached!=part_seeds.end()) {
+      mesh=cached->second.mesh;envelope=cached->second.envelope;
+      frames=cached->second.frames;layouts=cached->second.layouts;
+      axis_frames=cached->second.axis_frames;threads=cached->second.threads;
+      native_symbols=cached->second.symbols;++reused_parts;
+    } else if (workspace && workspace->open_part(id))
       part_mesh(workspace->open_part(id)->session.document(),
                 workspace->authoritative_viewer_mesh(id),
                 workspace->open_part(id)->session.calculated_boundaries().empty()?std::map<std::string,std::string>{}:
@@ -409,6 +433,7 @@ drawing_annotation_sources(const Workspace *workspace,
       assembly_mesh(read_family_assembly(workspace,path,id));
     else
       throw std::runtime_error("Zdroj anotací není dostupný: " + document::path_to_utf8(path));
+    if(part_source)part_seeds.emplace(seed_key,PartSeed{mesh,envelope,frames,layouts,axis_frames,threads,native_symbols});
     std::erase_if(mesh.dimensions,
                   [](const auto &d) { return !d.reference.valid(); });
     std::erase_if(mesh.edges, [](const auto &e) {
@@ -539,6 +564,8 @@ drawing_annotation_sources(const Workspace *workspace,
     stack.erase(id);
   };
   visit(root, root_path, {}, {});
+  if(std::getenv("ZIMA_DRAWING_PROFILE_NATIVE"))
+    std::fprintf(stderr,"drawing annotations Part preparations=%zu reused=%u\n",part_seeds.size(),reused_parts);
   return result;
 }
 } // namespace zima::workspace

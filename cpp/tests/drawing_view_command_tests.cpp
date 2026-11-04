@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/drawing/annotation_guides.hpp>
+#include <zima/drawing/view_orientation.hpp>
 #include <zima/document/native_read_capture.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
@@ -225,6 +226,17 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto source_revision=live.open_part(part.document_id)->session.revision();
     const auto base=run(host,"drawing.view.create",{{"sheet",sheet},{"source",part.document_id},{"name","Hlavní pohled"},{"x_mm",80},{"y_mm",50}}).data;
     const auto parent=base.at("view").get<std::string>();near(base.at("scale").get<double>(),2);near(width(*live.open_drawing(id)->document().find_view(parent)),20);
+    for(const auto* direction:{"top_right","top_left","bottom_left","bottom_right"}) {
+        const auto revision=live.open_drawing(id)->revision();const auto count=live.open_drawing(id)->document().sheets.front().views.size();
+        const auto rejected=host.execute({{"command","drawing.view.create"},{"arguments",{{"sheet",sheet},{"parent_view",parent},{"projection_direction",direction},{"distance_mm",30}}}});
+        require(!rejected.ok&&live.open_drawing(id)->revision()==revision&&live.open_drawing(id)->document().sheets.front().views.size()==count,"Diagonal projected view creation was accepted or partially committed");
+    }
+    for(auto delta:std::array{drawing::Point2{-10,5},drawing::Point2{-5,10},drawing::Point2{5,10},drawing::Point2{10,5},drawing::Point2{10,-5},drawing::Point2{5,-10},drawing::Point2{-5,-10},drawing::Point2{-10,-5}}) {
+        const auto direction=drawing::cardinal_projection_direction(delta);
+        require(drawing::is_cardinal_projection(direction),"Off-axis projected placement created a diagonal direction");
+        const auto ray=workspace::projection_placement(direction,1);
+        require(std::abs(ray.x)+std::abs(ray.y)==1,"Projected placement did not snap to a single paper axis");
+    }
     const auto child=run(host,"drawing.view.create",{{"sheet",sheet},{"parent_view",parent},{"projection_direction","right"},{"distance_mm",30}}).data.at("view").get<std::string>();
     require(live.open_drawing(id)->document().find_view(child)->name=="Pohled 2","CLI projected view has no numbered name");
     near(width(*live.open_drawing(id)->document().find_view(child)),10);near(live.open_drawing(id)->document().find_view(child)->x,50);

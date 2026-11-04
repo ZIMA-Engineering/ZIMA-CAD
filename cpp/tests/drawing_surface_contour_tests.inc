@@ -1,5 +1,89 @@
 // Exact rotational surface contours and radius contacts, independent of OCCT.
+void verify_cylindrical_contours(const std::filesystem::path& directory) {
+    unsigned cases{};
+    for(double scale:{.1,1.,100.})for(double tilt:{0.,.35,std::numbers::pi/2-1e-5})for(int facing:{1,-1})
+    for(int axis=0;axis<3;++axis)for(bool nested:{false,true})for(bool reverse:{false,true}) {
+        const auto rotate=[&](kernel::Vec3 p){for(int i=0;i<axis;++i)p={p.z,p.x,p.y};return p;};
+        const std::string path=nested?"assembly/shaft":"";
+        const auto source=[&](double radius,double height) {
+            kernel::ViewerMesh mesh;
+            auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
+            surface->origin=rotate({11*scale,-7*scale,3*scale});surface->axis=rotate({0,0,1});surface->radial=rotate({1,0,0});
+            surface->radius=radius;surface->axial_min=-4*scale;surface->axial_max=surface->axial_min+height;surface->u_max=2*std::numbers::pi;surface->complete_profile=true;
+            surface->semi_angle=.21; // Irrelevant to a Cylinder; never reinterpret it as a cone slope.
+            kernel::FaceReference face{"shaft","cylindrical-wall",path};face.surface=surface;
+            std::array<kernel::ViewerEdge,2> rims;
+            for(unsigned end=0;end<2;++end){rims[end].reference={"shaft",end?"rim:end":"rim:start",path};rims[end].edge_treatment_side_references={face};}
+            for(unsigned i=0;i<=26;++i) {
+                const double angle=.17+2*std::numbers::pi*i/26;
+                for(unsigned end=0;end<2;++end) {
+                    auto p=kernel::dimension_add(surface->origin,rotate({radius*std::cos(angle),radius*std::sin(angle),end?surface->axial_max:surface->axial_min}));
+                    if(i==26)p=rims[end].points.front();rims[end].points.push_back(p);mesh.vertices.push_back(p);
+                }
+                if(i)for(const auto index:{2*i-2,2*i,2*i-1,2*i,2*i+1,2*i-1})mesh.triangles.push_back(index);
+                if(i){mesh.triangle_references.push_back(face);mesh.triangle_references.push_back(face);}
+            }
+            mesh.edges={rims[reverse?1:0],rims[reverse?0:1]};
+            mesh.original_references.vertices=mesh.vertices;mesh.original_references.triangles=mesh.triangles;
+            mesh.original_references.triangle_references=mesh.triangle_references;mesh.original_references.edges=mesh.edges;
+            return mesh;
+        };
+        drawing::DrawingView view;view.id="shaft-view";view.source_document_id="shaft";view.source_path="unavailable-shaft.prtz";view.scale=.5;
+        view.display_style=drawing::DisplayStyle::HiddenEdges;
+        view.camera={rotate({1,0,0}),rotate({0,-std::sin(tilt),facing*std::cos(tilt)}),rotate({0,facing*std::cos(tilt),std::sin(tilt)})};
+        auto mesh=source(5*scale,20*scale);
+        const drawing::ProjectionCamera end_on{rotate({1,0,0}),rotate({0,1,0}),rotate({0,0,-1})};
+        const auto axial=drawing::drawing_profile_mesh(mesh,end_on);
+        require(std::ranges::none_of(axial.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("drawing-contour:");}),"Axial shaft view invented a zero-length side generator");
+        drawing::prepare_interactive_view(view,std::make_shared<const kernel::ViewerMesh>(mesh));
+        std::vector<drawing::ProjectedMeasurementCurve> contours;
+        for(const auto& curve:drawing::projected_measurement_curves(view))if(curve.source.semantic_key.starts_with("drawing-contour:"))contours.push_back(curve);
+        require(contours.size()==2,"Cylindrical shaft has no two exact, independently selectable boundary generators");
+        require(contours[0].source!=contours[1].source,"Opposite shaft boundaries merged reference identity");
+        drawing::MeasurementPicker picker;drawing::MeasurementPickRequest request;request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);
+        for(const auto& curve:contours) {
+            require(curve.line&&curve.source.instance_path==path,"Shaft generator lost line or occurrence identity");
+            const drawing::Point2 point{(curve.points.front().x+curve.points.back().x)/2,(curve.points.front().y+curve.points.back().y)/2};
+            const auto candidates=picker.candidates(view,point,.001*scale,request);
+            require(std::ranges::any_of(candidates,[&](const auto& c){return c.attachment.reference==curve.source;}),"Shaft boundary cannot be selected by the common dimension picker");
+        }
+        for(bool order:{false,true}) {
+            auto dimension=drawing::make_drawing_dimension(view.id);
+            dimension.direction=drawing::DimensionDirection::Horizontal;
+            dimension.attachments={{drawing::DimensionAttachmentKind::Line,contours[order?1:0].source,{},.5},
+                                   {drawing::DimensionAttachmentKind::Line,contours[order?0:1].source,{},.5}};
+            for(double radius:{7*scale,3*scale,5*scale}) {
+                drawing::prepare_interactive_view(view,std::make_shared<const kernel::ViewerMesh>(source(radius,20*scale)));
+                drawing::refresh_drawing_dimension(view,dimension);
+                const auto evaluated=drawing::evaluate_drawing_dimension(view,dimension);
+                require(evaluated.state==drawing::MeasurementState::Resolved&&std::abs(evaluated.presentations.front().value-2*radius)<1e-7*std::max(1.,scale),"Shaft boundary dimension failed to follow the exact changed diameter");
+                for(auto delta:std::array{drawing::Point2{1,2},drawing::Point2{-2,-1},drawing::Point2{1,-1}}) {
+                    drawing::drag_drawing_dimension(view,dimension,0,0,delta);
+                    require(std::abs(drawing::evaluate_drawing_dimension(view,dimension).presentations.front().value-2*radius)<1e-7*std::max(1.,scale),"Dragging a shaft boundary dimension changed its measurement");
+                }
+            }
+            auto axial_dimension=drawing::make_drawing_dimension(view.id);
+            axial_dimension.attachments={{drawing::DimensionAttachmentKind::CurvePoint,contours.front().source,{},0},
+                                        {drawing::DimensionAttachmentKind::CurvePoint,contours.front().source,{},1}};
+            for(double height:{28*scale,14*scale,20*scale}) {
+                drawing::prepare_interactive_view(view,std::make_shared<const kernel::ViewerMesh>(source(5*scale,height)));
+                drawing::refresh_drawing_dimension(view,axial_dimension);drawing::refresh_drawing_dimension(view,dimension);
+                const auto evaluated=drawing::evaluate_drawing_dimension(view,axial_dimension);
+                require(evaluated.state==drawing::MeasurementState::Resolved&&std::abs(evaluated.presentations.front().value-height*std::abs(std::cos(tilt)))<1e-7*std::max(1.,scale),"Shaft boundary endpoints failed to follow changed length");
+            }
+            auto document=drawing::DrawingDocument::create_default();document.sheets.front().views={view};document.sheets.front().dimensions={dimension,axial_dimension};
+            const auto file=directory/("shaft-contour-"+std::to_string(cases)+".drwz");document.save(file);
+            const auto reopened=drawing::DrawingDocument::load(file);
+            require(reopened.sheets.front().dimensions.front()==dimension,"Shaft dimension lost reference/side/layout on native reopen");
+            require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),reopened.sheets.front().dimensions.front()).state==drawing::MeasurementState::Resolved,"Embedded shaft contour dimension could not reopen without its source Part");
+            require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),reopened.sheets.front().dimensions.back()).state==drawing::MeasurementState::Resolved,"Embedded shaft endpoint dimension could not reopen without its source Part");
+            ++cases;
+        }
+    }
+    std::cout<<"Cylindrical boundaries: "<<cases<<" axis/view/scale/occurrence/rim/selection-order cases, repeated diameter changes, label drags and embedded reopen passed\n";
+}
 void verify_surface_contours(const std::filesystem::path& directory) {
+    verify_cylindrical_contours(directory);
     using K=kernel::SurfaceGeometry::Kind;
     const double pi=std::numbers::pi;
     {
@@ -66,6 +150,11 @@ void verify_surface_contours(const std::filesystem::path& directory) {
         const auto reopened=drawing::DrawingDocument::load(path);const auto& restored=reopened.sheets.front().views.front();
         drawing::MeasurementPickRequest request;request.lines_only=true;
         const auto picks=drawing::measurement_candidates(restored,{1./3,31./6},.01,request);
+        if(std::ranges::none_of(picks,[&](const auto& p){return p.attachment.reference==contours.front().reference;})) {
+            std::cerr<<"Reopened cone edges="<<restored.projected_edges.size()<<" curves="<<restored.measurement_geometry->curves.size()<<" picks="<<picks.size()<<'\n';
+            for(const auto& c:drawing::projected_measurement_curves(restored))if(c.source.semantic_key.starts_with("drawing-contour:"))
+                std::cerr<<"Cone contour "<<c.source.semantic_key<<" from="<<c.points.front().x<<','<<c.points.front().y<<" to="<<c.points.back().x<<','<<c.points.back().y<<'\n';
+        }
         require(std::ranges::any_of(picks,[&](const auto& p){return p.attachment.reference==contours.front().reference;}),"Opening a Drawing did not rebuild analytic contour picking from its embedded source");
         require(restored.source_path==view.source_path&&restored.id==view.id&&restored.scale==view.scale,"Opening contour projection changed authored view properties");
     }

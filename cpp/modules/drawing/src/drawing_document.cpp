@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <set>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <numbers>
 #include <fstream>
@@ -397,14 +399,24 @@ const DrawingView* DrawingDocument::find_view(const std::string& id) const {
 }
 
 void prepare_interactive_view(DrawingView& view,std::shared_ptr<const kernel::ViewerMesh> source) {
+    const auto started=std::chrono::steady_clock::now();
+    const auto stamp=[&](const char* stage) {
+        if(std::getenv("ZIMA_DRAWING_PROFILE_NATIVE"))
+            std::fprintf(stderr,"drawing interactive %s %.3f ms\n",stage,
+                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
+    };
     if(!view.section_id.empty()){refresh_view_geometry(view,*source);return;}
     view.output_source=std::move(source);
     std::optional<kernel::ViewerMesh> filtered;
     if(kernel::has_surface_results(*view.output_source)){filtered=*view.output_source;kernel::hide_surface_results(*filtered);}
     const auto mesh=drawing_profile_mesh(filtered?*filtered:*view.output_source,view.camera);
+    stamp("profiles");
     capture_measurement_geometry(view,mesh);
+    stamp("measurement references");
     view.projected_edges=detail::project_drawing_edges(mesh,view.camera,true,false,true);
+    stamp("display edges");
     view.projected_triangles=project_triangles(mesh,view.camera);
+    stamp("display triangles");
 }
 void prepare_output_view(DrawingView& view) {
     if(!view.output_source)return;

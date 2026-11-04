@@ -30,6 +30,8 @@ public:
     SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent,bool sheet=false)
         :PropertiesSubWindow(tr("Vlastnosti symbolu"),parent),value_(std::move(value)),definition_(symbols::Definition::from_serialized(value_.definition)),preview_(std::move(preview)),commit_(std::move(commit)) {
         setObjectName("symbolPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);
+        if(definition_.id=="ze:general-surface-texture:iso21920")
+            empty_variant_added_=definition_.variants.try_emplace("empty").second;
         setProperty("expandBottomTable",true);
         auto* scroll=new QScrollArea(this);scroll->setObjectName("symbolPropertiesScroll");
         scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
@@ -157,6 +159,9 @@ private:
     }
     Instance pending() const {
         auto value=value_;value.variant=variant_->currentData().toString().toStdString();value.use_cad_variant=automatic_->isChecked();
+        // An inserted symbol owns its definition. Add the optional blank row
+        // only when that choice is committed, preserving unchanged OK/Cancel.
+        if(empty_variant_added_&&value.variant=="empty")value.definition=definition_.serialized();
         value.x=values_[0]->value();value.y=values_[1]->value();value.angle_degrees=values_[2]->value();value.scale=values_[3]->value();
         value.text_values.clear();for(const auto& [key,input]:fields_)if(overrides_.contains(key))value.text_values[key]=input->currentText().toStdString();return value;
     }
@@ -177,6 +182,7 @@ private:
     }
     Instance value_;symbols::Definition definition_;std::function<void(const Instance&)> preview_;std::function<void(Instance)> commit_;
     QVBoxLayout* editor_layout_{};
+    bool empty_variant_added_{};
     QLabel* datum_hint_{};
     QComboBox* variant_{};QCheckBox* automatic_{};std::array<QDoubleSpinBox*,4> values_{};std::map<std::string,QComboBox*> fields_;std::set<std::string> overrides_;std::map<std::string,QWidget*> field_rows_,field_labels_;
 };

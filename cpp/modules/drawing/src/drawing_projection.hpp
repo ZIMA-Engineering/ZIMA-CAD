@@ -128,7 +128,9 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         const bool thread=ref&&ref->semantic_key.starts_with("thread:surface:");
         // Technological thread surfaces are not solid material and cannot hide
         // the real bore/shaft or other conventional thread lines.
-        if(!thread&&std::abs(t.determinant)>area_tolerance) {
+        // Interactive strokes use the depth buffer. Keep facing adjacency for
+        // their silhouettes, but do not prepare unused vector occlusion data.
+        if(!interactive&&!thread&&std::abs(t.determinant)>area_tolerance) {
             for(int k=0;k<3;++k) {
                 const auto& p=t.v[(k+1)%3].p;const auto& q=t.v[(k+2)%3].p;
                 t.clip_tolerances[k]=roundoff*std::hypot(q.x-p.x,q.y-p.y)/std::abs(t.determinant);
@@ -144,7 +146,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         for(int side=0;side<3;++side) {
             auto pa=mesh.vertices[ids[side]],pb=mesh.vertices[ids[(side+1)%3]];
             auto ka=key(pa),kb=key(pb);if(kb<ka){std::swap(ka,kb);std::swap(pa,pb);}
-            if(ref)++face_edge_counts[{face_key(*ref),ka,kb}];
+            if(!interactive&&ref)++face_edge_counts[{face_key(*ref),ka,kb}];
             // Facing adjacency belongs to one occurrence. Coincident contact
             // faces of separate Parts have opposite winding; combining them
             // would promote their internal tessellation edges to silhouettes.

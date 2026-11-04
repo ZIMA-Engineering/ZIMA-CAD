@@ -27,12 +27,19 @@ int profile_drawing_ui(const QString& input) {
         auto displayed=doc;gpu_preview.id="profile-gpu-view";gpu_preview.x=105;gpu_preview.y=148;
         displayed.sheets.front().views.push_back(gpu_preview);workspace.open_drawing(doc.document_id)->commit(std::move(displayed));
     }
-    zima::app::DrawingWindow window(&workspace,false);window.edit_workspace_document(doc.document_id);window.resize(1600,1000);window.show();flush();window.grab();mark("open drawing UI");
+    zima::app::DrawingWindow window(&workspace,false);window.setAttribute(Qt::WA_DontShowOnScreen);window.edit_workspace_document(doc.document_id);window.resize(1600,1000);window.show();flush();window.grab();mark("open drawing UI");
     if(QGuiApplication::platformName()=="windows") {
         const auto* gpu=window.findChild<QOpenGLWidget*>("drawingGpuSurface");
         require(gpu&&gpu->isValid(),"Native drawing canvas did not initialize its GPU surface");
     }
     if(commit_profile) {
+        unsigned active_ticks{},visible_ticks{};
+        QTimer heartbeat;heartbeat.setInterval(20);
+        QObject::connect(&heartbeat,&QTimer::timeout,&window,[&] {
+            if(const auto* activity=zima::ui::OperationActivity::find(&window);activity&&activity->active()) {
+                ++active_ticks;if(activity->overlay()->isVisible())++visible_ticks;
+            }
+        });heartbeat.start();
         for(int i=0;i<3;++i) {
             window.select_view(base.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();mark("open properties");
             QPointer<QDialog> dialog=window.findChild<QDialog*>("drawingViewProperties");require(dialog,"Commit profile properties missing");
@@ -56,6 +63,11 @@ int profile_drawing_ui(const QString& input) {
             require(state->revision()!=before_revision,"Changed OK did not create history");
             require(state->undo()&&zima::drawing::same_view_orientation(state->document().find_view(base.id)->camera,old_camera),"Changed view Undo lost its original orientation");
             require(state->redo()&&zima::drawing::same_view_orientation(state->document().find_view(base.id)->camera,committed_camera),"Changed view Redo lost its committed orientation");
+            if(const auto* activity=zima::ui::OperationActivity::find(&window))require(!activity->active()&&!activity->overlay()->isVisible(),"Drawing activity remained after confirmation");
+        }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_ACTIVITY")) {
+            require(active_ticks>5&&visible_ticks>5,"Drawing preparation blocked the event loop or did not show its animated activity");
+            std::cout<<"Drawing activity: "<<active_ticks<<" event-loop ticks, "<<visible_ticks<<" ticks with visible overlay; retired after each operation\n";
         }
         return 0;
     }

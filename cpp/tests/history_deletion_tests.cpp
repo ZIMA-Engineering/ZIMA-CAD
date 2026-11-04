@@ -240,8 +240,13 @@ static void verify_recovery_prefix() {
     }
     operations.front().input_error="Changed earlier input";kernel::OcctKernel changed;
     const auto rejected=changed.evaluate_history_recovering(operations,previous);
-    require(rejected.front().calculation_errors.contains(operations.front().owner_id)&&rejected.back().mesh.triangles.empty(),
-        "Recovery retained stale material after its earliest input changed");
+    auto surviving=rejected.back();changed.ensure_body_properties(surviving);
+    kernel::OcctKernel independent;const auto without_cache=independent.evaluate_history_recovering(operations);
+    require(rejected.front().calculation_errors.contains(operations.front().owner_id)&&
+        rejected.back().calculation_errors.contains(operations.front().owner_id)&&
+        std::abs(surviving.volume-7.*8.*9.)<1e-9&&
+        canonical(rejected.back().mesh.original_references)==canonical(without_cache.back().mesh.original_references),
+        "Recovery retained stale first-stock material or lost the independent valid second stock");
     std::cout<<"Recovery prefix: cold saved input, exact fresh geometry/references/errors and earlier-source invalidation passed\n";
 }
 

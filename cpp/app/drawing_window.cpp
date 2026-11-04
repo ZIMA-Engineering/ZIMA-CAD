@@ -15,6 +15,7 @@
 #include <QHideEvent>
 #include <QDate>
 #include <QElapsedTimer>
+#include <QTimer>
 #include "drawing_detail_dialog.hpp"
 #include <zima/kernel/stable_id.hpp>
 #include <zima/drawing_render/crop_path.hpp>
@@ -37,6 +38,7 @@
 #include <zima/workspace/drawing_dimension_operations.hpp>
 #include <zima/workspace/drawing_title_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
+#include <zima/ui/background_task.hpp>
 #include "drawing_dimension_dialog.hpp"
 #include "drawing_balloon_dialog.hpp"
 #include <zima/workspace/drawing_balloon_operations.hpp>
@@ -790,6 +792,11 @@ QRectF placement_frame(const zima::drawing::DrawingView& view) {
     // The first unsized view uses a provisional frame. No source is loaded just
     // to move a rectangle; OK determines its authoritative geometry and extent.
     return low?QRectF(QPointF(low->x,low->y),QPointF(high->x,high->y)):QRectF(-20,-15,40,30);
+}
+
+zima::ui::OperationActivity* drawing_activity(QWidget* owner,QWidget* canvas) {
+    if(auto* activity=zima::ui::OperationActivity::find(owner))return activity;
+    return new zima::ui::OperationActivity(owner,canvas);
 }
 
 std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
@@ -2743,6 +2750,7 @@ void DrawingWindow::edit_title_block() {
             auto* target=document_.find_sheet(sheet_id);if(!target)return;
             auto item=std::ranges::find(target->title_block_symbols,id,&sketcher::SymbolInstance::id);
             if(item==target->title_block_symbols.end())return;
+            if(*item==symbol)return;
             *item=std::move(symbol);refresh();
         },this,true);
         view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
@@ -2980,22 +2988,34 @@ void DrawingWindow::show_text_properties(const std::string& id) {
 
 void DrawingWindow::commit_view(drawing::DrawingView accepted,const std::string& sheet_id,bool creating,
     workspace::DrawingProjection* cache) {
+    ui::OperationActivity::Scope activity(drawing_activity(window(),canvas_),tr("Připravuji pohled…"));
     QElapsedTimer timer;timer.start();
     const auto stamp=[&](const char* stage){if(qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_COMMIT"))std::fprintf(stderr,"commit %s %.3f ms\n",stage,timer.nsecsElapsed()/1e6);};
-    workspace::Workspace source_models;
+    auto source_models=std::make_shared<workspace::Workspace>();
     if(workspace_)for(const auto& state:workspace_->documents())
-        if(!std::holds_alternative<workspace::DrawingState>(state))source_models.documents().push_back(state);
-    const auto publish_family=prepare_drawing_family_variant(workspace_,source_models,accepted,path_);
+        std::visit([&](const auto& item) {
+            using T=std::decay_t<decltype(item)>;
+            if constexpr(std::is_same_v<T,workspace::PartState>)
+                source_models->documents().emplace_back(workspace::PartState{item.session.current_state_copy(),item.path,
+                    item.source_geometry,item.source_generation,item.runtime_identity,item.background_import_source,
+                    item.native_drawing_template,item.symbol_definition});
+            else if constexpr(std::is_same_v<T,workspace::AssemblyState>)
+                source_models->documents().emplace_back(workspace::AssemblyState{item.session.current_state_copy(),item.path,
+                    item.runtime_identity,item.background_import_source});
+        },state);
+    const auto publish_family=prepare_drawing_family_variant(workspace_,*source_models,accepted,path_);
     stamp("source workspace");
-    workspace::DrawingProjection projection(&source_models,path_,cache);
-    auto next_document=document_;
-    workspace::edit_drawing_view(next_document,sheet_id,accepted,creating,projection,true);
+    auto projection=std::make_shared<workspace::DrawingProjection>(source_models.get(),path_,cache);
+    auto next_document=ui::run_background_task([source_models,projection,next=document_,sheet_id,accepted,creating]() mutable {
+        workspace::edit_drawing_view(next,sheet_id,accepted,creating,*projection,true);
+        return next;
+    },canvas_);
     stamp("edit projections");
     const auto id=accepted.id;
     const auto* result=next_document.find_view(id);
     std::function<void()> commit_source=[]{};
     if(result->section_snapshot) {
-        const auto& source=projection.source(*result);
+        const auto& source=projection->source(*result);
         const auto original=std::ranges::find(source.sections,result->section_id,&document::SectionDefinition::id);
         commit_source=prepare_section_component_commit(workspace_,result->source_document_id,source.path,*result->section_snapshot,
             original==source.sections.end()?nullptr:&*original);
@@ -3039,12 +3059,21 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
             value.section_id,document::serialize_sections(value.section_snapshot?std::vector{*value.section_snapshot}:std::vector<document::SectionDefinition>{})}).dump();
     };
     auto last_geometry=std::make_shared<std::optional<drawing::DrawingView>>(creating?std::nullopt:std::optional{view});
-    const auto project=[cache,last_geometry,geometry_key](zima::drawing::DrawingView& value,bool pending_settings=false){
+    const auto project=[this,cache,last_geometry,geometry_key](zima::drawing::DrawingView& value,bool pending_settings=false){
         if(*last_geometry&&geometry_key(**last_geometry)==geometry_key(value)) {
             value.projected_edges=(**last_geometry).projected_edges;value.projected_triangles=(**last_geometry).projected_triangles;
             value.output_source=(**last_geometry).output_source;value.measurement_geometry=(**last_geometry).measurement_geometry;
             value.model_annotations=(**last_geometry).model_annotations;
-        }else {cache->project(value,{.pending_hatch=pending_settings,.interactive=true});*last_geometry=value;}
+        }else {
+            ui::OperationActivity::Scope activity(drawing_activity(window(),canvas_),tr("Připravuji pohled…"));
+            // Capture the private source Workspace on its owning UI thread.
+            // The worker then consumes only that prepared, command-local data.
+            static_cast<void>(cache->placement_source(value));
+            value=ui::run_background_task([cache,pending=value,pending_settings]() mutable {
+                cache->project(pending,{.pending_hatch=pending_settings,.interactive=true});return pending;
+            },canvas_);
+            *last_geometry=value;
+        }
     };
     const auto error=[this](const QString& message) {
         if (auto* dialog=dynamic_cast<ViewPropertiesDialog*>(view_dialog_.data())) dialog->set_error(message);
@@ -3058,7 +3087,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                 commit_view(std::move(accepted),sheet_id,creating,cache.get());
                 return true;
             } catch (const std::exception& exception) { error(tr(exception.what())); return false; }
-        }, [this,project,error,description_contexts](auto pending) {
+        }, [this,project,error,description_contexts,creating](auto pending) {
             if(!pending){canvas_->set_preview({});return;}
             try {
                 if(pending->show_caption&&std::ranges::any_of(pending->description_rows,[](const auto& row){return row.kind==drawing::ViewDescriptionKind::Text&&row.visible&&!row.text.empty();})) {
@@ -3068,7 +3097,14 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                     auto context=description_contexts->at(key);context.sheet_index=sheets_->currentIndex();context.sheet_count=int(document_.sheets.size());
                     canvas_->set_view_description_context(pending->id,std::move(context));
                 }
-                project(*pending,true); canvas_->set_preview(std::move(pending)); error({});
+                if(creating&&pending->section_id.empty()) {
+                    // Ordinary creation remains a lightweight frame, including
+                    // orientation changes. Explicit OK prepares its geometry.
+                    canvas_->set_preview(std::move(pending),true);
+                } else {
+                    project(*pending,true);canvas_->set_preview(std::move(pending));
+                }
+                error({});
             }
             catch (const std::exception& exception) { canvas_->set_preview({});error(tr(exception.what())); }
         },[this](const auto& id,auto path){
@@ -3134,9 +3170,7 @@ void DrawingWindow::create_projected_view() {
         }, [this] { start_selection(); },
         [this,parent_copy,method=sheet->projection_method](auto& pending,auto point) {
             const double dx=point.x-parent_copy.x, dy=point.y-parent_copy.y;
-            constexpr double quarter_turn=0.7853981633974483;
-            const int sector=(static_cast<int>(std::lround(std::atan2(dy,-dx)/quarter_turn))+8)%8;
-            const auto direction=static_cast<zima::drawing::ProjectionDirection>(sector+1);
+            const auto direction=drawing::cardinal_projection_direction({dx,dy});
             if (direction!=pending.projection_direction) {
                 pending.projection_direction=direction;
                 pending.camera=zima::drawing::projected_camera(parent_copy.camera,direction,method);
@@ -3277,10 +3311,11 @@ void DrawingWindow::show_balloon_properties(const std::string& id) {
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
 }
 void DrawingWindow::start_linear_dimension() {show_dimension_properties({},0);}
-void DrawingWindow::show_dimension_properties(const std::string& id,int extend) {
+void DrawingWindow::show_dimension_properties(const std::string& id,int extend,
+    std::optional<drawing::DrawingDimensionKind> creation_kind) {
     if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
     auto* sheet=active_sheet();if(!sheet||sheet->views.empty())return;
-    auto value=drawing::make_drawing_dimension(canvas_->selected_view_id());
+    auto value=drawing::make_drawing_dimension(canvas_->selected_view_id(),creation_kind.value_or(drawing::DrawingDimensionKind::Linear));
     if(!id.empty()){
         const auto found=std::ranges::find(sheet->dimensions,id,&drawing::DrawingDimension::id);
         if(found==sheet->dimensions.end())return;value=*found;
@@ -3302,13 +3337,22 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
     if(extend==4)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Linear));
     else if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
     else if(extend){dialog->enable_chain_command();if(extend!=3)dialog->extend(extend<0);}
-    connect(dialog,&QDialog::finished,this,[this,id,view=value.view_id]{
+    connect(dialog,&QDialog::finished,this,[this,dialog,id,extend,view=value.view_id,document_id=document_.document_id,sheet_id=sheet->id](int result){
+        const bool repeat=id.empty()&&(extend==0||extend==2||extend==3)&&result==QDialog::Accepted&&!dialog->finishing_command();
+        const auto kind=dialog->value().kind;
         canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;
         if(!id.empty())if(const auto* sheet=active_sheet();sheet&&std::ranges::any_of(sheet->dimensions,[&](const auto& d){return d.id==id;}))canvas_->select_manual(view,id);
         if(properties_handler_)properties_handler_(nullptr);update_action_states();
+        if(repeat)QTimer::singleShot(0,this,[this,document_id,sheet_id,kind,extend] {
+            if(!isVisible()||view_dialog_||document_.document_id!=document_id||!active_sheet()||active_sheet()->id!=sheet_id)return;
+            if(kind==drawing::DrawingDimensionKind::Chain)show_dimension_properties({},extend==3?3:2);
+            else show_dimension_properties({},0,kind);
+        });
     });
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
-    set_status_message(tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
+    set_status_message(id.empty()&&(extend==0||extend==2||extend==3)
+        ?tr("Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.")
+        :tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
 }
 void DrawingWindow::fit_sheet() { canvas_->fit_sheet(); }
 void DrawingWindow::start_selection() {

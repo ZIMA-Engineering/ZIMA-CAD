@@ -185,24 +185,15 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
       AppearancePreviewPaths resolved{assembly->runtime_identity,generation,{}};
       for (const auto &f : scene.triangle_references)
         if (!f.instance_path.empty()) resolved.paths.insert(f.instance_path);
+      for (const auto &edge : scene.edges)
+        if (!edge.reference.instance_path.empty()) resolved.paths.insert(edge.reference.instance_path);
       appearance_preview_paths_=std::move(resolved);
       if (assembled_scene) *assembled_scene = std::move(scene);
     }
     for (const auto &path : appearance_preview_paths_->paths) {
-      const auto address = workspace_.resolve_occurrence(
-          displayed, assembly::InstancePath::decode(path));
-      if (!address)
-        continue;
-      const auto *owner =
-          workspace_.open_assembly(address->owner_assembly_document_id);
-      if (!owner)
-        continue;
-      const auto *occurrence =
-          owner->session.document().find_occurrence(address->occurrence_id);
-      if (!occurrence)
-        continue;
-      const auto a = workspace::occurrence_appearance(workspace_, *occurrence);
-      add(a, path);
+      if (const auto a = workspace_.occurrence_appearance(
+              displayed, assembly::InstancePath::decode(path)))
+        add(*a, path);
     }
     if (const auto *active =
             workspace_.open_part(workspace_.active_document_id());

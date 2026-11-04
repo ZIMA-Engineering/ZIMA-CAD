@@ -47,10 +47,12 @@ void pick(QWidget *w, QPointF p) {
 #include "drawing_surface_contour_ui.inc"
 #include "drawing_clearance_ui.inc"
 #include "drawing_axis_cross_ui.inc"
+#include "drawing_repeat_ui.inc"
 int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_REPEAT_ONLY"))return verify_repeated_drawing_dimensions();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_AXIS_CROSS"))return verify_drawing_axis_cross_ui();
         verify_drawing_axis_cross_ui();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_CLEARANCE"))return verify_drawing_clearance_ui();
@@ -413,6 +415,10 @@ int verify_measurement_dimension_ui() {
         props->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         flush();
         require(count() == 2, "Radius was not committed");
+        require(dialog()&&dialog()->value().kind==DrawingDimensionKind::Radius&&
+            !dialog()->value().attachments.front().reference.valid(),"Radius OK did not prepare a fresh radius dimension");
+        mouse(canvas,QEvent::MouseButtonDblClick,{5,5},Qt::MiddleButton,Qt::MiddleButton);
+        require(!dialog()&&count()==2,"Ending the empty radial continuation changed committed dimensions");
         const auto radius_id = window.document_for_test().sheets.front().dimensions.back().id;
         for (int state = 0; state < 3; ++state) {
             const auto rim = *window.annotation_handle_for_test(radius_id, 1, true);

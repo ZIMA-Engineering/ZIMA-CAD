@@ -1549,6 +1549,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(sketch_universal_dimension_active_&&candidate.kind==zima::viewer::CandidateKind::SketchCurve&&
+           candidate.owner_id==active_sketch_id_&&candidate.semantic_key.starts_with("arc:")) {
+            accept_sketch_universal_dimension(candidate);return;
+        }
         if(candidate.kind==zima::viewer::CandidateKind::Dimension&&candidate.semantic_key.starts_with("form:internal:")) {
             edit_dimension_inline(candidate);return;
         }

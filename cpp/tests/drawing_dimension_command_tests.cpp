@@ -5,9 +5,11 @@
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
+#include "profile_command_fixture.hpp"
 #include <cmath>
 #include <iostream>
 #include <numbers>
+#include <cstdlib>
 using namespace zima;
 using commands::Json;
 namespace {
@@ -85,8 +87,58 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.message);return result;
 }
+void verify_actual_shaft_rounding(const kernel::OcctKernel& kernel,std::filesystem::path directory) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {return command_host::Settings{{std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/templates","START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","rounded-shaft"}});
+    test::circular_commands([&](const char* command,Json arguments){return run(host,command,std::move(arguments));},{{"radius_mm",10},{"height_mm",40}});
+    const auto part_id=live.active_document_id();
+    const auto& input=live.open_part(part_id)->session.calculated_boundaries().back().mesh;
+    const auto ring=std::ranges::find_if(input.edges,[](const auto& edge){return edge.reference.valid()&&edge.points.size()>5&&std::ranges::all_of(edge.points,[](const auto& p){return std::abs(p.z-40)<1e-7;});});
+    require(ring!=input.edges.end(),"Actual shaft has no native top rim");
+    const auto fillet=run(host,"fillet.create",{{"radius_mm",1},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",ring->reference.owner_id},{"key",ring->reference.semantic_key}}})}}})}}).data.at("container").get<std::string>();
+    std::set<std::pair<std::string,std::string>> expected;
+    drawing::DrawingDocument saved;
+    unsigned measurements{};
+    for(double radius:{1.,2.5,1.5}) {
+        run(host,"fillet.set",{{"container",fillet},{"radius_mm",radius}});
+        require(live.open_part(part_id)->session.calculated_boundaries().back().calculation_errors.empty(),"Actual shaft rounding did not calculate");
+        for(int facing:{1,-1}) {
+            drawing::DrawingView view;view.id="actual-shaft-view";view.name="Rounded shaft";view.source_document_id=part_id;
+            view.source_path=directory/"rounded-shaft.prtz";view.camera={{double(facing),0,0},{0,0,1},{0,double(facing),0}};
+            workspace::DrawingProjection projection(&live,{});projection.project(view,{.interactive=true});
+            std::set<std::pair<std::string,std::string>> references;
+            std::vector<drawing::DrawingDimension> dimensions;
+            for(const auto& curve:drawing::projected_measurement_curves(view))if(curve.source.semantic_key.starts_with("drawing-contour:")&&curve.circular) {
+                references.emplace(curve.source.owner_id,curve.source.semantic_key);
+                for(auto kind:{drawing::DrawingDimensionKind::Radius,drawing::DrawingDimensionKind::Diameter}) {
+                    auto dimension=drawing::make_drawing_dimension(view.id,kind);
+                    dimension.attachments={{drawing::DimensionAttachmentKind::CurvePoint,curve.source,{},.5}};
+                    for(auto delta:std::array{drawing::Point2{1,2},drawing::Point2{-2,-1},drawing::Point2{1,-1}}) {
+                        drawing::refresh_drawing_dimension(view,dimension);drawing::drag_drawing_dimension(view,dimension,0,0,delta);
+                        const auto result=drawing::evaluate_drawing_dimension(view,dimension);
+                        require(result.state==drawing::MeasurementState::Resolved&&std::abs(result.presentations.front().value-radius*(kind==drawing::DrawingDimensionKind::Diameter?2:1))<1e-7,"Actual shaft fillet arc lost its exact R/diameter during editing");
+                    }
+                    dimensions.push_back(std::move(dimension));++measurements;
+                }
+            }
+            require(references.size()==2,"Actual rounded shaft has no two exact selectable fillet arcs");
+            if(expected.empty())expected=references;else require(references==expected,"Changing actual shaft rounding replaced its contour identities");
+            saved=drawing::DrawingDocument::create_default();saved.source_document_id=part_id;saved.source_path=view.source_path;
+            saved.sheets.front().views={view};saved.sheets.front().dimensions=std::move(dimensions);
+        }
+    }
+    run(host,"save");
+    const auto file=directory/"rounded-shaft.drwz";saved.save(file);
+    const auto reopened=drawing::DrawingDocument::load(file);
+    for(const auto& dimension:reopened.sheets.front().dimensions)
+        require(drawing::evaluate_drawing_dimension(reopened.sheets.front().views.front(),dimension).state==drawing::MeasurementState::Resolved,"Actual shaft fillet dimension did not reopen");
+    std::cout<<"Actual native shaft Fillet: "<<measurements<<" R/diameter checks, repeated radius changes, label drags, stable references and native reopen passed\n";
+}
 void verify(const kernel::OcctKernel& kernel,std::filesystem::path directory) {
     verify_surface_contours(directory);
+    verify_actual_shaft_rounding(kernel,directory);
     for(const auto kind:{drawing::DrawingDimensionKind::Linear,drawing::DrawingDimensionKind::Chain})
     for(const bool vertical:{false,true})for(const int side:{-1,1}) {
         const kernel::EdgeReference reference{"clearance","datum",{}};
@@ -213,7 +265,9 @@ int main(int argc,char** argv) {
         const auto root=std::filesystem::canonical(std::filesystem::temp_directory_path());
         const auto dir=root/("zima-dimensions-"+document::PartDocument::create_default().document_id);
         std::filesystem::create_directory(dir);verify(kernel,dir);
-        require(dir.parent_path()==root,"Unsafe cleanup");std::filesystem::remove_all(dir);
+        require(dir.parent_path()==root,"Unsafe cleanup");
+        if(std::getenv("ZIMA_RETAIN_SHAFT_FIXTURE"))std::cout<<"Retained native shaft GUI fixture: "<<dir.string()<<"\n";
+        else std::filesystem::remove_all(dir);
         std::cout<<"Measured dimension queries, original references, unresolved values, deletion and history passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

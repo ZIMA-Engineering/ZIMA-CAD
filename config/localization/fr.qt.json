@@ -1,4 +1,11 @@
 {
+  "Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.": "Cotation : OK enregistre la cote et en prépare une autre. Un double-clic sur le bouton central termine la commande.",
+  "Připravuji pohled…": "Préparation de la vue…",
+  "Zavírám dokument %1…": "Fermeture du document %1…",
+  "Dokument zavřen.": "Document fermé.",
+  "Zavírání dokumentu nebylo dokončeno.": "La fermeture du document n’a pas été effectuée.",
+  "Obnovuji zobrazení po zavření dokumentu…": "Restauration de la vue après fermeture du document…",
+  "Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.": "Cotation universelle : cliquez à nouveau sur l’arc pour basculer entre R/⌀ ; cliquez dans une zone vide pour placer la cote.",
   "Koncová plocha": "Face d’extrémité",
   "OCCT nepodporuje vybrané koncové plochy. Použijte ZIMA nebo Automaticky.": "OCCT ne prend pas en charge les faces d’extrémité sélectionnées. Utilisez ZIMA ou Automatique.",
   "Kolmo – vyberte plochu": "Perpendiculaire – sélectionner une face",
@@ -2664,5 +2671,6 @@
   "Body os": "Points des axes",
   "Zobrazit nebo skrýt body os a konstrukčních čar": "Afficher ou masquer les points des axes et des courbes de construction",
   "Invalid compressed document data.": "Données compressées du document non valides.",
-  "External extrusion targets must belong to a Skeleton Part.": "Les limites externes d’extrusion doivent appartenir à une pièce Skeleton."
+  "External extrusion targets must belong to a Skeleton Part.": "Les limites externes d’extrusion doivent appartenir à une pièce Skeleton.",
+  "Prázdná varianta": "Vide"
 }

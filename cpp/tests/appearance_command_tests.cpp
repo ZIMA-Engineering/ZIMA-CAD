@@ -1,14 +1,197 @@
 #include "profile_command_fixture.hpp"
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/command_host/host.hpp>
+#include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/drawing_projection.hpp>
+#include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/model_annotations.hpp>
+#include <QCryptographicHash>
+#include <QGuiApplication>
+#include <zima/drawing_render/sheet_renderer.hpp>
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <cmath>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+std::string projection_fingerprint(const drawing::DrawingView& view) {
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    const auto scalar=[&](auto value){hash.addData(QByteArrayView(reinterpret_cast<const char*>(&value),sizeof(value)));};
+    const auto text=[&](const std::string& value){scalar(std::uint64_t(value.size()));hash.addData(QByteArrayView(value.data(),value.size()));};
+    const auto reference=[&](const auto& value){text(value.owner_id);text(value.semantic_key);text(value.instance_path);text(value.display_owner_id);};
+    const auto point=[&](const auto& p){scalar(p.x);scalar(p.y);};
+    scalar(std::uint64_t(view.projected_edges.size()));
+    for(const auto& edge:view.projected_edges) {
+        reference(edge.source);scalar(edge.hidden);scalar(edge.silhouette);scalar(edge.tangent);scalar(edge.hatch);
+        scalar(edge.hatch_pattern);scalar(edge.thread);scalar(edge.thread_leadin);
+        scalar(std::uint64_t(edge.points.size()));for(const auto& p:edge.points)point(p);
+        scalar(std::uint64_t(edge.vertex_depths.size()));for(double d:edge.vertex_depths)scalar(d);
+    }
+    scalar(std::uint64_t(view.projected_triangles.size()));
+    for(const auto& triangle:view.projected_triangles) {
+        reference(triangle.source);scalar(triangle.depth);scalar(triangle.light);
+        for(const auto& p:triangle.points)point(p);for(double d:triangle.vertex_depths)scalar(d);
+    }
+    text(drawing::serialize_measurement_geometry(view));
+    text(drawing::serialize_model_annotations(view.model_annotations));
+    return hash.result().toHex().toStdString();
+}
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
+}
+void closed_nested_appearance(const fs::path& dir) {
+    const auto nested_file=dir/"paint-assembly.asmz";
+    const auto nested=assembly::AssemblyDocument::load(nested_file);
+    const auto source_file=dir/"paint-source.prtz";
+    std::vector<kernel::BodyResult> boundaries;
+    const auto part=document::PartDocument::load(source_file,&boundaries);
+    const auto body=part.body_history.active_body_id();
+    auto root=assembly::AssemblyDocument::create_default();
+    root.name="Closed nested appearance";
+    std::vector<assembly::InstancePath> parents;
+    for(int repeat=0;repeat<2;++repeat) {
+        auto occurrence=assembly::AssemblyDocument::create_assembly_occurrence(
+            "Nested",nested.document_id,nested_file,nested);
+        occurrence.placement.x=repeat*100;
+        parents.push_back(assembly::InstancePath{}.child(occurrence.occurrence_id));
+        root.components.push_back(std::move(occurrence));
+    }
+    const auto file=dir/"closed-nested.asmz";
+    static_cast<void>(root.save(file));
+    workspace::Workspace live;
+    live.add_assembly(assembly::AssemblyDocument::load(file),file);
+    live.refresh_source_geometry();
+    require(live.size()==1,"Appearance opened a source tab");
+    const auto check=[&](const std::string& inherited) {
+        const auto revision=live.open_assembly(root.document_id)->session.revision();
+        const auto generation=live.open_assembly(root.document_id)->session.data_generation();
+        for(const auto& parent:parents)for(std::size_t i=0;i<nested.components.size();++i) {
+            const auto& child=nested.components[i];
+            const auto value=live.occurrence_appearance(root.document_id,parent.child(child.occurrence_id));
+            require(value.has_value(),"Closed nested Part appearance was skipped");
+            require(value->bodies.at(body).color==(i==0?"#AA2200":inherited),"Closed nested Body style or occurrence override was lost");
+            require(!value->owner_bodies.empty()&&!value->groups.empty(),"Closed nested face groups or Body owners were lost");
+        }
+        require(live.open_assembly(root.document_id)->session.revision()==revision&&
+            live.open_assembly(root.document_id)->session.data_generation()==generation,
+            "Appearance lookup changed the Assembly");
+    };
+    check("#225FC2");
+    live.add_part(part,boundaries,source_file);
+    auto changed=live.open_part(part.document_id)->session.document();
+    changed.appearance.bodies.at(body).color="#123456";
+    live.open_part(part.document_id)->session.commit_metadata(std::move(changed));
+    live.refresh_source_geometry();
+    check("#123456");
+    require(live.remove(part.document_id),"Cannot close test Part");
+    live.refresh_source_geometry();
+    check("#225FC2");
+    require(!live.occurrence_appearance(root.document_id,parents.front().child("missing")),"Invalid path resolved an unrelated appearance");
+    std::cout<<"Closed/repeated nested Assembly: Body/face styles, overrides and unsaved open Part authority passed\n";
+}
+void inspect_user_assembly() {
+    const auto* input=std::getenv("ZIMA_REVIEW_ASSEMBLY");
+    if(!input||!*input)return;
+    const auto file=fs::path(input);
+    const auto start=std::chrono::steady_clock::now();
+    auto stamp=[&](const char* label){std::cout<<label<<" ms="<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count()<<std::endl;};
+    workspace::Workspace live;
+    auto root=assembly::AssemblyDocument::load(file);
+    const auto id=root.document_id;
+    live.add_assembly(std::move(root),file);stamp("Read-only native load");
+    live.refresh_source_geometry();stamp("Source display refresh");
+    const auto scene=live.authoritative_viewer_mesh(id);stamp("Current Assembly viewer packet");
+    std::set<std::string> paths;
+    for(const auto& face:scene.triangle_references)if(!face.instance_path.empty())paths.insert(face.instance_path);
+    for(const auto& edge:scene.edges)if(!edge.reference.instance_path.empty())paths.insert(edge.reference.instance_path);
+    std::size_t resolved=0,bodies=0,groups=0,faces=0;
+    for(const auto& path:paths)if(const auto a=live.occurrence_appearance(id,assembly::InstancePath::decode(path))) {
+        ++resolved;bodies+=a->bodies.size();groups+=a->groups.size();
+        for(const auto& group:a->groups)faces+=group.faces.size();
+    }
+    std::cout<<"Read-only appearance: paths="<<paths.size()<<" resolved="<<resolved<<" Body styles="<<bodies<<" groups="<<groups<<" authored faces="<<faces<<std::endl;
+    const auto rows=workspace::build_bom_rows_for_source(id,file,&live);stamp("BOM metadata");
+    std::cout<<"BOM: immediate occurrences="<<live.open_assembly(id)->session.document().components.size()<<" rows="<<rows.size()<<std::endl;
+    drawing::DrawingView view;view.source_document_id=id;view.source_path=file;
+    workspace::DrawingProjection projection(&live,{});
+    static_cast<void>(projection.source(view));stamp("Projection source and metadata");
+    for(auto orientation:{drawing::ViewOrientation::Isometric,drawing::ViewOrientation::Front,drawing::ViewOrientation::Top}) {
+        view.camera=drawing::standard_camera(orientation);
+        const auto camera_start=std::chrono::steady_clock::now();
+        projection.project(view,{.interactive=true});
+        const auto elapsed=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-camera_start).count();
+        std::cout<<"Interactive orientation="<<int(orientation)<<" ms="<<elapsed<<" edges="<<view.projected_edges.size()<<" triangles="<<view.projected_triangles.size()<<" SHA256="<<projection_fingerprint(view)<<std::endl;
+    }
+    stamp("Interactive drawing views");
+    std::cout<<"Projection: precise cameras="<<projection.calculated_camera_count()<<" interactive cameras="<<projection.calculated_interactive_camera_count()<<std::endl;
+}
+void inspect_user_drawing() {
+    const auto* input=std::getenv("ZIMA_REVIEW_DRAWING");
+    if(!input||!*input)return;
+    const auto file=fs::path(input);
+    int argc=1;char application_name[]="drawing-review";char* argv[]{application_name,nullptr};
+    std::unique_ptr<QGuiApplication> gui;
+    if(std::getenv("ZIMA_REVIEW_DRAWING_IMAGE"))gui=std::make_unique<QGuiApplication>(argc,argv);
+    const auto start=std::chrono::steady_clock::now();
+    const auto doc=drawing::DrawingDocument::load(file);
+    std::cout<<"Read-only Drawing load ms="<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count()<<" sheets="<<doc.sheets.size()<<std::endl;
+    for(const auto& sheet:doc.sheets) {
+        auto path=doc.data_source_path(sheet.bom_source_document_id);
+        if(path.is_relative())path=file.parent_path()/path;
+        const auto context=workspace::build_title_block_context_for_source(sheet.bom_source_document_id,path,nullptr);
+        const auto layout=drawing::title_block_layout(sheet,context);
+        if(const auto* output=std::getenv("ZIMA_REVIEW_DRAWING_IMAGE")) {
+            auto paper=sheet;paper.views.clear();
+            drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&paper);renderer.set_render_context(context);
+            QImage image(1100,600,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::black);
+            {QPainter painter(&image);renderer.paint_sheet(painter,5,{20-(sheet.width_mm()-210)*5,500-sheet.height_mm()*5},false);}
+            require(image.save(QString::fromUtf8(output)),"Cannot render read-only title-block inspection");
+        }
+        std::set<std::size_t> rendered_rows;
+        for(const auto& [id,target]:layout.edit_targets)if(target.bom_row)rendered_rows.insert(*target.bom_row);
+        std::cout<<"Drawing sheet: views="<<sheet.views.size()<<" BOM rows="<<sheet.bom_rows.size()<<" repeat regions="<<sheet.repeat_regions.size()
+            <<" title fields="<<sheet.title_block_fields.size()<<" title texts="<<sheet.title_block_texts.size()<<" rendered BOM rows="<<rendered_rows.size()<<std::endl;
+        for(const auto& row:sheet.bom_rows)std::cout<<"BOM row: item="<<row.item_number<<" quantity="<<row.quantity<<" source="<<row.source_path.filename().string()<<std::endl;
+        for(const auto& row:sheet.bom_rows) {
+            std::cout<<"BOM metadata: parameters="<<row.parameters.size()<<" aliases="<<row.parameter_aliases.size()<<" keys=";
+            for(const auto& [key,value]:row.parameters)std::cout<<key<<',';std::cout<<std::endl;
+        }
+        for(const auto& text:layout.texts)if(const auto target=layout.edit_targets.find(text.field_id);
+                target!=layout.edit_targets.end()&&target->second.bom_row)
+            std::cout<<"BOM cell: expression="<<target->second.expression<<" text="<<text.text<<" x="<<text.position.x<<" y="<<text.position.y<<std::endl;
+        for(const auto& region:sheet.repeat_regions)std::cout<<"Repeat region: x="<<region.x<<" y="<<region.y<<" width="<<region.width<<" height="<<region.height<<" step="<<region.step<<std::endl;
+        for(const auto& text:layout.texts)for(const auto& region:sheet.repeat_regions)
+            if(text.position.x>=region.x&&text.position.x<=region.x+region.width&&text.position.y>=region.y&&text.position.y<=region.y+region.height)
+                std::cout<<"BOM visible text: "<<text.text<<" x="<<text.position.x<<" y="<<text.position.y<<std::endl;
+        for(const auto& view:sheet.views)std::cout<<"View: edges="<<view.projected_edges.size()<<" triangles="<<view.projected_triangles.size()<<" measurements="<<view.measurement_geometry->curves.size()<<std::endl;
+        if(std::getenv("ZIMA_REVIEW_PICKER"))for(const auto& view:sheet.views) {
+            const auto prepared=std::chrono::steady_clock::now();
+            drawing::MeasurementPicker picker;picker.prepare(view);
+            std::cout<<"Picker prepare ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-prepared).count()<<std::endl;
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            const auto scalar=[&](auto value){hash.addData(QByteArrayView(reinterpret_cast<const char*>(&value),sizeof(value)));};
+            const auto text=[&](const std::string& value){scalar(std::uint64_t(value.size()));hash.addData(QByteArrayView(value.data(),value.size()));};
+            const auto reference=[&](const auto& r){text(r.owner_id);text(r.semantic_key);text(r.instance_path);};
+            const auto curves=drawing::projected_measurement_curves(view);
+            unsigned queries{},offered{};
+            for(std::size_t i=0;i<curves.size();i+=std::max<std::size_t>(1,curves.size()/24)) {
+                if(curves[i].points.empty())continue;
+                for(int mode:{-1,0,1,2,3,4}) {
+                    drawing::MeasurementPickRequest request;request.mode=mode;
+                    const auto p=curves[i].points[curves[i].points.size()/2];
+                    const auto candidates=picker.candidates(view,p,.5,request);++queries;
+                    scalar(std::uint64_t(candidates.size()));offered+=unsigned(candidates.size());
+                    for(const auto& candidate:candidates) {
+                        const auto& a=candidate.attachment;scalar(int(a.kind));reference(a.reference);reference(a.other_reference);scalar(a.parameter);scalar(a.side);
+                        scalar(candidate.position.x);scalar(candidate.position.y);scalar(candidate.distance);scalar(candidate.point_target);
+                    }
+                }
+            }
+            std::cout<<"Picker: queries="<<queries<<" candidates="<<offered<<" SHA256="<<hash.result().toHex().toStdString()<<std::endl;
+        }
+    }
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
@@ -24,12 +207,17 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(faces.at("total")==10,
         "Symmetric box appearance query did not preserve its ten authored result-face identities");
     const auto original=run(host,"appearance.get").data;
+    const auto original_body=part->session.calculated_boundaries().back();
+    auto measured=original_body;kernel.ensure_body_properties(measured);
+    require(std::abs(measured.volume-6000)<1e-8,"Appearance fixture has the wrong physical volume");
     require(part->session.revision()==revision&&part->session.calculated_boundaries().data()==allocation,"Appearance queries calculated geometry");
     const auto blue=Json{{"color","#225FC2"},{"roughness",.123456789},{"metallic",.75}};
     const auto stale=workspace::prepare_appearance_edit(live,source);
     run(host,"appearance.set",{{"style",blue}});
     require(part->session.document().appearance.bodies.at(body).color=="#225FC2","Part active Body appearance did not change");
-    require(std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-8,"Appearance changed volume");
+    const auto& styled_body=part->session.calculated_boundaries().back();
+    require(styled_body.kernel_shape==original_body.kernel_shape&&styled_body.volume==original_body.volume&&
+        styled_body.physical_properties_current==original_body.physical_properties_current,"Appearance changed body geometry or analysis");
     bool stale_rejected=false;
     try {static_cast<void>(workspace::commit_appearance(live,stale,stale.initial));}catch(const workspace::AppearanceError& e){stale_rejected=std::string(e.code)=="stale_edit";}
     require(stale_rejected,"Stale appearance edit overwrote newer changes");
@@ -100,9 +288,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
 
 }
 }
-int main(){try {kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());
+int main(){try {if(std::getenv("ZIMA_REVIEW_DRAWING")){inspect_user_drawing();return 0;}if(std::getenv("ZIMA_REVIEW_ASSEMBLY")){inspect_user_assembly();return 0;}kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());
     const auto dir=parent/("zima-appearance-command-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(dir),"Cannot create test directory");verify(kernel,dir);
+    require(fs::create_directory(dir),"Cannot create test directory");verify(kernel,dir);closed_nested_appearance(dir);
     require(dir.parent_path()==parent,"Unexpected cleanup path");fs::remove_all(dir);
     std::cout<<"Appearance commands, ownership, geometry preservation and native persistence passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -108,6 +108,20 @@ void AssemblyWorkspaceWindow::reset_sketch_universal_dimension(bool keep_active)
 void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
     if (!sketch_universal_dimension_active_ || viewer_ == nullptr) return;
     const auto& refs = universal_dimension_references_;
+    if(refs.empty()&&universal_pending_dimension_&&
+        (universal_pending_dimension_->kind==zima::sketcher::DimensionKind::Radius||
+         universal_pending_dimension_->kind==zima::sketcher::DimensionKind::Diameter)) {
+        const auto id=universal_pending_dimension_->geometry_id;
+        const auto* sketch=active_sketch();
+        if(sketch&&std::ranges::any_of(sketch->arcs,[&](const auto& arc){return arc.id==id;})) {
+            viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchCurve});
+            const auto owner=active_sketch_id_;
+            viewer_->set_candidate_filter([owner,id](const auto& candidate) {
+                return candidate.owner_id==owner&&candidate.kind==zima::viewer::CandidateKind::SketchCurve&&candidate.semantic_key=="arc:"+id;
+            });
+            return;
+        }
+    }
     const bool three_points = refs.size() == 3 &&
         std::ranges::all_of(refs, [](const auto& value) {
             return value.kind == UniversalDimensionReferenceKind::Point;
@@ -305,6 +319,20 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         return;
     }
     try {
+        if(universal_dimension_references_.empty()&&universal_pending_dimension_&&
+           candidate.kind==zima::viewer::CandidateKind::SketchCurve&&
+           candidate.semantic_key=="arc:"+universal_pending_dimension_->geometry_id&&
+           (universal_pending_dimension_->kind==zima::sketcher::DimensionKind::Radius||
+            universal_pending_dimension_->kind==zima::sketcher::DimensionKind::Diameter)) {
+            auto toggled=universal_pending_dimension_->kind==zima::sketcher::DimensionKind::Radius
+                ?sketch->create_arc_diameter_dimension(universal_pending_dimension_->geometry_id)
+                :sketch->create_arc_radius_dimension(universal_pending_dimension_->geometry_id);
+            toggled.id=universal_pending_dimension_->id;universal_pending_dimension_=std::move(toggled);
+            clear_sketch_confirmed_selection();set_sketch_universal_dimension_contract();
+            preserve_view_on_refresh_=true;refresh_scene();
+            state_->setText(tr("Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu."));
+            return;
+        }
         if (universal_dimension_references_.empty() &&
             !universal_pending_dimension_ &&
             candidate.kind == zima::viewer::CandidateKind::SketchCurve) {
@@ -324,8 +352,9 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
             set_sketch_universal_dimension_contract();
             preserve_view_on_refresh_ = true;
             refresh_scene();
-            state_->setText(tr(
-                "Univerzální kóta: kliknutím do prostoru určete polohu."));
+            state_->setText(candidate.semantic_key.starts_with("arc:")
+                ?tr("Univerzální kóta: dalším kliknutím na oblouk přepnete R/⌀; kliknutím do prostoru určete polohu.")
+                :tr("Univerzální kóta: kliknutím do prostoru určete polohu."));
             return;
         }
 

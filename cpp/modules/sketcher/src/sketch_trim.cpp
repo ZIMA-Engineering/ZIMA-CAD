@@ -1316,6 +1316,27 @@ SketchTrimResult apply_sketch_trim(
         std::erase_if(next.constraints, [&](const auto& value) { return value.id==constraint.id; });
         if (valid) next.constraints.push_back(std::move(constraint));
     }
+    // Native pieces of one circular support retain one authored radius. The
+    // first survivor keeps the source identity; the other survivors share its
+    // real center point and an explicit, editable EqualRadius relation.
+    for(const auto& [source,survivors]:result.geometry_mapping) {
+        if(survivors.empty())continue;
+        const auto kind=curve_by_id.at(source)->kind;
+        if(kind!=SampledKind::Circle&&kind!=SampledKind::Arc)continue;
+        if(std::ranges::any_of(survivors,[&](const auto& id){return std::ranges::none_of(next.arcs,[&](const auto& arc){return arc.id==id;});}))continue;
+        for(std::size_t i=1;i<survivors.size();++i) {
+            SketchConstraint equal;equal.id=kernel::make_stable_id();equal.kind=ConstraintKind::EqualRadius;
+            equal.geometry_id=survivors.front();equal.second_geometry_id=survivors[i];next.constraints.push_back(std::move(equal));
+        }
+        // remove_geometry() prunes its dimensions while the source is absent.
+        // R/D still describes the same surviving support, including its lock,
+        // reference role, label placement and persistent dimension identity.
+        for(auto dimension:sketch.dimensions)if(dimension.geometry_id==source&&
+            (dimension.kind==DimensionKind::Radius||dimension.kind==DimensionKind::Diameter)&&
+            std::ranges::none_of(next.dimensions,[&](const auto& current){return current.id==dimension.id;})) {
+            dimension.geometry_id=survivors.front();next.dimensions.push_back(std::move(dimension));
+        }
+    }
     // Native external profiles retain the source-edge C on every survivor.
     // Original endpoint C is restored above only if that endpoint survived.
     for (const auto& [source_id, survivors] : result.geometry_mapping) {

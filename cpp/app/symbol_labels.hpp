@@ -25,6 +25,7 @@ inline QString symbol_field_name(const symbols::Definition& definition,const std
         return QString::fromStdString(key);
     }
 inline QString symbol_variant_name(const symbols::Definition& d,const std::string& key) {
+    if(d.id=="ze:general-surface-texture:iso21920"&&key=="empty")return QObject::tr("Prázdná varianta");
     if(const auto separator=key.find('/');separator!=std::string::npos) {
         const auto kind=key.substr(0,separator),side=key.substr(separator+1);
         const std::map<std::string,QString> labels{

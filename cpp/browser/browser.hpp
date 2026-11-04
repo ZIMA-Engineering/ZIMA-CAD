@@ -60,7 +60,7 @@ signals:
     void settings_requested();
 private:
     void refresh_tree();
-    void edit_bookmark(QTreeWidgetItem* item, bool folder = false, bool currentPage = false);
+    void edit_bookmark(QString id, bool folder = false, bool currentPage = false);
     void update_pin();
     void report(const QString& error);
     QString selected_folder() const;
