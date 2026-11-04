@@ -163,7 +163,6 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
         {"show_point",p.show_point},{"show_text",p.show_text},
         {"sides",std::move(sides)}};
     if(p.reversed_sides)result["reversed_sides"]=true;
-    if(p.axis_visible_in_3d)result["axis_visible_in_3d"]=true;
     return result;
 }
 
@@ -186,7 +185,6 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         p.individual_centroid_centerlines=source.at("individual_centroid_centerlines").get<bool>();
         p.show_point=source.at("show_point").get<bool>();
         p.show_text=source.at("show_text").get<bool>();
-        p.axis_visible_in_3d=source.value("axis_visible_in_3d",false);
         const auto& sides=source.at("sides");
         if(!sides.is_array()||sides.size()!=2)invalid();
         for(std::size_t i=0;i<2;++i) {

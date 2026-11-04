@@ -560,7 +560,12 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Axis Feature OK failed");run("save");
     auto saved=document::PartDocument::load(path,&calculated);
     const auto* axis=saved.find_container(axis_id);check(axis&&axis->placement.references.front().use_axis,"Axis mode not persisted");
-    const auto mesh=saved.feature_result_mesh(*axis);check(mesh.axes.empty()&&mesh.original_references.axes.size()==1&&std::abs(mesh.original_references.axes.front().direction.z)>1-1e-7,
+    const auto saved_axis_sketch=std::ranges::find(saved.sketches,axis->feature.sketch_id,
+        &sketcher::Sketch::id);
+    check(saved_axis_sketch!=saved.sketches.end(),"Feature Axis owned Sketch is missing");
+    const auto saved_axis_plane=saved_axis_sketch->plane;
+    const bool saved_axis_plane_auto=saved_axis_sketch->plane_auto;
+    const auto mesh=saved.feature_result_mesh(*axis);check(mesh.axes.size()==1&&mesh.original_references.axes.size()==1&&std::abs(mesh.original_references.axes.front().direction.z)>1-1e-7,
         "Feature axis is not coaxial with selected cylinder");
     check(!axis->feature.show_point&&!axis->feature.show_text&&!mesh.points.front().always_visible&&mesh.points.front().label.empty(),
         "Feature visibility settings did not persist");
@@ -574,47 +579,80 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     check(!dialog()->findChild<QCheckBox*>("featureShowPoint")&&
         !dialog()->findChild<QCheckBox*>("featureShowText"),
         "Removed Feature Point/Text controls returned after reopen");
-    auto* axis_display=dialog()->findChild<QCheckBox*>("featureShowAxis3D");
-    check(axis_display&&axis_display->isVisible()&&!axis_display->isChecked(),
-        "Axis Show in 3D is missing from Properties");
-    axis_display->click();flush();
+    auto* axis_direction=dialog()->findChild<QComboBox*>("featureAxisDirection");
+    check(axis_direction&&axis_direction->isVisible()&&
+            !dialog()->findChild<QComboBox*>("featureProfilePlane")->isVisible(),
+        "Feature Axis local X/Y/Z direction editor is missing");
+    axis_direction->setCurrentIndex(axis_direction->findData(
+        static_cast<int>(sketcher::SketchPlane::YZ)));flush();
     mode->setCurrentIndex(0);flush();dialog()->reject();flush();run("save");
     check(document::PartDocument::load(path).find_container(axis_id)->placement.references.front().use_axis,"Cancel changed mode");
     check(!document::PartDocument::load(path).find_container(axis_id)->feature.show_point&&
         !document::PartDocument::load(path).find_container(axis_id)->feature.show_text,"Cancel changed visibility");
-    check(!document::PartDocument::load(path).find_container(axis_id)->feature.axis_visible_in_3d,
-        "Cancel committed Axis display visibility");
+    {
+        const auto cancelled=document::PartDocument::load(path);
+        const auto sketch=std::ranges::find(cancelled.sketches,axis->feature.sketch_id,
+            &sketcher::Sketch::id);
+        check(sketch!=cancelled.sketches.end()&&sketch->plane==saved_axis_plane&&
+                sketch->plane_auto==saved_axis_plane_auto,
+            "Cancel committed the pending Feature Axis direction");
+    }
     const auto encoded_geometry=[&] {
         std::vector<kernel::BodyResult> results;static_cast<void>(document::PartDocument::load(path,&results));
         commands::Json rows=commands::Json::array();
         for(const auto& result:results)rows.push_back(document::serialize_body_result(result));return rows.dump();
     };
-    const auto before_visibility=encoded_geometry();unsigned display_calculations=0;
+    const auto before_direction=encoded_geometry();unsigned display_calculations=0;
     const auto edit_axis=[&] {
         QTreeWidgetItem* row{};
         for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==axis_id){row=*i;break;}
-        check(row,"Axis Tree row missing after visibility edit");window.show_tree_item_properties(row);flush();
-        check(dialog(),"Axis visibility editor missing");
+        check(row,"Axis Tree row missing after direction edit");window.show_tree_item_properties(row);flush();
+        check(dialog(),"Axis editor missing");
     };
     {
         workspace::CalculationExecutionScope counted([&](auto action){++display_calculations;action();});
-        edit_axis();dialog()->findChild<QCheckBox*>("featureShowAxis3D")->click();flush();
+        edit_axis();
+        axis_direction=dialog()->findChild<QComboBox*>("featureAxisDirection");
+        check(axis_direction&&axis_direction->isVisible(),
+            "Reopened Feature Axis has no direction editor");
+        axis_direction->setCurrentIndex(axis_direction->findData(
+            static_cast<int>(sketcher::SketchPlane::YZ)));flush();
         dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
         const auto visible=document::PartDocument::load(path);
-        check(visible.find_container(axis_id)->feature.axis_visible_in_3d&&
-            visible.feature_result_mesh(*visible.find_container(axis_id)).axes.size()==1,"Axis Show in 3D OK did not persist");
-        check(encoded_geometry()==before_visibility,"Axis display edit changed calculated geometry");
-        edit_axis();check(dialog()->findChild<QCheckBox*>("featureShowAxis3D")->isChecked(),"Axis display preference lost on reopening");
-        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto visible_axis=visible.find_container(axis_id);
+        check(visible_axis,"Reopened Feature Axis is missing");
+        const auto visible_sketch=std::ranges::find(visible.sketches,
+            visible_axis->feature.sketch_id,&sketcher::Sketch::id);
+        check(visible_sketch!=visible.sketches.end(),
+            "Reopened Feature Axis owned Sketch is missing");
+        const auto visible_mesh=visible.feature_result_mesh(*visible_axis);
+        const auto expected=visible_sketch->normal();
+        check(visible_mesh.axes.size()==1&&
+            !visible_sketch->plane_auto&&
+            visible_sketch->plane==sketcher::SketchPlane::YZ&&
+            std::abs(visible_mesh.axes.front().direction.x-expected.x)<1e-9&&
+            std::abs(visible_mesh.axes.front().direction.y-expected.y)<1e-9&&
+            std::abs(visible_mesh.axes.front().direction.z-expected.z)<1e-9,
+            "Reopened Feature Axis is not visible in 3D");
+        check(encoded_geometry()==before_direction,
+            "Feature Axis direction edit changed calculated body geometry");
         run("undo");run("save");
-        check(!document::PartDocument::load(path).find_container(axis_id)->feature.axis_visible_in_3d,
-            "Axis visibility Undo failed or unchanged OK created an Undo transaction");
+        const auto undone=document::PartDocument::load(path);
+        const auto undo_sketch=std::ranges::find(undone.sketches,
+            undone.find_container(axis_id)->feature.sketch_id,&sketcher::Sketch::id);
+        check(undo_sketch!=undone.sketches.end()&&undo_sketch->plane==saved_axis_plane&&
+                undo_sketch->plane_auto==saved_axis_plane_auto,
+            "Feature Axis direction Undo failed");
         run("redo");run("save");
-        check(document::PartDocument::load(path).find_container(axis_id)->feature.axis_visible_in_3d,
-            "Axis visibility Redo failed");
+        const auto redone=document::PartDocument::load(path);
+        const auto redo_sketch=std::ranges::find(redone.sketches,
+            redone.find_container(axis_id)->feature.sketch_id,&sketcher::Sketch::id);
+        check(redo_sketch!=redone.sketches.end()&&
+                redo_sketch->plane==sketcher::SketchPlane::YZ&&!redo_sketch->plane_auto,
+            "Feature Axis direction Redo failed");
     }
-    check(display_calculations==0,"Axis visibility Properties invoked geometry calculation");
-    std::cout<<"Axis Show in 3D: top row, Cancel/OK, unchanged OK, zero calculations, exact cached geometry, Undo/Redo and native persistence passed\n";
+    check(display_calculations==0,"Axis Properties invoked geometry calculation");
+    std::cout<<"Feature Axis: permanent authored 3D result, local X/Y/Z direction, no redundant display checkbox, Cancel, Undo/Redo, zero body calculations and native reopen passed\n";
     run("close");check(window.open_document_path(QString::fromStdString(path.string())),"Saved axis cannot reopen");flush();
     check(!window.findChild<QAction*>("cylinderAxisAction"),"Retired cylinder axis action remains");
     verify_mesh_surface_placement(application,window,directory);
@@ -784,11 +822,15 @@ static void verify_existing_feature_origin_replacement(QApplication& application
     const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     auto part=document::PartDocument::create_default();
-    auto source_sketch=sketcher::Sketch::create_default();source_sketch.add_circle(0,0,5);
+    auto source_sketch=sketcher::Sketch::create_default();source_sketch.add_circle(0,0,300);
     auto source=document::PartDocument::create_feature_container(source_sketch.id);
-    source.feature.sides[0].length=20;source_sketch.owner_container_id=source.id;
+    source.feature.sides[0].length=500;
+    source.feature.sides[0].draft_angle_degrees=12;
+    source_sketch.owner_container_id=source.id;
     auto target_sketch=sketcher::Sketch::create_default();
-    static_cast<void>(target_sketch.add_rectangle(-2,-2,2,2));
+    // Deliberately open: a failed Modeling result must still replace its live
+    // placement/profile presentation instead of retaining the previous frame.
+    static_cast<void>(target_sketch.add_segment(-2,-2,2,2));
     auto target=document::PartDocument::create_feature_container(target_sketch.id);
     target.feature.type=document::FeatureType::Sketch;target.name="Existing placement preview";
     target_sketch.owner_container_id=target.id;
@@ -799,10 +841,10 @@ static void verify_existing_feature_origin_replacement(QApplication& application
     part.resolve_constructions();const kernel::OcctKernel kernel;
     auto calculated=kernel.evaluate_history(part.kernel_operations());
     const auto cylinder=std::ranges::find_if(calculated.back().mesh.original_references.triangle_references,[](const auto& face) {
-        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cone;
     });
     check(cylinder!=calculated.back().mesh.original_references.triangle_references.end(),
-        "Existing-origin fixture cylinder missing");
+        "Existing-origin fixture conical placement face missing");
     const auto file=directory/("existing-origin-replacement-"+target.id+".prtz");
     part.save(file,calculated);
     check(window.open_document_path(QString::fromStdString(file.string())),
@@ -829,21 +871,30 @@ static void verify_existing_feature_origin_replacement(QApplication& application
                     result.push_back(axis);
         return result;
     };
-    const auto verify_single_frame=[&](const char* phase) {
-        const auto pending=dialog->pending_value();
-        const auto axes=frame_axes(pending.container_origin.id);
+    const auto verify_single_frame=[&](PrimitivePropertiesDialog* edited,
+            const char* phase) {
+        const auto pending=edited->pending_value();
+        const std::set<std::string> pending_owners{
+            pending.id,pending.feature_id,pending.container_origin.id};
+        std::vector<kernel::ViewerAxis> axes;
+        for(const auto* source:{&view->mesh().axes,
+                &view->transient_context_mesh().axes})
+            for(const auto& axis:*source)
+                if(pending_owners.contains(axis.reference.owner_id)&&
+                   axis.reference.semantic_key.starts_with("origin:axis:"))
+                    axes.push_back(axis);
         if(axes.size()!=3)throw std::runtime_error(std::string(phase)+
             ": old and pending Feature Origins are both visible");
         check(std::ranges::all_of(axes,[&](const auto& axis) {
-            return std::hypot(axis.point.x-pending.placement.x,
-                axis.point.y-pending.placement.y,
-                axis.point.z-pending.placement.z)<1e-6;
-        }),"Feature Origin frame is not at the current pending placement");
+            return std::hypot(axis.point.x-axes.front().point.x,
+                axis.point.y-axes.front().point.y,
+                axis.point.z-axes.front().point.z)<1e-6;
+        }),"Feature Origin axes no longer share one current frame");
         std::size_t planes{};
         for(const auto* edges:{&view->mesh().edges,
                 &view->transient_context_mesh().edges})
             planes+=std::ranges::count_if(*edges,[&](const auto& edge) {
-                return edge.reference.owner_id==pending.container_origin.id&&
+                return pending_owners.contains(edge.reference.owner_id)&&
                     edge.reference.semantic_key.starts_with("origin:plane:");
             });
         check(planes==3,
@@ -852,8 +903,7 @@ static void verify_existing_feature_origin_replacement(QApplication& application
         for(const auto* source:{&view->mesh().points,&view->transient_context_mesh().points})
             for(const auto& point:*source)
                 if(point.always_visible&&point.reference.semantic_key=="point"&&
-                   (point.reference.owner_id==pending.id||
-                    point.reference.owner_id==pending.container_origin.id))
+                   pending_owners.contains(point.reference.owner_id))
                     points.push_back(point);
         if(points.size()!=1) {
             std::string detail="Existing Feature publishes "+std::to_string(points.size())+
@@ -865,21 +915,150 @@ static void verify_existing_feature_origin_replacement(QApplication& application
         }
         check(frame_axes(body+":origin").size()==3,
             "Active Body Origin disappeared during Feature placement");
+        return axes.front().point;
     };
     check(dialog->set_reference(0,{{},cylinder->owner_id,cylinder->semantic_key,0,true},"Cylinder"),
         "Existing Feature rejected the cylinder reference");flush();
-    verify_single_frame("first cylinder reference");
-    document::ConstructionReference plane{{},source.container_origin.id,"origin:plane:yz",0,true};
-    plane.measured_offset=3;
-    check(dialog->set_reference(1,plane,"Second plane"),
-        "Existing Feature rejected the second reference");flush();
-    verify_single_frame("second reference");
+    verify_single_frame(dialog,"first cylinder reference");
+    document::ConstructionReference first_plane{{},body+":origin",
+        "origin:plane:xy",0,true};
+    first_plane.measured_offset=0.0;
+    check(dialog->set_reference(1,first_plane,"First plane"),
+        "Existing Feature rejected the first plane reference");flush();
+    verify_single_frame(dialog,"first plane reference");
+    document::ConstructionReference plane{{},body+":origin","origin:plane:yz",0,true};
+    plane.measured_offset=253.149;
+    check(dialog->set_reference(2,plane,"Second plane"),
+        "Existing Feature rejected the second plane reference");flush();
+    const auto before_offset_edit=verify_single_frame(
+        dialog,"second plane reference");
+    const auto before_offset_placement=dialog->pending_value().placement;
     auto* references=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
-    auto* offset=qobject_cast<QDoubleSpinBox*>(references->cellWidget(1,3));
+    auto* offset=qobject_cast<QDoubleSpinBox*>(references->cellWidget(2,3));
     check(offset&&offset->isEnabled()&&!offset->isReadOnly(),
         "Existing Feature second-reference offset is not editable");
-    offset->setValue(4);flush();verify_single_frame("edited second-reference offset");
-    dialog->reject();flush();run("close");
+    check(dialog->set_inline_parameter_value(
+            "placement:reference_offset:2",200.0),
+        "View-style placement dimension edit was rejected");
+    flush();const auto after_offset_edit=verify_single_frame(
+        dialog,"inline-edited second-reference offset");
+    const auto after_offset_placement=dialog->pending_value().placement;
+    if(!(std::hypot(after_offset_edit.x-before_offset_edit.x,
+            after_offset_edit.y-before_offset_edit.y,
+            after_offset_edit.z-before_offset_edit.z)>1.0))
+        throw std::runtime_error("Edited placement offset did not move the single pending Feature Origin [frame "+
+            std::to_string(before_offset_edit.x)+","+std::to_string(before_offset_edit.y)+","+std::to_string(before_offset_edit.z)+" -> "+
+            std::to_string(after_offset_edit.x)+","+std::to_string(after_offset_edit.y)+","+std::to_string(after_offset_edit.z)+"] [placement "+
+            std::to_string(before_offset_placement.x)+","+std::to_string(before_offset_placement.y)+","+std::to_string(before_offset_placement.z)+" -> "+
+            std::to_string(after_offset_placement.x)+","+std::to_string(after_offset_placement.y)+","+std::to_string(after_offset_placement.z)+"]");
+    check(std::abs(dialog->pending_value().placement.references[2].offset-200.0)<1e-9,
+        "Inline placement dimension did not reach the pending reference");
+    dialog->reject();flush();
+
+    // Reproduce the reported creation sequence as well.  The new Feature has
+    // an empty owned Sketch and therefore remains incomplete while its first
+    // placement references and numeric offset are being entered.  Every edit
+    // must replace the previous transient frame; it must never append a second
+    // copy of the same pending Feature Origin.
+    auto* create=window.findChild<QAction*>("featurePrototypeAction");
+    check(create&&create->isEnabled(),"New Feature command is unavailable in the fixture Body");
+    create->trigger();flush();
+    dialog=dynamic_cast<PrimitivePropertiesDialog*>(
+        window.findChild<QWidget*>("featurePropertiesDialog"));
+    check(dialog&&dialog->pending_value().feature.type==document::FeatureType::Modeling,
+        "New Modeling Feature placement editor missing");
+    const auto created_origin=dialog->pending_value().container_origin.id;
+    // Confirm through the real View handler: set_reference() alone bypasses
+    // the reference-confirmation scene publication that used to freeze a
+    // second copy of the lightweight Origin in the base mesh.
+    std::optional<QPointF> face_pixel;
+    for(int y=12;y<view->height()-12&&!face_pixel;y+=8)
+        for(int x=12;x<view->width()-12;x+=8) {
+            const QPointF pixel(x,y);
+            if(dialog->geometry().contains(view->mapTo(&window,pixel.toPoint())))continue;
+            const auto candidates=view->selection_candidates_at(pixel);
+            if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Face&&
+                    candidates.front().owner_id==cylinder->owner_id&&
+                    candidates.front().semantic_key==cylinder->semantic_key) {
+                face_pixel=pixel;break;
+            }
+        }
+    check(face_pixel.has_value(),"New Feature has no pickable conical face in the View");
+    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,*face_pixel,QPointF(view->mapToGlobal(face_pixel->toPoint())),
+            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&event);
+    }
+    flush();
+    check(!dialog->pending_value().placement.references.empty()&&
+            dialog->pending_value().placement.references.front().owner_id==cylinder->owner_id&&
+            dialog->pending_value().placement.references.front().semantic_key==cylinder->semantic_key,
+        "View click did not assign the offered conical face");
+    auto previous_origin=verify_single_frame(dialog,"new Feature confirmed face in View");
+    for(const double coordinate:{240.,-150.,80.}) {
+        check(dialog->set_inline_parameter_value("placement:z",coordinate),
+            "New Feature numeric Z placement is not editable");flush();
+        const auto point=verify_single_frame(dialog,"new Feature repeated numeric placement");
+        // Verify the actual displayed point against the analytic support,
+        // independently of the preview generator and tessellation.
+        const auto& surface=*cylinder->surface;
+        const kernel::Vec3 delta{point.x-surface.origin.x,
+            point.y-surface.origin.y,point.z-surface.origin.z};
+        const double axial=delta.x*surface.axis.x+delta.y*surface.axis.y+
+            delta.z*surface.axis.z;
+        const double radial=std::hypot(delta.x-axial*surface.axis.x,
+            delta.y-axial*surface.axis.y,delta.z-axial*surface.axis.z);
+        check(std::abs(radial-(surface.radius+axial*std::tan(surface.semi_angle)))<1e-6,
+            "Live Origin left its conical placement support");
+        check(std::hypot(point.x-previous_origin.x,point.y-previous_origin.y,
+                point.z-previous_origin.z)>1.,
+            "Successive numeric edits did not move the live Origin");
+        previous_origin=point;
+        check(std::ranges::none_of(view->mesh().axes,[&](const auto& axis) {
+            return axis.reference.owner_id==created_origin;
+        }),"Lightweight Origin leaked into the base scene");
+        std::size_t z_dimensions{};
+        for(std::size_t index=0;;++index) {
+            viewer::ViewerCandidate candidate;
+            candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.geometry_index=index;
+            const auto dimension=view->dimension_source(candidate);
+            if(!dimension)break;
+            if(dimension->reference.owner_id==dialog->pending_value().id&&
+                    dimension->reference.semantic_key=="parameter:placement:z") {
+                ++z_dimensions;
+                if(std::abs(dimension->value-point.z)>=1e-7)
+                    throw std::runtime_error("Placement Z dimension differs from live placement: expected="+
+                        std::to_string(point.z)+" value="+std::to_string(dimension->value)+
+                        " requested="+std::to_string(coordinate));
+            }
+        }
+        check(z_dimensions==1,"Live placement must publish exactly one Z dimension");
+    }
+    check(dialog->set_reference(1,first_plane,"First plane"),
+        "New Feature rejected the first plane reference");
+    flush();verify_single_frame(dialog,"new Feature first plane reference");
+    plane.measured_offset=253.149;
+    check(dialog->set_reference(2,plane,"Second plane"),
+        "New Feature rejected the second plane reference");
+    const auto new_before_offset_edit=verify_single_frame(
+        dialog,"new Feature second plane reference");
+    check(dialog->set_inline_parameter_value(
+            "placement:reference_offset:2",200.0),
+        "New Feature placement offset edit was rejected");
+    flush();const auto new_after_offset_edit=verify_single_frame(
+        dialog,"new Feature inline-edited offset");
+    check(std::hypot(new_after_offset_edit.x-new_before_offset_edit.x,
+            new_after_offset_edit.y-new_before_offset_edit.y,
+            new_after_offset_edit.z-new_before_offset_edit.z)>1.0,
+        "New Feature placement offset did not replace the previous Origin frame");
+    check(std::abs(dialog->pending_value().placement.references[2].offset-200.0)<1e-9,
+        "New Feature inline placement dimension did not reach the pending reference");
+    dialog->reject();flush();
+    check(frame_axes(created_origin).empty(),
+        "Cancelled new Feature left its transient Origin in the View");
+    run("close");
 }
 
 // Exercises the public action, embedded Sketcher and one real native commit.

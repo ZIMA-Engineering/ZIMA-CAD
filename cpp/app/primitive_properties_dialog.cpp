@@ -823,6 +823,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         QTimer::singleShot(0,this,fit_feature_controls);
         feature_panel_->on_preview_notice_changed([this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
         profile_plane_=feature_panel_->plane_control();
+        feature_axis_direction_=feature_panel_->axis_direction_control();
         profile_plane_offset_=feature_panel_->offset_control();
         thin_thickness_=feature_panel_->thickness_control();
         own_sketch_button_=feature_panel_->sketch_button();
@@ -2510,9 +2511,13 @@ void PrimitivePropertiesDialog::set_profile_sketch_status(const zima::sketcher::
 void PrimitivePropertiesDialog::set_profile_plane_selection(const zima::sketcher::Sketch& sketch,
     std::function<void(zima::sketcher::SketchPlane, bool)> changed) {
     if (!profile_plane_) return;
-    const QSignalBlocker blocker(profile_plane_);
-    update_automatic_work_plane(profile_plane_, static_cast<int>(sketch.plane));
-    profile_plane_->setCurrentIndex(profile_plane_->findData(sketch.plane_auto ? QVariant(QStringLiteral("auto")) : QVariant(static_cast<int>(sketch.plane))));
+    for(auto* control:{profile_plane_,feature_axis_direction_})if(control) {
+        const QSignalBlocker blocker(control);
+        update_automatic_work_plane(control,static_cast<int>(sketch.plane));
+        control->setCurrentIndex(control->findData(sketch.plane_auto
+            ? QVariant(QStringLiteral("auto"))
+            : QVariant(static_cast<int>(sketch.plane))));
+    }
     profile_plane_changed_ = std::move(changed);
 }
 
@@ -2602,8 +2607,13 @@ void PrimitivePropertiesDialog::notify_preview() {
     if(feature_panel_)feature_panel_->update_draft_notice();
     if(placement_ && feature_panel_)
         placement_->set_point_circle_plane_policy(feature_panel_->parameters().type==zima::document::FeatureType::Point);
-    if (profile_plane_ && profile_plane_changed_)
-        profile_plane_changed_(static_cast<zima::sketcher::SketchPlane>(selected_work_plane(profile_plane_).toInt()), automatic_work_plane(profile_plane_));
+    auto* active_profile_plane=feature_panel_&&
+            feature_panel_->parameters().type==zima::document::FeatureType::Axis
+        ? feature_axis_direction_ : profile_plane_;
+    if (active_profile_plane && profile_plane_changed_)
+        profile_plane_changed_(static_cast<zima::sketcher::SketchPlane>(
+            selected_work_plane(active_profile_plane).toInt()),
+            automatic_work_plane(active_profile_plane));
     if (preview_) preview_(values());
     lock_sheet_form_fields();
 }
@@ -3018,7 +3028,10 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
 }
 zima::document::ConstructionReference PrimitivePropertiesDialog::prepare_reference_candidate(
         std::size_t index,zima::document::ConstructionReference reference) const {
-    if(!entering_whole_origin()&&profile_plane_&&automatic_work_plane(profile_plane_))
+    const auto* active_profile_plane=feature_panel_&&
+            feature_panel_->parameters().type==zima::document::FeatureType::Axis
+        ? feature_axis_direction_ : profile_plane_;
+    if(!entering_whole_origin()&&active_profile_plane&&automatic_work_plane(active_profile_plane))
         zima::document::prepare_profile_plane_reference(index,reference,placement_->combined_references(3));
     return reference;
 }
@@ -3163,11 +3176,14 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         }
     }
     if (profile_plane_ && zima::document::placement_references_use_whole_origin(placement_->combined_references(3))) {
-        update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
+        for(auto* control:{profile_plane_,feature_axis_direction_})if(control)
+            update_automatic_work_plane(control,static_cast<int>(zima::sketcher::SketchPlane::XY));
         notify_preview();
     } else if (first_plane && profile_plane_) {
-        update_automatic_work_plane(profile_plane_, static_cast<int>(zima::document::automatic_sketch_work_plane(
-            placement_->combined_references(3)).value_or(zima::sketcher::SketchPlane::XY)), label);
+        const auto automatic=static_cast<int>(zima::document::automatic_sketch_work_plane(
+            placement_->combined_references(3)).value_or(zima::sketcher::SketchPlane::XY));
+        for(auto* control:{profile_plane_,feature_axis_direction_})if(control)
+            update_automatic_work_plane(control,automatic,label);
         notify_preview();
     }
     error_->clear();

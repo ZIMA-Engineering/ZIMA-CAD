@@ -5,11 +5,46 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <type_traits>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
 template<class Fn> void rejects(Fn fn){bool failed=false;try{fn();}catch(const std::exception&){failed=true;}require(failed,"Invalid named view accepted");}
+template<class Session> void verify_sketch_view_session(Session session) {
+    const auto revision=session.revision();
+    const auto first=sketcher::Sketch::create_default().id;
+    const auto second=sketcher::Sketch::create_default().id;
+    session.remember_sketch_view(first,{true,1});
+    session.remember_sketch_view(second,{false,3});
+    require(session.is_dirty()&&session.revision()==revision&&!session.can_undo(),
+        "Sketch camera entered modeling Undo or failed to mark save metadata dirty");
+    const auto generation=session.data_generation();
+    session.remember_sketch_view(first,{true,1});
+    require(session.data_generation()==generation,"Unchanged Sketch camera mutated the session");
+    auto copy=session;require(copy.document().sketch_views==session.document().sketch_views&&copy.is_dirty(),"Session copy lost camera/save state");
+    session.mark_saved();require(!session.is_dirty(),"Saving did not clear camera dirty state");
+    auto next=session.document();next.name+=" edited";
+    if constexpr(requires{session.commit_metadata(next);})session.commit_metadata(std::move(next));
+    else session.commit(std::move(next));
+    require(session.undo(),"Camera test has no modeling Undo");
+    session.remember_sketch_view(first,{false,2});
+    require(session.can_redo()&&session.redo()&&session.document().sketch_views.at(first)==document::SketchViewState{false,2},
+        "Sketch camera erased Redo or was rolled back by a geometry history step");
+    require(session.document().sketch_views.at(second)==document::SketchViewState{false,3},"One Sketch camera overwrote another");
+    const auto encoded=document::serialize_sketch_views(session.document().sketch_views);
+    require(document::parse_sketch_views(encoded)==session.document().sketch_views,"Sketch camera did not serialize exactly");
+    const auto loaded=[&] {
+        if constexpr(std::is_same_v<decltype(session.document()),const document::PartDocument&>)
+            return document::PartDocument::from_serialized(session.document().serialized()).sketch_views;
+        else return assembly::AssemblyDocument::from_serialized(session.document().serialized()).sketch_views;
+    }();
+    require(loaded==session.document().sketch_views,"Native model serialization lost Sketch cameras");
+}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
+    verify_sketch_view_session(document::DocumentSession(document::PartDocument::create_default()));
+    verify_sketch_view_session(assembly::AssemblySession(assembly::AssemblyDocument::create_default()));
+    for(const auto* bad:{"[]","{\"s\":{\"back\":false,\"sector\":4}}","{\"s\":{\"back\":false,\"sector\":1.5}}"})
+        rejects([&]{static_cast<void>(document::parse_sketch_views(bad));});
     workspace::Workspace live;bool editing=false;command_host::Options options;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"},{}};};
     options.interaction=[&]{command_host::Interaction result;result.editing=editing;result.active_occurrence=live.active_occurrence_path();return result;};
@@ -25,22 +60,42 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         const auto name=assembly?"named-assembly":"named-part";
         run("new",{{"type",assembly?"assembly":"part"},{"name",name}});
         const auto id=live.active_document_id();
-        if(assembly){owner=id;run("component.insert",{{"source",source}});}
-        else {source=id;zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});}
+        if(assembly){owner=id;run("component.insert",{{"source",source}});live.refresh_source_geometry();}
+        else {
+            source=id;zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+            // This contract starts with completed physical analysis; a later
+            // Save is allowed to complete a deliberately deferred analysis.
+            auto boundaries=live.open_part(id)->session.calculated_boundaries();
+            kernel.ensure_body_properties(boundaries.back());
+            live.open_part(id)->session.update_calculated_boundaries(std::move(boundaries));
+        }
         const auto revision=[&]{return assembly?live.open_assembly(id)->session.revision():live.open_part(id)->session.revision();};
         const auto generation=[&]{return assembly?live.open_assembly(id)->session.data_generation():live.open_part(id)->session.data_generation();};
         const auto before_revision=revision(),before_generation=generation();
         const auto cached=live.open_part(source)->session.calculated_boundaries().back().kernel_shape;
+        const auto cached_volume=live.open_part(source)->session.calculated_boundaries().back().volume;
+        auto measured=live.open_part(source)->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(measured);
+        require(std::abs(measured.volume-6000)<1e-7,"Named view fixture has incorrect calculated volume");
         const auto source_revision=live.open_part(source)->session.revision();
         std::optional<assembly::AssemblyDocument> original;
         if(assembly)original=live.open_assembly(id)->session.document();
-        const auto geometry=[&] {
+        const auto geometry=[&](bool require_shared_snapshot=true) {
             const auto& last=live.open_part(source)->session.calculated_boundaries().back();
-            require(last.kernel_shape==cached && std::abs(last.volume-6000)<1e-7,"Named view recalculated or changed Part geometry");
+            if(last.kernel_shape!=cached||!(last.volume==cached_volume||(std::isnan(last.volume)&&std::isnan(cached_volume))))
+                std::cerr<<"Named view geometry: assembly="<<assembly<<" shape_equal="<<(last.kernel_shape==cached)
+                    <<" volume_before="<<cached_volume<<" volume_after="<<last.volume<<'\n';
+            require(last.kernel_shape==cached && (last.volume==cached_volume||
+                (std::isnan(last.volume)&&std::isnan(cached_volume))),"Named view recalculated or changed Part geometry");
             if(assembly) {
                 require(live.open_part(source)->session.revision()==source_revision,"Named view edited source Part");
                 const auto& before=original->components.front();const auto& after=live.open_assembly(id)->session.document().components.front();
-                require(before.calculated_source.shares_with(after.calculated_source) && before.placement==after.placement &&
+                if(require_shared_snapshot&&!before.calculated_source.shares_with(after.calculated_source))
+                    std::cerr<<"Named view snapshot: same_geometry="<<(before.calculated_source->kernel_shape==after.calculated_source->kernel_shape)
+                        <<" same_fingerprint="<<(before.calculated_source->source_fingerprint==after.calculated_source->source_fingerprint)<<'\n';
+                require((!require_shared_snapshot||before.calculated_source.shares_with(after.calculated_source)) &&
+                    before.calculated_source->kernel_shape==after.calculated_source->kernel_shape &&
+                    before.calculated_source->source_fingerprint==after.calculated_source->source_fingerprint && before.placement==after.placement &&
                     before.placement_references==after.placement_references,"Named view recalculated Assembly geometry or mates");
             }
         };
@@ -107,7 +162,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!fs::exists(bad_path),"Failed native validation left an output file");
         run("view.named.delete",{{"name","Second"}});
         require(workspace::named_views(live,id).size()==1,"Delete left a named view");
-        run("undo");require(workspace::named_views(live,id)==views,"Named view deletion Undo failed");geometry();
+        // Native Save may replace an Assembly's disposable source snapshot.
+        // The metadata command above must share it; after Save, require the
+        // same exact geometry, source fingerprint, placement and mate inputs.
+        run("undo");require(workspace::named_views(live,id)==views,"Named view deletion Undo failed");geometry(false);
     }
     run("new",{{"type","assembly"},{"name","named-parent"}});
     const auto parent=live.active_document_id();

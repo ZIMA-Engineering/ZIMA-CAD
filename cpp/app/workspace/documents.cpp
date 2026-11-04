@@ -6,6 +6,7 @@
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/file_path.hpp>
 #include <QThreadPool>
@@ -239,6 +240,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     if (tab_index < 0) tab_index = tabs_->currentIndex();
     if (tab_index < 0 || tab_index >= tabs_->count()) return;
     const std::string id = tabs_->tabData(tab_index).toString().toStdString();
+    if(id==workspace_.active_document_id())persist_sketch_views();
     const auto* state = workspace_.find(id);
     if (state == nullptr) return;
     bool discard=false;
@@ -265,7 +267,12 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
         auto retired=std::make_shared<workspace::DocumentState>(std::move(state));
         QThreadPool::globalInstance()->start([retired=std::move(retired)] {});
     };
+    std::vector<std::string> sketch_views;
+    if(workspace_.open_part(id)||workspace_.open_assembly(id))
+        workspace::visit_document_sketches(workspace_,id,[&](const auto& sketch){sketch_views.push_back(sketch.id);return true;});
     if (workspace::close_document(workspace_,id,discard,release)!=workspace::CloseDocumentResult::Closed) return;
+    for(const auto& sketch:sketch_views)sketch_view_states_.erase(sketch);
+    sketch_view_state_id_.clear();
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();

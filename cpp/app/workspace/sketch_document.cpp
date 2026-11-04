@@ -7,6 +7,7 @@
 #include "../sketch_external_reference_kind.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <cstdio>
 
 namespace zima::app {
@@ -259,8 +260,18 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         sketch_view_state_id_ = active_sketch_id_;
         // Sketcher controls are relative camera overrides. The initial view
         // itself comes entirely from the persisted model frame above.
-        sketch_view_back_ = false;
-        sketch_view_quarter_turns_ = 0;
+        const auto owner=workspace::family_owner(workspace_,workspace_.active_document_id());
+        const auto* owner_part=workspace_.open_part(owner);
+        const auto* owner_assembly=workspace_.open_assembly(owner);
+        const auto& saved=owner_part?owner_part->session.document().sketch_views:
+            owner_assembly?owner_assembly->session.document().sketch_views:
+            part?part->session.document().sketch_views:assembly->session.document().sketch_views;
+        auto view=zima::document::SketchViewState{};
+        if(const auto found=saved.find(active_sketch_id_);found!=saved.end())view=found->second;
+        if(const auto pending=sketch_view_states_.find(active_sketch_id_);
+            pending!=sketch_view_states_.end())view=pending->second;
+        sketch_view_back_ = view.back;
+        sketch_view_quarter_turns_ = view.sector;
     }
     if (sketch_view_back_) direction = {-direction.x, -direction.y, -direction.z};
     if (const auto* body = sketch_body(*sketch)) {
@@ -356,6 +367,7 @@ void AssemblyWorkspaceWindow::flip_active_sketch_view() {
     // Initialize the camera-only state from the active sketch before changing it.
     if (sketch_view_state_id_ != active_sketch_id_) align_active_sketch_view(false);
     sketch_view_back_ = !sketch_view_back_;
+    remember_active_sketch_view();
     align_active_sketch_view(false);
     state_->setText(tr("Pohled na aktivní skicu byl převrácen."));
 }
@@ -365,8 +377,44 @@ void AssemblyWorkspaceWindow::rotate_active_sketch_view() {
     // Rotation is deliberately a view operation; it never changes the sketch plane.
     if (sketch_view_state_id_ != active_sketch_id_) align_active_sketch_view(false);
     sketch_view_quarter_turns_ = (sketch_view_quarter_turns_ + 1) % 4;
+    remember_active_sketch_view();
     align_active_sketch_view(false);
     state_->setText(tr("Pohled na aktivní skicu byl otočen o 90°."));
+}
+
+void AssemblyWorkspaceWindow::remember_active_sketch_view() {
+    const auto view=zima::document::SketchViewState{
+        sketch_view_back_,sketch_view_quarter_turns_};
+    sketch_view_states_[active_sketch_id_]=view;
+    // Embedded/new profiles are still cancellable drafts. Their presentation
+    // joins the native document only once its owning profile has been accepted.
+    const auto* sketch=active_sketch();
+    if(!sketch||sweep_profile_sketch_draft_)return;
+    const auto owner=workspace::family_owner(workspace_,workspace_.active_document_id());
+    if(auto* part=workspace_.open_part(workspace_.active_document_id())) {
+        if(part->session.document().find_container(sketch->owner_container_id))
+            if(auto* saved=workspace_.open_part(owner))saved->session.remember_sketch_view(sketch->id,view);
+    } else if(auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
+        if(assembly->session.document().find_cut(sketch->owner_container_id)||
+            assembly->session.document().find_sketch_container(sketch->owner_container_id))
+            if(auto* saved=workspace_.open_assembly(owner))saved->session.remember_sketch_view(sketch->id,view);
+    }
+    refresh_tabs();
+}
+
+void AssemblyWorkspaceWindow::persist_sketch_views() {
+    const auto id=workspace_.active_document_id();
+    const auto owner=workspace::family_owner(workspace_,id);
+    auto* part=workspace_.open_part(owner);
+    auto* assembly=workspace_.open_assembly(owner);
+    if(!part&&!assembly)return;
+    workspace::visit_document_sketches(workspace_,id,[&](const auto& sketch) {
+        if(const auto found=sketch_view_states_.find(sketch.id);found!=sketch_view_states_.end()) {
+            if(part)part->session.remember_sketch_view(sketch.id,found->second);
+            else assembly->session.remember_sketch_view(sketch.id,found->second);
+        }
+        return true;
+    });
 }
 
 const zima::sketcher::Sketch* AssemblyWorkspaceWindow::active_sketch() const {

@@ -562,6 +562,12 @@ static document::HistoryReferenceViews placement_history_reference_views(
                     reference.semantic_key,reference.instance_path).second)
                 requested.push_back(reference);
         if(requested.empty())continue;
+        const auto output_operation=std::ranges::find(operations,demand.output_owner,&kernel::HistoryOperation::owner_id);
+        const auto native_source_available=[&](const document::HistoryContainer& source) {
+            const auto operation=std::ranges::find(operations,source.id,&kernel::HistoryOperation::owner_id);
+            return operation!=operations.end()&&operation<=output_operation&&
+                !source.suppressed&&source.placement.reference_valid;
+        };
         auto& boundary=exact_operation_output(operations,calculated,
             demand.output_owner);
         if(baseline)if(const auto* saved=find_exact_operation_output(
@@ -606,17 +612,53 @@ static document::HistoryReferenceViews placement_history_reference_views(
         // recovery packet intentionally contains the last valid input and may
         // not carry exact-output coverage.  Publishing that input as the
         // failed operation's geometry would silently retarget later
-        // references.  An empty exact view instead leaves the original
-        // identities unresolved, so the first dependent container is marked
-        // failed and can recover when the source geometry returns.
+        // references. Leave those calculated identities unresolved so their
+        // dependent container can recover when real source geometry returns.
         if(!output_failed)
             view.geometry=select_boundary_references(
                 resolved_boundary,requested);
+        {
+            // Feature work-frame datums are native document geometry, not
+            // vertices/faces of the calculated solid. An exact Body view must
+            // carry the same datums as ordinary ordered reference resolution;
+            // otherwise masking a source owner also masks its freshly resolved
+            // origin, Axis or Plane. Reuse the shared native generators and
+            // select only requested identities, without replacing body faces.
+            // A valid authored frame remains usable while its Modeling
+            // profile is incomplete, just as in ordinary ordered resolution;
+            // that does not make its failed calculated faces available.
+            const document::PlacementReferenceGeometryIndex body_index(view.geometry,requested);
+            std::vector<document::ConstructionReference> native_requests;
+            for(const auto& reference:requested)if(!body_index.contains(reference))native_requests.push_back(reference);
+            std::set<std::string> native_owners;
+            for(const auto& reference:native_requests)if(native_owners.insert(reference.owner_id).second)
+                if(const auto* source=document.find_container(reference.owner_id);
+                        source&&source->feature_kind==document::FeatureKind::Feature&&
+                        native_source_available(*source)) {
+                    const auto native=document.feature_result_mesh(*source).original_references;
+                    append_reference_geometry(view.geometry,
+                        document::PlacementReferenceGeometryIndex(native,native_requests).select(native_requests));
+                }
+        }
         if(const auto* body=document.body_history.owner(consumer)) {
             kernel::ViewerMesh placed;
             placed.original_references=std::move(view.geometry);
             view.geometry=document.place_body_mesh(std::move(placed),
                 body->scope.id).original_references;
+        }
+        if(std::ranges::any_of(requested,[](const auto& reference){return reference.owner_id.ends_with(":origin");})) {
+            const document::PlacementReferenceGeometryIndex current(view.geometry,requested);
+            std::vector<document::ConstructionReference> missing;
+            for(const auto& reference:requested)if(!current.contains(reference))
+                if(const auto source=std::ranges::find(document.history,reference.owner_id,[](const auto& feature){return feature.container_origin.id;});
+                        source!=document.history.end()&&native_source_available(*source))missing.push_back(reference);
+            if(!missing.empty()) {
+                // This established generator already returns world-space,
+                // ordered container Origins, including translated Bodies.
+                const auto origins=document.history_origin_reference_geometry_before(consumer);
+                append_reference_geometry(view.geometry,
+                    document::PlacementReferenceGeometryIndex(origins,missing).select(missing));
+            }
         }
         result.emplace(consumer,std::move(view));
     }
@@ -1011,7 +1053,6 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     // incremental calculation, retaining only unchanged live calculations.
     auto relation_policy=policy;
     relation_policy.refresh_physical_properties=false;
-    if(!next.relations.empty())relation_policy.reject_errors=true;
     const auto& current=part->session.calculated_boundaries();
     relation_policy.history_reference_baseline=
         current.empty()?nullptr:&current;

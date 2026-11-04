@@ -206,6 +206,7 @@ void AssemblyWorkspaceWindow::save_model_thumbnail(const QString& path) {
 }
 
 void AssemblyWorkspaceWindow::save_active_assembly() {
+    persist_sketch_views();
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (assembly == nullptr) return;
     QString path = QString::fromStdString(zima::document::path_to_utf8(assembly->path));
@@ -254,6 +255,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document() {
+    persist_sketch_views();
     if(workspace::is_symbol_document(workspace_,workspace_.active_document_id())){save_symbol_document(false);return;}
     if(template_sketch()||(workspace_.open_part(workspace_.active_document_id())&&workspace_.open_part(workspace_.active_document_id())->native_drawing_template)){save_template_document(false);return;}
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
@@ -359,6 +361,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document_as() {
+    persist_sketch_views();
     if(workspace::is_symbol_document(workspace_,workspace_.active_document_id())){save_symbol_document(true);return;}
     if(template_sketch()||(workspace_.open_part(workspace_.active_document_id())&&workspace_.open_part(workspace_.active_document_id())->native_drawing_template)){save_template_document(true);return;}
     const std::string document_id = workspace_.active_document_id();

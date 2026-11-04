@@ -300,6 +300,7 @@ private:
     QPushButton* own_sketch_button_{};
     QLineEdit* profile_status_{};
     QComboBox* profile_plane_{};
+    QComboBox* feature_axis_direction_{};
     std::function<void(zima::sketcher::SketchPlane, bool)> profile_plane_changed_;
     QDoubleSpinBox* profile_plane_offset_{};
     QComboBox* result_type_{};

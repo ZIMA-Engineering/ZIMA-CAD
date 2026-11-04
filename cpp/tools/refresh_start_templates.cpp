@@ -626,6 +626,22 @@ int main(int argc,char** argv){try{
             std::filesystem::u8path(argv[4]),true);
         return 0;
     }
+    if(argc==4&&std::string_view(argv[1])=="--inspect-part") {
+        std::vector<kernel::BodyResult> boundaries;
+        const auto part=document::PartDocument::load(std::filesystem::u8path(argv[2]),&boundaries);
+        auto inspection=nlohmann::json::array();
+        const auto inspect=[&](auto&& self,const kernel::BodyResult& body,const std::string& path)->void {
+            auto points=nlohmann::json::array(),axes=nlohmann::json::array();
+            for(const auto* source:{&body.mesh.points,&body.mesh.original_references.points})for(const auto& p:*source)
+                points.push_back({{"owner",p.reference.owner_id},{"key",p.reference.semantic_key},{"position",{p.position.x,p.position.y,p.position.z}}});
+            for(const auto& a:body.mesh.original_references.axes)axes.push_back({{"owner",a.reference.owner_id},{"key",a.reference.semantic_key},{"point",{a.point.x,a.point.y,a.point.z}},{"direction",{a.direction.x,a.direction.y,a.direction.z}}});
+            inspection.push_back({{"path",path},{"points",std::move(points)},{"axes",std::move(axes)},{"physical_properties_current",body.physical_properties_current},{"shape_present",!body.kernel_shape.empty()},{"volume",body.volume},{"errors",body.calculation_errors}});
+            for(const auto& [id,history]:body.body_boundaries)for(std::size_t i=0;i<history.size();++i)self(self,history[i],path+"/body/"+id+"/"+std::to_string(i));
+            for(const auto& [id,value]:body.body_outputs)self(self,value.get(),path+"/output/"+id);
+        };
+        for(std::size_t i=0;i<boundaries.size();++i)inspect(inspect,boundaries[i],std::to_string(i));
+        std::ofstream output(std::filesystem::u8path(argv[3]));output<<nlohmann::json{{"document",part.serialized()},{"inspection",std::move(inspection)}}.dump(2)<<'\n';return output?0:1;
+    }
     if(argc==4&&std::string_view(argv[1])=="--audit-boundary-properties") {
         std::vector<kernel::BodyResult> boundaries;
         static_cast<void>(document::PartDocument::load(std::filesystem::u8path(argv[2]),&boundaries));
@@ -794,6 +810,13 @@ int main(int argc,char** argv){try{
             if(evaluated_rows.contains(row.id))static_cast<void>(workspace::open_family_instance(live,engine,id,row.name,false));
         const auto* current=live.open_part(id);if(!current)throw std::runtime_error("Factory asset disappeared");
         auto updated=current->session.document();auto calculated=current->session.calculated_boundaries();
+        // After reference settling, publish a complete offline native history.
+        // FORM insertion also consumes hidden role Bodies; deferred interactive
+        // prefixes are deliberately not the factory authoring output.
+        {
+            kernel::AggregatePropertyScope all(kernel::AggregatePropertyDemand::All);
+            calculated=engine.evaluate_history(updated.kernel_operations());
+        }
         static_cast<void>(workspace::complete_part_physical_analysis(
             engine,updated,calculated,true));
         // Format verification compares every old full history boundary, not
@@ -933,9 +956,24 @@ int main(int argc,char** argv){try{
         std::vector<kernel::BodyResult> restored;const auto reopened=document::PartDocument::load(output,&restored);
         if(reopened.serialized()!=updated.serialized()||restored.size()!=calculated.size())
             throw std::runtime_error("Factory native readback changed definition or boundary count");
-        for(std::size_t i=0;i<calculated.size();++i)
-            if(document::serialize_body_result(restored[i])!=document::serialize_body_result(calculated[i]))
+        for(std::size_t i=0;i<calculated.size();++i) {
+            auto persisted=calculated[i];
+            // Exact-request coverage is a disposable calculation proof. Native
+            // reopen rebuilds it and compacts the corresponding document-level
+            // narrow packet; branch geometry and durable bindings remain saved.
+            // Match restore_final_body_cache, without excluding any durable data.
+            if(i+1<calculated.size()&&!persisted.history_reference_coverage.empty()) {
+                persisted.mesh.original_references={};
+                persisted.incremental_history.reset();
+            }
+            if(document::serialize_body_result(restored[i])!=document::serialize_body_result(persisted)) {
+                auto diagnostic=report;diagnostic.replace_extension(".native-diff.json");
+                std::ofstream stream(diagnostic);
+                stream<<nlohmann::json{{"boundary",i},{"differences",nlohmann::json::diff(
+                    document::serialize_body_result(persisted),document::serialize_body_result(restored[i]))}}.dump(2)<<'\n';
                 throw std::runtime_error("Factory native readback lost geometry or side identities");
+            }
+        }
         nlohmann::json evidence={{"calculated_boundaries",calculated.size()},{"history_count",updated.history.size()},
             {"authored_history_unchanged",!topology_migration&&
                 placement_frame_migrations.empty()},

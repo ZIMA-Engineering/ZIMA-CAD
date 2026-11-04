@@ -291,13 +291,14 @@ std::vector<sketcher::SketchExternalReference> calculate_intersections(
         auto updated=reference;updated.broken=true;
         const auto found=std::ranges::find_if(group->second,[&](const auto& branch) {
             return branch.intersection==reference.intersection &&
-                (branch.kind==reference.kind || (branch.kind==Kind::Edge&&sketcher::is_external_endpoint_kind(reference.kind)));
+                (branch.kind==reference.kind || (branch.kind==Kind::Edge&&sketcher::is_external_edge_point_kind(reference.kind)));
         });
         if(found!=group->second.end()) {
             updated.broken=false;updated.cached_paths.clear();updated.cached_points=found->cached_points;
             updated.exact_spline=found->exact_spline;
-            if(sketcher::is_external_endpoint_kind(reference.kind)) {
-                updated.cached_points={reference.kind==Kind::EdgeStart?found->cached_points.front():found->cached_points.back()};
+            if(sketcher::is_external_edge_point_kind(reference.kind)) {
+                const auto point=sketcher::external_edge_point_position(*found,reference.kind);
+                if(point)updated.cached_points={*point};else updated.broken=true;
                 updated.exact_spline.reset();
             }
         }

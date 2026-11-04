@@ -60,6 +60,7 @@ AssemblySession::AssemblySession(AssemblyDocument document)
     zima::document::validate_physical_units(current_->document);
     current_->document.synchronize_dimension_identifiers();
     saved_dimension_allocations_=current_->document.dimension_identifiers.allocation_count();
+    saved_sketch_views_=current_->document.sketch_views;
 }
 AssemblySession::States AssemblySession::copy_states(const States& states) {
     States result;result.reserve(states.size());
@@ -76,7 +77,8 @@ AssemblySession AssemblySession::current_state_copy() const {return AssemblySess
 AssemblySession::AssemblySession(const AssemblySession& other,bool include_history)
     : data_generation_(other.data_generation_),current_(std::make_shared<State>(*other.current_)),
       undo_(include_history?copy_states(other.undo_):States{}),redo_(include_history?copy_states(other.redo_):States{}),next_revision_(other.next_revision_),
-      saved_revision_(other.saved_revision_),saved_dimension_allocations_(other.saved_dimension_allocations_) {current_->externally_mutable=false;}
+      saved_revision_(other.saved_revision_),saved_dimension_allocations_(other.saved_dimension_allocations_),
+      saved_sketch_views_(other.saved_sketch_views_) {current_->externally_mutable=false;}
 AssemblySession& AssemblySession::operator=(const AssemblySession& other) {
     if(this!=&other){AssemblySession copy(other);*this=std::move(copy);}return *this;
 }
@@ -84,6 +86,7 @@ const AssemblyDocument& AssemblySession::document() const {return current_->docu
 std::uint64_t AssemblySession::revision() const {return current_->revision;}
 bool AssemblySession::is_dirty() const {
     return current_->revision!=saved_revision_ || current_->dependency_state_dirty ||
+        current_->document.sketch_views!=saved_sketch_views_ ||
         current_->document.dimension_identifiers.allocation_count()!=saved_dimension_allocations_;
 }
 bool AssemblySession::can_undo() const {return !undo_.empty();}
@@ -95,9 +98,11 @@ void AssemblySession::replace(AssemblyDocument document) {
         throw std::runtime_error("An Assembly can contain only one Skeleton.");
     document.synchronize_dimension_identifiers();
     auto next=std::make_shared<State>(State{std::move(document),0,false});
+    auto saved_views=next->document.sketch_views;
     const auto allocations=next->document.dimension_identifiers.allocation_count();
     current_=std::move(next);undo_.clear();redo_.clear();next_revision_=1;saved_revision_=0;
     saved_dimension_allocations_=allocations;++data_generation_;
+    saved_sketch_views_=std::move(saved_views);
 }
 void AssemblySession::commit(AssemblyDocument document) {
     document.synchronize_history();
@@ -138,15 +143,26 @@ bool AssemblySession::step(States& from,States& to) {
     // Allocate an independent writable candidate before changing either stack.
     // Unshared histories still replay their original geometry allocations.
     auto next=from.back().use_count()==1?from.back():std::make_shared<State>(*from.back());
+    next->document.sketch_views=current_->document.sketch_views;
     to.push_back(std::move(current_));current_=std::move(next);
     current_->document.dimension_identifiers=std::move(identifiers);from.pop_back();++data_generation_;return true;
 }
 bool AssemblySession::undo(){return step(undo_,redo_);}
 bool AssemblySession::redo(){return step(redo_,undo_);}
+void AssemblySession::remember_sketch_view(const std::string& id, document::SketchViewState view) {
+    auto& views=current_->document.sketch_views;
+    const auto found=views.find(id);
+    if((found==views.end()&&view==document::SketchViewState{})||
+        (found!=views.end()&&found->second==view))return;
+    static_cast<void>(document::serialize_sketch_views({{id,view}}));
+    if(view==document::SketchViewState{})views.erase(id);else views[id]=view;
+    ++data_generation_;
+}
 void AssemblySession::update_family_evaluated(zima::document::FamilyDocument value) {
     current_->document.family=std::move(value);current_->dependency_state_dirty=true;++data_generation_;
 }
 void AssemblySession::mark_saved(){
+    saved_sketch_views_=current_->document.sketch_views;
     saved_revision_=current_->revision;saved_dimension_allocations_=current_->document.dimension_identifiers.allocation_count();
     current_->dependency_state_dirty=false;
 }

@@ -1,5 +1,6 @@
 ﻿#include "sketch_tangent_test_equations.hpp"
 #include "../tests/preview_refresh_probe.hpp"
+#include "../tests/sketch_coupled_dimension_study.hpp"
 #include "sketch_external_reference_kind.hpp"
 #include "../tests/rounded_tangent_wing_study.hpp"
 #include "../tests/midpoint_profile_study.hpp"
@@ -7152,6 +7153,12 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
 
 #include "refresh_scope_ui_verification.inc"
 #include "sketch_mirror_ui_verification.inc"
+#include "sketch_view_memory_ui_verification.inc"
+#include "sketch_edit_recovery_ui_verification.inc"
+#include "native_datum_feature_ui_verification.inc"
+using zima::test::check_coupled_equations;
+#include "sketch_coupled_dimension_ui_verification.inc"
+#include "sketch_external_midpoint_ui_verification.inc"
 #include "sketch_circle_endpoint_ui_verification.inc"
 
 int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
@@ -10257,6 +10264,7 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DOCUMENT_BUTTON_ONLY"))return verify_sketch_document_button_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);
@@ -10594,6 +10602,16 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_ARC_DIMENSIONS_ONLY")) {
         verify_form_edge_dimension_ui(application,test_directory,true);return 0;
     }
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_VIEW_MEMORY_ONLY"))
+        return verify_sketch_view_memory_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_EDIT_SOURCE"))
+        return verify_sketch_edit_recovery_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_DATUM_FEATURE_SOURCE"))
+        return verify_native_datum_feature_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_COUPLED_DIMENSION_SOURCE"))
+        return verify_sketch_coupled_dimension_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_MIDPOINT_UI_ONLY"))
+        return verify_sketch_external_midpoint_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MIRROR_ONLY"))
         return verify_sketch_mirror_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))

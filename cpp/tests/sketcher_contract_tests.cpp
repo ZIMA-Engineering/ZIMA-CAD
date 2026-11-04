@@ -25,6 +25,9 @@
 #include "sketch_coordinate_incidence_study.hpp"
 #include "sketch_external_dimension_study.hpp"
 #include "perpendicular_junction_study.hpp"
+#include "sketch_mirror_drag_study.hpp"
+#include "sketch_external_midpoint_study.hpp"
+#include "sketch_coupled_dimension_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -34,8 +37,12 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        if(std::getenv("ZIMA_CPP_VERIFY_COUPLED_DIMENSION_ONLY"))return zima::test::run_sketch_coupled_dimension_study();
+        if(std::getenv("ZIMA_CPP_VERIFY_EXTERNAL_MIDPOINT_ONLY"))return run_sketch_external_midpoint_study();
+        if(std::getenv("ZIMA_CPP_VERIFY_MIRROR_DRAG_ONLY"))return run_sketch_mirror_drag_study();
         if(std::getenv("ZIMA_CPP_VERIFY_PERPENDICULAR_JUNCTION_ONLY"))
             return run_perpendicular_junction_study();
+        zima::test::run_sketch_coupled_dimension_study();
         run_sketch_external_dimension_study();
         run_sketch_corner_annotation_study();
         if(const auto* path=std::getenv("ZIMA_CPP_VERIFY_TRIMMED_RECTANGLE_ARC"))return run_trimmed_rectangle_arc_study(path);
@@ -1105,7 +1112,7 @@ int main() {
             edge.cached_points={{0,5},{20,5}};
             profile.add_external_reference(edge);
             const auto line=profile.add_external_profile_geometry(edge.id);
-            require(profile.import_blocks.empty() && profile.external_references.size()==3,
+            require(profile.import_blocks.empty() && profile.external_references.size()==4,
                 "External line must be native geometry with two source endpoints");
             auto mesh=profile.viewer_mesh();
             require(std::ranges::count_if(mesh.constraint_markers,[](const auto& marker){return marker.label=="CC";})==2,
@@ -2030,7 +2037,7 @@ int main() {
                     external_direction_sketch.segments.front().id ==
                         external_profile_segment &&
                     external_direction_sketch.import_blocks.empty() &&
-                    external_direction_sketch.external_references.size() == 3 &&
+                    external_direction_sketch.external_references.size() == 4 &&
                     external_direction_sketch.constraints.size() == 4,
                 "Projected external line did not create linked profile geometry");
         const auto linked_first_point =
@@ -5800,6 +5807,21 @@ int main() {
             10.0, 0.0, 12.0, 0.0, 10.0, 2.0);
         fixed_equal_radius.find_point(
             fixed_equal_radius.arcs.front().start_point_id)->fixed = true;
+        // One fixed endpoint still leaves a free center and a valid radius
+        // solution. The coupled fit must retain that endpoint, not reject a
+        // geometrically possible mixed Circle/Arc relation.
+        auto anchored_equal_radius=fixed_equal_radius;
+        const auto anchored_start=*anchored_equal_radius.find_point(anchored_equal_radius.arcs.front().start_point_id);
+        static_cast<void>(anchored_equal_radius.add_equal_radius_constraint(fixed_radius_reference,fixed_radius_arc));
+        const auto* retained_start=anchored_equal_radius.find_point(anchored_start.id);
+        const auto* moved_center=anchored_equal_radius.find_point(anchored_equal_radius.arcs.front().center_point_id);
+        require(retained_start->x==anchored_start.x&&retained_start->y==anchored_start.y&&
+            std::abs(anchored_equal_radius.arcs.front().radius-4)<1e-7&&
+            std::abs(std::hypot(retained_start->x-moved_center->x,retained_start->y-moved_center->y)-4)<1e-7&&
+            std::abs(anchored_equal_radius.circles.front().radius-4)<1e-7,
+            "Mixed EqualRadius moved its fixed endpoint or failed the radial equations");
+        // Fixing the center too makes the changed radius genuinely impossible.
+        fixed_equal_radius.find_point(fixed_equal_radius.arcs.front().center_point_id)->fixed=true;
         const auto fixed_equal_radius_before = fixed_equal_radius;
         bool fixed_equal_radius_rejected = false;
         try {
@@ -8049,6 +8071,22 @@ int main() {
             constexpr double center_y=-36.39238741766315;
             constexpr double radius=7.679739211000449;
             const auto source_circle=mirrored_tangent_trim.add_circle(center_x,center_y,radius);
+            const auto source_hole=mirrored_tangent_trim.add_circle(
+                center_x,center_y,3.5);
+            {
+                const auto source=std::ranges::find(
+                    mirrored_tangent_trim.circles,source_circle,
+                    &zima::sketcher::SketchCircle::id);
+                const auto hole=std::ranges::find(
+                    mirrored_tangent_trim.circles,source_hole,
+                    &zima::sketcher::SketchCircle::id);
+                // add_circle() already reuses an exact existing centre under
+                // the native point strategy.  Merge only when a future input
+                // path legitimately creates two separate coincident points.
+                if(source->center_point_id!=hole->center_point_id)
+                    static_cast<void>(mirrored_tangent_trim.merge_points(
+                        source->center_point_id,hole->center_point_id));
+            }
             const std::array left_outer{center_x-18.81904359069296,-6.7707900817850035};
             const std::array left_contact{center_x-7.2262673488485705,-38.992282521690015};
             const std::array right_outer{center_x+18.81904359069296,-6.7707900817850035};
@@ -8074,10 +8112,11 @@ int main() {
             static_cast<void>(mirrored_tangent_trim.add_point_on_circle_constraint(
                 source_right_contact,source_circle));
             const auto mirrored=mirrored_tangent_trim.mirror_geometry(
-                {source_circle,left,right},"sketch_axis:x");
-            require(mirrored.geometry_ids.size()==3,
+                {source_circle,source_hole,left,right},"sketch_axis:x");
+            require(mirrored.geometry_ids.size()==4,
                 "Tangent-circle mirror fixture lost geometry");
             const auto reflected_circle=mirrored.geometry_ids.front();
+            const auto reflected_hole=mirrored.geometry_ids[1];
             const auto verify_topology=[&](const auto& sketch,const char* phase,
                     std::size_t expected_pieces) {
                 const auto topology=zima::sketcher::sketch_trim_topology(sketch,false);
@@ -8200,8 +8239,8 @@ int main() {
                         ? segment->first_point_id:segment->second_point_id;
                 };
                 const std::array expected_contacts{
-                    reflected_contact(mirrored.geometry_ids[1]),
-                    reflected_contact(mirrored.geometry_ids[2])};
+                    reflected_contact(mirrored.geometry_ids[2]),
+                    reflected_contact(mirrored.geometry_ids[3])};
                 static_cast<void>(zima::sketcher::apply_sketch_trim(trimmed,{*piece}));
                 trimmed.refresh_curve_dependencies();
                 const auto arc=std::ranges::find(
@@ -8226,6 +8265,109 @@ int main() {
                      (reopened_arc->start_point_id==expected_contacts[1]&&
                       reopened_arc->end_point_id==expected_contacts[0])),
                     "Shared Arc/Segment Trim junction identities did not reopen");
+                const auto source_hole_circle=std::ranges::find(
+                    trimmed.circles,source_hole,
+                    &zima::sketcher::SketchCircle::id);
+                const auto reflected_hole_circle=std::ranges::find(
+                    trimmed.circles,reflected_hole,
+                    &zima::sketcher::SketchCircle::id);
+                require(source_hole_circle!=trimmed.circles.end()&&
+                        reflected_hole_circle!=trimmed.circles.end(),
+                    "Mirror-Trim fixture lost its symmetric holes");
+                for(const bool reverse_selection:{false,true})
+                    for(const bool locked:{false,true}) {
+                        auto dimensioned=trimmed;
+                        const auto first=reverse_selection
+                            ? reflected_hole_circle->center_point_id
+                            : source_hole_circle->center_point_id;
+                        const auto second=reverse_selection
+                            ? source_hole_circle->center_point_id
+                            : reflected_hole_circle->center_point_id;
+                        const auto before_dof=
+                            dimensioned.solve().remaining_degrees_of_freedom;
+                        auto span=dimensioned.create_point_dimension(
+                            first,second,
+                            zima::sketcher::DimensionKind::DistanceY);
+                        span.locked=locked;
+                        dimensioned.apply_dimension(span);
+                        require(dimensioned.solve().remaining_degrees_of_freedom+1==
+                                before_dof,
+                            "Symmetric-hole span was falsely redundant");
+                        for(const double increase:{8.,-5.,3.}) {
+                            const double requested=std::abs(span.value)+increase;
+                            require(dimensioned.set_dimension_value(
+                                        span.id,requested),
+                                "Symmetric-hole span edit was rejected");
+                            const auto* first_point=dimensioned.find_point(first);
+                            const auto* second_point=dimensioned.find_point(second);
+                            require(first_point&&second_point&&
+                                    std::abs(std::abs(second_point->y-
+                                        first_point->y)-requested)<1.e-7,
+                                "Symmetric-hole span edit did not move the holes");
+                        }
+                        auto reopened_dimensioned=
+                            zima::sketcher::Sketch::from_serialized(
+                                dimensioned.serialized());
+                        require(reopened_dimensioned.dimensions.size()==1&&
+                                reopened_dimensioned.dimensions.front().id==span.id&&
+                                reopened_dimensioned.dimensions.front().locked==locked&&
+                                reopened_dimensioned.solve().maximum_residual<1.e-7,
+                            "Symmetric-hole span did not reopen and solve");
+                        const auto unchanged=dimensioned.serialized();
+                        bool duplicate_rejected=false;
+                        try {
+                            auto duplicate=dimensioned.create_point_dimension(
+                                second,first,
+                                zima::sketcher::DimensionKind::DistanceY);
+                            dimensioned.apply_dimension(duplicate);
+                        } catch(const std::exception&) {
+                            duplicate_rejected=true;
+                        }
+                        require(duplicate_rejected&&
+                                dimensioned.serialized()==unchanged,
+                            "Duplicate symmetric-hole span changed the Sketch");
+                    }
+                // This is the user sequence from 02.prtz: Mirror the complete
+                // circular/tangent graph, Trim its surrounding circle, then
+                // add the first driving radius to either mirrored hole.  The
+                // EqualRadius relation owns equality, not the actual size.
+                for(const auto& driven_hole:{source_hole,reflected_hole})
+                    for(const bool diameter:{false,true}) {
+                        auto dimensioned=trimmed;
+                        auto hole_size=diameter
+                            ? dimensioned.create_circle_diameter_dimension(driven_hole)
+                            : dimensioned.create_circle_radius_dimension(driven_hole);
+                        dimensioned.apply_dimension(hole_size);
+                        for(const double radius_value:{4.0,2.75,3.5}) {
+                            require(dimensioned.set_dimension_value(hole_size.id,
+                                        diameter?2*radius_value:radius_value),
+                                diameter
+                                    ? "Mirror-Trim hole diameter edit was rejected"
+                                    : "Mirror-Trim hole radius edit was rejected");
+                            const auto source_value=std::ranges::find(
+                                dimensioned.circles,source_hole,
+                                &zima::sketcher::SketchCircle::id);
+                            const auto reflected_value=std::ranges::find(
+                                dimensioned.circles,reflected_hole,
+                                &zima::sketcher::SketchCircle::id);
+                            require(source_value!=dimensioned.circles.end()&&
+                                    reflected_value!=dimensioned.circles.end()&&
+                                    std::abs(source_value->radius-radius_value)<1.e-7&&
+                                    std::abs(reflected_value->radius-radius_value)<1.e-7,
+                                "Mirror-Trim hole size did not propagate across the axis");
+                        }
+                        const auto reopened_dimensioned=
+                            zima::sketcher::Sketch::from_serialized(
+                                dimensioned.serialized());
+                        require(reopened_dimensioned.dimensions.size()==1&&
+                                reopened_dimensioned.dimensions.front().id==
+                                    hole_size.id&&
+                                reopened_dimensioned.dimensions.front().kind==
+                                    (diameter
+                                        ? zima::sketcher::DimensionKind::Diameter
+                                        : zima::sketcher::DimensionKind::Radius),
+                            "Mirror-Trim hole size dimension did not reopen");
+                    }
             }
             auto radial=mirrored_tangent_trim.create_circle_radius_dimension(
                 source_circle);

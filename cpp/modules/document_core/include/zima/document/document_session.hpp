@@ -103,6 +103,8 @@ public:
     bool redo();
     // Editing focus only: keep geometry, dirty state and Undo/Redo intact.
     void activate_body(const std::string& id);
+    // Camera metadata is saved, but does not enter modeling Undo or calculation.
+    void remember_sketch_view(const std::string& id, SketchViewState);
     // Append a deferred metadata batch. Owner/session storage must stay stable
     // until the caller applies or discards it on the Workspace owner thread.
     void prepare_native_file_rebase(FileRelocationEdits&);
@@ -135,6 +137,7 @@ private:
     std::uint64_t next_revision_{1};
     std::uint64_t saved_revision_{};
     std::uint64_t saved_dimension_allocations_{};
+    SketchViewStates saved_sketch_views_;
 };
 
 }  // namespace zima::document

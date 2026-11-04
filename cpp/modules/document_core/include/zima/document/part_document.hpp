@@ -10,6 +10,7 @@
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
 #include <zima/document/section.hpp>
+#include <zima/document/sketch_view_state.hpp>
 #include <ranges>
 #include <zima/document/document_copy.hpp>
 #include <zima/document/history_reference_view.hpp>
@@ -825,6 +826,7 @@ public:
     // "Pohled kolmo" orientation dialog, mirroring Python's
     // document.document_settings["named_views"].
     std::string named_views{"[]"};
+    SketchViewStates sketch_views;
     std::vector<zima::document::SectionDefinition> sections;
     std::vector<zima::kernel::SavedMeasurement> measurements;
     std::vector<zima::symbols::Placement> symbol_annotations;
@@ -960,7 +962,7 @@ public:
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_feature_container(std::string sketch_id);
-    [[nodiscard]] zima::kernel::ViewerMesh feature_result_mesh(const HistoryContainer&, bool show_hidden_axis = false) const;
+    [[nodiscard]] zima::kernel::ViewerMesh feature_result_mesh(const HistoryContainer&) const;
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
     static void resolve_copy_reference(DerivedCopyParameters&,const std::string& container_id,

@@ -672,6 +672,7 @@
   "Počátek kontejneru — Rovina YZ": "Container origin — YZ plane",
   "Počátek kontejneru — Rovina XZ": "Container origin — XZ plane",
   "Výchozí rovina": "Default plane",
+  "Směr osy": "Axis direction",
   "Odsazení roviny": "Plane offset",
   "Lomená čára": "Polyline",
   "Interpolační spline": "Interpolating spline",

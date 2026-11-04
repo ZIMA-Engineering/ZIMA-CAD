@@ -81,7 +81,7 @@ inline void run_sketch_external_dimension_study() {
         auto reopened=Sketch::from_serialized(sketch.serialized());check(reopened.dimensions==sketch.dimensions&&reopened.external_references==sketch.external_references,"External angle reopen changed references");++angular;
     }
     unsigned point_pairs{};
-    for(const auto kind:{ExternalReferenceKind::Point,ExternalReferenceKind::EdgeStart,ExternalReferenceKind::EdgeEnd,ExternalReferenceKind::AxisPoint})
+    for(const auto kind:{ExternalReferenceKind::Point,ExternalReferenceKind::EdgeStart,ExternalReferenceKind::EdgeEnd,ExternalReferenceKind::AxisPoint,ExternalReferenceKind::EdgeMidpoint})
     for(const auto measurement:{DimensionKind::Distance,DimensionKind::DistanceX,DimensionKind::DistanceY})for(const bool reverse:{false,true})for(const bool driving:{false,true}) {
         auto sketch=Sketch::create_default();auto ref=Sketch::create_external_reference(kind);ref.source_document_id="source";ref.source_owner_id="feature";ref.source_semantic_key="point";ref.cached_points={{2,3}};sketch.add_external_reference(ref);
         const auto point=sketch.add_point(12,13);auto d=sketch.create_point_dimension(reverse?ref.id:point,reverse?point:ref.id,measurement);d.driving=driving;sketch.apply_dimension(d);

@@ -358,7 +358,7 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     // immutable projected supports (e.g. a washer split following both rims).
     const bool external_circle=!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&
         std::ranges::any_of(sketch.external_references,[](const auto& r){return external_reference_circle(r).has_value();});
-    if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||sketch.points.size()>32||
+    if((!line_component&&sketch.arcs.empty()&&sketch.circles.empty()&&!external_circle)||
        !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
        !sketch.bsplines.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
@@ -579,10 +579,13 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 const auto second_external=std::ranges::find(
                     next.external_references,c.second_geometry_id,
                     &SketchExternalReference::id);
+                // EqualRadius has one radius equation for every native
+                // circular pair, including an Arc and a Circle. Match the
+                // ordinary solver; an unrelated mixed pair must not disable
+                // simultaneous fitting of a dimensioned tangent profile.
                 const bool native_pair=
-                    (first_arc!=next.arcs.end()&&second_arc!=next.arcs.end())||
-                    (first_circle!=next.circles.end()&&
-                        second_circle!=next.circles.end());
+                    (first_arc!=next.arcs.end()||first_circle!=next.circles.end())&&
+                    (second_arc!=next.arcs.end()||second_circle!=next.circles.end());
                 const bool external_native_pair=
                     (first_external!=next.external_references.end()&&
                         external_reference_circle(*first_external)&&
@@ -666,6 +669,12 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     for(auto& c:next.circles)variables.push_back(&c.radius);
     for(auto& corner:next.corner_radii)if(!corner.dimension_visible)variables.push_back(&corner.radius);
     if(variables.empty())return false;
+    // Bound the dense fit by its actual unknowns, not the number of authored
+    // points. Fixed points and derived free arc ends add no unknowns; ordinary
+    // imported profiles with more than 32 points still need a coupled solve.
+    // Preserve the existing small-profile path. Bound its extension to larger
+    // profiles rather than admitting an unbounded cubic fit.
+    if(sketch.points.size()>32&&variables.size()>128)return false;
     const auto norm=[](const auto& r){double value=0;for(double v:r)value+=v*v;return value;};
     for(int iteration=0;iteration<48;++iteration) {
         const auto residual=equations();if(!residual)return false;

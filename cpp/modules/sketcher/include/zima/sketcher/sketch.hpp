@@ -62,14 +62,18 @@ enum class DimensionKind {
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
 enum class SketchTextColor { Green, White, Yellow, Red };
-enum class ExternalReferenceKind { Edge, Point, Axis, Face, EdgeStart, EdgeEnd, AxisPoint };
+enum class ExternalReferenceKind { Edge, Point, Axis, Face, EdgeStart, EdgeEnd, AxisPoint, EdgeMidpoint };
 
 constexpr bool is_external_point_kind(ExternalReferenceKind kind) {
     return kind == ExternalReferenceKind::Point || kind == ExternalReferenceKind::EdgeStart ||
-        kind == ExternalReferenceKind::EdgeEnd || kind == ExternalReferenceKind::AxisPoint;
+        kind == ExternalReferenceKind::EdgeEnd || kind == ExternalReferenceKind::AxisPoint ||
+        kind == ExternalReferenceKind::EdgeMidpoint;
 }
 constexpr bool is_external_endpoint_kind(ExternalReferenceKind kind) {
     return kind == ExternalReferenceKind::EdgeStart || kind == ExternalReferenceKind::EdgeEnd;
+}
+constexpr bool is_external_edge_point_kind(ExternalReferenceKind kind) {
+    return is_external_endpoint_kind(kind)||kind==ExternalReferenceKind::EdgeMidpoint;
 }
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
@@ -292,6 +296,9 @@ inline bool is_intersection_reference(const SketchExternalReference& reference) 
 // A straight persisted reference: origin and direction, never a curved-edge chord.
 [[nodiscard]] std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
 external_reference_line(const SketchExternalReference& reference);
+// Derive a source end or the midpoint of a finite straight source edge.
+[[nodiscard]] std::optional<std::array<double,2>> external_edge_point_position(
+    const SketchExternalReference& source, ExternalReferenceKind point_kind);
 
 struct SketchConstraint {
     std::string id;
@@ -698,7 +705,9 @@ public:
     // Every finite open projected edge exposes its two source endpoints as
     // independent read-only point references. Closed and infinite curves do
     // not invent endpoints. Existing endpoints are reused by source identity
-    // so Reference and Reference -> Outline share one contract.
+    // so Reference and Reference -> Outline share one contract. A finite
+    // straight edge also seeds one independently removable midpoint reference;
+    // the returned IDs remain the two endpoints.
     [[nodiscard]] std::vector<std::string> add_external_edge_endpoints(
         const std::string& reference_id);
     [[nodiscard]] std::string add_external_profile_geometry(

@@ -479,42 +479,29 @@ void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
     require(std::stod(reopened.document_precision.at("sheet_cut_tolerance"))==.0125,"Native Part lost the Sheet Cut tolerance");
     near(exact_volume(kernel,tolerance_cache.back()),1176.);
 }
-void axis_model_visibility(const kernel::OcctKernel& kernel,fs::path directory) {
-    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","axis-model-visibility"}});
+void axis_model_presentation(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","axis-model-presentation"}});
     const auto sketch=f.rectangle(-5,-5,10,10);document::FeatureParameters p;p.type=document::FeatureType::Axis;
     const auto id=f.create_feature(sketch,p).at("container").get<std::string>();
-    require(!f.run("feature.get",{{"container",id}}).at("parameters").at("axis_visible_in_3d").get<bool>(),
-        "New Axis is not model-hidden in the CLI contract");
+    static_cast<void>(f.run("feature.get",{{"container",id}}));
     const auto encoded_geometry=[&] {
         auto rows=Json::array();for(const auto& body:f.part().session.calculated_boundaries())rows.push_back(document::serialize_body_result(body));
         return rows.dump();
     };
     const auto native_geometry=encoded_geometry();
-    int calculations=0;
-    for(bool visible:{true,false,true}) {
-        {workspace::CalculationExecutionScope count([&](auto action){++calculations;action();});
-         f.set_feature(id,[&](auto& values){values["axis_visible_in_3d"]=visible;});}
-        require(calculations==0,"Axis display toggle calculated geometry");
-        const auto* feature=f.doc().find_container(id);const auto shown=f.doc().feature_result_mesh(*feature);
-        require(shown.axes.size()==(visible?1:0)&&shown.original_references.axes.size()==1,
-            "Axis display toggle removed its native reference or ignored visibility");
-        require(encoded_geometry()==native_geometry,
-            "Axis display toggle changed calculated history or geometry");
-    }
+    const auto* feature=f.doc().find_container(id);const auto shown=f.doc().feature_result_mesh(*feature);
+    require(shown.axes.size()==1&&shown.original_references.axes.size()==1,
+        "Feature Axis did not publish its authored 3D result");
+    require(encoded_geometry()==native_geometry,
+        "Feature Axis presentation changed calculated history or geometry");
     const auto drawing_sources=workspace::drawing_annotation_sources(&f.live,f.doc().document_id,{});
     require(std::ranges::any_of(drawing_sources,[&](const auto& source){return std::ranges::any_of(source.axes,[&](const auto& axis){return axis.reference.owner_id==id;});}),
         "Axis is unavailable to Drawing annotations");
-    f.run("undo");require(!f.doc().find_container(id)->feature.axis_visible_in_3d,"Axis visibility Undo failed");
-    const auto hidden_sources=workspace::drawing_annotation_sources(&f.live,f.doc().document_id,{});
-    require(std::ranges::any_of(hidden_sources,[&](const auto& source){return std::ranges::any_of(source.axes,[&](const auto& axis){return axis.reference.owner_id==id;});}),
-        "Model-hidden Axis was removed from Drawing sources");
-    f.run("redo");f.run("save");
-    require(document::PartDocument::load(directory/"axis-model-visibility.prtz").find_container(id)->feature.axis_visible_in_3d,
-        "Axis model visibility did not survive native save/reopen");
-    const auto revision=f.part().session.revision();
-    f.set_feature(id,[](auto& values){values["axis_visible_in_3d"]=true;});
-    require(f.part().session.revision()==revision,"Unchanged Axis visibility created a transaction");
-    std::cout<<"Axis visibility CLI: default, toggles without calculation, exact native cache, Drawing sources, Undo/Redo and reopen passed\n";
+    f.run("save");
+    const auto reopened=document::PartDocument::load(directory/"axis-model-presentation.prtz");
+    require(reopened.feature_result_mesh(*reopened.find_container(id)).axes.size()==1,
+        "Feature Axis did not remain visible after native save/reopen");
+    std::cout<<"Feature Axis CLI: permanent 3D result, no display parameter, exact native cache, Drawing sources and reopen passed\n";
 }
 
 void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
@@ -944,7 +931,7 @@ int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_direct
         feature_to_sketch_type_transition(kernel,directory);fs::remove_all(directory);
         std::cout<<"Feature-to-Sketch placement resolution, Undo/Redo and reverse transition passed\n";return 0;
     }
-    axis_model_visibility(kernel,directory);
+    axis_model_presentation(kernel,directory);
     if(argc==2&&std::string_view(argv[1])=="--symmetric-endpoints") {symmetric_endpoint_references(kernel,directory);fs::remove_all(directory);std::cout<<"Symmetric endpoint references passed\n";return 0;}
     if(argc==2&&std::string_view(argv[1])=="--public-naming") {
         retired_profile_commands(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);revolution(kernel,directory);

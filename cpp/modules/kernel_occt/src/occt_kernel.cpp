@@ -7071,6 +7071,37 @@ ViewerReferenceGeometry reference_geometry_for_owners(
     return result;
 }
 
+ViewerReferenceGeometry reference_geometry_for_history_references(
+    const ViewerReferenceGeometry& source,
+    const std::set<HistoryReferenceIdentity>& requested,
+    bool selected = true) {
+    ViewerReferenceGeometry result;
+    const auto matches = [&](const auto& reference) {
+        return requested.contains({reference.owner_id,
+            reference.semantic_key, reference.instance_path}) == selected;
+    };
+    for (std::size_t triangle = 0;
+         triangle < source.triangle_references.size(); ++triangle) {
+        const auto& reference = source.triangle_references[triangle];
+        if (!matches(reference)) continue;
+        const auto output_offset =
+            static_cast<std::uint32_t>(result.vertices.size());
+        for (int corner = 0; corner < 3; ++corner) {
+            result.vertices.push_back(source.vertices.at(
+                source.triangles.at(triangle * 3 + corner)));
+            result.triangles.push_back(output_offset + corner);
+        }
+        result.triangle_references.push_back(reference);
+    }
+    std::ranges::copy_if(source.edges, std::back_inserter(result.edges),
+        [&](const auto& edge) { return matches(edge.reference); });
+    std::ranges::copy_if(source.points, std::back_inserter(result.points),
+        [&](const auto& point) { return matches(point.reference); });
+    std::ranges::copy_if(source.axes, std::back_inserter(result.axes),
+        [&](const auto& axis) { return matches(axis.reference); });
+    return result;
+}
+
 template <typename Geometry>
 bool contains_history_reference(const Geometry& geometry,
         const HistoryReferenceIdentity& identity) {
@@ -10742,8 +10773,24 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     requested==context.reference_output_boundaries.end()
                         ?nullptr:&requested->second;
                 const auto complete_request=[&](BodyResult result) {
-                    if(requested_references)
+                    if(requested_references) {
+                        // Axis endpoints are native authored datums, not OCCT
+                        // body vertices. In particular, a cutting tool's endpoint
+                        // may lie outside the retained solid. Publish its current
+                        // prefix geometry with the exact requested boundary;
+                        // topological face/edge fragments still come only from
+                        // the calculated body above.
+                        for(const auto& point:original_references.points) {
+                            const HistoryReferenceIdentity identity{
+                                point.reference.owner_id,point.reference.semantic_key,
+                                point.reference.instance_path};
+                            if(requested_references->contains(identity)&&
+                                    !axis_endpoint_parent_key(point.reference.semantic_key).empty()&&
+                                    !contains_history_reference(result.mesh.original_references,identity))
+                                result.mesh.original_references.points.push_back(point);
+                        }
                         result.history_reference_coverage=*requested_references;
+                    }
                     return result;
                 };
                 if((context.defer_terminal_publication||
@@ -10790,6 +10837,43 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
+            const auto publish_pass_through_result =
+                    [&](BodyResult retained) {
+                // Coverage describes this exact history output, never the
+                // preceding row whose material packet is being retained.
+                retained.history_reference_coverage.clear();
+                const auto requested = context.reference_output_boundaries.find(
+                    operation_index + 1);
+                if (requested == context.reference_output_boundaries.end())
+                    return retained;
+
+                auto exact = make_published_result(result_shape,
+                    owned_topology->faces, owned_topology->edges,
+                    owned_topology->vertices, true, persist_boundary_shape,
+                    false, owned_topology->hidden_display_edges);
+                auto prefix = reference_geometry_for_history_references(
+                    exact.mesh.original_references, requested->second);
+                auto missing = requested->second;
+                std::erase_if(missing, [&](const auto& identity) {
+                    return contains_history_reference(prefix, identity);
+                });
+                append_reference_geometry(prefix,
+                    reference_geometry_for_history_references(
+                        original_references, missing));
+
+                // Native boundary storage is append-only.  Put the exact
+                // packet first in the cumulative reference geometry so a
+                // cold save can encode the following final boundary as a
+                // valid delta without changing any persisted identity.
+                auto remainder = reference_geometry_for_history_references(
+                    original_references, requested->second, false);
+                original_references = prefix;
+                append_reference_geometry(
+                    original_references, std::move(remainder));
+                retained.mesh.original_references = std::move(prefix);
+                retained.history_reference_coverage = requested->second;
+                return retained;
+            };
             const auto apply_edge_treatment = [&](const auto& treatment,bool publish=true) {
                 const bool trace_treatment=std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr;
                 auto treatment_stamp=trace_treatment?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
@@ -12356,6 +12440,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     boundary.kernel_shape.clear();
                     boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
                 }
+                boundary = publish_pass_through_result(std::move(boundary));
                 boundary.source_fingerprint = fingerprint(
                     operations, boundaries.size() + 1);
                 remember_live_boundary(boundary.source_fingerprint, result_shape,
@@ -15018,9 +15103,18 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             operation_phase("body-boolean");
             if (reference_only && !boundaries.empty()) {
                 auto retained = boundaries.back();
-                if (persist_boundary_shape && retained.kernel_shape.empty() && !result_shape.IsNull())
-                    retained.kernel_shape = serialize_kernel_shape(result_shape);
-                boundaries.push_back(std::move(retained));
+                // A preceding final-first packet may intentionally have no
+                // display mesh. The requested output belongs to this row;
+                // publish the live unchanged solid rather than that packet.
+                if (!result_shape.IsNull() && (persist_boundary_shape ||
+                        context.full_output_boundaries.contains(operation_index + 1) ||
+                        retained_final_first_boundaries.contains(operation_index + 1)))
+                    retained = make_published_result(result_shape,
+                        owned_topology->faces, owned_topology->edges,
+                        owned_topology->vertices, true, persist_boundary_shape,
+                        false, owned_topology->hidden_display_edges);
+                boundaries.push_back(
+                    publish_pass_through_result(std::move(retained)));
             } else if (standalone_import_result) {
                 boundaries.push_back(std::move(*standalone_import_result));
             } else if(result_shape.IsNull()) {

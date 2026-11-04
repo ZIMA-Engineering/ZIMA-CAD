@@ -5168,11 +5168,23 @@ if (impl_->show_origins) {
         };
         if (!impl_->active_sketch_owner_id.empty() && axes_visible) draw_axes();
         // Read-only reference markers belong below authored Sketch geometry.
+        const auto proximity_point_visible=[&](const kernel::ViewerPoint& point) {
+            const auto exact=[&](const auto& candidate) {
+                return candidate&&candidate->owner_id==point.reference.owner_id&&
+                    candidate->semantic_key==point.reference.semantic_key&&
+                    candidate->instance_path==point.reference.instance_path;
+            };
+            return QLineF(project(point.position),QPointF(impl_->last_pointer)).length()<=9.*devicePixelRatioF()||
+                exact(impl_->confirmed_candidate)||
+                impl_->constraint_reference_edges.contains(EdgeKey{
+                    point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path});
+        };
         if(points_visible&&impl_->show_sketches)for(const auto& point:impl_->mesh.points) {
             if(!point.reference.semantic_key.starts_with("external_point:")||
                point.reference.semantic_key=="external_point:sketch_origin"||
                !impl_->helper_point_visible(point)||
                !impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path}))continue;
+            if(!point.always_visible&&!proximity_point_visible(point))continue;
             const QColor color = point.reference.semantic_key.ends_with(
                 ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
             const QPointF center = project(point.position);
@@ -5631,6 +5643,11 @@ if (impl_->show_origins) {
                                     &impl_->transient_context_mesh.points})
             for (const auto& point : *points) {
                 const bool transient_context=points==&impl_->transient_context_mesh.points;
+                // Computed midpoints are offered locally by the point picker.
+                // A whole-profile preview or an endpoint contact must not
+                // expose a distant midpoint as a second highlighted point.
+                if(point.reference.semantic_key.starts_with("sketch_midpoint:")&&
+                    !proximity_point_visible(point))continue;
                 if(!transient_context&&!impl_->helper_point_visible(point))continue;
                 if (!transient_context&&!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 // In an inactive Sketch this point is deliberately visible
@@ -5733,7 +5750,8 @@ if (impl_->show_origins) {
                     // enough on its own; the dot only appears once one of
                     // the states above gives it a meaningful color.
                     const bool hidden_marker = !point.always_visible && !selected &&
-                        !hovered && !referenced && !creation_preview;
+                        !hovered && !referenced && !creation_preview &&
+                        !(point.reference.semantic_key.starts_with("sketch_midpoint:")&&proximity_point_visible(point));
                     const bool feature_label = (point.reference.semantic_key == "point" ||
                         point.reference.semantic_key == "container:origin-marker") &&
                         point.display_owner_id == point.reference.owner_id;

@@ -611,7 +611,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 parameter_dimension_preview_ &&
                     parameter_dimension_preview_->id ==
                         construction_dimension_object_id_
-                ? &*parameter_dimension_preview_
+                ? (primitive_origin_preview_in_overlay_
+                    ? nullptr : &*parameter_dimension_preview_)
                 : stored_container != document.history.end()
                     ? &*stored_container : nullptr;
             if (container != nullptr) {
@@ -1809,7 +1810,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         sketch_viewer_mesh(*sweep_profile_sketch_draft_));
                 }
             }
-            if (primitive_origin_preview_mesh_) {
+            if (primitive_origin_preview_mesh_ && !primitive_origin_preview_in_overlay_) {
                 auto preview = *primitive_origin_preview_mesh_;
                 auto body_id = sketch_properties_body_id_.empty()
                     ? document.body_history.active_body_id() : sketch_properties_body_id_;
@@ -1961,7 +1962,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             if(!part_rollback_&&active_sketch_id_.empty())append_mesh(display,document::body_properties_origins(document,tr("Těžiště").toStdString()));
             append_mesh(display, construction_mesh(
                 document, 0.0, construction_dimension_geometry));
-            if (primitive_origin_preview_mesh_) {
+            if (primitive_origin_preview_mesh_ && !primitive_origin_preview_in_overlay_) {
                 auto preview = *primitive_origin_preview_mesh_;
                 auto body_id = sketch_properties_body_id_.empty()
                     ? document.body_history.active_body_id() : sketch_properties_body_id_;
@@ -2247,7 +2248,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     ? parameter_dimension_preview_->container_origin.id
                     : std::string{}));
         }
-        if (primitive_origin_preview_mesh_ && active) {
+        if (primitive_origin_preview_mesh_ && !primitive_origin_preview_in_overlay_ && active) {
             append_mesh(mesh, *primitive_origin_preview_mesh_);
         }
         if (active && !active_sketch_id_.empty()) {
@@ -2539,7 +2540,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     part_construction_dimension_geometry(
                         active_part->session.document(),
                         active_part->session.calculated_boundaries())));
-            if (primitive_origin_preview_mesh_) {
+            if (primitive_origin_preview_mesh_ && !primitive_origin_preview_in_overlay_) {
                 auto preview = *primitive_origin_preview_mesh_;
                 if (!sketch_properties_body_id_.empty())
                     preview = active_part->session.document().place_body_mesh(

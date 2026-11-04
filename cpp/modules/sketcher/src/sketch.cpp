@@ -64,6 +64,21 @@ external_reference_line(const SketchExternalReference& reference) {
     return std::pair{first, direction};
 }
 
+std::optional<std::array<double,2>> external_edge_point_position(
+        const SketchExternalReference& source, ExternalReferenceKind point_kind) {
+    const auto* points=&source.cached_points;
+    if(points->empty()&&source.cached_paths.size()==1)points=&source.cached_paths.front();
+    if(source.broken||source.infinite||points->size()<2)return {};
+    if(point_kind==ExternalReferenceKind::EdgeStart)return points->front();
+    if(point_kind==ExternalReferenceKind::EdgeEnd)return points->back();
+    if(point_kind!=ExternalReferenceKind::EdgeMidpoint)return {};
+    auto straight=source;straight.kind=ExternalReferenceKind::Edge;
+    straight.cached_points=*points;straight.cached_paths.clear();
+    if(!external_reference_line(straight))return {};
+    return std::array{(points->front()[0]+points->back()[0])*.5,
+        (points->front()[1]+points->back()[1])*.5};
+}
+
 std::optional<std::array<double, 3>> external_reference_circle(
     const SketchExternalReference& reference) {
     if (reference.broken || reference.infinite ||
@@ -690,6 +705,7 @@ const char* external_reference_kind_name(ExternalReferenceKind kind) {
     case ExternalReferenceKind::Point: return "point";
     case ExternalReferenceKind::EdgeStart: return "edge_start";
     case ExternalReferenceKind::EdgeEnd: return "edge_end";
+    case ExternalReferenceKind::EdgeMidpoint: return "edge_midpoint";
     case ExternalReferenceKind::Axis: return "axis";
     case ExternalReferenceKind::AxisPoint: return "axis_point";
     case ExternalReferenceKind::Face: return "face";
@@ -703,6 +719,7 @@ ExternalReferenceKind external_reference_kind_from_name(
     if (name == "point") return ExternalReferenceKind::Point;
     if (name == "edge_start") return ExternalReferenceKind::EdgeStart;
     if (name == "edge_end") return ExternalReferenceKind::EdgeEnd;
+    if (name == "edge_midpoint") return ExternalReferenceKind::EdgeMidpoint;
     if (name == "axis") return ExternalReferenceKind::Axis;
     if (name == "axis_point") return ExternalReferenceKind::AxisPoint;
     if (name == "face") return ExternalReferenceKind::Face;
@@ -2695,7 +2712,7 @@ void Sketch::validate() const {
         if (reference.intersection && (reference.intersection->face_owner_id.empty() ||
                 reference.intersection->face_semantic_key.empty() || reference.intersection->branch_key.empty() ||
                 reference.body_edge || reference.infinite || (reference.kind != ExternalReferenceKind::Edge &&
-                    reference.kind != ExternalReferenceKind::Point && !is_external_endpoint_kind(reference.kind))))
+                    reference.kind != ExternalReferenceKind::Point && !is_external_edge_point_kind(reference.kind))))
             throw std::runtime_error("Sketch intersection binding is invalid");
         if(reference.intersection) {
             auto owner=reference.intersection->face_owner_id,key=reference.intersection->face_semantic_key;
@@ -2706,7 +2723,7 @@ void Sketch::validate() const {
         if (reference.exact_spline) reference.exact_spline->validate();
         static_cast<void>(external_reference_kind_name(reference.kind));
         if (reference.id.empty() || !ids.insert(reference.id).second ||
-            (reference.body_edge && reference.kind != ExternalReferenceKind::Edge && !is_external_endpoint_kind(reference.kind)) ||
+            (reference.body_edge && reference.kind != ExternalReferenceKind::Edge && !is_external_edge_point_kind(reference.kind)) ||
             reference.source_document_id.empty() ||
             reference.source_owner_id.empty() ||
             reference.source_semantic_key.empty() ||
@@ -3520,6 +3537,15 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // the dragged point the solver root. Otherwise the root and the axis
     // relation demand two incompatible values and an otherwise valid slide
     // along the axis is rejected.
+    const auto symmetry_coordinate=[&](const SketchConstraint& constraint,bool x_coordinate) {
+        // Base-axis reflection is an exact affine coordinate relation. Transfer
+        // cursor projection in both directions, just like native H/V links.
+        // A freely movable Sketch segment is not an immutable projection axis.
+        if(constraint.kind!=ConstraintKind::Symmetric)return 0;
+        if(constraint.geometry_id=="sketch_axis:x")return x_coordinate?1:-1;
+        if(constraint.geometry_id=="sketch_axis:y")return x_coordinate?-1:1;
+        return 0;
+    };
     const auto coordinate_linked=[&](const std::string& first,const std::string& second,bool x_coordinate) {
         std::vector<std::string> pending{first};std::unordered_set<std::string> visited;
         while(!pending.empty()) {
@@ -3528,7 +3554,8 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             if(!visited.insert(id).second)continue;
             for(const auto& c:next.constraints) {
                 if(c.suppressed || !(c.kind==ConstraintKind::Coincident ||
-                    (x_coordinate?c.kind==ConstraintKind::Vertical:c.kind==ConstraintKind::Horizontal)))continue;
+                    (x_coordinate?c.kind==ConstraintKind::Vertical:c.kind==ConstraintKind::Horizontal)||
+                    symmetry_coordinate(c,x_coordinate)==1))continue;
                 if(c.first_point_id==id&&!c.second_point_id.empty())pending.push_back(c.second_point_id);
                 else if(c.second_point_id==id&&!c.first_point_id.empty())pending.push_back(c.first_point_id);
             }
@@ -3536,27 +3563,34 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         return false;
     };
     const auto anchored_coordinate = [&](bool x_coordinate) -> std::optional<double> {
-        // Each offset is the visited coordinate minus the dragged coordinate.
+        // Each visited coordinate is sign * dragged coordinate + offset.
         // Locked axial dimensions transfer a nonzero offset along the same
         // dependency walk as horizontal/vertical and coincident relations.
-        std::vector<std::pair<std::string,double>> pending{{point_id,0.0}};
+        struct CoordinateLink {std::string id;double sign;double offset;};
+        std::vector<CoordinateLink> pending{{point_id,1.0,0.0}};
         std::unordered_set<std::string> visited;
         while (!pending.empty()) {
-            const auto [current_id,offset]=pending.back();pending.pop_back();
+            const auto [current_id,sign,offset]=pending.back();pending.pop_back();
             if (!visited.insert(current_id).second) continue;
             const auto* current = next.find_point(current_id);
             if (current == nullptr) continue;
             if (current_id != point_id && (current->fixed || externally_linked.contains(current_id)))
-                return (x_coordinate ? current->x : current->y)-offset;
+                return ((x_coordinate ? current->x : current->y)-offset)/sign;
             for (const auto& constraint : next.constraints) {
                 if (constraint.suppressed) continue;
                 if (constraint.kind == ConstraintKind::PointReference && constraint.first_point_id == current_id) {
                     if (const auto reference = external_point_position(next, constraint.second_point_id))
-                        return (x_coordinate ? (*reference)[0] : (*reference)[1])-offset;
+                        return ((x_coordinate ? (*reference)[0] : (*reference)[1])-offset)/sign;
                 }
                 if (constraint.kind == ConstraintKind::PointOnLine && constraint.first_point_id == current_id &&
                     ((x_coordinate && constraint.geometry_id == "sketch_axis:y") ||
-                     (!x_coordinate && constraint.geometry_id == "sketch_axis:x")))return -offset;
+                     (!x_coordinate && constraint.geometry_id == "sketch_axis:x")))return -offset/sign;
+                if(const auto reflection=symmetry_coordinate(constraint,x_coordinate)) {
+                    if(constraint.first_point_id==current_id&&!constraint.second_point_id.empty())
+                        pending.push_back({constraint.second_point_id,reflection*sign,reflection*offset});
+                    else if(constraint.second_point_id==current_id&&!constraint.first_point_id.empty())
+                        pending.push_back({constraint.first_point_id,reflection*sign,reflection*offset});
+                }
                 // A circular contact tangent to a base axis shares the
                 // parallel coordinate with its center. Transfer an anchored
                 // contact coordinate just like an explicit H/V relation so
@@ -3566,8 +3600,8 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                     (constraint.geometry_id==tangent_axis||constraint.second_geometry_id==tangent_axis)) {
                     const auto curve=constraint.geometry_id==tangent_axis?constraint.second_geometry_id:constraint.geometry_id;
                     if(circular_curve_radius(next,curve))if(const auto center=center_curve_point_id(next,curve)) {
-                        if(current_id==*center)pending.emplace_back(constraint.first_point_id,offset);
-                        else if(current_id==constraint.first_point_id)pending.emplace_back(*center,offset);
+                        if(current_id==*center)pending.push_back({constraint.first_point_id,sign,offset});
+                        else if(current_id==constraint.first_point_id)pending.push_back({*center,sign,offset});
                     }
                 }
                 const bool transfers_coordinate = constraint.kind==ConstraintKind::Coincident ||
@@ -3575,14 +3609,14 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                     (!x_coordinate && constraint.kind == ConstraintKind::Horizontal);
                 if (!transfers_coordinate) continue;
                 if (constraint.first_point_id == current_id && !constraint.second_point_id.empty())
-                    pending.emplace_back(constraint.second_point_id,offset);
+                    pending.push_back({constraint.second_point_id,sign,offset});
                 else if (constraint.second_point_id == current_id && !constraint.first_point_id.empty())
-                    pending.emplace_back(constraint.first_point_id,offset);
+                    pending.push_back({constraint.first_point_id,sign,offset});
             }
             for(const auto& dimension:next.dimensions) {
                 if(dimension.suppressed||!dimension.driving||!dimension.locked)continue;
                 if(has_coordinate_axis_reference(dimension)&&dimension.first_point_id==current_id&&
-                    dimension.kind==(x_coordinate?DimensionKind::DistanceX:DimensionKind::DistanceY))return dimension.value-offset;
+                    dimension.kind==(x_coordinate?DimensionKind::DistanceX:DimensionKind::DistanceY))return (dimension.value-offset)/sign;
                 if(dimension.second_point_id.empty())continue;
                 const auto other_id=dimension.first_point_id==current_id?dimension.second_point_id:
                     dimension.second_point_id==current_id?dimension.first_point_id:std::string{};
@@ -3591,7 +3625,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                     (dimension.kind==DimensionKind::Distance&&coordinate_linked(current_id,other_id,!x_coordinate));
                 if(!axial)continue;
                 const double delta=x_coordinate?other->x-current->x:other->y-current->y;
-                if(std::abs(delta)>1e-12)pending.emplace_back(other_id,offset+std::copysign(dimension.value,delta));
+                if(std::abs(delta)>1e-12)pending.push_back({other_id,sign,offset+std::copysign(dimension.value,delta)});
             }
         }
         return std::nullopt;
@@ -6529,7 +6563,7 @@ void Sketch::remove_geometry(const std::string& geometry_id) {
               is_face_curve_key(source_edge->source_semantic_key)))) {
         std::vector<std::string> children;
         for(const auto& endpoint:next.external_references) {
-            if(is_external_endpoint_kind(endpoint.kind) && endpoint.source_document_id==source_edge->source_document_id &&
+            if(is_external_edge_point_kind(endpoint.kind) && endpoint.source_document_id==source_edge->source_document_id &&
                 endpoint.source_owner_id==source_edge->source_owner_id && endpoint.source_semantic_key==source_edge->source_semantic_key &&
                 endpoint.source_instance_path==source_edge->source_instance_path && endpoint.context_assembly_document_id==source_edge->context_assembly_document_id &&
                 endpoint.context_instance_path==source_edge->context_instance_path && endpoint.intersection==source_edge->intersection&&
@@ -8447,9 +8481,11 @@ std::vector<std::string> Sketch::add_external_edge_endpoints(
     auto next=*this;
     std::vector<std::string> result;
     result.reserve(2);
-    for(std::size_t index=0;index<2;++index) {
+    for(std::size_t index=0;index<3;++index) {
         const auto kind=index==0?ExternalReferenceKind::EdgeStart:
-            ExternalReferenceKind::EdgeEnd;
+            index==1?ExternalReferenceKind::EdgeEnd:ExternalReferenceKind::EdgeMidpoint;
+        const auto position=external_edge_point_position(*source,kind);
+        if(!position)continue;
         const auto existing=std::ranges::find_if(next.external_references,
             [&](const auto& candidate) {
                 return candidate.kind==kind&&
@@ -8465,17 +8501,17 @@ std::vector<std::string> Sketch::add_external_edge_endpoints(
                     candidate.curve_intersection==source->curve_intersection;
             });
         if(existing!=next.external_references.end()) {
-            result.push_back(existing->id);
+            if(index<2)result.push_back(existing->id);
             continue;
         }
         auto endpoint=*source;
         endpoint.id=make_id();
         endpoint.kind=kind;
-        endpoint.cached_points={index==0?first:last};
+        endpoint.cached_points={*position};
         endpoint.cached_paths.clear();
         endpoint.exact_spline.reset();
         endpoint.infinite=false;
-        result.push_back(endpoint.id);
+        if(index<2)result.push_back(endpoint.id);
         next.external_references.push_back(std::move(endpoint));
     }
     next.validate();
@@ -9080,13 +9116,14 @@ bool Sketch::refresh_external_references(
         }
         std::optional<std::vector<std::array<double, 2>>> resolved;
         bool face_projection_resolved = false;
-        if(is_external_endpoint_kind(reference.kind)&&is_face_curve_key(reference.source_semantic_key)) {
+        if(is_external_edge_point_kind(reference.kind)&&is_face_curve_key(reference.source_semantic_key)) {
             const auto paths=next.external_face_reference_paths(source_geometry,
                 {reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path});
-            if(paths&&paths->size()==1&&paths->front().size()>=2)
-                resolved=std::vector<std::array<double,2>>{reference.kind==ExternalReferenceKind::EdgeStart?
-                    paths->front().front():paths->front().back()};
-        } else if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
+            if(paths&&paths->size()==1&&paths->front().size()>=2) {
+                auto source=reference;source.broken=false;source.cached_points=paths->front();source.cached_paths.clear();
+                if(const auto point=external_edge_point_position(source,reference.kind))resolved=std::vector<std::array<double,2>>{*point};
+            }
+        } else if (reference.kind == ExternalReferenceKind::Edge || is_external_edge_point_kind(reference.kind)) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
             const std::vector<zima::kernel::ViewerEdge> empty;
@@ -9108,13 +9145,15 @@ bool Sketch::refresh_external_references(
                     }
                 }
                 if (points.size() >= 2) {
-                    auto exact=is_external_endpoint_kind(reference.kind) ? std::optional<zima::kernel::BSplineGeometry>{} : next.project_external_spline(*match);
+                    auto exact=is_external_edge_point_kind(reference.kind) ? std::optional<zima::kernel::BSplineGeometry>{} : next.project_external_spline(*match);
                     if (exact != reference.exact_spline) {
                         reference.exact_spline=std::move(exact); changed=true;
                     }
-                    if (is_external_endpoint_kind(reference.kind))
-                        resolved = std::vector<std::array<double, 2>>{reference.kind == ExternalReferenceKind::EdgeStart ? points.front() : points.back()};
-                    else resolved = std::move(points);
+                    if (is_external_edge_point_kind(reference.kind)) {
+                        auto source=reference;source.broken=false;source.cached_points=points;source.cached_paths.clear();
+                        source.exact_spline=next.project_external_spline(*match);
+                        if(const auto point=external_edge_point_position(source,reference.kind))resolved=std::vector<std::array<double,2>>{*point};
+                    } else resolved = std::move(points);
                 }
             }
         } else if (reference.kind == ExternalReferenceKind::Point) {
@@ -10348,7 +10387,7 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             }
         }
     }
-    if(next.points.size()<=32&&(dimension_kind==DimensionKind::Radius || dimension_kind==DimensionKind::Diameter || dimension_kind==DimensionKind::AngleThreePoint)) {
+    if(dimension_kind==DimensionKind::Radius || dimension_kind==DimensionKind::Diameter || dimension_kind==DimensionKind::AngleThreePoint) {
         const bool shared_circular_junction=std::ranges::any_of(next.arcs,[&](const auto& a) {
             return std::ranges::any_of(next.arcs,[&](const auto& b) {
                 return a.id!=b.id&&(a.start_point_id==b.start_point_id||a.start_point_id==b.end_point_id||
@@ -10397,14 +10436,14 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             }
         }
     }
-    if(result.status==SolveStatus::Conflicting && (std::ranges::any_of(next.dimensions,[](const auto& d){
+    if(result.status==SolveStatus::Conflicting && (!arcs.empty()||!circles.empty()||std::ranges::any_of(next.dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
     })||std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
         (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);}))) {
-        // The sequential corrections may already have distorted the two line
-        // directions or the two halves of an anchored midpoint. Changes in
-        // that graph need a coupled fit, including ordinary length edits.
-        // Fit from the original branch and retain ordinary final validation.
+        // Sequential endpoint corrections can distort a shared arc/line graph,
+        // line directions or an anchored midpoint. Fit the requested equations
+        // from the last valid branch, including ordinary linear dimensions on
+        // circular profiles, then retain ordinary final validation.
         auto candidate=*this;candidate.dimensions=next.dimensions;
         if(seed_circular_equations(candidate,{},true)) {
             const auto checked=candidate.solve_impl(100,needs_rank_for_redundancy);
@@ -14396,7 +14435,7 @@ SolveResult Sketch::solve_impl(
         centered_equations.insert(centered_equations.end(),count,centered);
     };
     for(const auto& arc:arcs)for(const auto& endpoint:{arc.start_point_id,arc.end_point_id})
-        append_equations(1,{arc.id,arc.center_point_id,endpoint});
+        append_equations(1,{arc.id,arc.center_point_id,endpoint},true);
     for (const auto& constraint : constraints) {
         if (constraint.suppressed || implied_keypoint_contact(constraint)) continue;
         const std::size_t count =
@@ -15156,7 +15195,8 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
         const auto& point = reference.cached_points.front();
         result.points.push_back({world_point(point[0], point[1]),
             {id, "external_point:" + reference.id +
-                (reference.broken ? ":broken" : ""), {}}});
+                (reference.broken ? ":broken" : ""), {}}, {},
+            reference.kind!=ExternalReferenceKind::EdgeMidpoint});
     }
     result.edges.reserve(segments.size());
     for (const auto& segment : segments) {
@@ -15569,7 +15609,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
             for (const auto& binding : constraints) {
                 if(binding.suppressed || binding.kind!=ConstraintKind::PointReference || binding.first_point_id!=point_id)continue;
                 const auto found=std::ranges::find(external_references,binding.second_point_id,&SketchExternalReference::id);
-                if(found!=external_references.end() && is_external_endpoint_kind(found->kind))return &*found;
+                if(found!=external_references.end() && is_external_edge_point_kind(found->kind))return &*found;
             }
             return nullptr;
         };

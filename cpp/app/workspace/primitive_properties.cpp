@@ -821,7 +821,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // instead of stopping after the editing Origin frame.
         resolved_plane.reference_valid = true;
         if (preview.feature_kind == zima::document::FeatureKind::Feature) {
-            primitive_origin_preview_mesh_=preview_document.feature_result_mesh(preview,true);
+            primitive_origin_preview_mesh_=
+                preview_document.feature_result_mesh(preview);
             // Modeling/Sketch/Plane already publish the live container Origin
             // below. Forcing their result point visible as well leaves the
             // former support-plane point beside the moved Origin after a
@@ -1189,6 +1190,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 preview.placement.references.empty()) {
                 viewer_->set_transient_edges({});
                 primitive_origin_preview_mesh_.reset();
+                primitive_origin_preview_in_overlay_ = false;
+                viewer_->set_transient_context_mesh({});
                 parameter_dimension_preview_.reset();
                 viewer_->set_feature_preview_owners({});
                 preserve_view_on_refresh_ = true;
@@ -1407,12 +1410,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             const zima::document::PartDocument* preview_document,
             const zima::document::HistoryContainer& preview,
             bool lightweight_context) {
+        primitive_origin_preview_in_overlay_ = lightweight_context;
         std::vector<zima::kernel::ViewerDimension> live_dimensions;
         if (primitive_origin_preview_mesh_) {
             live_dimensions =
                 std::move(primitive_origin_preview_mesh_->dimensions);
             primitive_origin_preview_mesh_->dimensions.clear();
         }
+        if (lightweight_context)
+            append_nonzero_parameter_dimensions(live_dimensions,
+                zima::document::container_placement_dimensions(
+                    preview.id, preview.placement, primitive_reference_geometry_));
         localize_parameter_value_labels(live_dimensions,[this](const char* label){return tr(label);});
         viewer_->set_transient_dimensions(std::move(live_dimensions));
 
@@ -2381,6 +2389,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         primitive_reference_auto_advance_ = false;
         primitive_reference_geometry_ = {};
         primitive_origin_preview_mesh_.reset();
+        primitive_origin_preview_in_overlay_ = false;
         parameter_dimension_preview_.reset();
         primitive_parameter_owner_id_.clear();
         // Parameter/placement dimensions belong to the feature-properties

@@ -40,7 +40,7 @@ void datum_marker_visibility(QApplication& app) {
     mesh.points.push_back({{0,-30,0},{"profile-feature","profile:path-point:start:from:axis:primary",{}},{},true});
     auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
     auto axis=document::PartDocument::create_feature_container(sketch.id);
-    axis.feature.type=document::FeatureType::Axis;axis.feature.show_point=true;axis.feature.axis_visible_in_3d=true;
+    axis.feature.type=document::FeatureType::Axis;axis.feature.show_point=true;
     axis.feature.show_text=false;axis.feature.sides[0].length=14;axis.feature.sides[1].length=8;
     sketch.owner_container_id=axis.id;sketch.plane=sketcher::SketchPlane::YZ;sketch.plane_auto=false;
     part.history={axis};part.sketches={sketch};part.resolve_constructions();

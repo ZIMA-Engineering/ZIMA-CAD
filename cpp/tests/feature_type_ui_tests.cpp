@@ -60,8 +60,6 @@ static void verify_limit_localization(QApplication& application,QWidget& parent)
         app::apply_application_translations(application,settings);application.processEvents();
         for(const auto* theme:{"light","dark"}) {
             settings.theme=theme;app::apply_application_appearance(application,settings);application.processEvents();
-            check(dialog.findChild<QCheckBox*>("featureShowAxis3D")->text()==messages.value(QStringLiteral("Zobrazovat ve 3D")).toString(),
-                "Axis display checkbox did not follow the live language/theme");
             check(limits->findChild<QPushButton*>("featureLimitDown")->text()==QObject::tr("Dolů"),"Live language change missed the target ordering controls");
             check(limits->active_row()==1&&dialog.highlighted_reference_entries().size()==1,"Language/theme change lost entry or inspection identity");
             check(dialog.findChild<QLabel*>("featureUpToDraftNotice")->text()==QObject::tr(
@@ -203,7 +201,6 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
         auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
         feature.name="";feature.feature.type=type;feature.feature.show_point=true;
-        feature.feature.axis_visible_in_3d=true;
         sketch.owner_container_id=feature.id;
         sketch.plane=type==document::FeatureType::Axis?sketcher::SketchPlane::XZ:sketcher::SketchPlane::XY;
         sketch.plane_auto=false;part.history={feature};part.sketches={sketch};part.resolve_constructions();
@@ -255,12 +252,12 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
             view.set_mesh(part.feature_result_mesh(feature));flush();
         }
         if(type==document::FeatureType::Axis) {
-            auto hidden=feature;hidden.feature.axis_visible_in_3d=false;
-            hidden.feature.show_point=hidden.feature.show_text=false;
-            view.clear_selection();view.set_selection_contract({});view.set_mesh(part.feature_result_mesh(hidden));flush();
-            check(colored(view.grabFramebuffer(),interaction::axis,false)==0,
-                "Unchecked Show in 3D still paints the Axis or its endpoints");
-            check(view.mesh().original_references.axes.size()==1,"Hidden Axis lost its native reference in the View");
+            auto authored=feature;
+            authored.feature.show_point=authored.feature.show_text=false;
+            view.clear_selection();view.set_selection_contract({});view.set_mesh(part.feature_result_mesh(authored));flush();
+            check(colored(view.grabFramebuffer(),interaction::axis,true)>30&&
+                    view.mesh().axes.size()==1&&view.mesh().original_references.axes.size()==1,
+                "Authored Feature Axis is not visible in 3D");
             view.set_mesh(part.feature_result_mesh(feature));view.set_selection_contract({viewer::CandidateKind::Container});flush();
             const auto at=project({0,20,0});const auto candidates=view.selection_candidates_at(at);
             check(std::ranges::any_of(candidates,[&](const auto& c){return c.kind==viewer::CandidateKind::Container&&c.owner_id==feature.id;}),
@@ -283,7 +280,8 @@ int main(int argc,char** argv) {
     format.setProfile(QSurfaceFormat::CoreProfile);format.setDepthBufferSize(24);format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc,argv);
-    QWidget parent;parent.resize(1600,1000);parent.show();
+    QWidget parent;if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))parent.setAttribute(Qt::WA_DontShowOnScreen);
+    parent.resize(1600,1000);parent.show();
     auto feature=zima::document::PartDocument::create_feature_container("fixture-sketch");
     auto part=zima::document::PartDocument::create_default();
     feature.name=zima::app::next_feature_name(part,feature.feature.type,feature.id);
@@ -297,29 +295,26 @@ int main(int argc,char** argv) {
     auto* type=dialog.findChild<QComboBox*>("featureType");
     try {
         flush();
-        auto* axis_display=dialog.findChild<QCheckBox*>("featureShowAxis3D");
         auto* point_display=dialog.findChild<QCheckBox*>("featureShowPoint");
         auto* text_display=dialog.findChild<QCheckBox*>("featureShowText");
         auto* origin_axis=dialog.findChild<QCheckBox*>("featureOriginAxis");
         auto* centroid_axis=dialog.findChild<QCheckBox*>("featureCentroidAxis");
-        if(!axis_display||point_display||text_display||!origin_axis||!centroid_axis||
-           axis_display->parentWidget()!=origin_axis->parentWidget()||
-           axis_display->parentWidget()!=centroid_axis->parentWidget()||
+        if(point_display||text_display||!origin_axis||!centroid_axis||
            std::abs(origin_axis->geometry().center().y()-
                centroid_axis->geometry().center().y())>2||
            !(type->geometry().right()<origin_axis->geometry().left()&&
-             origin_axis->geometry().right()<centroid_axis->geometry().left())||
-           axis_display->isChecked())
+             origin_axis->geometry().right()<centroid_axis->geometry().left()))
             throw std::runtime_error("Feature Point/Text switches remain visible or the shared type row is invalid");
         type->setCurrentIndex(1);flush();
-        if(!axis_display->isVisible())throw std::runtime_error("Axis display checkbox is hidden for Axis type");
-        axis_display->setChecked(true);flush();
-        if(!dialog.pending_value().feature.axis_visible_in_3d)throw std::runtime_error("Axis display checkbox does not update the pending definition");
+        auto* axis_direction=dialog.findChild<QComboBox*>("featureAxisDirection");
+        auto* profile_plane=dialog.findChild<QComboBox*>("featureProfilePlane");
+        if(!axis_direction||!axis_direction->isVisible()||profile_plane->isVisible()||
+           axis_direction->count()!=4||axis_direction->itemText(0)!="X"||
+           axis_direction->itemText(1)!="Y"||axis_direction->itemText(2)!="Z")
+            throw std::runtime_error("Feature Axis has no direct local X/Y/Z direction choice");
         type->setCurrentIndex(4);flush();
-        if(axis_display->isVisible())throw std::runtime_error("Axis-only checkbox is visible for material modeling");
         type->setCurrentIndex(1);flush();
-        if(!axis_display->isChecked())throw std::runtime_error("Changing Feature type discarded Axis display preference");
-        axis_display->setChecked(false);type->setCurrentIndex(static_cast<int>(feature.feature.type));flush();
+        type->setCurrentIndex(static_cast<int>(feature.feature.type));flush();
         auto* initial_scroll=dialog.findChild<QScrollArea*>("propertiesContentScrollArea");
         if(initial_scroll->verticalScrollBar()->maximum()>0&&dialog.height()<parent.height()-30)
             throw std::runtime_error("Initial Feature properties unnecessarily hide fields: height="+
@@ -445,11 +440,14 @@ int main(int argc,char** argv) {
             if(i==4&&scroll->verticalScrollBar()->maximum()>0&&
                 dialog.height()-scroll->mapTo(&dialog,QPoint(0,scroll->height())).y()>dialog.buttons()->height()+dialog.findChild<QLabel*>("featureValidationError")->height()+4*dialog.layout()->spacing()+dialog.layout()->contentsMargins().bottom())
                 throw std::runtime_error("Unused dialog space hides Feature parameters behind a scrollbar: height="+std::to_string(dialog.height())+" scrollBottom="+std::to_string(scroll->mapTo(&dialog,QPoint(0,scroll->height())).y())+" buttons="+std::to_string(dialog.buttons()->height())+" scroll="+std::to_string(scroll->height())+" maximum="+std::to_string(scroll->maximumHeight())+" minimum="+std::to_string(scroll->minimumHeight()));
-            for(const auto* name:{"featureProfilePlane","featureProfileOffset","featureSideValue0","featureSideValue1","featureThinSide","featureSideDraft0","featureSideDraft1"}) {
+            for(const auto* name:{"featureProfilePlane","featureAxisDirection","featureProfileOffset","featureSideValue0","featureSideValue1","featureThinSide","featureSideDraft0","featureSideDraft1"}) {
                 auto* field=dialog.findChild<QWidget*>(name);
                 const bool draft_field=QString(name).startsWith("featureSideDraft");
                 const bool shown=draft_field?i==4&&(QString(name).endsWith('0')?first:second)->currentIndex()==1:
-                    QString(name)=="featureThinSide"?i==4:QString(name).startsWith("featureProfile")?(i!=0&&i!=1):(i==1||i==4);
+                    QString(name)=="featureThinSide"?i==4:
+                    QString(name)=="featureAxisDirection"?i==1:
+                    QString(name)=="featureProfilePlane"?i!=0&&i!=1:
+                    QString(name)=="featureProfileOffset"?i!=0&&i!=1:(i==1||i==4);
                 if(field->isVisible()!=shown)throw std::runtime_error("Wrong Feature field visibility");
                 if(shown) {
                     const auto* container=field->parentWidget();
@@ -465,7 +463,10 @@ int main(int argc,char** argv) {
         type->setCurrentIndex(1);flush();
         const auto check_axis=[&](bool ok){if(!ok)throw std::runtime_error("Ordinary Feature Axis end controls are inconsistent");};
         check_axis(first_end->isVisible()&&second_end->isVisible()&&
-            !dialog.findChild<QGroupBox*>("featurePlaneGroup")->isVisible());
+            dialog.findChild<QGroupBox*>("featurePlaneGroup")->isVisible()&&
+            dialog.findChild<QComboBox*>("featureAxisDirection")->isVisible()&&
+            !dialog.findChild<QComboBox*>("featureProfilePlane")->isVisible()&&
+            !dialog.findChild<QDoubleSpinBox*>("featureProfileOffset")->isVisible());
         for(auto* ending:{first_end,second_end}) {
             ending->setCurrentIndex(1);flush();
             const std::size_t side=ending==first_end?0:1;

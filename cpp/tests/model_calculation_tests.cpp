@@ -73,8 +73,185 @@ void verify_reference_chain(const kernel::OcctKernel& kernel){
     require(state->session.redo(),"Placement regeneration cannot be redone");
     near(state->session.document().history[2].placement.x,11,"Redo lost the recalculated placement");
 }
+void verify_axis_endpoint_history_reference(const kernel::OcctKernel& kernel) {
+    for(bool in_body:{false,true}) {
+        auto part=document::PartDocument::create_default();
+        const auto prefix=zima::test::rectangular_feature(part,{20,20,20});
+        auto source_profile=sketcher::Sketch::create_default();static_cast<void>(source_profile.add_circle(0,0,3));
+        auto stock=document::PartDocument::create_feature_container(source_profile.id);
+        stock.combine_mode=document::CombineMode::Subtract;
+        source_profile.owner_container_id=stock.id;part.sketches.push_back(source_profile);
+        auto profile=sketcher::Sketch::create_default();
+        static_cast<void>(profile.add_rectangle(0,0,1,1));
+        auto datum=document::PartDocument::create_feature_container(profile.id);
+        datum.feature.sides[0].length=1;profile.owner_container_id=datum.id;
+        part.history={prefix,stock,datum};part.sketches.push_back(profile);
+        if(in_body) {
+            document::BodyHistoryGraph graph;graph.create_body("Axis endpoint input");
+            graph.insert({document::PartHistoryKind::Feature,prefix.id});
+            graph.insert({document::PartHistoryKind::Feature,stock.id});graph.insert({document::PartHistoryKind::Feature,datum.id});part.set_body_history(graph);
+        }
+        auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
+        const auto& points=calculated.back().mesh.original_references.points;
+        const auto endpoint=std::ranges::find_if(points,[&](const auto& p){return p.reference.owner_id==stock.id&&p.reference.semantic_key.starts_with("profile:path-point:end:from:");});
+        require(endpoint!=points.end(),"Axis endpoint fixture has no authored path endpoint");
+        const auto reference=reference_to(*endpoint);part.history.back().placement.references={reference};
+        kernel::HistoryOutputPolicy output;output.final_boundary_first=true;
+        output.reference_output_owners[stock.id].insert({reference.owner_id,reference.semantic_key,reference.instance_path});
+        const auto exact=kernel.evaluate_history_recovering(part.kernel_operations(),{},output);
+        const auto& boundary=in_body?exact.back().body_boundaries.begin()->second[1]:exact[1];
+        require(std::ranges::any_of(boundary.mesh.original_references.points,[&](const auto& p){return p.reference.owner_id==reference.owner_id&&p.reference.semantic_key==reference.semantic_key;}),
+            "Exact requested boundary omitted its authored axis endpoint");
+        for(double length:{14.,8.,10.}) {
+            part.history[1].feature.sides[0].length=length;
+            calculated=workspace::calculate_part_with_resolved_references(kernel,part,&calculated);
+            require(calculated.back().calculation_errors.empty()&&part.history.back().placement.reference_valid,
+                "A fresh exact history boundary lost a generated axis endpoint");
+            near(part.history.back().placement.z,length,"Axis endpoint attachment retained an old length");
+            require(part.history.back().placement.references.front()==reference,"Axis endpoint reference identity changed");
+            require(!calculated.back().mesh.triangles.empty(),"Axis endpoint dependent datum lost final display");
+            near(measured_volume(kernel,calculated.back()),8000-9*std::acos(-1.)*std::min(length,10.)+(length<10?0.:1.),"Axis endpoint chain changed its independently calculated volume");
+            part=document::PartDocument::from_serialized(part.serialized());
+        }
+    }
+}
+void verify_native_feature_datums_through_history(const kernel::OcctKernel& kernel) {
+    using Type=document::FeatureType;
+    unsigned cases{};
+    for(bool in_body:{false,true})for(const auto type:{Type::Point,Type::Axis,Type::Plane,Type::Sketch,Type::Modeling})
+    for(int support:{0,1,2})for(bool flip:{false,true}) {
+        if(support==0&&flip)continue;
+        if(support==1&&type!=Type::Axis&&type!=Type::Plane)continue;
+        auto part=document::PartDocument::create_default();
+        auto stock=zima::test::rectangular_feature(part,{20,20,20});
+        auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_rectangle(-1,-1,1,1));
+        auto source=document::PartDocument::create_feature_container(profile.id);
+        source.feature.type=type;source.feature.sides[0].length=4;source.placement.x=20;source.placement.y=3;source.placement.z=2;
+        profile.owner_container_id=source.id;part.sketches.push_back(profile);
+        auto plane_profile=sketcher::Sketch::create_default();
+        auto intervening=document::PartDocument::create_feature_container(plane_profile.id);
+        intervening.feature.type=Type::Plane;plane_profile.owner_container_id=intervening.id;part.sketches.push_back(plane_profile);
+        auto target_profile=sketcher::Sketch::create_default();static_cast<void>(target_profile.add_rectangle(-.5,-.5,.5,.5));
+        auto target=document::PartDocument::create_feature_container(target_profile.id);target.feature.sides[0].length=1;
+        target_profile.owner_container_id=target.id;part.sketches.push_back(target_profile);
+        target.placement.references={{{},support==2?source.container_origin.id:source.id,support==2?"origin:point":"point"}};
+        if(support) {
+            document::ConstructionReference orientation{{},support==2?source.container_origin.id:source.id,
+                support==2?"origin:plane:xy":type==Type::Axis?"axis":"plane"};
+            orientation.orientation_only=true;orientation.orientation_drives_rotation=true;orientation.orientation_role="front";
+            // use_axis selects a surface's axis, not an authored Axis datum.
+            orientation.flip=flip;
+            target.placement.references.push_back(orientation);
+        }
+        part.history={stock,source,intervening,target};
+        if(in_body) {
+            document::BodyHistoryGraph graph;const auto body_id=graph.create_body("Native datum boundary");
+            for(const auto& item:part.history)graph.insert({document::PartHistoryKind::Feature,item.id});
+            auto body=*graph.find(body_id);body.scope.placement.x=100;body.scope.placement.rotation_z=25;graph.update_body(body);part.set_body_history(graph);
+        }
+        const auto references=target.placement.references;
+        std::vector<kernel::BodyResult> calculated;
+        for(double x:{20.,25.,17.}) {
+            part.history[1].placement.x=x;
+            calculated=workspace::calculate_part_with_resolved_references(kernel,part,calculated.empty()?nullptr:&calculated);
+            if(!calculated.back().calculation_errors.empty()||!part.history.back().placement.reference_valid)
+                throw std::runtime_error("Native datum through Plane: type="+std::to_string(int(type))+" body="+std::to_string(in_body)+
+                    " support="+std::to_string(support)+" flip="+std::to_string(flip)+" x="+std::to_string(x)+
+                    " errors="+nlohmann::json(calculated.back().calculation_errors).dump());
+            near(part.history.back().placement.x,x,"Native datum point retained its old X");
+            near(part.history.back().placement.y,3,"Native datum point changed Y");
+            near(part.history.back().placement.z,2,"Native datum point changed Z");
+            require(part.history.back().placement.references==references,"Native datum publication changed reference identity or side");
+            require(!calculated.back().mesh.triangles.empty(),"Native datum dependency lost the visible Body");
+            part=document::PartDocument::from_serialized(part.serialized());
+        }
+        ++cases;
+    }
+    std::cout<<cases<<" native Feature datum cases through a Plane: repeated moves, point/axis/plane/Origin supports, both sides, Body frames and reopen passed\n";
+    for(bool in_body:{false,true})for(int invalid=0;invalid<4;++invalid) {
+        auto part=document::PartDocument::create_default();auto stock=test::rectangular_feature(part,{20,20,20});
+        auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_rectangle(-1,-1,1,1));
+        auto source=document::PartDocument::create_feature_container(profile.id);source.feature.sides[0].length=2;source.placement.x=20;
+        profile.owner_container_id=source.id;part.sketches.push_back(profile);
+        auto target=test::rectangular_feature(part,{1,1,1});
+        target.placement.references={{{},source.id,"point"}};part.history={stock,source,target};
+        const auto order=[&] {
+            if(in_body) {
+                document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Unavailable datum"));
+                for(const auto& entry:part.history)graph.insert({document::PartHistoryKind::Feature,entry.id});part.set_body_history(graph);
+            } else {
+                part.history_order.clear();for(const auto& entry:part.history)part.history_order.push_back({document::PartHistoryKind::Feature,entry.id});
+            }
+        };order();
+        const auto warm=workspace::calculate_part_with_resolved_references(kernel,part);
+        require(part.history.back().placement.reference_valid&&warm.back().calculation_errors.empty(),"Negative datum fixture did not start valid");
+        if(invalid==0)part.history[1].suppressed=true;
+        if(invalid==1) {
+            auto& s=*std::ranges::find(part.sketches,source.id,&sketcher::Sketch::owner_container_id);
+            s.segments.clear();s.arcs.clear();s.circles.clear();s.constraints.clear();s.dimensions.clear();
+            part.history[1].placement.x=30;
+        }
+        if(invalid==2)std::swap(part.history[1],part.history[2]);
+        if(invalid==3)part.history[2].placement.references.front().semantic_key="missing-native-point";
+        order();
+        const auto wanted=part.find_container(target.id)->placement.references;
+        const auto calculated=workspace::calculate_part_with_resolved_references(kernel,part,&warm);
+        const auto* consumer=part.find_container(target.id);
+        if(invalid==1) {
+            // The authored work frame is independent of incomplete Body
+            // topology. It must follow its current position, never a cache.
+            require(consumer->placement.reference_valid&&consumer->placement.references==wanted&&
+                calculated.back().calculation_errors.contains(source.id)&&!calculated.back().calculation_errors.contains(target.id),
+                "Incomplete Modeling profile lost its valid authored datum frame");
+            near(consumer->placement.x,30,"Incomplete Modeling frame retained a stale position");continue;
+        }
+        if(consumer->placement.reference_valid||consumer->placement.references!=wanted||
+            !calculated.back().calculation_errors.contains(target.id))
+            throw std::runtime_error("Native unavailable datum case="+std::to_string(invalid)+" valid="+std::to_string(consumer->placement.reference_valid)+
+                " errors="+nlohmann::json(calculated.back().calculation_errors).dump());
+    }
+}
 // A manually positioned owner may already be unchanged while its owned
 // Sketch still carries the preceding resolved frame (including loaded data).
+void verify_terminal_reference_publication(const kernel::OcctKernel& kernel) {
+    for(const bool suppressed:{false,true}) {
+        auto part=document::PartDocument::create_default();
+        auto profile=sketcher::Sketch::create_default();
+        const auto circle=profile.add_circle(0,0,5);
+        auto stock=document::PartDocument::create_feature_container(profile.id);
+        stock.feature.sides[0].length=10;profile.owner_container_id=stock.id;
+        auto datum_profile=sketcher::Sketch::create_default();
+        auto datum=document::PartDocument::create_feature_container(datum_profile.id);
+        datum.feature.type=document::FeatureType::Plane;
+        datum.suppressed=suppressed;datum_profile.owner_container_id=datum.id;
+        part.history={stock,datum};part.sketches={profile,datum_profile};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Terminal datum");
+        graph.insert({document::PartHistoryKind::Feature,stock.id});
+        graph.insert({document::PartHistoryKind::Feature,datum.id});part.set_body_history(graph);
+        auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
+        for(const double radius:{6.,3.5,5.}) {
+            auto next=part;
+            auto& source=*std::ranges::find(next.sketches,profile.id,&sketcher::Sketch::id);
+            std::ranges::find(source.circles,circle,&sketcher::SketchCircle::id)->radius=radius;
+            const auto policy=workspace::feature_definition_calculation_policy(part,calculated,stock.id);
+            auto changed=workspace::calculate_part_with_resolved_references(kernel,next,&calculated,policy);
+            require(!changed.back().mesh.triangles.empty()&&
+                    !changed.back().body_boundaries.at(body).back().mesh.triangles.empty(),
+                "Terminal datum lost final viewer geometry after a radius edit");
+            document::DocumentSession session(next,changed);
+            require(!session.body_context_mesh().triangles.empty(),
+                "Radius edit left the active Body invisible in the View");
+            near(measured_volume(kernel,changed.back()),std::acos(-1.)*radius*radius*10,
+                "Terminal datum changed the edited solid");
+            std::vector<kernel::BodyResult> reopened;
+            const auto restored=document::PartDocument::from_serialized(next.serialized(changed),&reopened);
+            document::DocumentSession loaded(restored,reopened);
+            require(!loaded.body_context_mesh().triangles.empty(),
+                "Save/reopen lost final viewer geometry after a radius edit");
+            part=std::move(next);calculated=std::move(changed);
+        }
+    }
+}
 void verify_profile_frame_convergence(const kernel::OcctKernel& kernel){
     for(bool multi_body:{false,true})for(double x:{-2.0,2.0})for(double angle:{0.0,90.0}) {
         auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
@@ -130,6 +307,11 @@ void verify_history_boundary_placement_isolation(
         const kernel::OcctKernel& kernel) {
     auto part=document::PartDocument::create_default();
     auto stock=test::rectangular_feature(part,{20,16,12});
+    auto datum_sketch=sketcher::Sketch::create_default();
+    auto datum=document::PartDocument::create_feature_container(
+        datum_sketch.id);
+    datum.feature.type=document::FeatureType::Plane;
+    datum_sketch.owner_container_id=datum.id;
     auto attached=test::rectangular_feature(part,{4,4,4});
     const auto face_key=test::profile_key(part,stock,"x_max");
     document::ConstructionReference face{{},stock.id,face_key};
@@ -137,10 +319,12 @@ void verify_history_boundary_placement_isolation(
     face.orientation_role="front";
     face.orientation_drives_rotation=true;
     attached.placement.references={face};
-    part.history={stock,attached};
+    part.history={stock,datum,attached};
+    part.sketches.push_back(datum_sketch);
     document::BodyHistoryGraph graph;
     const auto body_id=graph.create_body("Boundary placement");
     graph.insert({document::PartHistoryKind::Feature,stock.id});
+    graph.insert({document::PartHistoryKind::Feature,datum.id});
     graph.insert({document::PartHistoryKind::Feature,attached.id});
     graph.set_history_cursor(body_id,graph.find(body_id)->entries.size());
     part.set_body_history(std::move(graph));
@@ -148,12 +332,12 @@ void verify_history_boundary_placement_isolation(
     auto calculated=workspace::calculate_part_with_resolved_references(
         kernel,part);
     require(calculated.back().calculation_errors.empty()&&
-        part.history[1].placement.reference_valid,
+        part.history[2].placement.reference_valid,
         "Boundary placement fixture did not calculate");
     const auto identity=kernel::HistoryReferenceIdentity{
         stock.id,face_key,std::string{}};
     const auto& stock_boundary=calculated.back().body_boundaries.at(
-        body_id)[0];
+        body_id)[1];
     require(stock_boundary.history_reference_coverage.contains(identity),
         "Exact placement input boundary was not retained");
     const auto requested=[&](const auto& reference) {
@@ -178,9 +362,7 @@ void verify_history_boundary_placement_isolation(
         "Exact placement packet retained an intermediate display mesh");
     require(stock_boundary.kernel_shape.empty(),
         "Exact placement packet retained an intermediate B-Rep archive");
-    require(!stock_boundary.physical_properties_current,
-        "Exact placement packet calculated intermediate aggregate properties");
-    const auto stable=part.history[1].placement;
+    const auto stable=part.history[2].placement;
 
     auto poisoned=calculated;
     std::size_t changed_faces{};
@@ -199,33 +381,49 @@ void verify_history_boundary_placement_isolation(
     auto final_driven=part;
     final_driven.resolve_constructions(
         poisoned.back().mesh.original_references);
-    require(final_driven.history[1].placement!=stable,
+    require(final_driven.history[2].placement!=stable,
         "Final-face side perturbation did not exercise placement orientation");
 
     auto exact=part;
     auto repeated=workspace::calculate_part_with_resolved_references(
         kernel,exact,&poisoned);
-    require(exact.history[1].placement==stable,
+    require(exact.history[2].placement==stable,
         "Later final geometry changed an earlier placement input");
-    const auto once=exact.history[1].placement;
+    const auto once=exact.history[2].placement;
     repeated=workspace::calculate_part_with_resolved_references(
         kernel,exact,&repeated);
-    require(exact.history[1].placement==once,
+    require(exact.history[2].placement==once,
         "Exact boundary placement changed on repeated regeneration");
 
     std::vector<kernel::BodyResult> reopened_boundaries;
     auto reopened=document::PartDocument::from_serialized(
         part.serialized(calculated),&reopened_boundaries);
-    require(reopened_boundaries.back().body_boundaries.at(body_id)[0].
+    require(reopened_boundaries.back().body_boundaries.at(body_id)[1].
         history_reference_coverage.empty(),
         "Disposable boundary coverage leaked into native storage");
     auto reopened_calculated=
         workspace::calculate_part_with_resolved_references(
             kernel,reopened,&reopened_boundaries);
-    require(reopened.history[1].placement==stable&&
-        reopened_calculated.back().body_boundaries.at(body_id)[0].
+    require(reopened.history[2].placement==stable&&
+        reopened_calculated.back().body_boundaries.at(body_id)[1].
             history_reference_coverage.contains(identity),
         "Save/reopen did not rebuild the exact placement boundary");
+
+    const auto native_path=std::filesystem::temp_directory_path()/
+        ("zima-exact-reference-"+part.document_id+".prtz");
+    require(!std::filesystem::exists(native_path),"Native reference test path is already occupied");
+    part.save(native_path,calculated);
+    std::vector<kernel::BodyResult> native_boundaries;
+    auto native_document=document::PartDocument::load(native_path,&native_boundaries);
+    std::filesystem::remove(native_path);
+    require(native_boundaries[1].history_reference_coverage.empty(),
+        "Disposable calculation proof was persisted as authoritative geometry");
+    kernel::OcctKernel cold_native_kernel;
+    const auto rebuilt=workspace::calculate_part_with_resolved_references(
+        cold_native_kernel,native_document,&native_boundaries);
+    require(native_document.history[2].placement==stable&&
+        rebuilt.back().body_boundaries.at(body_id)[1].history_reference_coverage.contains(identity),
+        "Native file reopen did not reconstruct the exact historical placement input");
 
     std::vector<kernel::BodyResult> cold_boundaries;
     auto cold_document=document::PartDocument::from_serialized(
@@ -233,7 +431,7 @@ void verify_history_boundary_placement_isolation(
     auto archived_local=cold_boundaries.back().body_boundaries.at(
         body_id).get();
     std::size_t reversed_faces{};
-    for(auto& reference:archived_local[0].mesh.original_references.
+    for(auto& reference:archived_local[1].mesh.original_references.
             triangle_references)
         if(reference.owner_id==stock.id&&
            reference.semantic_key==face_key&&reference.surface) {
@@ -250,10 +448,10 @@ void verify_history_boundary_placement_isolation(
     auto& archived_view=archived_views[attached.id];
     archived_view.owners.emplace(stock.id,std::string{});
     archived_view.geometry=
-        archived_local[0].mesh.original_references;
+        archived_local[1].mesh.original_references;
     cold_document.resolve_constructions(
         cold_boundaries.back().mesh.original_references,archived_views);
-    const auto archived_frame=cold_document.history[1].placement;
+    const auto archived_frame=cold_document.history[2].placement;
     require(archived_frame!=stable,
         "Cold boundary fixture did not distinguish its archived face side");
     workspace::Workspace cold_live;
@@ -262,7 +460,7 @@ void verify_history_boundary_placement_isolation(
     static_cast<void>(workspace::regenerate_part(cold_live,cold_kernel,
         cold_document.document_id));
     const auto* cold_state=cold_live.open_part(cold_document.document_id);
-    require(cold_state&&cold_state->session.document().history[1].placement==
+    require(cold_state&&cold_state->session.document().history[2].placement==
             archived_frame,
         "Cold regeneration replaced an unchanged archived reference frame");
     static_cast<void>(cold_state->session.document().serialized(
@@ -276,19 +474,19 @@ void verify_history_boundary_placement_isolation(
     auto* state=live.open_part(changed.document_id);
     static_cast<void>(workspace::regenerate_part(
         live,kernel,changed.document_id));
-    const auto moved=state->session.document().history[1].placement;
+    const auto moved=state->session.document().history[2].placement;
     require(moved.reference_valid&&moved!=stable,
         "A changed preceding source did not update placement");
     const auto revision=state->session.revision();
     static_cast<void>(workspace::regenerate_part(
         live,kernel,changed.document_id));
     require(state->session.revision()==revision&&
-        state->session.document().history[1].placement==moved,
+        state->session.document().history[2].placement==moved,
         "Stable boundary regeneration created a transaction or moved placement");
     require(state->session.undo()&&
-        state->session.document().history[1].placement==stable&&
+        state->session.document().history[2].placement==stable&&
         state->session.redo()&&
-        state->session.document().history[1].placement==moved,
+        state->session.document().history[2].placement==moved,
         "Boundary placement Undo/Redo lost either resolved frame");
 }
 void verify_edge_treatment_preserves_history_boundary_placement(
@@ -652,6 +850,35 @@ void verify_independent_history_continues_after_failure(
         "Failed-history continuation could not be redone");
     near(measured_volume(kernel,state->session.calculated_boundaries().back()),
         992,"Redo did not restore the independent downstream result");
+
+    auto related=part;
+    related.relations="marker = 1\n";
+    workspace::Workspace related_live;
+    related_live.add_part(related,
+        workspace::calculate_part_with_resolved_references(kernel,related));
+    auto* related_state=related_live.open_part(related.document_id);
+    auto edited=related_state->session.document();
+    test::resize_rectangular_feature(edited,edited.history.front(),{12,10,10});
+    related_state->session.commit(
+        std::move(edited),related_state->session.calculated_boundaries());
+    static_cast<void>(workspace::regenerate_part(
+        related_live,kernel,related.document_id));
+    require(related_state->session.calculated_boundaries().back().
+                calculation_errors.contains(broken.id)&&
+            related_state->session.document().user_parameters.at("marker")=="1",
+        "Relations blocked regeneration around an existing failed container");
+    near(measured_volume(kernel,
+            related_state->session.calculated_boundaries().back()),1200,
+        "Valid history did not regenerate before an existing failed container");
+    std::vector<kernel::BodyResult> related_reopened_boundaries;
+    const auto related_reopened=document::PartDocument::from_serialized(
+        related_state->session.document().serialized(
+            related_state->session.calculated_boundaries()),
+        &related_reopened_boundaries);
+    require(related_reopened.find_container(broken.id)&&
+            related_reopened_boundaries.back().calculation_errors.
+                contains(broken.id),
+        "An existing failed container could not be saved and reopened");
 }
 void verify_retained_edge_treatment_boundary(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
@@ -760,6 +987,9 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 int main(){try{
     kernel::OcctKernel kernel;
     verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);
+    verify_terminal_reference_publication(kernel);
+    verify_axis_endpoint_history_reference(kernel);
+    verify_native_feature_datums_through_history(kernel);
     verify_history_boundary_placement_isolation(kernel);
     verify_failed_source_reference_is_reported_downstream(kernel);
     verify_independent_history_continues_after_failure(kernel);

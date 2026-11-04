@@ -2191,6 +2191,7 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
     document.family=zima::document::family_document_from_json(root.at("family"));
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    document.sketch_views = zima::document::parse_sketch_views(root.value("sketch_views", std::string("{}")));
     static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections=zima::document::parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements=zima::document::parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
@@ -2532,6 +2533,7 @@ nlohmann::json AssemblyDocument::serialized(
         {"family", zima::document::family_document_json(family)},
         {"family_table", family_table},
         {"named_views", named_views},
+        {"sketch_views", zima::document::serialize_sketch_views(sketch_views)},
         {"sections",nlohmann::json::parse(zima::document::serialize_sections(sections))},
         {"measurements",nlohmann::json::parse(zima::document::serialize_measurements(measurements))},
         {"symbol_annotations",symbols::placements_json(symbol_annotations)},

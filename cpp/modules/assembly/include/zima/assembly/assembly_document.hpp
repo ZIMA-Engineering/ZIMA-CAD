@@ -280,6 +280,7 @@ public:
     zima::document::FamilyDocument family;
     std::string family_table{"{\"bindings\":{},\"columns\":[],\"instances\":[]}"};
     std::string named_views{"[]"};
+    zima::document::SketchViewStates sketch_views;
     std::vector<zima::document::SectionDefinition> sections;
     std::vector<zima::kernel::SavedMeasurement> measurements;
     std::vector<zima::symbols::Placement> symbol_annotations;

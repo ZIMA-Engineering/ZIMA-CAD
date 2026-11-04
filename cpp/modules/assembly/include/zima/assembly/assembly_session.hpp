@@ -35,6 +35,8 @@ public:
     void update_source_geometry(AssemblyDocument document);
     bool undo();
     bool redo();
+    // Camera metadata is saved without a modeling Undo item or mate solve.
+    void remember_sketch_view(const std::string& id, document::SketchViewState);
     // Append a deferred metadata batch. Owner/session storage must stay stable
     // until the caller applies or discards it on the Workspace owner thread.
     void prepare_native_file_rebase(document::FileRelocationEdits&, const std::filesystem::path& owning_file);
@@ -63,6 +65,7 @@ private:
     std::uint64_t next_revision_{1};
     std::uint64_t saved_revision_{};
     std::uint64_t saved_dimension_allocations_{};
+    document::SketchViewStates saved_sketch_views_;
 };
 
 }  // namespace zima::assembly

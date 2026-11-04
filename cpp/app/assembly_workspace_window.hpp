@@ -108,6 +108,9 @@ public:
     [[nodiscard]] const std::string& active_occurrence_path_for_test() const {
         return workspace_.active_occurrence_path();
     }
+    [[nodiscard]] const zima::sketcher::Sketch* active_sketch_for_test() const {
+        return active_sketch();
+    }
 
 private:
     bool closing_{};
@@ -495,6 +498,8 @@ private:
     std::optional<std::size_t> pending_curve_axis_index_;
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
     std::optional<zima::kernel::ViewerMesh> primitive_origin_preview_mesh_;
+    // Exactly one presentation channel owns the pending Origin/work plane.
+    bool primitive_origin_preview_in_overlay_{};
     std::string sketch_properties_preview_id_;
     std::string sketch_properties_body_id_;
     zima::kernel::ViewerReferenceGeometry construction_reference_geometry_;
@@ -552,6 +557,7 @@ private:
     std::string sketch_view_state_id_;
     bool sketch_view_back_{};
     int sketch_view_quarter_turns_{};
+    zima::document::SketchViewStates sketch_view_states_;
     std::string selected_sketch_id_;
     std::string selected_sketch_segment_id_;
     std::string selected_sketch_circle_id_;
@@ -966,6 +972,8 @@ private:
     void align_active_sketch_view(bool fit_view = true);
     void flip_active_sketch_view();
     void rotate_active_sketch_view();
+    void remember_active_sketch_view();
+    void persist_sketch_views();
     void finish_active_sketch();
     void set_sketch_placement_selection_contract();
     void configure_sketch_box_selection(bool sketch_available);

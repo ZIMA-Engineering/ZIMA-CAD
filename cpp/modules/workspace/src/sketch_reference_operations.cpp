@@ -70,27 +70,34 @@ void populate_external_reference_cache(
         if(std::ranges::count_if(values,[&](const auto& value){return matches(value.reference);})>1)
             throw std::invalid_argument("Persisted source reference is ambiguous");
     };
-    if(sketcher::is_external_endpoint_kind(reference.kind)&&sketcher::is_face_curve_key(reference.source_semantic_key)) {
+    if(sketcher::is_external_edge_point_kind(reference.kind)&&sketcher::is_face_curve_key(reference.source_semantic_key)) {
         const auto paths=sketch.external_face_reference_paths(source,
             {reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path});
         if(!paths||paths->size()!=1||paths->front().size()!=2)
             throw std::runtime_error("Source face cannot be projected into the Sketch plane");
-        reference.cached_points={reference.kind==sketcher::ExternalReferenceKind::EdgeStart?
-            paths->front().front():paths->front().back()};
+        auto source=reference;source.broken=false;source.cached_points=paths->front();source.cached_paths.clear();
+        const auto point=sketcher::external_edge_point_position(source,reference.kind);
+        if(!point)throw std::runtime_error("Source face cannot be projected into the Sketch plane");
+        reference.cached_points={*point};
         reference.cached_paths.clear();reference.exact_spline.reset();reference.infinite=false;reference.broken=false;return;
     }
-    if(reference.kind==sketcher::ExternalReferenceKind::Edge || sketcher::is_external_endpoint_kind(reference.kind))unique(source.edges);
+    if(reference.kind==sketcher::ExternalReferenceKind::Edge || sketcher::is_external_edge_point_kind(reference.kind))unique(source.edges);
     if(reference.kind==sketcher::ExternalReferenceKind::Point)unique(source.points);
     if(reference.kind==sketcher::ExternalReferenceKind::Axis||reference.kind==sketcher::ExternalReferenceKind::AxisPoint)unique(source.axes);
-    if (reference.kind == zima::sketcher::ExternalReferenceKind::Edge || sketcher::is_external_endpoint_kind(reference.kind)) {
+    if (reference.kind == zima::sketcher::ExternalReferenceKind::Edge || sketcher::is_external_edge_point_kind(reference.kind)) {
         const auto edge = std::find_if(source.edges.begin(), source.edges.end(),
             [&](const auto& candidate) { return matches(candidate.reference); });
         if (edge == source.edges.end()) {
             throw std::runtime_error("Persisted source edge geometry is unavailable");
         }
-        if (sketcher::is_external_endpoint_kind(reference.kind)) {
+        if (sketcher::is_external_edge_point_kind(reference.kind)) {
             if(edge->points.size()<2)throw std::runtime_error("Source edge has no endpoints");
-            reference.cached_points={sketch.local_point(reference.kind==sketcher::ExternalReferenceKind::EdgeStart ? edge->points.front() : edge->points.back())};
+            auto projected=reference;projected.broken=false;projected.cached_paths.clear();projected.cached_points.clear();
+            for(const auto& p:edge->points)projected.cached_points.push_back(sketch.local_point(p));
+            projected.exact_spline=sketch.project_external_spline(*edge);
+            const auto point=sketcher::external_edge_point_position(projected,reference.kind);
+            if(!point)throw std::runtime_error("Persisted source edge geometry is unavailable");
+            reference.cached_points={*point};
             reference.exact_spline.reset();
             reference.broken=false;
             return;
@@ -148,7 +155,7 @@ using Kind=sketcher::ExternalReferenceKind;
 using Reference=sketcher::SketchExternalReference;
 Kind source_kind(Kind kind,const std::string& key) {
     if(sketcher::is_face_curve_key(key))return Kind::Face;
-    return sketcher::is_external_endpoint_kind(kind)?Kind::Edge:kind==Kind::AxisPoint?Kind::Axis:kind;
+    return sketcher::is_external_edge_point_kind(kind)?Kind::Edge:kind==Kind::AxisPoint?Kind::Axis:kind;
 }
 using Key=std::tuple<Kind,std::string,std::string,std::string>;
 // Copy only selected original geometry, not a complete Part or Assembly mesh.

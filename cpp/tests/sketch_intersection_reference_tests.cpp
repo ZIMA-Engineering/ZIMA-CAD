@@ -147,7 +147,7 @@ void verify(kernel::OcctKernel& kernel,unsigned& cases) {
             if(circular)check(target.circles.size()==1&&std::abs(target.circles.front().radius-5)<1e-7,"Refresh deformed a native circle");
             else {
                 check(actual.cached_points.size()>=2,"Open branch lost endpoints");
-                for(const auto& ref:target.external_references)if(sketcher::is_external_endpoint_kind(ref.kind))
+                for(const auto& ref:target.external_references)if(sketcher::is_external_edge_point_kind(ref.kind))
                     check(ref.intersection==source.intersection&&!ref.broken,"Open branch endpoint lost selected branch identity");
             }
             const auto stable=target.serialized();const auto again=workspace::calculate_part_sketch_intersections(kernel,session,target);
@@ -240,19 +240,25 @@ void verify_multiple_branches(kernel::OcctKernel& kernel,unsigned& cases) {
     auto pending=f.part.sketches.back();const auto branches=workspace::prepare_sketch_intersection_branches(live,kernel,f.part.document_id,pending,cap,cap);
     check(branches.size()==2&&branches[0].intersection!=branches[1].intersection,"Disconnected face sections were merged");
     for(const auto& branch:branches){pending.add_external_reference(branch);static_cast<void>(pending.add_external_profile_geometry(branch.id));}
-    check(pending.segments.size()==2&&pending.external_references.size()==6,"Branch endpoints were shared across different sections");
+    check(pending.segments.size()==2&&pending.external_references.size()==8,"Branch endpoints or midpoints were shared across different sections");
     f.part.sketches.back()=pending;
     for(double x:{60.,40.,50.}) {
         f.part.history.back().placement.x=x;f.part.resolve_constructions();auto& actual=f.part.sketches.back();
         const auto values=workspace::calculate_part_sketch_intersections(kernel,document::DocumentSession(f.part,f.bodies),actual);
-        check(values.size()==6&&std::ranges::none_of(values,[](const auto& r){return r.broken;}),"Section edit lost a branch or endpoint");
+        check(values.size()==8&&std::ranges::none_of(values,[](const auto& r){return r.broken;}),"Section edit lost a branch or keypoint");
         static_cast<void>(actual.refresh_external_references(f.part.document_id,{},false,nullptr,false,&values));
         for(const auto& branch:branches)check(reference(actual,branch.id).intersection==branch.intersection,"Section edit rebound a disconnected branch");
+        for(const auto& point:actual.external_references)if(point.kind==sketcher::ExternalReferenceKind::EdgeMidpoint) {
+            const auto branch=std::ranges::find_if(actual.external_references,[&](const auto& candidate){return candidate.kind==sketcher::ExternalReferenceKind::Edge&&candidate.intersection==point.intersection;});
+            check(branch!=actual.external_references.end(),"Section midpoint lost its own source branch");
+            const auto& a=branch->cached_points.front();const auto& b=branch->cached_points.back();const auto& p=point.cached_points.front();
+            check(std::hypot(p[0]-(a[0]+b[0])*.5,p[1]-(a[1]+b[1])*.5)<1e-7,"Section midpoint does not follow its exact straight branch");
+        }
         for(const auto& point:actual.points)check(std::abs(point.y-10)<1e-7&&(point.x<=20+1e-7||point.x>=60-1e-7),"Section contour escaped bounded face domains");
         ++cases;
     }
     auto actual=f.part.sketches.back();actual.remove_geometry(branches.front().id);
-    check(actual.external_references.size()==3&&!reference(actual,branches.back().id).broken,"Removing one section removed another section's endpoints");++cases;
+    check(actual.external_references.size()==4&&!reference(actual,branches.back().id).broken,"Removing one section removed another section's keypoints");++cases;
 }
 void verify_qualified_copy(kernel::OcctKernel& kernel,unsigned& cases) {
     auto f=fixture(kernel,true,false,false);const auto& local=f.bodies.back().body_boundaries.begin()->second.back();

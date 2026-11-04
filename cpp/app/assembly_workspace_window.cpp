@@ -132,6 +132,7 @@ bool AssemblyWorkspaceWindow::confirm_application_close() {
             tr("Nejprve dokončete nebo zrušte otevřenou úpravu modelu."));
         return false;
     }
+    persist_sketch_views();
     std::vector<std::string> dirty;
     QStringList names;
     for (const auto& state : workspace_.documents()) {

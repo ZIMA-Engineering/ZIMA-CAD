@@ -156,6 +156,7 @@ DocumentSession::DocumentSession(
     retain_shaft_reference_geometry(current_->document,*current_->calculated_boundaries);
     current_->document.synchronize_dimension_identifiers();
     saved_dimension_allocations_ = current_->document.dimension_identifiers.allocation_count();
+    saved_sketch_views_ = current_->document.sketch_views;
 }
 
 DocumentSession::States DocumentSession::copy_states(const States& states) {
@@ -181,7 +182,8 @@ DocumentSession::DocumentSession(const DocumentSession& other,bool include_histo
     : data_generation_(other.data_generation_), current_(std::make_shared<State>(*other.current_)),
       undo_(include_history?copy_states(other.undo_):States{}), redo_(include_history?copy_states(other.redo_):States{}),
       next_revision_(other.next_revision_), saved_revision_(other.saved_revision_),
-      saved_dimension_allocations_(other.saved_dimension_allocations_) {current_->externally_mutable=false;}
+      saved_dimension_allocations_(other.saved_dimension_allocations_),
+      saved_sketch_views_(other.saved_sketch_views_) {current_->externally_mutable=false;}
 DocumentSession& DocumentSession::operator=(const DocumentSession& other) {
     if(this!=&other){DocumentSession copy(other);*this=std::move(copy);}
     return *this;
@@ -191,6 +193,7 @@ const PartDocument& DocumentSession::document() const { return current_->documen
 std::uint64_t DocumentSession::revision() const { return current_->revision; }
 bool DocumentSession::is_dirty() const {
     return current_->revision != saved_revision_ || current_->calculated_state_dirty ||
+        current_->document.sketch_views != saved_sketch_views_ ||
         current_->document.dimension_identifiers.allocation_count() != saved_dimension_allocations_;
 }
 bool DocumentSession::can_undo() const { return !undo_.empty(); }
@@ -372,6 +375,7 @@ void DocumentSession::replace(
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.synchronize_dimension_identifiers();
     const auto allocations=document.dimension_identifiers.allocation_count();
+    auto saved_views=document.sketch_views;
     auto next=std::make_shared<State>(State{std::move(document),
         std::make_shared<const std::vector<zima::kernel::BodyResult>>(
             std::move(calculated_boundaries)),{},0,false});
@@ -381,6 +385,7 @@ void DocumentSession::replace(
     next_revision_ = 1;
     saved_revision_ = 0;
     saved_dimension_allocations_ = allocations;
+    saved_sketch_views_ = std::move(saved_views);
     ++data_generation_;
 }
 
@@ -496,6 +501,7 @@ bool DocumentSession::step(States& from,States& to) {
     // Allocate an independent writable candidate before changing either stack.
     // Unshared histories still replay their original geometry allocations.
     auto next=from.back().use_count()==1?from.back():std::make_shared<State>(*from.back());
+    next->document.sketch_views=current_->document.sketch_views;
     to.push_back(std::move(current_));
     current_=std::move(next);
     current_->document.dimension_identifiers=std::move(identifiers);
@@ -514,11 +520,22 @@ void DocumentSession::activate_body(const std::string& id) {
     current_->document.body_history.activate(id);
 }
 
+void DocumentSession::remember_sketch_view(const std::string& id, SketchViewState view) {
+    auto& views=current_->document.sketch_views;
+    const auto found=views.find(id);
+    if((found==views.end()&&view==SketchViewState{})||
+        (found!=views.end()&&found->second==view))return;
+    static_cast<void>(serialize_sketch_views({{id,view}}));
+    if(view==SketchViewState{})views.erase(id);else views[id]=view;
+    ++data_generation_;
+}
+
 void DocumentSession::update_family_evaluated(FamilyDocument value) {
     current_->document.family=std::move(value);current_->calculated_state_dirty=true;++data_generation_;
 }
 
 void DocumentSession::mark_saved() {
+    saved_sketch_views_ = current_->document.sketch_views;
     saved_revision_ = current_->revision;
     saved_dimension_allocations_ = current_->document.dimension_identifiers.allocation_count();
     current_->calculated_state_dirty = false;

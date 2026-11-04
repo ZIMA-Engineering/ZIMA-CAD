@@ -131,6 +131,8 @@ std::string calculation_definition_fingerprint(const nlohmann::json& root) {
         // skin geometry. The inserted SheetFormRequest hashes it explicitly.
         if (key == "form_outward") continue;
         if (key == "form_corner_finish") continue;
+        // Sketcher camera presentation cannot invalidate calculated geometry.
+        if (key == "sketch_views") continue;
         output << nlohmann::json(key) << ':';
         if (key == "history") {
             // This array is an entity table, not the modeling order. The INI
@@ -808,6 +810,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
         {"family_table", ini_value(ini, "Document", "family_table",
             "{\"bindings\":{},\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
+        {"sketch_views", ini_value(ini, "Document", "sketch_views", "{}")},
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
         {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
         {"symbol_annotations",nlohmann::json::parse(ini_value(ini,"Document","symbol_annotations","[]"))},
@@ -1005,6 +1008,7 @@ NativeCalculatedCachePtr write_part_ini(
         {"family", root.at("family").dump()},
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
+        {"sketch_views", root.value("sketch_views", std::string("{}"))},
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
         {"measurements", root.value("measurements",nlohmann::json::array()).dump()},
         {"symbol_annotations",root.value("symbol_annotations",nlohmann::json::array()).dump()},
@@ -6131,7 +6135,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             }
         }
         if(container.feature_kind==FeatureKind::Feature) {
-            if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container,editing_object_id==container.id));
+            if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container));
             continue;
         }
         const bool basic_solid = has_origin_display_controls(container.feature_kind);
@@ -11526,6 +11530,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     document.family=family_document_from_json(root.at("family"));
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    document.sketch_views = parse_sketch_views(root.value("sketch_views", std::string("{}")));
     static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements = parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
@@ -13574,6 +13579,7 @@ nlohmann::json PartDocument::serialized(
         {"family", family_document_json(family)},
         {"family_table", family_table},
         {"named_views", named_views},
+        {"sketch_views", serialize_sketch_views(sketch_views)},
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
         {"measurements", nlohmann::json::parse(serialize_measurements(measurements))},
         {"symbol_annotations",symbols::placements_json(symbol_annotations)},

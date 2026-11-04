@@ -44,8 +44,6 @@ public:
         : QWidget(parent), initial_(std::move(initial)) {
         content_=new QVBoxLayout(this);content_->setContentsMargins(0,0,0,0);
         type_=feature_type_control(this,initial_.type);
-        show_axis_3d_=new QCheckBox(tr("Zobrazovat ve 3D"),this);show_axis_3d_->setObjectName("featureShowAxis3D");
-        show_axis_3d_->setChecked(initial_.axis_visible_in_3d);
         plane_group_=new QGroupBox(tr("Rovina"),this);
         plane_group_->setObjectName("featurePlaneGroup");
         auto* sketch_form=new QFormLayout(plane_group_);
@@ -55,8 +53,17 @@ public:
         auto* plane=new QComboBox(this);plane_=plane;plane->setObjectName("featureProfilePlane");
         plane->addItem("XY",0);plane->addItem("XZ",1);plane->addItem("YZ",2);
         install_automatic_work_plane(plane,true);
-        sketch_form->addRow(tr("Výchozí rovina"),plane);
+        plane_label_=new QLabel(tr("Výchozí rovina"),plane_group_);
+        sketch_form->addRow(plane_label_,plane);
+        axis_direction_=new QComboBox(this);axis_direction_->setObjectName("featureAxisDirection");
+        axis_direction_->addItem("X",static_cast<int>(sketcher::SketchPlane::YZ));
+        axis_direction_->addItem("Y",static_cast<int>(sketcher::SketchPlane::XZ));
+        axis_direction_->addItem("Z",static_cast<int>(sketcher::SketchPlane::XY));
+        install_automatic_work_plane(axis_direction_,true);
+        axis_direction_label_=new QLabel(tr("Směr osy"),plane_group_);
+        sketch_form->addRow(axis_direction_label_,axis_direction_);
         auto* offset=number("featureProfileOffset",false);sketch_form->addRow(tr("Odsazení roviny"),offset);
+        plane_rows_=sketch_form;
         offset_=offset;offset->setValue(initial_.profile_plane_offset);
         offset_display_=offset->value();
         auto* sketch=new QPushButton(tr("Skica"),sketch_group);style_sketch_button(sketch);sketch->setMinimumHeight(40);
@@ -231,7 +238,6 @@ public:
         value.result_type=result_->currentIndex()==1?document::ProfileResultType::Surface:
             result_->currentIndex()==2?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
         value.symmetric=symmetric_;value.origin_centerline=origin_axis_->isChecked();
-        value.axis_visible_in_3d=show_axis_3d_->isChecked();
         value.centroid_centerline=centroid_axis_->isChecked();
         value.individual_centroid_centerlines=individual_centroid_axes_->isChecked();
         for(int i=0;i<2;++i)value.sides[i]=capture_side(sides_[i],sides_[i].mode->currentIndex());
@@ -246,11 +252,11 @@ public:
         // Keep them together instead of mixing the axes with symmetric extent,
         // direction and side swapping on the operation row below.
         layout->addWidget(origin_axis_);layout->addWidget(centroid_axis_);
-        layout->addWidget(individual_centroid_axes_);
-        layout->addWidget(show_axis_3d_);layout->addStretch();
+        layout->addWidget(individual_centroid_axes_);layout->addStretch();
         return row;
     }
     QComboBox* plane_control() const { return plane_; }
+    QComboBox* axis_direction_control() const { return axis_direction_; }
     QDoubleSpinBox* offset_control() const { return offset_; }
     QDoubleSpinBox* thickness_control() const { return thickness_; }
     QPushButton* sketch_button() const { return sketch_; }
@@ -358,13 +364,12 @@ public:
         for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
         if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
-        if(!isAncestorOf(show_axis_3d_))connect(show_axis_3d_,&QCheckBox::toggled,this,notify);
     }
 protected:
     void changeEvent(QEvent* event) override {
         QWidget::changeEvent(event);
         if(event->type()==QEvent::LanguageChange&&draft_notice_) {
-            show_axis_3d_->setText(tr("Zobrazovat ve 3D"));
+            refresh_type();
             draft_notice_->setText(tr("Exact preview"));
             for(auto& side:sides_)if(side.rows&&side.correction)
                 if(auto* label=qobject_cast<QLabel*>(side.rows->labelForField(side.correction)))label->setText(tr("Korekce"));
@@ -384,8 +389,9 @@ private:
         double displayed_twist_angle{};
     };
     QVBoxLayout* content_{};
-    QComboBox* type_{};
-    QCheckBox* show_axis_3d_{};
+    QComboBox *type_{},*axis_direction_{};
+    QLabel *plane_label_{},*axis_direction_label_{};
+    QFormLayout* plane_rows_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
@@ -445,9 +451,15 @@ private:
     void refresh_type() {
         const auto type=selected_type();
         const bool modeling=type==document::FeatureType::Modeling;
-        show_axis_3d_->setVisible(type==document::FeatureType::Axis);
+        const bool axis=type==document::FeatureType::Axis;
         const bool lengths=modeling||type==document::FeatureType::Axis;
-        plane_group_->setVisible(type!=document::FeatureType::Point&&type!=document::FeatureType::Axis);
+        plane_group_->setTitle(axis?tr("Osa"):tr("Rovina"));
+        plane_label_->setText(tr("Výchozí rovina"));
+        axis_direction_label_->setText(tr("Směr osy"));
+        plane_group_->setVisible(type!=document::FeatureType::Point);
+        plane_rows_->setRowVisible(plane_,!axis);
+        plane_rows_->setRowVisible(axis_direction_,axis);
+        plane_rows_->setRowVisible(offset_,!axis);
         sketch_group_->setVisible(modeling||type==document::FeatureType::Sketch);
         result_group_->setVisible(modeling);
         options_row_->setVisible(lengths);

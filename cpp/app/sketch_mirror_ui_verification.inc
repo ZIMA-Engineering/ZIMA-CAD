@@ -1,10 +1,223 @@
 #include "sketch_rectangle_drag_ui_verification.inc"
+
+static void verify_mirror_trim_hole_dimension_ui(
+        QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool value,const char* message) {
+        if(!value)throw std::runtime_error(message);
+    };
+    const auto flush=[&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    for(const bool drive_reflected:{false,true}) {
+        auto part=document::PartDocument::create_default();
+        auto feature=document::PartDocument::create_sketch_container();
+        auto sketch=sketcher::Sketch::create_default();
+        sketch.owner_container_id=feature.id;
+        constexpr double center_x=30.;
+        constexpr double center_y=-36.39238741766315;
+        constexpr double outer_radius=7.679739211000449;
+        const auto source_outer=sketch.add_circle(
+            center_x,center_y,outer_radius);
+        const auto source_hole=sketch.add_circle(center_x,center_y,3.5);
+        const auto left=sketch.add_segment(center_x-18.81904359069296,
+            -6.7707900817850035,center_x-7.2262673488485705,
+            -38.992282521690015);
+        const auto right=sketch.add_segment(center_x+18.81904359069296,
+            -6.7707900817850035,center_x+7.2262673488485705,
+            -38.992282521690015);
+        const auto contact=[&](const std::string& segment_id,bool first) {
+            const auto segment=std::ranges::find(
+                sketch.segments,segment_id,&sketcher::SketchSegment::id);
+            return first?segment->first_point_id:segment->second_point_id;
+        };
+        static_cast<void>(sketch.add_point_on_circle_constraint(
+            contact(left,false),source_outer));
+        static_cast<void>(sketch.add_point_on_circle_constraint(
+            contact(right,false),source_outer));
+        const auto mirrored=sketch.mirror_geometry(
+            {source_outer,source_hole,left,right},"sketch_axis:x");
+        check(mirrored.geometry_ids.size()==4,
+            "Mirror/Trim GUI fixture lost mirrored geometry");
+        const auto reflected_outer=mirrored.geometry_ids[0];
+        const auto reflected_hole=mirrored.geometry_ids[1];
+        const auto topology=sketcher::sketch_trim_topology(sketch,false);
+        const auto removable=std::ranges::find_if(topology,[&](const auto& piece) {
+            return piece.geometry_id==reflected_outer;
+        });
+        check(removable!=topology.end(),
+            "Mirror/Trim GUI fixture has no reflected Trim piece");
+        static_cast<void>(sketcher::apply_sketch_trim(sketch,{*removable}));
+        sketch.refresh_curve_dependencies();
+        check(std::ranges::find(sketch.arcs,reflected_outer,
+                  &sketcher::SketchArc::id)!=sketch.arcs.end()&&
+              std::ranges::find(sketch.circles,source_hole,
+                  &sketcher::SketchCircle::id)!=sketch.circles.end()&&
+              std::ranges::find(sketch.circles,reflected_hole,
+                  &sketcher::SketchCircle::id)!=sketch.circles.end(),
+            "Mirror/Trim GUI fixture did not preserve both holes");
+        part.history={feature};part.sketches={sketch};
+        document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Mirror Trim dimension");
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+        part.set_body_history(graph);part.resolve_constructions();
+        const auto path=directory/("sketch-mirror-trim-hole-"+
+            std::to_string(drive_reflected)+".prtz");
+        part.save(path);
+
+        app::AssemblyWorkspaceWindow window(
+            QString::fromStdString(directory.string()));
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
+        window.resize(1200,900);window.show();
+        check(window.open_document_path(QString::fromStdString(path.string())),
+            "Mirror/Trim dimension fixture cannot open");flush();
+        check(activate_test_body(application,window,body),
+            "Mirror/Trim dimension Body cannot activate");flush();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* row{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&
+               (*i)->data(0,Qt::UserRole+3)=="part-sketch") {row=*i;break;}
+        check(row,"Mirror/Trim dimension Sketch row missing");
+        window.show_tree_item_properties(row);flush();
+        auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+        check(open,"Mirror/Trim dimension Sketch Open action missing");
+        open->click();flush();
+        QEventLoop animation;
+        QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+        auto* view=dynamic_cast<viewer::MeshView*>(
+            window.findChild<QOpenGLWidget*>());
+        check(view,"Mirror/Trim dimension View missing");
+        const auto local=[&](QPointF pixel) {
+            const auto ray=view->ray_at(pixel);
+            check(ray.has_value(),"Mirror/Trim dimension ray missing");
+            const auto point=sketch.intersect_ray(ray->first,ray->second);
+            check(point.has_value(),"Mirror/Trim dimension plane missing");
+            return *point;
+        };
+        const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+        const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100;
+        const double vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100;
+        const double det=ux*vy-uy*vx;
+        const auto screen=[&](double x,double y) {
+            return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,
+                (ux*(y-a[1])-uy*(x-a[0]))/det);
+        };
+        const auto mouse=[&](QPointF point,QEvent::Type type,
+                Qt::MouseButton button,Qt::MouseButtons buttons=Qt::NoButton) {
+            QMouseEvent event(type,point,
+                QPointF(view->mapToGlobal(point.toPoint())),button,buttons,
+                Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        const auto click=[&](QPointF point) {
+            mouse(point,QEvent::MouseMove,Qt::NoButton);
+            mouse(point,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            mouse(point,QEvent::MouseButtonRelease,Qt::LeftButton);
+        };
+        const auto pick=[&](QPointF point,const std::string& key) {
+            const auto candidates=view->selection_candidates_at(point);
+            const auto target=std::ranges::find(
+                candidates,key,&viewer::ViewerCandidate::semantic_key);
+            check(target!=candidates.end(),
+                "Mirror/Trim hole is not offered to the dimension picker");
+            mouse(point,QEvent::MouseMove,Qt::NoButton);
+            for(auto current=candidates.begin();current!=target;++current) {
+                mouse(point,QEvent::MouseButtonPress,Qt::RightButton,
+                    Qt::RightButton);
+                mouse(point,QEvent::MouseButtonRelease,Qt::RightButton);
+            }
+            mouse(point,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            mouse(point,QEvent::MouseButtonRelease,Qt::LeftButton);
+        };
+        auto* dimension=window.findChild<QAction*>(
+            "sketchUniversalDimensionAction");
+        check(dimension&&dimension->isEnabled(),
+            "Universal Dimension is unavailable after Mirror/Trim");
+        dimension->trigger();flush();
+        const auto driven=drive_reflected?reflected_hole:source_hole;
+        const double hole_y=drive_reflected?-center_y:center_y;
+        pick(screen(center_x+3.5,hole_y),"circle:"+driven);
+        click(screen(center_x+13,hole_y+13));
+        QEventLoop editor_delay;
+        QTimer::singleShot(30,&editor_delay,&QEventLoop::quit);
+        editor_delay.exec();flush();
+        check(view->mesh().dimensions.size()==1,
+            "Universal Dimension did not create the Mirror/Trim hole diameter");
+        const auto& shown=view->mesh().dimensions.front();
+        viewer::ViewerCandidate candidate;
+        candidate.kind=viewer::CandidateKind::Dimension;
+        candidate.owner_id=sketch.id;
+        candidate.semantic_key=shown.reference.semantic_key;
+        candidate.geometry_index=0;
+        if(auto* automatic=view->findChild<QLineEdit*>(
+                "inlineDimensionValueEdit");automatic&&automatic->isVisible()) {
+            automatic->setText("8");
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(automatic,&enter);flush();
+        } else {
+            window.edit_dimension_inline(candidate);flush();
+            auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(field&&field->isVisible(),
+                "Created Mirror/Trim hole diameter is not editable");
+            field->setText("8");
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(field,&enter);flush();
+        }
+        check(view->candidate_dimension_value(candidate).has_value()&&
+              std::abs(*view->candidate_dimension_value(candidate)-8)<1e-6,
+            "Mirror/Trim hole diameter edit did not reach the View");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        check(view->mesh().dimensions.size()==1,
+            "Mirror/Trim hole value Undo removed the dimension definition");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        check(view->mesh().dimensions.empty(),
+            "Mirror/Trim hole creation Undo failed");
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        check(view->mesh().dimensions.size()==1,
+            "Mirror/Trim hole creation Redo failed");
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        check(view->mesh().dimensions.size()==1,
+            "Mirror/Trim hole value Redo failed");
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        for(auto* dialog:window.findChildren<QDialog*>())
+            if(auto* properties=dynamic_cast<app::SketchPropertiesDialog*>(dialog);
+                    properties&&properties->isVisible()) {
+                properties->findChild<QDialogButtonBox*>()->button(
+                    QDialogButtonBox::Ok)->click();flush();break;
+            }
+        check(window.execute_console_command("save").ok,
+            "Mirror/Trim hole dimension Save failed");
+        const auto reopened=document::PartDocument::load(path);
+        const auto result=std::ranges::find(
+            reopened.sketches,sketch.id,&sketcher::Sketch::id);
+        check(result!=reopened.sketches.end()&&result->dimensions.size()==1&&
+              result->dimensions.front().kind==sketcher::DimensionKind::Diameter,
+            "Mirror/Trim hole diameter did not reopen");
+        const auto source=std::ranges::find(
+            result->circles,source_hole,&sketcher::SketchCircle::id);
+        const auto reflected=std::ranges::find(
+            result->circles,reflected_hole,&sketcher::SketchCircle::id);
+        check(source!=result->circles.end()&&reflected!=result->circles.end()&&
+              std::abs(source->radius-4)<1e-6&&
+              std::abs(reflected->radius-4)<1e-6,
+            "Mirror/Trim hole diameter did not propagate across the axis");
+        check(std::ranges::find(result->arcs,reflected_outer,
+                  &sketcher::SketchArc::id)!=result->arcs.end(),
+            "Dimensioning a Mirror/Trim hole changed the trimmed outer curve");
+    }
+    std::cout<<"Mirror/Trim hole GUI: both mirrored selection orders, diameter edit, Undo/Redo and native reopen passed\n";
+}
+
 int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::path& directory) {
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_RECTANGLE_ONLY"))return verify_sketch_rectangle_drag_ui(application,directory);
     using namespace zima;
     try {
         const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        verify_mirror_trim_hole_dimension_ui(application,directory);
         for(int case_id=0;case_id<8;++case_id) {
             const int axis_kind=case_id%4;const bool rounded=case_id>=4;
             QSettings preferences(QString::fromStdString((directory/"config.ini").string()),QSettings::IniFormat);
@@ -36,7 +249,7 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             const auto support_before=part.sketches.front().serialized();
             const auto path=directory/("sketch-mirror-"+std::to_string(case_id)+".prtz");part.save(path);
-            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1200,900);window.show();
             check(window.open_document_path(QString::fromStdString(path.string())),"Mirror fixture cannot open");flush();
             check(activate_test_body(application,window,body),"Mirror fixture Body cannot activate");flush();
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};

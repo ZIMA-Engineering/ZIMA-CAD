@@ -1,4 +1,5 @@
 #include <zima/document/named_views.hpp>
+#include <zima/document/sketch_view_state.hpp>
 #include <zima/document/metadata.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -7,6 +8,30 @@
 #include <stdexcept>
 
 namespace zima::document {
+SketchViewStates parse_sketch_views(const std::string& serialized) {
+    try {
+        const auto data=nlohmann::json::parse(serialized);
+        if(!data.is_object())throw std::invalid_argument("Invalid compressed document data.");
+        SketchViewStates result;
+        for(const auto& [id,value]:data.items()) {
+            if(id.empty()||!value.is_object()||value.size()!=2||
+                !value.at("back").is_boolean()||!value.at("sector").is_number_integer()||
+                value.at("sector")<0||value.at("sector")>3)
+                throw std::invalid_argument("Invalid compressed document data.");
+            result.emplace(id,SketchViewState{value.at("back").get<bool>(),value.at("sector").get<int>()});
+        }
+        return result;
+    }catch(const nlohmann::json::exception&){throw std::invalid_argument("Invalid compressed document data.");}
+}
+std::string serialize_sketch_views(const SketchViewStates& views) {
+    auto result=nlohmann::json::object();
+    for(const auto& [id,value]:views) {
+        if(id.empty()||value.sector<0||value.sector>3)
+            throw std::invalid_argument("Invalid compressed document data.");
+        result[id]={{"back",value.back},{"sector",value.sector}};
+    }
+    return result.dump();
+}
 namespace {
 using Json=nlohmann::json;
 constexpr auto invalid="Named views require a name, a rotation quaternion, zoom, pan and reference scale.";

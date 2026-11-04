@@ -16,7 +16,6 @@ using Kind = document::FeatureKind;
 using Error = workspace::ProfileOperationError;
 Json public_feature_parameters(const document::FeatureParameters& feature) {
     auto result=document::serialize_feature_parameters(feature);
-    result["axis_visible_in_3d"]=feature.axis_visible_in_3d;
     for(auto& side:result.at("sides"))if(side.at("operation")=="extrusion")side["operation"]="extrude";
     return result;
 }
@@ -33,7 +32,7 @@ void validate_feature_patch(const Json& patch,const Json& definition){
         if(!value.is_object())throw Error("invalid_arguments","Unknown profile parameter option.");
         for(const auto& [key,item]:value.items())if(!allowed(key))throw Error("invalid_arguments","Unknown profile parameter option.");
     };
-    keys(patch,[&](const auto& key){return definition.contains(key)||key=="reversed_sides"||key=="axis_visible_in_3d";});
+    keys(patch,[&](const auto& key){return definition.contains(key)||key=="reversed_sides";});
     if(!patch.contains("sides")||!patch.at("sides").is_array())return;
     for(const auto& side:patch.at("sides")){
         keys(side,[&](const auto& key){return definition.at("sides")[0].contains(key)||key=="up_to"||key=="axis_enabled"||key=="twist_reverse"||key=="twist_smooth";});

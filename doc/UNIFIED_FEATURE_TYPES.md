@@ -17,50 +17,39 @@ Plane selection and signed offset form a separate Plane section. The Sketch
 button has its own compact section to the right of Plane, on the same row,
 and is present only for Sketch and modeling results.
 All types use the existing OK/Cancel transaction and Sketcher-return lifecycle.
-New Features leave Point, Text and the Axis **Show in 3D** option unchecked; persisted reference points remain
-available to commands and existing Features retain their saved display choices.
+New Features leave Point and Text unchecked; persisted reference points remain
+available to commands. The Axis is the authored result of its Feature and is
+therefore always published in 3D.
 Confirming unchanged properties preserves the calculated geometry and Undo
 boundary. The comparison includes the owned Sketch, so actual Sketch edits
 still calculate and commit. Untouched precise dimensions retain their stored
 value even when the numeric control displays fewer decimal places.
 
-The Axis-only **Show in 3D** checkbox belongs to the same top row as Type,
-Point and Text. Its native/CLI parameter is `axis_visible_in_3d`. It changes
-presentation only: native axis and endpoint identities, dependent references,
-Drawing annotations and calculated body geometry remain available. The Windows
-Properties test covers Cancel, changed and unchanged OK, save/reopen and
-Undo/Redo, with zero geometry calculations and exact unchanged calculated
-history packets. The widget test checks all five languages and both themes.
-
 | Type | Additional controls | Normal View result |
 | --- | --- | --- |
 | Point | None | Point at the Feature work-frame origin and its name |
-| Axis | Independent Length / Up to / None ends, symmetry and Show in 3D | Axis line/endpoints when Show in 3D is enabled; origin/name controlled independently |
+| Axis | Local X/Y/Z direction, independent Length / Up to / None ends and symmetry | Authored axis line and endpoints |
 | Plane | Work plane and offset | Offset plane, its origin and the Feature name |
 | Sketch | Work plane, offset and Sketcher entry | Sketch geometry, origin and Feature name |
 | Extrude | Independent Extrusion/Revolution side controls | The selected result and optional authored paths |
 
 The Axis follows its resolved native work-frame direction. Its internal Sketch
-frame remains persisted, but Axis Properties does not offer a separate default
-plane or plane offset. Lengths are measured from its origin. The
+frame remains persisted. Axis Properties offers a direct local X/Y/Z direction
+choice; Automatic follows the resolved placement frame. It does not expose a
+plane offset. Lengths are measured from its origin. The
 origin-axis checkbox is unnecessary for this type and the centroid option is
 absent. Plane results show only the offset plane. Labels are anchored at the
 origin on that plane, with a readable screen-space gap. The Axis uses the same
-finite dash-dot rendering path as the other native axes; neither hidden optional
-modeling-axis checkbox controls its visibility. Hovering or selecting a Plane
+finite dash-dot rendering path as the other native axes and is always visible
+while the history object is visible. Hovering or selecting a Plane
 highlights its border as well as its origin, and coincident unselected planes
 cannot cover that highlight. Selecting an Axis highlights its
 line and its three defining markers, without adding a fourth midpoint marker.
-The **Point** and **Text** checkboxes control the idle origin marker and name.
-The Axis-only **Show in 3D** checkbox is on that same top row. It controls only
-normal model presentation. Properties and explicit inspection can still show the
-complete authored axis. Its native axis and both endpoint identities remain
-available to references and Drawing Show/Erase regardless of model visibility.
-The optional native `axis_visible_in_3d` override and the matching
-`feature.get` / `feature.set` boolean preserve the setting through type changes,
-save/reopen and Undo/Redo. A display-only change uses the existing presentation
-transaction and must not calculate geometry. This addition is in the development
-candidate; its integrated GUI, factory and template verification is pending.
+The **Point** and **Text** checkboxes control the idle origin marker and name for
+the applicable modeling results. A Feature Axis has no second internal display
+switch: suppressing the history object is the only way to remove the complete
+authored datum from the normal model scene. Its native axis and both endpoint
+identities remain available to references and Drawing Show/Erase.
 Disabling an Axis end preserves its authored length, target and numerical lock.
 The effective disabled extent is zero; its endpoint retains the same native
 identity at the origin. At least one end must remain enabled. Plane and original

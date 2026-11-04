@@ -13,10 +13,14 @@
 #include <zima/kernel/stable_id.hpp>
 #include <iostream>
 #include <set>
+#include <source_location>
 using namespace zima;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-void near(double a,double b,double tolerance=1e-7){check(std::abs(a-b)<tolerance,"FORM equation mismatch");}
+void near(double a,double b,double tolerance=1e-7,std::source_location at=std::source_location::current()) {
+    if(!(std::abs(a-b)<tolerance))throw std::runtime_error("FORM equation mismatch at line "+std::to_string(at.line())+
+        ": expected "+std::to_string(b)+", got "+std::to_string(a));
+}
 const symbols::Placement& symbol(const std::vector<drawing::ModelAnnotationSource>& packets) {
     check(packets.size()==1&&packets[0].symbols.size()==1,"FORM did not offer exactly one manufacturing symbol");
     return packets[0].symbols[0];
@@ -167,7 +171,8 @@ int main(){try {
     flatten.sheet_state.all=false;flatten.sheet_state.owners={feature.id};
     check(workspace::commit_sheet_state(live,kernel,part.document_id,flatten),"FORM flatten command failed");
     check(boundaries().back().calculation_errors.empty(),"FORM_FLAT calculation failed");
-    near(boundaries().back().volume,39984.,1e-5);
+    auto flat_analysis=boundaries().back();kernel.ensure_body_properties(flat_analysis);
+    near(flat_analysis.volume,39984.,1e-5);
     packets=workspace::drawing_annotation_sources(&live,part.document_id,{});
     check(symbol(packets).symbol.id==initial.symbol.id,"Flattening changed FORM_SYMBOL ancestry");
     check(workspace::step_part_document_history(live,part.document_id,false),"FORM flatten Undo failed");

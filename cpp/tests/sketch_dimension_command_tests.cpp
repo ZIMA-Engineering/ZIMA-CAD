@@ -226,10 +226,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     profile.owner_container_id=extrusion.id;extrusion.extrusion.height=2;const auto profile_id=profile.id;
     next.sketches.push_back(profile);next.insert_history_entry(document::PartHistoryKind::Feature,extrusion.id);next.history.push_back(extrusion);
     auto calculated=workspace::calculate_part_with_resolved_references(kernel,next);body->session.commit(std::move(next),std::move(calculated));
-    require(std::abs(body->session.calculated_boundaries().back().volume-100)<1e-6,"Extrusion fixture volume invalid");
+    const auto measured_volume=[&] {
+        auto snapshot=body->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(snapshot);return snapshot.volume;
+    };
+    require(std::abs(measured_volume()-100)<1e-6,"Extrusion fixture volume invalid");
+    const auto cached_fingerprint=body->session.calculated_boundaries().back().source_fingerprint;
+    const auto cached_shape=body->session.calculated_boundaries().back().kernel_shape;
     run(host,"sketch.dimension.create",{{"sketch",profile_id},{"kind","distance"},{"geometry",{rectangle[0]}},{"value",20}});
-    require(std::abs(body->session.calculated_boundaries().back().volume-100)<1e-6,"Dimension implicitly recalculated its solid body");
-    run(host,"regenerate");require(std::abs(body->session.calculated_boundaries().back().volume-200)<1e-6,"Explicit regeneration did not consume new profile dimension");
+    require(body->session.calculated_boundaries().back().source_fingerprint==cached_fingerprint&&
+        body->session.calculated_boundaries().back().kernel_shape==cached_shape&&std::abs(measured_volume()-100)<1e-6,
+        "Dimension implicitly recalculated its solid body");
+    run(host,"regenerate");require(std::abs(measured_volume()-200)<1e-6,"Explicit regeneration did not consume new profile dimension");
     run(host,"new",{{"type","assembly"},{"name","assembly-dimensions"}});
     const auto assembly_id=live.active_document_id();const auto assembly_sketch=run(host,"sketch.create",{{"name","Layout"}}).data.at("sketch");
     const auto assembly_circle=run(host,"sketch.circle.create",{{"sketch",assembly_sketch},{"center",{0,0}},{"radius_mm",3}}).data.at("geometry");

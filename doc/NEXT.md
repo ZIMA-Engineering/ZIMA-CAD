@@ -27,6 +27,16 @@ These accumulated design notes include historical stages. Check current focused
 contracts and [ROADMAP.md](../ROADMAP.md) before selecting work; newer explicit
 user instructions and completed native features supersede older pending items.
 
+### Feature Axis cleanup agreed on 2026-11-04
+
+The Feature Axis is the authored 3D result and no longer exposes a separate
+**Show in 3D** checkbox or persisted display parameter. The obsolete field was
+removed from the data model, native writer, command API, comparison helpers and
+tests instead of retaining an ignored compatibility switch. Existing JSON
+payloads tolerate unknown extra members without a dedicated migration branch;
+new saves contain only the current definition. Verify affected templates and
+factory native assets with the current implementation as part of this change.
+
 ## Historical correction checkpoint - 2026-10-22
 
 The reported `0101.prtz` objects remain native circles. The

@@ -1193,6 +1193,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_POINT_MARKERS_ONLY=1")
     add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
     add_executable(zima_cpp_source_wire_gpu_tests tests/source_wire_gpu_tests.cpp)
+    add_executable(zima_cpp_sketch_midpoint_presentation_tests tests/sketch_midpoint_presentation_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_midpoint_presentation_tests PRIVATE zima_viewer zima_sketcher Qt6::Widgets)
+    add_test(NAME zima_cpp_sketch_midpoint_presentation_tests COMMAND zima_cpp_sketch_midpoint_presentation_tests)
+    set_tests_properties(zima_cpp_sketch_midpoint_presentation_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" TIMEOUT 120 RUN_SERIAL TRUE)
     target_link_libraries(zima_cpp_source_wire_gpu_tests PRIVATE zima_viewer zima_document_core Qt6::Widgets)
     add_test(NAME zima_cpp_source_wire_gpu_tests COMMAND zima_cpp_source_wire_gpu_tests)
     set_tests_properties(zima_cpp_source_wire_gpu_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" TIMEOUT 120 RUN_SERIAL TRUE)
@@ -1284,6 +1288,12 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_sketch_mirror_center_drag_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_sketch_mirror_center_drag_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_MIRROR_DRAG_ONLY=1")
+    add_test(NAME zima_cpp_sketch_external_midpoint_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_sketch_external_midpoint_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_EXTERNAL_MIDPOINT_ONLY=1")
     add_test(NAME zima_cpp_perpendicular_junction_tests COMMAND zima_cpp_sketcher_contract_tests)
     set_tests_properties(zima_cpp_perpendicular_junction_tests PROPERTIES
         ENVIRONMENT "ZIMA_CPP_VERIFY_PERPENDICULAR_JUNCTION_ONLY=1" TIMEOUT 180)
@@ -2429,6 +2439,14 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     set_tests_properties(zima_cpp_sketch_mirror_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_MIRROR_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME zima_cpp_sketch_view_memory_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_view_memory_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_SKETCH_VIEW_MEMORY_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME zima_cpp_sketch_external_midpoint_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_external_midpoint_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_EXTERNAL_MIDPOINT_UI_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_placed_sketch_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_placed_sketch_reference_ui_contract PROPERTIES
