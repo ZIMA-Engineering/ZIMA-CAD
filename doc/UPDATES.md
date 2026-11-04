@@ -1,5 +1,18 @@
 # Application updates
 
+Signed Windows [2026110402](releases/2026110402.md#windows-publication-acceptance)
+was published at `2026-11-04T16:09:11Z` from immutable source
+`20b9be37c854210b09c4b75b99d3eaa4335fa037`. Current transient Origins, exact native
+datum history, coupled Sketch dimensions, view memory and external Segment
+midpoints are recorded with their finite verification scope. Candidate and
+signed native smoke each loaded all 1,185 factory assets. Seven packaged GUI
+suites, 1,185 exact native factory comparisons and 17,456 immutable-file checks
+passed. Authenticated draft and anonymous public downloads matched all three
+signed assets. Trusted `2026110303` offered `2026110402` without downloading or
+installing it, and its root files remained unchanged. Native Linux execution
+and an exhaustive Sketcher audit remain separate work. See the
+[publication evidence](verification/20261104-windows-0402-publication.json).
+
 Signed Windows [2026110303](releases/2026110303.md#windows-publication-acceptance)
 was published at `2026-11-03T19:59:56Z` from immutable source
 `ddce1fb339cea000b709b8c59cab0e8ff6844749`. Routed ZIMA Fillet/Chamfer,

@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "product": "ZIMA-CAD",
+  "version": "2026110402",
+  "platform": "windows-x64",
+  "tag": "ZIMA-CAD-2026110402",
+  "commit": "20b9be37c854210b09c4b75b99d3eaa4335fa037",
+  "publishedAt": "2026-11-04T16:09:11Z",
+  "releaseUrl": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110402",
+  "latestStable": true,
+  "archive": {
+    "name": "ZIMA-CAD-2026110402.zip",
+    "size": 937839105,
+    "sha256": "5ada1b0db2d9cb77e5e406f2c62e554e6717228107162c854d7b90e44ecfd855",
+    "unpackedSize": 3188460514,
+    "fileCount": 17457
+  },
+  "updateManifest": {
+    "name": "update-manifest.json",
+    "size": 703,
+    "sha256": "dc6263d0640301ace377ca4336b9f8cda7b2afd87a30193baf64e4226ef64b58"
+  },
+  "updateSignature": {
+    "name": "update-manifest.sig",
+    "size": 176,
+    "sha256": "4357cc877721be86ef95d5b4234e05f3f21f6ab36d8d86d3b8051bf83a3868ec"
+  },
+  "sourceTreeSha256": "db3cee7ab6ce70152437b058613d8d189a2e5ebf29e2125871522f7d657e7ea7",
+  "candidate": {
+    "cleanTaggedSource": true,
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185,
+    "dependencyArchiveCrcSha256Checks": "passed"
+  },
+  "signed": {
+    "windowsNativeSmoke": "passed",
+    "factoryNativeAssets": 1185,
+    "productionTrust": "passed",
+    "guiCliUpdaterBuildIdentity": "passed",
+    "exactFactoryFileComparisons": 1185,
+    "immutableFilesCheckedAfterGui": 17456,
+    "developerSdkRemovedFromPath": true,
+    "hiddenVerificationWindows": true,
+    "packagedGuiSuites": [
+      {"case": "camera-and-six-start-templates", "seconds": 109.797, "exitCode": 0},
+      {"case": "external-midpoint", "seconds": 4.922, "exitCode": 0},
+      {"case": "native-datum-feature04", "seconds": 6.421, "exitCode": 0},
+      {"case": "actual-radius150", "seconds": 10.516, "exitCode": 0},
+      {"case": "complex-sheet-dimensions", "seconds": 16.156, "exitCode": 0},
+      {"case": "current02-holes-and-placement", "seconds": 8.907, "exitCode": 0},
+      {"case": "mirror-and-trim", "seconds": 18.484, "exitCode": 0}
+    ]
+  },
+  "publicDownloads": {
+    "authenticatedDraftDownloads": "all-three-assets-matched",
+    "anonymous": true,
+    "zip": "matched",
+    "manifest": "matched",
+    "signature": "matched"
+  },
+  "updaterDiscovery": {
+    "installedVersion": "2026110303",
+    "availableVersion": "2026110402",
+    "trusted": true,
+    "installable": true,
+    "downloadPerformed": false,
+    "installationPerformed": false,
+    "rootFilesUnchanged": true
+  },
+  "verificationBoundary": {
+    "protectedUserModelsCommitted": false,
+    "originalUserFilesOverwritten": false,
+    "originalFilesMatchedInvestigationSnapshots": true,
+    "nativePersistedContractsChanged": true,
+    "nativeChanges": ["Sketch view side/sector metadata", "external edge midpoint reference", "agreed obsolete Axis visibility field removal"],
+    "regeneratedStartTemplates": 6,
+    "regeneratedFactoryFormDefinitions": 4,
+    "factoryNativeRoundtripAuditFiles": 1048,
+    "targetedCoupledRadialCases": 48,
+    "targetedComplexProfileCases": 96,
+    "nativeDatumCases": 38,
+    "nativeDatumAvailabilityCases": 8,
+    "completeNativeSketcherContractSuite": "passed",
+    "intersectionReferenceCases": 541,
+    "localizationLanguages": ["cs", "en", "de", "fr", "ru"],
+    "localizationKeysPerLanguage": 2666,
+    "exhaustiveSketcherAudit": false,
+    "packagedExtendedApplicationLifecycleSuite": "not-run",
+    "linuxExecution": "not-run-on-windows-host",
+    "remainingLimits": [
+      "The coupled-fit extension for profiles above 32 points is bounded by 128 actual scalar unknowns; existing small-profile paths remain available.",
+      "The bounded coupled fallback does not add ellipse, spline, offset or stored-trim equations.",
+      "Family-instance and all embedded Section/Sweep/Loft camera workflows, and a GUI DPI matrix above the tested monitor scale, remain unverified.",
+      "Finite regression matrices do not prove every geometry, constraint graph or interaction sequence.",
+      "Native Linux compilation and execution require the Linux host."
+    ]
+  }
+}
