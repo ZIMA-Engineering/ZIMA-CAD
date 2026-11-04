@@ -395,15 +395,31 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
                 (p.display_owner_id==pending.id&&
                     p.reference.semantic_key=="container:origin-marker");
         };
-        const kernel::ViewerPoint* point{};
+        std::vector<kernel::ViewerPoint> origin_points;
         for(const auto* points:{&pick_view->mesh().points,
                 &pick_view->transient_context_mesh().points}) {
-            const auto found=std::ranges::find_if(*points,matches_preview_point);
-            if(found!=points->end()){point=&*found;break;}
+            for(const auto& candidate:*points)
+                if(matches_preview_point(candidate)&&candidate.always_visible)
+                    origin_points.push_back(candidate);
         }
-        check(point,"Cylinder contact preview point missing");
-        check(std::hypot(point->position.x-resolved.x,point->position.y-resolved.y,point->position.z-resolved.z)<1e-6,
+        check(origin_points.size()==1,
+            "Placement edit left two visible Origins for the same Feature");
+        const auto& point=origin_points.front();
+        check(std::hypot(point.position.x-resolved.x,point.position.y-resolved.y,point.position.z-resolved.z)<1e-6,
             "Published cylinder preview violates the resolved contact");
+        std::vector<kernel::ViewerAxis> origin_axes;
+        for(const auto* axes:{&pick_view->mesh().axes,
+                &pick_view->transient_context_mesh().axes})
+            for(const auto& axis:*axes)
+                if(axis.reference.owner_id==dialog()->pending_value().container_origin.id&&
+                   axis.reference.semantic_key.starts_with("origin:axis:"))
+                    origin_axes.push_back(axis);
+        check(origin_axes.size()==3,
+            "Placement edit left an old or duplicate Feature Origin");
+        check(std::ranges::all_of(origin_axes,[&](const auto& axis) {
+            return std::hypot(axis.point.x-resolved.x,axis.point.y-resolved.y,
+                axis.point.z-resolved.z)<1e-6;
+        }),"Feature Origin axes did not atomically replace their previous position");
         check(dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Valid edited cylinder contact disabled OK");
     };
     for(int feature_type:{0,2,4}) {
@@ -677,6 +693,9 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
     const std::filesystem::path& directory) {
     const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_ORIGIN_PREVIEW_ONLY")){
+        window.resize(1366,850);window.show();flush();
+    }
     auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
     static_cast<void>(sketch.add_rectangle(0,0,10,8));
     auto value=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=value.id;
@@ -689,6 +708,20 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         check(window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump())).ok,"Origin display command failed");flush();
     };
     run("body.activate",{{"body",body}});
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    check(view,"Origin display viewer missing");
+    const auto body_origin_id=body+":origin";
+    const auto count_origin_axes=[&](const std::string& owner) {
+        const auto count=[&](const auto& mesh) {
+            return std::ranges::count_if(mesh.axes,[&](const auto& axis) {
+                return axis.reference.owner_id==owner&&
+                    axis.reference.semantic_key.starts_with("origin:axis:");
+            });
+        };
+        return count(view->mesh())+count(view->transient_context_mesh());
+    };
+    check(count_origin_axes(body_origin_id)==3,
+        "Active Body Origin is not visible before placement editing");
     const auto edit=[&]() -> PrimitivePropertiesDialog* {
         auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
         for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==value.id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
@@ -698,6 +731,11 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         throw std::runtime_error("Placed feature editor missing");
     };
     auto* dialog=edit();
+    const auto pending_origin_id=dialog->pending_value().container_origin.id;
+    check(count_origin_axes(body_origin_id)==3,
+        "Active Body Origin disappeared while placement Properties is open");
+    check(count_origin_axes(pending_origin_id)==3,
+        "Placed-container Origin preview is missing while Properties is open");
     dialog->findChild<QCheckBox*>("originShowPoint")->setChecked(true);
     dialog->findChild<QCheckBox*>("originShowText")->setChecked(true);
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
@@ -706,14 +744,142 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
     check(cache.size()==calculated.size()&&cache.back().volume==calculated.back().volume&&
         cache.back().kernel_shape==calculated.back().kernel_shape&&
         cache.back().source_fingerprint==calculated.back().source_fingerprint,"Visibility edit changed calculated body");
-    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    check(count_origin_axes(body_origin_id)==3,
+        "Active Body Origin was not restored after placement OK");
+    check(count_origin_axes(pending_origin_id)==0,
+        "Placement preview Origin remained after placement OK");
     const auto marker=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==value.id&&p.reference.semantic_key=="container:origin-marker";});
     check(marker!=view->mesh().points.end()&&marker->always_visible&&marker->label==value.name,"Idle feature marker did not use saved flags");
     dialog=edit();check(dialog->findChild<QCheckBox*>("originShowText")->isChecked(),"Reopened editor lost Origin flags");
+    check(count_origin_axes(body_origin_id)==3&&count_origin_axes(pending_origin_id)==3,
+        "Reopened placement editor lost the Body or pending container Origin");
+    for(const double x:{7.0,-4.0,11.0}) {
+        check(dialog->set_inline_parameter_value("placement:x",x),
+            "Pending placement coordinate is not editable");flush();
+        check(count_origin_axes(body_origin_id)==3,
+            "Body Origin disappeared during a pending placement edit");
+        check(count_origin_axes(pending_origin_id)==3,
+            "Pending placement published an old or duplicate container Origin");
+        const auto pending_axis=std::ranges::find_if(view->mesh().axes,[&](const auto& axis) {
+            return axis.reference.owner_id==pending_origin_id&&
+                axis.reference.semantic_key.starts_with("origin:axis:");
+        });
+        check(pending_axis!=view->mesh().axes.end()&&std::abs(pending_axis->point.x-x)<1e-8,
+            "Placement Origin preview did not follow the pending coordinate");
+    }
     dialog->findChild<QCheckBox*>("originShowText")->setChecked(false);dialog->reject();flush();run("save");
+    check(count_origin_axes(body_origin_id)==3,
+        "Active Body Origin was not restored after placement Cancel");
+    check(count_origin_axes(pending_origin_id)==0,
+        "Placement preview Origin remained after placement Cancel");
     check(document::PartDocument::load(file).find_container(value.id)->origin_text_visible,"Cancel changed Origin flags");
+    check(std::abs(document::PartDocument::load(file).find_container(value.id)->placement.x)<1e-8,
+        "Cancel persisted a pending placement coordinate");
     run("undo");run("save");check(!document::PartDocument::load(file).find_container(value.id)->origin_point_visible,"Visibility Undo failed");
     run("redo");run("save");check(document::PartDocument::load(file).find_container(value.id)->origin_point_visible,"Visibility Redo failed");
+}
+
+static void verify_existing_feature_origin_replacement(QApplication& application,
+    AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    auto part=document::PartDocument::create_default();
+    auto source_sketch=sketcher::Sketch::create_default();source_sketch.add_circle(0,0,5);
+    auto source=document::PartDocument::create_feature_container(source_sketch.id);
+    source.feature.sides[0].length=20;source_sketch.owner_container_id=source.id;
+    auto target_sketch=sketcher::Sketch::create_default();
+    static_cast<void>(target_sketch.add_rectangle(-2,-2,2,2));
+    auto target=document::PartDocument::create_feature_container(target_sketch.id);
+    target.feature.type=document::FeatureType::Sketch;target.name="Existing placement preview";
+    target_sketch.owner_container_id=target.id;
+    part.history={source,target};part.sketches={source_sketch,target_sketch};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Origin replacement");
+    graph.insert({document::PartHistoryKind::Feature,source.id});
+    graph.insert({document::PartHistoryKind::Feature,target.id});part.set_body_history(graph);
+    part.resolve_constructions();const kernel::OcctKernel kernel;
+    auto calculated=kernel.evaluate_history(part.kernel_operations());
+    const auto cylinder=std::ranges::find_if(calculated.back().mesh.original_references.triangle_references,[](const auto& face) {
+        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+    });
+    check(cylinder!=calculated.back().mesh.original_references.triangle_references.end(),
+        "Existing-origin fixture cylinder missing");
+    const auto file=directory/("existing-origin-replacement-"+target.id+".prtz");
+    part.save(file,calculated);
+    check(window.open_document_path(QString::fromStdString(file.string())),
+        "Existing-origin fixture cannot open");flush();
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
+        check(result.ok,"Existing-origin fixture command failed");flush();
+    };
+    run("body.activate",{{"body",body}});
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==target.id&&
+           (*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+    check(row,"Existing Feature tree row missing");window.show_tree_item_properties(row);flush();
+    auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    check(dialog&&view,"Existing Feature placement editor missing");
+    dialog->findChild<QComboBox*>("featureType")->setCurrentIndex(4);flush();
+    const auto frame_axes=[&](const std::string& owner) {
+        std::vector<kernel::ViewerAxis> result;
+        for(const auto* axes:{&view->mesh().axes,&view->transient_context_mesh().axes})
+            for(const auto& axis:*axes)
+                if(axis.reference.owner_id==owner&&axis.reference.semantic_key.starts_with("origin:axis:"))
+                    result.push_back(axis);
+        return result;
+    };
+    const auto verify_single_frame=[&](const char* phase) {
+        const auto pending=dialog->pending_value();
+        const auto axes=frame_axes(pending.container_origin.id);
+        if(axes.size()!=3)throw std::runtime_error(std::string(phase)+
+            ": old and pending Feature Origins are both visible");
+        check(std::ranges::all_of(axes,[&](const auto& axis) {
+            return std::hypot(axis.point.x-pending.placement.x,
+                axis.point.y-pending.placement.y,
+                axis.point.z-pending.placement.z)<1e-6;
+        }),"Feature Origin frame is not at the current pending placement");
+        std::size_t planes{};
+        for(const auto* edges:{&view->mesh().edges,
+                &view->transient_context_mesh().edges})
+            planes+=std::ranges::count_if(*edges,[&](const auto& edge) {
+                return edge.reference.owner_id==pending.container_origin.id&&
+                    edge.reference.semantic_key.starts_with("origin:plane:");
+            });
+        check(planes==3,
+            "Feature placement did not publish exactly one complete Origin plane frame");
+        std::vector<kernel::ViewerPoint> points;
+        for(const auto* source:{&view->mesh().points,&view->transient_context_mesh().points})
+            for(const auto& point:*source)
+                if(point.always_visible&&point.reference.semantic_key=="point"&&
+                   (point.reference.owner_id==pending.id||
+                    point.reference.owner_id==pending.container_origin.id))
+                    points.push_back(point);
+        if(points.size()!=1) {
+            std::string detail="Existing Feature publishes "+std::to_string(points.size())+
+                " visible Origin points";
+            for(const auto& point:points)detail+=" ["+point.reference.owner_id+":"+
+                point.reference.semantic_key+" @ "+std::to_string(point.position.x)+","+
+                std::to_string(point.position.y)+","+std::to_string(point.position.z)+"]";
+            throw std::runtime_error(detail);
+        }
+        check(frame_axes(body+":origin").size()==3,
+            "Active Body Origin disappeared during Feature placement");
+    };
+    check(dialog->set_reference(0,{{},cylinder->owner_id,cylinder->semantic_key,0,true},"Cylinder"),
+        "Existing Feature rejected the cylinder reference");flush();
+    verify_single_frame("first cylinder reference");
+    document::ConstructionReference plane{{},source.container_origin.id,"origin:plane:yz",0,true};
+    plane.measured_offset=3;
+    check(dialog->set_reference(1,plane,"Second plane"),
+        "Existing Feature rejected the second reference");flush();
+    verify_single_frame("second reference");
+    auto* references=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+    auto* offset=qobject_cast<QDoubleSpinBox*>(references->cellWidget(1,3));
+    check(offset&&offset->isEnabled()&&!offset->isReadOnly(),
+        "Existing Feature second-reference offset is not editable");
+    offset->setValue(4);flush();verify_single_frame("edited second-reference offset");
+    dialog->reject();flush();run("close");
 }
 
 // Exercises the public action, embedded Sketcher and one real native commit.
@@ -1014,7 +1180,11 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* fit=window.findChild<QAction*>("fitViewAction");
     check(view&&tree&&fit,"Feature visibility controls missing");
+    const bool type_transition_only=
+        qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_TYPE_TRANSITION_ONLY");
+    if(type_transition_only){window.resize(1366,850);window.show();flush();}
     for(const bool axis_only:{true,false}) {
+        if(type_transition_only&&axis_only)continue;
         auto part=document::PartDocument::create_default();
         auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
@@ -1087,7 +1257,9 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
             QEventLoop restore;QTimer::singleShot(950,&restore,&QEventLoop::quit);restore.exec();flush();
         }
         if(!axis_only) {
-            for(int type=0;type<5;++type) {
+            const std::vector<int> types=type_transition_only?
+                std::vector<int>{3}:std::vector<int>{0,1,2,3,4};
+            for(int type:types) {
                 open_properties();
                 const auto inactive=dialog()->pending_value().feature;
                 auto* selector=dialog()->findChild<QComboBox*>("featureType");
@@ -1110,16 +1282,29 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                       dialog()->findChild<QCheckBox*>("featureCentroidAxis")->isVisible()==(type==4)&&
                       dialog()->findChild<QCheckBox*>("featureIndividualCentroidAxes")->isVisible()==(type==4),
                       "Datum type exposes optional path checkboxes");
-                check(dialog()->findChild<QCheckBox*>("featureSymmetric")->isVisible()==(type==1||type==4),"Wrong symmetry control for Feature type");
+                if(!type_transition_only)
+                    check(dialog()->findChild<QCheckBox*>("featureSymmetric")->isVisible()==(type==1||type==4),"Wrong symmetry control for Feature type");
                 const auto source_count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id;});
                 check((source_count>0)==(type>=3),"Feature type published the wrong source geometry");
-                const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==feature.id&&p.reference.semantic_key=="point";});
+                const auto point_owner=type<2 ? feature.id : pending.container_origin.id;
+                const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){
+                    return p.reference.owner_id==point_owner&&
+                        p.reference.semantic_key=="point";
+                });
                 check(point!=view->mesh().points.end()&&point->label==pending.name,"Feature name is missing at its origin");
                 if(type==4) {
                     const auto* thin=dialog()->findChild<QComboBox*>("featureThinSide");
                     const auto* symmetric=dialog()->findChild<QCheckBox*>("featureSymmetric");
                     check(thin->mapTo(dialog(),QPoint(0,thin->height())).y()<=symmetric->mapTo(dialog(),QPoint()).y(),
                         "Result controls overlap the symmetry row");
+                }
+                if(type_transition_only&&type==3) {
+                    dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
+                    QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+                    check(!dialog(),"Feature-to-Sketch transition did not enter Sketcher");
+                    window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                    check(dialog()&&dialog()->findChild<QComboBox*>("featureType")->currentIndex()==3,
+                        "Feature-to-Sketch transition did not return to Sketch Properties");
                 }
                 window.grab().save(QString::fromStdString((directory/("feature-type-"+std::to_string(type)+"-ui.png")).string()));
                 dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Feature type cannot commit");
@@ -1130,6 +1315,8 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 QTreeWidgetItem* typed_row{};
                 for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){typed_row=*it;break;}
                 check(typed_row&&typed_row->text(0).contains(QString::fromStdString(pending.name)),"Tree did not update the Feature name");
+                check(!typed_row->data(0,missing_reference_role).toBool(),
+                    "Valid Feature-to-Sketch transition is red as unresolved in Tree");
                 int sketch_rows=0,result_rows=0;
                 for(int child=0;child<typed_row->childCount();++child) {
                     const auto role=typed_row->child(child)->data(0,Qt::UserRole+3).toString();
@@ -1140,7 +1327,9 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                     "Feature tree exposes an unused Sketch or duplicate Sketch result");
                 check(typed_row->icon(0).pixmap(24,24).toImage()==resource_icon(icons[type]).pixmap(24,24).toImage(),
                     "Tree did not update its type-specific icon");
-                check(static_cast<int>(saved.find_container(feature.id)->feature.type)==type&&saved.sketches.front().serialized()==original,
+                check(static_cast<int>(saved.find_container(feature.id)->feature.type)==type&&
+                    saved.find_container(feature.id)->placement.reference_valid&&
+                    saved.sketches.front().serialized()==original,
                     "Type commit changed the owned Sketch or lost the selected type");
                 run("undo");run("redo");run("save");
                 check(static_cast<int>(document::PartDocument::load(path).find_container(feature.id)->feature.type)==type,"Type Undo/Redo failed");
@@ -1149,6 +1338,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 check(static_cast<int>(document::PartDocument::load(path).find_container(feature.id)->feature.type)==type,"Cancel committed Feature type");
             }
         }
+        if(type_transition_only)return;
         for(int cycle=0;cycle<3;++cycle) {
             open_properties();expect();fit_wire();
             auto* add=dialog()->findChild<QPushButton*>("featureAdd");

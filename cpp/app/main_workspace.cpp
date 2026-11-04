@@ -6801,6 +6801,287 @@ int verify_sketch_offset_ui(QApplication& application,const std::filesystem::pat
 
 #include "external_face_reference_ui_verification.inc"
 
+int verify_sketch_trim_junction_ui(
+    QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    using namespace zima::document;
+    using zima::sketcher::ConstraintKind;
+    std::filesystem::create_directories(directory);
+
+    auto document = PartDocument::create_default();
+    auto feature = PartDocument::create_sketch_container();
+    auto sketch = sketcher::Sketch::create_default();
+    sketch.owner_container_id = feature.id;
+    constexpr double center_x = 30.0;
+    constexpr double center_y = -30.0;
+    const auto circle = sketch.add_circle(center_x, center_y, 10.0);
+    constexpr double contact_x = 8.660254037844386;
+    constexpr double contact_y = -5.0;
+    constexpr double tangent_x = 5.0;
+    constexpr double tangent_y = 8.660254037844386;
+    const auto left = sketch.add_segment(
+        center_x - contact_x - tangent_x,
+        center_y + contact_y + tangent_y,
+        center_x - contact_x, center_y + contact_y);
+    const auto right = sketch.add_segment(
+        center_x + contact_x + tangent_x,
+        center_y + contact_y + tangent_y,
+        center_x + contact_x, center_y + contact_y);
+    const auto left_contact = sketch.segments[0].second_point_id;
+    const auto right_contact = sketch.segments[1].second_point_id;
+    static_cast<void>(sketch.add_point_on_circle_constraint(
+        left_contact, circle));
+    static_cast<void>(sketch.add_point_on_circle_constraint(
+        right_contact, circle));
+    const auto left_tangent = sketch.add_tangent_constraint(
+        circle, left, left_contact);
+    const auto right_tangent = sketch.add_tangent_constraint(
+        circle, right, right_contact);
+    const auto solved = sketch.solve();
+    if (!verify(solved.status != sketcher::SolveStatus::Conflicting &&
+            solved.status != sketcher::SolveStatus::Invalid &&
+            solved.maximum_residual < 1.0e-7,
+        "Native Trim junction fixture does not solve")) return 1;
+    const auto initial_trim_topology =
+        sketcher::sketch_trim_topology(sketch, true);
+    if (!verify(std::ranges::count_if(initial_trim_topology,
+            [&](const auto& piece) { return piece.geometry_id == circle; }) == 2,
+        "Native tangent contacts do not divide the circle Trim topology"))
+        return 1;
+
+    document.history = {feature};
+    document.sketches = {sketch};
+    BodyHistoryGraph graph;
+    const auto body_id = graph.create_body("Trim junction body");
+    graph.insert({PartHistoryKind::Feature, feature.id});
+    document.set_body_history(graph);
+    document.resolve_constructions();
+    const auto path = directory / "native-trim-junction-ui.prtz";
+    document.save(path);
+
+    app::AssemblyWorkspaceWindow window(
+        QString::fromStdString(directory.string()));
+    window.resize(1200, 900);
+    window.show();
+    const auto flush = [&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    if (!verify(window.open_document_path(
+            QString::fromStdString(path.string())),
+        "Cannot open native Trim junction fixture")) return 1;
+    flush();
+    if (!verify(activate_test_body(application, window, body_id),
+        "Cannot activate native Trim junction body")) return 1;
+    auto* tree = window.findChild<QTreeWidget*>("documentTree");
+    QTreeWidgetItem* row = nullptr;
+    for (QTreeWidgetItemIterator item(tree); *item; ++item) {
+        if ((*item)->data(0, Qt::UserRole).toString().toStdString() == sketch.id &&
+            (*item)->data(0, Qt::UserRole + 3).toString() == "part-sketch") {
+            row = *item;
+            break;
+        }
+    }
+    if (!verify(row, "Native Trim junction Sketch row is missing")) return 1;
+    window.show_tree_item_properties(row);
+    flush();
+    auto* open = window.findChild<QPushButton*>("sketchOpenButton");
+    if (!verify(open, "Native Trim junction fixture has no Sketch button")) return 1;
+    open->click();
+    flush();
+    QEventLoop animation;
+    QTimer::singleShot(950, &animation, &QEventLoop::quit);
+    animation.exec();
+
+    auto* view = dynamic_cast<viewer::MeshView*>(
+        window.findChild<QOpenGLWidget*>());
+    auto* trim = window.findChild<QAction*>("sketchTrimAction");
+    if (!verify(view && trim, "Native Trim junction View controls are missing"))
+        return 1;
+    const auto trim_piece_count = [&] {
+        return std::ranges::count_if(view->mesh().edges, [&](const auto& edge) {
+            return edge.reference.owner_id == sketch.id &&
+                edge.reference.semantic_key.starts_with("trim_piece:");
+        });
+    };
+    const auto geometry_visible = [&](const std::string& prefix) {
+        return std::ranges::any_of(view->mesh().edges, [&](const auto& edge) {
+            return edge.reference.owner_id == sketch.id &&
+                edge.reference.semantic_key == prefix + circle;
+        });
+    };
+    const auto exact_point_count = [&](const std::string& point_id) {
+        return std::ranges::count_if(view->mesh().points, [&](const auto& point) {
+            return point.reference.owner_id == sketch.id &&
+                point.reference.semantic_key == "point:" + point_id;
+        });
+    };
+    const auto marker_count = [&](std::string_view label) {
+        return std::ranges::count_if(view->mesh().constraint_markers,
+            [&](const auto& marker) {
+                return marker.reference.owner_id == sketch.id &&
+                    marker.label == label;
+            });
+    };
+    const auto click_first_trim_piece = [&] {
+        std::optional<QPointF> point;
+        for (int y = 15; y < view->height() - 15 && !point; y += 3) {
+            for (int x = 15; x < view->width() - 15 && !point; x += 3) {
+                const auto candidates = view->selection_candidates_at(
+                    QPointF(x, y));
+                if (candidates.empty()) continue;
+                const auto& candidate = candidates.front();
+                if (candidate.kind !=
+                        viewer::CandidateKind::SketchTrimPiece ||
+                    candidate.owner_id != sketch.id ||
+                    !candidate.semantic_key.starts_with("trim_piece:"))
+                    continue;
+                const auto index = static_cast<std::size_t>(std::stoull(
+                    candidate.semantic_key.substr(11)));
+                if (index < initial_trim_topology.size() &&
+                    initial_trim_topology[index].geometry_id == circle) {
+                    point = QPointF(x, y);
+                }
+            }
+        }
+        if (!verify(point.has_value(),
+            "Native junction Trim preview offers no removable piece"))
+            return std::optional<QPointF>{};
+        for (const auto type : {QEvent::MouseMove, QEvent::MouseButtonPress,
+                                QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type, *point,
+                QPointF(view->mapToGlobal(point->toPoint())),
+                type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+                type == QEvent::MouseButtonPress
+                    ? Qt::LeftButton : Qt::NoButton,
+                Qt::NoModifier);
+            QApplication::sendEvent(view, &event);
+            flush();
+        }
+        return point;
+    };
+
+    trim->trigger();
+    flush();
+    if (!verify(trim_piece_count() ==
+            static_cast<std::ptrdiff_t>(initial_trim_topology.size()),
+        "GUI Trim topology differs from the native tangent fixture"))
+        return 1;
+    const auto hit = click_first_trim_piece();
+    if (!hit) return 1;
+    if (!verify(trim_piece_count() ==
+            static_cast<std::ptrdiff_t>(initial_trim_topology.size() - 1),
+        "GUI Trim preview has unexpected survivor topology")) return 1;
+    if (!verify(exact_point_count(left_contact) == 1 &&
+            exact_point_count(right_contact) == 1,
+        "GUI Trim preview split or removed a shared native point")) return 1;
+    if (!verify(marker_count("T") == 2,
+        "GUI Trim preview lost or duplicated a T relation")) return 1;
+    if (!verify(marker_count("C") == 0,
+        "GUI Trim preview retained a redundant C relation")) return 1;
+
+    for (const auto type : {QEvent::MouseButtonDblClick,
+                            QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type, *hit,
+            QPointF(view->mapToGlobal(hit->toPoint())), Qt::MiddleButton,
+            type == QEvent::MouseButtonDblClick
+                ? Qt::MiddleButton : Qt::NoButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(view, &event);
+        flush();
+    }
+    if (!verify(trim_piece_count() == 0 && geometry_visible("arc:") &&
+            exact_point_count(left_contact) == 1 &&
+            exact_point_count(right_contact) == 1 && marker_count("T") == 2,
+        "Confirming GUI Trim changed its preview topology or tangent points"))
+        return 1;
+
+    auto* undo = window.findChild<QAction*>("undoAction");
+    auto* redo = window.findChild<QAction*>("redoAction");
+    if (!verify(undo && redo && undo->isEnabled(),
+        "Native junction Trim is not undoable")) return 1;
+    undo->trigger();
+    flush();
+    if (!verify(geometry_visible("circle:") &&
+            exact_point_count(left_contact) == 1 &&
+            exact_point_count(right_contact) == 1 &&
+            marker_count("T") == 2 && marker_count("C") == 2,
+        "Undo did not restore the original C+T circle junctions")) return 1;
+    if (!verify(redo->isEnabled(), "Native junction Trim is not redoable"))
+        return 1;
+    redo->trigger();
+    flush();
+    if (!verify(geometry_visible("arc:") && marker_count("T") == 2 &&
+            marker_count("C") == 0,
+        "Redo did not restore the shared tangent Arc junctions")) return 1;
+
+    window.findChild<QAction*>("saveDocumentAction")->trigger();
+    flush();
+    const auto saved = PartDocument::load(path);
+    const auto reopened = std::ranges::find(
+        saved.sketches, sketch.id, &sketcher::Sketch::id);
+    if (!verify(reopened != saved.sketches.end(),
+        "Saved native Trim junction Sketch is missing")) return 1;
+    const auto arc = std::ranges::find(
+        reopened->arcs, circle, &sketcher::SketchArc::id);
+    const auto owns_contacts = arc != reopened->arcs.end() &&
+        ((arc->start_point_id == left_contact &&
+          arc->end_point_id == right_contact) ||
+         (arc->start_point_id == right_contact &&
+          arc->end_point_id == left_contact));
+    const auto tangent_count = std::ranges::count_if(
+        reopened->constraints, [&](const auto& constraint) {
+            return constraint.kind == ConstraintKind::Tangent &&
+                (constraint.id == left_tangent ||
+                 constraint.id == right_tangent);
+        });
+    const auto redundant_contact_count = std::ranges::count_if(
+        reopened->constraints, [&](const auto& constraint) {
+            return constraint.kind == ConstraintKind::PointOnCircle &&
+                constraint.geometry_id == circle &&
+                (constraint.first_point_id == left_contact ||
+                 constraint.first_point_id == right_contact);
+        });
+    if (!verify(owns_contacts && tangent_count == 2 &&
+            redundant_contact_count == 0,
+        "Save/reopen lost native shared points or the surviving T relations"))
+        return 1;
+    const auto verify_tangent = [&](const std::string& segment_id,
+            const std::string& contact_id) {
+        const auto segment = std::ranges::find(
+            reopened->segments, segment_id, &sketcher::SketchSegment::id);
+        const auto* contact = reopened->find_point(contact_id);
+        const auto* first = reopened->find_point(segment->first_point_id);
+        const auto* second = reopened->find_point(segment->second_point_id);
+        const auto* other = segment->first_point_id == contact_id
+            ? second : first;
+        const auto* center = reopened->find_point(arc->center_point_id);
+        return std::abs((contact->x - center->x) *
+                    (other->x - contact->x) +
+                (contact->y - center->y) *
+                    (other->y - contact->y)) < 1.0e-7;
+    };
+    if (!verify(verify_tangent(left, left_contact) &&
+            verify_tangent(right, right_contact),
+        "Saved GUI Trim retained T rows without tangent geometry")) return 1;
+    auto without_tangent = *reopened;
+    without_tangent.remove_constraint(left_tangent);
+    if (!verify(without_tangent.find_point(left_contact) &&
+            without_tangent.find_point(right_contact) &&
+            std::ranges::any_of(without_tangent.arcs,
+                [&](const auto& value) {
+                    return value.id == circle &&
+                        (value.start_point_id == left_contact ||
+                         value.end_point_id == left_contact);
+                }),
+        "Removing T after GUI Trim deleted its shared native point")) return 1;
+
+    std::cout << "GUI Trim shared-point, C/T, Undo/Redo and persistence "
+                 "contracts passed\n";
+    return 0;
+}
+
 int verify_standalone_trim_preview(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document=PartDocument::create_default();
@@ -10317,6 +10598,8 @@ int verify_startup_contract(
         return verify_sketch_mirror_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_JUNCTION_ONLY"))
+        return verify_sketch_trim_junction_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))
         return verify_standalone_trim_preview(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_TRIM_ONLY"))

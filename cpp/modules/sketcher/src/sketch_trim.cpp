@@ -246,6 +246,81 @@ std::vector<std::array<double, 2>> curve_intersections(
     // differently sampled copies of the same circle.
     if(sketch.coincident_circular_support(first.geometry_id,second.geometry_id)||
         detail::coincident_exact_spline_support(sketch,first.geometry_id,second.geometry_id))return result;
+    const auto parameter_distance=[](double a,double b,bool closed) {
+        const double direct=std::abs(a-b);
+        return closed?std::min(direct,std::abs(1.-direct)):direct;
+    };
+    const auto append_unique=[&](double first_parameter,double second_parameter) {
+        if(std::none_of(result.begin(),result.end(),[&](const auto& old) {
+            return parameter_distance(old[0],first_parameter,first.closed)<1.e-5&&
+                parameter_distance(old[1],second_parameter,second.closed)<1.e-5;
+        }))result.push_back({first_parameter,second_parameter});
+    };
+    const auto circular_parameter=[&](const SampledCurve& curve,
+            const Point2& point)->std::optional<double> {
+        constexpr double turn=2.*3.14159265358979323846;
+        if(curve.kind==SampledKind::Circle) {
+            const auto value=std::ranges::find(
+                sketch.circles,curve.geometry_id,&SketchCircle::id);
+            if(value==sketch.circles.end())return std::nullopt;
+            const auto* center=sketch.find_point(value->center_point_id);
+            double angle=std::atan2(point[1]-center->y,point[0]-center->x);
+            if(angle<0)angle+=turn;
+            const double parameter=angle/turn;
+            return parameter>=1.?0.:parameter;
+        }
+        if(curve.kind==SampledKind::Arc) {
+            const auto value=std::ranges::find(
+                sketch.arcs,curve.geometry_id,&SketchArc::id);
+            if(value==sketch.arcs.end())return std::nullopt;
+            const auto* center=sketch.find_point(value->center_point_id);
+            double angle=std::atan2(point[1]-center->y,point[0]-center->x);
+            while(angle<value->start_angle)angle+=turn;
+            while(angle>value->end_angle&&angle-turn>=value->start_angle)
+                angle-=turn;
+            const double sweep=value->end_angle-value->start_angle;
+            if(sweep<=1.e-12||angle<value->start_angle-1.e-10||
+                    angle>value->end_angle+1.e-10)return std::nullopt;
+            return std::clamp((angle-value->start_angle)/sweep,0.,1.);
+        }
+        return std::nullopt;
+    };
+    const auto append_exact_segment_circular=[&](const SampledCurve& segment,
+            const SampledCurve& circular,bool segment_is_first) {
+        if(segment.kind!=SampledKind::Segment||
+                (circular.kind!=SampledKind::Circle&&
+                 circular.kind!=SampledKind::Arc))return;
+        const Point2 direction{segment.points.back()[0]-segment.points.front()[0],
+            segment.points.back()[1]-segment.points.front()[1]};
+        const double squared=direction[0]*direction[0]+direction[1]*direction[1];
+        if(squared<=1.e-24)return;
+        // A sampled circle chord lies inside its exact support, so it can miss
+        // a tangent segment completely.  Use the native analytic query for
+        // segment/circle and segment/arc contacts; mirrored endpoint contacts
+        // are real trim boundaries even without a copied C constraint.
+        for(const auto& point:sketch.curve_line_intersections(
+                circular.geometry_id,segment.points.front(),direction,false)) {
+            const double raw_line_parameter=
+                ((point[0]-segment.points.front()[0])*direction[0]+
+                 (point[1]-segment.points.front()[1])*direction[1])/squared;
+            // The Sketch solver validates linear equations at 1e-8 mm.  A C
+            // endpoint can therefore finish infinitesimally beyond 0/1 after
+            // a radius edit even though its persisted equation is satisfied.
+            // Query the infinite analytical line and apply that same absolute
+            // endpoint residual locally; the global intersection tolerance and
+            // display sampling remain unchanged.
+            const double parameter_tolerance=1.e-8/std::sqrt(squared);
+            if(raw_line_parameter < -parameter_tolerance ||
+               raw_line_parameter > 1.+parameter_tolerance)continue;
+            const double line_parameter=std::clamp(raw_line_parameter,0.,1.);
+            const auto curve_parameter=circular_parameter(circular,point);
+            if(!curve_parameter)continue;
+            if(segment_is_first)append_unique(line_parameter,*curve_parameter);
+            else append_unique(*curve_parameter,line_parameter);
+        }
+    };
+    append_exact_segment_circular(first,second,true);
+    append_exact_segment_circular(second,first,false);
     for (std::size_t first_index = 0;
          first_index + 1 < first.points.size(); ++first_index) {
         for (std::size_t second_index = 0;
@@ -323,12 +398,7 @@ std::vector<std::array<double, 2>> curve_intersections(
                 1.0e-8 * coordinate_scale) {
                 continue;
             }
-            if (std::none_of(result.begin(), result.end(), [&](const auto& old) {
-                    return std::abs(old[0] - first_parameter) < 1.0e-5 &&
-                        std::abs(old[1] - second_parameter) < 1.0e-5;
-                })) {
-                result.push_back({first_parameter, second_parameter});
-            }
+            append_unique(first_parameter,second_parameter);
         }
     }
     return result;
@@ -665,6 +735,65 @@ std::vector<SketchTrimPiece> sketch_trim_topology(
             const auto& first = curves[first_index];
             const auto& second = curves[second_index];
             if (!first.creates_trim_points || !second.creates_trim_points) continue;
+            const auto segment_circular_contact = [&]()
+                -> const SketchConstraint* {
+                const SampledCurve* segment = nullptr;
+                const SampledCurve* circular = nullptr;
+                if (first.kind == SampledKind::Segment &&
+                    (second.kind == SampledKind::Circle ||
+                     second.kind == SampledKind::Arc)) {
+                    segment = &first;
+                    circular = &second;
+                } else if (second.kind == SampledKind::Segment &&
+                    (first.kind == SampledKind::Circle ||
+                     first.kind == SampledKind::Arc)) {
+                    segment = &second;
+                    circular = &first;
+                } else {
+                    return nullptr;
+                }
+                const auto tangent = std::ranges::find_if(
+                    sketch.constraints, [&](const auto& constraint) {
+                        if (constraint.suppressed ||
+                            constraint.kind != ConstraintKind::Tangent ||
+                            constraint.first_point_id.empty()) return false;
+                        const bool owns_pair =
+                            (constraint.geometry_id == segment->geometry_id &&
+                             constraint.second_geometry_id == circular->geometry_id) ||
+                            (constraint.geometry_id == circular->geometry_id &&
+                             constraint.second_geometry_id == segment->geometry_id);
+                        if (!owns_pair || !geometry_owns_point(sketch,
+                                segment->geometry_id,
+                                constraint.first_point_id)) return false;
+                        return geometry_owns_point(sketch,
+                                   circular->geometry_id,
+                                   constraint.first_point_id) ||
+                            std::ranges::any_of(sketch.constraints,
+                                [&](const auto& contact) {
+                                    return !contact.suppressed &&
+                                        contact.kind == ConstraintKind::PointOnCircle &&
+                                        contact.first_point_id ==
+                                            constraint.first_point_id &&
+                                        contact.geometry_id == circular->geometry_id;
+                                });
+                    });
+                return tangent == sketch.constraints.end()
+                    ? nullptr : &*tangent;
+            }();
+            if (segment_circular_contact != nullptr) {
+                // C+T (or an Arc endpoint plus T) is persisted topology: one
+                // shared native point.  A nearly singular quadratic can report
+                // two roots around that point after valid solver edits.  Use
+                // the stored contact on both supports instead of manufacturing
+                // a microscopic Trim interval and two coincident endpoints.
+                const auto* point = sketch.find_point(
+                    segment_circular_contact->first_point_id);
+                cuts[first.geometry_id].push_back(
+                    persisted_contact_parameter(sketch, first, *point));
+                cuts[second.geometry_id].push_back(
+                    persisted_contact_parameter(sketch, second, *point));
+                continue;
+            }
             for (const auto& hit : curve_intersections(sketch, first, second)) {
                 cuts[first.geometry_id].push_back(hit[0]);
                 cuts[second.geometry_id].push_back(hit[1]);

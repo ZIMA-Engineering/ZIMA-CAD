@@ -635,6 +635,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         try {verify_feature_modeling(application,window,directory);std::cout<<"Feature modeling and pending profile wire passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
     }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_ORIGIN_PREVIEW_ONLY")) {
+        try {verify_placed_origin_visibility(application,window,directory);verify_existing_feature_origin_replacement(application,window,directory);std::cout<<"Placement preview Origin replacement and OK/Cancel restoration passed\n";return 0;}
+        catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_TYPE_TRANSITION_ONLY")) {
+        try {verify_feature_sketch_visibility(application,window,directory);std::cout<<"Feature type transitions, Sketcher round trip and Tree state passed\n";return 0;}
+        catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_FORM_ONLY"))return verify_corner_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_FORM_ONLY"))return verify_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXES_ONLY")) {

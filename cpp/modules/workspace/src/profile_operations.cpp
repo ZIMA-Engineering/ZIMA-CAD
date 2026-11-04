@@ -99,6 +99,13 @@ std::string revolution_axis_segment_id(
     return result;
 }
 
+std::string prepare_revolution_axis(zima::sketcher::Sketch& sketch,
+        const std::string& configured_id, bool show_in_3d) {
+    const auto result=revolution_axis_segment_id(sketch,configured_id);
+    if(show_in_3d)sketch.set_geometry_visible_in_3d(result,true);
+    return result;
+}
+
 
 namespace {
 bool is_profile(document::FeatureKind kind) {
@@ -233,12 +240,27 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     if (profile == next.sketches.end()) throw ProfileOperationError("sketch_not_found", "Internal profile Sketch no longer exists");
     if (!profile->owner_container_id.empty() && profile->owner_container_id != value.id)
         throw ProfileOperationError("profile_owned", "The Sketch already belongs to another container.");
+    const auto source = feature ? value.feature.profile_source : extrusion ? value.extrusion.profile_source : value.revolution.profile_source;
     if (feature) {
         if (value.feature.effective_side(0).operation==document::FeatureSideOperation::Revolution ||
-            value.feature.effective_side(1).operation==document::FeatureSideOperation::Revolution)
-            value.feature.axis_segment_id=revolution_axis_segment_id(*profile,value.feature.axis_segment_id);
-    } else if (!extrusion) value.revolution.axis_segment_id = revolution_axis_segment_id(*profile, value.revolution.axis_segment_id);
-    const auto source = feature ? value.feature.profile_source : extrusion ? value.extrusion.profile_source : value.revolution.profile_source;
+            value.feature.effective_side(1).operation==document::FeatureSideOperation::Revolution) {
+            const bool newly_selected=!existing ||
+                existing->feature_kind!=document::FeatureKind::Feature ||
+                (existing->feature.effective_side(0).operation!=document::FeatureSideOperation::Revolution &&
+                 existing->feature.effective_side(1).operation!=document::FeatureSideOperation::Revolution) ||
+                existing->feature.axis_segment_id!=value.feature.axis_segment_id;
+            value.feature.axis_segment_id=prepare_revolution_axis(*profile,
+                value.feature.axis_segment_id,
+                source==document::ProfileSource::Internal&&newly_selected);
+        }
+    } else if (!extrusion) {
+        const bool newly_selected=!existing ||
+            existing->feature_kind!=document::FeatureKind::Revolution ||
+            existing->revolution.axis_segment_id!=value.revolution.axis_segment_id;
+        value.revolution.axis_segment_id=prepare_revolution_axis(*profile,
+            value.revolution.axis_segment_id,
+            source==document::ProfileSource::Internal&&newly_selected);
+    }
     if (source == document::ProfileSource::Internal) {
         profile->owner_container_id = value.id;
         document::apply_automatic_sketch_work_plane(*profile,value.placement.references);
@@ -307,6 +329,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const bool reuse_resolved_profile_frame=existing&&pending_container&&
         existing->feature_kind==document::FeatureKind::Feature&&
         pending_container->feature_kind==document::FeatureKind::Feature&&
+        existing->feature.type==pending_container->feature.type&&
         existing->placement==pending_container->placement&&
         existing->feature.profile_source==pending_container->feature.profile_source&&
         existing->feature.sketch_id==pending_container->feature.sketch_id&&

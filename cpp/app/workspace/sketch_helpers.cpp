@@ -71,10 +71,17 @@ std::optional<RevolutionCueFrame> revolution_cue_frame(
 zima::kernel::ViewerMesh local_container_context_mesh(
         const zima::document::PartDocument& document,
         const std::set<std::string>& visible_origin_ids,
-        bool show_axes, bool show_planes) {
+        bool show_axes, bool show_planes,
+        const std::string& replaced_origin_id) {
+    auto displayed_origin_ids = visible_origin_ids;
+    // Properties owns one live, complete preview of the edited container
+    // Origin.  Do not also publish the stored frame from the ordinary local-
+    // Origin context: after a reference or offset edit it is the former
+    // position, so both complete frames would remain visible together.
+    displayed_origin_ids.erase(replaced_origin_id);
     auto mesh = local_origin_display_mesh(
         document.history_origin_reference_geometry_before({}),
-        visible_origin_ids);
+        displayed_origin_ids);
     // Match the fixed full edge length of every local Container Origin
     // plane.  These helpers must not grow with the model or camera fit.
     constexpr double context_extent = 5.0;
@@ -125,7 +132,7 @@ zima::kernel::ViewerMesh local_container_context_mesh(
             {container.id, "plane", {}});
     };
     for (const auto& container : document.history) {
-        if (!visible_origin_ids.contains(container.container_origin.id) ||
+        if (!displayed_origin_ids.contains(container.container_origin.id) ||
             container.suppressed) continue;
         const auto frame = container_dimension_frame(container.placement);
         if (container.feature_kind == zima::document::FeatureKind::Hole) {

@@ -822,10 +822,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         resolved_plane.reference_valid = true;
         if (preview.feature_kind == zima::document::FeatureKind::Feature) {
             primitive_origin_preview_mesh_=preview_document.feature_result_mesh(preview,true);
-            for(auto& point:primitive_origin_preview_mesh_->points)
-                if(point.reference.owner_id==preview.id&&point.reference.semantic_key=="point") {
-                    point.always_visible=true;point.label=preview.name;
-                }
+            // Modeling/Sketch/Plane already publish the live container Origin
+            // below. Forcing their result point visible as well leaves the
+            // former support-plane point beside the moved Origin after a
+            // second placement reference or offset edit. Point and Axis are
+            // the only types whose result point is itself authored geometry.
+            if(preview.feature.type==zima::document::FeatureType::Point ||
+               preview.feature.type==zima::document::FeatureType::Axis)
+                for(auto& point:primitive_origin_preview_mesh_->points)
+                    if(point.reference.owner_id==preview.id&&point.reference.semantic_key=="point") {
+                        point.always_visible=true;point.label=preview.name;
+                    }
+            else
+                std::erase_if(primitive_origin_preview_mesh_->points,[&](const auto& point) {
+                    return point.reference.owner_id==preview.id&&
+                        point.reference.semantic_key=="point";
+                });
             zima::document::PartDocument carrier;
             if(preview.feature.type==zima::document::FeatureType::Axis) {
                 // Axis has no work plane, but retains the full editable Origin.
@@ -837,6 +849,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             carrier.constructions.push_back(resolved_plane);
             append_mesh(*primitive_origin_preview_mesh_,carrier.construction_viewer_mesh(plane.id));
+            if(preview.feature.type!=zima::document::FeatureType::Point &&
+               preview.feature.type!=zima::document::FeatureType::Axis) {
+                const auto origin_marker=std::ranges::find_if(
+                    primitive_origin_preview_mesh_->points,[&](const auto& point) {
+                        return point.always_visible&&
+                            point.reference.owner_id==preview.container_origin.id&&
+                            point.reference.semantic_key=="point";
+                    });
+                if(origin_marker!=primitive_origin_preview_mesh_->points.end())
+                    origin_marker->label=preview.name;
+            }
             if(preview.feature.uses_sketch()&&
                     !(preview.feature.type==zima::document::FeatureType::Modeling&&
                       preview.feature.result_type==zima::document::ProfileResultType::Thin)) {

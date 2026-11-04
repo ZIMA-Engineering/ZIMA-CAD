@@ -392,7 +392,8 @@ std::optional<RevolutionCueFrame> revolution_cue_frame(
 zima::kernel::ViewerMesh local_container_context_mesh(
         const zima::document::PartDocument& document,
         const std::set<std::string>& visible_origin_ids,
-        bool show_axes, bool show_planes);
+    bool show_axes, bool show_planes,
+    const std::string& replaced_origin_id = {});
 
 std::optional<std::string> sketch_external_reference_id_from_key(
     const std::string& key);

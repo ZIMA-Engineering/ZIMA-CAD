@@ -17,6 +17,8 @@ void commit_assembly_profile(Workspace&, const kernel::OcctKernel&, const std::s
     const std::optional<sketcher::Sketch>& owned_sketch = {});
 void normalize_owned_profile_front_references(std::vector<document::ConstructionReference>&);
 [[nodiscard]] std::string revolution_axis_segment_id(const sketcher::Sketch&, const std::string& configured_id = {});
+[[nodiscard]] std::string prepare_revolution_axis(
+    sketcher::Sketch&, const std::string& configured_id, bool show_in_3d);
 [[nodiscard]] document::HistoryContainer profile_from_sketch(const document::PartDocument&,
     const std::string& sketch_id, document::FeatureKind);
 [[nodiscard]] document::HistoryContainer profile_from_sketch(const assembly::AssemblyDocument&,

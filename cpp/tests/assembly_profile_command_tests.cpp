@@ -52,6 +52,7 @@ void shared_feature(const kernel::OcctKernel& kernel,const fs::path& directory) 
     require(f.state().session.revision()==revision,"Unchanged Assembly Feature committed or calculated");
     for(auto type:{document::FeatureType::Axis,document::FeatureType::Point,document::FeatureType::Plane,document::FeatureType::Sketch}) {
         feature=f.doc().find_cut(id)->definition;feature.feature.type=type;
+        feature.feature.axis_visible_in_3d=type==document::FeatureType::Axis;
         feature.feature.sides[0].length=7;feature.feature.sides[1].axis_enabled=false;
         f.run("feature.set",{{"container",id},{"parameters",zima::test::public_feature_parameters(feature.feature)}});
         near(f.volume(f.first),1000);near(f.volume(f.second),1000);
@@ -267,7 +268,11 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto initial=zima::test::public_feature_parameters(parameters);initial.erase("sketch_id");
     f.reject("feature.create",{{"sketch",sketch},{"parameters",initial}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,4);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
+    require(!std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->geometry_visible_in_3d(axis),
+        "New Assembly construction axis is unexpectedly visible before rotation commit");
     const auto made=f.create_feature(sketch,parameters);const std::string cut=made.at("container");
+    require(std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->geometry_visible_in_3d(axis),
+        "Assembly rotation did not expose its selected Sketch axis in 3D");
     near(f.volume(f.first),1000-12*std::numbers::pi);near(f.volume(f.second),1000-12*std::numbers::pi);
     const auto wire=[&](const assembly::AssemblyDocument& value) {
         kernel::ViewerReferenceGeometry geometry;geometry.edges=value.find_cut(cut)->preview_wire;

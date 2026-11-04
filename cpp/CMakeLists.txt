@@ -1012,6 +1012,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sketch_external_line_segment_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CONSTRAINTS_ONLY=1;ZIMA_VERIFY_EXTERNAL_LINE_SEGMENT_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_sketch_external_direction_order_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_external_direction_order_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_EXTERNAL_CONSTRAINTS_ONLY=1;ZIMA_VERIFY_EXTERNAL_DIRECTION_ORDER_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_sketch_origin_pick_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
@@ -1324,6 +1328,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_circle_endpoint_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CIRCLE_ENDPOINT_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME zima_cpp_trim_native_junction_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/trim-native-junction-gui")
+    set_tests_properties(zima_cpp_trim_native_junction_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRIM_JUNCTION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_trimmed_rectangle_arc_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_trimmed_rectangle_arc_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RECTANGLE_ARC_DIMENSIONS_ONLY=1;ZIMA_FORM_EDGE_SKETCH_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/trimmed-rectangle-circle.json"
@@ -1353,8 +1362,15 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_executable(zima_cpp_rectilinear_solver_tests tests/rectilinear_solver_tests.cpp)
-    target_link_libraries(zima_cpp_rectilinear_solver_tests PRIVATE zima_sketcher)
+    target_link_libraries(zima_cpp_rectilinear_solver_tests PRIVATE zima_document_core)
+    target_compile_definitions(zima_cpp_rectilinear_solver_tests PRIVATE
+        ZIMA_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}")
     add_test(NAME zima_cpp_rectilinear_solver_tests COMMAND zima_cpp_rectilinear_solver_tests)
+    add_test(NAME zima_cpp_parallel_profile_dimension_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_parallel_profile_dimension_ui_contract PROPERTIES
+        DEPENDS zima_cpp_rectilinear_solver_tests
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PROFILE_DIMENSION_FILE=${CMAKE_BINARY_DIR}/parallel-profile-ui.prtz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
@@ -1926,6 +1942,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180
         FIXTURES_REQUIRED zima_imported_datum_source)
     add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
+    add_test(NAME zima_cpp_profile_feature_type_transition_contract
+        COMMAND zima_cpp_profile_command_tests --feature-type-transition)
+    set_tests_properties(zima_cpp_profile_feature_type_transition_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_profile_public_naming_contract COMMAND zima_cpp_profile_command_tests --public-naming)
     set_tests_properties(zima_cpp_profile_public_naming_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -2069,6 +2089,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_modeling_wire_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_MODELING_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_placement_origin_preview_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_placement_origin_preview_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_PLACEMENT_ORIGIN_PREVIEW_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_feature_type_transition_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_type_transition_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_TYPE_TRANSITION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_import_drawn_feature_wire_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_import_drawn_feature_wire_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1;ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY=1;ZIMA_VERIFY_IMPORT_PLANE_VISIBILITY=1;ZIMA_VERIFY_IMPORT_FEATURE_PREVIEW=1;ZIMA_VERIFY_IMPORT_BODY_FRAME=1;ZIMA_VERIFY_IMPORT_DRAWN_FEATURE=1"

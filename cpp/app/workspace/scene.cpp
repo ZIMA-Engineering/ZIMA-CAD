@@ -1828,7 +1828,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     viewer_->reference_visible(
                         zima::viewer::ReferenceVisibility::Axes),
                     viewer_->reference_visible(
-                        zima::viewer::ReferenceVisibility::Planes)));
+                        zima::viewer::ReferenceVisibility::Planes),
+                    parameter_dimension_preview_
+                        ? parameter_dimension_preview_->container_origin.id
+                        : std::string{}));
             }
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
@@ -1977,7 +1980,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     viewer_->reference_visible(
                         zima::viewer::ReferenceVisibility::Axes),
                     viewer_->reference_visible(
-                        zima::viewer::ReferenceVisibility::Planes)));
+                        zima::viewer::ReferenceVisibility::Planes),
+                    parameter_dimension_preview_
+                        ? parameter_dimension_preview_->container_origin.id
+                        : std::string{}));
             }
             if (sketch_external_reference_active_) {
                 const auto source_owners = sketch_external_reference_source_owners(
@@ -2236,7 +2242,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             carrier.history = source.sketch_containers; carrier.sketches = source.sketches;
             append_mesh(mesh, local_container_context_mesh(carrier, visible_local_origin_ids_,
                 viewer_->reference_visible(zima::viewer::ReferenceVisibility::Axes),
-                viewer_->reference_visible(zima::viewer::ReferenceVisibility::Planes)));
+                viewer_->reference_visible(zima::viewer::ReferenceVisibility::Planes),
+                parameter_dimension_preview_
+                    ? parameter_dimension_preview_->container_origin.id
+                    : std::string{}));
         }
         if (primitive_origin_preview_mesh_ && active) {
             append_mesh(mesh, *primitive_origin_preview_mesh_);
@@ -2492,7 +2501,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 append_mesh(live_source.mesh, local_container_context_mesh(
                     active_part->session.document(), visible_local_origin_ids_,
                     viewer_->reference_visible(zima::viewer::ReferenceVisibility::Axes),
-                    viewer_->reference_visible(zima::viewer::ReferenceVisibility::Planes)));
+                    viewer_->reference_visible(zima::viewer::ReferenceVisibility::Planes),
+                    parameter_dimension_preview_
+                        ? parameter_dimension_preview_->container_origin.id
+                        : std::string{}));
             }
             const auto hidden_wires=hidden_surface_packet_owners(active_part->session.document());
             for (const auto& sketch : active_part->session.document().sketches) {

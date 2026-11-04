@@ -260,6 +260,8 @@ void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     commit(value);near(f.volume(),400*std::numbers::pi);
     require(f.doc().find_container(id)->feature.axis_segment_id==axis && f.doc().find_container(id)->feature_id==feature_id,
         "Feature changed identity or failed to select first construction axis");
+    require(std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->geometry_visible_in_3d(axis),
+        "Switching a Feature to rotation did not expose its selected Sketch axis in 3D");
     const auto before=f.doc().serialized();const auto revision=f.part().session.revision();
     const auto* cache=f.part().session.calculated_boundaries().data();
     value=*f.doc().find_container(id);value.feature.sides[0].angle_degrees=0;
@@ -566,6 +568,45 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     catch(const workspace::ProfileOperationError& error){rejected=std::string(error.code)=="profile_owned";}
     require(rejected && f.part().session.revision()==revision && f.doc().history==original.history && f.doc().sketches.front().serialized()==original.sketches.front().serialized(),"Owned draft transferred another feature's Sketch");
 }
+void feature_to_sketch_type_transition(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-type-transition"}});
+    const auto sketch=f.rectangle(-5,-10,10,20);
+    document::FeatureParameters parameters;parameters.sides[0].length=5;
+    const auto created=f.create_feature(sketch,parameters);
+    const auto id=created.at("container").get<std::string>();
+    auto stale=f.doc();
+    stale.find_container(id)->placement.reference_valid=false;
+    f.part().session.commit(std::move(stale),
+        f.part().session.calculated_boundaries());
+    auto sketch_only=*f.doc().find_container(id);
+    sketch_only.feature.type=document::FeatureType::Sketch;
+    // An in-dialog preview can carry a stale draft validity flag. A type
+    // change must resolve the shared placement from its real references
+    // instead of reusing the former material feature's cached frame.
+    sketch_only.placement.reference_valid=false;
+    const auto owned=*std::ranges::find(
+        f.doc().sketches,sketch,&sketcher::Sketch::id);
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,
+        sketch_only,workspace::ProfileEditMode::Replace,owned);
+    require(f.doc().find_container(id)->feature.type==
+                document::FeatureType::Sketch &&
+                f.doc().find_container(id)->placement.reference_valid &&
+                f.part().session.calculated_boundaries().back().calculation_errors.empty(),
+            "Changing a material Feature to Sketch retained a false unresolved state");
+    near(f.volume(),0);
+    f.run("undo");near(f.volume(),1000);
+    f.run("redo");
+    require(f.doc().find_container(id)->placement.reference_valid,
+        "Feature-to-Sketch Redo restored a false unresolved state");
+    auto material=*f.doc().find_container(id);
+    material.feature.type=document::FeatureType::Modeling;
+    material.placement.reference_valid=false;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,
+        material,workspace::ProfileEditMode::Replace,owned);
+    require(f.doc().find_container(id)->placement.reference_valid,
+        "Changing Sketch back to a material Feature retained a false unresolved state");
+    near(f.volume(),1000);
+}
 void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-thin"}});
     const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
@@ -681,8 +722,15 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     auto invalid=zima::test::public_feature_parameters(parameters);invalid.erase("sketch_id");f.reject("feature.create",{{"sketch",sketch},{"parameters",invalid}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     const auto second_axis=f.line(sketch,-8,0,-8,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",second_axis},{"centerline",true}});
+    require(!std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->geometry_visible_in_3d(axis)&&
+            !std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id)->geometry_visible_in_3d(second_axis),
+        "New construction axes are unexpectedly visible before rotation commit");
     const auto made=f.create_feature(sketch,parameters);const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
     require(made.at("parameters").at("axis_segment_id")==axis,"Revolution did not use exact native centerline identity");
+    const auto& committed_sketch=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
+    require(committed_sketch.geometry_visible_in_3d(axis)&&
+            !committed_sketch.geometry_visible_in_3d(second_axis),
+        "Revolution did not expose only its first selected Sketch axis in 3D");
     auto hidden_axis=f.doc();auto& hidden_sketch=*std::ranges::find(hidden_axis.sketches,sketch,&sketcher::Sketch::id);hidden_sketch.set_geometry_visible_in_3d(axis,false);
     require(workspace::revolution_axis_segment_id(hidden_sketch)==axis,"Hiding first construction axis selected another axis");hidden_axis.find_container(id)->feature.axis_segment_id.clear();
     near(kernel.evaluate_history(hidden_axis.kernel_operations()).back().volume,120*std::numbers::pi);
@@ -860,22 +908,42 @@ void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
     static_cast<void>(sketch.add_rectangle(20,20,25,25));
     downstream.feature.sketch_id=sketch.id;downstream.feature.sides[0].length=5;sketch.owner_container_id=downstream.id;
     workspace::commit_profile(f.live,kernel,f.doc().document_id,downstream,workspace::ProfileEditMode::Create,sketch);
-    require(f.doc().find_container(downstream.id)&&f.part().session.calculated_boundaries().back().calculation_errors.contains(downstream.id),"Dependent failure was lost or executed against invalid input");
-    near(f.volume(),1000);
+    require(f.doc().find_container(downstream.id)&&
+        f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id)&&
+        !f.part().session.calculated_boundaries().back().calculation_errors.contains(downstream.id),
+        "A later Feature did not retain the failed definition or use the last valid body");
+    near(f.volume(),1125);
     fillet.edge_treatment.primary_size=1;
     require(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,fillet,workspace::EdgeTreatmentEditMode::Replace),"Failed definition could not be repaired");
     require(f.part().session.calculated_boundaries().back().calculation_errors.empty()&&f.volume()>1000,"Repair did not restore dependent calculation");
-    f.run("undo");near(f.volume(),1000);require(f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id),"Repair Undo lost the failed state");
+    f.run("undo");near(f.volume(),1125);require(f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id),"Repair Undo lost the failed state or its valid downstream continuation");
     f.run("redo");require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Repair Redo lost valid geometry");
-    const auto before=f.doc().serialized();fillet.edge_treatment.primary_size=100;
-    bool rejected=false;try {static_cast<void>(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,fillet,workspace::EdgeTreatmentEditMode::Replace));}catch(const std::exception&){rejected=true;}
-    require(rejected&&f.doc().serialized()==before,"A failed edit of working geometry bypassed its established atomic rejection");
+    const auto repaired_revision=f.part().session.revision();fillet.edge_treatment.primary_size=100;
+    require(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,
+            fillet,workspace::EdgeTreatmentEditMode::Replace),
+        "A failed edit of working geometry could not retain its definition");
+    require(f.part().session.revision()==repaired_revision+1&&
+            f.doc().find_container(failed_id)->edge_treatment.primary_size==100&&
+            f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id)&&
+            !f.part().session.calculated_boundaries().back().calculation_errors.contains(downstream.id),
+        "A failed edit did not become an inspectable unresolved Feature with valid continuation");
+    near(f.volume(),1125);
+    f.run("undo");
+    require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),
+        "Failed-edit Undo did not restore the repaired definition");
+    f.run("redo");
+    require(f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id),
+        "Failed-edit Redo did not restore the unresolved definition");
 }
 }
 int main(int argc,char** argv){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");
     if((argc==3||argc==4)&&std::string_view(argv[1])=="--imported-datums") {imported_datums(fs::absolute(fs::u8path(argv[2])),directory,argc==4&&std::string_view(argv[3])=="--large-probe");fs::remove_all(directory);return 0;}
     kernel::OcctKernel kernel;
+    if(argc==2&&std::string_view(argv[1])=="--feature-type-transition") {
+        feature_to_sketch_type_transition(kernel,directory);fs::remove_all(directory);
+        std::cout<<"Feature-to-Sketch placement resolution, Undo/Redo and reverse transition passed\n";return 0;
+    }
     axis_model_visibility(kernel,directory);
     if(argc==2&&std::string_view(argv[1])=="--symmetric-endpoints") {symmetric_endpoint_references(kernel,directory);fs::remove_all(directory);std::cout<<"Symmetric endpoint references passed\n";return 0;}
     if(argc==2&&std::string_view(argv[1])=="--public-naming") {

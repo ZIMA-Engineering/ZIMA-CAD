@@ -12,9 +12,12 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             const auto first=sketch.add_segment(12,10,28,10),second=sketch.add_segment(28,10,28,24);
+            const auto source_circle=sketch.add_circle(18,18,2);
             if(rounded){static_cast<void>(sketch.add_corner_fillet(first,second,2));sketch.corner_radii.front().dimension_visible=true;sketch.corner_radii.front().dimension_placement=std::array{20.,6.};}
             const auto source_point=sketch.segments.front().first_point_id;
             auto dimension=sketch.create_segment_dimension(first);dimension.locked=false;sketch.apply_dimension(dimension);
+            auto circle_dimension=sketch.create_circle_radius_dimension(source_circle);
+            circle_dimension.locked=false;sketch.apply_dimension(circle_dimension);
             const auto axis=axis_kind<2?std::string(axis_kind==0?"sketch_axis:x":"sketch_axis:y"):
                 sketch.add_segment(axis_kind==2?3:-20,-30,axis_kind==2?3:20,30,1e-6,true);
             if(axis_kind==3) {
@@ -72,6 +75,20 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             check(geometry_keys().size()==(axis_kind<2?4u:5u),"Mirror axis confirmation did not create both copied segments");
             window.findChild<QAction*>("undoAction")->trigger();flush();check(geometry_keys().size()==(axis_kind<2?2u:3u),"Mirror Undo did not remove exactly the copied pair");
             window.findChild<QAction*>("redoAction")->trigger();flush();check(geometry_keys().size()==(axis_kind<2?4u:5u),"Mirror Redo did not restore the copied pair");
+            const double edited_circle_radius=2.25+.1*case_id;
+            viewer::ViewerCandidate radius_candidate;radius_candidate.kind=viewer::CandidateKind::Dimension;
+            radius_candidate.owner_id=sketch.id;radius_candidate.semantic_key="dimension:"+circle_dimension.id;
+            for(std::size_t i=0;i<view->mesh().dimensions.size();++i)
+                if(view->mesh().dimensions[i].reference.semantic_key==radius_candidate.semantic_key)
+                    radius_candidate.geometry_index=i;
+            window.edit_dimension_inline(radius_candidate);flush();
+            auto* radius_editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(radius_editor&&radius_editor->isVisible(),"Mirrored circle radius editor did not open");
+            radius_editor->setText(QString::number(edited_circle_radius,'g',15));
+            QKeyEvent radius_enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(radius_editor,&radius_enter);flush();
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            window.findChild<QAction*>("redoAction")->trigger();flush();
             if(rounded) {
                 const auto id=sketch.corner_radii.front().id;
                 const auto dimension_row=[&]()->QTreeWidgetItem* {
@@ -142,6 +159,18 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
             check(reopened.sketches.front().serialized()==support_before&&result.external_references.size()==1&&
                 result.external_references.front().id==reference_id,"Mixed Mirror changed or copied its read-only source");
             check(result.segments.size()==(axis_kind<2?4u:5u),"Mirror native save/reopen lost geometry");
+            check(result.circles.size()==2,"Mirror native save/reopen lost its reflected circle");
+            const auto source_circle_value=std::ranges::find(result.circles,source_circle,&sketcher::SketchCircle::id);
+            const auto reflected_circle_value=std::ranges::find_if(result.circles,[&](const auto& circle){return circle.id!=source_circle;});
+            check(source_circle_value!=result.circles.end()&&reflected_circle_value!=result.circles.end()&&
+                std::abs(source_circle_value->radius-edited_circle_radius)<1e-8&&
+                std::abs(reflected_circle_value->radius-edited_circle_radius)<1e-8,
+                "Mirrored circle did not follow its source radius edit after reopen");
+            check(std::ranges::any_of(result.constraints,[&](const auto& relation){return
+                relation.kind==sketcher::ConstraintKind::EqualRadius&&
+                ((relation.geometry_id==source_circle&&relation.second_geometry_id==reflected_circle_value->id)||
+                 (relation.second_geometry_id==source_circle&&relation.geometry_id==reflected_circle_value->id));}),
+                "Mirror did not persist its circle radius relation");
             check(result.corner_radii.size()==(rounded?2u:0u),"Mirror GUI lost a selected rounded corner");
             if(rounded)check(std::abs(result.corner_radii[0].radius-result.corner_radii[1].radius)<1e-8,
                 "Mirror GUI lost linked corner radii after dragging and reopen");
@@ -160,9 +189,12 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
                 const auto dot=((source->x-origin[0])*direction[0]+(source->y-origin[1])*direction[1])/(direction[0]*direction[0]+direction[1]*direction[1]);
                 check(std::hypot(copy->x-(2*(origin[0]+dot*direction[0])-source->x),copy->y-(2*(origin[1]+dot*direction[1])-source->y))<1e-6,"Saved Mirror point does not satisfy independent reflection equation");++relations;
             }
-            check(relations==3&&result.dimensions.size()==1&&result.dimensions.front().id==dimension.id,"Mirror lost shared corner topology or duplicated source dimensions");
+            check(relations==4&&result.dimensions.size()==2&&
+                std::ranges::any_of(result.dimensions,[&](const auto& value){return value.id==dimension.id;})&&
+                std::ranges::any_of(result.dimensions,[&](const auto& value){return value.id==circle_dimension.id;}),
+                "Mirror lost shared topology or duplicated source dimensions");
             if(axis_kind==3)view->grabFramebuffer().save(QString::fromStdString((directory/"sketch-mirror.png").string()));
-            std::cout<<"Sketch Mirror GUI axis "<<axis_kind<<" rounded="<<rounded<<": source/axis picking, Cancel, Undo/Redo, point drag and native reopen passed\n";
+            std::cout<<"Sketch Mirror GUI axis "<<axis_kind<<" rounded="<<rounded<<": source/axis picking, circle R edit, Cancel, Undo/Redo, point drag and native reopen passed\n";
         }
         return 0;
     }catch(const std::exception& error){std::cerr<<"Sketch Mirror GUI: "<<error.what()<<'\n';return 1;}

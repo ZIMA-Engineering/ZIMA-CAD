@@ -4,12 +4,15 @@
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for(int scenario:{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26}) {
+        for(int scenario:{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34}) {
             std::cout<<"Starting external constraint GUI scenario "<<scenario<<std::endl;
             const auto supplied=qEnvironmentVariable("ZIMA_VERIFY_EXTERNAL_CONSTRAINT_FILE");
             const auto form=qEnvironmentVariable("ZIMA_VERIFY_TANGENT_FORM_FILE");
             const bool form_scenario=scenario==23||scenario==24;
-            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_LINE_SEGMENT_ONLY")&&scenario<25)continue;
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_LINE_SEGMENT_ONLY")&&
+                (scenario<25||scenario>26))continue;
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_DIRECTION_ORDER_ONLY")&&
+                scenario<27)continue;
             if(form_scenario && form.isEmpty())continue;
             // The private Part retains calculated boundaries for its actual
             // Sketch. Endpoint-creation variants use the generated fixture,
@@ -51,6 +54,7 @@
                 const auto source_arc=tangent_scenario?source.add_arc(3,-7,0,-7,3,-10):source.add_arc(3,3,0,3,3,0);
                 auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
                 const auto ab=sketch.add_segment(0,3,-8.31,3),bc=sketch.add_segment(-8.31,3,-8.31,10);
+                if(scenario>=27)static_cast<void>(sketch.add_segment(5,-5,12,-2));
                 for(const auto& edge:source.viewer_mesh().edges) {
                     if(edge.reference.semantic_key!="segment:"+source_line&&edge.reference.semantic_key!="arc:"+source_arc&&
                         edge.reference.semantic_key!="segment:"+source_vertical)continue;
@@ -196,6 +200,30 @@
                 check(view->hovered_candidate()&&view->hovered_candidate()->kind==viewer::CandidateKind::SketchTrimPiece,
                     "GUI does not offer the external circular contour as a trim piece");
                 click(screen(.228361402466,1.851949702905));
+            } else if(scenario>=27) {
+                const bool parallel=scenario<=28||(scenario>=31&&scenario<=32);
+                const bool external=scenario<=30;
+                const bool stationary_first=scenario%2==1;
+                auto* action=window.findChild<QAction*>(parallel?
+                    "sketchParallelAction":"sketchPerpendicularAction");
+                check(action&&action->isEnabled(),
+                    "External/axis direction relation action unavailable");
+                action->trigger();flush();
+                const auto& driven=sketch.segments.back();
+                const auto* a=sketch.find_point(driven.first_point_id);
+                const auto* b=sketch.find_point(driven.second_point_id);
+                const auto driven_position=screen((a->x+b->x)*.5,(a->y+b->y)*.5);
+                const auto reference_position=external?screen(20,10):screen(20,0);
+                const auto driven_key="segment:"+driven.id;
+                const auto reference_key=external?
+                    "external_edge:"+horizontal->id:std::string("sketch_axis:x");
+                if(stationary_first) {
+                    pick_exact(reference_position,reference_key);
+                    pick_exact(driven_position,driven_key);
+                } else {
+                    pick_exact(driven_position,driven_key);
+                    pick_exact(reference_position,reference_key);
+                }
             } else if(scenario>=25) {
                 window.findChild<QAction*>("sketchCoincidentAction")->trigger();flush();
                 const auto segment_position=screen(-8.31,6.5);
@@ -299,6 +327,23 @@
                     "GUI circle did not remain tangent to both axis and external arc");
             } else if(scenario==12) {
                 check(!result.curve_trims.empty(),"GUI external arc contour was not trimmed");
+            } else if(scenario>=27) {
+                const bool parallel=scenario<=28||(scenario>=31&&scenario<=32);
+                const bool external=scenario<=30;
+                const auto& driven=result.segments.back();
+                const auto* first=result.find_point(driven.first_point_id);
+                const auto* second=result.find_point(driven.second_point_id);
+                const double dx=second->x-first->x,dy=second->y-first->y;
+                const double length=std::hypot(dx,dy);
+                check(length>1e-8&&(parallel?std::abs(dy):std::abs(dx))/length<1e-8,
+                    "GUI external/axis direction relation did not satisfy its equation");
+                const auto kind=parallel?K::Parallel:K::Perpendicular;
+                const auto reference=external?horizontal->id:std::string("sketch_axis:x");
+                check(std::ranges::any_of(result.constraints,[&](const auto& c) {
+                        return !c.suppressed&&c.kind==kind&&
+                            c.geometry_id==reference&&
+                            c.second_geometry_id==driven.id;
+                    }),"GUI external/axis direction relation lost stationary/driven identity");
             } else if(scenario>=25) {
                 const auto& side=result.segments[1];
                 const auto* first=result.find_point(side.first_point_id);

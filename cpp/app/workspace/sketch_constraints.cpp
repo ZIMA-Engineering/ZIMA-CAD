@@ -1061,13 +1061,21 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
     const bool equal = pending_pair_kind_ ==
         zima::sketcher::ConstraintKind::EqualLength;
     if (!equal && pending_pair_geometry_id_.empty()) {
-        // Pair constraints follow the normal CAD contract: the first click
-        // is always editable/driven geometry. Datum axes and external lines
-        // are valid only as the stationary second reference.
         viewer_->set_selection_contract({
-            zima::viewer::CandidateKind::SketchSegment});
+            zima::viewer::CandidateKind::SketchSegment,
+            zima::viewer::CandidateKind::SketchAxis,
+            zima::viewer::CandidateKind::SketchExternalReference});
     } else if (!equal) {
-        viewer_->set_selection_contract({
+        const auto* sketch=active_sketch();
+        const bool stationary_first=pending_pair_geometry_id_.starts_with(
+                "sketch_axis:") || (sketch && std::ranges::any_of(
+                sketch->external_references,[&](const auto& reference) {
+                    return reference.id==pending_pair_geometry_id_ &&
+                        zima::sketcher::external_reference_line(reference);
+                }));
+        if(stationary_first) viewer_->set_selection_contract({
+            zima::viewer::CandidateKind::SketchSegment});
+        else viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
             zima::viewer::CandidateKind::SketchAxis,
             zima::viewer::CandidateKind::SketchExternalReference});
@@ -1128,9 +1136,14 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
                 return false;
             }
             if (pending_geometry_id.empty()) {
-                return equal ? segment || circular : segment;
+                return equal ? segment || circular
+                    : segment || base_axis || external_direction;
             }
             if (equal) return reference_is_circular ? circular : segment;
+            const bool stationary_first=
+                pending_geometry_id.starts_with("sketch_axis:") ||
+                line_references.contains(pending_geometry_id);
+            if(stationary_first)return segment;
             return segment || base_axis || external_direction;
         });
 }
@@ -1182,10 +1195,23 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
         if(is_circular&&candidate.kind==zima::viewer::CandidateKind::SketchExternalReference) {
             state_->setText(tr("Stejný poloměr: vyberte kružnici nebo oblouk v této skice."));return;
         }
+        const auto* sketch=active_sketch();
+        const bool stationary_first=geometry_id.starts_with("sketch_axis:") ||
+            (sketch && std::ranges::any_of(sketch->external_references,
+                [&](const auto& reference) {
+                    return reference.id==geometry_id &&
+                        zima::sketcher::external_reference_line(reference);
+                }));
         state_->setText(pending_pair_kind_ == zima::sketcher::ConstraintKind::Parallel
-            ? tr("Rovnoběžnost: vyberte stojící referenční úsečku nebo osu.")
+            ? stationary_first
+                ? tr("Rovnoběžnost: vyberte úsečku, která se má pohnout. "
+                     "Escape příkaz zruší.")
+                : tr("Rovnoběžnost: vyberte stojící referenční úsečku nebo osu.")
             : pending_pair_kind_ == zima::sketcher::ConstraintKind::Perpendicular
-                ? tr("Kolmost: vyberte stojící referenční úsečku nebo osu.")
+                ? stationary_first
+                    ? tr("Kolmost: vyberte úsečku, která se má pohnout. "
+                         "Escape příkaz zruší.")
+                    : tr("Kolmost: vyberte stojící referenční úsečku nebo osu.")
                 : is_circular
                     ? tr("Stejné: vyberte referenční kružnici nebo oblouk.")
                     : tr("Stejné: vyberte referenční úsečku."));
@@ -1206,11 +1232,19 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
                     static_cast<void>(sketch.add_equal_radius_constraint(
                         geometry_id, pending_pair_geometry_id_));
                 } else {
-                    // The model API stores reference first and driven second;
-                    // UI selection deliberately uses the opposite temporal
-                    // order so the object chosen first is the one that moves.
+                    const bool stationary_first=
+                        pending_pair_geometry_id_.starts_with("sketch_axis:") ||
+                        std::ranges::any_of(sketch.external_references,
+                            [&](const auto& reference) {
+                                return reference.id==pending_pair_geometry_id_ &&
+                                    zima::sketcher::external_reference_line(reference);
+                            });
+                    // Datum axes and external lines remain read-only in both
+                    // temporal selection orders. With two native segments the
+                    // first click retains the established driven-line contract.
                     static_cast<void>(sketch.add_segment_pair_constraint(
-                        geometry_id, pending_pair_geometry_id_,
+                        stationary_first ? pending_pair_geometry_id_ : geometry_id,
+                        stationary_first ? geometry_id : pending_pair_geometry_id_,
                         pending_pair_kind_));
                 }
             })) return;

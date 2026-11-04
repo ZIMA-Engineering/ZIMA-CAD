@@ -101,11 +101,28 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     if (mode == ProfileEditMode::TransformSketch && profile->owner_container_id != value.id)
         throw ProfileOperationError("profile_owned", "The Sketch already belongs to another container.");
     profile->validate();
+    const auto source=feature?value.feature.profile_source:
+        extrusion?value.extrusion.profile_source:value.revolution.profile_source;
     if(feature) {
         if(value.feature.effective_side(0).operation==document::FeatureSideOperation::Revolution ||
-            value.feature.effective_side(1).operation==document::FeatureSideOperation::Revolution)
-            value.feature.axis_segment_id=revolution_axis_segment_id(*profile,value.feature.axis_segment_id);
-    } else if (!extrusion) value.revolution.axis_segment_id = revolution_axis_segment_id(*profile, value.revolution.axis_segment_id);
+            value.feature.effective_side(1).operation==document::FeatureSideOperation::Revolution) {
+            const bool newly_selected=!existing ||
+                existing->definition.feature_kind!=document::FeatureKind::Feature ||
+                (existing->definition.feature.effective_side(0).operation!=document::FeatureSideOperation::Revolution &&
+                 existing->definition.feature.effective_side(1).operation!=document::FeatureSideOperation::Revolution) ||
+                existing->definition.feature.axis_segment_id!=value.feature.axis_segment_id;
+            value.feature.axis_segment_id=prepare_revolution_axis(*profile,
+                value.feature.axis_segment_id,
+                source==document::ProfileSource::Internal&&newly_selected);
+        }
+    } else if (!extrusion) {
+        const bool newly_selected=!existing ||
+            existing->definition.feature_kind!=document::FeatureKind::Revolution ||
+            existing->definition.revolution.axis_segment_id!=value.revolution.axis_segment_id;
+        value.revolution.axis_segment_id=prepare_revolution_axis(*profile,
+            value.revolution.axis_segment_id,
+            source==document::ProfileSource::Internal&&newly_selected);
+    }
     profile->owner_container_id = value.id;
     profile->plane_offset = feature?value.feature.profile_plane_offset:extrusion ? value.extrusion.profile_plane_offset : value.revolution.profile_plane_offset;
     normalize_owned_profile_front_references(value.placement.references);

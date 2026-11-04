@@ -5791,7 +5791,17 @@ std::vector<std::array<double, 2>> Sketch::curve_line_intersections(
         const double c = local_u * local_u + local_v * local_v - 1.0;
         const double discriminant = b * b - 4.0 * a * c;
         if (a <= 1.0e-24 || discriminant < -1.0e-12) return result;
-        const double root = std::sqrt(std::max(0.0, discriminant));
+        // At an exact tangent, independent products in b^2 - 4ac can leave a
+        // small positive round-off remainder.  Taking its square root creates
+        // two false intersections on opposite sides of the one native contact
+        // (the error is O(sqrt(epsilon)), not O(epsilon)).  Classify only that
+        // scale-aware floating-point remainder as zero; a resolvable positive
+        // discriminant still produces the two real intersections.
+        const double discriminant_roundoff =
+            64.0 * std::numeric_limits<double>::epsilon() *
+            std::max({1.0, b * b, std::abs(4.0 * a * c)});
+        const double root = std::sqrt(
+            discriminant <= discriminant_roundoff ? 0.0 : discriminant);
         for (const double factor : {
                 (-b - root) / (2.0 * a), (-b + root) / (2.0 * a)}) {
             if (line_bounded &&
@@ -7330,6 +7340,20 @@ MirroredGeometryResult Sketch::mirror_geometry(
         }
         geometry_map.emplace(entity_id, mirrored_id);
         result.geometry_ids.push_back(std::move(mirrored_id));
+    }
+
+    // A circle has only a centre point in the reflected point graph; unlike
+    // an arc, no reflected endpoint can carry its radius.  Persist the missing
+    // scalar relation so later radius dimensions keep the copy a true mirror.
+    for (const auto& source : circles) {
+        const auto mirrored = geometry_map.find(source.id);
+        if (mirrored == geometry_map.end()) continue;
+        SketchConstraint radius;
+        radius.id = make_id();
+        radius.kind = ConstraintKind::EqualRadius;
+        radius.geometry_id = source.id;
+        radius.second_geometry_id = mirrored->second;
+        next.constraints.push_back(std::move(radius));
     }
 
     for (const auto& source : corner_radii) {
@@ -10352,6 +10376,27 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && seed_equal_length_components(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
+    if(result.status==SolveStatus::Conflicting&&arcs.empty()&&circles.empty()&&
+       ellipses.empty()&&elliptical_arcs.empty()&&bsplines.empty()&&
+       std::ranges::any_of(next.constraints,[](const auto& constraint) {
+           return !constraint.suppressed&&
+               (constraint.kind==ConstraintKind::Parallel||
+                constraint.kind==ConstraintKind::Perpendicular);
+       })) {
+        // The rectilinear seed intentionally handles only axis-aligned linear
+        // equations. An otherwise line-only profile may also couple oblique
+        // branches through Parallel/Perpendicular constraints. Fit that graph
+        // simultaneously from its last valid branch, then retain the ordinary
+        // solver as the final authority for every persisted equation.
+        auto candidate=*this;candidate.dimensions=next.dimensions;
+        if(seed_circular_equations(candidate,{},true)) {
+            const auto checked=candidate.solve_impl(100,needs_rank_for_redundancy);
+            if(checked.status!=SolveStatus::Conflicting&&
+               checked.status!=SolveStatus::Invalid) {
+                next=std::move(candidate);result=checked;
+            }
+        }
+    }
     if(result.status==SolveStatus::Conflicting && (std::ranges::any_of(next.dimensions,[](const auto& d){
         return !d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween;
     })||std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
@@ -15823,9 +15868,17 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
                 const std::array projection{
                     reference->first[0] + factor * rx,
                     reference->first[1] + factor * ry};
+                std::array reference_witness=projection;
+                if(!is_base_sketch_axis(dimension.geometry_id))
+                    reference_witness={
+                        reference->first[0]+reference->second[0]*.5,
+                        reference->first[1]+reference->second[1]*.5};
+                const std::array driven_witness{
+                    driven->first[0]+driven->second[0]*.5,
+                    driven->first[1]+driven->second[1]*.5};
                 result.dimensions.push_back({
-                    world_point(projection[0], projection[1]),
-                    world_point(driven_anchor[0], driven_anchor[1]),
+                    world_point(reference_witness[0], reference_witness[1]),
+                    world_point(driven_witness[0], driven_witness[1]),
                     world_point(projection[0], projection[1]),
                     world_point(driven_anchor[0], driven_anchor[1]),
                     dimension.value, {id, "dimension:" + dimension.id, {}}});

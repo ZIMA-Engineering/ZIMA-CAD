@@ -3096,6 +3096,25 @@ int main() {
                     line_distance.id, 4.0, 11.0) &&
                     parallel_dimensioned.dimensions.front().solution_side == 1,
                 "Moving a line-distance label changed its solution branch");
+        const auto line_distance_view=
+            parallel_dimensioned.viewer_mesh().dimensions.front();
+        const auto reference_witness=parallel_dimensioned.local_point(
+            line_distance_view.witness_first);
+        const auto driven_witness=parallel_dimensioned.local_point(
+            line_distance_view.witness_second);
+        const auto reference_tip=parallel_dimensioned.local_point(
+            line_distance_view.line_first);
+        const auto driven_tip=parallel_dimensioned.local_point(
+            line_distance_view.line_second);
+        require(std::abs(reference_witness[0]-10.)<1e-9 &&
+                    std::abs(reference_witness[1])<1e-9 &&
+                    std::abs(driven_witness[0]-7.)<1e-9 &&
+                    std::abs(driven_witness[1]-8.)<1e-9 &&
+                    std::abs(reference_tip[0]-4.)<1e-9 &&
+                    std::abs(reference_tip[1])<1e-9 &&
+                    std::abs(driven_tip[0]-4.)<1e-9 &&
+                    std::abs(driven_tip[1]-8.)<1e-9,
+                "Line-distance witness lines do not start at the segment centres");
         require(parallel_dimensioned.set_dimension_value(
                     line_distance.id, -6.0) &&
                     std::abs(parallel_dimensioned.find_point(
@@ -8019,6 +8038,221 @@ int main() {
                           right_contact)) &&
                     attached_contact_trim.constraints.empty(),
                 "Trim reconstruction lost persisted contact point identities");
+
+        // Mirror persists point symmetry, not duplicate C rows.  The reflected
+        // tangent endpoints nevertheless lie exactly on the reflected circle
+        // and must therefore split its trim topology.  Exercise both segment
+        // endpoint orders used by interactive creation and later edits.
+        for(const bool reverse_endpoints:{false,true}) {
+            auto mirrored_tangent_trim=zima::sketcher::Sketch::create_default();
+            constexpr double center_x=30.;
+            constexpr double center_y=-36.39238741766315;
+            constexpr double radius=7.679739211000449;
+            const auto source_circle=mirrored_tangent_trim.add_circle(center_x,center_y,radius);
+            const std::array left_outer{center_x-18.81904359069296,-6.7707900817850035};
+            const std::array left_contact{center_x-7.2262673488485705,-38.992282521690015};
+            const std::array right_outer{center_x+18.81904359069296,-6.7707900817850035};
+            const std::array right_contact{center_x+7.2262673488485705,-38.992282521690015};
+            const auto add_leg=[&](const auto& outer,const auto& contact) {
+                return reverse_endpoints
+                    ? mirrored_tangent_trim.add_segment(contact[0],contact[1],outer[0],outer[1])
+                    : mirrored_tangent_trim.add_segment(outer[0],outer[1],contact[0],contact[1]);
+            };
+            const auto left=add_leg(left_outer,left_contact);
+            const auto right=add_leg(right_outer,right_contact);
+            const auto contact_id=[&](const std::string& segment_id,const auto& contact) {
+                const auto segment=std::ranges::find(
+                    mirrored_tangent_trim.segments,segment_id,&zima::sketcher::SketchSegment::id);
+                const auto* first=mirrored_tangent_trim.find_point(segment->first_point_id);
+                return std::hypot(first->x-contact[0],first->y-contact[1])<1.e-9
+                    ? segment->first_point_id:segment->second_point_id;
+            };
+            const auto source_left_contact=contact_id(left,left_contact);
+            const auto source_right_contact=contact_id(right,right_contact);
+            static_cast<void>(mirrored_tangent_trim.add_point_on_circle_constraint(
+                source_left_contact,source_circle));
+            static_cast<void>(mirrored_tangent_trim.add_point_on_circle_constraint(
+                source_right_contact,source_circle));
+            const auto mirrored=mirrored_tangent_trim.mirror_geometry(
+                {source_circle,left,right},"sketch_axis:x");
+            require(mirrored.geometry_ids.size()==3,
+                "Tangent-circle mirror fixture lost geometry");
+            const auto reflected_circle=mirrored.geometry_ids.front();
+            const auto verify_topology=[&](const auto& sketch,const char* phase,
+                    std::size_t expected_pieces) {
+                const auto topology=zima::sketcher::sketch_trim_topology(sketch,false);
+                const auto pieces=[&](const std::string& id) {
+                    return std::ranges::count_if(topology,[&](const auto& piece) {
+                        return piece.geometry_id==id;
+                    });
+                };
+                const auto source_pieces=pieces(source_circle);
+                const auto reflected_pieces=pieces(reflected_circle);
+                if(source_pieces!=expected_pieces||
+                        reflected_pieces!=expected_pieces)
+                    throw std::runtime_error(std::string(phase)+
+                        ": mirrored tangent endpoints are not trim boundaries (source="+
+                        std::to_string(source_pieces)+", reflected="+
+                        std::to_string(reflected_pieces)+")");
+            };
+            verify_topology(mirrored_tangent_trim,"created",2);
+            {
+                auto trimmed=mirrored_tangent_trim;
+                static_cast<void>(trimmed.add_tangent_constraint(
+                    source_circle,left,source_left_contact));
+                static_cast<void>(trimmed.add_tangent_constraint(
+                    source_circle,right,source_right_contact));
+                const auto topology=zima::sketcher::sketch_trim_topology(trimmed,true);
+                const auto piece=std::ranges::find_if(topology,[&](const auto& candidate) {
+                    return candidate.geometry_id==source_circle;
+                });
+                require(piece!=topology.end(),
+                    "Tangent source circle has no removable Trim piece");
+                static_cast<void>(zima::sketcher::apply_sketch_trim(trimmed,{*piece}));
+                trimmed.refresh_curve_dependencies();
+                const auto arc=std::ranges::find(
+                    trimmed.arcs,source_circle,&zima::sketcher::SketchArc::id);
+                require(arc!=trimmed.arcs.end()&&
+                    ((arc->start_point_id==source_left_contact&&
+                      arc->end_point_id==source_right_contact)||
+                     (arc->start_point_id==source_right_contact&&
+                      arc->end_point_id==source_left_contact)),
+                    "Trim replaced shared tangent Arc/Segment junctions with duplicate points");
+                const auto tangent_count=std::ranges::count_if(
+                    trimmed.constraints,[&](const auto& constraint) {
+                        if(constraint.kind!=zima::sketcher::ConstraintKind::Tangent||
+                                constraint.first_point_id.empty())return false;
+                        const bool owns_arc=constraint.geometry_id==source_circle||
+                            constraint.second_geometry_id==source_circle;
+                        const bool owns_leg=constraint.geometry_id==left||
+                            constraint.second_geometry_id==left||
+                            constraint.geometry_id==right||
+                            constraint.second_geometry_id==right;
+                        return owns_arc&&owns_leg&&
+                            (constraint.first_point_id==source_left_contact||
+                             constraint.first_point_id==source_right_contact);
+                    });
+                require(tangent_count==2,
+                    "Trim did not retain both T relations on shared Arc/Segment points");
+                require(std::ranges::none_of(trimmed.constraints,[&](const auto& constraint) {
+                    return constraint.kind==zima::sketcher::ConstraintKind::PointOnCircle&&
+                        constraint.geometry_id==source_circle&&
+                        (constraint.first_point_id==source_left_contact||
+                         constraint.first_point_id==source_right_contact);
+                }),"Trim retained redundant C on native shared tangent points");
+                const auto solved=trimmed.solve();
+                require(solved.status!=zima::sketcher::SolveStatus::Conflicting&&
+                    solved.status!=zima::sketcher::SolveStatus::Invalid,
+                    "Tangent Arc/Segment Trim junctions do not solve");
+                const auto tangent_equation=[&](const std::string& leg_id,
+                        const std::string& contact_id) {
+                    const auto leg=std::ranges::find(
+                        trimmed.segments,leg_id,&zima::sketcher::SketchSegment::id);
+                    const auto* contact=trimmed.find_point(contact_id);
+                    const auto* first=trimmed.find_point(leg->first_point_id);
+                    const auto* second=trimmed.find_point(leg->second_point_id);
+                    const auto* other=leg->first_point_id==contact_id?second:first;
+                    const auto* center=trimmed.find_point(arc->center_point_id);
+                    return (contact->x-center->x)*(other->x-contact->x)+
+                        (contact->y-center->y)*(other->y-contact->y);
+                };
+                require(std::abs(tangent_equation(left,source_left_contact))<1.e-7&&
+                        std::abs(tangent_equation(right,source_right_contact))<1.e-7,
+                    "Trim retained T rows but not their independent tangent equations");
+                auto without_tangent=trimmed;
+                const auto removed_tangent=std::ranges::find_if(
+                    without_tangent.constraints,[](const auto& constraint) {
+                        return constraint.kind==zima::sketcher::ConstraintKind::Tangent;
+                    });
+                require(removed_tangent!=without_tangent.constraints.end(),
+                    "Trimmed shared junction has no removable T relation");
+                const auto removed_tangent_id=removed_tangent->id;
+                without_tangent.remove_constraint(removed_tangent_id);
+                require(without_tangent.find_point(source_left_contact)&&
+                        without_tangent.find_point(source_right_contact)&&
+                        ((without_tangent.arcs.front().start_point_id==source_left_contact&&
+                          without_tangent.arcs.front().end_point_id==source_right_contact)||
+                         (without_tangent.arcs.front().start_point_id==source_right_contact&&
+                          without_tangent.arcs.front().end_point_id==source_left_contact)),
+                    "Removing T after Trim deleted or disconnected the shared native points");
+            }
+            {
+                auto trimmed=mirrored_tangent_trim;
+                const auto topology=zima::sketcher::sketch_trim_topology(trimmed,false);
+                const auto piece=std::ranges::find_if(topology,[&](const auto& candidate) {
+                    return candidate.geometry_id==reflected_circle;
+                });
+                require(piece!=topology.end(),
+                    "Reflected tangent circle has no removable Trim piece");
+                const auto reflected_contact=[&](const std::string& segment_id) {
+                    const auto segment=std::ranges::find(
+                        trimmed.segments,segment_id,&zima::sketcher::SketchSegment::id);
+                    const auto circle=std::ranges::find(
+                        trimmed.circles,reflected_circle,&zima::sketcher::SketchCircle::id);
+                    const auto* center=trimmed.find_point(circle->center_point_id);
+                    const auto radial_error=[&](const std::string& point_id) {
+                        const auto* point=trimmed.find_point(point_id);
+                        return std::abs(std::hypot(point->x-center->x,
+                            point->y-center->y)-circle->radius);
+                    };
+                    return radial_error(segment->first_point_id)<
+                        radial_error(segment->second_point_id)
+                        ? segment->first_point_id:segment->second_point_id;
+                };
+                const std::array expected_contacts{
+                    reflected_contact(mirrored.geometry_ids[1]),
+                    reflected_contact(mirrored.geometry_ids[2])};
+                static_cast<void>(zima::sketcher::apply_sketch_trim(trimmed,{*piece}));
+                trimmed.refresh_curve_dependencies();
+                const auto arc=std::ranges::find(
+                    trimmed.arcs,reflected_circle,&zima::sketcher::SketchArc::id);
+                require(arc!=trimmed.arcs.end()&&
+                    ((arc->start_point_id==expected_contacts[0]&&
+                      arc->end_point_id==expected_contacts[1])||
+                     (arc->start_point_id==expected_contacts[1]&&
+                      arc->end_point_id==expected_contacts[0])),
+                    "Trim replaced shared Arc/Segment junctions with duplicate points");
+                const auto solved=trimmed.solve();
+                require(solved.status!=zima::sketcher::SolveStatus::Conflicting&&
+                    solved.status!=zima::sketcher::SolveStatus::Invalid,
+                    "Shared Arc/Segment Trim junctions do not solve");
+                const auto reopened=zima::sketcher::Sketch::from_serialized(
+                    trimmed.serialized());
+                const auto reopened_arc=std::ranges::find(
+                    reopened.arcs,reflected_circle,&zima::sketcher::SketchArc::id);
+                require(reopened_arc!=reopened.arcs.end()&&
+                    ((reopened_arc->start_point_id==expected_contacts[0]&&
+                      reopened_arc->end_point_id==expected_contacts[1])||
+                     (reopened_arc->start_point_id==expected_contacts[1]&&
+                      reopened_arc->end_point_id==expected_contacts[0])),
+                    "Shared Arc/Segment Trim junction identities did not reopen");
+            }
+            auto radial=mirrored_tangent_trim.create_circle_radius_dimension(
+                source_circle);
+            mirrored_tangent_trim.apply_dimension(radial);
+            require(mirrored_tangent_trim.set_dimension_value(
+                        radial.id,radius+0.5),
+                "Mirrored tangent-circle topology rejected a radius edit");
+            // Enlarging the circle exposes the second crossing on both legs;
+            // the reflected topology must follow the same four boundaries.
+            verify_topology(mirrored_tangent_trim,"radius edit",4);
+            require(mirrored_tangent_trim.set_dimension_value(radial.id,radius),
+                "Mirrored tangent-circle topology rejected a successive radius edit");
+            verify_topology(mirrored_tangent_trim,"radius restore",2);
+            const auto left_segment=std::ranges::find(
+                mirrored_tangent_trim.segments,left,
+                &zima::sketcher::SketchSegment::id);
+            const auto left_outer_id=left_segment->first_point_id==source_left_contact
+                ? left_segment->second_point_id:left_segment->first_point_id;
+            const auto left_outer_point=*mirrored_tangent_trim.find_point(left_outer_id);
+            require(mirrored_tangent_trim.move_point(left_outer_id,
+                        left_outer_point.x-1,left_outer_point.y+0.5),
+                "Mirrored tangent-circle topology rejected a free endpoint drag");
+            verify_topology(mirrored_tangent_trim,"endpoint drag",2);
+            const auto reopened=zima::sketcher::Sketch::from_serialized(
+                mirrored_tangent_trim.serialized());
+            verify_topology(reopened,"reopened",2);
+        }
 
         auto tangent_line_trim = zima::sketcher::Sketch::create_default();
         const auto tangent_line_circle =
