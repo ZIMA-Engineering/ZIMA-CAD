@@ -7,29 +7,24 @@ not the current feature backlog.
 
 ## Current release boundary
 
-Signed Windows [2026110402](releases/2026110402.md#windows-publication-acceptance)
+Signed Windows [2026110403](releases/2026110403.md#windows-publication-acceptance)
 is the latest published stable build. It was published at
-`2026-11-04T16:09:11Z` from immutable source
-`20b9be37c854210b09c4b75b99d3eaa4335fa037` with Qt 6.11.0 and OCCT 8.0.1.
+`2026-11-04T21:44:30Z` from immutable source
+`e32c89f8377cfd6e7d00e267cdba39515e460035` with Qt 6.11.0 and OCCT 8.0.1.
 Candidate and signed native smoke each pass with all 1,185 factory assets;
-signature/trust, 17,457 archive entries, anonymous public downloads,
-seven packaged GUI suites and trusted 2026110303 updater discovery pass.
-Native Linux execution remains a separate host requirement.
+signature/trust, 17,475 archive entries, anonymous public downloads,
+twelve packaged GUI suites and trusted 2026110402 updater discovery pass.
+Native Linux execution remains a separate host requirement. See the
+[publication evidence](verification/20261104-windows-0403-publication.json).
 
-The release repairs Sketch/history editing, Origin presentation, native external
-midpoints and persistent Sketch view orientation. See the [release record](releases/2026110402.md)
-and
-[publication evidence](verification/20261104-windows-0402-publication.json).
+The release adds the finite Sketch mechanism/profile review, Drawing performance
+and interaction repairs, closed nested appearance and an Empty general-roughness
+variant. Its native schema is unchanged from 0402, which introduced the approved
+Sketch view memory and external midpoint persistence changes.
 
 Windows and Linux use the same C++ modeling implementation and pin OCCT 8.0.1.
 The protected container-placement, geometry-side, reference-identity and
-precision contracts remain authoritative. The 0402 record describes its
-approved Sketch-presentation and external-midpoint persistence additions.
-
-The next [2026110403 candidate](releases/2026110403.md) adds the mechanism/profile
-review, Drawing performance and interaction repairs, nested appearance and an
-Empty general-roughness variant. Its native schema is unchanged from 0402;
-signed packaging and publication remain pending. The
+precision contracts remain authoritative. The
 [measured performance/gate](performance/20261028-background-analysis-and-history-cache.md)
 records both the released improvements and the unresolved late-history Solid
 Fillet cost. Production parallel history batching remains disabled until exact
