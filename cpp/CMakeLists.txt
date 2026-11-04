@@ -924,8 +924,13 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_portable_font_windows_layout COMMAND zima_cpp_portable_font_contract_tests)
     add_test(NAME zima_cpp_portable_font_linux_layout
         COMMAND "$<TARGET_FILE_DIR:zima_cpp_portable_font_contract_tests>/bin/$<TARGET_FILE_NAME:zima_cpp_portable_font_contract_tests>")
+    set(ZIMA_FONT_TEST_ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    if(TARGET Qt6::QOffscreenIntegrationPlugin)
+        list(APPEND ZIMA_FONT_TEST_ENVIRONMENT
+            "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>")
+    endif()
     set_tests_properties(zima_cpp_portable_font_windows_layout zima_cpp_portable_font_linux_layout PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>"
+        ENVIRONMENT "${ZIMA_FONT_TEST_ENVIRONMENT}"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/portable-font/empty" TIMEOUT 30)
     add_executable(zima_cpp_measurement_contract_tests tests/measurement_contract_tests.cpp)
