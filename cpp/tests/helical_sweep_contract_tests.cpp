@@ -100,7 +100,7 @@ int main(int argc,char** argv){try{
             const double area=open?.1:std::numbers::pi*(outer*outer-(outer-.1)*(outer-.1));
             require(std::abs(body.volume-length*area)<length*area*.003,"Thin Helical volume differs from section area times path length");
         }
-        const auto file=std::filesystem::temp_directory_path()/"zima-helical-result-mode.prtz";
+        const auto file=std::filesystem::temp_directory_path()/("zima-helical-result-mode-"+doc.document_id+".prtz");
         auto persisted=body;
         std::erase_if(persisted.mesh.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");});
         std::erase_if(persisted.mesh.points,[](const auto& p){return p.reference.semantic_key.starts_with("helical:axis-point:");});

@@ -119,13 +119,26 @@ void circular_boundaries() {
                 const auto* p=sketch.find_point(id);check(std::abs(p->x-3)<1e-8&&std::abs(std::hypot(p->x-center->x,p->y-center->y)-current.radius)<1e-8,"R/D edit broke external plane/circle equations");
             }
             const auto endpoint=current.start_point_id;const auto before_drag=sketch.serialized();const auto point=*sketch.find_point(endpoint);
-            if(!reference_dimension) {
+            if(!reference_dimension&&locked) {
                 check(!sketch.move_point(endpoint,point.x+1,point.y+1)&&sketch.serialized()==before_drag,
                     "Fully constrained trimmed arc escaped its dimensions on drag");
             } else {
-                check(sketch.move_point(endpoint,point.x,point.y+.1),"Underconstrained trimmed arc cannot be dragged on its plane");
+                // An unlocked driving R/D is editable during a drag, just as
+                // a reference R/D leaves the radius free. Only locked R/D
+                // makes this plane-bound endpoint immovable.
+                check(sketch.move_point(endpoint,point.x,point.y+.1),"Editable trimmed arc cannot be dragged on its plane");
                 const auto* moved=sketch.find_point(endpoint);check(std::abs(moved->x-3)<1e-8&&std::abs(moved->y-point.y)>.01,
                     "Permitted trimmed-arc drag did not move on the plane");
+                const auto& dragged=sketch.arcs.front();const auto* origin=sketch.find_point(dragged.center_point_id);
+                for(const auto& id:{dragged.start_point_id,dragged.end_point_id}) {
+                    const auto* p=sketch.find_point(id);check(std::abs(p->x-3)<1e-8&&
+                        std::abs(std::hypot(p->x-origin->x,p->y-origin->y)-dragged.radius)<1e-8,
+                        "Editable trimmed-arc drag broke incidence or its external plane");
+                }
+                const auto measured=std::ranges::find(sketch.dimensions,dimension.id,&SketchDimension::id);
+                check(measured!=sketch.dimensions.end()&&measured->driving==!reference_dimension&&
+                    std::abs(measured->value-dragged.radius*(diameter?2:1))<1e-8,
+                    "Trimmed-arc drag lost the R/D role or measured value");
             }
             check(sketch.external_references==source,"R/D edit changed read-only plane");
             auto again=Sketch::from_serialized(sketch.serialized());check(again.constraints==sketch.constraints,"R/D reopen changed incidence");

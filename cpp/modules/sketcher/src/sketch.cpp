@@ -3562,12 +3562,12 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         }
         return false;
     };
-    const auto anchored_coordinate = [&](bool x_coordinate) -> std::optional<double> {
-        // Each visited coordinate is sign * dragged coordinate + offset.
+    const auto anchored_coordinate = [&](const std::string& root_id,bool x_coordinate) -> std::optional<double> {
+        // Each visited coordinate is sign * requested coordinate + offset.
         // Locked axial dimensions transfer a nonzero offset along the same
         // dependency walk as horizontal/vertical and coincident relations.
         struct CoordinateLink {std::string id;double sign;double offset;};
-        std::vector<CoordinateLink> pending{{point_id,1.0,0.0}};
+        std::vector<CoordinateLink> pending{{root_id,1.0,0.0}};
         std::unordered_set<std::string> visited;
         while (!pending.empty()) {
             const auto [current_id,sign,offset]=pending.back();pending.pop_back();
@@ -3631,9 +3631,23 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         return std::nullopt;
     };
     const double cursor_x=x,cursor_y=y;
-    if (const auto anchored_x = anchored_coordinate(true)) x = *anchored_x;
-    if (const auto anchored_y = anchored_coordinate(false)) y = *anchored_y;
+    const auto anchored_x=anchored_coordinate(point_id,true),anchored_y=anchored_coordinate(point_id,false);
+    if (anchored_x) x = *anchored_x;
+    if (anchored_y) y = *anchored_y;
     if(std::hypot(x-original_x,y-original_y)<1e-12&&std::hypot(cursor_x-original_x,cursor_y-original_y)>1e-12)return false;
+    for(const auto& arc:next.arcs)if(arc.start_point_id==point_id||arc.end_point_id==point_id) {
+        const bool locked_radius=std::ranges::any_of(next.dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&d.locked&&
+            d.geometry_id==arc.id&&(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter);});
+        if(!locked_radius)continue;
+        // An axis-bound endpoint of a locked-radius Arc cannot pass its
+        // center's fixed coordinate by more than that radius. Reject a request
+        // outside this finite locus before a coupled projection turns it into
+        // a tiny normalization near the boundary.
+        if(anchored_y)if(const auto center_x=anchored_coordinate(arc.center_point_id,true))
+            if(std::abs(x-*center_x)>arc.radius+1e-9)return false;
+        if(anchored_x)if(const auto center_y=anchored_coordinate(arc.center_point_id,false))
+            if(std::abs(y-*center_y)>arc.radius+1e-9)return false;
+    }
     const double requested_translation_x = x - original_x;
     const double requested_translation_y = y - original_y;
     const bool dragging_curve_center = std::any_of(
@@ -4485,8 +4499,48 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // the distance fallback releases it. Closed line linkages need this just
     // like midpoint/arc graphs: sequential length corrections can stall even
     // when the requested handle position satisfies all locked lengths.
-    if((solved.status==SolveStatus::Conflicting||solved.status==SolveStatus::Invalid)&&seed_circular_equations(next,{point_id},true))
-        solved=next.solve_impl(100,false,{point_id});
+    if(solved.status==SolveStatus::Conflicting||solved.status==SolveStatus::Invalid) {
+        // A failed sequential solve may already have moved its private handle
+        // back toward the old pose. Pin the directionally projected cursor,
+        // allowing the coupled graph to move a locked arc's free center, rather
+        // than accepting normalization of that failed intermediate as a drag.
+        auto pinned=*this;pinned.dimensions=next.dimensions;pinned.constraints=next.constraints;
+        auto* handle=pinned.find_point(point_id);handle->x=x;handle->y=y;
+        if(seed_circular_equations(pinned,{point_id},true)) {
+            const auto checked=pinned.solve_impl(100,false,{point_id});
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                next=std::move(pinned);solved=checked;
+            }
+        }
+    }
+    if(solved.status==SolveStatus::Conflicting&&std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
+        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);})) {
+        // Prefer the established pinned projection for midpoint graphs before
+        // iterative curved-path projection. It retains exact straight-locus
+        // displacement. The resulting handle must fit: a cursor
+        // outside a two-dimensional feasible region cannot move its boundary.
+        auto baseline=*this;baseline.dimensions=next.dimensions;
+        if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
+        auto projected=next;
+        if(seed_circular_equations(baseline,{},true,true)&&seed_circular_equations(projected,{},true,true)) {
+            const auto checked=projected.solve_impl(100,false,{});
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                const auto* p=projected.find_point(point_id);const auto* start=baseline.find_point(point_id);
+                const double dx=p->x-start->x,dy=p->y-start->y,squared=dx*dx+dy*dy;
+                if(squared>1e-18) {
+                    const double along=((x-start->x)*dx+(y-start->y)*dy)/squared;
+                    auto pinned=baseline;
+                    auto* anchor=pinned.find_point(point_id);anchor->x=start->x+along*dx;anchor->y=start->y+along*dy;
+                    if(seed_circular_equations(pinned,{point_id},true)) {
+                        const auto valid=pinned.solve_impl(100,false,{point_id});
+                        if(valid.status!=SolveStatus::Conflicting&&valid.status!=SolveStatus::Invalid) {
+                            next=std::move(pinned);solved=valid;
+                        }
+                    }
+                }
+            }
+        }
+    }
     if(solved.status==SolveStatus::Conflicting||solved.status==SolveStatus::Invalid) {
         // A mouse ray generally misses a one-dimensional curved path. Project
         // through the actual equations, including the dimensions deliberately
@@ -4495,8 +4549,8 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         auto baseline=*this;baseline.dimensions=next.dimensions;baseline.constraints=next.constraints;
         const auto mobility=baseline.solve_impl(100,true);
         if(mobility.status==SolveStatus::Solved)return false;
-        bool curve_path=mobility.status==SolveStatus::UnderConstrained&&mobility.remaining_degrees_of_freedom==1;
-        if(mobility.status==SolveStatus::UnderConstrained&&mobility.remaining_degrees_of_freedom>1) {
+        bool curve_path=false;
+        if(mobility.status==SolveStatus::UnderConstrained&&mobility.remaining_degrees_of_freedom>0) {
             // Unrelated free geometry must not hide this handle's real motion.
             // Conversely a two-dimensional handle outside its feasible region
             // is an unreachable request, not a one-dimensional path projection.
@@ -4526,33 +4580,6 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             const auto checked=projected.solve_impl(100,false,{});
             if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
                 next=std::move(projected);solved=checked;
-            }
-        }
-    }
-    if(solved.status==SolveStatus::Conflicting&&std::ranges::any_of(next.constraints,[](const auto& c){return !c.suppressed&&
-        (c.kind==ConstraintKind::Midpoint||c.kind==ConstraintKind::Symmetric);})) {
-        // Retain the established projection for a higher-mobility midpoint
-        // graph. It must still fit with the resulting handle pinned: a cursor
-        // outside a two-dimensional feasible region cannot move its boundary.
-        auto baseline=*this;baseline.dimensions=next.dimensions;
-        if(baseline.solve_impl(100,true).status==SolveStatus::Solved)return false;
-        auto projected=next;
-        if(seed_circular_equations(baseline,{},true,true)&&seed_circular_equations(projected,{},true,true)) {
-            const auto checked=projected.solve_impl(100,false,{});
-            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
-                const auto* p=projected.find_point(point_id);const auto* start=baseline.find_point(point_id);
-                const double dx=p->x-start->x,dy=p->y-start->y,squared=dx*dx+dy*dy;
-                if(squared>1e-18) {
-                    const double along=((x-start->x)*dx+(y-start->y)*dy)/squared;
-                    auto pinned=baseline;
-                    auto* anchor=pinned.find_point(point_id);anchor->x=start->x+along*dx;anchor->y=start->y+along*dy;
-                    if(seed_circular_equations(pinned,{point_id},true)) {
-                        const auto valid=pinned.solve_impl(100,false,{point_id});
-                        if(valid.status!=SolveStatus::Conflicting&&valid.status!=SolveStatus::Invalid) {
-                            next=std::move(pinned);solved=valid;
-                        }
-                    }
-                }
             }
         }
     }
