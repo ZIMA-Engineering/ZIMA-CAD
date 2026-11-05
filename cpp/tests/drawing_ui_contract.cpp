@@ -915,12 +915,15 @@ int verify_drawing_ui() {
         window.set_formats_directory(QString::fromStdString(directory.string()));
         for(const auto* name:{"drawingAddFormatButton","drawingAddTitleBlockButton"}) {
             bool correct=false;
-            QTimer::singleShot(0,[&] {
-                for(auto* widget:QApplication::topLevelWidgets()) if(auto* picker=qobject_cast<QFileDialog*>(widget)) {
+            QTimer picker_ready;picker_ready.setInterval(10);
+            QObject::connect(&picker_ready,&QTimer::timeout,&window,[&] {
+                if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget());picker&&picker->isVisible()) {
+                    picker_ready.stop();
                     correct=QDir(picker->directory()).canonicalPath()==QDir(QString::fromStdString(directory.string())).canonicalPath();
                     picker->reject();
                 }
             });
+            picker_ready.start();
             window.findChild<QPushButton*>(name)->click(); flush();
             require(correct,"Template picker ignored global Formats directory");
         }

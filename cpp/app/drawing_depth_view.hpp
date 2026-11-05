@@ -1,6 +1,8 @@
 #pragma once
 #include <zima/drawing/drawing_document.hpp>
 #include <QOffscreenSurface>
+#include <QCoreApplication>
+#include <QThread>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QOpenGLFramebufferObject>
@@ -56,6 +58,16 @@ public:
             "attribute vec3 position; attribute float lighting; uniform mat4 transform; varying float light; void main(){gl_Position=transform*vec4(position,1.0);light=lighting;}")&&
             shader_->addShaderFromSourceCode(QOpenGLShader::Fragment,
             "uniform vec4 ink; varying float light; void main(){gl_FragColor=vec4(ink.rgb*light,ink.a);}")&&shader_->link();
+        context_.doneCurrent();
+    }
+    ~DrawingDepthView() {
+        RestoreContext restore;
+        if(restore.previous==&context_){restore.previous=nullptr;restore.surface=nullptr;}
+        // Release framebuffer, buffer and shader objects under their owning
+        // context, before Qt closes its platform connection.
+        context_.makeCurrent(&surface_);
+        packets_.clear();
+        shader_.reset();
         context_.doneCurrent();
     }
     QImage render(const drawing::DrawingView& view,const QRectF& bounds,double pixels,double paper_pixels,
@@ -149,5 +161,18 @@ public:
         return packet.image;
     }
 };
-inline DrawingDepthView& drawing_depth_view(){static thread_local DrawingDepthView view;return view;}
+inline std::unique_ptr<DrawingDepthView>& drawing_depth_view_storage(){
+    static std::unique_ptr<DrawingDepthView> view;
+    return view;
+}
+inline void destroy_drawing_depth_view(){drawing_depth_view_storage().reset();}
+inline DrawingDepthView& drawing_depth_view(){
+    // All callers paint GUI-owned sheets. QOffscreenSurface creation also
+    // requires the GUI thread. QApplication runs post routines before tearing
+    // down its platform; thread-local destruction would happen too late.
+    Q_ASSERT(QCoreApplication::instance()&&QThread::currentThread()==QCoreApplication::instance()->thread());
+    auto& view=drawing_depth_view_storage();
+    if(!view){view=std::make_unique<DrawingDepthView>();qAddPostRoutine(destroy_drawing_depth_view);}
+    return *view;
+}
 }

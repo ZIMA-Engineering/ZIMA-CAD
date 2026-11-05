@@ -1,0 +1,70 @@
+{
+  "platform": "Debian 13.6 x86_64, Qt 6.8.2, OCCT 8.0.1",
+  "results": [
+    {
+      "name": "zima_cpp_drawing_repeat_ui_contract",
+      "code": 0,
+      "seconds": 1.8779572620005638,
+      "backend": "xcb",
+      "log": "build/linux-20261105-depth-lifetime-gui-zima_cpp_drawing_repeat_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_view_controls_ui_contract",
+      "code": 0,
+      "seconds": 4.043717937998736,
+      "backend": "xcb",
+      "log": "build/linux-20261105-depth-lifetime-gui-zima_cpp_drawing_view_controls_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_details_ui_contract",
+      "code": 0,
+      "seconds": 1.7261443529987446,
+      "backend": "xcb",
+      "log": "build/linux-20261105-depth-lifetime-gui-zima_cpp_drawing_details_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_ui_contract",
+      "code": 1,
+      "seconds": 108.27182056499987,
+      "backend": "xcb",
+      "log": "build/linux-20261105-depth-lifetime-gui-zima_cpp_drawing_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_translations_contract",
+      "code": 0,
+      "seconds": 19.829168785001457,
+      "backend": "xcb",
+      "log": "build/linux-20261105-depth-lifetime-gui-zima_cpp_translations_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_repeat_ui_contract",
+      "code": 0,
+      "seconds": 2.377424116999464,
+      "backend": "wayland",
+      "log": "build/linux-20261105-depth-lifetime-wayland-zima_cpp_drawing_repeat_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_view_controls_ui_contract",
+      "code": 0,
+      "seconds": 7.8551301269999385,
+      "backend": "wayland",
+      "log": "build/linux-20261105-depth-lifetime-wayland-zima_cpp_drawing_view_controls_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_details_ui_contract",
+      "code": 0,
+      "seconds": 1.9744152459988982,
+      "backend": "wayland",
+      "log": "build/linux-20261105-depth-lifetime-wayland-zima_cpp_drawing_details_ui_contract.log"
+    },
+    {
+      "name": "zima_cpp_drawing_ui_contract",
+      "code": 1,
+      "seconds": 4.037619426999299,
+      "backend": "xcb",
+      "log": "build/linux-20261105-drawing-picker-final-zima_cpp_drawing_ui_contract.log"
+    }
+  ],
+  "windows_verified": false,
+  "release_published": false
+}

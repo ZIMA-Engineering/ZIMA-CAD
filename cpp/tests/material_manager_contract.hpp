@@ -186,13 +186,18 @@ verify_material_manager(QApplication &application, QWidget &parent,
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     dialog.findChild<QPushButton *>("materialLibraryNew")->click();
     application.processEvents();auto* table=dialog.findChild<QTableWidget*>("materialTable");const int row=table->rowCount()-1;check(table->item(row,1)&&table->item(row,1)->text().isEmpty(),"New material has no editable property row");table->item(row,1)->setText("MASS_DENSITY");table->item(row,2)->setText("7.900000E-06");auto* unit=qobject_cast<QComboBox*>(table->cellWidget(row,3));check(unit&&unit->findText("kg/mm^3")>=0,"New material property does not offer its native units");unit->setCurrentText("kg/mm^3");
-    QTimer::singleShot(0, [&] {
+    QTimer chooser_ready;
+    chooser_ready.setInterval(10);
+    QObject::connect(&chooser_ready,&QTimer::timeout,&dialog,[&] {
       auto *chooser = dialog.findChild<QFileDialog *>();
-      if (chooser) {
+      if (chooser&&chooser->isVisible()&&QApplication::activeModalWidget()==chooser) {
+        chooser_ready.stop();
         chooser->setDirectory(fixture.path());
+        if(auto* name=chooser->findChild<QLineEdit*>("fileNameEdit"))name->setText(".");
         QMetaObject::invokeMethod(chooser, "accept", Qt::DirectConnection);
       }
     });
+    chooser_ready.start();
     dialog.findChild<QPushButton *>("materialLibrarySaveAs")->click();
     naming = parent.findChild<QDialog *>("pathNameDialog");
     check(naming, "Save As name editor is missing");
@@ -215,7 +220,11 @@ verify_material_manager(QApplication &application, QWidget &parent,
     check(!dialog.findChild<QTreeView*>("materialLibraryTree")&&!dialog.findChild<QListWidget*>("materialLibraryFiles")&&!dialog.findChild<QPushButton*>("materialLibraryNew"),"Individual material properties constructed library navigation");
     check(dialog.buttons()->buttons().size()==3&&dialog.findChild<QPushButton*>("materialLibrarySaveAs")->parentWidget()==dialog.buttons(),"Individual material properties must expose OK, Cancel and Save As at the bottom");
     const auto before=bytes(source);density(dialog)->setText("8.500000E-06");
-    QTimer::singleShot(0,[&]{if(auto* chooser=dialog.findChild<QFileDialog*>()){chooser->setDirectory(fixture.path());QMetaObject::invokeMethod(chooser,"accept",Qt::DirectConnection);}});
+    QTimer chooser_ready;chooser_ready.setInterval(10);
+    QObject::connect(&chooser_ready,&QTimer::timeout,&dialog,[&]{if(auto* chooser=dialog.findChild<QFileDialog*>();
+        chooser&&chooser->isVisible()&&QApplication::activeModalWidget()==chooser){chooser_ready.stop();chooser->setDirectory(fixture.path());
+        if(auto* name=chooser->findChild<QLineEdit*>("fileNameEdit"))name->setText(".");QMetaObject::invokeMethod(chooser,"accept",Qt::DirectConnection);}});
+    chooser_ready.start();
     dialog.findChild<QPushButton*>("materialLibrarySaveAs")->click();auto* naming=parent.findChild<QDialog*>("pathNameDialog");check(naming,"Individual Save As name editor is missing");naming->findChild<QLineEdit*>("pathName")->setText("Individual copy");naming->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto copy=std::filesystem::u8path(fixture.filePath("Individual copy.matz").toStdString());check(bytes(source)==before&&zima::document::load_material_library(copy).properties.at("MASS_DENSITY")=="8.500000E-06"&&!dialog.findChild<QTreeView*>("materialLibraryTree"),"Individual Save As changed its source or opened the manager");
     density(dialog)->setText("9.000000E-06");dialog.reject();check(zima::document::load_material_library(copy).properties.at("MASS_DENSITY")=="8.500000E-06","Individual Cancel committed edits");

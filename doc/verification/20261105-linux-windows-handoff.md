@@ -1,5 +1,17 @@
 # Linux findings for Windows follow-up (2026-11-05)
 
+## Follow-up: Drawing lifetime fix verified on Linux
+
+The shutdown blocker described below is fixed by releasing the GUI-thread depth renderer through Qt's application cleanup routine before platform teardown. GPU packets and shaders are released with the owning context current, and a previously current context is restored. The drawing algorithm and cached images are unchanged. All renderer callers were traced to GUI painting or GUI verification; vector export paths remain separate. No platform-specific drawing implementation, geometry tolerance, persistence contract or user-visible text was changed.
+
+The old thread-local object outlived QApplication. Qt 6.8.2 invokes its post routines at the beginning of the QApplication destructor, before widget/platform cleanup ([Qt source](https://github.com/qt/qtbase/blob/v6.8.2/src/widgets/kernel/qapplication.cpp#L615)). Windows execution remains outstanding.
+
+Both Xcb and native Wayland now pass repeat-region/dimension creation, view controls and detail UI suites, including normal process shutdown. Repeat dimensions cover 15 actual mouse creations across two views and five kinds, confirmation, Undo and native reopening. Controls and detail checks retain preview, Cancel, OK, editing, persistence and Undo/Redo assertions.
+
+The material Save As and Drawing template-picker automation now waits for visible modal readiness instead of a zero-delay callback that could accept/reject before dialog execution. Material automation explicitly selects the fixture directory. The five-language desktop translation/material suite passes. These changes are limited to tests.
+
+The full Drawing GUI suite now progresses past the template pickers and fails with `Selected dimension text is not azure`; this newly reached assertion remains unresolved. It is not a process crash. The broader outstanding findings below remain open. See the adjacent JSON record for the finite rerun results. No Linux release has been published.
+
 ## Source and publication state
 
 This branch integrates Windows 2026110403 (`48b3b997a`) with Linux candidate work. VERSION 2026110404 is a candidate identity, not a published release. Do not publish or tag this candidate until remaining verification is complete. Linux uses Qt 6.8.2 and OCCT 8.0.1; Windows verification of these changes remains outstanding.
