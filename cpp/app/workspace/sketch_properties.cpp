@@ -162,6 +162,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             zima::document::Placement committed_placement,
             bool enter_sketch) {
             const auto selected_id = committed.id;
+            const bool first_empty_entry = enter_sketch && !edit_mode &&
+                new_sketch_container.has_value() && !sketch_feature &&
+                completely_empty_sketch(committed);
             if (sketch_feature) {
                 auto value = *sketch_feature;
                 value.name = committed.name; value.placement = std::move(committed_placement);
@@ -177,6 +180,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             if (enter_sketch) {
                 active_sketch_id_ = selected_id;
+                if (first_empty_entry)
+                    first_empty_sketch_entry_id_ = selected_id;
                 clear_selected_sketch_geometry();
                 tree_->clearSelection();
                 viewer_->clear_selection();
@@ -627,7 +632,19 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             // Entering a component Sketch keeps the Assembly's zoom and pan.
             // Standalone Part entry still fits its editing subject; the
             // explicit normal-view action remains available for a fresh fit.
-            align_active_sketch_view(workspace_.open_assembly(workspace_.displayed_document_id())==nullptr);
+            const bool fit_part_view=
+                workspace_.open_assembly(workspace_.displayed_document_id())==nullptr;
+            const auto entered_sketch_id=active_sketch_id_;
+            align_active_sketch_view(fit_part_view);
+            if(fit_part_view)QTimer::singleShot(0,this,
+                [this,entered_sketch_id] {
+                    // Removing the internal Properties subwindow can resize
+                    // the document view after the immediate fit above. Refit
+                    // once the layout is settled so the Sketch origin remains
+                    // centered and monitor-scale entry remains exact.
+                    if(active_sketch_id_==entered_sketch_id)
+                        align_active_sketch_view();
+                });
         }
     });
     dialog->show();

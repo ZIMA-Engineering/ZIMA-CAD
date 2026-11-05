@@ -1956,6 +1956,8 @@ PrimitiveData make_sweep3d_data(
         });
     std::optional<gp_Vec> previous_direction;
     std::optional<gp_Vec> transported_radial;
+    const Sweep3DRequest::Section* previous_section{};
+    std::optional<gp_Trsf> inherited_section_rotation;
     const auto section_rotation=[&](const gp_Vec& from,const gp_Vec& to) {
         gp_Trsf rotation;
         if(planar_binormal && std::abs(planar_binormal->Dot(from.Normalized()))<1e-8 &&
@@ -1975,11 +1977,11 @@ PrimitiveData make_sweep3d_data(
         }
         const auto direction = request.separate_segments ? tangent(i / 2, i % 2 != 0)
             : i<spine_edges.size()?tangent(i,false):tangent(i-1,true);
+        const bool inherited_section=previous_section==section;
         if(previous_direction) {
             const auto rotation=section_rotation(*previous_direction,direction);
             transported_radial=transported_radial->Transformed(rotation);
         } else transported_radial=gp_Vec(gp_Ax2(gp_Pnt(0,0,0),gp_Dir(direction)).XDirection());
-        previous_direction=direction;
         auto radial=section->circle_radial_direction;
         if(std::holds_alternative<ExtrusionRequest::CircleProfile>(section->profile.outer_profile) &&
            section->profile.outer_vertex_source_ids.empty()) {
@@ -2019,6 +2021,16 @@ PrimitiveData make_sweep3d_data(
         if(request.fixed_section_frames) {
             if(!request.smooth_loft||request.sections.size()!=request.path_points.size()||section->point_index!=i)
                 throw std::invalid_argument("Fixed section frames require an explicit smooth loft section at each station.");
+        } else if(request.separate_segments && inherited_section &&
+                  previous_direction && inherited_section_rotation) {
+            // A section inherited across sharp spatial corners retains the
+            // roll accumulated along the authored route. Rotating the original
+            // profile independently onto every tangent makes the third
+            // mutually perpendicular leg choose a different frame than the
+            // ZIMA route/profile preview.
+            movement=section_rotation(*previous_direction,direction)*
+                *inherited_section_rotation;
+            inherited_section_rotation=movement;
         } else if(planar_binormal && std::abs(planar_binormal->Dot(gp_Vec(normal.x,normal.y,normal.z).Normalized()))<1e-8) {
             // Opposite tangents alone do not define a half-turn axis. Use the
             // path plane so the profile keeps its authored material side.
@@ -2026,6 +2038,8 @@ PrimitiveData make_sweep3d_data(
             const double angle=std::atan2(planar_binormal->Dot(source.Crossed(direction)),source.Dot(direction));
             movement.SetRotation(gp_Ax1(gp_Pnt(0,0,0),gp_Dir(*planar_binormal)),angle);
         } else movement.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),direction));
+        if(request.separate_segments && !inherited_section)
+            inherited_section_rotation=movement;
         const auto rotated=gp_Pnt(from.x,from.y,from.z).Transformed(movement);
         movement.SetTranslationPart(gp_Vec(rotated,gp_Pnt(to.x,to.y,to.z)));
         if(inherited_frames) {
@@ -2033,6 +2047,8 @@ PrimitiveData make_sweep3d_data(
             initial.SetTranslationPart(gp_Vec(gp_Pnt(from.x,from.y,from.z).Transformed(initial),gp_Pnt(from.x,from.y,from.z)));
             movement=inherited_frames->at(i)*initial;
         }
+        previous_direction=direction;
+        previous_section=section;
         BRepBuilderAPI_Transform transport(station.wire,movement,true);
         station.wire=TopoDS::Wire(transport.Shape());
         for(auto& edge:station.edges)edge=TopoDS::Edge(transport.ModifiedShape(edge));
@@ -15499,7 +15515,16 @@ TopoDS_Shape read_calculated_body_shape(const BodyResult& body) {
         shape = compound;
     } else {
         std::istringstream stream(body.kernel_shape);
-        BRepTools::Read(shape, stream, builder);
+        const bool has_topology_archive = !body.kernel_faces.empty() ||
+            !body.kernel_edges.empty() || !body.kernel_vertices.empty() ||
+            !body.imported_step_topology.empty();
+        if (has_topology_archive) {
+            BRepTools_ShapeSet archive(builder);
+            archive.Read(stream);
+            archive.Read(shape, stream);
+        } else {
+            BRepTools::Read(shape, stream, builder);
+        }
     }
     if (shape.IsNull()) throw std::runtime_error("Calculated solid snapshot is invalid");
     for (const auto& placement : body.kernel_placements) {

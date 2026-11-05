@@ -59,6 +59,7 @@
 #include <QGroupBox>
 #include <QGridLayout>
 #include "drawing_shading.hpp"
+#include "drawing_depth_view.hpp"
 #include "drawing_sheet_surface.hpp"
 #include <QPaintEngine>
 #include <zima/drawing_render/pdf_export.hpp>
@@ -1548,6 +1549,52 @@ protected:
     void resizeEvent(QResizeEvent* event) override {
         QWidget::resizeEvent(event);if(gpu_surface_)gpu_surface_->setGeometry(rect());
     }
+    void paint_placement_geometry(QPainter& painter,double zoom,QPointF origin) {
+        if(!sheet_||!preview_||
+            (preview_->projected_edges.empty()&&preview_->projected_triangles.empty()))return;
+        const auto& view=*preview_;
+        bool first=true;QRectF bounds;
+        const auto include=[&](drawing::Point2 point) {
+            if(first){bounds=QRectF(point.x,point.y,0,0);first=false;return;}
+            bounds=QRectF(QPointF(std::min(bounds.left(),point.x),std::min(bounds.top(),point.y)),
+                QPointF(std::max(bounds.right(),point.x),std::max(bounds.bottom(),point.y)));
+        };
+        for(const auto& triangle:view.projected_triangles)for(auto point:triangle.points)include(point);
+        for(const auto& edge:view.projected_edges)for(auto point:edge.points)include(point);
+        if(first)return;
+        const double pixels=zoom*view.scale;
+        if(pixels<=0)return;
+        bounds.adjust(-2/pixels,-2/pixels,2/pixels,2/pixels);
+        const double device_scale=painter.device()->devicePixelRatioF();
+        const auto image=drawing_depth_view().render(view,bounds,pixels*device_scale,
+            zoom*device_scale,Qt::white,QColor("#666666"),device_scale,device_scale);
+        const QRectF target(origin.x()+(sheet_->width_mm()-view.x+bounds.left()*view.scale)*zoom,
+            origin.y()+(sheet_->height_mm()-view.y-bounds.bottom()*view.scale)*zoom,
+            bounds.width()*pixels,bounds.height()*pixels);
+        if(!image.isNull()) {painter.drawImage(target,image);return;}
+
+        // Headless and unsupported GL platforms still show the already
+        // projected viewer wire. Precise vector visibility remains reserved
+        // for explicit output preparation.
+        if(view.display_style==drawing::DisplayStyle::Shaded||
+                view.display_style==drawing::DisplayStyle::ShadedWithEdges) {
+            const auto fill=drawing_shaded_fill(view,bounds,pixels*device_scale);
+            if(!fill.isNull())painter.drawImage(target,fill);
+        }
+        if(view.display_style==drawing::DisplayStyle::Shaded)return;
+        painter.save();
+        painter.translate(origin.x()+(sheet_->width_mm()-view.x)*zoom,
+            origin.y()+(sheet_->height_mm()-view.y)*zoom);
+        painter.scale(pixels,-pixels);
+        for(const auto& edge:view.projected_edges) {
+            if(edge.points.size()<2||!drawing::drawing_edge_visible(view,edge))continue;
+            const QColor color=edge.hidden||edge.tangent||edge.thread?QColor("#666666"):QColor(Qt::white);
+            painter.setPen(QPen(color,1/pixels));
+            QPolygonF line;for(const auto& point:edge.points)line<<QPointF(point.x,point.y);
+            painter.drawPolyline(line);
+        }
+        painter.restore();
+    }
     void paint_canvas(QPainter& painter) {
         painter.fillRect(rect(),QColor("#000000"));
         if((placed_||preview_frame_bounds_)&&preview_) {
@@ -1566,6 +1613,7 @@ protected:
                 preview_=std::move(placement);placement_background_zoom_=zoom;placement_background_origin_=origin;
             }
             painter.drawImage(QPointF{},placement_background_);
+            paint_placement_geometry(painter,zoom,origin);
             painter.save();painter.setPen(QPen(interaction::selected,1));painter.setBrush(Qt::NoBrush);
             painter.drawRect(view_bounds(*preview_));painter.restore();
         }else {placement_background_={};paint_sheet(painter,canvas_zoom(),canvas_origin(canvas_zoom()),false);}
@@ -2806,6 +2854,14 @@ void DrawingWindow::insert_view() {
         for(const auto& existing:sheet->views)if(existing.source_document_id==source_id){view.output_source=existing.output_source;view.measurement_geometry=existing.measurement_geometry;break;}
         view.name=workspace::next_drawing_view_name(document_,tr("Pohled").toStdString());
         view.scale=sheet->default_scale; view.use_sheet_scale=true;
+        if(view.output_source)zima::drawing::prepare_interactive_view(view,view.output_source);
+        else {
+            ui::OperationActivity::Scope activity(drawing_activity(window(),canvas_),tr("Připravuji pohled…"));
+            static_cast<void>(projection->placement_source(view));
+            view=ui::run_background_task([projection,pending=std::move(view)]() mutable {
+                projection->project(pending,{.interactive=true,.placement_only=true});return pending;
+            },canvas_);
+        }
         canvas_->begin_placement(std::move(view), [this,projection](auto placed) {
             show_view_properties(std::move(placed),true,projection);
         }, [this] { start_selection(); });
@@ -3058,7 +3114,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
             number(c.horizontal.x),number(c.horizontal.y),number(c.horizontal.z),number(c.vertical.x),number(c.vertical.y),number(c.vertical.z),number(c.depth.x),number(c.depth.y),number(c.depth.z),
             value.section_id,document::serialize_sections(value.section_snapshot?std::vector{*value.section_snapshot}:std::vector<document::SectionDefinition>{})}).dump();
     };
-    auto last_geometry=std::make_shared<std::optional<drawing::DrawingView>>(creating?std::nullopt:std::optional{view});
+    auto last_geometry=std::make_shared<std::optional<drawing::DrawingView>>(view);
     const auto project=[this,cache,last_geometry,geometry_key](zima::drawing::DrawingView& value,bool pending_settings=false){
         if(*last_geometry&&geometry_key(**last_geometry)==geometry_key(value)) {
             value.projected_edges=(**last_geometry).projected_edges;value.projected_triangles=(**last_geometry).projected_triangles;
@@ -3097,13 +3153,8 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                     auto context=description_contexts->at(key);context.sheet_index=sheets_->currentIndex();context.sheet_count=int(document_.sheets.size());
                     canvas_->set_view_description_context(pending->id,std::move(context));
                 }
-                if(creating&&pending->section_id.empty()) {
-                    // Ordinary creation remains a lightweight frame, including
-                    // orientation changes. Explicit OK prepares its geometry.
-                    canvas_->set_preview(std::move(pending),true);
-                } else {
-                    project(*pending,true);canvas_->set_preview(std::move(pending));
-                }
+                project(*pending,true);
+                canvas_->set_preview(std::move(pending),creating&&pending->section_id.empty());
                 error({});
             }
             catch (const std::exception& exception) { canvas_->set_preview({});error(tr(exception.what())); }
@@ -3162,18 +3213,27 @@ void DrawingWindow::create_projected_view() {
         view.show_section_label=parent_copy.show_section_label;view.show_dimension_guides=parent_copy.show_dimension_guides;
         view.dimension_guide_offset=parent_copy.dimension_guide_offset;view.dimension_guide_spacing=parent_copy.dimension_guide_spacing;
         view.dimension_guide_count=parent_copy.dimension_guide_count;
+        if(view.output_source)drawing::prepare_interactive_view(view,view.output_source);
+        else {
+            ui::OperationActivity::Scope activity(drawing_activity(window(),canvas_),tr("Připravuji pohled…"));
+            static_cast<void>(projection->placement_source(view));
+            view=ui::run_background_task([projection,pending=std::move(view)]() mutable {
+                projection->project(pending,{.interactive=true,.placement_only=true});return pending;
+            },canvas_);
+        }
         canvas_->begin_placement(std::move(view), [this,projection,sheet_id=sheet->id,drawing_id=document_.document_id](auto placed) {
             if(document_.document_id!=drawing_id)return;
             try {commit_view(std::move(placed),sheet_id,true,projection.get());
                 set_status_message(tr("Výběr: kliknutím do obdélníkové oblasti vyberte pohled."));update_action_states();}
             catch(const std::exception& exception){start_selection();QMessageBox::warning(this,tr("Projekční pohled"),tr(exception.what()));}
         }, [this] { start_selection(); },
-        [this,parent_copy,method=sheet->projection_method](auto& pending,auto point) {
+        [this,projection,parent_copy,method=sheet->projection_method](auto& pending,auto point) {
             const double dx=point.x-parent_copy.x, dy=point.y-parent_copy.y;
             const auto direction=drawing::cardinal_projection_direction({dx,dy});
             if (direction!=pending.projection_direction) {
                 pending.projection_direction=direction;
                 pending.camera=zima::drawing::projected_camera(parent_copy.camera,direction,method);
+                projection->project(pending,{.interactive=true,.placement_only=true});
                 canvas_->set_placement_frame(placement_frame(pending));
             }
             const auto ray=projection_placement(direction,1.0);

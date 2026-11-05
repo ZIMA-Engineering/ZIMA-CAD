@@ -219,24 +219,29 @@ int verify_drawing_source_picker() {
                 require(canvas->cursor().shape()==Qt::ArrowCursor,"View placement must retain the arrow cursor");
                 require(!unexpected_picker,"Insert View must directly start placement for a linked Drawing");
                 auto* preview_surface=canvas->findChild<QOpenGLWidget*>("drawingGpuSurface");
-                const auto before_preview=preview_surface?preview_surface->grabFramebuffer():QImage{};
+                const auto preview_center=canvas->rect().center();
+                mouse(canvas,QEvent::MouseMove,preview_center,Qt::NoButton,Qt::NoButton);flush();
+                const auto preview_ink=[&](const QImage& image,QPointF center,double scale) {
+                    const auto area=QRect(qRound(center.x()*scale)-60,qRound(center.y()*scale)-60,120,120).intersected(image.rect());
+                    int count=0;for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
+                        const auto color=image.pixelColor(x,y);
+                        count+=color.red()>50&&std::abs(color.red()-color.green())<5&&std::abs(color.red()-color.blue())<5;
+                    }
+                    return count;
+                };
+                const auto placement_image=preview_surface?preview_surface->grabFramebuffer():canvas->grab().toImage();
+                const double placement_scale=placement_image.width()/double(preview_surface?preview_surface->width():canvas->width());
+                require(preview_ink(placement_image,preview_center,placement_scale)>20,
+                    "Ordinary view placement shows no lightweight model geometry");
                 const auto preview_start=std::chrono::steady_clock::now();
-                click(canvas,canvas->rect().center());
+                click(canvas,preview_center);
                 auto* properties=window.findChild<QDialog*>("drawingViewProperties");
                 require(properties&&properties->isVisible(),"Insert View did not continue from placement to properties");
-                if(preview_surface&&!before_preview.isNull()) {
-                    const auto image=preview_surface->grabFramebuffer();
-                    const double scale=image.width()/double(preview_surface->width());
-                    const auto center=canvas->rect().center();
-                    const auto area=QRect(qRound(center.x()*scale)-60,qRound(center.y()*scale)-60,120,120).intersected(image.rect());
-                    int changed=0;for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
-                        const auto color=image.pixelColor(x,y);
-                        changed+=image.pixel(x,y)!=before_preview.pixel(x,y)&&color.red()>50&&
-                            std::abs(color.red()-color.green())<5&&std::abs(color.red()-color.blue())<5;
-                    }
-                    image.save("build/drawing-insert-properties-preview.png");
-                    require(changed<=20,"Ordinary creation Properties prepared model strokes instead of retaining its lightweight frame");
-                }
+                const auto properties_image=preview_surface?preview_surface->grabFramebuffer():canvas->grab().toImage();
+                properties_image.save("build/drawing-insert-properties-preview.png");
+                const double properties_scale=properties_image.width()/double(preview_surface?preview_surface->width():canvas->width());
+                require(preview_ink(properties_image,preview_center,properties_scale)>20,
+                    "Ordinary creation Properties lost its lightweight model geometry");
                 std::cout<<"Placed "<<source_path.extension().string()<<" preview "
                     <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-preview_start).count()<<" ms\n";
                 properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
@@ -775,7 +780,19 @@ int verify_drawing_ui() {
         action("projectDrawingViewAction")->trigger();
         require(canvas->cursor().shape()==Qt::ArrowCursor,"Projected placement must retain the arrow cursor");
         const QPointF right=center+QPointF(220,0);
-        mouse(canvas,QEvent::MouseMove,right,Qt::NoButton,Qt::NoButton); click(canvas,right);
+        mouse(canvas,QEvent::MouseMove,right,Qt::NoButton,Qt::NoButton);flush();
+        {
+            auto* surface=canvas->findChild<QOpenGLWidget*>("drawingGpuSurface");
+            const auto image=surface?surface->grabFramebuffer():canvas->grab().toImage();
+            const double scale=image.width()/double(surface?surface->width():canvas->width());
+            const auto area=QRect(qRound(right.x()*scale)-60,qRound(right.y()*scale)-60,120,120).intersected(image.rect());
+            int geometry=0;for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
+                const auto color=image.pixelColor(x,y);
+                geometry+=color.red()>50&&std::abs(color.red()-color.green())<5&&std::abs(color.red()-color.blue())<5;
+            }
+            require(geometry>20,"Projected view placement shows no inherited lightweight geometry");
+        }
+        click(canvas,right);
         require(!dialog() && count()==2,"Projection placement must commit without properties");
         const auto projected_id=state.sheets.front().views.back().id;
         require(workspace.open_drawing(drawing.document_id)->undo(),"Direct projection has no Undo");

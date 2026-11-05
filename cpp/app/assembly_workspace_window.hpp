@@ -541,6 +541,10 @@ private:
     std::optional<std::size_t> suspended_construction_reference_index_;
     bool suspended_construction_reference_auto_advance_{};
     std::string active_sketch_id_;
+    // Only a newly created standalone tree container's first completely
+    // empty Sketch entry starts at the monitor's approximate physical scale.
+    // Existing empty Sketches retain their established 500 mm work-area fit.
+    std::string first_empty_sketch_entry_id_;
 
     // A profile Sketch owned by a pending 3D Sweep is edited by the regular
     // Sketcher, but remains inside the parent dialog transaction until the

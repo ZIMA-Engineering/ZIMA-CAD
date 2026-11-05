@@ -311,20 +311,32 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         for(const auto& edge:display.edges)if(!edge.infinite&&edge.reference.owner_id==sketch->id)
             points.insert(points.end(),edge.points.begin(),edge.points.end());
         for(const auto& point:display.points)if(point.reference.owner_id==sketch->id&&!point.reference.semantic_key.starts_with("external_point:"))points.push_back(point.position);
-        const bool genuinely_empty=sketch->points.empty()&&
-            sketch->segments.empty()&&sketch->circles.empty()&&
-            sketch->arcs.empty()&&sketch->ellipses.empty()&&
-            sketch->elliptical_arcs.empty()&&sketch->bsplines.empty()&&
-            sketch->import_blocks.empty()&&sketch->offsets.empty()&&
-            sketch->texts.empty()&&sketch->symbols.empty()&&
-            sketch->external_references.empty();
+        const bool genuinely_empty=completely_empty_sketch(*sketch);
         if(genuinely_empty)points.clear();
         if(assembly_context) {
             const auto path=part?resolve_active_occurrence(part->session.document().document_id).value_or(std::string{}):workspace_.active_occurrence_path();
             if(!path.empty())for(auto& point:points)point=workspace_.occurrence_point_to_scene(
                 workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),point);
         }
-        if(points.empty()) {
+        if(points.empty() && genuinely_empty &&
+            first_empty_sketch_entry_id_ == sketch->id) {
+            // The first clean Sketch of a newly created standalone tree item
+            // starts approximately 1:1 on this monitor. A single point gives
+            // fit_points() the established DPI-based metric scale and centers
+            // the view without allowing prior model or dimension bounds to
+            // enlarge it. Existing empty Sketches intentionally keep the
+            // established 500 mm work-area/context fit below.
+            auto center=sketch->world_point(0.,0.);
+            if(assembly_context) {
+                const auto path=part?resolve_active_occurrence(
+                    part->session.document().document_id).value_or(
+                        std::string{}):workspace_.active_occurrence_path();
+                if(!path.empty())center=workspace_.occurrence_point_to_scene(
+                    workspace_.displayed_document_id(),
+                    zima::assembly::InstancePath::decode(path),center);
+            }
+            viewer_->fit_points({center});
+        } else if(points.empty()) {
             const auto& scene=viewer_->mesh();
             const bool has_model_context=!scene.triangles.empty()||
                 std::ranges::any_of(scene.edges,[&](const auto& edge) {
@@ -804,7 +816,8 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
         // so its owning dialog can be cancelled. OK validates the final cut.
         auto sketch=*sweep_profile_sketch_draft_;
         auto finished=std::move(embedded_sketch_finished_);
-        cancel_sketch_segment();active_sketch_id_.clear();clear_selected_sketch_geometry();
+        cancel_sketch_segment();first_empty_sketch_entry_id_.clear();
+        active_sketch_id_.clear();clear_selected_sketch_geometry();
         viewer_->clear_selection();sweep_profile_sketch_draft_.reset();
         finished(std::move(sketch));return;
     }
@@ -816,6 +829,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
         auto* parent = sweep_profile_parent_dialog_;
         const auto profile_index = *sweep_profile_sketch_index_;
         cancel_sketch_segment();
+        first_empty_sketch_entry_id_.clear();
         active_sketch_id_.clear();
         clear_selected_sketch_geometry();
         viewer_->clear_selection();
@@ -878,6 +892,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
     }
     selected_sketch_id_ = active_sketch_id_;
     cancel_sketch_segment();
+    first_empty_sketch_entry_id_.clear();
     active_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();

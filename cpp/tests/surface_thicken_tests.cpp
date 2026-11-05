@@ -173,18 +173,22 @@ int main(){try{
     auto feature=document::create_surface_thicken();feature.surface_thicken={{surface.id,"surface:from:"+surface.feature_id,{}},2.,kernel::SurfaceThicknessSide::Symmetric};
     check(workspace::commit_surface_thicken(live,kernel,part.document_id,feature),"Native thickening did not commit");
     auto* state=live.open_part(part.document_id);const auto before=state->session.document().serialized();
+    const auto native_volume=[&] {
+        auto result=state->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(result);return result.volume;
+    };
     check(!workspace::commit_surface_thicken(live,kernel,part.document_id,feature)&&before==state->session.document().serialized(),"Unchanged thickening created a transaction");
-    near(state->session.calculated_boundaries().back().volume,400.);
+    near(native_volume(),400.);
     check(workspace::part_history_dependencies(state->session.document()).contains({surface.id,feature.id}),"Thickening lost its prerequisite");
     check(!state->session.document().dimension_identifiers.identifier(feature.id,"parameter:thickness").empty(),"Thickening thickness has no dimension identity");
     const auto family=workspace::family_references(live,part.document_id);
     check(std::ranges::any_of(family,[&](const auto& value){return value.binding.owner_id==feature.id&&value.binding.semantic_key=="parameter:thickness";}),"Family did not expose thickening thickness");
-    auto changed=feature;changed.surface_thicken.thickness=3.;check(workspace::commit_surface_thicken(live,kernel,part.document_id,changed),"Thickness edit did not commit");near(state->session.calculated_boundaries().back().volume,600.);
-    check(workspace::step_part_document_history(live,part.document_id,false),"Thickness Undo failed");near(state->session.calculated_boundaries().back().volume,400.);
-    check(workspace::step_part_document_history(live,part.document_id,true),"Thickness Redo failed");near(state->session.calculated_boundaries().back().volume,600.);
+    auto changed=feature;changed.surface_thicken.thickness=3.;check(workspace::commit_surface_thicken(live,kernel,part.document_id,changed),"Thickness edit did not commit");near(native_volume(),600.);
+    check(workspace::step_part_document_history(live,part.document_id,false),"Thickness Undo failed");near(native_volume(),400.);
+    check(workspace::step_part_document_history(live,part.document_id,true),"Thickness Redo failed");near(native_volume(),600.);
     changed.surface_thicken.thickness=3.5;changed.value_locks.insert("thickness");
     check(workspace::commit_surface_thicken(live,kernel,part.document_id,changed),"Edited thickness could not be locked on the same confirmation");
-    near(state->session.calculated_boundaries().back().volume,700.);
+    near(native_volume(),700.);
     const auto locked_family=workspace::family_references(live,part.document_id);
     check(std::ranges::none_of(locked_family,[&](const auto& value){return value.binding.owner_id==feature.id&&value.binding.semantic_key=="parameter:thickness";}),"Family offered a locked thickness");
     auto locked_edit=changed;locked_edit.surface_thicken.thickness=4.;bool lock_rejected=false;

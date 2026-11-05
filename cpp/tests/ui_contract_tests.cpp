@@ -5,6 +5,7 @@
 #include "shaft_thread_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
+#include "loft_dialog.hpp"
 #include "application_settings.hpp"
 #include <QFontMetricsF>
 #include <QFontDatabase>
@@ -1625,6 +1626,7 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_REFERENCE_ICONS_ONLY")){verify_sketch_reference_icons(application);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_DISPLAY_ONLY")){verify_origin_display_and_pick_seed(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLE_STEP_ONLY")){verify_hole_step(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENTS_ONLY")){verify_edge_treatment_fragments(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);

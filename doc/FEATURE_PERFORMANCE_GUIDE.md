@@ -41,8 +41,9 @@ unchanged OK creates neither a calculation nor an Undo step; a genuine
 annotation-only edit still commits its intended change. Cancel restores the
 original model and normal full-history presentation.
 
-The accepted drawing-view rules in AGENTS.md also apply: interactive views must
-not wait for precise vector hidden-line preparation intended for export.
+The accepted drawing-view rules in AGENTS.md also apply: placement and creation
+properties show the prepared viewer-packet geometry, while interactive views
+must not wait for precise vector hidden-line preparation intended for export.
 
 ## Avoid unnecessary copying and allocation
 

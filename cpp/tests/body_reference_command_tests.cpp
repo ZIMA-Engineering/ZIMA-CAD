@@ -20,7 +20,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto initial=state->session.document().body_history;
     auto result=set(target,0,source_origin,"origin:plane:xy",2);require(result.at("changed")==true,"Body reference did not commit");near(placement().z,13);
     require(placement().references[0].owner_id==source_origin&&placement().references[0].semantic_key=="origin:plane:xy"&&placement().references[0].offset==2&&state->session.document().body_history.active_body_id()==target,"Body reference lost native source or editing context");
-    const auto calculated=state->session.calculated_body_boundary(target,1);require(calculated.has_value(),"Body reference lost calculated target");near(calculated->volume,24);
+    const auto calculated=state->session.calculated_body_boundary(target,1);require(calculated.has_value(),"Body reference lost calculated target");
+    auto analyzed=*calculated;kernel.ensure_body_properties(analyzed);near(analyzed.volume,24);
     const auto placed=state->session.document().place_body_mesh(calculated->mesh,target);
     const auto min_z=[](const auto& mesh){return std::ranges::min(mesh.vertices,{},&kernel::Vec3::z).z;};near(min_z(placed)-min_z(calculated->mesh),13);
     const auto updated=state->session.document().body_history;run(host,"undo");require(state->session.document().body_history==initial,"Reference Undo did not restore Body graph");run(host,"redo");require(state->session.document().body_history==updated,"Reference Redo changed identity");

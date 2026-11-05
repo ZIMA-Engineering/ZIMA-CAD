@@ -9,10 +9,17 @@
 #include <zima/workspace/component_operations.hpp>
 #include <iostream>
 #include <limits>
+#include <source_location>
 
 using namespace zima;
 static void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-static void near(double value,double expected){require(std::abs(value-expected)<1e-7,"Incorrect scaled measure");}
+static void near(double value,double expected,
+    std::source_location source=std::source_location::current()){
+    if(std::abs(value-expected)>=1e-7)
+        throw std::runtime_error("Incorrect scaled measure at line "+
+            std::to_string(source.line())+": expected "+
+            std::to_string(expected)+", got "+std::to_string(value));
+}
 template<class F>static void rejects(F action){bool failed=false;try{action();}catch(const std::exception&){failed=true;}require(failed,"Invalid scale accepted");}
 static void verify_derived_reference_database(const kernel::OcctKernel& kernel,bool mirror) {
     auto part=document::PartDocument::create_default();auto feature=test::rectangular_feature(part,{10,8,6});part.history={feature};
@@ -114,7 +121,10 @@ int main(){try{
     auto edit=workspace::prepare_body_scale_edit(live.open_part(id)->session.document());
     document::BodyHistory body;body.scope.id=edit.object_id;body.name="Scaled";body.scale=document::BodyScale{input,2,{}};
     require(workspace::commit_body_scale(live,kernel,edit,body),"Scale did not commit");
-    const auto result_volume=[&](const std::string& owner){return live.open_part(owner)->session.calculated_boundaries().back().volume;};
+    const auto result_volume=[&](const std::string& owner){
+        auto result=live.open_part(owner)->session.calculated_boundaries().back();
+        kernel.ensure_body_properties(result);return result.volume;
+    };
     near(result_volume(id),9000);
     auto current=live.open_part(id)->session.document().body_history;
     require(current.find(body.scope.id)->entries.empty(),"Scale contains feature history");
@@ -126,7 +136,11 @@ int main(){try{
         const auto exported=interchange::step_product(state->session.document(),state->session.calculated_boundaries());
         require(exported.children.size()==1&&exported.children.front().definition_id==body.scope.id,"STEP includes suppressed source");
         document::BodyProperties record;record.after_object_id=body.scope.id;
-        near(document::evaluate_body_properties(state->session.document(),state->session.calculated_boundaries(),record).volume,8000);
+        auto measured_document=state->session.document();
+        workspace::PartCalculationPolicy analysis;analysis.refresh_physical_properties=true;
+        const auto measured=workspace::calculate_part_with_resolved_references(
+            kernel,measured_document,&state->session.calculated_boundaries(),analysis);
+        near(document::evaluate_body_properties(measured_document,measured,record).volume,8000);
     }
     live.open_part(id)->session.undo();near(result_volume(id),9000);
     live.open_part(id)->session.redo();near(result_volume(id),8000);
@@ -142,7 +156,8 @@ int main(){try{
     }
     auto packet=live.open_part(id)->session.document().serialized(live.open_part(id)->session.calculated_boundaries());
     std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::from_serialized(packet,&cache);
-    require(reopened.body_history==live.open_part(id)->session.document().body_history,"Scale/source suppression lost on reopen");near(cache.back().volume,3375);
+    require(reopened.body_history==live.open_part(id)->session.document().body_history,"Scale/source suppression lost on reopen");
+    auto reopened_result=cache.back();kernel.ensure_body_properties(reopened_result);near(reopened_result.volume,3375);
     document::FamilyTable table;table.columns={"Source","Scaled"};
     table.bindings["Source"]={"body",input,{}};table.bindings["Scaled"]={"body",body.scope.id,{}};
     table.instances={{"Original",{{"Source","yes"},{"Scaled","no"}}},{"Enlarged",{{"Source","no"},{"Scaled","yes"}}},{"Empty",{{"Source","no"},{"Scaled","no"}}}};
@@ -155,7 +170,8 @@ int main(){try{
     auto assembly=assembly::AssemblyDocument::create_default();const auto assembly_id=assembly.document_id;
     live.add_assembly(std::move(assembly));live.display_top_level(assembly_id);live.activate(assembly_id);
     const auto occurrence=workspace::insert_component(live,assembly_id,enlarged);
-    near(live.open_assembly(assembly_id)->session.document().find_occurrence(occurrence)->calculated_source->volume,3375);
+    auto occurrence_result=live.open_assembly(assembly_id)->session.document().find_occurrence(occurrence)->calculated_source.get();
+    kernel.ensure_body_properties(occurrence_result);near(occurrence_result.volume,3375);
     std::cout<<"Body scale geometry, ancestry, suppression, family presence, no-op, Undo/Redo and persistence passed\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

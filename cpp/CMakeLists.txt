@@ -1161,6 +1161,11 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CURVE_PRESENTATION_ONLY=1"
         TIMEOUT 60 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_origin_display_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_origin_display_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ORIGIN_DISPLAY_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_hole_step_ui_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_hole_step_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."

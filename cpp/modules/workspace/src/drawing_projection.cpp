@@ -199,7 +199,7 @@ const kernel::ViewerMesh& DrawingProjection::placement_source(const drawing::Dra
     return impl_->get(view,false).source.mesh;
 }
 void DrawingProjection::project(drawing::DrawingView& view,Options options) {
-    auto& cached=impl_->get(view);
+    auto& cached=impl_->get(view,!options.placement_only);
     const auto& source=cached.source;
     if(options.require_geometry&&source.mesh.edges.empty()&&source.mesh.triangles.empty())
         throw DrawingOperationError("uncalculated_source","The source has no calculated geometry. Regenerate it first.");
@@ -241,6 +241,7 @@ void DrawingProjection::project(drawing::DrawingView& view,Options options) {
         view.projected_edges=found->second.first;
         view.projected_triangles=found->second.second;
     }
+    if(options.placement_only)return;
     if(options.refresh_markers)for(auto& marker:view.section_markers) {
         const auto current=std::ranges::find(source.sections,marker.id,&document::SectionDefinition::id);
         if(current==source.sections.end())

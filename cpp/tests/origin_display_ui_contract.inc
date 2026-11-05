@@ -75,13 +75,21 @@ static void verify_origin_display_and_pick_seed(QWidget& parent) {
     using namespace zima;
     const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     using Kind=document::FeatureKind;
-    for(const auto kind:{Kind::Sweep2D,Kind::Sweep3D,Kind::HelicalSweep}) {
+    for(const auto kind:{Kind::Sweep2D,Kind::Sweep3D,Kind::HelicalSweep,Kind::Loft}) {
         auto initial=kind==Kind::Sweep2D?document::PartDocument::create_sweep2d_container():
-            kind==Kind::Sweep3D?document::PartDocument::create_sweep3d_container():document::PartDocument::create_helical_sweep_container();
+            kind==Kind::Sweep3D?document::PartDocument::create_sweep3d_container():
+            kind==Kind::HelicalSweep?document::PartDocument::create_helical_sweep_container():
+            document::create_loft();
+        initial.origin_point_visible=true;initial.origin_text_visible=true;
         std::unique_ptr<ui::PropertiesSubWindow> dialog;
         if(kind==Kind::Sweep2D)dialog=std::make_unique<app::Sweep2DDialog>(initial,[](auto){},&parent);
         else if(kind==Kind::HelicalSweep)dialog=std::make_unique<app::HelicalSweepDialog>(initial,[](auto){},&parent);
+        else if(kind==Kind::Loft)dialog=std::make_unique<app::LoftDialog>(initial,[](auto){},true,&parent);
         else dialog=std::make_unique<app::ConstructionPropertiesDialog>(initial,false,true,[](auto){},&parent);
+        check(!dialog->findChild<QWidget*>("originDisplayControls")&&
+            !dialog->findChild<QCheckBox*>("originShowPoint")&&
+            !dialog->findChild<QCheckBox*>("originShowText"),
+            "Sweep/Loft retained the obsolete Origin point/text row");
         auto* custom=dialog->findChild<QCheckBox*>("sweepCustomPrecision");
         auto* tolerance=dialog->findChild<QDoubleSpinBox*>("sweepPrecisionTolerance");
         check(custom&&tolerance&&!custom->isChecked()&&!tolerance->isEnabled(),"Sweep precision default state incorrect");
@@ -91,6 +99,8 @@ static void verify_origin_display_and_pick_seed(QWidget& parent) {
             if(auto* spatial=dynamic_cast<app::ConstructionPropertiesDialog*>(dialog.get()))return spatial->pending_sweep_value();
             return dynamic_cast<app::SweepPlacementDialog*>(dialog.get())->pending;
         };
+        check(pending().origin_point_visible&&pending().origin_text_visible,
+            "Removing Sweep/Loft Origin controls changed stored presentation metadata");
         check(pending().sweep_precision.effective()==.012345678,"Sweep precision control lost the pending value");
         custom->setChecked(false);
         check(!pending().sweep_precision.custom_tolerance&&pending().sweep_precision.effective()==initial.sweep_precision.effective(),
@@ -104,7 +114,10 @@ static void verify_origin_display_and_pick_seed(QWidget& parent) {
         app::PrimitivePropertiesDialog dialog(value,true,true,[](auto){},&parent);
         auto* point=dialog.findChild<QCheckBox*>("originShowPoint");
         auto* text=dialog.findChild<QCheckBox*>("originShowText");
-        check(bool(point)==document::has_origin_display_controls(kind),"Wrong Origin visibility capability");
+        check(bool(point)==(document::has_origin_display_controls(kind)&&kind!=Kind::Hole),
+            "Wrong Origin visibility capability");
+        if(kind==Kind::Hole)check(!dialog.findChild<QWidget*>("originDisplayControls"),
+            "Hole retained an empty Origin visibility layout row");
         if(!point)continue;
         check(text&&!point->isChecked()&&!text->isChecked(),"Origin visibility changed the default appearance");
         point->setChecked(true);text->setChecked(true);

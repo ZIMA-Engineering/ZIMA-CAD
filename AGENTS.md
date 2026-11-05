@@ -113,11 +113,12 @@
 - Ordinary interactive drawing views must use the already calculated 3D viewer
   geometry and depth-tested rendering, with continuous gray hidden edges. Apply
   hidden-edge dashes only for printing and vector export. While placing a new
-  ordinary or projected view, show only its bounding frame with the arrow cursor;
-  keep creation properties lightweight and prepare ordinary new-view geometry
-  on OK. If no source extent is already available, use a provisional frame
-  instead of loading the model just for placement. View selection changes only
-  its bounds overlay, never the model stroke colors. Do not
+  ordinary or projected view, show its bounding frame and lightweight geometry
+  from the already calculated viewer packet with the arrow cursor. Reuse that
+  placement geometry in creation properties; do not wait until OK to show it.
+  Moving the view must reuse its prepared projection instead of reloading the
+  model or recalculating vector output. View selection changes only its bounds
+  overlay, never the model stroke colors. Do not
   require precise vector hidden-line subdivision before displaying, placing,
   panning or zooming a view.
 - A projected view inherits its parent's source, scale and display settings.

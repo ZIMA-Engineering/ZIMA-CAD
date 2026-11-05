@@ -31,6 +31,7 @@ public:
         content_layout()->addWidget(precision);
         precision_=precision;
         install_placement();
+        remove_origin_display_controls(this);
         result_=new QComboBox(this);result_->setObjectName("loftResultType");
         result_->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
         result_->setCurrentIndex(pending.loft.result_type==document::ProfileResultType::Surface?2:pending.loft.result_type==document::ProfileResultType::Thin?1:0);

@@ -13476,6 +13476,7 @@ nlohmann::json PartDocument::serialized(
     const zima::kernel::ViewerReferenceGeometry empty_references;
     const zima::kernel::ViewerReferenceGeometry* previous_references =
         &empty_references;
+    bool previous_has_exact_reference_output = false;
     for (std::size_t boundary_index = 0; !final_cache&&
          boundary_index < calculated_boundaries.size(); ++boundary_index) {
         const auto& boundary = calculated_boundaries[boundary_index];
@@ -13487,15 +13488,28 @@ nlohmann::json PartDocument::serialized(
             boundary.kernel_shape == calculated_boundaries[boundary_index - 1].kernel_shape &&
             boundary.kernel_placements.empty() && calculated_boundaries[boundary_index - 1].kernel_placements.empty() &&
             boundary.kernel_compound_bodies.empty() && calculated_boundaries[boundary_index - 1].kernel_compound_bodies.empty();
-        const auto delta = reuses_previous_body?zima::kernel::ViewerReferenceGeometry{}:
-            reference_geometry_delta(boundary.mesh.original_references, *previous_references);
+        // Exact history-output packets may replace a selected reference with
+        // its value at that boundary. They are intentionally not an append-only
+        // display history. Store the already-supported full packet on both
+        // sides of that boundary so native save cannot splice unlike prefixes.
+        const bool has_exact_reference_output =
+            !boundary.history_reference_coverage.empty();
+        const bool full_references = !reuses_previous_body &&
+            (has_exact_reference_output || previous_has_exact_reference_output);
+        const auto delta = reuses_previous_body || full_references
+            ? zima::kernel::ViewerReferenceGeometry{}
+            : reference_geometry_delta(boundary.mesh.original_references,
+                *previous_references);
         auto serialized = reuses_previous_body
             ? nlohmann::json{{"body_source", "previous_boundary"},
                   {"source_fingerprint", boundary.source_fingerprint}}
-            : serialize_body_result(boundary,true,true,&delta);
+            : serialize_body_result(boundary,true,true,
+                  full_references?nullptr:&delta);
         if (reuses_previous_body) {
             serialized_boundaries.push_back(std::move(serialized));
             previous_references = &boundary.mesh.original_references;
+            previous_has_exact_reference_output =
+                previous_has_exact_reference_output || has_exact_reference_output;
             continue;
         }
         if (boundary_index < expected_operations.size()) {
@@ -13508,9 +13522,11 @@ nlohmann::json PartDocument::serialized(
                 serialized["kernel_shape_source"] = "step_parameter";
             }
         }
-        serialized["original_references_mode"] = "append";
+        if(!full_references)
+            serialized["original_references_mode"] = "append";
         serialized_boundaries.push_back(std::move(serialized));
         previous_references = &boundary.mesh.original_references;
+        previous_has_exact_reference_output = has_exact_reference_output;
     }
     nlohmann::json serialized_sketches = nlohmann::json::array();
     std::unordered_set<std::string> sketch_ids;

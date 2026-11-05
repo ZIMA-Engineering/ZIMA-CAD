@@ -1,5 +1,4 @@
 #pragma once
-#include "origin_display_controls.hpp"
 #include "sweep_precision_controls.hpp"
 
 #include "placement_reference_dialog.hpp"
@@ -205,7 +204,6 @@ private:
     CurveAxisRequestCallback curve_axis_request_;
     CurveAxisCycleCallback curve_axis_cycle_;
     std::optional<zima::document::HistoryContainer> initial_sweep_;
-    OriginDisplayControls* origin_display_{};
     SweepPrecisionControls* sweep_precision_{};
     SweepCommitCallback sweep_commit_;
     std::vector<zima::document::Sweep3DProfile> sweep_profiles_;

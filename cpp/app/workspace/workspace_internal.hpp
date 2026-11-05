@@ -153,6 +153,18 @@ constexpr double sketch_tangent_intent_pixels = 8.0;
 constexpr double sketch_circle_tangent_contact_pixels = 18.0;
 constexpr double visible_parameter_dimension_epsilon = 1.0e-9;
 
+inline bool completely_empty_sketch(const zima::sketcher::Sketch& sketch) {
+    return sketch.points.empty() && sketch.segments.empty() &&
+        sketch.circles.empty() && sketch.arcs.empty() &&
+        sketch.ellipses.empty() && sketch.elliptical_arcs.empty() &&
+        sketch.bsplines.empty() && sketch.import_blocks.empty() &&
+        sketch.curve_supports.empty() && sketch.curve_trims.empty() &&
+        sketch.offsets.empty() && sketch.texts.empty() &&
+        sketch.symbols.empty() && sketch.external_references.empty() &&
+        sketch.constraints.empty() && sketch.dimensions.empty() &&
+        sketch.dimension_layouts.empty() && sketch.corner_radii.empty();
+}
+
 void append_nonzero_parameter_dimensions(
     std::vector<zima::kernel::ViewerDimension>& target,
     std::vector<zima::kernel::ViewerDimension> source);

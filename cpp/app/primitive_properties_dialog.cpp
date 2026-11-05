@@ -164,6 +164,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     if (!treatment) header_form->addRow(tr("Název"), name_);
     else name_->hide();
     if (initial.feature_kind != zima::document::FeatureKind::Feature &&
+        initial.feature_kind != zima::document::FeatureKind::Hole &&
         zima::document::has_origin_display_controls(initial.feature_kind)) {
         origin_display_=new OriginDisplayControls(initial.origin_point_visible,initial.origin_text_visible,
             this,[this]{notify_preview();});

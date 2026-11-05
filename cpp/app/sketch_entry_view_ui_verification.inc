@@ -88,8 +88,10 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             check(ray&&std::abs(ray->second.z)>1e-8,
                 "Empty Sketch center ray misses its plane");
             const double t=-ray->first.z/ray->second.z;
-            check(std::hypot(ray->first.x+t*ray->second.x,
-                             ray->first.y+t*ray->second.y)<1e-5,
+            const double empty_center_distance=std::hypot(
+                ray->first.x+t*ray->second.x,
+                ray->first.y+t*ray->second.y);
+            check(empty_center_distance<1e-5,
                 "Empty Sketch work area is not centered on its origin");
             check(window.execute_console_command("documents").data==state,
                 "Empty Sketch entry changed the document revision");
@@ -109,6 +111,115 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
                 "Empty Sketch camera changed persisted geometry");
             ++cases;
         }
+        // The physical-scale exception is deliberately narrower than the
+        // existing-empty-Sketch case above: both a newly inserted standalone
+        // tree container and its first completely clean Sketch entry are
+        // required. Exercise it with and without preceding calculated model
+        // geometry, then reopen the same Sketch to prove the exception ended.
+        for(const bool model_context:{false,true}) {
+            auto part=document::PartDocument::create_default();
+            auto graph=part.body_history;
+            const auto body=graph.create_body("First clean Sketch regression");
+            std::vector<kernel::BodyResult> calculated;
+            if(model_context) {
+                auto stock=test::rectangular_feature(part,{40,30,20});
+                part.history.push_back(stock);
+                graph.insert({document::PartHistoryKind::Feature,stock.id});
+                part.set_body_history(graph);part.resolve_constructions();
+                kernel::OcctKernel kernel;
+                calculated=kernel.evaluate_history(part.kernel_operations());
+            } else part.set_body_history(graph);
+            const auto path=directory/(std::string("sketch-first-empty-")+
+                (model_context?"context":"bare")+".prtz");
+            part.save(path,calculated);
+            app::AssemblyWorkspaceWindow window(
+                QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),
+                "Cannot open first-empty-Sketch fixture");flush();
+            check(activate_test_body(application,window,body),
+                "Cannot activate first-empty-Sketch Body");flush();
+            auto* command=window.findChild<QAction*>("sketchAction");
+            check(command&&command->isEnabled(),
+                "New standalone Sketch command is unavailable");
+            command->trigger();flush();
+            app::SketchPropertiesDialog* properties{};
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(child);
+                    dialog&&dialog->isVisible())properties=dialog;
+            check(properties,"New standalone Sketch Properties did not open");
+            const auto sketch_id=properties->pending_value().first.id;
+            auto* open=properties->findChild<QPushButton*>("sketchOpenButton");
+            check(open&&open->isEnabled(),
+                "First clean Sketch cannot enter Sketcher");
+            open->click();flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(
+                window.findChild<QOpenGLWidget*>());
+            check(view,"First clean Sketch View missing");
+            check_sketch_entry_camera(application,*view,sketch_id);
+            const double dpi=view->physicalDpiY()>=50&&view->physicalDpiY()<=400
+                ?view->physicalDpiY():96.;
+            const double physical_scale=view->height()*25.4/(2.*dpi);
+            check(std::abs(view->camera_state()[4]-physical_scale)<.05,
+                "A new tree item's first clean Sketch does not use monitor physical scale");
+            const auto editing_state=window.execute_console_command("documents").data;
+            window.findChild<QAction*>("sketchNormalViewAction")->trigger();flush();
+            check(std::abs(view->camera_state()[4]-physical_scale)<.05&&
+                window.execute_console_command("documents").data==editing_state,
+                "Normal view changed first clean Sketch scale or document state");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(child);
+                    dialog&&dialog->isVisible()) {
+                    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+                    flush();break;
+                }
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            const auto row=[&]()->QTreeWidgetItem* {
+                for(QTreeWidgetItemIterator i(tree);*i;++i)
+                    if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch_id&&
+                        (*i)->data(0,Qt::UserRole+3)=="part-sketch")return *i;
+                return nullptr;
+            };
+            check(row(),"First clean Sketch was not inserted in the tree");
+            auto* undo=window.findChild<QAction*>("undoAction");
+            auto* redo=window.findChild<QAction*>("redoAction");
+            check(undo&&redo&&undo->isEnabled(),
+                "First clean Sketch creation has no Undo transaction");
+            undo->trigger();flush();check(!row(),
+                "Undo retained the new standalone Sketch");
+            check(redo->isEnabled(),"First clean Sketch creation has no Redo");
+            redo->trigger();flush();check(row(),
+                "Redo did not restore the new standalone Sketch");
+
+            window.show_tree_item_properties(row());flush();
+            properties=nullptr;
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(child);
+                    dialog&&dialog->isVisible())properties=dialog;
+            check(properties,"Restored existing empty Sketch Properties did not open");
+            properties->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            check_sketch_entry_camera(application,*view,sketch_id);
+            check(model_context?view->camera_state()[4]<100:
+                    view->camera_state()[4]>350,
+                "The first-entry metric exception leaked into an existing empty Sketch");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* dialog=dynamic_cast<app::SketchPropertiesDialog*>(child);
+                    dialog&&dialog->isVisible()) {
+                    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();
+                    flush();break;
+                }
+            check(window.execute_console_command("save").ok,
+                "First clean Sketch Save failed");
+            const auto saved=document::PartDocument::load(path);
+            const auto found=std::ranges::find(saved.sketches,sketch_id,
+                &sketcher::Sketch::id);
+            check(found!=saved.sketches.end()&&
+                    app::workspace_detail::completely_empty_sketch(*found),
+                "Save/reopen changed the first clean Sketch");
+            ++cases;
+        }
         for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})for(bool placed:{false,true}) {
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;sketch.plane=plane;sketch.plane_auto=false;sketch.refresh_default_frame();
@@ -125,8 +236,8 @@ int verify_sketch_entry_view_ui(QApplication& application,const std::filesystem:
             check(row,"Camera fixture Sketch missing");window.show_tree_item_properties(row);flush();
             auto* open=window.findChild<QPushButton*>("sketchOpenButton");check(open,"Camera fixture Sketch open button missing");open->click();flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Camera fixture View missing");
-            const auto state=window.execute_console_command("documents").data;
-            const auto verify=[&](bool right=true,bool up=true){std::cout<<"Check camera plane="<<int(plane)<<" placed="<<placed<<" right="<<right<<" up="<<up<<std::endl;check_sketch_entry_camera(application,*view,sketch.id,right,up);check(window.execute_console_command("documents").data==state,"Camera controls changed document revision");};
+            const auto revision=window.execute_console_command("documents").data.front().at("revision");
+            const auto verify=[&](bool right=true,bool up=true){std::cout<<"Check camera plane="<<int(plane)<<" placed="<<placed<<" right="<<right<<" up="<<up<<std::endl;check_sketch_entry_camera(application,*view,sketch.id,right,up);check(window.execute_console_command("documents").data.front().at("revision")==revision,"Camera controls changed document revision");};
             const bool local_y_up=plane!=sketcher::SketchPlane::XZ;
             verify(true,local_y_up);window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,!local_y_up);
             window.findChild<QAction*>("sketchFlipViewAction")->trigger();flush();verify(true,local_y_up);

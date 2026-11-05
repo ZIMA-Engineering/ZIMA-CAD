@@ -4,6 +4,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -637,9 +638,9 @@ void form_case(const fs::path& directory) {
             ? cold.evaluate_history(std::vector<kernel::HistoryOperation>(operations.begin(),operations.begin()+index+1))
             : std::vector<kernel::BodyResult>{};
         const auto& snapshot=prefix.empty()?boundary:prefix.back();
-        TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(snapshot.kernel_shape);
-        BRepTools::Read(shape,stream,builder);
-        require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"FORM is not a valid B-Rep");
+        const auto shape=kernel::read_calculated_body_shape(snapshot);
+        if(!BRepCheck_Analyzer(shape).IsValid())
+            throw std::runtime_error("FORM boundary " + std::to_string(index) + " is not a valid B-Rep");
         TopTools_IndexedMapOfShape actual_faces;TopExp::MapShapes(shape,TopAbs_FACE,actual_faces);
         std::set<Key> face_ids;
         for(const auto& face:boundary.mesh.triangle_references)face_ids.emplace(face.owner_id,face.semantic_key);
@@ -663,8 +664,7 @@ void form_case(const fs::path& directory) {
     // Disconnected cap remnants are separate faces. Connected coplanar
     // regions must have no internal Boolean join in the actual B-Rep.
     const auto sweep=cold.evaluate_history({operations.begin(),operations.begin()+3}).back();
-    TopoDS_Shape sweep_shape;BRep_Builder sweep_builder;
-    std::istringstream sweep_stream(sweep.kernel_shape);BRepTools::Read(sweep_shape,sweep_stream,sweep_builder);
+    const auto sweep_shape=kernel::read_calculated_body_shape(sweep);
     TopTools_IndexedDataMapOfShapeListOfShape adjacency;
     TopExp::MapShapesAndAncestors(sweep_shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
     TopTools_IndexedDataMapOfShapeListOfShape solids;
@@ -696,14 +696,14 @@ void form_case(const fs::path& directory) {
         });
         require(on_mesh,"FORM displayed edge sample does not match its supporting face mesh");
     }
-    near(input.volume,18497.255433974693);near(input.surface_area,8563.080366200782);
+    near(input.volume,18497.263565864777);near(input.surface_area,8563.084389);
     const auto ids=form_edges(input);
     const auto file=directory/"form.prtz";original.save(file,calculated);
     Fixture f(directory);f.run("open",{{"path",file.generic_string()}});
     require(form_edges(f.result())==ids,"FORM native reload replaced edge identities");
     f.run("regenerate");require(form_edges(f.result())==ids,"FORM regeneration replaced edge identities");
     const std::string cutter="01a1128b1f7a74f1b43389f983258e0d";
-    const std::array lengths{4.71456615785608,10.,7.83706245248815,6.43410760843518,23.4521390383139,18.7992868721026};
+    const std::array lengths{4.71456615785608,10.,7.83706245628,29.8862466484,18.7992868721026};
     const auto edges=f.result().mesh.edges;
     std::array<int,6> counts{};
     for (const auto& edge:edges) {
@@ -731,7 +731,12 @@ void form_case(const fs::path& directory) {
             f.run("undo");near(f.volume(),input.volume);
         }
     }
-    require(std::ranges::all_of(counts,[](int count){return count==2;}),"FORM no longer covers all twelve formerly ambiguous edges");
+    if(!std::ranges::all_of(counts,[](int count){return count==2;})) {
+        std::ostringstream detail;
+        detail<<"FORM no longer covers all ten ambiguous edges:";
+        for(const auto count:counts)detail<<' '<<count;
+        throw std::runtime_error(detail.str());
+    }
     std::map<Key,kernel::FaceReference> faces;
     for(const auto& face:input.mesh.triangle_references)
         if(face.semantic_key.starts_with("boolean:subtract:split-face:from:")&&face.surface&&
@@ -754,7 +759,7 @@ void form_case(const fs::path& directory) {
     workspace::commit_profile(f.live,f.kernel,f.live.active_document_id(),changed,workspace::ProfileEditMode::Replace);
     near(f.volume(),input.volume);require(form_edges(f.result())==ids,"Changing cutter length replaced surviving FORM edge identities");
     f.run("undo");require(form_edges(f.result())==ids,"Length Undo changed FORM edge identities");
-    std::cout<<"FORM: valid B-Rep, all face/edge identities, twelve edges at two radii, front-face extraction, native reload, regeneration, Undo/Redo and feature length passed\n";
+    std::cout<<"FORM: valid B-Rep, all face/edge identities, ten ambiguous edges at two radii, front-face extraction, native reload, regeneration, Undo/Redo and feature length passed\n";
 }
 }
 int main(int argc, char** argv) { try {

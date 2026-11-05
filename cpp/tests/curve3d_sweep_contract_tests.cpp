@@ -248,6 +248,48 @@ int main(){try{
             edge.points.size() >= 2 && std::abs(edge.points.back().z - 20) < 1e-9;
     }), "Route preview did not recover after entering the second Point displacement");
     kernel::OcctKernel k;
+    // An inherited non-square section must reach the final leg with the same
+    // transported frame shown by the Sweep route/profile preview. Rotating the
+    // original section independently onto every tangent swaps its long and
+    // short axes on the third mutually perpendicular leg.
+    {
+        auto corner=fixture(0);
+        corner.sweep3d.path.curve_points[0].origin={0,0,0};
+        corner.sweep3d.path.curve_points[1].origin={0,100,0};
+        corner.sweep3d.path.curve_points[2].origin={0,100,100};
+        auto last=document::PartDocument::create_construction(
+            document::ConstructionKind::Point);
+        last.parent_construction_id=corner.sweep3d.path.id;
+        last.origin={-200,100,100};
+        corner.sweep3d.path.curve_points.push_back(last);
+        auto section=sketcher::Sketch::create_default();
+        section.owner_container_id=corner.id;
+        static_cast<void>(section.add_rectangle(-3,-1,3,1));
+        corner.sweep3d.profiles.front().sketch_id=section.id;
+        corner.sweep3d.profiles.front().sketch_serialized=section.serialized();
+        const auto preview=document::sweep3d_profiles_viewer_mesh(corner);
+        document::PartDocument input;input.history={corner};
+        const auto calculated=k.evaluate_history(input.kernel_operations()).front();
+        const auto preview_prefix="curve:profile:"+last.id+":out:";
+        const auto result_prefix="sweep:rim:end:at:"+last.id+":out:";
+        const auto extents=[&](const auto& edges,const std::string& prefix) {
+            kernel::ModelEnvelope bounds;
+            for(const auto& edge:edges)
+                if(edge.reference.owner_id==corner.id &&
+                   edge.reference.semantic_key.starts_with(prefix))
+                    for(const auto& point:edge.points)bounds.include(point);
+            require(bounds.valid,"Final inherited Sweep profile boundary is missing");
+            return kernel::Vec3{bounds.maximum.x-bounds.minimum.x,
+                bounds.maximum.y-bounds.minimum.y,
+                bounds.maximum.z-bounds.minimum.z};
+        };
+        const auto expected=extents(preview.edges,preview_prefix);
+        const auto actual=extents(calculated.mesh.original_references.edges,
+            result_prefix);
+        require(std::hypot(std::hypot(expected.x-actual.x,
+            expected.y-actual.y),expected.z-actual.z)<1e-6,
+            "Final inherited Sweep section is rotated differently from its preview");
+    }
     for(int mode=0;mode<3;++mode) {
         auto sweep=fixture(mode==1?5:0);
         if(mode==2)sweep.sweep3d.path.curve_type=document::Curve3DType::InterpolatingSpline;

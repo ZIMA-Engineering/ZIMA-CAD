@@ -19,6 +19,9 @@ public:
         bool refresh_markers{};
         bool require_geometry{true};
         bool interactive{};
+        // Placement consumes only the calculated viewer packet. It must not
+        // load BOM, annotation or Section metadata before confirmation.
+        bool placement_only{};
     };
     // Reuse requires unchanged live document generations/identities and exact
     // native dependency bytes. Otherwise sources are read afresh. The donor
