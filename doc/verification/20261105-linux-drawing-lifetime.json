@@ -66,5 +66,14 @@
     }
   ],
   "windows_verified": false,
-  "release_published": false
+  "release_published": false,
+  "final_drawing_gui": [
+    {
+      "name": "zima_cpp_drawing_ui_contract",
+      "code": 0,
+      "seconds": 6.75669508899955,
+      "backend": "xcb",
+      "log": "build/linux-20261105-drawing-picker-final-zima_cpp_drawing_ui_contract.log"
+    }
+  ]
 }

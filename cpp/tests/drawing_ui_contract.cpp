@@ -1317,10 +1317,17 @@ int verify_drawing_ui() {
             for(int y=-int(20*ratio);y<int(20*ratio);++y)
                 for(int x=-int(20*ratio);x<-int(3*ratio);++x) {
                     const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));
-                    if(pixel.red()<65&&pixel.green()>110&&pixel.blue()>130&&
-                       std::abs(pixel.green()*255-pixel.blue()*209)<1500)++green_pixels;
+                    // The fixture has a black background. Recover the
+                    // coverage of azure ink, including antialiased glyphs
+                    // that never reach half coverage on this font backend.
+                    const double coverage=pixel.blue()/255.;
+                    if(pixel.red()<10&&coverage>=.15&&std::abs(pixel.green()-209*coverage)<5)++green_pixels;
                 }
             const bool green_dimension=green_pixels>2;
+            if(!green_dimension){
+                selected_image.save(QDir::tempPath()+"/zima-drawing-selected-dimension.png");
+                std::cerr<<"Selected dimension handle "<<handle_pixel.x()<<','<<handle_pixel.y()<<" DPR "<<ratio<<" azure pixels "<<green_pixels<<'\n';
+            }
             require(green_dimension,"Selected dimension text is not azure");
             mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(30,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(30,20),Qt::LeftButton,Qt::NoButton);
             const auto moved=window.annotation_handle_for_test(d.id,0,true);require(moved&&std::abs(moved->x()-point->x()-30)<1e-6&&std::abs(moved->y()-point->y()-20)<1e-6,"Dimension handle moved opposite to the mouse");

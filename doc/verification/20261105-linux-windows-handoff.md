@@ -1,5 +1,13 @@
 # Linux findings for Windows follow-up (2026-11-05)
 
+## Follow-up: complete Drawing GUI passes on Xcb
+
+The newly reached azure-text assertion was a pixel-measurement issue: the saved image showed correctly colored text, but the Linux font backend produced only two glyph pixels exceeding the test's half-coverage cutoff. The test now checks the expected azure color composited over the fixture's black background, including antialiased glyph coverage. It retains the glyph-region exclusion of support/handle strokes and does not change product colors, font sizes or rendering. Failed captures are retained for diagnosis.
+
+The complete Drawing GUI suite now passes on the actual Xcb desktop (6.76 seconds): cardinal placement, rectangular selection, projection, dimension text/handle dragging, Cancel, middle-button interaction, native persistence and global library paths. The preceding failing run in the JSON record is historical and superseded by this full pass. Repeat/view-control/detail shutdown checks also passed on native Wayland as recorded above. Windows execution of the fixes remains open.
+
+Separate experimental test changes did not resolve the browser bookmark and feature hover checks and were reverted; those findings are still open. Do not infer complete acceptance from the Drawing fix.
+
 ## Follow-up: Drawing lifetime fix verified on Linux
 
 The shutdown blocker described below is fixed by releasing the GUI-thread depth renderer through Qt's application cleanup routine before platform teardown. GPU packets and shaders are released with the owning context current, and a previously current context is restored. The drawing algorithm and cached images are unchanged. All renderer callers were traced to GUI painting or GUI verification; vector export paths remain separate. No platform-specific drawing implementation, geometry tolerance, persistence contract or user-visible text was changed.
