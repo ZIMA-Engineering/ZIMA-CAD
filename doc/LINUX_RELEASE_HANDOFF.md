@@ -1,5 +1,30 @@
 # Linux build and distribution handoff - 2026-09-15
 
+## Linux 2026110404 acceptance (2026-11-05)
+
+The native Debian 13 x86_64 candidate and finalized signed package pass their
+packaged smoke, dependency closure, path/CRC/SHA-256 and production-trust gates.
+Both load all 1,185 factory assets, which match committed Git bytes exactly.
+Five candidate and two fresh signed GUI suites pass. The complete 48-scenario
+arc/axis GUI matrix, nine focused native Sketcher suites, five-language desktop
+translation/material checks and Drawing shutdown/interaction checks pass within
+the recorded finite scope. Publication completed at `2026-11-05T01:16:39Z`.
+All three anonymous downloads match accepted signed bytes; the trusted previous
+Linux 1107 updater offers 0404 as installable without downloading or installing
+its archive.
+
+The immutable source is `326fd2342fd189772297304cd7648e98ef4e38ec`, tag
+`ZIMA-CAD-2026110404`. The shared fixes repair input-precision contact bounds,
+midpoint/constrained-arc dragging and the depth renderer's lifetime relative to
+Qt platform teardown. Qt is Debian 6.8.2; OCCT is the shared pinned 8.0.1 source
+with the same Gauss patch as Windows. Source and factory data are shared.
+Windows execution of these follow-up fixes remains unverified. Preserve the
+existing Windows release and run its affected native/GUI checks before Windows
+publication. The broad Linux suite has recorded failures, with other GUI and
+platform gaps and the deferred third-row title-block observation documented in
+[the release record](releases/2026110404.md) and
+[publication evidence](verification/20261105-linux-0404-publication.json).
+
 ## Sketcher mechanisms and Drawing review (2026-11-04)
 
 Windows release 2026110403 uses the shared C++ mechanism/profile fitter,

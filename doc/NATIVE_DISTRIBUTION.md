@@ -1,5 +1,17 @@
 # Native versioned distribution
 
+Signed Linux [2026110404](releases/2026110404.md) was published at
+`2026-11-05T01:16:39Z` from immutable source
+`326fd2342fd189772297304cd7648e98ef4e38ec`.
+The native Debian 13 x86_64 build uses Qt 6.8.2 and shared OCCT 8.0.1. Candidate
+and signed smoke load all 1,185 exact committed factory assets. Five candidate
+and two fresh signed GUI suites, the full 48-scenario arc/axis GUI matrix,
+Drawing shutdown on Xcb/Wayland and production trust pass. The broad suite has
+recorded failures; Windows follow-up verification and other finite gaps remain
+explicit. All three anonymous downloads match accepted bytes; trusted Linux
+1107 offers 0404 as installable without downloading or installing it. See the
+[publication evidence](verification/20261105-linux-0404-publication.json).
+
 Signed Windows [2026110403](releases/2026110403.md#windows-publication-acceptance)
 was published at `2026-11-04T21:44:30Z` from immutable source
 `e32c89f8377cfd6e7d00e267cdba39515e460035`. The finite Sketcher mechanism/profile review,

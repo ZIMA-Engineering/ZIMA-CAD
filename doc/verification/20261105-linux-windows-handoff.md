@@ -1,5 +1,11 @@
 # Linux findings for Windows follow-up (2026-11-05)
 
+## Publication follow-up: Linux 0404 accepted
+
+Signed Linux 2026110404 was published from immutable source `326fd2342fd189772297304cd7648e98ef4e38ec` at `2026-11-05T01:16:39Z`. The final complete 48-scenario arc/axis GUI matrix passes (490.28 seconds), superseding the earlier finite gap recorded below. Five candidate and two fresh signed packaged GUI suites pass. Candidate and signed native smoke load all 1,185 exact committed factory files; production trust, all three anonymous download hashes and the previous signed Linux 1107 updater offer pass. No update was installed into the user's environment.
+
+Historical failed attempts below remain as diagnostic context; they do not override these final reruns. The broad-suite failures, bookmark Edit, datum-feature hover, internal FORM dimension GUI check, Windows execution and other unverified platforms remain explicit gaps. The possible title-block third-row text shift is deferred at the user request. See [the final publication evidence](20261105-linux-0404-publication.json) and [release notes](../releases/2026110404.md). Windows should receive these shared fixes and perform its affected native/GUI verification before its next release.
+
 ## Follow-up: complete Drawing GUI passes on Xcb
 
 The newly reached azure-text assertion was a pixel-measurement issue: the saved image showed correctly colored text, but the Linux font backend produced only two glyph pixels exceeding the test's half-coverage cutoff. The test now checks the expected azure color composited over the fixture's black background, including antialiased glyph coverage. It retains the glyph-region exclusion of support/handle strokes and does not change product colors, font sizes or rendering. Failed captures are retained for diagnosis.
