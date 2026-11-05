@@ -16,10 +16,22 @@
 #include <iostream>
 #include <numbers>
 #include <chrono>
+#include <source_location>
 using namespace zima;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-void near(double actual,double expected){if(!std::isfinite(actual)||std::abs(actual-expected)>=1e-5)throw std::runtime_error("Transferred contour coordinate differs: actual="+std::to_string(actual)+", expected="+std::to_string(expected));}
+void near(double actual,double expected,
+        std::source_location source=std::source_location::current()) {
+    if(!std::isfinite(actual)||std::abs(actual-expected)>=1e-5)
+        throw std::runtime_error("Transferred contour coordinate differs at line "+
+            std::to_string(source.line())+": actual="+std::to_string(actual)+
+            ", expected="+std::to_string(expected));
+}
+double analyzed_volume(const kernel::OcctKernel& kernel,
+        kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);
+    return body.volume;
+}
 void helical_frame() {
     auto feature=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
     feature.helical.pitch=5;feature.sweep_precision.custom_tolerance=1e-4;
@@ -186,7 +198,8 @@ void native_curved_chain(bool initially_straight,int sweep_kind=0) {
             operation.solid_state_face_transfers={{child.id,root.id},{tip.id,child.id}};
         kernel::OcctKernel independent;const auto expected=independent.evaluate_history(expected_operations).back();
         check(actual.calculation_errors.empty()&&expected.calculation_errors.empty(),"Native curved chain calculation failed");
-        near(actual.volume,expected.volume);
+        near(analyzed_volume(kernel,actual),
+            analyzed_volume(independent,expected));
         const auto& points=actual.solid_state_reference_views.at(boundary)->points;
         std::size_t checked=0;
         for(const auto& p:expected.solid_state_reference_views.at(boundary)->points)if(p.reference.owner_id==child.id||p.reference.owner_id==tip.id) {

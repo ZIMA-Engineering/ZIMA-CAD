@@ -26,13 +26,17 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <sstream>
 #include <iomanip>
+#include <source_location>
 
 using namespace zima;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-void near(double actual,double expected){
+void near(double actual,double expected,
+        std::source_location source=std::source_location::current()){
     if(!std::isfinite(actual)||std::abs(actual-expected)>=1e-5)
-        throw std::runtime_error("Native state value: expected "+std::to_string(expected)+", got "+std::to_string(actual));
+        throw std::runtime_error("Native state value at line "+
+            std::to_string(source.line())+": expected "+
+            std::to_string(expected)+", got "+std::to_string(actual));
 }
 double analyzed_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
     kernel.ensure_body_properties(body);

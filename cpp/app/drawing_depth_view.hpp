@@ -148,7 +148,10 @@ public:
                 if(heavy!=thick_pass)continue;
                 // Interactive hidden edges match the continuous gray 3D display.
                 // The saved dash style is applied only by vector output.
-                shader_->setUniformValue("ink",occluded||edge.tangent||edge.thread?hidden:visible);
+                // Tangent style controls lineweight/visibility, not whether a
+                // foreground edge is presented as hidden.  Keep a visible
+                // tangent boundary in the normal ink, matching vector output.
+                shader_->setUniformValue("ink",occluded||edge.thread?hidden:visible);
                 gl->glLineWidth(float((heavy?thick:thin)*reduction));
                 gl->glDrawArrays(GL_LINES,range.first,range.count);
             }

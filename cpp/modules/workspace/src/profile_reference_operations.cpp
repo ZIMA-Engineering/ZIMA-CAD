@@ -9,7 +9,7 @@ bool set_profile_reference(Workspace& live,const kernel::OcctKernel& kernel,cons
         if(cut->definition.feature_kind!=document::FeatureKind::Feature&&cut->definition.feature_kind!=document::FeatureKind::Extrusion&&cut->definition.feature_kind!=document::FeatureKind::Revolution)
             throw ProfileOperationError("wrong_feature","The requested profile type does not match the container.");
         auto value=prepare_assembly_profile_reference(live,id,container,index,std::move(source),derive_orientation);
-        normalize_owned_profile_front_references(value.placement.references);
+        normalize_owned_profile_front_references(value);
         if(value==cut->definition)return false;
         commit_assembly_profile(live,kernel,id,std::move(value),cut->target_occurrence_ids,ProfileEditMode::Replace);
         return true;
@@ -21,7 +21,7 @@ bool set_profile_reference(Workspace& live,const kernel::OcctKernel& kernel,cons
     if(existing->feature_kind!=document::FeatureKind::Feature&&existing->feature_kind!=document::FeatureKind::Extrusion&&existing->feature_kind!=document::FeatureKind::Revolution)
         throw ProfileOperationError("wrong_feature","The requested profile type does not match the container.");
     auto value=prepare_part_feature_reference(live,id,container,index,std::move(source),derive_orientation);
-    normalize_owned_profile_front_references(value.placement.references);
+    normalize_owned_profile_front_references(value);
     if(value==*existing)return false;
     commit_profile(live,kernel,id,std::move(value),ProfileEditMode::Replace);
     return true;

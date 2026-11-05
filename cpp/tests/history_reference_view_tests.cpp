@@ -88,6 +88,16 @@ void verify_correspondence() {
         "Correspondence retained another occurrence or unused mesh vertices");
     near(view.geometry.triangle_references[0].surface->origin.x,20);
     require(std::signbit(references[0].offset),"Correspondence changed the stored side");
+    auto boolean_reversed=plane(20);
+    auto reversed_surface=std::make_shared<kernel::SurfaceGeometry>(
+        *boolean_reversed.triangle_references.front().surface);
+    reversed_surface->reversed=true;
+    boolean_reversed.triangle_references.front().surface=reversed_surface;
+    const auto stable_side=document::solid_state_reference_view(
+        original,boolean_reversed,{{"source",""}},references,true);
+    require(!stable_side.geometry.triangle_references.front().surface->reversed&&
+        boolean_reversed.triangle_references.front().surface->reversed,
+        "A replayed Boolean reversed the persisted solid-state face side");
     const auto reject=[&](const kernel::ViewerReferenceGeometry& packet) {
         bool rejected=false;
         try{document::solid_state_reference_view(original,packet,{{"source",""}},references);}

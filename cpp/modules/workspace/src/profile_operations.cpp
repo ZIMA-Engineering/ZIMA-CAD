@@ -73,6 +73,16 @@ void normalize_owned_profile_front_references(
     document::normalize_container_front_references(references);
 }
 
+void normalize_owned_profile_front_references(
+        document::HistoryContainer& container) {
+    // A Point profile has no authored work-plane frame. Its position rows
+    // describe only the point intersection; explicit orientation-table rows
+    // already carry their own FRONT/TOP roles and need no normalization.
+    if (container.feature_kind == document::FeatureKind::Feature &&
+            container.feature.type == document::FeatureType::Point) return;
+    normalize_owned_profile_front_references(container.placement.references);
+}
+
 std::string revolution_axis_segment_id(
     const zima::sketcher::Sketch& sketch,
     const std::string& configured_id) {
@@ -226,7 +236,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const bool extrusion = value.feature_kind == document::FeatureKind::Extrusion;
     const bool feature = value.feature_kind == document::FeatureKind::Feature;
     const auto sketch_id = feature ? value.feature.sketch_id : extrusion ? value.extrusion.sketch_id : value.revolution.sketch_id;
-    normalize_owned_profile_front_references(value.placement.references);
+    normalize_owned_profile_front_references(value);
     auto next = before;
     if (owned_sketch) {
         if (owned_sketch->id != sketch_id) throw ProfileOperationError("identity_changed", "The profile Sketch identity does not match its feature.");

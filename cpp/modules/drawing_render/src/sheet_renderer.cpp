@@ -359,7 +359,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                     const auto& edge=group.first;if(edge.hidden!=hidden||!drawing::drawing_edge_visible(view,edge))continue;
                     const bool heavy=!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin);
                     if(heavy!=thick_pass)continue;
-                    const auto color=edge.hatch?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)?QColor("#666666"):ink;
+                    const auto color=edge.hatch?QColor("#55BB77"):(edge.hidden||edge.thread)?QColor("#666666"):ink;
                     QPen pen(color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin))/(zoom*view.scale));
                     pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
                     if(edge.hatch&&edge.hatch_pattern==2)pen.setDashPattern({3.0/(view.scale*pen.widthF()),1.5/(view.scale*pen.widthF())});
@@ -374,7 +374,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const bool heavy=!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin);
                 if(heavy!=thick_pass)continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
-                const QColor edge_color=edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
+                const QColor edge_color=edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
                 QPen pen(edge_color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
                 if((printing&&edge.hidden&&!gray)||(edge.hatch&&edge.hatch_pattern==2)){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}

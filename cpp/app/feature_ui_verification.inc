@@ -329,6 +329,19 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     zref.measured_offset=7;
     check(dialog()->set_reference(2,zref,"Z"),"Branch Z entry failed");flush();
     check(dialog()->pending_value().placement.references[2].offset==7,"Curved reference did not capture the third plane distance");
+    const auto point_intersection=dialog()->pending_value().placement;
+    check(point_intersection.references.size()==3&&
+        std::ranges::none_of(point_intersection.references,[](const auto& reference) {
+            return reference.orientation_drives_rotation;
+        }),"Point position references were silently copied into FRONT/TOP");
+    if (std::abs(point_intersection.rotation_x)>=1e-9 ||
+            std::abs(point_intersection.rotation_y)>=1e-9 ||
+            std::abs(point_intersection.rotation_z)>=1e-9) {
+        throw std::runtime_error("Plane/plane/cylinder Point intersection rotated its container Origin: "+
+            std::to_string(point_intersection.rotation_x)+", "+
+            std::to_string(point_intersection.rotation_y)+", "+
+            std::to_string(point_intersection.rotation_z));
+    }
     auto* branches=dialog()->findChild<QTableWidget*>("placementSolutionBranchTable");
     check(branches && branches->isVisible(),"Solution branch field missing");
     auto* branch_references=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");

@@ -829,11 +829,23 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             // second placement reference or offset edit. Point and Axis are
             // the only types whose result point is itself authored geometry.
             if(preview.feature.type==zima::document::FeatureType::Point ||
-               preview.feature.type==zima::document::FeatureType::Axis)
-                for(auto& point:primitive_origin_preview_mesh_->points)
-                    if(point.reference.owner_id==preview.id&&point.reference.semantic_key=="point") {
-                        point.always_visible=true;point.label=preview.name;
-                    }
+               preview.feature.type==zima::document::FeatureType::Axis) {
+                const auto point=std::ranges::find_if(
+                    primitive_origin_preview_mesh_->points,[&](const auto& item) {
+                        return item.reference.owner_id==preview.id&&
+                            item.reference.semantic_key=="point";
+                    });
+                if(point!=primitive_origin_preview_mesh_->points.end()) {
+                    point->always_visible=true;point->label=preview.name;
+                } else {
+                    // Axis interpretation of a cylindrical face has no planar
+                    // owned Sketch carrier. Its editing Origin is still real
+                    // transient context and must not disappear merely because
+                    // the persisted Point/Text switches are no longer exposed.
+                    primitive_origin_preview_mesh_->points.push_back(
+                        zima::document::container_origin_marker(preview,true));
+                }
+            }
             else
                 std::erase_if(primitive_origin_preview_mesh_->points,[&](const auto& point) {
                     return point.reference.owner_id==preview.id&&
@@ -1210,10 +1222,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 normalize_owned_profile_front_references(
                     placement.references);
             }
-            if (defer_profile_scene_refresh) {
-                normalize_owned_profile_front_references(
-                    placement.references);
-            }
+            if (defer_profile_scene_refresh)
+                normalize_owned_profile_front_references(resolved_preview);
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
             const bool point=resolved_preview.feature_kind==zima::document::FeatureKind::Feature &&

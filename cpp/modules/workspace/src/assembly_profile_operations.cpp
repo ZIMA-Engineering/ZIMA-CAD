@@ -125,7 +125,7 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     }
     profile->owner_container_id = value.id;
     profile->plane_offset = feature?value.feature.profile_plane_offset:extrusion ? value.extrusion.profile_plane_offset : value.revolution.profile_plane_offset;
-    normalize_owned_profile_front_references(value.placement.references);
+    normalize_owned_profile_front_references(value);
     if(mode==ProfileEditMode::Replace && existing && existing->definition==value &&
             existing->target_occurrence_ids==targets) {
         const auto original=std::ranges::find(before.sketches,sketch_id,&sketcher::Sketch::id);

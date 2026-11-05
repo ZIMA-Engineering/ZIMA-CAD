@@ -545,12 +545,17 @@ static void replace_exact_operation_references(
     body->second=std::move(local);
 }
 
-static document::HistoryReferenceViews placement_history_reference_views(
+struct PlacementHistoryReferenceViews {
+    document::HistoryReferenceViews views;
+    std::set<std::string> state_output_consumers;
+};
+
+static PlacementHistoryReferenceViews placement_history_reference_views(
         const document::PartDocument& document,
         const std::vector<kernel::HistoryOperation>& operations,
         std::vector<kernel::BodyResult>& calculated,
         const std::vector<kernel::BodyResult>* baseline) {
-    document::HistoryReferenceViews result;
+    PlacementHistoryReferenceViews result;
     if(calculated.empty())return result;
     using Key=kernel::HistoryReferenceIdentity;
     for(const auto& [consumer,demand]:
@@ -608,6 +613,9 @@ static document::HistoryReferenceViews placement_history_reference_views(
         for(const auto& reference:requested)
             view.owners.emplace(reference.owner_id,
                 reference.instance_path);
+        if(const auto* output=document.find_container(demand.output_owner);
+                output&&document::is_solid_state(output->feature_kind))
+            result.state_output_consumers.insert(consumer);
         // A failed operation has no valid authored output boundary.  Its
         // recovery packet intentionally contains the last valid input and may
         // not carry exact-output coverage.  Publishing that input as the
@@ -660,16 +668,34 @@ static document::HistoryReferenceViews placement_history_reference_views(
                     document::PlacementReferenceGeometryIndex(origins,missing).select(missing));
             }
         }
-        result.emplace(consumer,std::move(view));
+        result.views.emplace(consumer,std::move(view));
     }
     return result;
 }
 
 static void merge_history_reference_views(
         document::HistoryReferenceViews& target,
-        document::HistoryReferenceViews source) {
+        document::HistoryReferenceViews source,
+        const std::set<std::string>& state_output_consumers) {
     for(auto& [entry,view]:source) {
         auto& existing=target[entry];
+        if(state_output_consumers.contains(entry)&&!existing.owners.empty()) {
+            // An exact boundary produced by Solid State retains the ordinary
+            // authored reference packet; its transformed correspondence is
+            // published separately in the state view. Keep that state packet
+            // authoritative only for the owners it actually transforms, and
+            // let the exact placement packet continue to supply every other
+            // owner. Later non-state boundaries retain the established exact-
+            // output precedence below.
+            document::history_reference_detail::retain(view.geometry,
+                existing.owners,false);
+            document::history_reference_detail::append(view.geometry,
+                existing.geometry);
+            view.owners.insert(existing.owners.begin(),
+                existing.owners.end());
+            existing=std::move(view);
+            continue;
+        }
         document::history_reference_detail::retain(existing.geometry,
             view.owners,false);
         document::history_reference_detail::append(existing.geometry,
@@ -792,10 +818,12 @@ calculate_part_reference_state(
                 if(resolved_operations.size()!=calculated.size())
                     throw std::runtime_error(
                         "Calculated history reference plan is inconsistent");
+                auto placement_views=placement_history_reference_views(
+                    document,resolved_operations,calculated,
+                    policy.history_reference_baseline);
                 merge_history_reference_views(state_views,
-                    placement_history_reference_views(document,
-                        resolved_operations,calculated,
-                        policy.history_reference_baseline));
+                    std::move(placement_views.views),
+                    placement_views.state_output_consumers);
             }
             phase("reference preparation");
             document.resolve_constructions(std::move(reference_geometry),state_views);
@@ -834,7 +862,8 @@ calculate_part_reference_state(
             if(unchanged_operations)
                 return kernel::history_fingerprint(*unchanged_operations,calculated.size());
             return kernel::history_fingerprint(
-                group_solid_state_cached_operations(document,&calculated),calculated.size());
+                group_solid_state_cached_operations(document,&calculated),
+                calculated.size());
         };
         if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed &&
             attached_flat_profiles()==flat_profiles_before && sketch_frames()==sketch_frames_before &&

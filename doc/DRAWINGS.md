@@ -404,11 +404,11 @@ red 0.70 mm, yellow/green 0.25 mm**. Visible edges use white width; hidden edges
 widths on screen; default **Thin lines** supports drafting without them. Export
 always uses actual widths independent of preview.
 
-On a black working background, hidden edges and visible tangent edges use muted
-dark gray (#666666), including dashed hidden mode. PDF retains black dashed
-hidden edges or the selected solid-gray variant; tangent edges print with their
-configured pen/width. Hidden dashes measure 3 mm with 1.5 mm gaps on paper,
-independent of model scale.
+On a black working background, hidden edges use muted dark gray (#666666),
+including dashed hidden mode. Visible tangent edges use the normal foreground
+ink with their configured thick or thin lineweight, matching vector output.
+PDF retains black dashed hidden edges or the selected solid-gray variant.
+Hidden dashes measure 3 mm with 1.5 mm gaps on paper, independent of model scale.
 
 **PDF…** on the bottom bar or **File → Export → PDF** saves all Drawing sheets to
 one PDF. **File → Export** also offers JPEG of the current canvas and DXF of the

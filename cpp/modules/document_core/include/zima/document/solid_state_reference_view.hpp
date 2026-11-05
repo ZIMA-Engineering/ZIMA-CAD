@@ -63,7 +63,8 @@ inline HistoryReferenceView solid_state_reference_view(
         const kernel::ViewerReferenceGeometry& authored,
         const kernel::ViewerReferenceGeometry& calculated,
         std::set<HistoryReferenceView::Owner> owners,
-        std::span<const ConstructionReference> required) {
+        std::span<const ConstructionReference> required,
+        bool preserve_authored_side=false) {
     // Validate before compaction (which dereferences mesh indices). Do not copy
     // the complete authored mesh merely to inspect its reference inventory.
     const auto validate=[](const kernel::ViewerReferenceGeometry& packet) {
@@ -94,6 +95,8 @@ inline HistoryReferenceView solid_state_reference_view(
         return keys;
     };
     const auto before=inventory(authored),after=inventory(result.geometry);
+    std::map<const kernel::SurfaceGeometry*,
+        std::shared_ptr<const kernel::SurfaceGeometry>> oriented_surfaces;
     for(const auto& ref:required) {
         if(!result.owners.contains({ref.owner_id,ref.instance_path}))continue;
         const Key key{ref.owner_id,ref.instance_path,ref.semantic_key};
@@ -101,6 +104,35 @@ inline HistoryReferenceView solid_state_reference_view(
         if(source==before.end() || target==after.end() || source->second!=target->second ||
            (source->second&(source->second-1))!=0)
             throw std::invalid_argument("A solid state reference has no unique correspondence.");
+        if(preserve_authored_side&&source->second==1) {
+            // Straightening and restoring are orientation-preserving material
+            // maps. A later replayed Boolean may reverse the OCCT boundary
+            // that inherited this oldest face identity, but it must not flip
+            // the persisted semantic side used to place that Boolean itself.
+            const auto matches=[&](const auto& face) {
+                return face.owner_id==ref.owner_id&&
+                    face.instance_path==ref.instance_path&&
+                    face.semantic_key==ref.semantic_key;
+            };
+            const auto original=std::ranges::find_if(
+                authored.triangle_references,matches);
+            if(original==authored.triangle_references.end()||
+                    !original->surface)continue;
+            for(auto& face:result.geometry.triangle_references)
+                if(matches(face)&&face.surface&&
+                        face.surface->reversed!=original->surface->reversed) {
+                    const auto* identity=face.surface.get();
+                    auto replacement=oriented_surfaces.find(identity);
+                    if(replacement==oriented_surfaces.end()) {
+                        auto geometry=std::make_shared<kernel::SurfaceGeometry>(
+                            *face.surface);
+                        geometry->reversed=original->surface->reversed;
+                        replacement=oriented_surfaces.emplace(identity,
+                            std::move(geometry)).first;
+                    }
+                    face.surface=replacement->second;
+                }
+        }
     }
     return result;
 }

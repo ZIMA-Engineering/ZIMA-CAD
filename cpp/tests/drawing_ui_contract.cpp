@@ -155,6 +155,7 @@ void verify_drawing_depth_rendering() {
         const auto render=[&]{return zima::app::drawing_depth_view().render(crossing,QRectF(-2,-2,4,4),50,1,Qt::white,Qt::gray,8,2);};
         const auto forward=render();std::ranges::reverse(crossing.projected_edges);const auto reverse=render();
         require(!forward.isNull()&&forward==reverse,"Thin edge overwrote the thick radius depending on input order");
+        require(forward.pixelColor(100,100)==QColor(Qt::white),"Visible tangent edge was presented as a muted hidden edge");
         require(forward.pixelColor(149,99)==QColor(Qt::white)&&forward.pixelColor(150,100)==QColor(Qt::white),"Thin crossing covered the visible radius contour");
         struct WeightedRenderer: zima::drawing_render::SheetRenderer {WeightedRenderer(){lineweights_=true;}} renderer;
         auto sheet=DrawingDocument::create_default().sheets.front();crossing.x=sheet.width_mm()-128./80;crossing.y=sheet.height_mm()-128./80;crossing.scale=1;crossing.show_caption=false;

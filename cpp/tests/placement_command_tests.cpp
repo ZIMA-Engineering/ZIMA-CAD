@@ -2,6 +2,7 @@
 #include "../app/component_reference_kind.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <cmath>
 #include <iostream>
@@ -12,6 +13,10 @@ namespace fs = std::filesystem;
 namespace {
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
 void near(double a, double b) { if (std::abs(a-b)>1e-7) throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a)); }
+double analyzed_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);
+    return body.volume;
+}
 commands::Result run(command_host::Host& host, const char* command, Json args=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
     if(!result.ok) throw std::runtime_error(std::string(command)+": "+result.code+": "+result.message);
@@ -74,7 +79,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     near(feature_bounds[0],5-initial_bounds[4]);near(feature_bounds[3],5-initial_bounds[1]);
     near(feature_bounds[1],7+initial_bounds[0]);near(feature_bounds[4],7+initial_bounds[3]);
     near(feature_bounds[2],11+initial_bounds[2]);near(feature_bounds[5],11+initial_bounds[5]);
-    near(state->session.calculated_boundaries().back().volume,6000);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),6000);
     run(host,"undo");require(bounds(state->session.calculated_boundaries().back().mesh)==initial_bounds,"Undo did not restore exact body cache");run(host,"redo");
     const auto unchanged_revision=state->session.revision();const auto* unchanged_cache=state->session.calculated_boundaries().data();
     require(set(feature,{{"x",5}}).at("changed")==false&&state->session.revision()==unchanged_revision&&state->session.calculated_boundaries().data()==unchanged_cache,"No-op placement recalculated");
@@ -87,7 +92,27 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto body_bounds=bounds(state->session.calculated_boundaries().back().mesh);
     near(body_bounds[0],100-feature_bounds[4]);near(body_bounds[3],100-feature_bounds[1]);
     near(body_bounds[1],feature_bounds[0]);near(body_bounds[4],feature_bounds[3]);
-    near(state->session.calculated_boundaries().back().volume,6000);
+    near(analyzed_volume(kernel,state->session.calculated_boundaries().back()),6000);
+    // A Point's position rows locate only their intersection. They must not
+    // silently become FRONT/TOP and rotate the Point container Origin.
+    auto point_sketch=sketcher::Sketch::create_default();point_sketch.plane_auto=false;
+    auto point_feature=document::PartDocument::create_feature_container(point_sketch.id);
+    point_feature.feature.type=document::FeatureType::Point;
+    for(auto& side:point_feature.feature.sides)side.operation=document::FeatureSideOperation::None;
+    point_sketch.owner_container_id=point_feature.id;const auto point_feature_id=point_feature.id;
+    workspace::commit_profile(live,kernel,id,point_feature,workspace::ProfileEditMode::Create,point_sketch);
+    for(const auto [index,key]:std::array<std::pair<std::size_t,const char*>,3>{{
+            {0,"origin:plane:xy"},{1,"origin:plane:yz"},{2,"origin:plane:xz"}}})
+        run(host,"placement.reference.set",{{"object",point_feature_id},{"index",index},
+            {"reference",{{"owner",body+":origin"},{"key",key}}}});
+    const auto verify_point_frame=[&] {
+        const auto& placed=state->session.document().find_container(point_feature_id)->placement;
+        require(placed.references.size()==3&&
+            std::ranges::none_of(placed.references,[](const auto& reference){return reference.orientation_drives_rotation;}),
+            "Point position rows became orientation references");
+        near(placed.rotation_x,0);near(placed.rotation_y,0);near(placed.rotation_z,0);
+    };
+    verify_point_frame();run(host,"undo");run(host,"redo");verify_point_frame();
     // Point/Plane commits reuse calculated bodies and keep an atomic undo entry.
     auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);point.origin={1,2,3};
     static_cast<void>(workspace::commit_construction(live,id,point,workspace::ConstructionEditMode::Create));
@@ -127,7 +152,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     catch(const std::runtime_error&) {require(state->session.revision()==locked_revision,"Failed construction solve committed");}
     interaction.editing=true;require(host.execute({{"command","placement.set"},{"arguments",{{"object",point.id},{"values",{{"x",10}}}}}}).code=="editing_in_progress","Pending edit overwritten");interaction={};
     run(host,"save");std::vector<kernel::BodyResult> saved;const auto native=document::PartDocument::load(directory/"placement.prtz",&saved);
-    near(native.find_container(feature)->placement.x,5);near(native.find_construction(point.id)->origin.z,9);near(saved.back().volume,6000);
+    near(native.find_container(feature)->placement.x,5);near(native.find_construction(point.id)->origin.z,9);near(analyzed_volume(kernel,saved.back()),6000);
+    const auto& reopened_point=native.find_container(point_feature_id)->placement;
+    require(reopened_point.references.size()==3&&
+        std::ranges::none_of(reopened_point.references,[](const auto& reference){return reference.orientation_drives_rotation;}),
+        "Point position rows changed after native reopening");
+    near(reopened_point.rotation_x,0);near(reopened_point.rotation_y,0);near(reopened_point.rotation_z,0);
     run(host,"new",{{"type","assembly"},{"name","placement-assembly"}});const auto assembly_id=live.active_document_id();
     auto curve=document::PartDocument::create_construction(document::ConstructionKind::Curve3D);curve.origin={50,60,70};curve.rotation={0,0,90};curve.absolute_rotation=curve.rotation;
     for(int i=0;i<2;++i){auto child=document::PartDocument::create_construction(document::ConstructionKind::Point);child.parent_construction_id=curve.id;child.origin={double(i*10),0,0};curve.curve_points.push_back(child);}

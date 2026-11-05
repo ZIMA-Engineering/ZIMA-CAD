@@ -73,7 +73,7 @@ bool commit_feature(Workspace& live, const kernel::OcctKernel& kernel,
     }
     if (primitive_definition(kind)) return commit_primitive(live, kernel, id, std::move(value), PrimitiveEditMode::Replace);
     if (kind == Kind::Feature || kind == Kind::Extrusion || kind == Kind::Revolution) {
-        normalize_owned_profile_front_references(value.placement.references);
+        normalize_owned_profile_front_references(value);
         commit_profile(live, kernel, id, std::move(value), ProfileEditMode::Replace);
         return true;
     }
@@ -133,7 +133,7 @@ PlacementReferenceRemovalResult remove_placement_reference(Workspace& live,
             reject("placement_not_found", "The object has no supported placement in this document.");
         auto value = cut->definition;
         if (!remove_row(value.placement.references, index)) return {};
-        normalize_owned_profile_front_references(value.placement.references);
+        normalize_owned_profile_front_references(value);
         commit_assembly_profile(live, kernel, id, std::move(value), cut->target_occurrence_ids, ProfileEditMode::Replace);
         return {true, true};
     }

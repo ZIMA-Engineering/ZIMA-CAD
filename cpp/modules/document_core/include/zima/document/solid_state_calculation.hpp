@@ -105,7 +105,8 @@ inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
             else if(const auto* object=document.find_construction(entry.id);object&&!object->suppressed)
                 refs=&object->references;
             if(refs&&std::ranges::any_of(*refs,[&](const auto& ref){return owners.contains({ref.owner_id,ref.instance_path});}))
-                views.emplace(entry.id,document::solid_state_reference_view(authored,*packet->second,owners,*refs));
+                views.emplace(entry.id,document::solid_state_reference_view(
+                    authored,*packet->second,owners,*refs,true));
         }
         if(views.empty())continue;
         auto transient=document;

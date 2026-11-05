@@ -1588,7 +1588,7 @@ protected:
         painter.scale(pixels,-pixels);
         for(const auto& edge:view.projected_edges) {
             if(edge.points.size()<2||!drawing::drawing_edge_visible(view,edge))continue;
-            const QColor color=edge.hidden||edge.tangent||edge.thread?QColor("#666666"):QColor(Qt::white);
+            const QColor color=edge.hidden||edge.thread?QColor("#666666"):QColor(Qt::white);
             painter.setPen(QPen(color,1/pixels));
             QPolygonF line;for(const auto& point:edge.points)line<<QPointF(point.x,point.y);
             painter.drawPolyline(line);

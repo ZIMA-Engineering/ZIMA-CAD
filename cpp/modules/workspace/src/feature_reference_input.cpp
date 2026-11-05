@@ -42,10 +42,10 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     const auto translation=document::point_constraint_remaining_dof(baseline.references,geometry,origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline.references,geometry,true,origin);
     const bool direction=index<3&&translation==0&&rotation>0;
-    if(index>=3||direction) {
+    if(index>=3 || (!point_feature && direction)) {
         source.orientation_drives_rotation=true;source.orientation_role=direction?"direction":index==3?"front":"top";
         source.orientation_only=direction;if(direction)source.supports_offset=false;
-    }else if(face||axis||edge) {
+    }else if(!point_feature && (face||axis||edge)) {
         // Reassigning a source already present in FRONT/TOP keeps that role.
         // Choosing the next role would make one plane define both FRONT and TOP.
         const auto retained=std::ranges::find_if(baseline.references,[&](const auto& ref){return ref.orientation_drives_rotation&&
@@ -57,7 +57,8 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
         source.orientation_drives_rotation=source.orientation_role!="none";
     }
     source.measured_offset=document::measure_placement_reference_offset(source,geometry,origin);
-    const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(source),derive_orientation);
+    const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(source),
+        derive_orientation && !(point_feature && index < 3));
     using Error=document::PlacementReferenceError;
     if(assigned.error==Error::Duplicate)reject("duplicate_reference","The same placement reference cannot be assigned twice.");
     if(assigned.error==Error::MissingMeasuredOffset)reject("invalid_reference","The current distance from the placement reference cannot be measured.");
