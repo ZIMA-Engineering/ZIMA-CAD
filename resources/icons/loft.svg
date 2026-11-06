@@ -5,6 +5,5 @@
     <ellipse cx="12" cy="12" rx="4" ry="1.8"/>
     <ellipse cx="12" cy="20" rx="8" ry="2.2"/>
     <path d="M5 4C5 7 8 8.5 8 12S4 17 4 20M19 4C19 7 16 8.5 16 12S20 17 20 20"/>
-    <path d="M12 6C12 9 12 9 12 13.8S12 18 12 22.2" stroke-dasharray="2 2"/>
   </g>
 </svg>

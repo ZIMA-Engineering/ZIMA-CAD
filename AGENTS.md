@@ -361,6 +361,23 @@ anchored. The shared properties-window implementation owns this layout policy.
   explain the proposed change and its possible effects on other containers,
   and ask the user before editing it.
 
+## Last valid frame after reference loss (mandatory)
+
+- When a source reference is removed or becomes unresolved, every dependent
+  model element keeps its last valid position and orientation. Keep its
+  definition in history, mark the broken dependency and allow the user to
+  replace it. A missing reference must not move, rotate or reset the element
+  or its owned Sketch frames.
+- This applies to all referenced elements, including Bends, Flats, other
+  features, Bodies, construction geometry and Sketches. A retained frame is
+  for display and repair. It does not make the broken reference valid or
+  authorize a new material calculation from incomplete inputs.
+- Preserve the frame through regeneration, native save/reopen and Undo/Redo.
+  Recalculate the frame when the user supplies a valid replacement reference.
+  Enforce this at the history/reference lifecycle boundary while preserving
+  the protected shared placement solver and reference-entry contract.
+- The user reaffirmed this requirement on 2026-11-06.
+
 ## Explicit dependency regeneration
 
 - A source Part owns its current calculated geometry. Assemblies share and
