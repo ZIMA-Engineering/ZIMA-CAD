@@ -229,6 +229,77 @@ void SketchPropertiesDialog::set_flat_mode(zima::document::FlatParameters initia
     lock_flat_attachment_fields();
 }
 
+void SketchPropertiesDialog::set_sheet_profile_mode(
+    zima::document::SheetProfileParameters initial,
+    const zima::document::SheetMetalDefaults& defaults,
+    std::set<std::string>& locks,
+    std::function<void(zima::document::SheetProfileParameters)> changed,
+    std::function<void()> edit_sketch) {
+    set_internal_title(tr("Vlastnosti profilu"));
+    setObjectName("sheetProfilePropertiesDialog");
+    offset_->setValue(0);
+    findChild<QFormLayout*>("sketchPlaneForm")->setRowVisible(offset_,false);
+    auto pending=std::make_shared<zima::document::SheetProfileParameters>(initial);
+    sheet_profile_pending_=pending;
+    sheet_profile_changed_=changed;
+    auto* form=new QFormLayout;
+    auto* side=new QComboBox(this);
+    side->setObjectName("sheetProfileMaterialSide");
+    side->addItem(tr("První strana"),1);
+    side->addItem(tr("Druhá strana"),-1);
+    side->setCurrentIndex(side->findData(initial.material_side));
+    auto* side_row=new QWidget(this);
+    auto* side_layout=new QHBoxLayout(side_row);
+    side_layout->setContentsMargins(0,0,0,0);
+    auto* side_switch=new QPushButton(tr("Přepnout"),side_row);
+    side_switch->setObjectName("sheetProfileMaterialSideSwitch");
+    side_layout->addWidget(side,1);
+    side_layout->addWidget(side_switch);
+    connect(side_switch,&QPushButton::clicked,this,[side] {
+        side->setCurrentIndex((side->currentIndex()+1)%side->count());
+    });
+    auto* custom=new QCheckBox(tr("Nedržet se tloušťky plechu"),this);
+    custom->setObjectName("sheetProfileThicknessOverride");
+    custom->setChecked(initial.thickness_override);
+    auto* thickness=new zima::ui::UnitDoubleSpinBox(
+        zima::ui::InputQuantity::Length,this);
+    thickness->setObjectName("sheetProfileThickness");
+    thickness->setRange(.001,1000000);
+    thickness->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
+    const double inherited=defaults.thickness_mm.value_or(1);
+    const auto refresh=[=] {
+        const QSignalBlocker blocker(thickness);
+        thickness->setValue(pending->thickness_override||
+            pending->sheet_attachment?pending->thickness:inherited);
+        thickness->setEnabled(pending->thickness_override);
+    };
+    refresh();
+    zima::ui::bind_numeric_value_lock(thickness,"thickness",locks,
+        [this]{notify_preview();});
+    const auto publish=[this,pending,changed,refresh] {
+        refresh();changed(*pending);notify_preview();
+    };
+    connect(side,&QComboBox::currentIndexChanged,this,[=](int) {
+        pending->material_side=side->currentData().toInt();publish();
+    });
+    connect(custom,&QCheckBox::toggled,this,[=](bool enabled) {
+        if(enabled)pending->thickness=thickness->value();
+        pending->thickness_override=enabled;publish();
+    });
+    connect(thickness,&QDoubleSpinBox::valueChanged,this,[=](double value) {
+        pending->thickness=value;changed(*pending);notify_preview();
+    });
+    form->addRow(tr("Strana materiálu"),side_row);
+    form->addRow(custom);
+    form->addRow(tr("Tloušťka"),thickness);
+    auto* note=new QLabel(
+        tr("Bez zaškrtnutí se použije tloušťka vybraného plechu nebo nastavení plechu v dílu."),this);
+    note->setWordWrap(true);
+    form->addRow(note);
+    content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);
+    edit_pending_sketch_=std::move(edit_sketch);
+}
+
 void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initial,
     const zima::document::SheetMetalDefaults& defaults,std::set<std::string>& locks,
     std::function<void(zima::document::BendParameters)> changed,std::function<void()> edit_sketch,
@@ -669,6 +740,33 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
     });
     const QScopedValueRollback update(reference_update_,true);
     if(!sheet_reference_allowed(index,reference))return false;
+    if(sheet_profile_pending_&&index==0) {
+        const auto edge=std::ranges::find_if(reference_geometry_.edges,
+            [&](const auto& value) {
+                return value.reference.owner_id==reference.owner_id&&
+                    value.reference.semantic_key==reference.semantic_key&&
+                    value.reference.instance_path==reference.instance_path;
+            });
+        if(edge!=reference_geometry_.edges.end()) {
+            const auto side=std::ranges::find_if(
+                edge->edge_treatment_side_references,[](const auto& value) {
+                    return std::isfinite(value.sheet_thickness)&&
+                        value.sheet_thickness>=.001;
+                });
+            sheet_profile_pending_->sheet_attachment=
+                side!=edge->edge_treatment_side_references.end();
+            if(side!=edge->edge_treatment_side_references.end()&&
+               !sheet_profile_pending_->thickness_override) {
+                sheet_profile_pending_->thickness=side->sheet_thickness;
+                if(auto* thickness=findChild<QDoubleSpinBox*>(
+                        "sheetProfileThickness")) {
+                    const QSignalBlocker blocker(thickness);
+                    thickness->setValue(side->sheet_thickness);
+                }
+            }
+            sheet_profile_changed_(*sheet_profile_pending_);
+        }
+    }
     if(flat_pending_&&index==0) {
         const auto edge=std::ranges::find_if(reference_geometry_.edges,[&](const auto& e) {
             return e.reference.owner_id==reference.owner_id&&e.reference.semantic_key==reference.semantic_key&&e.reference.instance_path==reference.instance_path;

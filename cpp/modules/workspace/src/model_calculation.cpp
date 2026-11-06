@@ -52,6 +52,16 @@ PartCalculationPolicy feature_definition_calculation_policy(
 
 static void validate_part_calculation(const document::PartDocument& document,
     const std::vector<kernel::BodyResult>& calculated,const PartCalculationPolicy& policy) {
+    if(policy.reject_errors&&policy.edited_history_limit&&
+            policy.edited_document_id==document.document_id&&
+            *policy.edited_history_limit<document.history.size()) {
+        const auto& edited=document.history[*policy.edited_history_limit];
+        if(!edited.placement.references.empty()&&
+                !edited.placement.reference_valid&&
+                !document.removed_reference_states.contains(edited.id))
+            throw std::runtime_error(
+                "Navržené reference umístění prvku nelze vyřešit.");
+    }
     if (policy.reject_errors && !calculated.empty()) {
         const auto& errors = calculated.back().calculation_errors;
         if (policy.edited_history_limit && policy.edited_document_id == document.document_id &&
@@ -835,6 +845,13 @@ calculate_part_reference_state(
         if(document.history!=history_before||document.constructions!=constructions_before||
             document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before||
             sketch_frames()!=sketch_frames_before) {
+            if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,
+                "Part settling pass=%zu advances history=%d constructions=%d bodies=%d flat-profiles=%d frames=%d\n",
+                pass,int(document.history!=history_before),
+                int(document.constructions!=constructions_before),
+                int(document.body_history.bodies()!=bodies_before),
+                int(attached_flat_profiles()!=flat_profiles_before),
+                int(sketch_frames()!=sketch_frames_before));
             may_reuse_local_sketch_references=false;
             incremental_source=&calculated;continue;
         }
@@ -1071,10 +1088,11 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     const auto& previous = part->session.document();
     auto next = previous;
     auto relation_input=part->session.calculated_boundaries();
+    const auto relation_values=document::physical_values(previous,relation_input);
     // Calculated physical quantities are output-only. RelationProgram rejects
     // every direct or transitive attempt to drive a dimension from them, so
     // exact mass/inertia must not extend the geometry regeneration path.
-    apply_relation_dimensions(next,document::physical_values(previous,relation_input));
+    apply_relation_dimensions(next,relation_values);
     refresh_body_links(workspace,next,part->path);
     refresh_external_profile_targets(workspace,kernel,next);
     // Native snapshots must be recalculated by this runtime at least once.
@@ -1097,7 +1115,11 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         refresh_context_sketch_intersections(workspace,kernel,next) |
         prune_missing_drill_point_references(next, calculated);
     if (references_changed) calculated = calculate_part_with_resolved_references(kernel, next, &calculated, relation_policy);
-    apply_relation_parameters(next,document::physical_values(next,calculated));
+    // Regeneration applies ordinary relation outputs against the last complete
+    // physical snapshot. Optional aggregate analysis remains demand-driven;
+    // Save owns refreshing mass/area/volume-dependent parameters after the new
+    // geometry has been accepted.
+    apply_relation_parameters(next,relation_values);
     const bool sketches_changed = next.sketches.size() != previous.sketches.size() ||
         !std::equal(next.sketches.begin(), next.sketches.end(), previous.sketches.begin(),
             [](const auto& left, const auto& right) { return left.serialized() == right.serialized(); });
@@ -1324,7 +1346,8 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
             const auto& candidate=body->entries[entry-1];
             if(candidate.kind!=document::PartHistoryKind::Feature)continue;
             const auto* feature=document.find_container(candidate.id);
-            if(feature&&feature->feature_kind!=document::FeatureKind::Sketch) {
+            if(feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
+               feature->feature_kind!=document::FeatureKind::SheetProfile) {
                 preceding_owner=feature->id;
                 break;
             }
@@ -1334,7 +1357,8 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
         if(!target)return false;
         for(std::size_t index=*target;index>0;--index) {
             const auto& feature=document.history[index-1];
-            if(feature.feature_kind!=document::FeatureKind::Sketch) {
+            if(feature.feature_kind!=document::FeatureKind::Sketch&&
+               feature.feature_kind!=document::FeatureKind::SheetProfile) {
                 preceding_owner=feature.id;
                 break;
             }

@@ -75,64 +75,13 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(rename_document_action_);
     file->addAction(close_document_action_);
 
-    delete_file_menu_ = file->addMenu(
-        t("menu.file.delete", "Odstranit"));
-    delete_file_menu_->setObjectName("deleteFileMenu");
-    delete_file_menu_->setIcon(resource_icon("delete"));
-    delete_current_file_action_ = delete_file_menu_->addAction(
-        resource_icon("delete"),
-        t("menu.file.delete.current_file", "Aktuální soubor"));
+    delete_current_file_action_ = make_action(
+        t("menu.file.delete", "Smazat"), "delete");
     delete_current_file_action_->setObjectName("deleteCurrentFileAction");
     connect(delete_current_file_action_, &QAction::triggered, this,
         [this] { delete_current_document_file(); });
-    delete_all_versions_action_ = delete_file_menu_->addAction(
-        t("menu.file.delete.current_file_and_versions",
-          "Aktuální soubor a všechny verze"));
-    delete_all_versions_action_->setObjectName("deleteAllVersionsAction");
-    connect(delete_all_versions_action_, &QAction::triggered, this,
-        [this] { delete_all_file_versions(); });
-    delete_file_menu_->addSeparator();
-    delete_old_versions_action_ = delete_file_menu_->addAction(
-        t("menu.file.delete.old_versions", "Staré verze"));
-    delete_old_versions_action_->setObjectName("deleteOldVersionsAction");
-    connect(delete_old_versions_action_, &QAction::triggered, this,
-        [this] { delete_old_file_versions(); });
-    delete_old_versions_keep_latest_action_ = delete_file_menu_->addAction(
-        t("menu.file.delete.old_versions_keep_latest",
-          "Staré verze kromě nejnovější"));
-    delete_old_versions_keep_latest_action_->setObjectName(
-        "deleteOldVersionsKeepLatestAction");
-    connect(delete_old_versions_keep_latest_action_, &QAction::triggered, this,
-        [this] { delete_old_file_versions_keep_latest(); });
-    delete_file_menu_->addSeparator();
-    delete_working_directory_menu_ = delete_file_menu_->addMenu(
-        t("menu.file.delete.working_directory", "Pracovní adresář"));
-    delete_working_directory_menu_->setObjectName("deleteWorkingDirectoryMenu");
-    delete_working_directory_menu_->setIcon(resource_icon("working-directory"));
-    delete_working_directory_old_versions_action_ =
-        delete_working_directory_menu_->addAction(
-            t("menu.file.delete.working_directory_old_versions",
-              "Odstranit staré verze"));
-    delete_working_directory_old_versions_action_->setObjectName(
-        "deleteWorkingDirectoryOldVersionsAction");
-    connect(delete_working_directory_old_versions_action_, &QAction::triggered,
-        this, [this] { delete_working_directory_old_versions(); });
-    delete_working_directory_keep_latest_action_ =
-        delete_working_directory_menu_->addAction(
-            t("menu.file.delete.working_directory_keep_latest",
-              "Ponechat nejnovější verzi"));
-    delete_working_directory_keep_latest_action_->setObjectName(
-        "deleteWorkingDirectoryKeepLatestAction");
-    connect(delete_working_directory_keep_latest_action_, &QAction::triggered,
-        this, [this] { delete_working_directory_old_versions_keep_latest(); });
-    for (auto* action : {delete_current_file_action_, delete_all_versions_action_,
-                         delete_old_versions_action_,
-                         delete_old_versions_keep_latest_action_,
-                         delete_working_directory_old_versions_action_,
-                         delete_working_directory_keep_latest_action_}) {
-        action->setIcon(resource_icon("delete"));
-        action->setEnabled(false);
-    }
+    delete_current_file_action_->setEnabled(false);
+    file->addAction(delete_current_file_action_);
     file->addSeparator();
     working_directory_action_ = make_action(
         t("menu.file.working_directory", "Nastavit pracovní adresář..."), "working-directory");

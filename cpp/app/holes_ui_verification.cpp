@@ -40,6 +40,71 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
     };
     try {
         window.showMaximized();flush();
+        const auto skeleton_fixture=qEnvironmentVariable("ZIMA_VERIFY_HOLES_SKELETON");
+        if(!skeleton_fixture.isEmpty()) {
+            run("open",{{"path",skeleton_fixture.toStdString()}});
+            auto* action=window.findChild<QAction*>("holesAction");
+            check(action&&action->isEnabled(),"Holes action is unavailable in the Skeleton fixture");
+            action->trigger();flush();
+            auto* pending=dynamic_cast<SketchPropertiesDialog*>(
+                window.findChild<QDialog*>("holesPropertiesDialog"));
+            check(pending&&pending->isVisible(),"Holes Properties did not open in the Skeleton fixture");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            auto* plane=pending->findChild<QComboBox*>("sketchPlane");
+            const auto owner=pending->pending_value().first.owner_container_id;
+            check(view&&plane&&plane->findData("auto")>=0&&
+                plane->findData(static_cast<int>(sketcher::SketchPlane::XY))>=0&&
+                plane->findData(static_cast<int>(sketcher::SketchPlane::XZ))>=0&&
+                plane->findData(static_cast<int>(sketcher::SketchPlane::YZ))>=0,
+                "Holes work-plane choices are unavailable in the Skeleton fixture");
+            const auto verify_origin_and_plane=[&](sketcher::SketchPlane expected) {
+                const auto& mesh=view->mesh();
+                check(std::ranges::any_of(mesh.points,[&](const auto& point) {
+                    return point.reference.owner_id==owner&&
+                        point.reference.semantic_key=="container:origin-marker"&&
+                        point.always_visible&&!point.label.empty();
+                }),"Holes start Origin is not visible in the Skeleton fixture");
+                const auto border=std::ranges::find_if(mesh.edges,[&](const auto& edge) {
+                    return (edge.reference.owner_id==owner||
+                            edge.reference.owner_id==owner+":entity")&&
+                        edge.reference.semantic_key=="border"&&edge.points.size()>=4;
+                });
+                check(border!=mesh.edges.end(),"Holes work plane is not visible in the Skeleton fixture");
+                const auto range=[&](auto coordinate) {
+                    const auto [minimum,maximum]=std::ranges::minmax_element(
+                        border->points,{},coordinate);
+                    return coordinate(*maximum)-coordinate(*minimum);
+                };
+                const auto fixed=expected==sketcher::SketchPlane::XY?range([](const auto& p){return p.z;}):
+                    expected==sketcher::SketchPlane::XZ?range([](const auto& p){return p.y;}):
+                    range([](const auto& p){return p.x;});
+                check(fixed<1.0e-8,"Holes work plane did not follow the selected XY/XZ/YZ plane");
+            };
+            for(const auto selected:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,
+                    sketcher::SketchPlane::YZ}) {
+                plane->setCurrentIndex(plane->findData(static_cast<int>(selected)));flush();
+                verify_origin_and_plane(selected);
+            }
+            plane->setCurrentIndex(plane->findData(static_cast<int>(sketcher::SketchPlane::XY)));flush();
+            auto* sketch_button=pending->findChild<QPushButton*>("sketchOpenButton");
+            check(sketch_button&&sketch_button->isEnabled(),"Holes Sketch button is unavailable in the Skeleton fixture");
+            sketch_button->click();flush();
+            QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();flush();
+            auto* finish=window.findChild<QAction*>("finishSketchAction");
+            check(finish&&finish->isEnabled(),"Holes did not enter Sketcher in the Skeleton fixture");
+            finish->trigger();flush();
+            pending=dynamic_cast<SketchPropertiesDialog*>(
+                window.findChild<QDialog*>("holesPropertiesDialog"));
+            check(pending&&pending->isVisible(),"Holes did not return from Sketcher in the Skeleton fixture");
+            auto draft=pending->pending_value().first;
+            static_cast<void>(draft.add_segment(-20,0,20,0));
+            pending->set_pending_sketch(std::move(draft));flush();
+            pending->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!window.findChild<QDialog*>("holesPropertiesDialog"),
+                "Skeleton Holes confirmation did not close Properties");
+            std::cout<<"Skeleton Holes Properties, Sketcher, preview and OK passed on the working copy\n";
+            return 0;
+        }
         const auto name="holes-ui-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         run("new",{{"type","part"},{"name",name}});
         const auto box=zima::test::gui_rectangular_profile(window,40,40,40).data
@@ -82,6 +147,10 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
             check(result&&result->isVisible(),"Holes properties did not open");
             check(result->parentWidget()==&window&&(result->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Holes must be an internal properties window");
             check(!result->buttons()->button(QDialogButtonBox::Apply),"Holes exposed Apply");
+            check(!result->findChild<QWidget*>("originDisplayControls")&&
+                  !result->findChild<QWidget*>("originShowPoint")&&
+                  !result->findChild<QWidget*>("originShowText"),
+                  "Holes Properties retained the obsolete Origin point/text row");
             check(result->findChild<QDoubleSpinBox*>("holesDiameter")->mapTo(result,QPoint()).y() >
                   result->findChild<QDoubleSpinBox*>("sketchPlaneOffset")->mapTo(result,QPoint()).y(),
                   "Drilling diameter must follow the plane offset");

@@ -74,6 +74,8 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Straighten: return QStringLiteral("straighten");
         case FeatureKind::RestoreShape: return QStringLiteral("restore-shape");
         case FeatureKind::Flat: return QStringLiteral("flat");
+        case FeatureKind::SheetFromBody: return QStringLiteral("sheet-from-body");
+        case FeatureKind::SheetProfile: return QStringLiteral("sheet-profile");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
         case FeatureKind::SheetForm: return QStringLiteral("sheet-form");
         case FeatureKind::BoundarySurface: return QStringLiteral("boundary-surface");
@@ -156,7 +158,8 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         }
     };
     if (container.feature_kind != zima::document::FeatureKind::Thread &&
-        container.feature_kind != zima::document::FeatureKind::DrillPoint) {
+        container.feature_kind != zima::document::FeatureKind::DrillPoint &&
+        container.feature_kind != zima::document::FeatureKind::SheetFromBody) {
         add_construction_origin_tree_item(
             parent, container.container_origin, container.name, instance_path);
     }
@@ -167,6 +170,10 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         link->setData(0,Qt::UserRole+3,"mirror-source");
         link->setIcon(0,resource_icon("part"));return;
     }
+    // Sheet from Body is a history boundary, not a modeling container with a
+    // nested entity. Its generated Flats/Bends are ordinary following rows.
+    if(container.feature_kind==zima::document::FeatureKind::SheetFromBody)
+        return;
     if (container.feature_kind == zima::document::FeatureKind::Sweep3D) {
         auto* path = new QTreeWidgetItem(parent, {QObject::tr("Dráha")});
         path->setData(0, Qt::UserRole, QString::fromStdString(container.sweep3d.path.id));

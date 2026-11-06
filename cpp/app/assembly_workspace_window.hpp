@@ -111,6 +111,9 @@ public:
     [[nodiscard]] const zima::sketcher::Sketch* active_sketch_for_test() const {
         return active_sketch();
     }
+    void delete_part_object_for_test(const std::string& object_id,const QString& kind) {
+        delete_part_object(object_id,kind);
+    }
 
 private:
     bool closing_{};
@@ -279,14 +282,7 @@ private:
     QAction* save_action_{};
     QAction* save_as_action_{};
     QAction* rename_document_action_{};
-    QMenu* delete_file_menu_{};
     QAction* delete_current_file_action_{};
-    QAction* delete_all_versions_action_{};
-    QAction* delete_old_versions_action_{};
-    QAction* delete_old_versions_keep_latest_action_{};
-    QMenu* delete_working_directory_menu_{};
-    QAction* delete_working_directory_old_versions_action_{};
-    QAction* delete_working_directory_keep_latest_action_{};
     QAction* working_directory_action_{};
     QAction* undo_action_{};
     QAction* redo_action_{};
@@ -876,17 +872,9 @@ private:
     void rename_document_file(std::string document_id = {});
     void add_component_rename_action(QMenu& menu,const std::string& instance_path);
     void delete_current_document_file();
-    void delete_document_file(bool include_archives);
-    void delete_all_file_versions();
-    void delete_old_file_versions();
-    void delete_old_file_versions_keep_latest();
-    void delete_working_directory_old_versions();
-    void delete_working_directory_old_versions_keep_latest();
+    void delete_document_file();
     void refresh_delete_file_actions();
     [[nodiscard]] std::optional<std::filesystem::path> active_document_file_path() const;
-    [[nodiscard]] static std::vector<std::filesystem::path> document_archive_paths(
-        const std::filesystem::path& file_path);
-    void prune_file_archives(bool whole_directory, std::size_t keep);
     void set_working_directory();
     void show_global_settings(bool system_setup=false,bool first_launch=false);
     void show_about();
@@ -958,7 +946,9 @@ private:
     [[nodiscard]] bool accept_origin_reference_value(
         const QString& owner_id, const QString& instance_path,
         const QString& semantic_key);
-    void show_sketch_properties(const std::string& sketch_id = {}, bool holes_mode = false, bool bend_mode = false, bool flat_mode = false);
+    void show_sketch_properties(const std::string& sketch_id = {},
+        bool holes_mode = false, bool bend_mode = false,
+        bool flat_mode = false, bool sheet_profile_mode = false);
     void show_sweep_profile_sketch(
         ConstructionPropertiesDialog* sweep_dialog,
         std::size_t profile_index);

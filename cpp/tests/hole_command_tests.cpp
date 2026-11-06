@@ -28,7 +28,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto original=*state->session.document().find_container(id);
     require(original.feature_kind==document::FeatureKind::Hole,"Wrong native Hole kind");
     const double cylinder=std::numbers::pi*25*10;
-    near(state->session.calculated_boundaries().back().volume,64000-cylinder);
+    const auto measured_volume=[&]{auto body=state->session.calculated_boundaries().back();kernel.ensure_body_properties(body);return body.volume;};
+    near(measured_volume(),64000-cylinder);
     run(host,"undo");require(state->session.document().history.size()==1,"Creation did not undo in one step");
     run(host,"redo");require(*state->session.document().find_container(id)==original,"Redo lost Hole profiles");
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
@@ -46,7 +47,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     }
     run(host,"hole.set",{{"container",id},{"diameter_mm",8},{"bore_length_mm",12}});
     const auto modified=*state->session.document().find_container(id);
-    near(state->session.calculated_boundaries().back().volume,64000-std::numbers::pi*16*12);
+    near(measured_volume(),64000-std::numbers::pi*16*12);
     const auto profile=sketcher::Sketch::from_serialized(modified.hole.sketch_serialized);
     require(profile.id==original.hole.sketch_id&&profile.owner_container_id==id&&profile.circles.front().id==original.hole.circle_id,"Diameter edit replaced profile identities");
     near(profile.circles.front().radius,4);
@@ -54,20 +55,20 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const double angle:{60.0,118.0,150.0}) {
         run(host,"hole.set",{{"container",id},{"entrance_chamfer_mm",1},{"drill_point_enabled",true},{"drill_point_angle_degrees",angle}});
         const double depth=5/std::tan(angle*std::numbers::pi/360);
-        near(state->session.calculated_boundaries().back().volume,64000-cylinder-std::numbers::pi*(5+1.0/3+25*depth/3));
+        near(measured_volume(),64000-cylinder-std::numbers::pi*(5+1.0/3+25*depth/3));
         const auto& h=state->session.document().find_container(id)->hole;
         require(h.chamfer_point_ids==original.hole.chamfer_point_ids&&h.tip_point_ids==original.hole.tip_point_ids&&h.tip_axis_segment_id==original.hole.tip_axis_segment_id,"Tip edit replaced persisted identities");
         run(host,"undo");
     }
     run(host,"hole.set",{{"container",id},{"exit_chamfer_enabled",true},{"exit_chamfer_mm",1}});
-    near(state->session.calculated_boundaries().back().volume,64000-cylinder-std::numbers::pi*(5+1.0/3));
+    near(measured_volume(),64000-cylinder-std::numbers::pi*(5+1.0/3));
     run(host,"undo");
     run(host,"hole.set",{{"container",id},{"bore_end","through_all"}});
-    near(state->session.calculated_boundaries().back().volume,64000-std::numbers::pi*25*40);
+    near(measured_volume(),64000-std::numbers::pi*25*40);
     run(host,"undo");
     for(const auto* type:{"metric","pipe","whitworth"}) {
         run(host,"hole.set",{{"container",id},{"type",type},{"thread_length_mm",8},{"thread_diameter_mm",12},{"thread_pitch_mm",1.75},{"left_handed",true}});
-        near(state->session.calculated_boundaries().back().volume,64000-cylinder);
+        near(measured_volume(),64000-cylinder);
         const auto& feature=*state->session.document().find_container(id);
         require(feature.hole.thread_enabled&&feature.hole.left_hand_thread&&state->session.document().hole_thread_edges(feature).size()==4,"Cosmetic Hole thread is missing");
         run(host,"hole.set",{{"container",id},{"thread_end","through_all"}});
@@ -91,7 +92,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         placed.placement.references={plane};placed.hole.entrance_chamfer=1;placed.hole.drill_point_enabled=true;
         static_cast<void>(workspace::commit_hole(live,kernel,document_id,placed,workspace::HoleEditMode::Replace));
         require(state->session.document().find_container(id)->placement.references.front().orientation_role=="front","Hole did not consume the common FRONT contract");
-        near(state->session.calculated_boundaries().back().volume,64000-cylinder-std::numbers::pi*(5+1.0/3+125/std::tan(118*std::numbers::pi/360)/3));
+        near(measured_volume(),64000-cylinder-std::numbers::pi*(5+1.0/3+125/std::tan(118*std::numbers::pi/360)/3));
         run(host,"undo");
         auto invalid=original;invalid.hole.circle_id="replaced-source";
         bool rejected=false;try{static_cast<void>(workspace::commit_hole(live,kernel,document_id,invalid,workspace::HoleEditMode::Replace));}catch(const workspace::HoleOperationError&){rejected=true;}

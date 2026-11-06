@@ -116,7 +116,11 @@ double native_number(const std::string& text) {
         throw std::invalid_argument("Family dimensions must be finite numbers.");
     return value;
 }
-bool has_feature_solid(const document::HistoryContainer& f) { return f.feature_kind!=FeatureKind::Sketch; }
+bool has_feature_solid(const document::HistoryContainer& f) {
+    return f.feature_kind!=FeatureKind::Sketch &&
+        f.feature_kind!=FeatureKind::SheetFromBody &&
+        f.feature_kind!=FeatureKind::SheetProfile;
+}
 template<class Doc> void add_feature_references(std::vector<FamilyReference>& out,const Doc& doc,document::HistoryContainer f) {
     if(has_feature_solid(f)||f.feature_kind==FeatureKind::Sketch)out.push_back({{"feature",f.id,{}},f.name,f.name,f.suppressed?"no":"yes"});
     const auto add=[&](const std::string& key,double value) {

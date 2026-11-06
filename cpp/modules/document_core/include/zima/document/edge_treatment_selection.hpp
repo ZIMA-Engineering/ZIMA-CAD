@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/document/part_document.hpp>
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <limits>
 #include <optional>
@@ -9,6 +10,46 @@
 #include <stdexcept>
 
 namespace zima::document {
+inline bool same_treatment_edge_geometry(const kernel::ViewerEdge& first,
+        const kernel::ViewerEdge& second) {
+    if(first.points.size()<2||second.points.size()<2)return false;
+    const auto squared_distance=[](const kernel::Vec3& first,
+            const kernel::Vec3& second) {
+        const double x=first.x-second.x,y=first.y-second.y,z=first.z-second.z;
+        return x*x+y*y+z*z;
+    };
+    const auto length=[&](const kernel::ViewerEdge& edge) {
+        double result{};
+        for(std::size_t i=1;i<edge.points.size();++i)
+            result+=std::sqrt(squared_distance(edge.points[i-1],edge.points[i]));
+        return result;
+    };
+    const double first_length=length(first),second_length=length(second);
+    const double tolerance=1.0e-7*std::max({1.0,first_length,second_length});
+    if(std::abs(first_length-second_length)>tolerance)return false;
+    const auto near_segment=[&](const kernel::Vec3& point,
+            const kernel::Vec3& start,const kernel::Vec3& end) {
+        const kernel::Vec3 delta{end.x-start.x,end.y-start.y,end.z-start.z};
+        const kernel::Vec3 offset{point.x-start.x,point.y-start.y,point.z-start.z};
+        const double denominator=delta.x*delta.x+delta.y*delta.y+delta.z*delta.z;
+        const double parameter=denominator<=1.0e-30?0.0:std::clamp(
+            (offset.x*delta.x+offset.y*delta.y+offset.z*delta.z)/denominator,
+            0.0,1.0);
+        return squared_distance(point,{start.x+parameter*delta.x,
+            start.y+parameter*delta.y,start.z+parameter*delta.z})<=
+            tolerance*tolerance;
+    };
+    const auto follows=[&](const auto& source,const auto& target) {
+        return std::ranges::all_of(source.points,[&](const auto& point) {
+            for(std::size_t i=1;i<target.points.size();++i)
+                if(near_segment(point,target.points[i-1],target.points[i]))
+                    return true;
+            return false;
+        });
+    };
+    return follows(first,second)&&follows(second,first);
+}
+
 inline std::vector<kernel::EdgeReference> edge_treatment_intervals_from_seed(
         const std::vector<kernel::EdgeReference>& route,
         const kernel::EdgeReference& seed) {
@@ -54,6 +95,17 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
             else if(kernel::edge_reference_matches_or_descends_from(
                         reference,selected[i]))descendants.push_back(edge_index);
         }
+        // A two-sided or later Boolean operation can split one persisted
+        // authored edge into several current operational fragments.  Those
+        // fragments are the real Fillet/Chamfer input and carry the current
+        // face guides; an obsolete exact parent or original preview edge must
+        // never hide them.
+        if(!descendants.empty()) {
+            for(const auto edge_index:descendants)
+                if(appended.insert({false,edge_index}).second)
+                    result.push_back(input.edges[edge_index]);
+            continue;
+        }
         if(!exact.empty()) {
             for(const auto edge_index:exact)
                 if(appended.insert({false,edge_index}).second)
@@ -68,14 +120,41 @@ inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
                 const auto& edge=input.original_references.edges[edge_index];
                 if(edge.reference!=selected[i])continue;
                 found_original=true;
+                // A compact saved rollback packet can retain the authored
+                // reference wire separately from the current Body wire.  The
+                // latter owns the real adjacent-face guides but may be
+                // deliberately untagged when two authored Feature sides meet.
+                // Reconnect only one geometrically identical anonymous Body
+                // edge; ambiguity remains unresolved instead of guessing.
+                std::optional<std::size_t> current;
+                for(std::size_t candidate=0;candidate<input.edges.size();++candidate) {
+                    const auto& body_edge=input.edges[candidate];
+                    const bool complete_guides=
+                        body_edge.edge_treatment_side_directions.size()==2&&
+                        body_edge.edge_treatment_side_references.size()==2&&
+                        std::ranges::all_of(
+                            body_edge.edge_treatment_side_directions,
+                            [&](const auto& directions) {
+                                return directions.size()==body_edge.points.size();
+                            });
+                    if(body_edge.reference.valid()||!complete_guides||
+                            !same_treatment_edge_geometry(edge,body_edge))continue;
+                    if(current) {current.reset();break;}
+                    current=candidate;
+                }
+                if(current) {
+                    if(appended.insert({false,*current}).second) {
+                        auto resolved=input.edges[*current];
+                        resolved.reference=edge.reference;
+                        result.push_back(std::move(resolved));
+                    }
+                    continue;
+                }
                 if(appended.insert({true,edge_index}).second)
                     result.push_back(edge);
             }
             if(found_original)continue;
         }
-        for(const auto edge_index:descendants)
-            if(appended.insert({false,edge_index}).second)
-            result.push_back(input.edges[edge_index]);
     }
     return result;
 }

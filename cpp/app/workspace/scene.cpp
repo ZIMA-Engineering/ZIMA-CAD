@@ -2,6 +2,7 @@
 #include "../tree_expansion_state.hpp"
 #include <zima/document/loft.hpp>
 #include <zima/document/feature_parameter_dimensions.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/relation_program.hpp>
 #include <zima/document/pattern_dimensions.hpp>
@@ -962,21 +963,17 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         std::vector<zima::kernel::ViewerEdge> route_edges;
                         route_edges.reserve(routes.front().size());
                         bool complete = true;
-                        for (const auto& reference : routes.front()) {
-                            const auto edge = std::find_if(input_mesh.edges.begin(),
-                                input_mesh.edges.end(), [&](const auto& value) {
-                                    return value.reference.owner_id ==
-                                            reference.owner_id &&
-                                        value.reference.semantic_key ==
-                                            reference.semantic_key &&
-                                        value.reference.instance_path ==
-                                            reference.instance_path;
-                                });
-                            if (edge == input_mesh.edges.end()) {
+                        for (std::size_t segment=0;
+                                segment<routes.front().size();++segment) {
+                            auto resolved=zima::document::treatment_selection_wire(
+                                container->edge_treatment,0,segment,input_mesh);
+                            if (resolved.empty()) {
                                 complete = false;
                                 break;
                             }
-                            route_edges.push_back(*edge);
+                            route_edges.insert(route_edges.end(),
+                                std::make_move_iterator(resolved.begin()),
+                                std::make_move_iterator(resolved.end()));
                         }
                         // An incomplete route would place R2 at an internal
                         // joint and present a geometrically false dimension.

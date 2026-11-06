@@ -304,7 +304,7 @@ those annotations. Repeated occurrence transforms remain independent.
 
 **Open** accepts `.frmz`/`.tblz` directly in the existing Sketcher document tab;
 **New** creates either type. **Save** retains the file type; **Save As** creates
-a separate copy. A numbered previous file version is retained before overwrite.
+a separate copy. Overwrite does not create a numbered previous-file copy.
 Opening never automatically rearranges or aligns geometry.
 
 During the original library conversion, geometry, text anchors, constraints,

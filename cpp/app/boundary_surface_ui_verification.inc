@@ -486,9 +486,14 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
                 skin_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!skin_dialog(),"Linked surface OK did not close");
                 run("save");std::vector<kernel::BodyResult> linked_cache;auto linked_saved=document::PartDocument::load(linked_file,&linked_cache);
                 const auto extracted=linked_saved.history.back().id;
+                auto extracted_body=linked_cache.back().body_outputs.at(target).get();
+                // Ordinary model interaction deliberately defers aggregate
+                // properties. A fresh kernel must still be able to measure the
+                // exact persisted skin without relying on the creating cache.
+                kernel::OcctKernel reopened_kernel;reopened_kernel.ensure_body_properties(extracted_body);
                 check(linked_saved.find_container(extracted)->shell.source_body==first&&
                     std::abs(linked_cache.back().body_outputs.at(first)->volume-1000)<1e-7&&
-                    std::abs(linked_cache.back().body_outputs.at(target)->surface_area-500)<1e-7,"Linked extraction consumed its source or lost geometry");
+                    std::abs(extracted_body.surface_area-500)<1e-7,"Linked extraction consumed its source or lost geometry");
                 const auto extracted_scene=mesh_packet();const auto unchanged_revision=run("shell.get",{{"container",extracted}}).data.at("revision");
                 window.show_tree_item_properties(row(extracted));flush();check(skin_dialog(),"Linked extraction Properties cannot reopen");
                 skin_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();

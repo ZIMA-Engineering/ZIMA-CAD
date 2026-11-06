@@ -12,6 +12,9 @@ using namespace zima;
 using commands::Json;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+double exact_volume(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    kernel.ensure_body_properties(body);return body.volume;
+}
 commands::Result run(command_host::Host& host,const char* command,Json arguments=Json::object()) {
     auto result=host.execute({{"command",command},{"arguments",std::move(arguments)}});
     if(!result.ok)throw std::runtime_error(std::string(command)+": "+result.message);
@@ -63,13 +66,13 @@ int main() {
         }
         part=live.open_part(id);check(part->session.document().find_container(unfold)->feature_kind==document::FeatureKind::Unbend,"Unbend command created the wrong feature.");
         const auto rollback=part->session.rollback_boundary(unfold);
-        check(rollback&&rollback->input_body&&std::abs(rollback->input_body->volume-original.volume)<1e-9,"Edit rollback did not return the real folded input.");
+        check(rollback&&rollback->input_body&&std::abs(exact_volume(kernel,*rollback->input_body)-exact_volume(kernel,original))<1e-9,"Edit rollback did not return the real folded input.");
         check(*part->session.document().find_container(bend)==*before.find_container(bend),"Unbend changed its original source feature.");
         check(!host.execute({{"command","unbend.create"},{"arguments",{{"owners",Json::array({bend})}}}}).ok,"Already unfolded material was accepted twice.");
         run(host,"bend_back.create",{{"owners",Json::array({bend})}});
         for(const auto& source:workspace::drawing_annotation_sources(&live,id,{}))
             check(std::ranges::none_of(source.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);}),"Folded Drawing still offers historical flat bend lines.");
-        check(std::abs(part->session.calculated_boundaries().back().volume-original.volume)<1e-7,"Bend Back changed the original material volume.");
+        check(std::abs(exact_volume(kernel,part->session.calculated_boundaries().back())-exact_volume(kernel,original))<1e-7,"Bend Back changed the original material volume.");
         run(host,"undo");check(part->session.document().history.back().id==unfold,"Undo did not restore the preceding state.");
         run(host,"redo");
         const auto path=directory/"sheet-state.prtz";run(host,"save");
@@ -79,7 +82,7 @@ int main() {
         check(std::ranges::any_of(geometry.edges,[&](const auto& edge){return edge.reference.owner_id==unfold;}),"Save lost Unbend original reference ownership.");
         kernel::OcctKernel cold;const auto calculated=workspace::calculate_part_with_resolved_references(cold,loaded);
         check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Cold regeneration failed.");
-        check(std::abs(calculated.back().volume-original.volume)<1e-7,"Cold regeneration changed the material state.");
+        check(std::abs(exact_volume(cold,calculated.back())-exact_volume(kernel,original))<1e-7,"Cold regeneration changed the material state.");
         run(host,"unbend.set",{{"container",unfold},{"all",true}});
         check(part->session.calculated_boundaries().back().calculation_errors.empty(),"Editing an earlier Unbend broke downstream Bend Back.");
         std::cout<<"Attach to derived state geometry"<<std::endl;
@@ -96,30 +99,30 @@ int main() {
         check(end!=edges.end(),"Derived Unbend does not expose an attachable original end edge.");
         const auto attached_flat=run(host,"flat.create",{{"edge_owner",attachment_state},{"edge_key",end->reference.semantic_key},{"height_mm",12.}}).data.at("container").get<std::string>();
         const auto attached_before=*attached->session.document().find_container(attached_flat);
-        const double uncut_volume=attached->session.calculated_boundaries().back().volume;
+        const double uncut_volume=exact_volume(kernel,attached->session.calculated_boundaries().back());
         const auto cut_sketch=run(host,"sketch.create",{{"name","Flat cut"},{"plane","XZ"}}).data.at("sketch").get<std::string>();
         // XZ uses local +Y along global -Z; the developed region extends in +Z.
         for(const auto& segment:std::array<std::array<double,4>,4>{{{10,-5,16,-5},{16,-5,16,-10},{16,-10,10,-10},{10,-10,10,-5}}})
             run(host,"sketch.segment.create",{{"sketch",cut_sketch},{"first",{segment[0],segment[1]}},{"second",{segment[2],segment[3]}},{"snap_mm",.000001}});
         run(host,"feature.create",{{"sketch",cut_sketch},{"combine","subtract"},{"parameters",zima::test::through_all_feature_parameters()}});
-        const double attached_volume=attached->session.calculated_boundaries().back().volume;
+        const double attached_volume=exact_volume(kernel,attached->session.calculated_boundaries().back());
         check(attached_volume<uncut_volume-1,"Workspace extrusion did not cut the developed material.");
         const auto sheet_cut_sketch=run(host,"sketch.create",{{"name","Developed Sheet Cut"},{"plane","XZ"}}).data.at("sketch").get<std::string>();
         for(const auto& segment:std::array<std::array<double,4>,4>{{{24,-5,30,-5},{30,-5,30,-10},{30,-10,24,-10},{24,-10,24,-5}}})
             run(host,"sketch.segment.create",{{"sketch",sheet_cut_sketch},{"first",{segment[0],segment[1]}},{"second",{segment[2],segment[3]}},{"snap_mm",.000001}});
         run(host,"sheet_cut.create",{{"sketch",sheet_cut_sketch},{"combine","subtract"},{"extent","two_sides"},
             {"end_forward","through_all"},{"end_reverse","through_all"}});
-        const double sheet_cut_volume=attached->session.calculated_boundaries().back().volume;
+        const double sheet_cut_volume=exact_volume(kernel,attached->session.calculated_boundaries().back());
         check(sheet_cut_volume<attached_volume-1,"Sheet Cut did not cut the developed material.");
         const auto material=workspace::sheet_state_regions(attached->session.document());
         check(material.back().parent_owner_id==attached_source,"Derived attachment lost its canonical source material.");
         run(host,"bend_back.create");run(host,"unbend.create");
         check(*attached->session.document().find_container(attached_flat)==attached_before,"State changes modified a Flat authored on derived geometry.");
-        check(std::abs(attached->session.calculated_boundaries().back().volume-sheet_cut_volume)<1e-5,"Derived attachment did not return to its authored state.");
+        check(std::abs(exact_volume(kernel,attached->session.calculated_boundaries().back())-sheet_cut_volume)<1e-5,"Derived attachment did not return to its authored state.");
         run(host,"save");std::vector<kernel::BodyResult> edited_cache;
         auto edited_loaded=document::PartDocument::load(directory/"state-attachment.prtz",&edited_cache);
         kernel::OcctKernel edited_cold;const auto edited_calculated=workspace::calculate_part_with_resolved_references(edited_cold,edited_loaded);
-        check(edited_calculated.back().calculation_errors.empty()&&std::abs(edited_calculated.back().volume-sheet_cut_volume)<1e-5,
+        check(edited_calculated.back().calculation_errors.empty()&&std::abs(exact_volume(edited_cold,edited_calculated.back())-sheet_cut_volume)<1e-5,
             "Cold native regeneration lost cuts authored between sheet states.");
         std::cout<<"Cross-branch box"<<std::endl;
         const auto box_path=directory/"box-state.prtz";
@@ -145,7 +148,7 @@ int main() {
         const auto cone_path=directory/"tilted-cone.prtz";cone.save(cone_path,cone_flat);
         run(host,"open",{{"path",cone_path.string()}});
         run(host,"unbend.create");
-        const double cone_developed_volume=live.open_part(live.active_document_id())->session.calculated_boundaries().back().volume;
+        const double cone_developed_volume=exact_volume(kernel,live.open_part(live.active_document_id())->session.calculated_boundaries().back());
         const auto rotation=std::ranges::find_if(cone.history,[](const auto& f){return f.revolution.sheet_metal;});
         check(rotation!=cone.history.end(),"Tilted-cone fixture lost its Revolved Sheet.");
         const auto rotation_offered=[&] {
@@ -156,11 +159,11 @@ int main() {
         check(!rotation_offered(),"Developed Drawing offers the old rotation axis.");
         run(host,"bend_back.create");check(rotation_offered(),"Folded Drawing did not restore the rotation axis.");run(host,"unbend.create");
         check(!rotation_offered(),"Second development did not hide the rotation axis.");
-        check(std::abs(live.open_part(live.active_document_id())->session.calculated_boundaries().back().volume-cone_developed_volume)<1e-6,"Tilted cone changed on repeated development.");
+        check(std::abs(exact_volume(kernel,live.open_part(live.active_document_id())->session.calculated_boundaries().back())-cone_developed_volume)<1e-6,"Tilted cone changed on repeated development.");
         run(host,"save");
         auto cone_reopened=document::PartDocument::load(cone_path);kernel::OcctKernel cone_cold;
         const auto cone_regenerated=workspace::calculate_part_with_resolved_references(cone_cold,cone_reopened);
-        check(cone_regenerated.back().calculation_errors.empty()&&std::abs(cone_regenerated.back().volume-cone_developed_volume)<1e-6,"Cold regeneration lost the developed cone state.");
+        check(cone_regenerated.back().calculation_errors.empty()&&std::abs(exact_volume(cone_cold,cone_regenerated.back())-cone_developed_volume)<1e-6,"Cold regeneration lost the developed cone state.");
         std::filesystem::remove_all(directory);
         std::cout<<"Sheet state command, rollback, Undo/Redo and native persistence tests passed.\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<"\nFixture: "<<directory.string()<<'\n';return 1;}

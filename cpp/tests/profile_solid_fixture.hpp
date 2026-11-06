@@ -20,9 +20,23 @@ inline document::HistoryContainer rectangular_feature(document::PartDocument& do
     document.sketches.push_back(std::move(sketch));
     return feature;
 }
+inline const std::string& rectangular_sketch_id(const document::HistoryContainer& feature) {
+    return feature.feature_kind==document::FeatureKind::Feature
+        ?feature.feature.sketch_id:feature.extrusion.sketch_id;
+}
+inline double rectangular_depth(const document::HistoryContainer& feature) {
+    if(feature.feature_kind!=document::FeatureKind::Feature)
+        return feature.extrusion.length_forward*
+            (feature.extrusion.extent_mode==document::ProfileExtentMode::Symmetric?2:1);
+    if(feature.feature.symmetric)return 2*feature.feature.sides[0].length;
+    double result{};
+    for(const auto& side:feature.feature.sides)
+        if(side.operation==document::FeatureSideOperation::Extrusion)result+=side.length;
+    return result;
+}
 inline void resize_rectangular_feature(document::PartDocument& document,
         document::HistoryContainer& feature,kernel::Vec3 size) {
-    auto sketch=std::ranges::find(document.sketches,feature.extrusion.sketch_id,&sketcher::Sketch::id);
+    auto sketch=std::ranges::find(document.sketches,rectangular_sketch_id(feature),&sketcher::Sketch::id);
     if(sketch==document.sketches.end())throw std::runtime_error("Fixture Sketch missing");
     double x=0,y=0;
     for(const auto& point:sketch->points){x=std::max(x,std::abs(point.x));y=std::max(y,std::abs(point.y));}
@@ -32,7 +46,14 @@ inline void resize_rectangular_feature(document::PartDocument& document,
         if(a&&b&&dim.kind==sketcher::DimensionKind::DistanceX)dim.value=std::abs(b->x-a->x);
         if(a&&b&&dim.kind==sketcher::DimensionKind::DistanceY)dim.value=std::abs(b->y-a->y);
     }
-    feature.extrusion.length_forward=size.z/2;
+    if(feature.feature_kind==document::FeatureKind::Feature) {
+        const double current=rectangular_depth(feature);
+        if(!(current>0))throw std::runtime_error("Fixture extrusion length missing");
+        const double scale=size.z/current;
+        feature.feature.sides[0].length*=scale;
+        if(!feature.feature.symmetric&&feature.feature.sides[1].operation==document::FeatureSideOperation::Extrusion)
+            feature.feature.sides[1].length*=scale;
+    } else feature.extrusion.length_forward=size.z/2;
 }
 inline document::HistoryContainer circular_feature(document::PartDocument& document,
         double radius=40,double height=50) {
@@ -46,9 +67,8 @@ inline document::HistoryContainer circular_feature(document::PartDocument& docum
 }
 inline double profile_dimension(const document::PartDocument& doc,
         const document::HistoryContainer& feature,int axis) {
-    if(axis==2)return feature.extrusion.length_forward*
-        (feature.extrusion.extent_mode==document::ProfileExtentMode::Symmetric?2:1);
-    const auto sketch=std::ranges::find(doc.sketches,feature.extrusion.sketch_id,&sketcher::Sketch::id);
+    if(axis==2)return rectangular_depth(feature);
+    const auto sketch=std::ranges::find(doc.sketches,rectangular_sketch_id(feature),&sketcher::Sketch::id);
     if(sketch==doc.sketches.end())throw std::runtime_error("Fixture Sketch missing");
     double low=1e100,high=-1e100;
     for(const auto& p:sketch->points){const double v=axis==0?p.x:p.y;low=std::min(low,v);high=std::max(high,v);}

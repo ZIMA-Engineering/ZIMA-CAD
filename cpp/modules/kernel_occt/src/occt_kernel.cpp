@@ -5395,7 +5395,6 @@ std::vector<OwnedVertex> complete_boolean_vertices(
     const std::string& owner, std::string_view role) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
     const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
-    const TopologyReferenceIndex<VertexReference, OwnedVertex> vertex_references(propagated);
     TopTools_IndexedDataMapOfShapeListOfShape vertex_faces, vertex_edges;
     TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
     TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
@@ -5408,8 +5407,26 @@ std::vector<OwnedVertex> complete_boolean_vertices(
     std::vector<OwnedVertex> result;
     for (int index = 1; index <= vertices.Extent(); ++index) {
         const auto& vertex = vertices.FindKey(index);
-        const auto inherited = vertex_references.reference_for(vertex);
-        if (inherited.valid() && descendants.at(encoded_topology_reference(inherited)).Extent() == 1) {
+        VertexReference inherited;
+        // propagate_topology appends the existing Body before the current
+        // operand, so the first surviving unsplit parent is the oldest one in
+        // document history.  A Boolean join may map both an old Body point and
+        // a new operand endpoint onto the same runtime vertex; that is not a
+        // reason to discard the old persisted identity.  A genuinely split
+        // parent still has several descendants and receives a Boolean identity
+        // below for each resulting fragment.
+        for (const auto& candidate : propagated) {
+            if (!candidate.reference.valid() ||
+                !candidate.shape.IsSame(vertex)) continue;
+            const auto descendant = descendants.find(
+                encoded_topology_reference(candidate.reference));
+            if (descendant != descendants.end() &&
+                descendant->second.Extent() == 1) {
+                inherited = candidate.reference;
+                break;
+            }
+        }
+        if (inherited.valid()) {
             result.push_back({vertex, inherited});
             continue;
         }
@@ -7701,12 +7718,10 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
         }
         return placed_bound_face_geometry(body,true);
     };
-    if((input.kernel_shape.empty()&&
+    const bool has_input=!(input.kernel_shape.empty()&&
         (input.source_fingerprint.empty()||
-         !live_cache_->boundaries.contains(input.source_fingerprint)))||
-       input.kernel_shape==kernel_body_compound)
-        throw std::invalid_argument(
-            "Add block requires one calculated input body");
+         !live_cache_->boundaries.contains(input.source_fingerprint)))&&
+        input.kernel_shape!=kernel_body_compound;
     if(!std::isfinite(boolean_tolerance)||boolean_tolerance<=0.||
        !std::isfinite(mesh_deflection)||mesh_deflection<=0.)
         throw std::invalid_argument("Add block tolerances are invalid");
@@ -7802,8 +7817,8 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
     };
 
     std::vector<OcctBoundarySolid> operands;
-    operands.reserve(tools.size()+1);
-    operands.push_back(boundary_operand(input,0));
+    operands.reserve(tools.size()+static_cast<std::size_t>(has_input));
+    if(has_input)operands.push_back(boundary_operand(input,0));
     for(std::size_t index=0;index<tools.size();++index) {
         if((tools[index].kernel_shape.empty()&&
             (tools[index].source_fingerprint.empty()||
@@ -7852,7 +7867,7 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
             fuse,source_vertices,std::vector<OwnedVertex>{});
         auto unified=unify_preserving_face_provenance(
             fuse.Shape(),propagated_faces,propagated_edges,
-            propagated_vertices,std::max(1.0e-7,boolean_tolerance),true);
+            propagated_vertices,std::max(1.0e-7,boolean_tolerance),false);
         if(unified.shape.IsNull()||(!unified.validated&&
            !BRepCheck_Analyzer(
                 unified.shape,true,true,false).IsValid()))
@@ -7961,7 +7976,7 @@ BodyResult OcctKernel::calculate_add_block(const BodyResult& input,
             aggregate_property_demand==AggregatePropertyDemand::All||
             aggregate_property_demand==AggregatePropertyDemand::Final||
             aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive;
-        result=make_result(boundary.shape,faces,edges,vertices,false,true,
+        result=make_result(boundary.shape,faces,edges,vertices,true,true,
             false,{},mesh_deflection,calculate_properties);
     } else {
         // A deferred history row owns a live native shape but intentionally no
@@ -9625,6 +9640,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
 std::optional<std::vector<BodyResult>>
 OcctKernel::evaluate_flat_history_batched(
         const std::vector<HistoryOperation>& operations,
+        const std::vector<BodyResult>& previous_boundaries,
         HistoryContext& context) const {
     if(operations.size()<2||!context.final_boundary_first||
        context.preview_wire||context.direct_batch_active||
@@ -9635,8 +9651,7 @@ OcctKernel::evaluate_flat_history_batched(
         if(operation.suppressed||!operation.input_error.empty()||
            operation.replaces_body||
            operation.operation!=BooleanOperation::Add||
-           operation.sheet_operation!=SheetOperation::None||
-           operation.sheet_material||!operation.sheet_regions.empty()||
+           !operation.sheet_regions.empty()||
            operation.solid_state_placements||
            !operation.solid_state_face_transfers.empty())
             return false;
@@ -9646,16 +9661,18 @@ OcctKernel::evaluate_flat_history_batched(
                    operation.feature_copy->combination==
                        BodyCombination::Pattern;
         }
+        const bool sheet=operation.sheet_operation!=SheetOperation::None||
+            operation.sheet_material.has_value();
         if(const auto* group=std::get_if<FeatureGroupRequest>(
                 &operation.primitive)) {
             if(group->children.empty())return false;
             return std::ranges::all_of(group->children,
-                [](const auto& child) {
-                    return std::visit([](const auto& request) {
+                [&](const auto& child) {
+                    return std::visit([&](const auto& request) {
                         using Request=std::decay_t<decltype(request)>;
                         if constexpr(std::is_same_v<Request,
                                          ExtrusionRequest>)
-                            return !request.sheet_cut&&
+                            return (sheet||!request.sheet_cut)&&
                                 !request.surface_result&&
                                 request.extent!=
                                     ExtrusionRequest::Extent::ThroughAll&&
@@ -9670,7 +9687,42 @@ OcctKernel::evaluate_flat_history_batched(
         if(const auto* loft=std::get_if<LoftRequest>(
                 &operation.primitive))
             return loft->make_solid;
+        if(sheet) {
+            if(const auto* extrusion=std::get_if<ExtrusionRequest>(
+                    &operation.primitive))
+                return !extrusion->surface_result&&
+                    extrusion->extent!=
+                        ExtrusionRequest::Extent::ThroughAll&&
+                    !extrusion->through_all_reverse;
+            if(const auto* revolution=std::get_if<RevolutionRequest>(
+                    &operation.primitive))
+                return !revolution->surface_result;
+            if(const auto* sweep=std::get_if<Sweep3DRequest>(
+                    &operation.primitive))
+                return sweep->make_solid;
+        }
         return false;
+    };
+    const auto direct_boundary_required=[&](std::size_t boundary) {
+        if(!context.retained_output_boundaries.contains(boundary))
+            return false;
+        // Ordinary sheet Flats and Bends own their authored primitive
+        // geometry.  A later attachment needs that exact owner's reference
+        // packet, not a separately fused cumulative Body at every row.  The
+        // direct block publishes those references from the standalone tool
+        // below.  Full/cursor and edge-treatment boundaries still require the
+        // real cumulative output and therefore split the block.
+        if(context.full_output_boundaries.contains(boundary)||
+           context.edge_output_boundaries.contains(boundary))
+            return true;
+        if(boundary==0||boundary>operations.size())return true;
+        const auto& operation=operations[boundary-1];
+        if(operation.sheet_operation==SheetOperation::None&&
+           !operation.sheet_material)
+            return true;
+        const auto requested=context.reference_output_boundaries.find(
+            boundary);
+        return requested==context.reference_output_boundaries.end();
     };
     const auto independent_subtract=[&](const HistoryOperation& operation) {
         if(std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_SUBTRACT")||
@@ -9680,7 +9732,6 @@ OcctKernel::evaluate_flat_history_batched(
         additive.operation=BooleanOperation::Add;
         return independent_add(additive);
     };
-
     bool useful_block{};
     for(std::size_t index=0;index<operations.size();) {
         if(!independent_add(operations[index])) {++index;continue;}
@@ -9688,7 +9739,7 @@ OcctKernel::evaluate_flat_history_batched(
         const auto first=index;
         while(index<operations.size()&&
               independent_add(operations[index])&&
-              !context.retained_output_boundaries.contains(index+1)) {
+              !direct_boundary_required(index+1)) {
             if(operations[index].feature_copy&&
                !sources.contains(operations[index].feature_copy->
                    source_feature_id))
@@ -9707,7 +9758,7 @@ OcctKernel::evaluate_flat_history_batched(
         const auto first=index;
         while(index<operations.size()&&
               independent_subtract(operations[index])&&
-              !context.retained_output_boundaries.contains(index+1)) {
+              !direct_boundary_required(index+1)) {
             if(operations[index].feature_copy&&
                !sources.contains(operations[index].feature_copy->
                    source_feature_id))
@@ -9731,7 +9782,7 @@ OcctKernel::evaluate_flat_history_batched(
             context.dependency_key);
     }
 
-    std::vector<BodyResult> boundaries;
+    auto boundaries=previous_boundaries;
     boundaries.reserve(operations.size());
     const bool trace_direct=
         std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr||
@@ -9751,7 +9802,24 @@ OcctKernel::evaluate_flat_history_batched(
             operation_index+1<operations.size()&&
             !context.retained_output_boundaries.contains(
                 operation_index+1);
-        boundaries=evaluate_flat_history(prefix,boundaries,
+        const auto expected=prefix_fingerprints[operation_index];
+        const bool previous_stage_current=
+            operation_index<previous_boundaries.size()&&
+            previous_boundaries[operation_index].source_fingerprint==expected&&
+            std::ranges::all_of(context.reference_output_boundaries,
+                [&](const auto& requested) {
+                    const auto boundary=requested.first;
+                    return boundary>operation_index+1||(
+                        boundary<=previous_boundaries.size()&&
+                        std::includes(previous_boundaries[boundary-1].
+                                history_reference_coverage.begin(),
+                            previous_boundaries[boundary-1].
+                                history_reference_coverage.end(),
+                            requested.second.begin(),requested.second.end()));
+                });
+        const auto& stage_previous=previous_stage_current
+            ?previous_boundaries:boundaries;
+        boundaries=evaluate_flat_history(prefix,stage_previous,
             stage_context);
         context.original_faces=stage_context.original_faces;
         context.source_solids=std::move(stage_context.source_solids);
@@ -9808,7 +9876,7 @@ OcctKernel::evaluate_flat_history_batched(
         const bool subtract_block=independent_subtract(operations[index]);
         if(index==0||
            (!independent_add(operations[index])&&!subtract_block)||
-           context.retained_output_boundaries.contains(index+1)) {
+           direct_boundary_required(index+1)) {
             calculate_stage(index++);
             continue;
         }
@@ -9818,7 +9886,7 @@ OcctKernel::evaluate_flat_history_batched(
         while(end<operations.size()&&
               (subtract_block?independent_subtract(operations[end]):
                    independent_add(operations[end]))&&
-              !context.retained_output_boundaries.contains(end+1)) {
+              !direct_boundary_required(end+1)) {
             if(operations[end].feature_copy&&
                !block_owners.contains(operations[end].feature_copy->
                    source_feature_id))
@@ -9841,16 +9909,17 @@ OcctKernel::evaluate_flat_history_batched(
         tools.reserve(end-index);
         tool_indices.reserve(end-index);
         double tolerance=1.0e-7;
-        for(std::size_t tool_index=index;tool_index<end;
-                ++tool_index) {
+        const auto calculate_tool=[&](const OcctKernel& tool_kernel,
+                std::size_t tool_index,
+                const std::map<std::string,BodyResult>& available) {
             const auto tool_start=std::chrono::steady_clock::now();
             const auto& operation=operations[tool_index];
             BodyResult tool;
             if(operation.feature_copy) {
                 const auto& copy=*operation.feature_copy;
-                const auto source=source_tools.find(
+                const auto source=available.find(
                     copy.source_feature_id);
-                if(source==source_tools.end())
+                if(source==available.end())
                     throw std::runtime_error(
                         "Direct Add block copy source is unavailable");
                 tool=copy.combination==BodyCombination::Pattern
@@ -9865,14 +9934,14 @@ OcctKernel::evaluate_flat_history_batched(
                 references.kernel_compound_bodies.push_back(
                     "direct-input");
                 references.body_outputs.emplace("direct-input",input);
-                for(const auto& [owner,value]:source_tools) {
+                for(const auto& [owner,value]:available) {
                     references.kernel_compound_bodies.push_back(owner);
                     references.body_outputs.emplace(owner,value);
                 }
                 references.source_fingerprint=
                     input.source_fingerprint+":direct-reference-set:"+
                     std::to_string(tool_index);
-                tool=calculate_feature_tool(operation,references,{},
+                tool=tool_kernel.calculate_feature_tool(operation,references,{},
                     input,{});
             } else {
                 auto standalone=operation;
@@ -9882,22 +9951,67 @@ OcctKernel::evaluate_flat_history_batched(
                 standalone.feature_copy.reset();
                 HistoryContext tool_context;
                 tool_context.direct_batch_active=true;
-                auto calculated=evaluate_flat_history({standalone},{},
+                auto calculated=tool_kernel.evaluate_flat_history({standalone},{},
                     tool_context);
                 if(calculated.size()!=1)
                     throw std::runtime_error(
                         "Direct Add block tool has no result");
                 tool=std::move(calculated.front());
             }
+            if(trace_direct)
+                std::cerr<<"[direct Add tool] index="<<tool_index
+                    <<" owner="<<operation.owner_id
+                    <<" ms="<<elapsed_ms(tool_start)<<'\n';
+            return tool;
+        };
+        const bool parallel_sheet_tools=!subtract_block&&end-index>3&&
+            std::ranges::all_of(
+                operations.begin()+static_cast<std::ptrdiff_t>(index),
+                operations.begin()+static_cast<std::ptrdiff_t>(end),
+                [](const auto& operation) {
+                    return !operation.feature_copy&&
+                        operation.sheet_material.has_value();
+                });
+        if(parallel_sheet_tools) {
+            std::vector<std::optional<BodyResult>> ready(end-index);
+            std::atomic_size_t next_tool{index};
+            const auto workers=std::min<std::size_t>(8,
+                std::min<std::size_t>(end-index,
+                    std::max(2u,std::thread::hardware_concurrency())));
+            std::vector<std::future<void>> jobs;
+            jobs.reserve(workers);
+            for(std::size_t worker=0;worker<workers;++worker)
+                jobs.push_back(std::async(std::launch::async,[&] {
+                    OcctKernel isolated;
+                    AggregatePropertyScope properties(
+                        AggregatePropertyDemand::Deferred);
+                    FaceMeasurementScope face_measurements(false);
+                    const std::map<std::string,BodyResult> none;
+                    while(true) {
+                        const auto tool_index=next_tool.fetch_add(1);
+                        if(tool_index>=end)break;
+                        ready[tool_index-index]=calculate_tool(
+                            isolated,tool_index,none);
+                    }
+                }));
+            for(auto& job:jobs)job.get();
+            for(std::size_t tool_index=index;tool_index<end;++tool_index) {
+                auto tool=std::move(*ready[tool_index-index]);
+                source_tools.emplace(operations[tool_index].owner_id,tool);
+                tools.push_back(std::move(tool));
+                tool_indices.push_back(tool_index);
+                tolerance=std::max(tolerance,
+                    operations[tool_index].boolean_tolerance);
+            }
+        } else for(std::size_t tool_index=index;tool_index<end;
+                ++tool_index) {
+            auto tool=calculate_tool(*this,tool_index,source_tools);
+            const auto& operation=operations[tool_index];
             source_tools.emplace(operation.owner_id,tool);
             tools.push_back(std::move(tool));
             tool_indices.push_back(tool_index);
             tolerance=std::max(tolerance,
                 operation.boolean_tolerance);
-            if(trace_direct)
-                std::cerr<<"[direct Add tool] index="<<tool_index
-                    <<" owner="<<operation.owner_id
-                    <<" ms="<<elapsed_ms(tool_start)<<'\n';
         }
         const bool publish=end==operations.size();
         const auto union_start=std::chrono::steady_clock::now();
@@ -9989,14 +10103,38 @@ OcctKernel::evaluate_flat_history_batched(
         }
         std::vector<BodySnapshot> measurements=
             input.measurement_sources.get();
+        auto block_references=input.mesh.original_references;
         for(std::size_t tool=0;tool<tools.size();++tool) {
             measurements.insert(measurements.end(),
                 tools[tool].measurement_sources.begin(),
                 tools[tool].measurement_sources.end());
+            append_reference_geometry(block_references,
+                tools[tool].mesh.original_references);
             if(tool+1<tools.size()) {
                 BodyResult deferred;
                 deferred.source_fingerprint=
                     prefix_fingerprints[index+tool];
+                if(const auto requested=
+                        context.reference_output_boundaries.find(
+                            index+tool+1);
+                        requested!=context.reference_output_boundaries.end()) {
+                    deferred.mesh.original_references=block_references;
+                    if(!contains_history_references(
+                            deferred,requested->second)) {
+                        if(trace_direct) {
+                            std::cerr<<"[direct reference miss] boundary="
+                                <<(index+tool+1)<<" tool="
+                                <<operations[index+tool].owner_id<<'\n';
+                            for(const auto& identity:requested->second)
+                                std::cerr<<"  owner="<<std::get<0>(identity)
+                                    <<" key="<<std::get<1>(identity)
+                                    <<" path="<<std::get<2>(identity)<<'\n';
+                        }
+                        throw DirectBatchReferenceFallback{};
+                    }
+                    deferred.history_reference_coverage.insert(
+                        requested->second.begin(),requested->second.end());
+                }
                 if(!measurements.empty())
                     deferred.measurement_sources=measurements;
                 boundaries.push_back(std::move(deferred));
@@ -10004,6 +10142,22 @@ OcctKernel::evaluate_flat_history_batched(
         }
         if(!measurements.empty())
             direct.measurement_sources=std::move(measurements);
+        if(const auto requested=context.reference_output_boundaries.find(end);
+                requested!=context.reference_output_boundaries.end()) {
+            if(!contains_history_references(direct,requested->second)) {
+                if(trace_direct) {
+                    std::cerr<<"[direct reference miss] boundary="<<end
+                        <<" tool="<<operations[end-1].owner_id<<'\n';
+                    for(const auto& identity:requested->second)
+                        std::cerr<<"  owner="<<std::get<0>(identity)
+                            <<" key="<<std::get<1>(identity)
+                            <<" path="<<std::get<2>(identity)<<'\n';
+                }
+                throw DirectBatchReferenceFallback{};
+            }
+            direct.history_reference_coverage.insert(
+                requested->second.begin(),requested->second.end());
+        }
         if(publish)publish_construction(direct);
         boundaries.push_back(std::move(direct));
         if(trace_direct)
@@ -10032,11 +10186,18 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     for (const auto& operation : operations)
         if (!operation.suppressed && !operation.input_error.empty())
             throw std::runtime_error(operation.input_error);
-    if(!context.direct_batch_active&&previous_boundaries.empty()&&
+    const bool has_sheet_material=std::ranges::any_of(
+        operations,[](const auto& operation) {
+            return !operation.suppressed&&(
+                operation.sheet_operation!=SheetOperation::None||
+                operation.sheet_material.has_value());
+        });
+    if(!context.direct_batch_active&&
+       (previous_boundaries.empty()||has_sheet_material)&&
        !std::getenv("ZIMA_CPP_DISABLE_DIRECT_BATCH_REGEN")) {
         try {
             if(auto batched=evaluate_flat_history_batched(
-                    operations,context))
+                    operations,previous_boundaries,context))
                 return std::move(*batched);
         } catch(const std::exception& error) {
             context.original_faces.reset();
@@ -10287,6 +10448,21 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         previous_boundaries[boundary-1],requested))
                 matching_prefix=std::min(matching_prefix,boundary-1);
         }
+        // A saved interactive packet may deliberately defer aggregate
+        // properties.  It is a valid geometry prefix, but not a valid answer
+        // to an explicit Final/All analysis request.  Resume at the smallest
+        // missing suffix instead of returning the lightweight packet and then
+        // trying to measure an intentionally compact intermediate snapshot.
+        if(aggregate_property_demand==AggregatePropertyDemand::All) {
+            for(std::size_t boundary=0;boundary<matching_prefix;++boundary)
+                if(!previous_boundaries[boundary].physical_properties_current) {
+                    matching_prefix=boundary;break;
+                }
+        } else if(aggregate_property_demand==AggregatePropertyDemand::Final&&
+                matching_prefix==operations.size()&&matching_prefix>0&&
+                !previous_boundaries[matching_prefix-1].physical_properties_current) {
+            --matching_prefix;
+        }
         const auto restore_persisted_reference_coverage=
                 [&](std::vector<BodyResult>& values) {
             for(const auto& [boundary,requested]:
@@ -10350,7 +10526,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         const auto complete_live=matching_prefix>0&&matching_prefix==operations.size()
             ? live_cache_->boundaries.find(previous_boundaries[matching_prefix-1].source_fingerprint)
             : live_cache_->boundaries.end();
+        const bool shortened_history=
+            matching_prefix==operations.size()&&
+            matching_prefix<previous_boundaries.size();
+        const bool can_republish_shortened=shortened_history&&
+            complete_live!=live_cache_->boundaries.end()&&
+            complete_live->second.topology;
         if (matching_prefix == operations.size() &&
+            (!shortened_history||can_republish_shortened) &&
             ((context.requested_solids.empty()&&!has_subtractions)||matching_prefix==previous_boundaries.size()||
                 (matching_prefix>0&&live_cache_->copy_references.contains(previous_boundaries[matching_prefix-1].source_fingerprint)))&&
             (!context.require_original_faces || complete_live!=live_cache_->boundaries.end()) &&
@@ -10364,6 +10547,38 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 previous_boundaries.begin(),
                     previous_boundaries.begin() +
                         static_cast<std::ptrdiff_t>(matching_prefix)};
+            if(shortened_history) {
+                // Final-first evaluation deliberately keeps intermediate rows
+                // lightweight. Deleting the suffix turns the last retained row
+                // into the visible terminal result. Its exact live shape and
+                // topology already exist, so publish a full viewer/analysis
+                // packet without replaying the unchanged modeling operation.
+                const auto& native=complete_live->second;
+                const bool calculate_properties=
+                    aggregate_property_demand==AggregatePropertyDemand::All||
+                    aggregate_property_demand==AggregatePropertyDemand::Final||
+                    aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive;
+                auto published=make_result(native.shape,
+                    native.topology->faces,native.topology->edges,
+                    native.topology->vertices,false,true,false,
+                    native.topology->hidden_display_edges,
+                    operations.back().mesh_deflection,calculate_properties);
+                auto& retained=reused.back();
+                retained.mesh=std::move(published.mesh);
+                retained.physical_properties_current=
+                    published.physical_properties_current;
+                retained.solid_present=published.solid_present;
+                retained.volume=published.volume;
+                retained.surface_area=published.surface_area;
+                retained.volume_integrals=published.volume_integrals;
+                retained.surface_centroid=published.surface_centroid;
+                retained.kernel_shape=std::move(published.kernel_shape);
+                retained.kernel_placements.clear();
+                retained.kernel_compound_bodies.clear();
+                retained.kernel_faces=std::move(published.kernel_faces);
+                retained.kernel_edges=std::move(published.kernel_edges);
+                retained.kernel_vertices=std::move(published.kernel_vertices);
+            }
             // A recovering evaluation asks for shorter prefixes of the saved
             // history. Earlier packets were compacted; recover their original
             // references from the final packet, restricted to prefix owners.
@@ -10381,6 +10596,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             return live_cache_->mark_current(std::move(reused),complete_live!=live_cache_->boundaries.end());
         }
         std::size_t reusable_prefix = matching_prefix;
+        if(shortened_history&&reusable_prefix>0) {
+            // Intermediate packets may deliberately omit their complete
+            // display mesh while a later history row owns the final scene.
+            // Once that suffix is deleted, republish the last retained
+            // operation as the terminal boundary. Replaying only that row
+            // preserves the valid prefix without presenting an empty Body.
+            --reusable_prefix;
+        }
         if(std::getenv("ZIMA_CPP_PROFILE_COMMAND")&&reusable_prefix>0) {
             const auto& candidate=
                 previous_boundaries[reusable_prefix-1];
@@ -10809,7 +11032,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                     return result;
                 };
-                if((context.defer_terminal_publication||
+                if(((context.defer_terminal_publication&&
+                        operation_index+1==operations.size())||
                        (final_first_boundaries&&
                         operation_index+1<operations.size()&&
                         !retained_final_first_boundaries.contains(
@@ -10863,12 +11087,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if (requested == context.reference_output_boundaries.end())
                     return retained;
 
-                auto exact = make_published_result(result_shape,
-                    owned_topology->faces, owned_topology->edges,
-                    owned_topology->vertices, true, persist_boundary_shape,
-                    false, owned_topology->hidden_display_edges);
-                auto prefix = reference_geometry_for_history_references(
-                    exact.mesh.original_references, requested->second);
+                ViewerReferenceGeometry prefix;
+                if(!result_shape.IsNull()) {
+                    auto exact = make_published_result(result_shape,
+                        owned_topology->faces, owned_topology->edges,
+                        owned_topology->vertices, true,
+                        persist_boundary_shape, false,
+                        owned_topology->hidden_display_edges);
+                    prefix = reference_geometry_for_history_references(
+                        exact.mesh.original_references, requested->second);
+                }
                 auto missing = requested->second;
                 std::erase_if(missing, [&](const auto& identity) {
                     return contains_history_reference(prefix, identity);
@@ -12461,6 +12689,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     operations, boundaries.size() + 1);
                 remember_live_boundary(boundary.source_fingerprint, result_shape,
                     owned_topology);
+                boundaries.push_back(std::move(boundary));
+                continue;
+            }
+            if (operation.replaces_body && reference_only) {
+                // An empty replacement is a history divider. Retain the
+                // preceding authored references and boundaries for editing,
+                // but start subsequent material operations with an empty Body.
+                result_shape.Nullify();
+                owned_topology = std::make_shared<LiveCache::Topology>();
+                sheet_input = {};
+                sheet_sources = {};
+                technological_surfaces.clear();
+                BodyResult boundary;
+                boundary.measurement_sources = measurement_sources;
+                boundary = publish_pass_through_result(std::move(boundary));
+                boundary.source_fingerprint = fingerprint(operations, operation_index + 1);
+                remember_live_boundary(boundary.source_fingerprint, result_shape, owned_topology);
                 boundaries.push_back(std::move(boundary));
                 continue;
             }
@@ -15117,8 +15362,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             }
             operation_phase("body-boolean");
-            if (reference_only && !boundaries.empty()) {
-                auto retained = boundaries.back();
+            if (reference_only) {
+                auto retained = boundaries.empty()?BodyResult{}:boundaries.back();
                 // A preceding final-first packet may intentionally have no
                 // display mesh. The requested output belongs to this row;
                 // publish the live unchanged solid rather than that packet.

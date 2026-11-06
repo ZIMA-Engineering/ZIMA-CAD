@@ -206,18 +206,33 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     "edgeTreatmentEdges");
                 std::vector<std::vector<kernel::ViewerEdge>> groups;
                 std::size_t persisted_count{},resolved_count{};
+                bool reconnected_compact_route{};
                 for(std::size_t route=0;route<parameters.routes.size();++route) {
                     const auto active=document::actual_edge_treatment_intervals(
                         parameters.routes[route]);
                     persisted_count+=active.size();
-                    std::vector<kernel::ViewerEdge> fragments;
-                    for(const auto& stored:active) {
-                        auto resolved=view->display_edges(stored);
-                        fragments.insert(fragments.end(),
-                            std::make_move_iterator(resolved.begin()),
-                            std::make_move_iterator(resolved.end()));
-                    }
+                    auto fragments=document::treatment_selection_wire(
+                        parameters,route,std::nullopt,view->mesh());
                     resolved_count+=fragments.size();
+                    for(const auto& stored:active) {
+                        const auto retained=std::ranges::find_if(
+                            view->mesh().original_references.edges,
+                            [&](const auto& edge) {
+                                return edge.reference==stored&&
+                                    edge.edge_treatment_side_directions.empty();
+                            });
+                        const bool tagged_current=std::ranges::any_of(
+                            view->mesh().edges,[&](const auto& edge) {
+                                return edge.reference==stored;
+                            });
+                        if(retained!=view->mesh().original_references.edges.end()&&
+                                !tagged_current&&std::ranges::any_of(
+                                    fragments,[&](const auto& edge) {
+                                        return edge.reference==stored&&
+                                            edge.edge_treatment_side_directions.size()==2;
+                                    }))
+                            reconnected_compact_route=true;
+                    }
                     const auto* row=rows&&route<static_cast<std::size_t>(
                         rows->topLevelItemCount())
                         ?rows->topLevelItem(static_cast<int>(route)):nullptr;
@@ -237,8 +252,9 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                             "A displayed route fragment lacks preview face guides");
                     groups.push_back(std::move(fragments));
                 }
-                check(resolved_count>persisted_count,
-                    "User-model fixture does not exercise a stable route resolved into several fragments");
+                check(resolved_count>=persisted_count&&
+                        reconnected_compact_route,
+                    "User-model fixture did not reconnect a compact two-sided Feature edge to its current face guides");
                 const auto expected=workspace_detail::
                     edge_treatment_preview_wire(groups,parameters,
                         pending->feature_kind(),owner);

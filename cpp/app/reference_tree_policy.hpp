@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/workspace/reference_index.hpp>
 #include <zima/assembly/assembly_document.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
 #include "construction_reference_index.hpp"
 #include <algorithm>
 #include <set>
@@ -95,9 +96,17 @@ template<class Document> std::string feature_reference_issue(const document::His
         break;
     case FeatureKind::Fillet: case FeatureKind::Chamfer:
         if (input) {
-            zima::workspace::ReferenceIndex operational;
-            for (const auto& edge : input->edges) operational.add(edge.reference);
-            for (const auto& edge : feature.edge_treatment.flattened_edges()) issue+=operational.missing(edge);
+            for(std::size_t route=0;
+                    route<feature.edge_treatment.routes.size();++route)
+                for(std::size_t segment=0;
+                        segment<feature.edge_treatment.routes[route].size();
+                        ++segment)
+                    if(document::treatment_selection_wire(
+                            feature.edge_treatment,route,segment,*input).empty())
+                        issue+="["+
+                            feature.edge_treatment.routes[route][segment].owner_id+
+                            "|"+feature.edge_treatment.routes[route][segment].semantic_key+
+                            "]";
         }
         break;
     case FeatureKind::Shell:

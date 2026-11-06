@@ -9129,7 +9129,7 @@ bool Sketch::refresh_external_references(
     bool changed = false;
     const auto same_projected_points = [](const auto& left, const auto& right) {
         if (left.size() != right.size()) return false;
-        constexpr double ulps = 32.0;
+        constexpr double ulps = 64.0;
         for (std::size_t index = 0; index < left.size(); ++index)
             for (std::size_t coordinate = 0; coordinate < 2; ++coordinate) {
                 const double a = left[index][coordinate];
@@ -9154,6 +9154,13 @@ bool Sketch::refresh_external_references(
             candidate.instance_path == reference.source_instance_path;
     };
     for (auto& reference : next.external_references) {
+        // Sheet attachment endpoints are resolved against the exact input
+        // history boundary by the owning Bend/Flat/Revolution.  The final
+        // body may contain several Boolean descendants or no unique endpoint
+        // marker at all; generic final-scene projection must not overwrite or
+        // break this already resolved dependency.
+        if(reference.id.starts_with(id+":attachment:")||
+                reference.id.starts_with(id+":flat-attachment:"))continue;
         // An explicit cache-only update must not invalidate ordinary projected
         // references from the same document by feeding them an empty packet.
         if(source_document_id.empty()&&calculated_intersections&&!is_intersection_reference(reference))continue;

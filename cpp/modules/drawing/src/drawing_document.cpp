@@ -780,20 +780,28 @@ void DrawingDocument::save(const std::filesystem::path& path,
         root["sheets"].push_back(std::move(serialized));
     }
     zima::document::apply_document_copy_identity(root, copy);
-    zima::document::archive_existing_file(path);
-    std::ofstream stream(zima::document::native_file_io_path(path));
-    if (!stream) throw std::runtime_error("Cannot write Drawing document");
-    // Keep the document envelope compatible with zima_cad/storage.py.  The
-    // C++ drawing model has no Python entity fields, so its complete payload
-    // lives in the ordinary param.* namespace.
-    stream << "[Document]\n"
-           << "format_version=21\n"
-           << "type=drawing\n"
-           << "document_id=" << root.at("document_id").get<std::string>() << "\n"
-           << "name=" << root.at("name").get<std::string>() << "\n"
-           << "param.cpp_drawing=" << root.dump() << "\n\n"
-           << "[Containers]\n"
-           << "items=\n";
+    auto temporary=path;temporary+=".tmp";
+    try {
+        std::ofstream stream(zima::document::native_file_io_path(temporary),std::ios::binary|std::ios::trunc);
+        if (!stream) throw std::runtime_error("Cannot write Drawing document");
+        // Keep the document envelope compatible with zima_cad/storage.py.  The
+        // C++ drawing model has no Python entity fields, so its complete payload
+        // lives in the ordinary param.* namespace.
+        stream << "[Document]\n"
+               << "format_version=21\n"
+               << "type=drawing\n"
+               << "document_id=" << root.at("document_id").get<std::string>() << "\n"
+               << "name=" << root.at("name").get<std::string>() << "\n"
+               << "param.cpp_drawing=" << root.dump() << "\n\n"
+               << "[Containers]\n"
+               << "items=\n";
+        stream.flush();
+        if(!stream)throw std::runtime_error("Cannot write Drawing document");
+        stream.close();
+        zima::document::publish_temporary_file(temporary,path);
+    } catch(...) {
+        std::error_code error;std::filesystem::remove(zima::document::native_file_io_path(temporary),error);throw;
+    }
 }
 
 DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {

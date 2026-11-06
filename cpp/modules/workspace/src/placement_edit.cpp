@@ -2,6 +2,7 @@
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/assembly_history_operations.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <algorithm>
@@ -198,6 +199,7 @@ bool commit_construction(Workspace& live, const std::string& document_id,
         auto next = before;
         replace_construction(next, std::move(value), mode);
         auto calculated = part->session.calculated_boundaries();
+        static_cast<void>(refresh_removed_reference_states(next));
         next.resolve_constructions(construction_reference_source_geometry(calculated));
         require_resolved(next, id);
         static_cast<void>(refresh_sketch_external_references(next, calculated));

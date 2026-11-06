@@ -263,6 +263,7 @@ add_library(zima_document_core
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/holes.cpp
     modules/document_core/src/bend.cpp
+    modules/document_core/src/sheet_profile.cpp
     modules/document_core/src/sheet_state.cpp
     modules/document_core/src/sheet_form_definition.cpp
     modules/document_core/src/profile_targets.cpp
@@ -329,7 +330,6 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/save_properties.cpp
-    modules/workspace/src/archive_operations.cpp
     modules/workspace/src/file_removal_operations.cpp
     modules/workspace/src/file_rename_operations.cpp
     modules/workspace/src/body_operations.cpp
@@ -392,6 +392,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/holes_operations.cpp
     modules/workspace/src/bend_operations.cpp
+    modules/workspace/src/sheet_profile_operations.cpp
     modules/workspace/src/sheet_state_operations.cpp
     modules/workspace/src/solid_state_operations.cpp
     modules/workspace/src/sheet_exchange_operations.cpp
@@ -1454,10 +1455,6 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_file_removal_command_tests tests/file_removal_command_tests.cpp)
     target_link_libraries(zima_cpp_file_removal_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_file_removal_command_tests COMMAND zima_cpp_file_removal_command_tests)
-
-    add_executable(zima_cpp_archive_command_tests tests/archive_command_tests.cpp)
-    target_link_libraries(zima_cpp_archive_command_tests PRIVATE zima_command_host)
-    add_test(NAME zima_cpp_archive_command_tests COMMAND zima_cpp_archive_command_tests)
 
     add_executable(zima_cpp_document_operations_tests tests/document_operations_tests.cpp)
     add_executable(zima_cpp_save_properties_tests tests/save_properties_tests.cpp)
@@ -2618,6 +2615,19 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sheet_cut_wire_preview_tests COMMAND zima_cpp_sheet_cut_wire_preview_tests)
     set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
+    add_executable(zima_cpp_sheet_profile_tests tests/sheet_profile_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_profile_tests PRIVATE zima_workspace)
+    target_compile_options(zima_cpp_sheet_profile_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_sheet_profile_tests COMMAND zima_cpp_sheet_profile_tests)
+    set_tests_properties(zima_cpp_sheet_profile_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-profile-ui-contract")
+    add_test(NAME zima_cpp_sheet_profile_ui_contract COMMAND zima-cad-cpp
+        --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/sheet-profile-ui-contract")
+    set_tests_properties(zima_cpp_sheet_profile_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_PROFILE_ONLY=1;ZIMA_VERIFY_HIDDEN_WINDOWS=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_executable(zima_cpp_sheet_exchange_tests tests/sheet_exchange_tests.cpp)
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/boundary-surface-ui-contract")
     add_test(NAME zima_cpp_boundary_surface_ui_contract COMMAND zima-cad-cpp --verify-startup
@@ -2784,7 +2794,7 @@ if(ZIMA_BUILD_TESTS)
     target_compile_options(zima-transition-study PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_transition_study_ui_contract COMMAND zima-transition-study --verify)
     set_tests_properties(zima_cpp_transition_study_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
-    target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace Qt6::Core)
+    target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo Qt6::Core)
     add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
     set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
@@ -2835,7 +2845,7 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_SWEEPS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 240 RUN_SERIAL TRUE)
     add_executable(zima_cpp_flat_command_tests tests/flat_command_tests.cpp)
-    target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host)
+    target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host zima_kernel_occt TKTopAlgo)
     target_compile_options(zima_cpp_flat_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_flat_command_tests COMMAND zima_cpp_flat_command_tests)
     set_tests_properties(zima_cpp_flat_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

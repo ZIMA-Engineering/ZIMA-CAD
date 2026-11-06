@@ -31,7 +31,6 @@ public:
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](const auto& value){pending.name=value.toStdString();});
         content_layout()->addLayout(form);install_placement();
-        remove_origin_display_controls(this);
         auto* path_row=new QHBoxLayout;
         plane_=new QComboBox(this);plane_->setObjectName("sweep2dPathPlane");
         plane_->addItem("XY","origin:plane:xy");plane_->addItem("XZ","origin:plane:xz");plane_->addItem("YZ","origin:plane:yz");

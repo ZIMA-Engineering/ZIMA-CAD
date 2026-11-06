@@ -29,12 +29,42 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         check(action&&action->isEnabled()&&!action->icon().isNull()&&dxf&&!dxf->icon().isNull(),"Sheet exchange toolbar actions are missing");
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Sheet exchange View missing");
         const auto& source_mesh=cache.back().body_outputs.at(part.body_history.order().front())->mesh;
-        const auto seed=*std::ranges::max_element(source_mesh.original_references.triangle_references,{},[](const auto& face){return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
+        std::set<std::pair<std::string,std::string>> current_faces;
+        for(const auto& face:source_mesh.triangle_references)
+            current_faces.emplace(face.owner_id,face.semantic_key);
+        std::map<std::string,const kernel::FaceReference*> offered_faces;
+        const auto offered_geometry=workspace::construction_reference_source_geometry(cache);
+        for(const auto& face:offered_geometry.triangle_references)
+            if(current_faces.contains({face.owner_id,face.semantic_key})&&
+                    face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
+                offered_faces.emplace(face.owner_id+":"+face.semantic_key,&face);
+        check(!offered_faces.empty(),"Sheet exchange fixture offers no current planar face");
+        auto seed=*std::ranges::max_element(offered_faces,{},[](const auto& entry) {
+            return entry.second->measured_area.value_or(0);
+        })->second;
+        const auto requested_face=qEnvironmentVariable("ZIMA_VERIFY_SHEET_EXCHANGE_FACE");
+        if(!requested_face.isEmpty()) {
+            bool valid=false;const auto index=requested_face.toULongLong(&valid);
+            check(valid&&index<offered_faces.size(),"Requested Sheet from Body GUI face is unavailable");
+            seed=*std::next(offered_faces.begin(),static_cast<std::ptrdiff_t>(index))->second;
+        }
         auto direction=seed.surface->axis;if(seed.surface->reversed){direction.x=-direction.x;direction.y=-direction.y;direction.z=-direction.z;}
         view->set_view_direction(direction);view->fit_all();flush();
         const auto dialog=[&]{auto* result=dynamic_cast<app::SheetFromBodyDialog*>(window.findChild<QDialog*>("sheetFromBodyDialog"));check(result&&result->isVisible(),"Sheet from Body dialog did not open");return result;};
         const auto pick=[&] {
             const auto thickness=dialog()->findChild<QDoubleSpinBox*>("sheetSourceThickness")->value();
+            // Exact user-file regressions exercise the persisted command and
+            // resulting View independently of camera-facing picker coverage.
+            // The ordinary fixture below still verifies the real View picker.
+            if(!requested_face.isEmpty()) {
+                dialog()->set_reference(seed,1);
+                flush();
+                check(dialog()->selected().has_value(),
+                    "Exact source face was not accepted by Sheet from Body");
+                check(dialog()->findChild<QDoubleSpinBox*>("sheetSourceThickness")->value()==thickness,
+                    "Exact source face replaced the configured sheet thickness");
+                return;
+            }
             view->fit_all();flush();
             std::optional<QPointF> hit;std::size_t cycles=0;
             for(int step:{50,5})for(int y=10;y<view->height()&&!hit;y+=step)for(int x=10;x<view->width();x+=step) {
@@ -64,6 +94,11 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             action->trigger();flush();auto* current=dialog();check(current->windowType()==Qt::SubWindow,"Conversion dialog is not an internal window");
             auto* references=current->findChild<QTableWidget*>("sheetSourceFace");
             check(references->horizontalHeaderItem(1)->text()==settings.qt_translations.value("Výchozí rovinná plocha"),"Conversion face label is untranslated");
+            auto* override=current->findChild<QCheckBox*>("sheetSourceThicknessOverride");
+            auto* thickness=current->findChild<QDoubleSpinBox*>("sheetSourceThickness");
+            check(override&&thickness&&override->text()==settings.qt_translations.value("Nedržet se tloušťky plechu")&&
+                    !override->isChecked()&&!thickness->isEnabled(),
+                "Conversion thickness inheritance is not localized or is not the default");
             auto* indicator=references->cellWidget(0,0);
             auto* arrow=qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>());
             auto* remove=qobject_cast<QPushButton*>(indicator->property("_removeWidget").value<QObject*>());
@@ -87,17 +122,72 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         QMouseEvent middle(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(20,20),QPointF(20,20),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
         QApplication::sendEvent(view,&middle);flush();
         check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"Conversion OK failed");
+        check(!view->mesh().triangles.empty(),
+            "Sheet from Body history boundary hid the complete model View");
         const auto save=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path);};
         const auto saved=save();check(saved.history.size()>original,"Conversion created no native sheet features");
+        const auto conversion=std::ranges::find_if(saved.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::SheetFromBody;});
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        if(same_body) {
+            check(conversion!=saved.history.end()&&
+                    !conversion->sheet_from_body.thickness_override&&
+                    !conversion->sheet_from_body.generated_features.empty(),
+                "Same-Body conversion did not persist its history boundary");
+            QTreeWidgetItem* conversion_row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==
+                        conversion->id){conversion_row=*it;break;}
+            check(conversion_row,"Sheet from Body boundary is absent from the Tree");
+            check(!conversion_row->icon(0).isNull(),
+                "Sheet from Body boundary has no Tree icon");
+            check(conversion_row->childCount()==0,
+                "Sheet from Body boundary is incorrectly presented as a Tree parent");
+            auto* history_parent=conversion_row->parent();
+            check(history_parent,"Sheet from Body boundary has no Body history owner");
+            const auto boundary_index=history_parent->indexOfChild(conversion_row);
+            for(std::size_t index=0;
+                    index<conversion->sheet_from_body.generated_features.size();
+                    ++index) {
+                const auto& id=conversion->sheet_from_body.generated_features[index];
+                QTreeWidgetItem* feature_row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){feature_row=*it;break;}
+                check(feature_row&&feature_row->parent()==history_parent&&
+                        history_parent->indexOfChild(feature_row)==
+                            boundary_index+1+static_cast<int>(index),
+                    "Generated feature does not follow its Sheet from Body history boundary");
+            }
+        } else {
+            check(conversion==saved.history.end(),
+                "Cross-Body conversion incorrectly created a history boundary");
+            const auto* source_body=saved.body_history.find(
+                saved.body_history.order().front());
+            const auto* target_body=saved.body_history.find(target_id);
+            check(source_body&&source_body->visible&&!source_body->suppressed&&
+                    target_body&&target_body->visible&&!target_body->suppressed,
+                "Cross-Body conversion did not retain both Bodies");
+            QTreeWidgetItem* target_row=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==target_id){target_row=*it;break;}
+            check(target_row,"Cross-Body conversion target is absent from the Tree");
+            for(auto feature=saved.history.begin()+static_cast<std::ptrdiff_t>(original);
+                    feature!=saved.history.end();++feature) {
+                QTreeWidgetItem* feature_row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature->id){feature_row=*it;break;}
+                check(feature_row&&feature_row->parent()==target_row,
+                    "Cross-Body sheet feature is not an ordinary target-Body row");
+            }
+        }
         check(window.findChild<QAction*>("sheetFromBodyAction")->isEnabled(),"Conversion unavailable in the active editable Body");
-        if(same_body)check(std::ranges::any_of(saved.history.begin()+original,saved.history.end(),[](const auto& f){return f.flat.replaces_body;}),"Same-Body conversion did not persist replacement");
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==original,"Conversion Undo did not remove the whole batch");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().history.size()==saved.history.size(),"Conversion Redo lost features");
         const auto unchanged=save().serialized();
         for(const auto kind:{document::FeatureKind::Flat,document::FeatureKind::Bend}) {
-            const auto feature=std::ranges::find_if(saved.history,[&](const auto& f){const auto* body=saved.body_owner_for_object(f.id);return body&&body->scope.id==target_id&&f.feature_kind==kind;});
+            const auto feature=std::find_if(saved.history.begin()+original,saved.history.end(),
+                [&](const auto& f){const auto* body=saved.body_owner_for_object(f.id);return body&&body->scope.id==target_id&&f.feature_kind==kind;});
             if(feature==saved.history.end())continue;
-            QTreeWidgetItem* row=nullptr;auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            QTreeWidgetItem* row=nullptr;
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature->id){row=*it;break;}
             check(row,"Generated feature is absent from the Tree");window.show_tree_item_properties(row);flush();
             auto* properties=window.findChild<QDialog*>(kind==document::FeatureKind::Flat?"flatPropertiesDialog":"bendPropertiesDialog");
@@ -111,6 +201,50 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         const auto output=path.parent_path()/std::filesystem::path(directory_name.toStdWString())/"sheet-exchange.dxf";
         check(std::filesystem::exists(output)&&std::filesystem::file_size(output)>100,"Sheet DXF action did not produce configured file");
         check(save().serialized()==before,"Sheet DXF action changed document history");
+        if (same_body) {
+            const auto row = [&](const std::string& id) -> QTreeWidgetItem* {
+                for (QTreeWidgetItemIterator it(tree); *it; ++it)
+                    if ((*it)->data(0, Qt::UserRole).toString().toStdString() == id)
+                        return *it;
+                return nullptr;
+            };
+            const auto remove = [&](const std::string& id) {
+                auto* item = row(id);
+                check(item, "Sheet deletion Tree row is missing");
+                tree->setCurrentItem(item);
+                tree->scrollToItem(item);
+                flush();
+                QTimer::singleShot(0, &window, [&] {
+                    auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                    if (!menu) return;
+                    auto* action = menu->findChild<QAction*>("deleteHistoryObject");
+                    if (!action || !action->isEnabled()) { menu->close(); return; }
+                    menu->setActiveAction(action);
+                    QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+                    QApplication::sendEvent(menu, &enter);
+                });
+                QMetaObject::invokeMethod(tree, "customContextMenuRequested", Qt::DirectConnection,
+                    Q_ARG(QPoint, tree->visualItemRect(item).center()));
+                flush();
+                auto* confirmation = window.findChild<QDialog*>("deleteHistoryDialog");
+                check(confirmation && confirmation->isVisible(), "Sheet deletion confirmation is missing");
+                confirmation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+                flush();
+                check(!row(id), "The selected Sheet from Body history row was not deleted");
+            };
+            const auto& generated = conversion->sheet_from_body.generated_features;
+            remove(generated.front());
+            check(row(conversion->id), "Deleting the first Flat removed the divider");
+            for (const auto& id : generated | std::views::drop(1))
+                check(row(id) && row(id)->foreground(0).color() == QColor(210, 75, 65),
+                    "Deleting the first Flat did not retain its invalid dependent");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(row(generated.front()), "Flat deletion Undo did not restore its Tree row");
+            remove(conversion->id);
+            for (const auto& id : generated)
+                check(row(id), "Deleting the divider removed a generated feature from the Tree");
+            check(!view->mesh().triangles.empty(), "Deleting the divider did not restore the original Body");
+        }
         window.grab().save(QString::fromStdString((directory/"sheet-conversion-result.png").string()));
         std::cout<<"Sheet exchange GUI: native picker, all languages, Cancel, middle-button OK, Undo/Redo and DXF passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

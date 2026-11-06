@@ -60,7 +60,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     if(section_action_&&(web||files||preview))section_action_->setEnabled(false);
     if(measure_action_&&(web||files||preview))measure_action_->setEnabled(false);
     refresh_delete_file_actions();
-    if(preview)for(auto* action:{rename_document_action_,delete_old_versions_action_,delete_old_versions_keep_latest_action_,delete_current_file_action_,delete_all_versions_action_})action->setEnabled(false);
+    if(preview)for(auto* action:{rename_document_action_,delete_current_file_action_})action->setEnabled(false);
     if (!has_document && state_ != nullptr) state_->setText(tr("Připraveno."));
 }
 
@@ -460,6 +460,15 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(bend,&QAction::triggered,this,[this]{show_sketch_properties({},false,true);});
             }
             bend->setEnabled(!properties_dialog_);add_command(bend);
+            auto* profile=findChild<QAction*>("sheetProfileAction");
+            if(!profile) {
+                profile=new QAction(resource_icon("sheet-profile"),tr("Profil"),this);
+                profile->setObjectName("sheetProfileAction");
+                connect(profile,&QAction::triggered,this,[this] {
+                    show_sketch_properties({},false,false,false,true);
+                });
+            }
+            profile->setEnabled(!properties_dialog_);add_command(profile);
             auto* rotation=findChild<QAction*>("sheetRevolutionAction");
             if(!rotation) {
                 rotation=new QAction(resource_icon("sheet-revolve"),tr("Rotační plech"),this);rotation->setObjectName("sheetRevolutionAction");

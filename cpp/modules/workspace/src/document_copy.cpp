@@ -4,7 +4,6 @@
 #include <zima/workspace/save_properties.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
-#include <zima/document/versioned_file.hpp>
 #include <map>
 #include <algorithm>
 #include <cctype>
@@ -287,15 +286,15 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     std::vector<fs::path> published;
     const auto previous=staging.path/"previous-library";
     if(overwrite_library&&fs::exists(native_file_io_path(target))) {
-        zima::document::archive_existing_file(target);
         fs::rename(native_file_io_path(target),native_file_io_path(previous));
     }
     try {
         for (const auto& file:pending) {
             // Atomic publication without overwrite or a partially written
-            // destination. Staging lives on the same filesystem; removing
-            // its link afterwards leaves the complete destination file.
-            fs::create_hard_link(native_file_io_path(staging.path/file.target.filename()),native_file_io_path(file.target));
+            // destination. Staging is a sibling on the same filesystem, so a
+            // rename publishes the complete file without requiring Windows
+            // hard-link privileges.
+            fs::rename(native_file_io_path(staging.path/file.target.filename()),native_file_io_path(file.target));
             published.push_back(file.target);
         }
     } catch (...) {

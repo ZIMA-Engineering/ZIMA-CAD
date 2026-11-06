@@ -245,6 +245,7 @@ private:
     [[nodiscard]] std::optional<std::vector<BodyResult>>
         evaluate_flat_history_batched(
             const std::vector<HistoryOperation>& operations,
+            const std::vector<BodyResult>& previous_boundaries,
             HistoryContext& context) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_flat_history_recovering(
         const std::vector<HistoryOperation>& operations,

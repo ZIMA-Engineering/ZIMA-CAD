@@ -1100,7 +1100,17 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
                         position[1] - (*pending_segment_start_)[1];
                     const double tangent_error = std::abs(
                         cursor_x * tangent_y - cursor_y * tangent_x);
-                    if (tangent_error <= tangent_tolerance) {
+                    // A Polyline arc is created as a tangent continuation of
+                    // the preceding element. Switching its next element back
+                    // to a line continues that same smooth chain: project the
+                    // pointer onto the arc tangent instead of silently making
+                    // a sharp corner. Disabling automatic Tangent remains the
+                    // explicit way to request an unconstrained continuation.
+                    const bool smooth_polyline_continuation =
+                        sketch_polyline_active_ && !sketch_polyline_arc_mode_ &&
+                        tangent_curve_id == pending_polyline_tangent_geometry_id_;
+                    if (smooth_polyline_continuation ||
+                        tangent_error <= tangent_tolerance) {
                         double along = cursor_x * tangent_x + cursor_y * tangent_y;
                         if (std::abs(along) <= 1.0e-9) {
                             along = std::copysign(
@@ -1271,6 +1281,23 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             if (length <= 1.0e-12) continue;
             const double ux = rx / length;
             const double uy = ry / length;
+            const double perpendicular_error = std::abs(
+                cursor_x * ux + cursor_y * uy);
+            const double normal_along = cursor_x * -uy + cursor_y * ux;
+            const bool already_offered_start_support =
+                pending_segment_start_snap_kind_ ==
+                    zima::sketcher::ConstraintKind::PointOnLine &&
+                pending_segment_start_snap_geometry_id_ == reference.id;
+            if (!already_offered_start_support &&
+                std::abs(normal_along) > 1.0e-9 &&
+                perpendicular_error <= direction_tolerance) {
+                SketchSegmentInference candidate{{
+                    (*pending_segment_start_)[0] + normal_along * -uy,
+                    (*pending_segment_start_)[1] + normal_along * ux},
+                    std::nullopt, {}};
+                candidate.perpendicular_reference_id = reference.id;
+                perpendiculars.push_back(std::move(candidate));
+            }
             const double along = cursor_x * ux + cursor_y * uy;
             const double normal_distance = std::abs(cursor_x * uy - cursor_y * ux);
             if (std::abs(along) <= 1.0e-9 ||
@@ -1364,6 +1391,9 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
         variants.push_back(std::move(candidate));
     }
     for (auto& candidate : perpendiculars) {
+        for (const auto& equal : equal_candidates_for(candidate.position)) {
+            variants.push_back(exact_equal(candidate, equal));
+        }
         variants.push_back(std::move(candidate));
     }
     for (auto& candidate : midpoint_lines) {

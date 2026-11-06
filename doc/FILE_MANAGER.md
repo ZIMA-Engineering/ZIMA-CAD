@@ -81,8 +81,8 @@ The right side has two views:
   Part or Assembly parameters can be edited in writable sources by clicking a
   selected cell. Double-clicking opens an entry only in the **File name**
   column, so parameter editing cannot open the document. Copy, Move and Delete
-  operate on the checked rows; the separate Versions toggle controls numbered
-  version files.
+  operate on the checked rows. Existing numbered native-document files are
+  hidden and have no management control.
 
 ### Table interaction and thumbnails
 
@@ -97,7 +97,8 @@ installation-root `config` directory, never the immutable version directory.
 Clicking a checkbox on an already selected row sets all selected rows to that
 same checked/unchecked state and preserves the selected group. Unselected rows
 remain unchanged. The bottom actions have additional clearance from the edge;
-Clean precedes Copy, Move and Delete. Overview and Files have palette-aware icons.
+Copy, Move and Delete follow the thumbnail-size control. Overview and Files
+have palette-aware icons.
 
 The Files thumbnail slider controls 48–192 px presentation, defaults to 96 px,
 and remembers its value. Its 300 px track provides finer pointer control without increasing PNG
@@ -144,29 +145,6 @@ Saving a nested activated Part does not capture its enclosing Assembly as that
 Part's preview. Thumbnail failure cannot roll back a successful native save.
 The GUI command console has the same capture hook. Headless CLI saves have no
 interactive framebuffer and do not promise these current-view thumbnails.
-
-### Clean
-
-Clean is available in the directory/source context menu and before Copy in
-Files. It adopts the ZIMA-Parts archive rule: numbered `.prtz`, `.asmz`, `.drwz`,
-`.frmz`, `.tblz` and `.symz` files are archives, including orphaned archives and
-numbers larger than uint64. Current unnumbered documents are retained.
-The recursive plan excludes protected ancestors/descendants, read-only sources,
-links and paths outside the canonical root. The confirmation lists the planned
-files. Cancel changes nothing. Before moving each file to the OS recycle bin,
-its path, inherited protection and SHA-256 are checked again. No permanent-delete
-fallback is used when the recycle operation fails.
-
-Archive discovery and hashing, Copy, Move and recycling run on private worker
-inputs. The common activity indicator is centered over the visible File Manager
-after the ordinary 250 ms delay; scanning and recycling have distinct messages.
-The window continues painting and processing timers while competing input is
-blocked. Destination selection, confirmation and error reporting stay on the UI
-thread. No file is recycled before confirmation. The worker rechecks cleanup
-content fingerprints and protection before each move to the recycle bin.
-
-The finite Windows checks, including a 6,500-archive fixture, are recorded in
-[responsive file operations](verification/20261023-responsive-file-operations.md).
 
 ### Foreign-model inspection
 
@@ -272,9 +250,10 @@ values and localized labels without running OCCT, mirrors those values into
 metadata version 3 for other systems, and routes edits back to the native
 document. Open documents are updated through the shared workspace metadata
 transaction; closed documents are loaded and saved with their persisted
-calculated boundaries or assembly snapshots intact. Normal native saving creates
-the established numbered archive. Manual metadata values remain available for
-folders and file types that have no native parameter provider.
+calculated boundaries or assembly snapshots intact. Normal native saving
+atomically replaces the current file and does not create numbered copies.
+Manual metadata values remain available for folders and file types that have no
+native parameter provider.
 
 Sources marked read-only never create or update `metadata.ini` merely by being
 browsed or by automatic native-parameter mirroring. Their native parameters
@@ -429,32 +408,22 @@ to 320 by 240 pixels. Display enlargement does not increase stored PNG sizes.
 
 ## File Manager follow-up (2026-10-13)
 
-- **Cleanup in Templates:** the user reports that enabling Versions in the
-  Templates source shows version/backup files, but Clean cannot be invoked.
-  Reproduce this state and check the toolbar and directory/source context
-  actions, their enablement, source permissions and inherited removal
-  protection. Distinguish intentional protection from an incorrect disabled
-  action. Preserve current templates, the cleanup scope and recycle-bin
-  confirmation/Cancel behavior. Recorded for later investigation; no cause
-  is now confirmed: factory Templates metadata sets `PreventRemoval=true`.
-  Cleanup keeps this protection and now explains it in its tooltip. Toolbar,
-  source menu and directory menu respect the same inherited protection. Removing
-  the protection explicitly through Directory Properties enables cleanup.
-  Windows checks cover Versions enabled, protection, explicit unprotection,
-  retained current files, cleanup confirmation/Cancel and recycling of only
-  unprotected synthetic archives. Factory/user template protection is not
-  silently changed.
+- **Numbered native files:** automatic numbered native copies and their cleanup
+  workflow have been removed. Existing numbered files are left untouched but
+  remain hidden in File Manager; there is no Versions toggle or Clean action.
+  Ordinary current-file Copy, Move and Delete continue to respect source and
+  directory protection.
 - **Native file-type icons:** in Templates, the user sees Pro/ENGINEER icons
   for `.prtz` and `.asmz` files. The user suspects their Windows file associations;
   this cause is unverified. Check the File Manager icon provider and use the
   application's own Part/Assembly icons for native ZIMA formats independently
   of operating-system associations, with correct Light/Dark presentation on
-  Windows and Linux. Check version/backup filename variants as well. Preserve
+  Windows and Linux. Preserve
   file opening behavior and the user's system associations; this observation
   does not authorize changing Windows defaults. File Manager and the ordinary
   file chooser now share the native icon mapping, including uppercase extensions
-  and numeric archive suffixes for Part, Assembly, Drawing, frame, title block
-  and symbol. Light/Dark/Light checks match the application's own icons and leave
+  for Part, Assembly, Drawing, frame, title block and symbol. Light/Dark/Light
+  checks match the application's own icons and leave
   foreign formats to the existing system provider. No system association is
   changed. Windows checks passed; Linux desktop execution remains unverified.
 
@@ -505,16 +474,16 @@ outstanding. Details and timings are in the
 
 ## File type filters and folder creation
 
-The native type buttons next to Versions independently show or hide Part,
+The native type buttons independently show or hide Part,
 Assembly, Drawing, material, frame, title-block and symbol files. Filtering
 combines with the existing per-column text filters without reloading native
 documents. Column filter editors follow horizontal scrolling, section resizing
 and reordering. The header context menu can hide the Type column; this choice
 is stored with the existing local column layout.
 Type buttons and extension values in the Type column use lowercase. Checked
-type and Versions buttons use the shared azure command-button state.
+type buttons use the shared azure command-button state.
 
-Filters, next to Versions, edits `0000-index/filters.ini`. Its `[Filters]`
+Filters edits `0000-index/filters.ini`. Its `[Filters]`
 `Hide` list contains exact names or wildcard patterns (`*` and `?`), matched
 against complete file and folder names without case sensitivity. This is the
 current ZIMA-Parts local filter convention. Rules apply to that directory only;
@@ -532,17 +501,17 @@ One pattern per line is used in both editors; empty lists are supported.
 Native buttons atomically update local `Filters/Hide` extension rules. Enabling
 a type hidden by an exact global extension rule copies the effective rules
 locally and disables global inheritance, retaining the other exclusions.
-`Filters/ShowZimaVersions` persists Versions. Pattern expressions are compiled
-once per refresh. Read-only or content-protected directories permit transient
-native-button changes without writing policy; their local rule editor is
-read-only. Parameter-edit protection alone does not block filter configuration.
+Pattern expressions are compiled once per refresh. Read-only or
+content-protected directories permit transient native-button changes without
+writing policy; their local rule editor is read-only. Parameter-edit protection
+alone does not block filter configuration.
 
-Versions, Filters, type buttons, New Folder, thumbnail size and the remaining
-file actions share one row. The size slider follows New Folder. Native type
-and Versions buttons have icons; active states are azure. All current factory
-symbol definitions have geometry-based PNG previews in their local thumbnail
-metadata directories; `tools/generate-symbol-thumbnails.py` regenerates and
-checks these without modifying native definitions.
+Filters, type buttons, New Folder, thumbnail size and the remaining file actions
+share one row. The size slider follows New Folder. Native type buttons have
+icons; active states are azure. All current factory symbol definitions have
+geometry-based PNG previews in their local thumbnail metadata directories;
+`tools/generate-symbol-thumbnails.py` regenerates and checks these without
+modifying native definitions.
 
 New Folder creates one immediate child using the shared internal name editor.
 Invalid, reserved or existing names are rejected. Source read-only status and

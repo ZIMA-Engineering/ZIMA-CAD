@@ -99,10 +99,8 @@ private:
     QWebEngineView* overview_web_{};
     QTreeWidget* files_{};
     QPushButton* copy_{};
-    QPushButton* clean_{};
     QPushButton* move_{};
     QPushButton* remove_{};
-    QToolButton* filter_versions_{};
     QToolButton* filters_{};
     void edit_filters();
     QMap<QString,QToolButton*> type_filters_;
@@ -130,7 +128,6 @@ private:
     void show_tree_menu(QTreeView* tree, const QPoint& point);
     void copy_selected(bool move);
     void delete_selected();
-    void clean_directory(const QString& directory);
     void save_column_layout();
     void restore_column_layout();
     void save_parameter(const QModelIndex& index);

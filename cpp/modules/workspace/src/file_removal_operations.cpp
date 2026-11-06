@@ -1,7 +1,6 @@
 #include <zima/workspace/file_removal_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
-#include <algorithm>
 #include <type_traits>
 
 namespace zima::workspace {
@@ -17,20 +16,13 @@ const auto& session(const State& state) {
     if constexpr(std::is_same_v<State, DrawingState>) return state;
     else return state.session;
 }
-bool same_archives(const std::vector<ArchiveFile>& a, const std::vector<ArchiveFile>& b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(),
-        [](const auto& left, const auto& right) {
-            return left.path == right.path && left.version == right.version &&
-                left.size == right.size && left.modified == right.modified;
-        });
-}
 }
 FileRemovalPlan prepare_document_file_removal(
-    const Workspace& live, const std::string& id, bool archives, bool discard) {
+    const Workspace& live, const std::string& id, bool discard) {
     const auto* state = live.find(id);
     if (!state) throw FileRemovalError("document_not_found", "The document is not open.");
     FileRemovalPlan plan;
-    plan.id_ = id; plan.include_archives_ = archives;
+    plan.id_ = id;
     std::visit([&](const auto& value) {
         if (value.path.empty() || value.path.native().find(fs::path::value_type{}) != std::string::npos)
             throw FileRemovalError("path_required", "The document has no saved native file.");
@@ -48,7 +40,6 @@ FileRemovalPlan prepare_document_file_removal(
         throw FileRemovalError("unsaved_changes", "The document has unsaved changes. Save it or explicitly allow discard.");
     plan.size_ = fs::file_size(plan.path_);
     plan.modified_ = fs::last_write_time(plan.path_);
-    if (archives) plan.archives_ = document_archives(plan.path_);
     return plan;
 }
 FileRemovalResult remove_document_file(Workspace& live, const FileRemovalPlan& plan) {
@@ -70,8 +61,6 @@ FileRemovalResult remove_document_file(Workspace& live, const FileRemovalPlan& p
         if (!fs::is_regular_file(fs::symlink_status(plan.path_)) ||
             fs::file_size(plan.path_) != plan.size_ || fs::last_write_time(plan.path_) != plan.modified_)
             return fail(plan.path_, "stale_file", "The native file changed before deletion.");
-        if (plan.include_archives_ && !same_archives(plan.archives_, document_archives(plan.path_)))
-            return fail(plan.path_, "stale_archive", "The archive files changed; list them again before deleting.");
     } catch (const fs::filesystem_error& error) {
         return fail(plan.path_, "file_io_error", error.code().message());
     }
@@ -85,11 +74,6 @@ FileRemovalResult remove_document_file(Workspace& live, const FileRemovalPlan& p
     if (close_document(live, plan.id_, true) != CloseDocumentResult::Closed)
         return fail(plan.path_, "close_failed", "The deleted document could not be closed.");
     result.closed_document = plan.id_;
-    const auto removed_archives = remove_archives(plan.archives_);
-    result.removed.insert(result.removed.end(), removed_archives.removed.begin(), removed_archives.removed.end());
-    result.removed_bytes += removed_archives.removed_bytes;
-    if (!removed_archives.ok())
-        return fail(removed_archives.failed_path, removed_archives.code.c_str(), removed_archives.message);
     return result;
 }
 } // namespace zima::workspace

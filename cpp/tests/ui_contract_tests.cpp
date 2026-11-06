@@ -1541,6 +1541,18 @@ static void verify_edge_treatment_fragments(QWidget& parent) {
             std::vector(edge.points.size(),zima::kernel::Vec3{0,1,0}),
             std::vector(edge.points.size(),zima::kernel::Vec3{0,0,1})};
     }
+    auto fillet=zima::document::PartDocument::create_fillet_container(
+        {authored});
+    const auto resolved=zima::document::treatment_selection_wire(
+        fillet.edge_treatment,0,std::nullopt,mesh);
+    require(resolved.size()==2&&resolved.front().reference==first_child&&
+            resolved.back().reference==nested_child,
+        "Fillet analytical preview preferred a stale exact parent over its current descendants");
+    auto document=zima::document::PartDocument::create_default();
+    document.history.push_back(fillet);
+    require(zima::app::feature_reference_issue(fillet,document,
+            zima::app::part_reference_index(document),&mesh).empty(),
+        "Tree marked a Fillet red when all persisted edge descendants were current");
     zima::viewer::MeshView view(&parent);
     view.set_mesh(std::move(mesh));
     const auto fragments=view.display_edges(authored);
@@ -1550,8 +1562,6 @@ static void verify_edge_treatment_fragments(QWidget& parent) {
             fragments.back().edge_treatment_side_directions.size()==2,
         "Fillet/Chamfer preview did not prefer all recursively split descendants over a stale parent");
 
-    auto fillet=zima::document::PartDocument::create_fillet_container(
-        {authored});
     auto* dialog=new zima::app::PrimitivePropertiesDialog(
         fillet,false,false,[](auto){},&parent);
     dialog->set_edge_groups({{authored}},{fragments});

@@ -165,9 +165,15 @@ void placement_and_pattern_inputs(QApplication& application,QWidget& parent,doub
         transition->reject();application.processEvents();
     }
     double saved_thickness{};
-    auto* sheet=new app::SheetFromBodyDialog(.123456789,[&](auto,double thickness){saved_thickness=thickness;},&parent);
+    bool sheet_override{};
+    auto* sheet=new app::SheetFromBodyDialog(.123456789,
+        [&](auto,double thickness,bool override_value) {
+            saved_thickness=thickness;sheet_override=override_value;
+        },&parent);
     sheet->setLocale(QLocale::c());sheet->set_reference({"source","face",{}},.123456789);
+    sheet->findChild<QCheckBox*>("sheetSourceThicknessOverride")->click();
     input(sheet,"sheetSourceThickness",scale);sheet->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();near(saved_thickness,.125*scale);
+    check(sheet_override,"Sheet from Body did not submit its thickness override");
     auto thread_definition=document::PartDocument::create_shaft_thread_container();
     thread_definition.shaft_thread.length=25.4123456789;
     auto* thread=new app::ShaftThreadDialog(thread_definition,[](auto){},&parent);thread->setLocale(QLocale::c());

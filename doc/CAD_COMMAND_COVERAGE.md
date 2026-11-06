@@ -73,7 +73,7 @@ parameters, detailed limits and the verification evidence for each stage.
 | Area | Coverage and boundaries | Details |
 | --- | --- | --- |
 | CLI process and catalog | UTF-8, scripts, stdin, config, context and data Tree; typed strings/numbers/integers/booleans/objects/arrays validated before mutation | [CLI](CAD_COMMAND_LINE.md) |
-| Documents | New/Open/Save/Save As, activation/close, working directory, archives, file deletion and rename; shared data/file transactions | [Document operations](DOCUMENT_OPERATIONS.md), [archives](ARCHIVE_COMMANDS.md), [rename](NATIVE_FILE_RENAME.md), [Unicode paths](UNICODE_NATIVE_FILE_COMMANDS.md) |
+| Documents | New/Open/Save/Save As, activation/close, working directory, current-file deletion and rename; shared data/file transactions | [Document operations](DOCUMENT_OPERATIONS.md), [file removal](FILE_REMOVAL_COMMANDS.md), [rename](NATIVE_FILE_RENAME.md), [Unicode paths](UNICODE_NATIVE_FILE_COMMANDS.md) |
 | Regenerate and Undo/Redo | Shared Part/Assembly/Drawing operations; regressions accompany each changed transaction | [Part transactions](PART_SESSION_TRANSACTIONS.md), [state publication](WORKSPACE_STATE_PUBLICATION.md) |
 | Unified Feature | Point, Axis, Plane, Sketch and combined Extrusion/Revolution; the old six standalone primitive commands and their native support have been removed | [Feature types](UNIFIED_FEATURE_TYPES.md), [value locks](VALUE_LOCK_COMMANDS.md) |
 | Sketch-driven Holes | Finite cylinders along non-construction segments, common diameter, Part subtraction, shared GUI/CLI commit | [Holes](HOLES.md) |

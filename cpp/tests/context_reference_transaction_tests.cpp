@@ -23,7 +23,10 @@ void verify(const fs::path& dir) {
         {"owner",fixture.edge.reference.owner_id},{"key",fixture.edge.reference.semantic_key},
         {"instance_path",fixture.source_path.encoded()},{"profile",true}}).data;
     const auto current=[&]{return workspace::document_sketch(live,fixture.target.document_id,fixture.sketch_id);};
-    require(current().external_references.size()==1,"Context reference was not created");
+    require(current().external_references.size()==3&&
+        std::ranges::count_if(current().external_references,[](const auto& reference) {
+            return sketcher::is_external_endpoint_kind(reference.kind);
+        })==2,"Context reference or its two endpoint references were not created");
     const auto& owner=live.open_assembly(fixture.inner.document_id)->session;
     require(owner.document().dependencies.size()==1,"Reference and owner dependency were not committed together");
     require(!owner.can_undo(),"Derived reference summary created an independent Assembly Undo item");
@@ -77,12 +80,19 @@ void create_all_kinds(const fs::path& dir) {
     f.inner.dependencies.clear();workspace::Workspace live;f.load(live);auto cwd=dir;command_host::Host host(live,kernel,cwd);
     run(host,"component.activate",{{"instance_path",f.target_path.encoded()}});
     const auto generation=live.open_assembly(f.inner.document_id)->session.data_generation();
+    std::vector<std::string> created_references;
     for(const auto& r:expected) {
         using Kind=sketcher::ExternalReferenceKind;
         const auto name=r.kind==Kind::Edge?"edge":r.kind==Kind::Point?"point":r.kind==Kind::Axis?"axis":"face";
         const auto added=run(host,"sketch.reference.create",{{"sketch",f.sketch_id},{"kind",name},{"owner",r.source_owner_id},
             {"key",r.source_semantic_key},{"instance_path",r.source_instance_path},{"profile",r.kind==Kind::Edge}}).data;
-        const auto sketch=workspace::document_sketch(live,f.target.document_id,f.sketch_id);const auto& actual=sketch.external_references.back();
+        const auto reference_id=added.at("reference").get<std::string>();
+        created_references.push_back(reference_id);
+        const auto sketch=workspace::document_sketch(live,f.target.document_id,f.sketch_id);
+        const auto found=std::ranges::find(sketch.external_references,reference_id,
+            &sketcher::SketchExternalReference::id);
+        require(found!=sketch.external_references.end(),"Created context reference is missing");
+        const auto& actual=*found;
         require(!added.at("body_calculated").get<bool>()&&!actual.broken&&actual.kind==r.kind&&actual.source_owner_id==r.source_owner_id&&
             actual.source_semantic_key==r.source_semantic_key&&actual.source_document_id==f.source.document_id&&actual.context_instance_path==f.target_path.encoded(),
             "Context creation lost the reference kind, original identity or exact occurrence");
@@ -93,8 +103,12 @@ void create_all_kinds(const fs::path& dir) {
             live.open_assembly(f.inner.document_id)->session.data_generation()==generation+1,"Shared source references created repeated owner transactions");
     }
     run(host,"save");const auto saved=document::PartDocument::load(dir/"context-target.prtz");
-    require(saved.sketches.front().external_references.size()==4,"Native Part did not retain all four created reference kinds");
-    for(const auto& r:saved.sketches.front().external_references)run(host,"sketch.reference.delete",{{"sketch",f.sketch_id},{"reference",r.id}});
+    require(saved.sketches.front().external_references.size()==6&&
+        std::ranges::count_if(saved.sketches.front().external_references,[](const auto& reference) {
+            return sketcher::is_external_endpoint_kind(reference.kind);
+        })==2,"Native Part did not retain all four created reference kinds and two edge endpoints");
+    for(const auto& reference:created_references)
+        run(host,"sketch.reference.delete",{{"sketch",f.sketch_id},{"reference",reference}});
     require(live.open_assembly(f.inner.document_id)->session.document().dependencies.empty(),"Last shared reference did not remove its owner summary");
 }
 void closed_sibling(const fs::path& dir) {

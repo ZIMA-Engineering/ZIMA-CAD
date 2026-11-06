@@ -248,7 +248,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         const auto source=std::filesystem::absolute(definition.part.form_outward?
             "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz":
             "cpp/tests/fixtures/form/CornerGusset90-inward-control.prtz");
-        auto* action=window.findChild<QAction*>("sheetFormAction");check(action&&action->isEnabled(),"Corner Form action unavailable");
+        auto* action=window.findChild<QAction*>("sheetFormAction");check(action&&action->isEnabled()&&!action->icon().isNull(),"Corner Form action or icon unavailable");
         choose(source,[&]{action->trigger();});dialog=editor();check(dialog,"Corner creation Properties missing");
         const auto canceled=dialog->container_id();dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         run("save");check(!document::PartDocument::load(stock_path).find_container(canceled),"Corner creation Cancel inserted history");

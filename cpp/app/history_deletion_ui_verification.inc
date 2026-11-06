@@ -154,6 +154,109 @@ Q_NEVER_INLINE static int verify_history_deletion(QApplication& application,
         QMouseEvent double_middle(QEvent::MouseButtonDblClick,point,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
         QApplication::sendEvent(view,&double_middle);flush();
         check(!window.findChild<QDialog*>("deleteHistoryDialog")&&!row(source.id),"Middle double-click over View did not confirm deletion");
-        std::cout<<"History deletion GUI: Tree/View menu parity (Feature, Fillet, Point, Axis, Plane, Curve3D), exact target, preview, Cancel, OK, save, Undo and Redo passed\n";return 0;
+
+        // Reproduce the user case: Body 2 is placed from Body 1, Body 1 is
+        // removed, and Body 2's first Sketch must remain enterable. The
+        // removed placement reference stays reported for repair, but must not
+        // poison the surviving Body's rollback boundary.
+        auto linked=document::PartDocument::create_default();
+        auto first_feature=test::rectangular_feature(linked,{20,20,10});
+        auto linked_sketch_container=document::PartDocument::create_sketch_container();
+        auto linked_sketch=sketcher::Sketch::create_default();
+        linked_sketch.owner_container_id=linked_sketch_container.id;
+        linked_sketch_container.feature.sketch_id=linked_sketch.id;
+        auto second_feature=test::rectangular_feature(linked,{5,5,5});
+        linked.history={first_feature,linked_sketch_container,second_feature};
+        linked.sketches.push_back(linked_sketch);
+        document::BodyHistoryGraph linked_graph;
+        const auto first_body=linked_graph.create_body("First");
+        linked_graph.insert({document::PartHistoryKind::Feature,first_feature.id});
+        const auto second_body=linked_graph.create_body("Second");
+        linked_graph.insert({document::PartHistoryKind::Feature,linked_sketch_container.id});
+        linked_graph.insert({document::PartHistoryKind::Feature,second_feature.id});
+        linked.set_body_history(linked_graph);
+        auto linked_calculated=workspace::calculate_part_with_resolved_references(kernel,linked);
+        const auto linked_face=std::ranges::find_if(
+            linked_calculated.back().mesh.original_references.triangle_references,
+            [&](const auto& value){return value.owner_id==first_feature.id&&value.surface&&
+                value.surface->kind==kernel::SurfaceGeometry::Kind::Plane;});
+        check(linked_face!=linked_calculated.back().mesh.original_references.triangle_references.end(),
+            "Linked-Body GUI fixture has no source face");
+        linked_graph=linked.body_history;
+        auto positioned=*linked_graph.find(second_body);
+        document::ConstructionReference placement;
+        placement.owner_id=linked_face->owner_id;placement.semantic_key=linked_face->semantic_key;
+        placement.orientation_role="front";placement.orientation_drives_rotation=true;
+        positioned.scope.placement.references={placement};
+        linked_graph.update_body(positioned);linked.set_body_history(linked_graph);
+        linked.resolve_constructions(linked_calculated.back().mesh.original_references);
+        linked_calculated=workspace::calculate_part_with_resolved_references(kernel,linked,&linked_calculated);
+        const auto linked_path=directory/"history-deletion-linked-bodies.prtz";
+        linked.save(linked_path,linked_calculated);
+        check(window.open_document_path(QString::fromStdString(linked_path.string())),
+            "Linked-Body deletion fixture did not open");flush();
+        // Structural Body deletion is deliberately available only at the Part
+        // boundary.  Preserve that contract, remove Body 1 there, and activate
+        // the surviving Body 2 afterwards to exercise its Sketch editor.
+        run("body.activate");
+        tree=window.findChild<QTreeWidget*>("documentTree");
+        const auto linked_row=[&](const std::string& id,const char* role)->QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                   (*it)->data(0,Qt::UserRole+3).toString()==role)return *it;
+            return nullptr;
+        };
+        auto* first_body_row=linked_row(first_body,"part-body");
+        check(first_body_row&&linked_row(second_body,"part-body")&&linked_row(linked_sketch.id,"part-sketch"),
+            "Linked-Body deletion tree is incomplete");
+        tree->setCurrentItem(first_body_row);tree->scrollToItem(first_body_row);flush();
+        bool linked_delete_invoked=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+            auto* action=menu->findChild<QAction*>("deleteBodyAction");if(!action){menu->close();return;}
+            linked_delete_invoked=true;
+            menu->close();
+        });
+        QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,
+            Q_ARG(QPoint,tree->visualItemRect(first_body_row).center()));flush();
+        check(linked_delete_invoked,"Linked Body delete action missing at the Part boundary");
+        window.delete_part_object_for_test(first_body,QStringLiteral("part-body"));flush();
+        auto* linked_confirmation=window.findChild<QDialog*>("deleteHistoryDialog");
+        check(linked_confirmation&&linked_confirmation->isVisible(),"Linked Body deletion confirmation missing");
+        linked_confirmation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!linked_row(first_body,"part-body")&&linked_row(second_body,"part-body")&&
+            linked_row(linked_sketch.id,"part-sketch"),"Deleting Body 1 removed Body 2 or its Sketch");
+        run(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",second_body}}}}.dump()));
+        window.show_tree_item_properties(linked_row(linked_sketch.id,"part-sketch"));flush();
+        SketchPropertiesDialog* linked_properties{};
+        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+            if(auto* properties=dynamic_cast<SketchPropertiesDialog*>(candidate))linked_properties=properties;
+        check(linked_properties,"Body 2 Sketch Properties did not open after deleting Body 1");
+        linked_properties->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+        check(window.findChild<QAction*>("finishSketchAction")->isEnabled(),
+            "Body 2 Sketch cannot enter Sketcher after deleting Body 1");
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+            if(auto* properties=dynamic_cast<SketchPropertiesDialog*>(candidate))properties->reject();
+        flush();run("save");
+        const auto linked_saved=document::PartDocument::load(linked_path);
+        check(!linked_saved.body_history.find(first_body)&&linked_saved.body_history.find(second_body)&&
+            linked_saved.body_history.find(second_body)->scope.placement.references.empty()&&
+            linked_saved.removed_reference_states.contains(second_body),
+            "Linked-Body deletion did not persist its repairable surviving state");
+        // Explicit Body activation is the newest document-history step. Undo
+        // it first, then undo the preceding structural deletion.
+        run("undo");check(!linked_row(first_body,"part-body")&&linked_row(second_body,"part-body"),
+            "Undoing Body activation changed the deleted/surviving Body set");
+        run("undo");check(linked_row(first_body,"part-body"),"Linked-Body deletion Undo lost Body 1");
+        run("redo");check(!linked_row(first_body,"part-body")&&linked_row(second_body,"part-body"),
+            "Linked-Body deletion Redo did not restore the surviving state");
+        run("redo");check(!linked_row(first_body,"part-body")&&linked_row(linked_sketch.id,"part-sketch"),
+            "Linked-Body deletion Redo lost the surviving Sketch");
+        window.show_tree_item_properties(linked_row(linked_sketch.id,"part-sketch"));flush();
+        check(window.findChild<QPushButton*>("sketchOpenButton"),
+            "Surviving Sketch Properties cannot reopen after deletion Redo");
+        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())candidate->reject();flush();
+        std::cout<<"History deletion GUI: Tree/View menu parity, exact target, preview, Cancel, OK, save, Undo/Redo and linked two-Body Sketch entry passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

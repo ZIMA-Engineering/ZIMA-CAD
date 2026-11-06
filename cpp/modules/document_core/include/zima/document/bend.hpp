@@ -6,6 +6,10 @@ namespace zima::document {
 // Native sheet attachment consumes persisted adjacency and endpoint identities.
 [[nodiscard]] std::vector<ConstructionReference> bend_sheet_references(
     const kernel::ViewerEdge&, const kernel::VertexReference& start = {});
+// Resolve the persisted physical endpoint choice after a later Boolean has
+// replaced one native endpoint identity by an older contributing vertex.
+[[nodiscard]] kernel::VertexReference current_sheet_attachment_anchor(
+    const kernel::ViewerEdge&,const Placement&);
 void update_bend_sheet_profile(HistoryContainer&,sketcher::Sketch&,
     const kernel::ViewerReferenceGeometry&,const std::string& document_id);
 void update_sheet_edge_profile(const Placement&,double& thickness,sketcher::Sketch&,

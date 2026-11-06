@@ -167,6 +167,9 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         form->addRow(unit_labels.value(it.key()), combo);
     }
 
+    auto* sheet_page=new QWidget(sections_);
+    sheet_page->setObjectName("globalSheetSettings");
+    auto* sheet_form=new QFormLayout(sheet_page);
     const QMap<QString, QString> path_labels{
         {"WorkingDirectory", settings_.text("global.path.working_directory",
             tr("Výchozí pracovní adresář"))},
@@ -177,7 +180,8 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         {"Forms", settings_.text("global.path.forms", tr("Knihovna FORM"))},
         {"Localization", settings_.text("global.path.localization", tr("Překlady"))}};
     for (auto it = path_labels.cbegin(); it != path_labels.cend(); ++it) {
-        auto* row = new QWidget(this);
+        auto* page=it.key()=="Forms"?sheet_page:general;
+        auto* row = new QWidget(page);
         auto* row_layout = new QHBoxLayout(row);
         row_layout->setContentsMargins(0, 0, 0, 0);
         auto* edit = new QLineEdit(settings_.configured_paths.value(it.key()), row);
@@ -189,7 +193,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         row_layout->addWidget(edit, 1);
         row_layout->addWidget(browse);
         path_fields_.insert(it.key(), edit);
-        form->addRow(it.value(), row);
+        (it.key()=="Forms"?sheet_form:form)->addRow(it.value(), row);
         if(system_setup_&&it.key()!="WorkingDirectory"&&it.key()!="Templates") {
             row->hide();form->labelForField(row)->hide();
         }
@@ -225,8 +229,6 @@ GlobalSettingsDialog::GlobalSettingsDialog(
             skeleton_template_->setCurrentText("START_SKELETON_"+unit+".prtz");
         });
     }
-    auto* sheet_page=new QWidget(sections_);
-    auto* sheet_form=new QFormLayout(sheet_page);
     sheet_cut_tolerance_=new QDoubleSpinBox(sheet_page);
     sheet_cut_tolerance_->setObjectName("globalSheetCutTolerance");
     sheet_cut_tolerance_->setDecimals(6);sheet_cut_tolerance_->setRange(.000001,1.);

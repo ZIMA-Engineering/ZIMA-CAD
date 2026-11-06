@@ -711,7 +711,13 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 for(const bool commit:{false,true}) {
                     auto* dialog=new GlobalSettingsDialog(initial,&window);dialog->show();flush();
                     auto* field=dialog->findChild<QLineEdit*>("globalPathForms");
-                    check(field&&field->isVisible(),"Global settings FORM path field missing");
+                    auto* sheet_page=dialog->findChild<QWidget*>("globalSheetSettings");
+                    auto* sections=dialog->findChild<QTabWidget*>("globalSettingsSections");
+                    check(field&&sheet_page&&sections,"Global settings FORM path field missing");
+                    sections->setCurrentWidget(sheet_page);flush();
+                    check(field->isVisible(),"Global settings FORM path field missing");
+                    check(sheet_page&&sheet_page->isAncestorOf(field),
+                        "Global settings FORM path is not on the Sheet Metal tab");
                     const auto labels=dialog->findChildren<QLabel*>();
                     check(std::ranges::any_of(labels,[&](auto* label){return label->text()==initial.translations.value("global.path.forms");}),"Global FORM path label is not localized");
                     field->setText("custom-forms");
@@ -2263,73 +2269,6 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         {
             const auto previous = run("context").data.at("active_document");
             const auto previous_directory = run("pwd").data.at("path");
-            const auto archive_directory = directory / std::filesystem::path(stem + "-archives");
-            std::filesystem::create_directory(archive_directory);
-            const auto archive_part = archive_directory / std::filesystem::path(u8"díl s archivem.prtz");
-            const auto path_text = [](const auto& path) { return document::path_to_utf8(path); };
-            const auto fixture = [&](const std::filesystem::path& path) {
-                QFile file(QString::fromStdString(path_text(path)));
-                check(file.open(QIODevice::WriteOnly) && file.write("archive") == 7, "GUI archive fixture write failed");
-            };
-            json_run("cd", {{"path",path_text(archive_directory)}});
-            json_run("new", {{"type","part"},{"name",path_text(archive_part.stem())}});
-            run("save"); run("save"); run("save");
-            auto tenth = archive_part; tenth += ".10"; fixture(tenth);
-            fixture(archive_directory / "other.asmz.2"); fixture(archive_directory / "other.asmz.10");
-            const auto archive_id = run("context").data.at("active_document");
-            json_run("activate", {{"document",archive_id}}); flush();
-            const auto confirmed_documents = run("documents").data;
-            const auto listed = [&] {
-                return json_run("file.archives.list", {{"path",path_text(archive_part)}}).data.at("count").get<std::size_t>();
-            };
-            check(listed() == 3, "GUI saved file archive count is wrong");
-            const auto click_action = [&](const char* name, bool accept) {
-                auto* action = window.findChild<QAction*>(name);
-                check(action && action->isEnabled(), "Archive menu action missing or disabled");
-                bool answered = false, unexpected = false;
-                QTimer responder;
-                responder.setInterval(5);
-                QObject::connect(&responder, &QTimer::timeout, [&] {
-                    for (auto* widget : QApplication::topLevelWidgets()) {
-                        auto* box = qobject_cast<QMessageBox*>(widget);
-                        if (!box || !box->isVisible()) continue;
-                        auto* button = box->button(accept ? QMessageBox::Yes : QMessageBox::No);
-                        if (!button) { unexpected = true; box->reject(); }
-                        else { answered = true; button->click(); }
-                        break;
-                    }
-                });
-                responder.start(); action->trigger(); responder.stop(); flush();
-                check(answered && !unexpected, "Archive menu did not complete its expected confirmation");
-            };
-            click_action("deleteOldVersionsKeepLatestAction", false);
-            check(listed() == 3, "Archive confirmation No deleted files");
-            click_action("deleteOldVersionsKeepLatestAction", true);
-            check(listed() == 1 && std::filesystem::exists(tenth), "File menu did not retain numeric latest archive");
-            click_action("deleteOldVersionsAction", true);
-            check(listed() == 0 && std::filesystem::exists(archive_part), "File menu deleted current document");
-            fixture(tenth);
-            auto older = archive_part; older += ".2"; fixture(older);
-            json_run("activate", {{"document",archive_id}}); flush();
-            click_action("deleteWorkingDirectoryKeepLatestAction", true);
-            check(json_run("directory.archives.list", {{"path",path_text(archive_directory)}}).data.at("count") == 2 &&
-                std::filesystem::exists(tenth) && std::filesystem::exists(archive_directory / "other.asmz.10"),
-                "Directory menu did not keep one latest archive per document");
-            click_action("deleteWorkingDirectoryOldVersionsAction", true);
-            check(json_run("directory.archives.list", {{"path",path_text(archive_directory)}}).data.at("count") == 0 &&
-                run("documents").data == confirmed_documents, "Archive menus changed current document state");
-            fixture(tenth); json_run("activate", {{"document",archive_id}}); flush();
-            json_run("file.archives.prune", {{"path",path_text(archive_part)},{"keep",0}}); flush();
-            check(!window.findChild<QAction*>("deleteOldVersionsAction")->isEnabled() &&
-                run("documents").data == confirmed_documents, "CLI archive deletion did not refresh menu or changed document");
-            run("close");
-            json_run("activate", {{"document",previous}});
-            json_run("cd", {{"path",previous_directory}});
-        }
-
-        {
-            const auto previous = run("context").data.at("active_document");
-            const auto previous_directory = run("pwd").data.at("path");
             const auto removal_directory = directory / (stem + "-file-removal");
             std::filesystem::create_directory(removal_directory);
             json_run("cd", {{"path",document::path_to_utf8(removal_directory)}});
@@ -2360,18 +2299,17 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 const auto file = removal_directory / std::filesystem::u8path(name + (type == "part" ? ".prtz" : type == "assembly" ? ".asmz" : ".drwz"));
                 auto archive = file; archive += ".1";
                 json_run("new", {{"type",type},{"name",name}}); run("save"); run("save"); flush();
+                { QFile legacy(QString::fromStdString(document::path_to_utf8(archive))); check(legacy.open(QIODevice::WriteOnly) && legacy.write("legacy") == 6, "Legacy numbered fixture write failed"); }
                 const auto id = run("context").data.at("active_document");
                 const auto state_before = run("documents").data;
-                const auto action = type == "assembly" ? "deleteAllVersionsAction" : "deleteCurrentFileAction";
-                menu(action, false);
+                menu("deleteCurrentFileAction", false);
                 check(std::filesystem::exists(file) && std::filesystem::exists(archive) &&
                     run("documents").data == state_before, "File deletion confirmation No changed document/files");
-                menu(action, true);
+                menu("deleteCurrentFileAction", true);
                 bool still_open = false;
                 for (const auto& doc : run("documents").data) if (doc.at("id") == id) still_open = true;
-                check(!still_open && !std::filesystem::exists(file) &&
-                    std::filesystem::exists(archive) == (type != "assembly"),
-                    "GUI deletion failed to close exact native document or removed wrong archives");
+                check(!still_open && !std::filesystem::exists(file) && std::filesystem::exists(archive),
+                    "GUI deletion failed to close exact native document or changed a numbered file");
             }
             const auto dirty_name = stem + "-dirty-removal";
             const auto dirty_file = removal_directory / (dirty_name + ".prtz");
@@ -2402,7 +2340,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(properties && properties->isVisible() && std::filesystem::exists(guarded_file) &&
                 !QApplication::activeModalWidget(), "GUI file deletion interrupted Properties");
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
-            const auto deleted = json_run("delete_file", {{"archives",true}});
+            const auto deleted = json_run("delete_file", commands::Json::object());
             check(deleted.data.at("closed") == true && !std::filesystem::exists(guarded_file),
                 "Console file deletion did not update GUI after Properties closed");
             json_run("activate", {{"document",previous}});
@@ -2523,12 +2461,12 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
             json_run("activate", {{"document",drawing.document_id}}); flush();
             // Clean GUI Save is intentionally a no-op. Make a real edit so
-            // this path/Unicode check exercises persistence and its archive.
+            // this path/Unicode check exercises persistence without creating an archive.
             json_run("drawing.sheet.set",{{"sheet",drawing.sheets.front().id},{"locale","en"}});flush();
             window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
             auto companion_archive = final_companion; companion_archive += ".1";
             check(drawing::DrawingDocument::load(final_companion).source_path == final_path &&
-                std::filesystem::exists(companion_archive),
+                !std::filesystem::exists(companion_archive),
                 "GUI Drawing Save after Unicode rename used a different native path");
             group.components.front().source_path = final_path;
             group.save(closed_assembly);
@@ -2539,7 +2477,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
             auto assembly_archive = assembly_path; assembly_archive += ".1";
             check(assembly::AssemblyDocument::load(assembly_path).components.front().source_path == final_path &&
-                std::filesystem::exists(assembly_archive),
+                !std::filesystem::exists(assembly_archive),
                 "GUI Assembly Save after Unicode rename used a different native path");
             json_run("close", {{"document",group.document_id},{"discard",true}});
             json_run("close", {{"document",drawing.document_id},{"discard",true}});

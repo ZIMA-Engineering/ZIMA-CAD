@@ -1,6 +1,7 @@
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <algorithm>
@@ -48,6 +49,9 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     auto* state=live.open_part(id);
     if(!state)throw std::invalid_argument("Flat is available only in a Part.");
     const auto& before=state->session.document();const auto* existing=before.find_container(feature.id);
+    if(existing&&!existing->sheet_profile_binding.parent_id.empty())
+        return commit_sheet_profile_master_edit(live,kernel,id,
+            std::move(feature),std::move(sketch));
     const auto* body=existing?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(body&&body->derived_copy)throw std::invalid_argument("A derived Body cannot be edited directly.");
     if(body&&body->scope.id!=before.body_history.active_body_id())throw std::invalid_argument("Activate the Body owning this Flat.");

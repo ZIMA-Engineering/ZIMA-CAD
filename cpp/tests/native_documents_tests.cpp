@@ -82,24 +82,20 @@ int main(){
                 }
                 model.save(a);model.save(b);
                 require(bytes(a)==bytes(b),"Native Unicode path changed persisted document bytes");
-                const auto initial=bytes(b);const auto id=model.document_id;
+                const auto id=model.document_id;
                 auto loaded=Model::load(b);require(loaded.document_id==id&&loaded.name==model.name,"Native Unicode document did not reopen with its identity/name");
                 model.name="\x53\x65\x63\x6f\x6e\x64\x20\x72\x65\x76\x69\x73\x69\x6f\x6e\x20\xd0\x9f\xd1\x80\xd0\xb8\xd0\xbc\xd0\xb5\xd1\x80\x20\xe6\xa4\x9c\xe6\x9f\xbb";model.save(b);
                 auto archive=b;archive+=".1";
-                require(fs::is_regular_file(document::native_file_io_path(archive))&&bytes(archive)==initial,"Unicode overwrite did not archive the exact original");
+                require(!fs::exists(document::native_file_io_path(archive)),"Unicode overwrite created an obsolete numbered archive");
                 loaded=Model::load(b);require(loaded.document_id==id&&loaded.name==model.name,"Unicode overwrite lost document identity/name");
-                const auto archived=Model::load(archive);require(archived.document_id==id,"Long Unicode archive did not reopen");
                 if(temporary_write) {
                     const auto before=bytes(b);auto temporary=b;temporary+=".tmp";fs::create_directory(document::native_file_io_path(temporary));
                     model.name="Rejected write";
                     fails([&]{model.save(b);},"Native write ignored an unavailable temporary target");
-                    require(bytes(b)==before&&document::archive_paths(b).size()==1&&fs::is_directory(document::native_file_io_path(temporary)),"Failed Unicode write changed the original, archives or pre-existing temporary directory");
+                    require(bytes(b)==before&&!fs::exists(document::native_file_io_path(archive))&&fs::is_directory(document::native_file_io_path(temporary)),"Failed Unicode write changed the original or created an archive");
                     fs::remove(document::native_file_io_path(temporary));
                 }
                 if(long_name) {
-                    // Remove over-limit archive names explicitly: the ordinary
-                    // recursive cleanup root itself has a short spelling.
-                    fs::remove(document::native_file_io_path(archive));
                     fs::remove(document::native_file_io_path(b));
                 }
             };
@@ -109,7 +105,7 @@ int main(){
             verify(document::PartDocument::create_default(),".prtz",true,true);
             verify(assembly::AssemblyDocument::create_default(),".asmz",true,true);
             verify(drawing::DrawingDocument::create_default(),".drwz",false,true);
-            std::cout<<"Native Unicode/CJK Part, Assembly and Drawing: identical bytes, overwrite archives, reopen and failed-write preservation passed\n";
+            std::cout<<"Native Unicode/CJK Part, Assembly and Drawing: identical bytes, no numbered copies, reopen and failed-write preservation passed\n";
         }
         {
             const auto fixture=fs::absolute("cpp/tests/fixtures/parity/ventilation-linux.prtz");

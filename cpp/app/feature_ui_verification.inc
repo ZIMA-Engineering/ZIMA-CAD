@@ -750,6 +750,7 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
     auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
     static_cast<void>(sketch.add_rectangle(0,0,10,8));
     auto value=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=value.id;
+    value.origin_point_visible=true;value.origin_text_visible=true;
     part.history={value};part.sketches={sketch};document::BodyHistoryGraph graph;const auto body=graph.create_body("Origin display");
     graph.insert({document::PartHistoryKind::Feature,value.id});part.set_body_history(graph);part.resolve_constructions();
     const auto calculated=kernel::OcctKernel{}.evaluate_history(part.kernel_operations());
@@ -787,8 +788,10 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         "Active Body Origin disappeared while placement Properties is open");
     check(count_origin_axes(pending_origin_id)==3,
         "Placed-container Origin preview is missing while Properties is open");
-    dialog->findChild<QCheckBox*>("originShowPoint")->setChecked(true);
-    dialog->findChild<QCheckBox*>("originShowText")->setChecked(true);
+    check(!dialog->findChild<QWidget*>("originDisplayControls")&&
+        !dialog->findChild<QCheckBox*>("originShowPoint")&&
+        !dialog->findChild<QCheckBox*>("originShowText"),
+        "Placed Feature Properties retained the obsolete Origin point/text row");
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
     std::vector<kernel::BodyResult> cache;auto saved=document::PartDocument::load(file,&cache);
     check(saved.find_container(value.id)->origin_point_visible&&saved.find_container(value.id)->origin_text_visible,"Origin flags were not persisted");
@@ -801,7 +804,8 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         "Placement preview Origin remained after placement OK");
     const auto marker=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==value.id&&p.reference.semantic_key=="container:origin-marker";});
     check(marker!=view->mesh().points.end()&&marker->always_visible&&marker->label==value.name,"Idle feature marker did not use saved flags");
-    dialog=edit();check(dialog->findChild<QCheckBox*>("originShowText")->isChecked(),"Reopened editor lost Origin flags");
+    dialog=edit();check(!dialog->findChild<QWidget*>("originDisplayControls"),
+        "Reopened editor restored the obsolete Origin point/text row");
     check(count_origin_axes(body_origin_id)==3&&count_origin_axes(pending_origin_id)==3,
         "Reopened placement editor lost the Body or pending container Origin");
     for(const double x:{7.0,-4.0,11.0}) {
@@ -818,7 +822,7 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
         check(pending_axis!=view->mesh().axes.end()&&std::abs(pending_axis->point.x-x)<1e-8,
             "Placement Origin preview did not follow the pending coordinate");
     }
-    dialog->findChild<QCheckBox*>("originShowText")->setChecked(false);dialog->reject();flush();run("save");
+    dialog->reject();flush();run("save");
     check(count_origin_axes(body_origin_id)==3,
         "Active Body Origin was not restored after placement Cancel");
     check(count_origin_axes(pending_origin_id)==0,
@@ -826,8 +830,6 @@ static void verify_placed_origin_visibility(QApplication& application,AssemblyWo
     check(document::PartDocument::load(file).find_container(value.id)->origin_text_visible,"Cancel changed Origin flags");
     check(std::abs(document::PartDocument::load(file).find_container(value.id)->placement.x)<1e-8,
         "Cancel persisted a pending placement coordinate");
-    run("undo");run("save");check(!document::PartDocument::load(file).find_container(value.id)->origin_point_visible,"Visibility Undo failed");
-    run("redo");run("save");check(document::PartDocument::load(file).find_container(value.id)->origin_point_visible,"Visibility Redo failed");
 }
 
 static void verify_existing_feature_origin_replacement(QApplication& application,

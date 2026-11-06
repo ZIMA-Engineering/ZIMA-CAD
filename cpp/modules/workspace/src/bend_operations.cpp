@@ -1,6 +1,8 @@
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <algorithm>
@@ -11,6 +13,9 @@ bool commit_bend(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     auto* state=live.open_part(id);
     if(!state)throw std::invalid_argument("Bend is available only in a Part.");
     const auto& before=state->session.document();const auto* existing=before.find_container(feature.id);
+    if(existing&&!existing->sheet_profile_binding.parent_id.empty())
+        return commit_sheet_profile_master_edit(live,kernel,id,
+            std::move(feature),std::move(sketch));
     document::prepare_bend_sketches(feature,sketch,document::sheet_metal_defaults(before));
     const auto* body=existing?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(body&&body->derived_copy)throw std::invalid_argument("A derived Body cannot be edited directly.");
@@ -48,12 +53,18 @@ bool commit_bend(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     }
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),container);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(container);}
-    auto references=construction_reference_source_geometry(state->session.calculated_boundaries());
+    kernel::ViewerReferenceGeometry references;
+    if(const auto* input=calculated_operation_input(state->session,existing?container:std::string{}))
+        references=input->mesh.original_references;
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(std::move(references));
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     if(!next.find_container(container)->placement.reference_valid)throw std::invalid_argument("Bend placement references cannot be resolved.");
+    for(const auto& boundary:calculated)
+        if(const auto failed=boundary.calculation_errors.find(container);
+                failed!=boundary.calculation_errors.end())
+            throw std::runtime_error(failed->second);
     if(next.serialized()==before.serialized()) {
         state->session.update_calculated_boundaries(std::move(calculated));return false;
     }

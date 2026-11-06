@@ -6,6 +6,7 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -311,6 +312,12 @@ void verify_sheet_attachment(std::filesystem::path directory) {
     }
     auto reversed_part=state->session.document();reversed_part.resolve_constructions(reversed_geometry);
     const auto& reversed_sketch=*std::ranges::find(reversed_part.sketches,profile_id,&sketcher::Sketch::id);
+    const auto& forward_sketch=*std::ranges::find(state->session.document().sketches,profile_id,&sketcher::Sketch::id);
+    const auto inward_distance=[](kernel::Vec3 a,kernel::Vec3 b) {
+        return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+    };
+    check(inward_distance(reversed_sketch.resolved_y_axis,forward_sketch.resolved_y_axis)<1e-6,
+        "Reversing the calculated edge winding flipped the Bend material side");
     for(std::size_t i=0;i<2;++i) {
         const auto* point=reversed_sketch.find_point(endpoint_ids[i]);near(reversed_sketch.world_point(point->x,point->y).x,before_switch[i]);
     }
@@ -321,6 +328,82 @@ void verify_sheet_attachment(std::filesystem::path directory) {
     const auto reopened=document::PartDocument::load(directory/"sheet-attachment.prtz");
     check(reopened.find_container(owner)->bend.sheet_attachment,"Committed attachment lost on native reopen");
     std::cout<<"Sheet attachment: eight edges, both endpoints, zero/90/180 degrees, offsets and persistence passed\n";
+}
+void verify_bend_inserted_before_unbend(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","bend-before-unbend"}});
+    const auto flat=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}}).data.at("container").get<std::string>();
+    auto* state=live.open_part(live.active_document_id());
+    const auto first_edge=std::ranges::find_if(state->session.calculated_boundaries().back().mesh.original_references.edges,
+        [&](const auto& edge) {return edge.reference.owner_id==flat&&kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary;});
+    check(first_edge!=state->session.calculated_boundaries().back().mesh.original_references.edges.end(),
+        "Flat has no boundary for the initial Bend");
+    const auto first_bend=run(host,"bend.create",{{"edge_owner",first_edge->reference.owner_id},
+        {"edge_key",first_edge->reference.semantic_key},{"radius_mm",5.},{"angle_degrees",90.}}).data.at("container").get<std::string>();
+    const double folded_volume=analyzed_body(kernel,state->session.calculated_boundaries().back()).volume;
+    const auto unbend=run(host,"unbend.create").data.at("container").get<std::string>();
+    const auto body_id=state->session.document().body_history.active_body_id();
+    const auto* body=state->session.document().body_history.find(body_id);
+    check(body&&body->entries.size()==3&&body->entries.back().id==unbend,
+        "Unbend fixture has an unexpected Body history");
+    run(host,"history.delete",{{"object",unbend}});
+    check(!state->session.calculated_boundaries().empty()&&
+        !state->session.calculated_boundaries().back().mesh.vertices.empty()&&
+        state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Deleting Unbend removed the folded Body display");
+    near(analyzed_body(kernel,state->session.calculated_boundaries().back()).volume,folded_volume);
+    run(host,"undo");
+    check(state->session.document().find_container(unbend),"Undo did not restore Unbend");
+    run(host,"body.cursor",{{"body",body_id},{"index",2}});
+    const auto* cursor_input=workspace::calculated_operation_input(state->session);
+    check(cursor_input&&!cursor_input->mesh.original_references.edges.empty(),
+        "Insert Here did not expose the folded Body input");
+    commands::Result inserted;bool created=false;
+    for(const auto& edge:cursor_input->mesh.edges) {
+        // Insert Here exposes both persistent ancestry and the actual current
+        // Body wire. Creation must follow the pickable current wire: a source
+        // edge already consumed by the preceding Bend is not a valid second
+        // attachment merely because its ancestry remains referenceable.
+        if(!edge.reference.valid()||
+                kernel::sheet_edge_role(edge)!=kernel::SheetEdgeRole::Boundary)
+            continue;
+        inserted=host.execute({{"command","bend.create"},{"arguments",{{"edge_owner",edge.reference.owner_id},
+            {"edge_key",edge.reference.semantic_key},{"radius_mm",4.},{"angle_degrees",45.}}}});
+        if(inserted.ok){created=true;break;}
+    }
+    check(created,"A Bend could not be inserted before Unbend from the visible cursor input");
+    const auto inserted_bend=inserted.data.at("container").get<std::string>();
+    body=state->session.document().body_history.find(body_id);
+    check(body&&body->entries.size()==4&&body->entries[0].id==flat&&
+        body->entries[1].id==first_bend&&body->entries[2].id==inserted_bend&&body->entries[3].id==unbend,
+        "Insert Here placed the new Bend outside the requested history boundary");
+    check(state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Bend inserted before Unbend left a calculation error");
+    run(host,"undo");
+    check(state->session.document().body_history.find(body_id)->entries.size()==3,
+        "Undo did not remove the Bend inserted before Unbend");
+    run(host,"redo");
+    check(state->session.document().body_history.find(body_id)->entries[2].id==inserted_bend,
+        "Redo did not restore the Bend before Unbend");
+    run(host,"body.cursor",{{"body",body_id},{"index",4}});
+    check(state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Returning Insert Here after Unbend left the sheet history invalid");
+    run(host,"save");std::vector<kernel::BodyResult> saved;
+    auto reopened=document::PartDocument::load(directory/"bend-before-unbend.prtz",&saved);
+    check(reopened.body_history.find(body_id)->entries[2].id==inserted_bend&&
+        !saved.empty()&&saved.back().calculation_errors.empty(),
+        "Native reopen lost the Bend inserted before Unbend");
+    kernel::OcctKernel cold;
+    const auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
+    check(!regenerated.empty(),
+        "Cold regeneration produced no Body for a Bend inserted before Unbend");
+    if(!regenerated.back().calculation_errors.empty()) {
+        const auto& [owner,message]=*regenerated.back().calculation_errors.begin();
+        throw std::runtime_error("Cold regeneration failed for "+owner+": "+message);
+    }
+    std::cout<<"Bend Insert Here before Unbend, Undo/Redo and native reopen passed\n";
 }
 void verify_attachment(const std::filesystem::path& directory) {
     kernel::OcctKernel kernel;
@@ -702,9 +785,10 @@ void verify(std::filesystem::path directory) {
     table.instances.push_back({"Wide",{{"Bend angle","90"},{"Outside radius","9"},{"First extension","3"}}});
     static_cast<void>(workspace::set_family_table(live,id,table));
     const auto half=workspace::open_family_instance(live,kernel,id,"Half angle",false);
-    near(live.open_part(half)->session.calculated_boundaries().back().volume,40*pi/4*(49-25)/2);
+    near(analyzed_body(kernel,live.open_part(half)->session.calculated_boundaries().back()).volume,
+        40*pi/4*(49-25)/2);
     const auto zero=workspace::open_family_instance(live,kernel,id,"Zero",false);
-    near(live.open_part(zero)->session.calculated_boundaries().back().volume,0);
+    near(analyzed_body(kernel,live.open_part(zero)->session.calculated_boundaries().back()).volume,0);
     const auto wide=workspace::open_family_instance(live,kernel,id,"Wide",false);
     near(analyzed_body(kernel,live.open_part(wide)->session.calculated_boundaries().back()).volume,41.5*pi/2*(81-49)/2);
     run(host,"new",{{"type","assembly"},{"name","no-bend"}});
@@ -1171,7 +1255,8 @@ void verify_sheet_cut_skin_to_skin(std::filesystem::path directory) {
             reopened.find_container(cut.id)->placement.references.front().semantic_key==start->semantic_key,
             "Skin-to-skin cut lost its exact zero-offset starting skin");
         kernel::OcctKernel cold;const auto recalculated=workspace::calculate_part_with_resolved_references(cold,reopened);
-        check(recalculated.back().calculation_errors.empty(),"Skin-to-skin cut failed cold regeneration");near(recalculated.back().volume,768.);
+        check(recalculated.back().calculation_errors.empty(),"Skin-to-skin cut failed cold regeneration");
+        near(analyzed_body(cold,recalculated.back()).volume,768.);
     }
 }
 void verify_sheet_cut_rotated_origin(std::filesystem::path directory) {
@@ -1209,7 +1294,7 @@ void verify_sheet_cut_rotated_origin(std::filesystem::path directory) {
         kernel::OcctKernel cold;
         const auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
         check(regenerated.back().calculation_errors.empty(),"Rotated cut failed cold regeneration");
-        near(regenerated.back().volume,result.volume);
+        near(analyzed_body(cold,regenerated.back()).volume,result.volume);
     }
 }
 void verify_sheet_cut_clearance(std::filesystem::path directory) {
@@ -1266,7 +1351,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     kernel::HistoryOperation pin_operation;pin_operation.owner_id="clearance-inspection-pin";pin_operation.primitive=pin;
     const auto pin_body=kernel.evaluate_history({pin_operation}).back();
     near(kernel.subtract_bodies(result,pin_body,{},{},1e-7).volume,result.volume);
-    check(result.volume<saved.back().volume&&result.calculation_errors.empty(),"Circular clearance cut removed no material");
+    check(result.volume<analyzed_body(kernel,saved.back()).volume&&result.calculation_errors.empty(),"Circular clearance cut removed no material");
     for(const auto& face:result.mesh.triangle_references)check(face.valid(),"Circular clearance cut has an anonymous face");
     // A cylinder ellipse deliberately exercises the general UV envelope.
     const double before_ellipse=result.volume;
@@ -1652,8 +1737,16 @@ int main(int argc,char** argv) {
     const auto directory=std::filesystem::temp_directory_path()/("zima-bend-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
 
+    if(argc==2&&std::string_view(argv[1])=="--verify-bend-before-unbend") {
+        try{verify_bend_inserted_before_unbend(directory);std::filesystem::remove_all(directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
+    }
+    if(argc==2&&std::string_view(argv[1])=="--verify-cross-branch-box") {
+        try{verify_cross_branch_box(directory);std::filesystem::remove_all(directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
+    }
     if(argc==2&&std::string_view(argv[1])=="--arc-only") {
-        try{verify_arc_only(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);
+        try{verify_arc_only(directory);verify_sheet_attachment(directory);verify_bend_inserted_before_unbend(directory);verify_prepared_start();verify_attachment(directory);verify(directory);
             std::filesystem::remove_all(directory);std::cout<<"Arc-only Bend contracts passed\n";return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
@@ -1666,6 +1759,6 @@ int main(int argc,char** argv) {
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
 
-    try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_arc_only(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_arc_only(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_bend_inserted_before_unbend(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

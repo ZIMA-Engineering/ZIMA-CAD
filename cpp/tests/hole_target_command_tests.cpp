@@ -23,7 +23,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto created=run(host,"hole.create",{{"diameter_mm",8},{"bore_length_mm",20},{"bore_end","up_to"},{"bore_targets",target},{"placement",{{"z",-20}}}});
     const auto doc=live.active_document_id(),id=created.at("container").get<std::string>();auto* part=live.open_part(doc);
     const auto original=*part->session.document().find_container(id);const auto area=std::numbers::pi*16;
-    const auto volume=[&](double block,double depth){near(part->session.calculated_boundaries().back().volume,block-area*depth);};
+    const auto measured_volume=[&]{auto body=part->session.calculated_boundaries().back();kernel.ensure_body_properties(body);return body.volume;};
+    const auto volume=[&](double block,double depth){near(measured_volume(),block-area*depth);};
     volume(64000,20);
     require(original.feature_kind==document::FeatureKind::Hole&&created.at("bore_targets")[0].at("owner")==plane.at("entity"),"Native Hole target identity changed");
     const auto revision=part->session.revision();

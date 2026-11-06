@@ -15,6 +15,9 @@ namespace fs = std::filesystem;
 namespace {
 void check(bool value, const char* message) {if (!value) throw std::runtime_error(message);}
 void near(double value, double expected) {if (std::abs(value-expected)>1e-5) throw std::runtime_error("Volume: " + std::to_string(value) + " expected " + std::to_string(expected));}
+kernel::BodyResult analyzed_body(const kernel::OcctKernel& kernel,kernel::BodyResult body) {
+    check(body.has_solid(),"Holes result has no solid");kernel.ensure_body_properties(body);return body;
+}
 commands::Result run(command_host::Host& host, const std::string& command, Json args=Json::object()) {
     auto result=host.execute({{"command", command}, {"arguments", std::move(args)}});
     if (!result.ok) throw std::runtime_error(command+": "+result.message);
@@ -80,7 +83,8 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     add_line({-20,0},{20,0});
     const auto standalone=workspace::document_sketch(live,id,sketch_id);
     run(host,"holes.create",{{"sketch",sketch_id},{"diameter_mm",6}});
-    const auto volume=[&]{return live.open_part(id)->session.calculated_boundaries().back().volume;};
+    const auto volume=[&]{return analyzed_body(kernel,
+        live.open_part(id)->session.calculated_boundaries().back()).volume;};
     near(volume(),64000-std::numbers::pi*9*40);
     const auto feature=*state->session.document().find_container(owner);
     check(feature.feature_kind==document::FeatureKind::Holes && feature.id==standalone.owner_container_id,"Conversion lost ownership");
@@ -142,8 +146,8 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     check(std::ranges::count_if(loaded_cache.back().mesh.axes,[&](const auto& a){return a.reference.owner_id==owner;})==2,
         "Drilling axes were duplicated or omitted");
     check(loaded.find_container(owner)->holes==current.holes,"Native file lost Holes parameters");
-    near(loaded_cache.back().volume,volume());
-    near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,volume());
+    near(analyzed_body(kernel,loaded_cache.back()).volume,volume());
+    near(analyzed_body(kernel,kernel.evaluate_history(loaded.kernel_operations()).back()).volume,volume());
     // Unsupported curves and degenerate lines fail atomically.
     const auto saved=state->session.revision();
     auto invalid=sketch;static_cast<void>(invalid.add_circle(0,0,5));

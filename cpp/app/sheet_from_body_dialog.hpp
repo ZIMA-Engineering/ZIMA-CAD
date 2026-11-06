@@ -4,6 +4,7 @@
 #include <zima/ui/reference_cell.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QDoubleSpinBox>
+#include <QCheckBox>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -15,7 +16,7 @@
 namespace zima::app {
 class SheetFromBodyDialog final : public ui::PropertiesSubWindow {
 public:
-    using Commit=std::function<void(kernel::FaceReference,double)>;
+    using Commit=std::function<void(kernel::FaceReference,double,bool)>;
     std::function<void()> changed;
     SheetFromBodyDialog(double thickness,Commit commit,QWidget* parent)
         :PropertiesSubWindow(tr("Plech z tělesa"),parent),commit_(std::move(commit)) {
@@ -41,10 +42,17 @@ public:
         table_->setCellWidget(0,2,ui::centered_cell_widget(eye_));form->addRow(table_);
         thickness_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness_->setObjectName("sheetSourceThickness");
         thickness_->setRange(.001,1000000);thickness_->setValue(thickness);
+        thickness_override_=new QCheckBox(
+            tr("Nedržet se tloušťky plechu"),this);
+        thickness_override_->setObjectName("sheetSourceThicknessOverride");
+        thickness_->setEnabled(false);
+        form->addRow(thickness_override_);
         form->addRow(tr("Tloušťka"),thickness_);content_layout()->addWidget(fields);
-        auto* note=new QLabel(tr("Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion."),this);
+        auto* note=new QLabel(tr("Converting the active Body creates a history boundary that replaces its solid. Converting from another Body into an empty Body keeps both Bodies and creates ordinary Flats and Bends. Unsupported transitions cancel conversion."),this);
         note->setWordWrap(true);note->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Fixed);content_layout()->addWidget(note);content_layout()->addStretch(1);set_initial_size({400,255});
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){active_=true;refresh();}});
+        connect(thickness_override_,&QCheckBox::toggled,this,
+            [this](bool enabled){thickness_->setEnabled(enabled);});
         refresh();
     }
     bool active()const{return active_;}
@@ -64,7 +72,8 @@ public:
 private:
     bool submit()override {
         if(!selected_)throw std::invalid_argument(tr("Select a calculated planar source face.").toStdString());
-        commit_(*selected_,thickness_->value());return true;
+        commit_(*selected_,thickness_->value(),
+            thickness_override_->isChecked());return true;
     }
     void refresh() {
         if(!selected_)thickness_->setToolTip({});
@@ -75,7 +84,7 @@ private:
         eye_->setEnabled(selected_.has_value());eye_->setChecked(inspected_);table_->viewport()->update();if(changed)changed();
     }
     Commit commit_;std::optional<kernel::FaceReference> selected_;
-    QTableWidget* table_{};ui::ReferenceCellItem* field_{};QWidget* indicator_{};QToolButton* eye_{};QDoubleSpinBox* thickness_{};
+    QTableWidget* table_{};ui::ReferenceCellItem* field_{};QWidget* indicator_{};QToolButton* eye_{};QDoubleSpinBox* thickness_{};QCheckBox* thickness_override_{};
     bool active_{true},inspected_{};
 };
 }

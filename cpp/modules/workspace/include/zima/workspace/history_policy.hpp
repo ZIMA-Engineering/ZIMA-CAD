@@ -46,6 +46,8 @@ struct HistoryDependencyCollector {
     }
     void sketch(const sketcher::Sketch& sketch,const std::string& root) {
         use(root,sketch.plane_reference_owner_id);
+        if (sketch.owner_container_id.empty() && !sketch.plane_reference_owner_id.empty())
+            references.emplace(root, "", sketch.plane_reference_owner_id, "sketch-plane");
         for (const auto& ref : sketch.external_references) {
             use(root,ref.source_owner_id);
             references.emplace(root,ref.source_instance_path,ref.source_owner_id,ref.source_semantic_key);
@@ -148,8 +150,17 @@ struct HistoryDependencyCollector {
                 if (!profile.sketch_serialized.empty()) sketch(sketcher::Sketch::from_serialized(profile.sketch_serialized),root);
             }
             break;
+        case FeatureKind::SheetProfile:
+            use(root,feature.sheet_profile.sketch_id);
+            break;
         default:break;
         }
+        // Generated Flats and Bends are ordinary executable history features,
+        // but their definition is owned by the preceding Profile container.
+        // Keep that parent/child dependency explicit so suppression, history
+        // moves and deletion cannot split the atomic Profile group.
+        if(!feature.sheet_profile_binding.parent_id.empty())
+            use(root,feature.sheet_profile_binding.parent_id);
     }
 };
 inline HistoryDependencyCollector part_history_dependency_graph(const document::PartDocument& document) {

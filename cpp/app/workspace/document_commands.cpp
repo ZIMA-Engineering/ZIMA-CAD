@@ -50,14 +50,22 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
         }
         if(offered->empty())throw std::invalid_argument("Show a calculated planar face in the active Body, or activate an empty Body after the source Body.");
         auto* dialog=new SheetFromBodyDialog(document::sheet_metal_defaults(source).thickness_mm.value_or(1.),
-            [this,document_id](auto face,double thickness) {
+            [this,document_id](auto face,double thickness,
+                    bool thickness_override) {
                 auto* state=workspace_.open_part(document_id);if(!state)throw std::invalid_argument("Sheet from Body requires a calculated source body.");
                 workspace::SheetBodyConversion result;
                 begin_status_operation(tr("Vytvářím plech z tělesa…"));
                 try {
-                    run_background_task([source=state->session.document(),cache=state->session.calculated_boundaries(),face,thickness,&result]{
-                        kernel::OcctKernel kernel;result=workspace::prepare_sheet_from_body(source,cache,face,thickness,kernel);
+                    run_background_task([source=state->session.document(),cache=state->session.calculated_boundaries(),face,thickness,thickness_override,&result]{
+                        kernel::OcctKernel kernel;result=workspace::prepare_sheet_from_body(
+                            source,cache,face,thickness,kernel,
+                            thickness_override);
                     });
+                    if(auto* conversion=result.document.find_container(
+                            result.container_id))
+                        conversion->name=result.document.next_numbered_name(
+                            tr("Plech z tělesa").toStdString(),
+                            conversion->id);
                     for(auto& feature:result.document.history)if(std::ranges::find(result.created,feature.id)!=result.created.end()) {
                         feature.name=result.document.next_numbered_name(
                             (feature.feature_kind==document::FeatureKind::Flat?tr("Tabule"):tr("Ohyb")).toStdString(),feature.id);

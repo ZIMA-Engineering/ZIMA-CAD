@@ -79,7 +79,8 @@ closed-document exceptions. Open Assemblies, including repeated/nested occurrenc
 and open Drawing/model tabs follow both relocations. The working directory is not
 traversed. The open-dependency scope was agreed on 2026-09-25; the paired
 Drawing-to-model rename was requested on 2026-10-05.
-Numbered archives are not renamed.
+Existing legacy numbered files are not renamed; current native saves no longer
+create them.
 
 ## Preparation, publication, and errors
 

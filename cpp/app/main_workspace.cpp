@@ -7908,8 +7908,9 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
                         return a.reference.owner_id==pending.first.id&&a.reference.semantic_key==(x?"sketch_axis:x":"sketch_axis:y");
                     });
                     check(axis!=view->mesh().axes.end(),"Entered Sketch has no working axes");
+                    const auto expected_direction=x?expected_sketch.resolved_x_axis:expected_sketch.resolved_y_axis;
                     check(near(axis->point,expected_sketch.resolved_origin)&&
-                        near(axis->direction,x?expected_sketch.resolved_x_axis:expected_sketch.resolved_y_axis),
+                        near(axis->direction,expected_direction),
                         "Sketcher entry rotated or moved the pending work plane");
                 }
                 check_sketch_entry_camera(application,*view,pending.first.id);
@@ -10253,6 +10254,7 @@ int verify_selection_filter(QApplication& application,
 #include "step_tabs_ui_verification.inc"
 #include "sheet_exchange_ui_verification.inc"
 #include "sheet_transition_ui_verification.inc"
+#include "sheet_profile_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 #include "sketch_symbol_controls_ui_verification.inc"
 #include "sketch_coordinate_incidence_ui_verification.inc"
@@ -10271,6 +10273,7 @@ int verify_startup_contract(
     auto test_directory = initial_test_directory;
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DOCUMENT_BUTTON_ONLY"))return verify_sketch_document_button_ui(application,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_PROFILE_ONLY"))return verify_sheet_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MIDPOINT_ONLY"))return verify_midpoint_profile_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EQUAL_CIRCLE_ONLY"))return verify_equal_circle_ui(application,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMMAND_GUIDANCE_ONLY"))return verify_command_guidance_ui(application,test_directory);
@@ -10812,18 +10815,7 @@ int verify_startup_contract(
     auto* about = window.findChild<QAction*>("aboutAction");
     auto* save_as = window.findChild<QAction*>("saveDocumentAsAction");
     auto* rename_document = window.findChild<QAction*>("renameDocumentAction");
-    auto* delete_file_menu = window.findChild<QMenu*>("deleteFileMenu");
     auto* delete_current_file = window.findChild<QAction*>("deleteCurrentFileAction");
-    auto* delete_all_versions = window.findChild<QAction*>("deleteAllVersionsAction");
-    auto* delete_old_versions = window.findChild<QAction*>("deleteOldVersionsAction");
-    auto* delete_old_versions_keep_latest =
-        window.findChild<QAction*>("deleteOldVersionsKeepLatestAction");
-    auto* delete_working_directory_menu =
-        window.findChild<QMenu*>("deleteWorkingDirectoryMenu");
-    auto* delete_working_directory_old_versions =
-        window.findChild<QAction*>("deleteWorkingDirectoryOldVersionsAction");
-    auto* delete_working_directory_keep_latest =
-        window.findChild<QAction*>("deleteWorkingDirectoryKeepLatestAction");
     auto* working_directory = window.findChild<QAction*>("workingDirectoryAction");
     auto* new_document = window.findChild<QAction*>("newDocumentAction");
     auto* undo = window.findChild<QAction*>("undoAction");
@@ -10878,8 +10870,7 @@ int verify_startup_contract(
                     file_progress != nullptr && !file_progress->isVisible() &&
                     finish_sketch != nullptr &&
                     extrusion != nullptr && about != nullptr && save_as != nullptr &&
-                    rename_document != nullptr && delete_file_menu != nullptr &&
-                    delete_working_directory_menu != nullptr &&
+                    rename_document != nullptr && delete_current_file != nullptr &&
                     working_directory != nullptr && new_document != nullptr &&
                     undo != nullptr && redo != nullptr &&
                     save != nullptr && close != nullptr && parameters != nullptr,
@@ -14106,37 +14097,23 @@ int verify_startup_contract(
         }
     }
 
-    // File-management parity: rename, delete-current-file, delete old
-    // versions (with and without keep-latest), and the working-directory
-    // wide equivalents must all be wired to real handlers operating on the
-    // reopened Drawing document, mirroring the Python reference workflow.
+    // File-management parity: rename and delete-current-file operate on the
+    // reopened Drawing. Numbered archive commands were intentionally removed.
     {
         if (!verify(rename_document != nullptr && rename_document->isEnabled() &&
-                        delete_current_file != nullptr && delete_current_file->isEnabled() &&
-                        delete_all_versions != nullptr && delete_all_versions->isEnabled() &&
-                        delete_working_directory_old_versions != nullptr &&
-                        delete_working_directory_old_versions->isEnabled() &&
-                        delete_working_directory_keep_latest != nullptr &&
-                        delete_working_directory_keep_latest->isEnabled(),
+                        delete_current_file != nullptr && delete_current_file->isEnabled(),
                     "file-management actions must enable once a saved Drawing is active")) {
             return 1;
         }
-        if (!verify(!delete_old_versions->isEnabled() &&
-                        !delete_old_versions_keep_latest->isEnabled(),
-                    "delete-old-versions actions must stay disabled without archive files")) {
+        if (!verify(window.findChild<QAction*>("deleteAllVersionsAction") == nullptr &&
+                        window.findChild<QAction*>("deleteOldVersionsAction") == nullptr &&
+                        window.findChild<QAction*>("deleteOldVersionsKeepLatestAction") == nullptr &&
+                        window.findChild<QMenu*>("deleteWorkingDirectoryMenu") == nullptr &&
+                        window.findChild<QMenu*>("deleteFileMenu") == nullptr &&
+                        delete_current_file->menu() == nullptr,
+                    "obsolete numbered-version actions are still exposed")) {
             return 1;
         }
-
-        // Create two versioned archive files ("<name>.1", "<name>.2") next
-        // to the saved Drawing, as ZIMA-CAD's save/version rotation would.
-        const auto archive_one = std::filesystem::path(
-            saved_drawing_path.string() + ".1");
-        const auto archive_two = std::filesystem::path(
-            saved_drawing_path.string() + ".2");
-        std::filesystem::copy_file(saved_drawing_path, archive_one,
-            std::filesystem::copy_options::overwrite_existing);
-        std::filesystem::copy_file(saved_drawing_path, archive_two,
-            std::filesystem::copy_options::overwrite_existing);
         // The BOM/template checks changed the live Drawing after its last
         // save. This fixture deliberately reopens the saved version.
         const auto trigger_with_response = [&](QAction* action, QMessageBox::StandardButton response) {
@@ -14167,32 +14144,11 @@ int verify_startup_contract(
                 "File fixture action did not complete its expected confirmation");
         };
         if (!trigger_with_response(close, QMessageBox::Discard)) return 1;
-        const bool reopened_for_versions = window.open_document_path(
+        const bool reopened_document = window.open_document_path(
             QString::fromStdString(saved_drawing_path.string()));
         application.processEvents();
-        if (!verify(reopened_for_versions && delete_old_versions->isEnabled() &&
-                        delete_old_versions_keep_latest->isEnabled(),
-                    "delete-old-versions actions must enable once archive files exist")) {
-            return 1;
-        }
-
-        // "Staré verze kromě nejnovější" must remove only the older archive
-        // and keep the newest one (archive_two).
-        if (!trigger_with_response(delete_old_versions_keep_latest, QMessageBox::Yes)) return 1;
-        application.processEvents();
-        if (!verify(!std::filesystem::exists(archive_one) &&
-                        std::filesystem::exists(archive_two),
-                    "delete-old-versions-keep-latest must remove only older archives")) {
-            return 1;
-        }
-
-        // "Staré verze" must remove every remaining archive but keep the
-        // primary saved Drawing file itself.
-        if (!trigger_with_response(delete_old_versions, QMessageBox::Yes)) return 1;
-        application.processEvents();
-        if (!verify(!std::filesystem::exists(archive_two) &&
-                        std::filesystem::exists(saved_drawing_path),
-                    "delete-old-versions must remove all archives but keep the current file")) {
+        if (!verify(reopened_document && delete_current_file->isEnabled(),
+                    "saved Drawing did not reopen with current-file deletion enabled")) {
             return 1;
         }
 
@@ -14279,46 +14235,6 @@ int verify_startup_contract(
         std::filesystem::remove(closed_reference_assembly_path);
         std::filesystem::remove(unrelated_part_path);
 
-        // Working-directory wide deletion: create archives for both the
-        // renamed Drawing and an unrelated saved Part, then verify
-        // "keep latest" removes only the older ones across all documents.
-        const auto renamed_archive_one = std::filesystem::path(
-            renamed_again_path.string() + ".1");
-        const auto renamed_archive_two = std::filesystem::path(
-            renamed_again_path.string() + ".2");
-        std::filesystem::copy_file(renamed_again_path, renamed_archive_one,
-            std::filesystem::copy_options::overwrite_existing);
-        std::filesystem::copy_file(renamed_again_path, renamed_archive_two,
-            std::filesystem::copy_options::overwrite_existing);
-        const auto part_saved_path = test_directory /
-            (part_name.toStdString() + ".prtz");
-        std::filesystem::path part_archive_one;
-        std::filesystem::path part_archive_two;
-        const bool part_saved_exists = std::filesystem::exists(part_saved_path);
-        if (part_saved_exists) {
-            part_archive_one = std::filesystem::path(part_saved_path.string() + ".1");
-            part_archive_two = std::filesystem::path(part_saved_path.string() + ".2");
-            std::filesystem::copy_file(part_saved_path, part_archive_one,
-                std::filesystem::copy_options::overwrite_existing);
-            std::filesystem::copy_file(part_saved_path, part_archive_two,
-                std::filesystem::copy_options::overwrite_existing);
-        }
-        if (!trigger_with_response(delete_working_directory_keep_latest, QMessageBox::Yes)) return 1;
-        application.processEvents();
-        const bool working_directory_keep_latest_ok =
-            !std::filesystem::exists(renamed_archive_one) &&
-            std::filesystem::exists(renamed_archive_two) &&
-            (!part_saved_exists ||
-             (!std::filesystem::exists(part_archive_one) &&
-              std::filesystem::exists(part_archive_two)));
-        if (!verify(working_directory_keep_latest_ok,
-                    "working-directory keep-latest delete must remove only older "
-                    "archives across every document")) {
-            return 1;
-        }
-        if (part_saved_exists && std::filesystem::exists(part_archive_two)) {
-            std::filesystem::remove(part_archive_two);
-        }
     }
 
     // Tree route/segment selection consumes the saved operation input; Delete
@@ -14855,7 +14771,7 @@ int main(int argc, char* argv[]) {
         startup_directory = test_directory;
     }
     // Console fixtures deliberately include literal Unicode filenames and
-    // archive suffixes. Isolate their policy from the user's naming settings;
+    // legacy numbered-file suffixes. Isolate their policy from the user's naming settings;
     // normalization and all five languages have dedicated GUI contracts.
     std::optional<QTemporaryDir> console_test_settings;
     if(runs_startup_contract && qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) {

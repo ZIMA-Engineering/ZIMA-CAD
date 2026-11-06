@@ -47,6 +47,13 @@ bool commit_sheet_state(Workspace& live,const kernel::OcctKernel& kernel,
     else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
+    // A sheet-state row changes only the derived folded/developed result. Keep
+    // the already verified exact history boundaries authoritative for
+    // placements owned by the unchanged authored prefix; otherwise resolving
+    // them through the newly derived state can rewrite an earlier placement
+    // (including its chosen side/orientation) during this transaction.
+    const auto& previous=state->session.calculated_boundaries();
+    policy.history_reference_baseline=previous.empty()?nullptr:&previous;
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     if(next.serialized()==before.serialized()){state->session.update_calculated_boundaries(std::move(calculated));return false;}
     commit_part_document(live,id,std::move(next),std::move(calculated));return true;

@@ -179,6 +179,11 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     case FeatureKind::Flat:
         if(feature.flat.thickness_override)add({"thickness"});
         break;
+    case FeatureKind::SheetFromBody:
+        break;
+    case FeatureKind::SheetProfile:
+        if(feature.sheet_profile.thickness_override)add({"thickness"});
+        break;
     case FeatureKind::Holes:
         add({"diameter", "profile_offset"}); break;
     case FeatureKind::Thread:

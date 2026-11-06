@@ -271,20 +271,19 @@ five localizations. GUI/CLI built from the corrected state
 IDs, actual native files, Unicode paths, unsaved-change protection, the last open
 tab, and document switching without a new calculated-geometry generation.
 
-## Archive files (2026-09-14)
+## Native-file overwrite policy (2026-11-05)
 
-GUI and CLI share listing/deleting numbered backups. Four commands,
-`file.archives.list/prune` and `directory.archives.list/prune`, operate on real
-files without changing open models. They are neither model Undo nor new required
-sidecar storage. Native formats/templates are unchanged. Contract, errors and
-verification: [ARCHIVE_COMMANDS.md](ARCHIVE_COMMANDS.md).
+Part, Assembly and Drawing saves publish the newly written current file without
+creating numbered copies such as `.prtz.1`. Atomic temporary-file publication
+protects all three current native document types. The archive CLI commands and their GUI
+and File Manager controls were removed. Existing numbered files are left
+untouched and are not treated as current documents.
 
 ## Removing a saved document (2026-09-14)
 
-`file_removal_operations` shares both current-file deletion menu actions with
-`delete_file`. It closes the document after deletion without saving again. A locked
-current file preserves document and archives; failure on a later archive returns
-an exact partial result and reflects completed closure in GUI. Preparation checks
+`file_removal_operations` shares current-file deletion with `delete_file`. It
+closes the document after deletion without saving again. A locked current file
+preserves the open document. Preparation checks
 open identity, data generation, history and file snapshots. Formats, start templates
 and geometry-calculation rules are unchanged. Contract/tests:
 [FILE_REMOVAL_COMMANDS.md](FILE_REMOVAL_COMMANDS.md).

@@ -10,6 +10,7 @@ struct SheetDxfResult {sketcher::Sketch contour;interchange::DxfExportOptions ex
 struct SheetBodyConversion {
     document::PartDocument document;
     std::vector<kernel::BodyResult> calculated;
+    std::string container_id;
     std::vector<std::string> created;
     std::size_t skipped{};
 };
@@ -18,5 +19,5 @@ struct SheetBodyConversion {
     const kernel::ViewerMesh&,const kernel::FaceReference&);
 [[nodiscard]] SheetBodyConversion prepare_sheet_from_body(const document::PartDocument&,
     const std::vector<kernel::BodyResult>&,const kernel::FaceReference&,double thickness,
-    const kernel::OcctKernel&);
+    const kernel::OcctKernel&,bool thickness_override=true);
 }

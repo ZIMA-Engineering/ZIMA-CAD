@@ -887,7 +887,7 @@ void FileManagerTab::build_ui(){
     static_cast<ColumnFilterHeader*>(files_->header())->filters_changed=[this]{apply_file_filters();};
     connect(files_,&QTreeWidget::itemDoubleClicked,this,[this](QTreeWidgetItem* item,int column){if(column==0)open_entry(item->data(0,Qt::UserRole).toString());});
     auto* include_status=new QLabel(files_page);include_status->setObjectName("fileManagerIncludeStatus");include_status->setTextFormat(Qt::PlainText);include_status->setWordWrap(true);include_status->hide();files_layout->addWidget(include_status);files_layout->addWidget(files_,1);
-    auto* actions=new QHBoxLayout;filter_versions_=new QToolButton(files_page);filter_versions_->setText(tr("Verze"));filter_versions_->setCheckable(true);filter_versions_->setStyleSheet(command_button_style());filter_versions_->setIcon(resource_icon("restore"));filter_versions_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);filter_versions_->setObjectName("fileManagerFilterVersions");actions->addWidget(filter_versions_);connect(filter_versions_,&QToolButton::toggled,this,[this]{save_type_filters();refresh_overview();refresh_files();});
+    auto* actions=new QHBoxLayout;
     filters_=new QToolButton(files_page);filters_->setObjectName("fileManagerFilters");filters_->setText(tr("Filters…"));filters_->setIcon(resource_icon("filter"));filters_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);filters_->setCheckable(true);filters_->setStyleSheet(command_button_style());actions->addWidget(filters_);connect(filters_,&QToolButton::clicked,this,&FileManagerTab::edit_filters);
     for(const auto* extension:{"prtz","asmz","drwz","matz","frmz","tblz","symz"}){const QString type=QString::fromLatin1(extension);auto* button=new QToolButton(files_page);button->setText(type);button->setStyleSheet(command_button_style());button->setIcon(type=="matz"?resource_icon("material"):native_file_icon(QFileInfo("file."+type)));button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);button->setObjectName("fileManagerType_"+type);button->setCheckable(true);button->setChecked(true);type_filters_.insert(type,button);actions->addWidget(button);connect(button,&QToolButton::toggled,this,[this]{save_type_filters();apply_file_filters();});}
     files_->header()->setContextMenuPolicy(Qt::CustomContextMenu);connect(files_->header(),&QWidget::customContextMenuRequested,this,[this](const QPoint& point){QMenu menu(this);auto* type=menu.addAction(tr("Show Type column"));type->setCheckable(true);type->setChecked(!files_->isColumnHidden(2));connect(type,&QAction::toggled,this,[this](bool visible){files_->setColumnHidden(2,!visible);save_column_layout();});menu.exec(files_->header()->mapToGlobal(point));});
@@ -896,9 +896,7 @@ void FileManagerTab::build_ui(){
     auto* thumbnail_size=new QSlider(Qt::Horizontal,files_page);thumbnail_size->setObjectName("fileManagerThumbnailSize");thumbnail_size->setRange(48,192);thumbnail_size->setMinimumWidth(80);thumbnail_size->setMaximumWidth(300);thumbnail_size->setToolTip(tr("Velikost náhledů"));thumbnail_size->setAccessibleName(tr("Velikost náhledů"));actions->addWidget(thumbnail_size,1);
     int initial_size=96;if(!column_settings_path(settings_).isEmpty()){QSettings layout(column_settings_path(settings_),QSettings::IniFormat);initial_size=layout.value("Thumbnails/ColumnSize",std::max(96,layout.value("Thumbnails/Size",96).toInt())).toInt();}thumbnail_size->setValue(initial_size);files_->setIconSize({thumbnail_size->value(),thumbnail_size->value()});
     connect(thumbnail_size,&QSlider::valueChanged,this,[this](int size){files_->setIconSize({size,size});files_->setColumnWidth(file_preview_column,size+4);if(!column_settings_path(settings_).isEmpty()){QSettings layout(column_settings_path(settings_),QSettings::IniFormat);layout.setValue("Thumbnails/ColumnSize",size);}});
-    clean_=operation(tr("Vyčistit"),"fileManagerClean");clean_->setIcon(resource_icon("clean"));
     copy_=operation(tr("Kopírovat…"),"fileManagerCopy");copy_->setIcon(resource_icon("file-copy"));move_=operation(tr("Přesunout…"),"fileManagerMove");move_->setIcon(resource_icon("file-move"));remove_=operation(tr("Smazat…"),"fileManagerDelete");remove_->setIcon(resource_icon("delete"));files_layout->addLayout(actions);
-    connect(clean_,&QPushButton::clicked,this,[this]{clean_directory(current_directory_);});
     connect(copy_,&QPushButton::clicked,this,[this]{copy_selected(false);});connect(move_,&QPushButton::clicked,this,[this]{copy_selected(true);});connect(remove_,&QPushButton::clicked,this,&FileManagerTab::delete_selected);
     files_->setItemDelegate(new ParameterDelegate([this](const QModelIndex& index){save_parameter(index);},files_));
     static_cast<FileTable*>(files_)->preview_requested=[this](const QModelIndex& index){
@@ -1103,7 +1101,7 @@ void FileManagerTab::refresh_files(){
     QMap<QString,QVariant> mirror_updates;
     if(editable&&saved_native&&!parameters.isEmpty()){mirror_updates.insert("Directory/Version",3);if(!metadata.contains("Directory/Kind"))mirror_updates.insert("Directory/Kind","directory");if(!metadata.contains("Directory/Id"))mirror_updates.insert("Directory/Id",QUuid::createUuid().toString(QUuid::WithoutBraces));}
     for(const auto& info:entries){
-        if((info.isDir()&&file_filter_matches_&&!file_filter_matches_(info.fileName()))||(!filter_versions_->isChecked()&&is_version_file(info)))continue;
+        if((info.isDir()&&file_filter_matches_&&!file_filter_matches_(info.fileName()))||is_version_file(info))continue;
         auto* item=new FileEntryItem(files_);item->setData(0,Qt::UserRole+3,info.isDir());item->setData(0,Qt::UserRole,info.absoluteFilePath());item->setData(0,Qt::UserRole+1,logical_file_id(info));item->setCheckState(0,Qt::Unchecked);const QString thumbnail=entry_thumbnail(info,current_directory_,settings_.language,&metadata,&thumbnail_sources.directories);item->setData(0,Qt::UserRole+4,thumbnail);const auto type_icon=native_file_icon(info);item->setIcon(0,type_icon.isNull()?QFileIconProvider().icon(info):type_icon);item->setIcon(file_preview_column,compact_preview_icon(thumbnail));item->setText(0,info.isDir()?directory_label(info.absoluteFilePath(),settings_.language):info.fileName());item->setText(2,info.isDir()?tr("Adresář"):info.suffix().toLower());item->setText(3,info.isDir()?QString{}:QLocale().formattedDataSize(info.size()));item->setText(4,QLocale().toString(info.lastModified(),QLocale::ShortFormat));
         const QString id=logical_file_id(info);const auto native=native_parameters.constFind(info.absoluteFilePath());item->setData(0,Qt::UserRole+2,native==native_parameters.cend()?QStringLiteral("metadata"):QStringLiteral("zima-cad"));
         metadata.beginGroup("Parts");for(int p=0;p<parameters.size();++p){
@@ -1190,9 +1188,6 @@ void FileManagerTab::refresh_type_filters() {
       !effective_file_filters(file_filter_policy_,
                               settings_.file_manager.hidden_patterns)
            .isEmpty());
-  QSignalBlocker block(filter_versions_);
-  filter_versions_->setChecked(
-      file_filter_policy_.value("Filters/ShowZimaVersions", false).toBool());
 }
 void FileManagerTab::save_type_filters() {
   auto hidden = file_pattern_list(file_filter_policy_.value("Filters/Hide"));
@@ -1218,8 +1213,7 @@ void FileManagerTab::save_type_filters() {
   }
   file_filter_policy_["Filters/Hide"] = hidden;
   file_filter_policy_["Filters/InheritGlobal"] = inherit;
-  file_filter_policy_["Filters/ShowZimaVersions"] =
-      filter_versions_->isChecked();
+  file_filter_policy_.remove("Filters/ShowZimaVersions");
   file_filter_matches_ = compile_file_filters(effective_file_filters(
       file_filter_policy_, settings_.file_manager.hidden_patterns));
   filters_->setChecked(
@@ -1270,11 +1264,6 @@ void FileManagerTab::update_actions() {
   new_directory_->setEnabled(writable);
   move_->setEnabled(writable);
   remove_->setEnabled(writable);
-  clean_->setEnabled(writable);
-  clean_->setToolTip(protection.isEmpty()
-                         ? QString{}
-                         : tr("Čištění je zakázané ochranou obsahu ve "
-                              "Vlastnostech adresáře."));
   copy_->setEnabled(true);
 }
 void FileManagerTab::create_directory() {
@@ -1386,12 +1375,12 @@ void FileManagerTab::show_source_menu(const QPoint& point){
     auto* item=source_list_->itemAt(point);if(!item)return;const int index=source_list_->row(item);if(index<0||index>=sources_.size())return;
     const auto& source=sources_.at(index).source;const QString directory=source.resolved_path;if(!QFileInfo(directory).isDir())return;
     QMenu menu(this);menu.setObjectName("fileManagerSourceMenu");auto* open=menu.addAction(resource_icon("web-folder"),tr("Otevřít"));auto* tab=menu.addAction(resource_icon("new"),tr("Otevřít v novém tabu"));auto* working=menu.addAction(resource_icon("web-home"),tr("Nastavit jako pracovní adresář"));working->setObjectName("fileManagerSetWorkingDirectory");working->setEnabled(static_cast<bool>(working_directory_requested));connect(working,&QAction::triggered,this,[this,directory]{if(working_directory_requested)working_directory_requested(directory);});menu.addSeparator();auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti adresáře…"));properties->setObjectName("fileManagerSourceProperties");
-    auto* project=menu.addAction(resource_icon("properties"),is_project_directory(directory)?tr("Upravit projektový přehled"):tr("Vytvořit projektový přehled"));project->setObjectName("fileManagerSourceProject");project->setEnabled(!source.read_only);auto* clean=menu.addAction(resource_icon("clean"),tr("Vyčistit"));clean->setObjectName("fileManagerSourceClean");clean->setEnabled(!source.read_only&&ancestor_removal_lock(directory).isEmpty());if(!ancestor_removal_lock(directory).isEmpty())clean->setToolTip(tr("Čištění je zakázané ochranou obsahu ve Vlastnostech adresáře."));connect(clean,&QAction::triggered,this,[this,directory]{clean_directory(directory);});
+    auto* project=menu.addAction(resource_icon("properties"),is_project_directory(directory)?tr("Upravit projektový přehled"):tr("Vytvořit projektový přehled"));project->setObjectName("fileManagerSourceProject");project->setEnabled(!source.read_only);
     connect(open,&QAction::triggered,this,[this,directory]{navigate(directory);});connect(tab,&QAction::triggered,this,[this,directory]{if(new_tab_requested)new_tab_requested(directory);});connect(properties,&QAction::triggered,this,[this,directory]{edit_directory(directory);});connect(project,&QAction::triggered,this,[this,directory]{edit_project(directory,!is_project_directory(directory));});
     menu.exec(source_list_->viewport()->mapToGlobal(point));
 }
 
-void FileManagerTab::show_tree_menu(QTreeView* tree,const QPoint& point){const QModelIndex index=tree->indexAt(point);if(!index.isValid())return;const auto page=std::ranges::find_if(sources_,[tree](const auto& source){return source.tree==tree;});if(page==sources_.end())return;const QFileInfo info=page->model->fileInfo(page->proxy->mapToSource(index));if(!info.isDir())return;const int source_index=source_index_for(info.absoluteFilePath());if(source_index<0)return;const bool read_only=sources_.at(source_index).source.read_only;QMenu menu(this);menu.setObjectName("fileManagerTreeMenu");auto* open=menu.addAction(resource_icon("web-folder"),tr("Otevřít"));auto* tab=menu.addAction(resource_icon("new"),tr("Otevřít v novém tabu"));auto* working=menu.addAction(resource_icon("web-home"),tr("Nastavit jako pracovní adresář"));working->setObjectName("fileManagerSetWorkingDirectory");working->setEnabled(static_cast<bool>(working_directory_requested));connect(working,&QAction::triggered,this,[this,info]{if(working_directory_requested)working_directory_requested(info.absoluteFilePath());});menu.addSeparator();auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti adresáře…"));auto* project=menu.addAction(resource_icon("properties"),is_project_directory(info.absoluteFilePath())?tr("Upravit projektový přehled"):tr("Vytvořit projektový přehled"));project->setEnabled(!read_only);auto* clean=menu.addAction(resource_icon("clean"),tr("Vyčistit"));clean->setEnabled(!read_only&&ancestor_removal_lock(info.absoluteFilePath()).isEmpty());if(!ancestor_removal_lock(info.absoluteFilePath()).isEmpty())clean->setToolTip(tr("Čištění je zakázané ochranou obsahu ve Vlastnostech adresáře."));const auto selected=menu.exec(tree->viewport()->mapToGlobal(point));if(selected==clean)clean_directory(info.absoluteFilePath());else if(selected==open)navigate(info.absoluteFilePath());else if(selected==tab&&new_tab_requested)new_tab_requested(info.absoluteFilePath());else if(selected==properties)edit_directory(info.absoluteFilePath());else if(selected==project)edit_project(info.absoluteFilePath(),!is_project_directory(info.absoluteFilePath()));}
+void FileManagerTab::show_tree_menu(QTreeView* tree,const QPoint& point){const QModelIndex index=tree->indexAt(point);if(!index.isValid())return;const auto page=std::ranges::find_if(sources_,[tree](const auto& source){return source.tree==tree;});if(page==sources_.end())return;const QFileInfo info=page->model->fileInfo(page->proxy->mapToSource(index));if(!info.isDir())return;const int source_index=source_index_for(info.absoluteFilePath());if(source_index<0)return;const bool read_only=sources_.at(source_index).source.read_only;QMenu menu(this);menu.setObjectName("fileManagerTreeMenu");auto* open=menu.addAction(resource_icon("web-folder"),tr("Otevřít"));auto* tab=menu.addAction(resource_icon("new"),tr("Otevřít v novém tabu"));auto* working=menu.addAction(resource_icon("web-home"),tr("Nastavit jako pracovní adresář"));working->setObjectName("fileManagerSetWorkingDirectory");working->setEnabled(static_cast<bool>(working_directory_requested));connect(working,&QAction::triggered,this,[this,info]{if(working_directory_requested)working_directory_requested(info.absoluteFilePath());});menu.addSeparator();auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti adresáře…"));auto* project=menu.addAction(resource_icon("properties"),is_project_directory(info.absoluteFilePath())?tr("Upravit projektový přehled"):tr("Vytvořit projektový přehled"));project->setEnabled(!read_only);const auto selected=menu.exec(tree->viewport()->mapToGlobal(point));if(selected==open)navigate(info.absoluteFilePath());else if(selected==tab&&new_tab_requested)new_tab_requested(info.absoluteFilePath());else if(selected==properties)edit_directory(info.absoluteFilePath());else if(selected==project)edit_project(info.absoluteFilePath(),!is_project_directory(info.absoluteFilePath()));}
 
 void FileManagerTab::edit_directory(const QString& directory){
     auto* dialog=new DirectoryEditor(directory,settings_,window());dialog->setAttribute(Qt::WA_DeleteOnClose);connect(dialog,&QDialog::accepted,this,[this,dialog,directory]{const DirectoryValues values=dialog->result();const QString index=QDir(directory).filePath(QStringLiteral("0000-index"));if(!QDir().mkpath(index)){QMessageBox::critical(this,tr("Uložení selhalo"),tr("Adresář metadat nelze vytvořit."));return;}QSettings metadata(metadata_path(directory),QSettings::IniFormat);metadata.setAtomicSyncRequired(true);metadata.setValue("Directory/Version",3);if(metadata.value("Directory/Kind").toString().trimmed().isEmpty())metadata.setValue("Directory/Kind","directory");if(metadata.value("Directory/Id").toString().trimmed().isEmpty())metadata.setValue("Directory/Id",QUuid::createUuid().toString(QUuid::WithoutBraces));for(auto it=values.labels.cbegin();it!=values.labels.cend();++it)metadata.setValue(QStringLiteral("Directory/Label/%1").arg(it.key()),it.value());metadata.setValue("Directory/SubdirectoriesAsParts",values.subdirectories_as_parts);metadata.setValue("Directory/AutoIndex",values.auto_index);metadata.setValue("Directory/PreventRemoval",values.prevent_removal);metadata.setValue("Directory/PreventParameterEdit",values.prevent_parameter_edit);
@@ -1443,74 +1432,6 @@ void FileManagerTab::restore_column_layout(){
     for(int column=0;column<files_->columnCount();++column){files_->resizeColumnToContents(column);const int initial=std::clamp(files_->columnWidth(column),column==0?180:95,column==0?360:240);files_->setColumnWidth(column,settings.value("Widths/"+column_id(files_,column),initial).toInt());}
     files_->setColumnWidth(file_preview_column,settings.value("Widths/preview",files_->iconSize().width()+4).toInt());
     int visual=0;for(const auto& id:order)for(int logical=0;logical<files_->columnCount();++logical)if(column_id(files_,logical)==id){files_->header()->moveSection(files_->header()->visualIndex(logical),visual++);break;}
-}
-
-void FileManagerTab::clean_directory(const QString& directory){
-    const int source=source_index_for(directory);
-    if(source<0||sources_.at(source).source.read_only||!ancestor_removal_lock(directory).isEmpty())return;
-    const QString canonical_root=QFileInfo(directory).canonicalFilePath();if(canonical_root.isEmpty())return;
-    // Capture plain source policy, never QFileSystemModel or QWidget state.
-    const auto policies=[this] {
-        QVector<QPair<QString,bool>> result;
-        for(const auto& page:sources_)result.push_back({page.source.resolved_path,page.source.read_only});
-        return result;
-    };
-    const auto writable=[](const auto& sources,const QString& path) {
-        qsizetype longest=-1;bool allowed=false;
-        for(const auto& entry:sources)if(entry.first.size()>longest&&path_belongs_to(path,entry.first)) {
-            longest=entry.first.size();allowed=!entry.second;
-        }
-        return allowed;
-    };
-    const auto fingerprint=[](const QString& path) {
-        QFile file(path);if(!file.open(QIODevice::ReadOnly))return QByteArray{};
-        QCryptographicHash hash(QCryptographicHash::Sha256);
-        if(!hash.addData(&file))return QByteArray{};return hash.result();
-    };
-    // The common indicator is anchored to this visible utility surface; the
-    // model View can be hidden while the File Manager is active.
-    ui::OperationActivity activity(window(),this);
-    QMap<QString,QByteArray> fingerprints;
-    {
-        ui::OperationActivity::Scope busy(&activity,tr("Looking for archived document versions…"));
-        fingerprints=ui::run_background_task([directory,canonical_root,sources=policies(),writable,fingerprint] {
-            // Every numeric suffix is an archive, including orphaned versions
-            // and suffixes larger than uint64. Current documents are excluded.
-            const QRegularExpression archive("^.+\\.(?:prtz|asmz|drwz|frmz|tblz|symz)\\.[0-9]+$",QRegularExpression::CaseInsensitiveOption);
-            QMap<QString,QByteArray> result;
-            QDirIterator iterator(directory,QDir::Files|QDir::NoDotAndDotDot,QDirIterator::Subdirectories);
-            while(iterator.hasNext()) {
-                const QString path=iterator.next();const QFileInfo info(path);
-                if(info.isSymLink()||info.isJunction()||!writable(sources,path)||
-                        !path_belongs_to(info.canonicalFilePath(),canonical_root)||!archive.match(info.fileName()).hasMatch()||
-                        !removal_lock(info).isEmpty())continue;
-                const auto hash=fingerprint(path);if(!hash.isEmpty())result.insert(path,hash);
-            }
-            return result;
-        });
-    }
-    const auto candidates=fingerprints.keys();
-    if(candidates.isEmpty()){QMessageBox::information(this,tr("Vyčistit"),tr("Žádné archivní verze k vyčištění."));return;}
-    QMessageBox confirmation(QMessageBox::Question,tr("Vyčistit"),tr("Přesunout %1 archivních verzí do koše? Aktuální dokumenty zůstanou zachovány.").arg(candidates.size()),QMessageBox::Yes|QMessageBox::No,this);
-    confirmation.setDefaultButton(QMessageBox::No);confirmation.setDetailedText(candidates.join('\n'));
-    if(confirmation.exec()!=QMessageBox::Yes)return;
-    QString failure;
-    {
-        ui::OperationActivity::Scope busy(&activity,tr("Moving archived versions to the Recycle Bin…"));
-        failure=ui::run_background_task([fingerprints,canonical_root,sources=policies(),writable,fingerprint] {
-            for(auto entry=fingerprints.cbegin();entry!=fingerprints.cend();++entry) {
-                const auto& path=entry.key();const QFileInfo info(path);
-                // Revalidate after confirmation, including content and all
-                // original protection/containment checks, before recycling.
-                if(info.isSymLink()||info.isJunction()||!writable(sources,path)||!removal_lock(info).isEmpty()||
-                        !path_belongs_to(info.canonicalFilePath(),canonical_root)||fingerprint(path)!=entry.value()||
-                        !QFile::moveToTrash(path))return path;
-            }
-            return QString{};
-        });
-    }
-    if(!failure.isEmpty())QMessageBox::warning(this,tr("Operace se nezdařila"),tr("Archivní verzi nelze přesunout do koše: %1").arg(failure));
-    refresh_directory();
 }
 
 QStringList FileManagerTab::selected_paths()const{QStringList paths;for(int i=0;i<files_->topLevelItemCount();++i){auto* item=files_->topLevelItem(i);if(item->checkState(0)==Qt::Checked)paths<<item->data(0,Qt::UserRole).toString();}return paths;}

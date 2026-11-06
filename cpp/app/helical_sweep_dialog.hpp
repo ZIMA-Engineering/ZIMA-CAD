@@ -27,7 +27,7 @@ public:
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();
-        remove_origin_display_controls(this);form=new QFormLayout;
+        form=new QFormLayout;
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
         for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         auto* result=new QComboBox(this);result->setObjectName("helicalResultType");

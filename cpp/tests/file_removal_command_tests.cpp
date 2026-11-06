@@ -53,21 +53,23 @@ int main() {
                 const auto saved = workspace::prepare_document_save(live, id, path).write();
                 require(workspace::complete_document_save(live, saved), "Fixture save failed");
             }
+            write(first_archive(path), "legacy numbered file");
             const auto snapshot = command_host::documents(live);
-            const auto plan = workspace::prepare_document_file_removal(live, id, kind == 1);
+            const auto plan = workspace::prepare_document_file_removal(live, id);
             require(command_host::documents(live) == snapshot && fs::exists(path) && fs::exists(first_archive(path)),
                 "Preparing file deletion changed files or model");
             const auto removed = workspace::remove_document_file(live, plan);
             require(removed.ok() && removed.closed_document == id && !fs::exists(path) && live.size() == 0 &&
                 live.active_document_id().empty() && live.displayed_document_id().empty(),
                 "Native file deletion failed to close its own document");
-            require(fs::exists(first_archive(path)) == (kind != 1) &&
-                removed.removed.size() == (kind == 1 ? 2 : 1), "Archive selection or completed effects wrong");
+            require(fs::exists(first_archive(path)) && removed.removed.size() == 1,
+                "Deleting the current file also changed an existing numbered file");
             require(!workspace::remove_document_file(live, plan).ok(), "Stale deletion plan reused");
         }
         workspace::Workspace live;
         const auto path = root / fs::path(u8"chráněný díl.prtz");
         part.save(path, boundaries); part.save(path, boundaries);
+        write(first_archive(path), "existing numbered file");
         live.add_part(part, boundaries, path); live.activate(part.document_id); live.display_top_level(part.document_id);
         auto working = root;
         bool editing = false;
@@ -90,37 +92,25 @@ int main() {
         require(call().code == "unsaved_changes" && state->session.can_undo() &&
             state->session.calculated_boundaries().back().volume == original_volume, "Dirty-state refusal damaged model/history");
         const auto bytes = read(path);
-        auto allowed = workspace::prepare_document_file_removal(live, part.document_id, true, true);
+        auto allowed = workspace::prepare_document_file_removal(live, part.document_id, true);
         write(path, bytes + "changed");
         require(workspace::remove_document_file(live, allowed).code == "stale_file" && fs::exists(path) &&
-            fs::exists(first_archive(path)), "Changed file was deleted with archives");
+            fs::exists(first_archive(path)), "Changed file was deleted");
         write(path, bytes);
-        allowed = workspace::prepare_document_file_removal(live, part.document_id, true, true);
-        write(first_archive(path), "changed backup");
-        require(workspace::remove_document_file(live, allowed).code == "stale_archive" && fs::exists(path),
-            "Changed archive batch deleted the current file first");
 #ifdef _WIN32
         auto held = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         require(held != INVALID_HANDLE_VALUE, "Cannot lock current fixture");
-        const auto denied = call({{"archives",true},{"discard",true}});
+        const auto denied = call({{"discard",true}});
         CloseHandle(held);
         require(!denied.ok && denied.code == "file_io_error" && denied.data.at("removed_paths").empty() &&
             !denied.data.at("closed").get<bool>() && fs::exists(path) && fs::exists(first_archive(path)) &&
-            live.open_part(part.document_id) && !host.change(), "Locked current file removed archives or closed the model");
-        held = CreateFileW(first_archive(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        require(held != INVALID_HANDLE_VALUE, "Cannot lock archive fixture");
-        const auto partial = call({{"archives",true},{"discard",true}});
-        CloseHandle(held);
-        const auto partial_json = Json::parse(partial.json().dump());
-        require(!partial.ok && partial.code == "archive_io_error" && partial_json.at("data").at("closed") == true &&
-            partial_json.at("data").at("removed_paths").size() == 1 && !fs::exists(path) &&
-            fs::exists(first_archive(path)) && !live.find(part.document_id) &&
-            host.change() && host.change()->kind == command_host::ChangeKind::Close,
-            "Archive failure lost the successful file deletion/close from the CLI result");
+            live.open_part(part.document_id) && !host.change(), "Locked current file closed the model or changed a numbered file");
+        const auto deleted = call({{"discard",true}});
+        require(deleted.ok && !fs::exists(path) && fs::exists(first_archive(path)) && !live.find(part.document_id),
+            "Current-file deletion removed an existing numbered file");
 #else
-        require(call({{"archives",true},{"discard",true}}).ok && !fs::exists(path), "Explicit discard failed");
+        require(call({{"discard",true}}).ok && !fs::exists(path) && fs::exists(first_archive(path)), "Explicit discard failed");
 #endif
         // Runtime identity must distinguish a new opening with the same document ID.
         part.save(path, boundaries); live.add_part(part, boundaries, path);

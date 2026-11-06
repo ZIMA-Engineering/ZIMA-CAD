@@ -1,4 +1,5 @@
 #include <zima/document/versioned_file.hpp>
+#include <zima/document/file_path.hpp>
 
 #include <chrono>
 #include <system_error>

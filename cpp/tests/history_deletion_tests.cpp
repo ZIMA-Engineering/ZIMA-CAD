@@ -276,11 +276,91 @@ static void verify_sheet_suppression(const kernel::OcctKernel& kernel) {
     require(workspace::set_part_history_suppressed(live,id,kernel,formed.id,false)&&session.document().serialized()==original&&
         session.calculated_boundaries().back().calculation_errors.empty(),"Bend Back restoration omitted its original sheet source");
 }
+static void verify_retained_feature_and_sketch_frames(const kernel::OcctKernel& kernel) {
+    auto part = document::PartDocument::create_default();
+    const auto body = part.body_history.create_body("Retained frames");
+    auto plane = document::PartDocument::create_construction(document::ConstructionKind::Plane);
+    plane.origin = {11, -8, 17};
+    plane.rotation = plane.absolute_rotation = {31, -23, 42};
+    part.insert_history_entry(document::PartHistoryKind::Construction, plane.id);
+    part.constructions.push_back(plane);
+    auto dependent = test::rectangular_feature(part, {10, 6, 5});
+    document::ConstructionReference support;
+    support.owner_id = plane.entity_id;
+    support.semantic_key = "plane";
+    support.orientation_drives_rotation = true;
+    support.orientation_role = "front";
+    dependent.placement.references.push_back(support);
+    part.insert_history_entry(document::PartHistoryKind::Feature, dependent.id);
+    part.history.push_back(dependent);
+    auto sketch = sketcher::Sketch::create_default();
+    sketch.plane_reference_owner_id = plane.entity_id;
+    static_cast<void>(sketch.add_segment(0, 0, 5, 2));
+    part.insert_history_entry(document::PartHistoryKind::Sketch, sketch.id);
+    part.sketches.push_back(sketch);
+    auto calculated = workspace::calculate_part_with_resolved_references(kernel, part);
+    require(calculated.back().calculation_errors.empty(), "Retained-frame fixture did not calculate");
+    const auto volume = [&](const auto& boundaries) {
+        require(!boundaries.empty() && boundaries.back().calculation_errors.empty(),
+            "A retained-frame feature became a calculation error");
+        const auto found = boundaries.back().body_outputs.find(body);
+        require(found != boundaries.back().body_outputs.end() && found->second->has_solid(),
+            "A retained-frame feature lost its owned solid");
+        auto measured = found->second.get();
+        kernel.ensure_body_properties(measured);
+        return measured.volume;
+    };
+    const double saved_volume = volume(calculated);
+    const auto frame = [](const sketcher::Sketch& value) {
+        return std::array{value.world_point(0, 0), value.world_point(1, 0), value.world_point(0, 1)};
+    };
+    const auto saved_frame = frame(*std::ranges::find(part.sketches, sketch.id, &sketcher::Sketch::id));
+    require(saved_frame[0] != kernel::Vec3{}, "Retained-frame fixture lost the translated Plane");
+    auto expected_placement = part.find_container(dependent.id)->placement;
+    expected_placement.references.clear();
+    expected_placement.reference_valid = false;
+    const auto verify = [&](const document::PartDocument& value) {
+        const auto* feature = value.find_container(dependent.id);
+        const auto retained = std::ranges::find(value.sketches, sketch.id, &sketcher::Sketch::id);
+        require(feature && value.removed_reference_states.contains(feature->id) &&
+                feature->placement == expected_placement,
+            "A dependent feature did not retain its last valid placement");
+        require(retained != value.sketches.end() && value.removed_reference_states.contains(sketch.id) &&
+                frame(*retained) == saved_frame,
+            "A Sketch moved off its last valid Plane after reference deletion");
+    };
+    workspace::Workspace live;
+    const auto id = part.document_id;
+    live.add_part(part, std::move(calculated));
+    auto& session = live.open_part(id)->session;
+    workspace::delete_part_history(live, id, kernel, plane.id);
+    verify(session.document());
+    require(std::abs(volume(session.calculated_boundaries()) - saved_volume) < 1e-8,
+        "Reference deletion changed a dependent feature's retained solid");
+    const auto path = std::filesystem::path("build") /
+        ("history-retained-frames-" + sketch.id + ".prtz");
+    session.document().save(path, session.calculated_boundaries());
+    auto reopened = document::PartDocument::load(path);
+    verify(reopened);
+    const auto cold = workspace::calculate_part_with_resolved_references(kernel, reopened);
+    verify(reopened);
+    require(std::abs(volume(cold) - saved_volume) < 1e-8,
+        "Cold reopening lost a dependent feature's retained solid");
+    std::filesystem::remove(path);
+    require(workspace::step_part_document_history(live, id, false) &&
+            session.document().find_construction(plane.id),
+        "Retained-frame deletion Undo did not restore the reference Plane");
+    require(workspace::step_part_document_history(live, id, true), "Retained-frame deletion Redo failed");
+    verify(session.document());
+    require(std::abs(volume(session.calculated_boundaries()) - saved_volume) < 1e-8,
+        "Reference deletion Redo lost a dependent feature's retained solid");
+}
 int main() {
     try {
         kernel::OcctKernel kernel;
         verify_live_regeneration(kernel);verify_cold_history_resume();verify_recovery_prefix();
         verify_sheet_suppression(kernel);
+        verify_retained_feature_and_sketch_frames(kernel);
         auto doc=document::PartDocument::create_default();
         auto source=test::rectangular_feature(doc,{10,10,10});
         doc.history={source};
@@ -405,6 +485,82 @@ int main() {
         require(!session.document().removed_reference_states.contains(fillet.id)&&session.document().removed_reference_states.contains(chamfer.id),"Repair acknowledged other broken features");
         require(!session.calculated_boundaries().back().calculation_errors.contains(fillet.id),"Repaired fillet failed calculation");
         require(workspace::step_part_document_history(live,id,false)&&session.document().removed_reference_states.contains(fillet.id),"Repair Undo lost incomplete state");
+        {
+            auto bodies_document=document::PartDocument::create_default();
+            auto first_feature=test::rectangular_feature(bodies_document,{20,20,10});
+            auto sketch_container=document::PartDocument::create_sketch_container();
+            auto editable_sketch=sketcher::Sketch::create_default();
+            editable_sketch.owner_container_id=sketch_container.id;
+            sketch_container.feature.sketch_id=editable_sketch.id;
+            auto second_feature=test::rectangular_feature(bodies_document,{5,5,5});
+            bodies_document.history={first_feature,sketch_container,second_feature};
+            bodies_document.sketches.push_back(editable_sketch);
+            document::BodyHistoryGraph bodies_graph;
+            const auto first_body=bodies_graph.create_body("First");
+            bodies_graph.insert({document::PartHistoryKind::Feature,first_feature.id});
+            const auto second_body=bodies_graph.create_body("Second");
+            bodies_graph.insert({document::PartHistoryKind::Feature,sketch_container.id});
+            bodies_graph.insert({document::PartHistoryKind::Feature,second_feature.id});
+            bodies_document.set_body_history(bodies_graph);
+            auto bodies_calculated=workspace::calculate_part_with_resolved_references(kernel,bodies_document);
+            const auto face=std::ranges::find_if(bodies_calculated.back().mesh.original_references.triangle_references,
+                [&](const auto& value){return value.owner_id==first_feature.id&&value.surface&&
+                    value.surface->kind==kernel::SurfaceGeometry::Kind::Plane;});
+            require(face!=bodies_calculated.back().mesh.original_references.triangle_references.end(),
+                "Two-Body deletion fixture has no source face");
+            bodies_graph=bodies_document.body_history;
+            auto positioned=*bodies_graph.find(second_body);
+            document::ConstructionReference placement;
+            placement.owner_id=face->owner_id;placement.semantic_key=face->semantic_key;
+            placement.orientation_role="front";placement.orientation_drives_rotation=true;
+            positioned.scope.placement.references={placement};
+            bodies_graph.update_body(positioned);bodies_document.set_body_history(bodies_graph);
+            bodies_document.resolve_constructions(bodies_calculated.back().mesh.original_references);
+            bodies_calculated=workspace::calculate_part_with_resolved_references(kernel,bodies_document,&bodies_calculated);
+            require(std::ranges::find(bodies_document.body_history.find(second_body)->dependencies,first_body)!=
+                    bodies_document.body_history.find(second_body)->dependencies.end(),
+                "Second Body did not persist its placement dependency");
+            auto retained_body_placement = bodies_document.body_history.find(second_body)->scope.placement;
+            retained_body_placement.references.clear();
+            retained_body_placement.reference_valid = false;
+            workspace::Workspace bodies_live;const auto bodies_id=bodies_document.document_id;
+            bodies_live.add_part(bodies_document,bodies_calculated);
+            workspace::delete_part_history(bodies_live,bodies_id,kernel,first_body);
+            auto& bodies_session=bodies_live.open_part(bodies_id)->session;
+            const auto& after=bodies_session.document();
+            const auto* surviving_body=after.body_history.find(second_body);
+            require(!after.body_history.find(first_body)&&surviving_body&&after.find_container(sketch_container.id)&&
+                std::ranges::any_of(after.sketches,[&](const auto& value){return value.id==editable_sketch.id;}),
+                "Deleting the first Body removed the dependent Body or its Sketch");
+            require(surviving_body->scope.placement.references.empty()&&surviving_body->dependencies.empty()&&
+                after.removed_reference_states.contains(second_body),
+                "Deleting the first Body retained an unusable Body placement reference");
+            require(surviving_body->scope.placement == retained_body_placement,
+                "Dependent Body did not retain its last valid frame");
+            require(bodies_session.rollback_boundary(sketch_container.id).has_value()&&
+                !bodies_session.calculated_boundaries().empty(),
+                "Dependent Body Sketch cannot open after its source Body is deleted");
+            const auto reopen_path=std::filesystem::absolute(
+                "build/history-deletion-two-bodies.prtz");
+            after.save(reopen_path,bodies_session.calculated_boundaries());
+            std::vector<kernel::BodyResult> reopened_calculated;
+            const auto reopened=document::PartDocument::load(reopen_path,&reopened_calculated);
+            document::DocumentSession reopened_session(reopened,reopened_calculated);
+            require(reopened.body_history.find(second_body)&&
+                reopened.body_history.find(second_body)->scope.placement == retained_body_placement &&
+                reopened.removed_reference_states.contains(second_body)&&
+                reopened_session.rollback_boundary(sketch_container.id).has_value(),
+                "Saved two-Body deletion did not reopen with an editable surviving Sketch");
+            std::filesystem::remove(reopen_path);
+            require(workspace::step_part_document_history(bodies_live,bodies_id,false)&&
+                bodies_session.document().body_history.find(first_body)&&
+                !bodies_session.document().body_history.find(second_body)->scope.placement.references.empty(),
+                "Two-Body deletion Undo did not restore the placement reference");
+            require(workspace::step_part_document_history(bodies_live,bodies_id,true)&&
+                !bodies_session.document().body_history.find(first_body)&&
+                bodies_session.rollback_boundary(sketch_container.id).has_value(),
+                "Two-Body deletion Redo blocked the surviving Sketch");
+        }
         auto pattern_doc=document::PartDocument::create_default();
         auto pattern_source=test::rectangular_feature(pattern_doc,{4,4,4});
         auto pattern=document::PartDocument::create_fillet_container({reference});

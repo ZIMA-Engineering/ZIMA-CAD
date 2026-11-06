@@ -6,6 +6,7 @@
 #include <zima/document/relation_program.hpp>
 #include <zima/document/engineering_metadata.hpp>
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <algorithm>
 #include <charconv>
@@ -23,6 +24,36 @@ auto comparable_history(std::vector<zima::document::HistoryContainer> history) {
     // retain every parsed field, including signed floating-point zero.
     for(auto& item:history)zima::document::visit_feature_sketches(item,[](auto& sketch,std::size_t){sketch=nlohmann::json::parse(sketch).dump();});
     return history;
+}
+bool same_authored_sketch_definition(const zima::sketcher::Sketch& before,
+        const zima::sketcher::Sketch& after) {
+    auto normalize=[](const zima::sketcher::Sketch& sketch) {
+        auto value=nlohmann::json::parse(sketch.serialized());
+        for(const auto* field:{"resolved_origin","resolved_x_axis",
+                "resolved_y_axis","resolved_normal"})value.erase(field);
+        for(auto& reference:value.at("external_references")) {
+            // Projected points and exact sampled support packets are derived
+            // from the persisted source identity. A format regeneration may
+            // refresh them, but never its source, kind, side or editability.
+            reference.erase("cached_points");
+            reference.erase("cached_paths");
+            reference.erase("exact_spline");
+        }
+        return value;
+    };
+    auto old_definition=normalize(before);
+    const auto new_definition=normalize(after);
+    // `broken` is resolved diagnostic state, not authored reference intent.
+    // Permit only a successful regeneration improvement; a newly broken
+    // reference remains a blocking definition difference.
+    auto& old_references=old_definition.at("external_references");
+    const auto& new_references=new_definition.at("external_references");
+    for(std::size_t index=0;
+            index<std::min(old_references.size(),new_references.size());++index)
+        if(old_references[index].value("broken",false)&&
+                !new_references[index].value("broken",false))
+            old_references[index]["broken"]=false;
+    return old_definition==new_definition;
 }
 nlohmann::json reparameterize_legacy_single_orientation_placements(
         zima::document::PartDocument& part,
@@ -44,24 +75,37 @@ nlohmann::json reparameterize_legacy_single_orientation_placements(
 
     nlohmann::json migrations = nlohmann::json::array();
     const auto normalize = [&](zima::document::Placement& placement,
-            const std::string& owner, const char* kind) {
+            const std::string& owner, const char* kind,
+            const std::optional<std::size_t> input_boundary) {
         const auto before = placement;
-        bool normalized =
-            zima::document::reparameterize_single_orientation_placement(
-                placement, geometry);
         // A full cache contains successive versions of the same persistent
-        // original face. If an older duplicate precedes the feature's actual
-        // input boundary, retry each exact boundary from newest to oldest
-        // rather than letting enumeration order choose a different plane.
-        for (auto boundary = cached.rbegin(); !normalized &&
-                boundary != cached.rend(); ++boundary) {
+        // original face. Use each exact boundary from newest to oldest rather
+        // than letting an older duplicate in the aggregated geometry choose a
+        // different plane. The aggregate remains a fallback for datum-only
+        // references which do not belong to a calculated Body boundary.
+        bool normalized{};
+        if(input_boundary&&*input_boundary<cached.size()) {
+            auto candidate=before;
+            if(zima::document::reparameterize_single_orientation_placement(
+                    candidate,cached[*input_boundary].mesh.original_references)) {
+                placement=std::move(candidate);
+                normalized=true;
+            }
+        }
+        for (auto boundary = cached.rbegin(); boundary != cached.rend();
+                ++boundary) {
+            if(normalized)break;
             auto candidate = before;
             if (zima::document::reparameterize_single_orientation_placement(
                     candidate, boundary->mesh.original_references)) {
                 placement = std::move(candidate);
                 normalized = true;
+                break;
             }
         }
+        if (!normalized) normalized =
+            zima::document::reparameterize_single_orientation_placement(
+                placement, geometry);
         if (!normalized || placement == before) return;
         migrations.push_back({
             {"owner", owner}, {"kind", kind},
@@ -73,15 +117,69 @@ nlohmann::json reparameterize_legacy_single_orientation_placements(
             {"resolved_rotation", {before.rotation_x, before.rotation_y,
                 before.rotation_z}}});
     };
-    for (auto& feature : part.history)
-        normalize(feature.placement, feature.id, "history");
+    for (std::size_t index=0;index<part.history.size();++index) {
+        auto& feature=part.history[index];
+        normalize(feature.placement,feature.id,"history",
+            index?std::optional<std::size_t>{index-1}:std::nullopt);
+    }
     const auto bodies = part.body_history.bodies();
     for (const auto& original : bodies) {
         auto body = original;
-        normalize(body.scope.placement, body.scope.id, "body");
+        normalize(body.scope.placement,body.scope.id,"body",std::nullopt);
         if (body != original) part.body_history.update_body(std::move(body));
     }
     return migrations;
+}
+bool settle_declared_placement_migrations(
+        zima::document::PartDocument& authored,
+        const zima::workspace::Workspace& live,
+        nlohmann::json& migrations) {
+    bool changed{};
+    for(auto& migration:migrations) {
+        const auto owner=migration.value("owner",std::string{});
+        const auto kind=migration.value("kind",std::string{});
+        const auto geometry=zima::workspace::placement_edit_geometry(
+            live,authored.document_id,owner);
+        if(kind=="history") {
+            const auto found=std::ranges::find(
+                authored.history,owner,&zima::document::HistoryContainer::id);
+            if(found==authored.history.end())
+                throw std::runtime_error(
+                    "Declared history placement migration owner is missing");
+            const auto before=found->placement;
+            if(!zima::document::reparameterize_single_orientation_placement(
+                    found->placement,geometry))
+                throw std::runtime_error(
+                    "Declared history placement migration cannot be settled");
+            changed=changed||found->placement!=before;
+            migration["absolute_rotation_after"]={
+                found->placement.absolute_rotation_x,
+                found->placement.absolute_rotation_y,
+                found->placement.absolute_rotation_z};
+        } else if(kind=="body") {
+            const auto* existing=authored.body_history.find(owner);
+            if(!existing)
+                throw std::runtime_error(
+                    "Declared Body placement migration owner is missing");
+            auto body=*existing;
+            const auto before=body.scope.placement;
+            if(!zima::document::reparameterize_single_orientation_placement(
+                    body.scope.placement,geometry))
+                throw std::runtime_error(
+                    "Declared Body placement migration cannot be settled");
+            changed=changed||body.scope.placement!=before;
+            migration["absolute_rotation_after"]={
+                body.scope.placement.absolute_rotation_x,
+                body.scope.placement.absolute_rotation_y,
+                body.scope.placement.absolute_rotation_z};
+            if(body.scope.placement!=before)
+                authored.body_history.update_body(std::move(body));
+        } else {
+            throw std::runtime_error(
+                "Declared placement migration kind is invalid");
+        }
+    }
+    return changed;
 }
 void collect_entity_ids(const nlohmann::json& value,std::set<std::string>& ids) {
     if(value.is_object()) {
@@ -399,6 +497,44 @@ std::string format_migration_calculated_contract_error(
     }
     return {};
 }
+bool only_declared_placement_numeric_normalization(
+        const nlohmann::json& before,const nlohmann::json& after) {
+    const auto changes=nlohmann::json::diff(before,after);
+    if(changes.empty())return true;
+    constexpr double zero_tolerance=1.0e-12;
+    const std::set<std::string> resolved_rotation_fields{
+        "rotation_x","rotation_y","rotation_z"};
+    const std::set<std::string> absolute_rotation_fields{
+        "absolute_rotation_x","absolute_rotation_y","absolute_rotation_z"};
+    for(const auto& change:changes) {
+        const auto path=change.value("path",std::string{});
+        if(path=="/calculation_definition_fingerprint")continue;
+        if(!path.starts_with("/history/"))return false;
+        const auto placement=path.find("/placement/");
+        if(placement==std::string::npos)return false;
+        const auto field=path.substr(placement+std::string("/placement/").size());
+        if(field.find('/')!=std::string::npos||
+                (!resolved_rotation_fields.contains(field)&&
+                    !absolute_rotation_fields.contains(field)))return false;
+        try {
+            const auto pointer=nlohmann::json::json_pointer(path);
+            const auto& old_value=before.at(pointer);
+            const auto& new_value=after.at(pointer);
+            if(!old_value.is_number()||!new_value.is_number())return false;
+            const double old_number=old_value.get<double>();
+            const double new_number=new_value.get<double>();
+            const bool allowed=resolved_rotation_fields.contains(field)
+                ?std::abs(old_number-new_number)<=zero_tolerance
+                :std::abs(old_number)<=zero_tolerance&&
+                    std::abs(new_number)<=zero_tolerance;
+            if(!allowed)
+                return false;
+        } catch(const std::exception&) {
+            return false;
+        }
+    }
+    return true;
+}
 // Explicit offline authoring operation. Input must already satisfy the current
 // native contract; the application retains no legacy reader or dual semantics.
 std::map<std::string,double> reexpress_coordinates(zima::document::PartDocument& part) {
@@ -606,10 +742,68 @@ void migrate_native_part_contract(const std::filesystem::path& source,
         {"changed_container_count",change_count}}.dump(2)<<'\n';
     if(!evidence)throw std::runtime_error("Cannot write migration evidence");
 }
+void upgrade_native_part_format_48_to_49(
+        const std::filesystem::path& source,
+        const std::filesystem::path& output,
+        const std::filesystem::path& report) {
+    if(std::filesystem::absolute(source).lexically_normal()==
+            std::filesystem::absolute(output).lexically_normal())
+        throw std::runtime_error(
+            "Format migration output must be separate from its source");
+    std::ifstream input(source,std::ios::binary);
+    const std::string original((std::istreambuf_iterator<char>(input)),{});
+    if(!input&&!input.eof())throw std::runtime_error(
+        "Cannot read native Part for format migration");
+    auto migrated=original;
+    constexpr std::string_view old_version="format_version=48";
+    std::size_t version_count{};
+    for(std::size_t position=migrated.find(old_version);
+            position!=std::string::npos;
+            position=migrated.find(old_version,position+1)) {
+        const bool line_start=position==0||migrated[position-1]=='\n';
+        const auto after=position+old_version.size();
+        const bool line_end=after==migrated.size()||
+            migrated[after]=='\n'||migrated[after]=='\r';
+        if(line_start&&line_end)++version_count;
+    }
+    if(version_count!=1)throw std::runtime_error(
+        "Expected exactly one native Part format 48 declaration");
+    const auto version=migrated.find(old_version);
+    migrated.replace(version,old_version.size(),"format_version=49");
+    bool cache_removed{};
+    const auto cache=migrated.find("[CachedBodies]");
+    if(cache!=std::string::npos&&(cache==0||migrated[cache-1]=='\n')) {
+        const auto next_section=migrated.find("\n[",cache+1);
+        if(next_section==std::string::npos)
+            throw std::runtime_error("Native Part cache section is invalid");
+        migrated.erase(cache,next_section+1-cache);
+        cache_removed=true;
+    }
+    std::filesystem::create_directories(output.parent_path());
+    std::ofstream native(output,std::ios::binary);
+    native.write(migrated.data(),static_cast<std::streamsize>(migrated.size()));
+    native.close();
+    if(!native)throw std::runtime_error("Cannot write migrated native Part");
+    std::filesystem::create_directories(report.parent_path());
+    std::ofstream evidence(report);
+    evidence<<nlohmann::json{{"migration","part-format-48-to-49"},
+        {"format_upgraded",true},
+        {"stale_derived_cache_removed",cache_removed},
+        {"authored_definition_changed",false}}.dump(2)<<'\n';
+    if(!evidence)throw std::runtime_error("Cannot write migration evidence");
+}
 }
 
 int main(int argc,char** argv){try{
     using namespace zima;
+    if(argc==5&&std::string_view(argv[1])==
+            "--upgrade-part-format48-to49") {
+        upgrade_native_part_format_48_to_49(
+            std::filesystem::u8path(argv[2]),
+            std::filesystem::u8path(argv[3]),
+            std::filesystem::u8path(argv[4]));
+        return 0;
+    }
     if(argc==5&&std::string_view(argv[1])==
             "--add-empty-edge-treatment-end-faces") {
         migrate_native_part_contract(
@@ -707,6 +901,43 @@ int main(int argc,char** argv){try{
             {"calculated_boundaries",cached.size()}}.dump(2)<<'\n';
         return report?0:1;
     }
+    if(argc==5&&std::string_view(argv[1])==
+            "--recalculate-native-asset") {
+        const auto source=std::filesystem::u8path(argv[2]);
+        const auto output=std::filesystem::u8path(argv[3]);
+        const auto report=std::filesystem::u8path(argv[4]);
+        if(std::filesystem::absolute(source).lexically_normal()==
+                std::filesystem::absolute(output).lexically_normal())
+            throw std::runtime_error(
+                "Verification output must be separate from its source");
+        const auto authored=document::PartDocument::load(source);
+        const auto definition=authored.serialized();
+        kernel::OcctKernel engine;
+        auto calculated=engine.evaluate_history(authored.kernel_operations());
+        for(const auto& boundary:calculated)
+            if(!boundary.calculation_errors.empty())
+                throw std::runtime_error(
+                    "Factory native calculation contains an error");
+        std::filesystem::create_directories(output.parent_path());
+        authored.save(output,calculated);
+        std::vector<kernel::BodyResult> restored;
+        const auto reopened=document::PartDocument::load(output,&restored);
+        if(reopened.serialized()!=definition||restored.size()!=calculated.size())
+            throw std::runtime_error(
+                "Factory native readback changed definition or boundary count");
+        for(std::size_t index=0;index<calculated.size();++index)
+            if(document::serialize_body_result(restored[index])!=
+                    document::serialize_body_result(calculated[index]))
+                throw std::runtime_error(
+                    "Factory native readback lost calculated geometry or references");
+        std::filesystem::create_directories(report.parent_path());
+        std::ofstream evidence(report);
+        evidence<<nlohmann::json{{"native_readback_exact",true},
+            {"authored_definition_unchanged",true},
+            {"calculated_boundaries",calculated.size()},
+            {"calculation_errors",0}}.dump(2)<<'\n';
+        return evidence?0:1;
+    }
     if(argc==5&&std::string_view(argv[1])=="--rewrite-native-asset") {
         const auto source=std::filesystem::u8path(argv[2]),output=std::filesystem::u8path(argv[3]);
         if(std::filesystem::absolute(source).lexically_normal()==std::filesystem::absolute(output).lexically_normal())
@@ -785,7 +1016,7 @@ int main(int argc,char** argv){try{
         const auto& placement_migration_geometry=
             authored_history_format_baseline
                 ?authored_history_baseline:cached;
-        const auto placement_frame_migrations = format_migration
+        auto placement_frame_migrations = format_migration
             ? reparameterize_legacy_single_orientation_placements(
                 authored, placement_migration_geometry)
             : nlohmann::json::array();
@@ -803,7 +1034,14 @@ int main(int argc,char** argv){try{
             authored.family.evaluated.clear();
         }
         const auto id=authored.document_id;workspace::Workspace live;
-        live.add_part(authored,cached,source);
+        const auto& regeneration_baseline=authored_history_format_baseline
+            ?authored_history_baseline:cached;
+        // Cacheless format recovery already calculated a complete, exact
+        // authored-history oracle above. Reuse it as the regeneration input so
+        // consumers of historical references can materialize their demanded
+        // source boundary instead of starting from an intentionally empty
+        // cache.
+        live.add_part(authored,regeneration_baseline,source);
         workspace::PartCalculationPolicy policy;policy.reject_errors=true;policy.refresh_physical_properties=true;
         static_cast<void>(workspace::regenerate_part(live,engine,id,policy));
         if(!evaluated_rows.empty())for(const auto& row:document::parse_family_table(authored.family_table).instances)
@@ -816,6 +1054,37 @@ int main(int argc,char** argv){try{
         {
             kernel::AggregatePropertyScope all(kernel::AggregatePropertyDemand::All);
             calculated=engine.evaluate_history(updated.kernel_operations());
+        }
+        // A legacy single-direction reference may expose the same oriented
+        // plane through two equivalent Euler bases. Settle the explicit
+        // migration once against the geometry produced by the current
+        // resolver, while `authored` still carries the original final frame.
+        // The second regeneration must then reproduce that frame exactly.
+        if(format_migration&&!placement_frame_migrations.empty()) {
+            if(settle_declared_placement_migrations(
+                    authored,live,placement_frame_migrations)) {
+                workspace::Workspace settled_live;
+                settled_live.add_part(authored,regeneration_baseline,source);
+                static_cast<void>(workspace::regenerate_part(
+                    settled_live,engine,id,policy));
+                const auto* settled_current=settled_live.open_part(id);
+                if(!settled_current)
+                    throw std::runtime_error(
+                        "Settled factory asset disappeared");
+                updated=settled_current->session.document();
+                {
+                    kernel::AggregatePropertyScope all(
+                        kernel::AggregatePropertyDemand::All);
+                    calculated=engine.evaluate_history(
+                        updated.kernel_operations());
+                }
+                auto convergence_probe=authored;
+                auto convergence_migrations=placement_frame_migrations;
+                if(settle_declared_placement_migrations(convergence_probe,
+                        settled_live,convergence_migrations))
+                    throw std::runtime_error(
+                        "Placement-frame format migration did not converge");
+            }
         }
         static_cast<void>(workspace::complete_part_physical_analysis(
             engine,updated,calculated,true));
@@ -938,20 +1207,40 @@ int main(int argc,char** argv){try{
         const bool authored_definition_preserved=!topology_migration||
             topology_migration_preserves_authored_definition(
                 authored,updated,topology_changes);
+        const bool declared_placement_numeric_normalization=
+            format_migration&&!placement_frame_migrations.empty()&&
+            only_declared_placement_numeric_normalization(
+                authored.serialized(),updated.serialized());
         if((topology_migration&&(!same_history_structure(authored,updated)||
                     !authored_definition_preserved))||
                 (!topology_migration&&(comparable_history(updated.history)!=
                     comparable_history(authored.history)||
                     updated.body_history!=authored.body_history||
-                    updated.sketches.size()!=authored.sketches.size()))) {
+                    updated.sketches.size()!=authored.sketches.size())&&
+                    !declared_placement_numeric_normalization)) {
             std::filesystem::create_directories(report.parent_path());
             std::ofstream diagnostic(report);diagnostic<<nlohmann::json{{"authored_definition_changes",
-                nlohmann::json::diff(authored.serialized(),updated.serialized())}}.dump(2)<<'\n';
+                annotated_contract_diff(
+                    authored.serialized(),updated.serialized())}}.dump(2)<<'\n';
             throw std::runtime_error("Factory regeneration changed authored history, sides or Body ownership");
         }
         for(std::size_t i=0;!topology_migration&&i<authored.sketches.size();++i)
-            if(authored.sketches[i].serialized()!=updated.sketches[i].serialized())
+            if(format_migration?
+                    !same_authored_sketch_definition(
+                        authored.sketches[i],updated.sketches[i]):
+                    authored.sketches[i].serialized()!=updated.sketches[i].serialized()) {
+                auto diagnostic=report;
+                diagnostic.replace_extension(".sketch-diff.json");
+                std::filesystem::create_directories(diagnostic.parent_path());
+                std::ofstream stream(diagnostic);
+                stream<<nlohmann::json{{"sketch_index",i},
+                    {"sketch_id",authored.sketches[i].id},
+                    {"differences",nlohmann::json::diff(
+                        nlohmann::json::parse(authored.sketches[i].serialized()),
+                        nlohmann::json::parse(updated.sketches[i].serialized()))}}
+                    .dump(2)<<'\n';
                 throw std::runtime_error("Factory regeneration changed authored Sketch geometry or references");
+            }
         std::filesystem::create_directories(output.parent_path());updated.save(output,calculated);
         std::vector<kernel::BodyResult> restored;const auto reopened=document::PartDocument::load(output,&restored);
         if(reopened.serialized()!=updated.serialized()||restored.size()!=calculated.size())
@@ -968,6 +1257,7 @@ int main(int argc,char** argv){try{
             }
             if(document::serialize_body_result(restored[i])!=document::serialize_body_result(persisted)) {
                 auto diagnostic=report;diagnostic.replace_extension(".native-diff.json");
+                std::filesystem::create_directories(diagnostic.parent_path());
                 std::ofstream stream(diagnostic);
                 stream<<nlohmann::json{{"boundary",i},{"differences",nlohmann::json::diff(
                     document::serialize_body_result(persisted),document::serialize_body_result(restored[i]))}}.dump(2)<<'\n';
@@ -1014,6 +1304,7 @@ int main(int argc,char** argv){try{
         }
         if(!cached.empty()){evidence["previous_volume"]=cached.back().volume;evidence["previous_area"]=cached.back().surface_area;}
         evidence["parameters"]=updated.serialized().value("user_parameter_values",nlohmann::json::object());
+        std::filesystem::create_directories(report.parent_path());
         std::ofstream stream(report);stream<<evidence.dump(2)<<'\n';stream.close();
         if(!stream)throw std::runtime_error("Cannot write factory verification evidence");
         return 0;

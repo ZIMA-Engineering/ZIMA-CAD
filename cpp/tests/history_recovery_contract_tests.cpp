@@ -21,9 +21,14 @@ int main(int argc, char** argv) {
         require(results.size() == 3, "Recovery lost history boundaries");
         require(results.front().calculation_errors.empty(), "Later failure tainted earlier feature");
         require(results.back().calculation_errors.contains("broken") &&
-                results.back().calculation_errors.contains("later"), "Failure owners were lost");
-        require(std::abs(results.back().volume - 1000) < 1e-8, "Valid preceding geometry disappeared");
-        require(results.back().kernel_shape == results.front().kernel_shape, "Recovery used a stale final body");
+                !results.back().calculation_errors.contains("later"),
+            "An independent later feature inherited an earlier failure");
+        require(std::abs(results.back().volume - 1000) < 1e-8,
+            "Valid preceding geometry disappeared");
+        // The later 5 x 5 x 5 prism is fully enclosed by the first prism, so
+        // its successful Boolean legitimately leaves the visible volume equal.
+        require(!results.back().kernel_shape.empty(),
+            "Recovery retained no calculated final body");
         require(results.back().source_fingerprint == kernel::history_fingerprint(operations, 3), "Recovery fingerprint mismatch");
         bool rejected = false;
         try { static_cast<void>(kernel.evaluate_history_incremental(operations, results)); }
@@ -37,10 +42,11 @@ int main(int argc, char** argv) {
         const auto absent_results = kernel.evaluate_history_recovering(absent);
         require(absent_results.size() == 3 &&
                 absent_results[1].calculation_errors.contains("broken") &&
-                absent_results.back().calculation_errors.contains("later") &&
+                !absent_results.back().calculation_errors.contains("later") &&
+                std::abs(absent_results.back().volume - 1000) < 1e-8 &&
                 std::abs(absent_results[1].volume -
                     absent_results[0].volume) < 1e-8,
-            "A treatment whose complete original edge disappeared was not unresolved");
+            "A missing treatment incorrectly blocked independent later geometry");
         bool absent_reuse_rejected = false;
         try {
             static_cast<void>(kernel.evaluate_history_incremental(
@@ -68,7 +74,11 @@ int main(int argc, char** argv) {
         auto invalid_first = operations;
         invalid_first.front().primitive = zima::test::ProfilePrism{0, 10, 10};
         const auto no_input = kernel.evaluate_history_recovering(invalid_first);
-        require(no_input.back().calculation_errors.contains("first") && no_input.back().mesh.triangles.empty(), "Invalid first operation fabricated geometry");
+        require(no_input.back().calculation_errors.contains("first") &&
+                !no_input.back().calculation_errors.contains("later") &&
+                !no_input.back().mesh.triangles.empty()&&
+                std::abs(no_input.back().volume-125)<1e-8,
+            "Invalid first operation blocked independent later geometry");
         operations[0].body.id = operations[1].body.id = "body-a";
         operations[2].body.id = "body-b";
         operations[2].body.translation = {30, 0, 0};

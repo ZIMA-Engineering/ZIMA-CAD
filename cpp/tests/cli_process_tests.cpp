@@ -153,54 +153,20 @@ int main(int argc,char** argv){
             defaults.sync();
         }
         {
-            const auto archive_dir = root / fs::path(u8"archivy žluťoučké");
-            fs::create_directory(archive_dir);
-            const auto base = archive_dir / fs::path(u8"díl s mezerou.prtz");
-            write(base, "current");
-            auto older = base; older += ".2"; write(older, "old");
-            auto latest = base; latest += ".10"; write(latest, "new");
-            write(archive_dir / "other.asmz.1", "assembly");
-            const auto name = document::path_to_utf8(base.filename());
-            QByteArray input;
-            for (const auto& request : std::vector<Json>{
-                    {{"command","file.archives.list"},{"arguments",{{"path",name}}}},
-                    {{"command","directory.archives.list"}},
-                    {{"command","file.archives.prune"},{"arguments",{{"path",name},{"keep",1}}}},
-                    {{"command","directory.archives.prune"},{"arguments",{{"keep",0}}}},
-                    {{"command","file.archives.list"},{"arguments",{{"path",name}}}}})
-                input += QByteArray::fromStdString(request.dump()) + '\n';
-            const auto process = launch(executable, archive_dir, {"--stdin"}, input);
-            const auto records = process.results();
-            require(process.exit_code == 0 && records.size() == 5, "Archive CLI process failed");
-            for (const auto& record : records) require(record.at("ok").get<bool>(), "Archive process returned an error");
-            require(records[0].at("data").at("groups")[0].at("archives")[0].at("version") == "2" &&
-                records[1].at("data").at("count") == 3 &&
-                records[2].at("data").at("removed_paths").size() == 1 &&
-                records[3].at("data").at("removed_paths").size() == 2 &&
-                records[4].at("data").at("count") == 0 && fs::exists(base) &&
-                !fs::exists(older) && !fs::exists(latest), "Archive process order, retention or file effects failed");
-            const auto invalid = launch(executable, archive_dir, {"--command", command({
-                {"command","file.archives.prune"},{"arguments",{{"path",name},{"keep",-1}}}})});
-            require(invalid.exit_code != 0 && invalid.results().front().at("code") == "invalid_arguments" &&
-                fs::exists(base), "Invalid archive process command succeeded or deleted current file");
-        }
-
-        {
             const auto removal_directory = root / fs::path(u8"mazání dílů");
             fs::create_directory(removal_directory);
             for (const auto& kind : {"part", "assembly", "drawing"}) {
                 const std::string type = kind;
                 const auto filename = fs::path(type + (type == "part" ? ".prtz" : type == "assembly" ? ".asmz" : ".drwz"));
                 const auto file = removal_directory / filename;
-                auto archive = file; archive += ".1";
                 const auto process = launch(executable, removal_directory, {"--command", QString::fromStdString("new " + type + " " + type),
                     "--command", "save", "--command", "save",
-                    "--command", command({{"command","delete_file"},{"arguments",{{"archives",true}}}}),
+                    "--command", "delete_file",
                     "--command", "documents"});
                 const auto records = process.results();
                 require(process.exit_code == 0 && records.size() == 5 && records[3].at("ok") == true &&
-                    records[3].at("data").at("closed") == true && records[3].at("data").at("removed_paths").size() == 2 &&
-                    records[4].at("data").empty() && !fs::exists(file) && !fs::exists(archive),
+                    records[3].at("data").at("closed") == true && records[3].at("data").at("removed_paths").size() == 1 &&
+                    records[4].at("data").empty() && !fs::exists(file),
                     "Native file deletion process failed or retained the closed document");
             }
             for (const bool discard : {false,true}) {
@@ -238,8 +204,8 @@ int main(int argc,char** argv){
                     records[4].at("data").at("document") == records[3].at("data").at("active_document") &&
                     records[4].at("data").at("changed") == true &&
                     records[5].at("data")[0].at("path") == document::path_to_utf8(target) &&
-                    !fs::exists(original) && fs::exists(target) && fs::exists(archive),
-                    "Native rename CLI process lost its document, archive or Unicode path");
+                    !fs::exists(original) && fs::exists(target) && !fs::exists(archive),
+                    "Native rename CLI process lost its document or Unicode path, or created an archive");
             }
             const auto dirty = launch(executable, rename_directory, {"--command","new part dirty",
                 "--command","save", "--command","@fixture.rectangular 10 20 30",
@@ -289,7 +255,14 @@ int main(int argc,char** argv){
             const auto saved=load_native_template(file);require(saved.drawing_template->kind==kind&&saved.segments.size()==1&&saved.texts.front().value=="Žluťoučký &name"&&!saved.texts.front().modeling_geometry,"CLI template lost native data");
             result=launch(executable,root,common+QStringList{"--command",command({{"command","template.open"},{"arguments",{{"path",name+suffix}}}}),
                 "--command",command({{"command","template.save"},{"arguments",{{"path",name+" copy"+suffix},{"copy",true}}}}),"--command","close"});
-            require(result.exit_code==0&&load_native_template(project/fs::u8path(name+" copy"+suffix)).id==saved.id,"CLI template copy or reopen changed its identity");
+            if(result.exit_code!=0)
+                throw std::runtime_error("CLI template copy process failed: output="+
+                    result.output.toStdString()+", diagnostics="+
+                    result.diagnostics.toStdString());
+            const auto copied=load_native_template(project/fs::u8path(name+" copy"+suffix));
+            if(copied.id!=saved.id)
+                throw std::runtime_error("CLI template copy or reopen changed its identity: source="+
+                    saved.id+", copy="+copied.id);
         }
         {
             const auto logo=project/"CLI logo.svg";{std::ofstream out(logo);out<<R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="red"/></svg>)";}
@@ -465,15 +438,29 @@ int main(int argc,char** argv){
         const auto edited_records=result.results();
         require(result.exit_code==0&&edited_records.size()==7,"Actual CLI could not create/edit Mirror and Pattern");
         std::vector<kernel::BodyResult> copied_cache;const auto copy_saved=zima::test::load_part_with_properties(copy_path,&copied_cache);
+        const auto& copied_result=copied_cache.back();
+        const auto copied_volume=[&](const std::string& body_id) {
+            auto body=copied_result.body_outputs.at(body_id).get();
+            shell_kernel.ensure_body_properties(body);return body.volume;
+        };
         const auto new_mirror=edited_records[1].at("data").at("object").get<std::string>();
         const auto new_pattern=edited_records[4].at("data").at("object").get<std::string>();
-        require(copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x==-4&&
+        const bool copied_ok=copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x==-4&&
             copy_saved.body_history.find(copy_fixture.mirror)->derived_copy->source_id==copy_fixture.other&&
-            std::abs(copied_cache.back().body_outputs.at(copy_fixture.mirror)->volume-12)<1e-6&&
+            std::abs(copied_volume(copy_fixture.mirror)-12)<1e-6&&
             copy_saved.body_history.find(copy_fixture.pattern)->derived_copy->pattern->linear[0].spacing==40&&
-            std::abs(copied_cache.back().body_outputs.at(new_mirror)->volume-60)<1e-6&&
-            std::abs(copied_cache.back().body_outputs.at(new_pattern)->volume-120)<1e-6,
-            "CLI copy properties or independent Boolean-source copy volumes did not persist");
+            std::abs(copied_volume(new_mirror)-60)<1e-6&&
+            std::abs(copied_volume(new_pattern)-120)<1e-6;
+        if(!copied_ok) {
+            std::ostringstream detail;detail<<"CLI copy properties or independent Boolean-source copy volumes did not persist: x="
+                <<copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x<<", source="
+                <<copy_saved.body_history.find(copy_fixture.mirror)->derived_copy->source_id<<", expected_source="
+                <<copy_fixture.other<<", old_mirror="<<copied_volume(copy_fixture.mirror)
+                <<", spacing="<<copy_saved.body_history.find(copy_fixture.pattern)->derived_copy->pattern->linear[0].spacing
+                <<", new_mirror="<<copied_volume(new_mirror)
+                <<", new_pattern="<<copied_volume(new_pattern);
+            throw std::runtime_error(detail.str());
+        }
         const auto shell_created=zima::test::load_part_with_properties(shell_path).history.back();
         const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
             {"faces",Json::array({Json{{"owner",shell_box.id},{"key",test::profile_key(shell_fixture,shell_box,"z_max")}}})}}}});
@@ -517,7 +504,8 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",make_drill,"--command","save"});
         require(result.exit_code==0,"CLI drill-point creation failed");
         const auto drill_created=zima::test::load_part_with_properties(drill_path).history.back();
-        require(drill_created.name=="Drill Point","CLI drill point name was not translated");
+        if(drill_created.name!="Drill Point 01")throw std::runtime_error(
+            "CLI drill point name was not translated: "+drill_created.name);
         const auto edit_drill=command({{"command","drill_point.set"},{"arguments",{{"container",drill_created.id},{"angle_degrees",120},{"faces",Json::array({drill_face(2)})}}}});
         result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",edit_drill,"--command","undo","--command","redo",
             "--command","save","--command","drill_point.get "+QString::fromStdString(drill_created.id)});
@@ -622,7 +610,7 @@ int main(int argc,char** argv){
             "--command",make_hole,"--command","save"});
         require(result.exit_code==0,"CLI native Hole creation failed");
         const auto hole_path=project/"native-hole-cli.prtz";const auto hole_created=zima::test::load_part_with_properties(hole_path).history.back();
-        require(hole_created.feature_kind==document::FeatureKind::Hole&&hole_created.name=="Hole","CLI native Hole kind or translation is wrong");
+        require(hole_created.feature_kind==document::FeatureKind::Hole&&hole_created.name=="Hole 01","CLI native Hole kind or translation is wrong");
         const auto hole_id=QString::fromStdString(hole_created.id);
         const auto resize_hole=command({{"command","hole.set"},{"arguments",{{"container",hole_created.id},{"diameter_mm",8},{"entrance_chamfer_mm",1}}}});
         result=launch(executable,root,common+QStringList{"--command","open native-hole-cli.prtz","--command","hole.get "+hole_id,
@@ -646,7 +634,7 @@ int main(int argc,char** argv){
             "--command",make_opening,"--command","save"});
         require(result.exit_code==0,"CLI opening creation failed");
         const auto opening_path=project/"opening-cli.prtz";const auto opening_created=zima::test::load_part_with_properties(opening_path).history.back();
-        require(opening_created.name=="Hole","CLI opening default name was not translated");
+        require(opening_created.name=="Hole 01","CLI opening default name was not translated");
         const auto opening_id=QString::fromStdString(opening_created.id);
         const auto resize_opening=command({{"command","opening.set"},{"arguments",{{"container",opening_created.id},{"bore_length_mm",25}}}});
         result=launch(executable,root,common+QStringList{"--command","open opening-cli.prtz","--command","opening.get "+opening_id,
@@ -693,7 +681,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open shaft-cli.prtz","--command",make_shaft,"--command","save"});
         require(result.exit_code==0,"CLI shaft creation failed");
         const auto shaft_created=zima::test::load_part_with_properties(shaft_path).history.back();
-        require(shaft_created.name=="External thread","CLI shaft name was not translated");
+        require(shaft_created.name=="External thread 01","CLI shaft name was not translated");
         const auto shaft_id=QString::fromStdString(shaft_created.id);
         const auto resize_shaft=command({{"command","shaft_thread.set"},{"arguments",{{"container",shaft_created.id},{"length_mm",20},{"root_diameter_mm",8.05}}}});
         result=launch(executable,root,common+QStringList{"--command","open shaft-cli.prtz","--command",resize_shaft,
@@ -856,7 +844,7 @@ int main(int argc,char** argv){
         require(result.exit_code==1&&result.results().front().at("message")=="Context-specific empty document","Command translation context differs from GUI");
         result=launch(executable,root,common+QStringList{"--stdin"},
             "new part json-names\n@fixture.rectangular 2 3 4\nsave\nnew drawing json-sheet\nsave\n");
-        require(result.exit_code==0 && zima::test::load_part_with_properties(project/"json-names.prtz").history.back().name=="Extrude from JSON" &&
+        require(result.exit_code==0 && zima::test::load_part_with_properties(project/"json-names.prtz").history.back().name=="Extrude from JSON 01" &&
             drawing::DrawingDocument::load(project/"json-sheet.drwz").sheets.front().name=="Sheet from JSON 1",
             "CLI supplemental catalog did not localize new feature and sheet names");
         fs::remove(project/"config.ini");
@@ -1133,7 +1121,7 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",material_load,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3,"CLI material library assignment failed");fs::remove(material_source);
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get"});
-        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.2","Material assignment evaluated relations outside Regenerate");
+        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="47.1","Material library Save did not refresh physical Relations");
         const auto component_insert=command({{"command","component.insert"},{"arguments",{{"source",step_native.document_id},{"name","Opakovaný díl"}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","new assembly cli-components","--command",component_insert,"--command",component_insert,"--command","undo","--command","redo","--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
@@ -1398,7 +1386,7 @@ int main(int argc,char** argv){
         require(result.exit_code==0,"CLI projection command failed");const auto projection_id=result.results()[1].at("data").at("reference").get<std::string>();
         const auto projected=zima::test::load_part_with_properties(project/"cli-projection.prtz");
         const auto& projection=projected.sketches.back();
-        require(projection.external_references.size()==3 && projection.segments.size()==1 &&
+        require(projection.external_references.size()==4 && projection.segments.size()==1 &&
             std::ranges::count_if(projection.external_references,[](const auto& reference){return sketcher::is_external_endpoint_kind(reference.kind);})==2,
             "CLI projection did not persist edge, endpoint references and native line");
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",QString::fromStdString("sketch.reference.delete "+projection_sketch+" "+projection_id),"--command","save"});
@@ -1437,10 +1425,20 @@ int main(int argc,char** argv){
                 "--command",activate_context,"--command",create_context,"--command","save","--command",activate_owner,"--command","undo","--command","save"});
             require(result.exit_code==0,"CLI context creation, Assembly Undo and owner save failed");
             const auto created=result.results()[4].at("data");const auto projected_context=zima::test::load_part_with_properties(project/"context-target.prtz");
-            require(projected_context.sketches.front().external_references.size()==1&&
-                assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.size()==1&&
-                assembly::AssemblyDocument::load(project/"context-inner.asmz").components.front().name==context.inner.components.front().name,
-                "CLI Assembly Undo did not preserve the current reference summary");
+            const auto saved_inner=assembly::AssemblyDocument::load(project/"context-inner.asmz");
+            const auto& projected_references=projected_context.sketches.front().external_references;
+            if(projected_references.size()!=3||
+                std::ranges::count_if(projected_references,[](const auto& reference) {
+                    return sketcher::is_external_endpoint_kind(reference.kind);
+                })!=2||
+                saved_inner.dependencies.size()!=1||
+                saved_inner.components.front().name!=context.inner.components.front().name) {
+                std::ostringstream detail;detail<<"CLI Assembly Undo did not preserve the current reference summary: references="
+                    <<projected_references.size()<<", dependencies="
+                    <<saved_inner.dependencies.size()<<", component_name="<<saved_inner.components.front().name
+                    <<", expected_name="<<context.inner.components.front().name;
+                throw std::runtime_error(detail.str());
+            }
             const auto detach_context=command({{"command","sketch.reference.delete"},{"arguments",{{"sketch",context.sketch_id},{"reference",created.at("reference")}}}});
             result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_owner,"--command",rename_context,
                 "--command",activate_context,"--command",detach_context,"--command","save","--command",activate_owner,"--command","undo","--command","save"});

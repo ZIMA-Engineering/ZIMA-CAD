@@ -163,13 +163,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         initial.feature_kind == zima::document::FeatureKind::Shell;
     if (!treatment) header_form->addRow(tr("Název"), name_);
     else name_->hide();
-    if (initial.feature_kind != zima::document::FeatureKind::Feature &&
-        initial.feature_kind != zima::document::FeatureKind::Hole &&
-        zima::document::has_origin_display_controls(initial.feature_kind)) {
-        origin_display_=new OriginDisplayControls(initial.origin_point_visible,initial.origin_text_visible,
-            this,[this]{notify_preview();});
-        if(!is_sheet_form())header_form->addRow(QString{},origin_display_);
-    }
     // Opening and Drill Point are always subtractive; neither
     // exposes a user-selectable operation even though both share this dialog.
     if (!treatment && initial.feature_kind !=
@@ -1496,7 +1489,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         content_layout()->addWidget(hole_parameters_widget_);
         refresh_hole_step_state();
     } else content_layout()->addLayout(form);
-    if(is_sheet_form()&&origin_display_)content_layout()->addWidget(origin_display_,0,Qt::AlignLeft);
     for(auto* table:{shell_face_list_,drill_point_face_list_})if(table) {
         content_layout()->addWidget(table,1);setProperty("expandBottomTable",true);
     }
@@ -1688,10 +1680,6 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     const QString name = name_->text().trimmed();
     auto result = initial_;
     result.name = name.toStdString();
-    if(origin_display_) {
-        result.origin_point_visible=origin_display_->point();
-        result.origin_text_visible=origin_display_->text();
-    }
     if (operation_ != nullptr) {
         result.combine_mode = operation_->currentData().toString() == "subtract"
             ? zima::document::CombineMode::Subtract
@@ -2518,8 +2506,25 @@ void PrimitivePropertiesDialog::set_profile_plane_selection(const zima::sketcher
         control->setCurrentIndex(control->findData(sketch.plane_auto
             ? QVariant(QStringLiteral("auto"))
             : QVariant(static_cast<int>(sketch.plane))));
+        connect(control,&QComboBox::currentIndexChanged,this,[this] {
+            // The work-plane mode lives in the owned Sketch rather than the
+            // history-container value. Mark it explicitly so unchanged
+            // numeric Properties cannot take the normal no-op OK path.
+            if(profile_plane_changed_)set_commit_required(true);
+        });
     }
     profile_plane_changed_ = std::move(changed);
+}
+
+std::optional<std::pair<zima::sketcher::SketchPlane,bool>>
+PrimitivePropertiesDialog::profile_plane_selection() const {
+    auto* control=feature_panel_&&
+            feature_panel_->parameters().type==zima::document::FeatureType::Axis
+        ?feature_axis_direction_:profile_plane_;
+    if(!control)return std::nullopt;
+    return std::pair{
+        static_cast<zima::sketcher::SketchPlane>(selected_work_plane(control).toInt()),
+        automatic_work_plane(control)};
 }
 
 double PrimitivePropertiesDialog::profile_plane_offset() const {

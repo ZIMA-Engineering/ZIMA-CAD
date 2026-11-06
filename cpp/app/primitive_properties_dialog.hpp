@@ -1,6 +1,4 @@
 #pragma once
-#include "origin_display_controls.hpp"
-
 #include "placement_reference_dialog.hpp"
 
 #include <zima/document/part_document.hpp>
@@ -10,6 +8,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string_view>
 #include <QString>
@@ -108,6 +107,8 @@ public:
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
     void set_profile_plane_selection(const zima::sketcher::Sketch&, std::function<void(zima::sketcher::SketchPlane, bool)>);
+    [[nodiscard]] std::optional<std::pair<zima::sketcher::SketchPlane,bool>>
+        profile_plane_selection() const;
     [[nodiscard]] double profile_plane_offset() const;
     void refresh_sketch_preview() { set_commit_required(true); notify_preview(); }
     [[nodiscard]] zima::document::HistoryContainer pending_value() const { return values(); }
@@ -246,7 +247,6 @@ private:
     std::vector<std::string> accepted_target_baseline_;
     CommitCallback commit_;
     QLineEdit* name_{};
-    OriginDisplayControls* origin_display_{};
     std::string feature_automatic_name_;
     std::function<std::string(zima::document::FeatureType)> feature_name_provider_;
     QComboBox* operation_{};

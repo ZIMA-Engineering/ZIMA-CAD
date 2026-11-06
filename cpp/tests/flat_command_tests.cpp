@@ -2,6 +2,9 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/workspace/flat_operations.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS_Shape.hxx>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -51,6 +54,11 @@ void verify_default_attached_profile() {
         check(!workspace::initialize_attached_flat_profile(sketch)&&sketch.serialized()==initial,"Default Flat replaced an existing profile");
         const auto height=sketch.dimensions.front().id;
         const auto supports=sketch.external_references;
+        auto final_scene_refresh=sketch;
+        check(!final_scene_refresh.refresh_external_references(
+                "source-part",kernel::ViewerReferenceGeometry{})&&
+                final_scene_refresh.external_references==supports,
+            "Final-scene refresh invalidated Flat attachment endpoints");
         auto equations=[&](auto& s,double expected) {
             const auto solved=s.solve();check(solved.maximum_residual<1e-8,"Default Flat solve residual");
             double lo=INFINITY,hi=-INFINITY;
@@ -210,6 +218,38 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
             catch(const std::exception&){return false;}
         });
         check(edge!=geometry.edges.end(),"Bend lost its stable outer End boundary");edge_key=edge->reference.semantic_key;
+        auto split_end=*edge;
+        auto split_cap=std::ranges::find_if(split_end.edge_treatment_side_references,
+            [](const auto& face) {
+                return face.sheet_role==kernel::SheetFaceRole::ThicknessFace;
+            });
+        check(split_cap!=split_end.edge_treatment_side_references.end(),
+            "Bend End has no thickness cap ancestry");
+        const auto parent=std::to_string(split_cap->owner_id.size())+":"+
+            split_cap->owner_id+std::to_string(split_cap->semantic_key.size())+
+            ":"+split_cap->semantic_key+
+            std::to_string(split_cap->instance_path.size())+":"+
+            split_cap->instance_path;
+        split_cap->owner_id="later-operation";
+        split_cap->semantic_key="boolean:add:split-face:from:"+
+            std::to_string(parent.size())+":"+parent+":boundary:fixture";
+        check(document::flat_sheet_references(split_end).size()==3,
+            "Boolean-split Bend End lost its attachable cap ancestry");
+        for(std::size_t endpoint=0;endpoint<2;++endpoint) {
+            document::Placement placement;
+            placement.references=document::bend_sheet_references(*edge,
+                edge->edge_treatment_endpoint_references[endpoint]);
+            placement.x=edge->points[endpoint].x;
+            placement.y=edge->points[endpoint].y;
+            placement.z=edge->points[endpoint].z;
+            auto remapped=*edge;
+            remapped.edge_treatment_endpoint_references[endpoint]={
+                "older-sibling","boolean:add:vertex:fixture:"+
+                    std::to_string(endpoint),{}};
+            check(document::current_sheet_attachment_anchor(remapped,placement)==
+                    remapped.edge_treatment_endpoint_references[endpoint],
+                "Boolean endpoint replacement changed the physical sheet anchor side");
+        }
         if(target.history.front().placement.references.empty())target.history.front().placement.references=document::flat_sheet_references(*edge);
         const auto original_points=edge->points;
         for(bool reversed:{false,true}) {
@@ -229,10 +269,45 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
             if(!close({-n.x,-n.y,-n.z},end.resolved_y_axis))std::cerr<<"reversed="<<reversed<<" inward "<<-n.x<<","<<-n.y<<","<<-n.z<<" expected "<<end.resolved_y_axis.x<<","<<end.resolved_y_axis.y<<","<<end.resolved_y_axis.z<<'\n';
             check(close({-n.x,-n.y,-n.z},end.resolved_y_axis),"Flat thickness points outside the Bend radius");
             check(profile.external_references.size()==2,"Flat did not publish both external endpoints");
+            auto final_scene_refresh=profile;
+            check(!final_scene_refresh.refresh_external_references(
+                    target.document_id,kernel::ViewerReferenceGeometry{})&&
+                    final_scene_refresh.external_references==profile.external_references,
+                "Final-scene refresh invalidated Bend attachment endpoints");
             for(const auto& reference:profile.external_references) {
                 check(!reference.broken&&reference.cached_points.size()==1,"Flat endpoint is broken");
                 const auto p=reference.cached_points.front();const auto world=profile.world_point(p[0],p[1]);
                 check(close(world,original_points.front())||close(world,original_points.back()),"External endpoint left its source edge");
+            }
+            if(!reversed) {
+                auto remapped_geometry=geometry;
+                auto remapped_edge=std::ranges::find_if(remapped_geometry.edges,
+                    [&](const auto& candidate) {
+                        return candidate.reference.semantic_key==edge_key;
+                    });
+                check(remapped_edge!=remapped_geometry.edges.end(),
+                    "Cannot remap Bend End endpoint ancestry");
+                // A sibling Boolean can replace one physical endpoint by the
+                // oldest contributing topology identity.  It must not make
+                // the attached Flat exchange its authored first/last sides.
+                const auto& anchor=target.history.front().placement.references[2];
+                auto replace=std::ranges::find_if(
+                    remapped_edge->edge_treatment_endpoint_references,
+                    [&](const auto& reference) {
+                        return reference.owner_id!=anchor.owner_id||
+                            reference.semantic_key!=anchor.semantic_key||
+                            reference.instance_path!=anchor.instance_path;
+                    });
+                check(replace!=remapped_edge->edge_treatment_endpoint_references.end(),
+                    "Cannot identify the non-anchor Bend endpoint");
+                *replace={"older-sibling","boolean:add:vertex:fixture",{}};
+                auto remapped=target;
+                remapped.resolve_constructions(remapped_geometry);
+                const auto& stable=remapped.sketches.front();
+                for(std::size_t i=0;i<2;++i)
+                    check(stable.external_references[i].cached_points==
+                            profile.external_references[i].cached_points,
+                        "Changed Bend endpoint ancestry reversed Flat attachment sides");
             }
             if(!previous.empty())for(std::size_t i=0;i<2;++i) {
                 check(previous[i].id==profile.external_references[i].id&&previous[i].source_semantic_key==profile.external_references[i].source_semantic_key,
@@ -293,6 +368,24 @@ void verify_attached_history(std::filesystem::path directory) {
         const auto expected=40*std::numbers::pi/2*(5+thickness*.5)*thickness+40*12*thickness;
         near(measured_volume(kernel,state->session.calculated_boundaries().back()),expected);
         near(state->session.document().find_container(flat)->flat.thickness,thickness);
+    }
+    for(const auto corners:{std::array{true,false},std::array{true,true},
+            std::array{false,true},std::array{false,false}}) {
+        run(host,"bend.set",{{"container",bend},{"corner_first",corners[0]},
+            {"corner_last",corners[1]},{"corner_gap_mm",.05}});
+        const auto& result=state->session.calculated_boundaries().back();
+        check(result.calculation_errors.empty(),
+            "Bend corner closure broke its attached Flat calculation");
+        check(state->session.document().find_container(flat)->placement.reference_valid,
+            "Bend corner closure invalidated its attached Flat reference");
+        const auto shape=kernel::read_calculated_body_shape(result);
+        unsigned solids=0;
+        for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+        check(solids==1,"Bend corner closure split its attached Flat material");
+        const auto& profile=workspace::document_sketch(live,id,sketch_id);
+        check(std::ranges::all_of(profile.external_references,[](const auto& ref) {
+            return !ref.broken&&ref.cached_points.size()==1;
+        }),"Bend corner closure broke an attached Flat endpoint");
     }
     run(host,"save");std::vector<kernel::BodyResult> cached;
     const auto loaded=document::PartDocument::load(directory/"attached-history.prtz",&cached);

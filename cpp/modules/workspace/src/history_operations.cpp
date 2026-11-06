@@ -40,7 +40,12 @@ bool set_part_history_suppressed(Workspace& live,const std::string& document_id,
     // Suppression follows all consumers; restoration enables only the selected
     // object and its prerequisites. Preserve definitions and reference identity,
     // and commit the complete change after one calculation.
-    const auto affected=part_history_dependency_closure(part.session.document(),id,suppressed);
+    auto affected=part_history_dependency_closure(part.session.document(),id,suppressed);
+    if(const auto* selected=part.session.document().find_container(id);
+            selected&&selected->feature_kind==document::FeatureKind::SheetProfile)
+        for(const auto& feature:part.session.document().history)
+            if(feature.sheet_profile_binding.parent_id==selected->id)
+                affected.insert(feature.id);
     for(const auto& object:affected)set_suppressed(object);
     auto calculated=calculate_part(kernel,next,&part.session.calculated_boundaries());
     next.resolve_constructions(calculated.empty()?kernel::ViewerReferenceGeometry{}:calculated.back().mesh.original_references);
@@ -54,6 +59,11 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     auto& part=*state;
     require_editable(part.session.document(),id);
     const auto& original=part.session.document();
+    const auto* moved=original.find_container(id);
+    if(moved&&(moved->feature_kind==document::FeatureKind::SheetProfile||
+             !moved->sheet_profile_binding.parent_id.empty()))
+        throw HistoryOperationError("atomic_history_group",
+            "This generated sheet group cannot be reordered independently.");
     const bool body_step = original.body_history.find(id) || original.body_history.find_boolean(id);
     const auto* owner = original.body_history.owner(id);
     std::vector<std::string> order;
@@ -143,9 +153,23 @@ void delete_part_history(Workspace& live,const std::string& document_id,const ke
     }
     auto next=original;
     const auto deletion=plan_history_deletion(original,id);
+    const auto* removed_feature=original.find_container(id);
+    const bool rebuild_sheet_union=removed_feature&&(
+        removed_feature->feature_kind==document::FeatureKind::Flat||
+        removed_feature->feature_kind==document::FeatureKind::Bend||
+        removed_feature->feature_kind==document::FeatureKind::TwistedSheet||
+        removed_feature->feature_kind==document::FeatureKind::SheetFromBody||
+        removed_feature->feature_kind==document::FeatureKind::SheetProfile);
     detach_deleted_history_references(next,deletion);
     next.erase_history_object(id);
-    auto calculated=calculate_part_with_resolved_references(kernel,next,&part.session.calculated_boundaries());
+    // Flats and Bends are independent authored material tools. Rebuild their
+    // shared Body with the direct parallel Add block after a deletion instead
+    // of replaying every cumulative sheet Boolean from the first changed row.
+    // The previous packet remains the Undo state owned by the session.
+    auto calculated=rebuild_sheet_union
+        ?calculate_part(kernel,next,&part.session.calculated_boundaries())
+        :calculate_part_with_resolved_references(
+            kernel,next,&part.session.calculated_boundaries());
     commit_part_document(live,document_id,std::move(next),std::move(calculated));
 }
 HistoryCursorChange set_part_history_cursor(Workspace& live,

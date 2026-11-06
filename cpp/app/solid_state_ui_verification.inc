@@ -142,7 +142,8 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 kernel::BodyResult body;body.mesh=view->mesh();
                 const auto serialized=document::serialize_body_result(body,false);
                 nlohmann::json solid;
-                for(const auto* key:{"vertices_binary","triangles_binary","triangle_references"})solid[key]=serialized.at(key);
+                for(const auto* key:{"vertices_binary","triangles_binary","face_references","triangle_reference_runs_binary"})
+                    solid[key]=serialized.at(key);
                 return solid.dump();
             };
             const auto input=packet();
@@ -360,7 +361,8 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                     "GUI Straighten rewrote the Sweep Fillet definition");
             }
             QTreeWidgetItem* edited{};
-            for(QTreeWidgetItemIterator row(tree);*row;++row)if((*row)->data(0,Qt::UserRole+3)=="part-container"&&(*row)->text(0)==straighten->text()&&tree_path(*row)==active_path) {edited=*row;break;}
+            for(QTreeWidgetItemIterator row(tree);*row;++row)if((*row)->data(0,Qt::UserRole+3)=="part-container"&&
+                (*row)->text(0).startsWith(straighten->text())&&tree_path(*row)==active_path) {edited=*row;break;}
             check(edited,"Straighten missing from Tree");
             window.show_tree_item_properties(edited);flush();check(dialog(),"Tree Properties did not reopen Straighten");
             check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==source.id&&face.instance_path==active_path;}),"Editing did not roll back to formed input");
@@ -531,7 +533,8 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
             check(tree&&view,"Attached properties workspace is missing");
             const auto packet=[&]{kernel::BodyResult b;b.mesh=view->mesh();const auto data=document::serialize_body_result(b,false);
-                return nlohmann::json{{"v",data.at("vertices_binary")},{"t",data.at("triangles_binary")},{"r",data.at("triangle_references")}}.dump();};
+                return nlohmann::json{{"v",data.at("vertices_binary")},{"t",data.at("triangles_binary")},
+                    {"r",data.at("face_references")},{"rr",data.at("triangle_reference_runs_binary")}}.dump();};
             const auto final_packet=packet();
             const auto edit=[&]() -> ui::PropertiesSubWindow* {
                 QTreeWidgetItem* selected{};
@@ -617,7 +620,8 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Missing user inspection workspace");
             const auto packet=[&] {
                 kernel::BodyResult body;body.mesh=view->mesh();const auto data=document::serialize_body_result(body,false);
-                return nlohmann::json{data.at("vertices_binary"),data.at("triangles_binary"),data.at("triangle_references")}.dump();
+                return nlohmann::json{data.at("vertices_binary"),data.at("triangles_binary"),
+                    data.at("face_references"),data.at("triangle_reference_runs_binary")}.dump();
             };
             const auto before=packet();const bool had_undo=window.findChild<QAction*>("undoAction")->isEnabled();
             const auto wire_points=[&] {

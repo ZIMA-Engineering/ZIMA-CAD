@@ -6,8 +6,17 @@
 #include <nlohmann/json.hpp>
 namespace zima::workspace {
 namespace {
-HistoryDependencyCollector dependencies(const document::PartDocument& doc) {
+HistoryDependencyCollector dependencies(const document::PartDocument& doc,bool include_bodies=false) {
     auto graph=part_history_dependency_graph(doc);
+    if(include_bodies) {
+        for(const auto& body:doc.body_history.bodies())graph.alias(body.scope.id,body.scope.id);
+        for(const auto& body:doc.body_history.bodies()) {
+            for(const auto& reference:body.scope.placement.references)
+                graph.reference(body.scope.id,reference);
+            for(const auto& dependency:body.dependencies)
+                graph.use(body.scope.id,dependency);
+        }
+    }
     for(const auto& f:doc.history) {
         graph.use(f.id,f.holes.sketch_id);graph.use(f.id,f.flat.sketch_id);graph.use(f.id,f.bend.sketch_id);
         if(f.feature_kind==document::FeatureKind::DerivedCopy){graph.use(f.id,f.derived_copy.source_id);graph.reference(f.id,f.derived_copy.reference);}
@@ -16,10 +25,12 @@ HistoryDependencyCollector dependencies(const document::PartDocument& doc) {
     }
     return graph;
 }
-std::string signature(const HistoryDependencyCollector& graph,const std::string& consumer) {
+std::string signature(const HistoryDependencyCollector& graph,const std::string& consumer,
+        const std::set<std::string>& removed_sources = {}) {
     nlohmann::json refs=nlohmann::json::array(),edges=nlohmann::json::array();
     for(const auto& [target,path,owner,key]:graph.references)if(target==consumer)refs.push_back({path,owner,key});
-    for(const auto& [source,target]:graph.edges)if(target==consumer)edges.push_back(source);
+    for(const auto& [source,target]:graph.edges)
+        if(target==consumer && !removed_sources.contains(source))edges.push_back(source);
     return nlohmann::json{{"references",refs},{"sources",edges}}.dump();
 }
 }
@@ -69,23 +80,54 @@ std::set<std::string> part_history_dependency_closure(const document::PartDocume
 HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,const std::string& id) {
     HistoryDeletionPlan plan;plan.removed.insert(id);
     if(const auto* body=doc.body_history.find(id))for(const auto& entry:body->entries)plan.removed.insert(entry.id);
-    const auto graph=dependencies(doc);auto reached=plan.removed;
+    if(const auto* selected=doc.find_container(id)) {
+        if(!selected->sheet_profile_binding.parent_id.empty())
+            throw std::invalid_argument(
+                "Edit or delete this generated feature through its parent Profile.");
+        if(selected->feature_kind==document::FeatureKind::SheetProfile)
+            for(const auto& feature:doc.history)
+                if(feature.sheet_profile_binding.parent_id==selected->id)
+                    plan.removed.insert(feature.id);
+    }
+    const auto graph=dependencies(doc,true);
+    // A self-contained retained feature is a dependency boundary.  It loses
+    // only the direct reference to the deleted source and keeps publishing its
+    // own profile/primitive from the last valid persisted frame.  Descendants
+    // therefore continue to reference that retained feature normally.  Only
+    // operations whose geometry is inherently an edit of their input cannot
+    // publish an independent result and carry the unavailable chain onward.
+    const auto propagates_loss=[&](const std::string& owner) {
+        const auto* feature=doc.find_container(owner);
+        return feature&&(
+            feature->feature_kind==document::FeatureKind::Fillet||
+            feature->feature_kind==document::FeatureKind::Chamfer||
+            feature->feature_kind==document::FeatureKind::Shell);
+    };
+    auto unavailable=plan.removed;
     for(bool changed=true;changed;) {
         changed=false;
-        for(const auto& [source,target]:graph.edges)if(reached.contains(source))changed|=reached.insert(target).second;
+        for(const auto& [source,target]:graph.edges) {
+            if(!unavailable.contains(source)||plan.removed.contains(target))
+                continue;
+            plan.affected.insert(target);
+            if(propagates_loss(target))
+                changed|=unavailable.insert(target).second;
+        }
     }
-    for(const auto& id:reached)if(!plan.removed.contains(id))plan.affected.insert(id);
     return plan;
 }
 void detach_deleted_history_references(document::PartDocument& doc,const HistoryDeletionPlan& plan) {
-    const auto graph=dependencies(doc);
+    const auto graph=dependencies(doc,true);
+    const auto root_owner=[&](const std::string& owner) -> const std::string& {
+        const auto alias=graph.owners.find(owner);
+        return alias==graph.owners.end()?owner:alias->second;
+    };
     const auto lost=[&](const std::string& owner) {
-        const auto alias=graph.owners.find(owner);const auto& root=alias==graph.owners.end()?owner:alias->second;
+        const auto& root=root_owner(owner);
         return plan.removed.contains(root)||plan.affected.contains(root);
     };
     const auto local=[&](const auto& ref){return ref.instance_path.empty()&&lost(ref.owner_id);};
     const auto refs=[&](auto& list){std::erase_if(list,local);};
-    const auto id=[&](std::string& value){if(lost(value))value.clear();};
     const auto reference=[&](auto& ref){if(local(ref))ref={};};
     const auto targets=[&](auto& values){std::erase_if(values,[&](const auto& value){return local(value.reference);});};
     const auto construction=[&](const auto& self,auto& value)->void {
@@ -94,7 +136,12 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         for(auto& point:value.curve_points)self(self,point);
     };
     for(auto& f:doc.history)if(plan.affected.contains(f.id)) {
+        // An owned Sketch is still part of the retained feature definition.
+        const auto id=[&](std::string& value){if(root_owner(value)!=f.id&&lost(value))value.clear();};
+        const bool lost_placement=std::ranges::any_of(
+            f.placement.references,local);
         refs(f.placement.references);
+        if(lost_placement)f.placement.reference_valid=false;
         id(f.feature.sketch_id);id(f.extrusion.sketch_id);id(f.revolution.sketch_id);
         id(f.holes.sketch_id);id(f.flat.sketch_id);id(f.bend.sketch_id);
         for(auto& side:f.feature.sides)targets(side.targets);
@@ -136,25 +183,51 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         std::erase_if(f.sheet_state.owners,lost);
         std::erase_if(f.solid_state.owners,lost);
     }
+    auto bodies=doc.body_history;
+    bool bodies_changed=false;
+    for(auto body:bodies.bodies())if(plan.affected.contains(body.scope.id)) {
+        const auto before=body;
+        refs(body.scope.placement.references);
+        std::erase_if(body.dependencies,lost);
+        if(body!=before) {
+            bodies.update_body(std::move(body));
+            bodies_changed=true;
+        }
+    }
+    if(bodies_changed)doc.set_body_history(std::move(bodies));
     for(auto& object:doc.constructions)if(plan.affected.contains(object.id))construction(construction,object);
     static_cast<void>(update_document_sketches(doc,[&](auto& sketch) {
         const auto owner=sketch.owner_container_id.empty()?sketch.id:sketch.owner_container_id;
         if(!plan.affected.contains(owner))return false;
         bool changed=false;
-        if(lost(sketch.plane_reference_owner_id)){sketch.plane_reference_owner_id.clear();changed=true;}
+        // An unowned Sketch uses its persisted frame while a Plane reference
+        // is present, even when that Plane no longer resolves.
+        if(!sketch.owner_container_id.empty() && lost(sketch.plane_reference_owner_id)) {
+            sketch.plane_reference_owner_id.clear();changed=true;
+        }
         std::vector<std::string> removed;
-        for(const auto& ref:sketch.external_references)
-            if((ref.source_document_id.empty()||ref.source_document_id==doc.document_id)&&ref.source_instance_path.empty()&&lost(ref.source_owner_id))removed.push_back(ref.id);
+        for(auto& ref:sketch.external_references) {
+            if ((!ref.source_document_id.empty() && ref.source_document_id != doc.document_id) ||
+                    !ref.source_instance_path.empty() || !lost(ref.source_owner_id))
+                continue;
+            // The sheet attachment editor replaces these endpoints in place.
+            // Keep their identities, endpoint dimensions and last coordinates.
+            if (ref.id.starts_with(sketch.id + ":attachment:") ||
+                    ref.id.starts_with(sketch.id + ":flat-attachment:")) {
+                ref.broken = true;
+                changed = true;
+            } else removed.push_back(ref.id);
+        }
         for(const auto& id:removed){sketch.remove_geometry(id);changed=true;}
         return changed;
     }));
-    const auto after=dependencies(doc);
-    for(const auto& owner:plan.affected)doc.removed_reference_states[owner]=signature(after,owner);
+    const auto after=dependencies(doc,true);
+    for(const auto& owner:plan.affected)doc.removed_reference_states[owner]=signature(after,owner,plan.removed);
     for(const auto& owner:plan.removed){doc.removed_reference_states.erase(owner);doc.reference_errors.erase(owner);}
 }
 bool refresh_removed_reference_states(document::PartDocument& doc) {
     if(doc.removed_reference_states.empty())return false;
-    const auto graph=dependencies(doc);bool changed=false;
+    const auto graph=dependencies(doc,true);bool changed=false;
     for(auto it=doc.removed_reference_states.begin();it!=doc.removed_reference_states.end();) {
         if(signature(graph,it->first)!=it->second) {
             doc.reference_errors.erase(it->first);it=doc.removed_reference_states.erase(it);changed=true;

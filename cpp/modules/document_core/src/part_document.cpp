@@ -13,6 +13,7 @@
 #include <zima/document/holes.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/sheet_profile.hpp>
 #include <zima/document/sheet_state.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <zima/document/boundary_surface.hpp>
@@ -32,6 +33,7 @@
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/appearance.hpp>
@@ -797,12 +799,12 @@ nlohmann::json read_part_ini(const std::filesystem::path& path,
     const auto ini = read_ini(path);
     profile.phase("INI scan");
     const auto native_format=ini_value(ini, "Document", "format_version");
-    if (native_format != "48") {
+    if (native_format != "49") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 72},
+        {"format_version", 73},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -1000,7 +1002,7 @@ NativeCalculatedCachePtr write_part_ini(
     NativeIoProfile profile("Part write");
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "48"},
+        {"format_version", "49"},
         {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
@@ -1254,7 +1256,6 @@ NativeCalculatedCachePtr write_part_ini(
     profile.phase("disk write");
     ini.clear();
     profile.phase("release encoded text");
-    archive_existing_file(path);
     try {
         publish_temporary_file(temporary, path);
     } catch (...) {
@@ -3861,6 +3862,32 @@ HistoryContainer PartDocument::create_twisted_sheet_container() {
     return container;
 }
 
+HistoryContainer PartDocument::create_sheet_from_body_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Plech z tělesa";
+    container.feature_kind = FeatureKind::SheetFromBody;
+    return container;
+}
+
+HistoryContainer PartDocument::create_sheet_profile_container(
+        std::string sketch_id) {
+    if (sketch_id.empty())
+        throw std::invalid_argument("Sheet Profile Sketch ID is required");
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Profil";
+    container.feature_kind = FeatureKind::SheetProfile;
+    container.sheet_profile.sketch_id = std::move(sketch_id);
+    return container;
+}
+
 double twisted_sheet_developed_length(const TwistedSheetParameters& p) {
     if(p.attachment_material_side!=1&&p.attachment_material_side!=-1)
         throw std::invalid_argument("Invalid Twisted Sheet attachment material side.");
@@ -6254,11 +6281,15 @@ void PartDocument::resolve_constructions(
             // Body placement uses the same reference lookup as its dialog.
             // The source is fixed for this solve; later branches rebuild the
             // lookup after their own source packet has been published.
-            const auto placement_geometry=body.scope.placement.references.empty()
-                ? kernel::ViewerReferenceGeometry{}
-                : PlacementReferenceGeometryIndex(source_geometry).select(body.scope.placement.references);
-            if (!resolve_placement(body.scope.placement, placement_geometry))
-                throw std::invalid_argument("Reference umístění tělesa není dostupná.");
+            if (removed_reference_states.contains(body.scope.id)) {
+                body.scope.placement.reference_valid = false;
+            } else {
+                const auto placement_geometry=body.scope.placement.references.empty()
+                    ? kernel::ViewerReferenceGeometry{}
+                    : PlacementReferenceGeometryIndex(source_geometry).select(body.scope.placement.references);
+                if (!resolve_placement(body.scope.placement, placement_geometry))
+                    throw std::invalid_argument("Reference umístění tělesa není dostupná.");
+            }
             if(body.derived_copy) {
                 dependency(body.derived_copy->reference);
                 const auto* source_owner=next.body_history.owner(body.derived_copy->source_id);
@@ -6443,23 +6474,20 @@ void PartDocument::resolve_constructions(
                 [&](const auto& container) {
                     return container.id == sketch.owner_container_id;
                 });
-            if (owner == history.end()) continue;
+            if (owner == history.end() || !owner->placement.reference_valid ||
+                    removed_reference_states.contains(owner->id)) continue;
             boundary_references.enter(owner->id,source_geometry);
             const bool sheet_rotation=owner->feature_kind==FeatureKind::Revolution&&owner->revolution.sheet_metal;
             const bool sheet_section=owner->feature_kind==FeatureKind::Bend||sheet_rotation;
             if(sheet_rotation&&!owner->revolution.sheet_attachment&&!owner->revolution.thickness_override)
                 owner->revolution.thin_thickness=sheet_metal_defaults(*this).thickness_mm.value_or(1);
             if(owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment) {
-                if(!owner->placement.reference_valid)continue;
                 update_flat_sheet_attachment(*owner,sketch,source_geometry,document_id);
                 continue;
             }
             // Bend consumes the shared placement without redefining FRONT or
             // TOP: its start section lies in the narrow attachment face, with
-            // the outer generatrix along the picked edge. A missing reference
-            // keeps the complete last resolved section frame.
-            if (sheet_section && !owner->placement.reference_valid)
-                continue;
+            // the outer generatrix along the picked edge.
             if(sheet_section) {
                 sketch.plane_auto=true;sketch.plane_offset=0;sketch.plane=zima::sketcher::SketchPlane::XY;
             }
@@ -6551,7 +6579,7 @@ void PartDocument::resolve_constructions(
             }
         }
     };
-    const auto resolve_datum = [&](ConstructionObject& object) {
+    const auto resolve_datum_inputs = [&](ConstructionObject& object) {
         static_cast<void>(resolve_construction(object, source_geometry));
         bool end_history_valid=true;
         if(object.kind==ConstructionKind::Axis) {
@@ -6571,6 +6599,10 @@ void PartDocument::resolve_constructions(
                 resolve_curve_children(object, std::move(local_geometry));
             object.reference_valid = object.reference_valid && children_valid;
         }
+    };
+    const auto resolve_datum = [&](ConstructionObject& object) {
+        if (removed_reference_states.contains(object.id)) object.reference_valid = false;
+        else resolve_datum_inputs(object);
         // Even a datum with a newly missing reference keeps publishing its
         // last valid persisted frame. Downstream containers can therefore
         // remain geometrically usable while the broken-link status is
@@ -6668,6 +6700,13 @@ void PartDocument::resolve_constructions(
     };
     const auto resolve_feature = [&](HistoryContainer& container) {
         if (container.suppressed) return;
+        // A reference deletion leaves an invalid definition, not a new
+        // placement problem with fewer constraints. Keep the last frame
+        // until a replacement changes its recorded dependency signature.
+        if (removed_reference_states.contains(container.id)) {
+            container.placement.reference_valid = false;
+            return;
+        }
         if(container.feature_kind==FeatureKind::Feature && container.feature.type==FeatureType::Point)
             static_cast<void>(resolve_point_placement(container.placement, source_geometry));
         else if(container.feature_kind==FeatureKind::SheetForm)
@@ -6833,6 +6872,7 @@ void PartDocument::resolve_constructions(
     // affected.
     for (auto& sketch : sketches) {
         if (!sketch.owner_container_id.empty()) continue;
+        if (removed_reference_states.contains(sketch.id)) continue;
         if (sketch.plane_reference_owner_id.empty()) continue;
         const auto found = std::find_if(constructions.begin(), constructions.end(),
             [&](const auto& object) {
@@ -8546,10 +8586,27 @@ std::vector<ConstructionReference> flat_sheet_references(const kernel::ViewerEdg
         if(!face.sheet_owner.empty())if(const auto at=key.rfind(parent);at!=std::string_view::npos)key.remove_prefix(at+parent.size());
         // Bend ends are explicit caps. A closed Flat profile has no sweep cap
         // at its perimeter; OCCT generates one thickness wall per profile edge.
+        const auto has_cap_ancestry=[&] {
+            auto semantic=std::string(key);
+            for(unsigned depth=0;depth<64;++depth) {
+                const std::string_view current=semantic;
+                if(current.starts_with("sweep:cap:end:from:")||
+                        current.starts_with("sweep:cap:start:from:")||
+                        current.starts_with("end:from:")||
+                        current.starts_with("start:from:")||
+                        current.starts_with("generated:"))return true;
+                const auto parent=kernel::boolean_face_parent(current);
+                if(!parent)return false;
+                semantic=parent->second;
+            }
+            return false;
+        };
+        // A later sibling operation may split this cap while preserving its
+        // original topology ancestry behind a Boolean wrapper.  The sheet
+        // role and the authored cap ancestor, not textual prefix position,
+        // define the same stable joining face after cold regeneration.
         return face.sheet_role==kernel::SheetFaceRole::ThicknessFace&&
-            (key.starts_with("sweep:cap:end:from:")||key.starts_with("sweep:cap:start:from:")||
-             key.starts_with("end:from:")||key.starts_with("start:from:")||
-             key.starts_with("generated:"));
+            has_cap_ancestry();
     });
     if(!outer||!cap)throw std::invalid_argument("Flat attachment requires a straight Side A boundary of a sheet end face.");
     return bend_sheet_references(edge,start);
@@ -8565,11 +8622,21 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
             e.reference.instance_path==source.instance_path;
     });
     if(edge==geometry.edges.end())throw std::invalid_argument("Missing Flat attachment edge.");
-    const auto& point=placement.references[2];
-    const auto expected=flat_sheet_references(*edge,{point.owner_id,point.semantic_key,point.instance_path});
+    const auto expected=flat_sheet_references(*edge,
+        current_sheet_attachment_anchor(*edge,placement));
     const auto& face=placement.references[1];
-    if(face.owner_id!=expected[1].owner_id||face.semantic_key!=expected[1].semantic_key||
-        face.instance_path!=expected[1].instance_path||face.offset!=0||face.flip||source.flip||
+    const auto same_face_ancestry=[&] {
+        if(face.instance_path!=expected[1].instance_path)return false;
+        auto owner=expected[1].owner_id,semantic=expected[1].semantic_key;
+        for(unsigned depth=0;depth<64;++depth) {
+            if(owner==face.owner_id&&semantic==face.semantic_key)return true;
+            const auto parent=kernel::boolean_face_parent(semantic);
+            if(!parent)return false;
+            owner=parent->first;semantic=parent->second;
+        }
+        return false;
+    }();
+    if(!same_face_ancestry||face.offset!=0||face.flip||source.flip||
         placement.orientation_back||placement.orientation_quarter_turns||
         placement.rotation_offset_x!=0||placement.rotation_offset_y!=0||placement.rotation_offset_z!=0)
         throw std::invalid_argument("Flat attachment orientation is derived from its sheet edge.");
@@ -8584,12 +8651,53 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
     sketch.resolved_x_axis=rotated_vector({0,*side,0},rotation);
     sketch.resolved_y_axis=rotated_vector({0,0,1},rotation);
     sketch.resolved_normal=rotated_vector({*side,0,0},rotation);
-    auto endpoints=edge->edge_treatment_endpoint_references;
-    std::ranges::sort(endpoints,{},&kernel::VertexReference::semantic_key);
+    std::array<std::pair<kernel::VertexReference,kernel::Vec3>,2> endpoints{{
+        {edge->edge_treatment_endpoint_references[0],edge->points.front()},
+        {edge->edge_treatment_endpoint_references[1],edge->points.back()}}};
+    const auto old_reference=[&](const char* suffix) {
+        return std::ranges::find(sketch.external_references,
+            sketch.id+suffix,&sketcher::SketchExternalReference::id);
+    };
+    const auto old_first=old_reference(":flat-attachment:first");
+    const auto old_last=old_reference(":flat-attachment:last");
+    const auto matches=[](const auto& old,const auto& current) {
+        return old.source_owner_id==current.owner_id&&
+            old.source_semantic_key==current.semantic_key&&
+            old.source_instance_path==current.instance_path;
+    };
+    const bool have_old=old_first!=sketch.external_references.end()&&
+        old_last!=sketch.external_references.end();
+    const int direct_identity=have_old?
+        static_cast<int>(matches(*old_first,endpoints[0].first))+
+        static_cast<int>(matches(*old_last,endpoints[1].first)):0;
+    const int reversed_identity=have_old?
+        static_cast<int>(matches(*old_first,endpoints[1].first))+
+        static_cast<int>(matches(*old_last,endpoints[0].first)):0;
+    // A complete pair is authoritative when the source Bend is moved to the
+    // opposite sheet side: its stable endpoint identities intentionally move
+    // with it.  A later Boolean may, however, replace just one endpoint by the
+    // oldest contributing sibling identity.  That incomplete identity pair is
+    // not evidence of an orientation change; retain the closest physical side.
+    const int strongest_identity=std::max(direct_identity,reversed_identity);
+    if(strongest_identity==2&&reversed_identity>direct_identity)
+        std::swap(endpoints[0],endpoints[1]);
+    else if(strongest_identity<2&&have_old&&
+            old_first->cached_points.size()==1&&old_last->cached_points.size()==1) {
+        const auto first=sketch.local_point(endpoints[0].second);
+        const auto last=sketch.local_point(endpoints[1].second);
+        const auto distance=[](const auto& a,const auto& b) {
+            return std::hypot(a[0]-b[0],a[1]-b[1]);
+        };
+        const double direct=distance(first,old_first->cached_points.front())+
+            distance(last,old_last->cached_points.front());
+        const double reversed=distance(first,old_last->cached_points.front())+
+            distance(last,old_first->cached_points.front());
+        if(reversed<direct)std::swap(endpoints[0],endpoints[1]);
+    } else if(!have_old)std::ranges::sort(endpoints,{},[](const auto& endpoint) {
+        return endpoint.first.semantic_key;
+    });
     for(std::size_t i=0;i<endpoints.size();++i) {
-        const auto& endpoint=endpoints[i];
-        const auto point=std::ranges::find_if(geometry.points,[&](const auto& p){return p.reference==endpoint;});
-        if(point==geometry.points.end())throw std::invalid_argument("Missing Flat attachment endpoint.");
+        const auto& [endpoint,position]=endpoints[i];
         const auto id=sketch.id+(i?":flat-attachment:last":":flat-attachment:first");
         auto existing=std::ranges::find(sketch.external_references,id,&sketcher::SketchExternalReference::id);
         if(existing==sketch.external_references.end()) {
@@ -8598,7 +8706,7 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
         existing->id=id;existing->kind=sketcher::ExternalReferenceKind::Point;
         existing->source_document_id=document_id;existing->source_owner_id=endpoint.owner_id;
         existing->source_semantic_key=endpoint.semantic_key;existing->source_instance_path=endpoint.instance_path;
-        existing->cached_points={sketch.local_point(point->position)};existing->broken=false;
+        existing->cached_points={sketch.local_point(position)};existing->broken=false;
     }
     const auto solved=sketch.solve();
     if(solved.status==sketcher::SolveStatus::Conflicting||solved.status==sketcher::SolveStatus::Invalid)
@@ -9526,6 +9634,119 @@ void PartDocument::validate_body_ownership() const {
         throw std::invalid_argument("Part history order must follow its body ownership");
 }
 
+void PartDocument::validate_sheet_from_body() const {
+    for(const auto& conversion:history) {
+        if(conversion.feature_kind!=FeatureKind::SheetFromBody)continue;
+        const auto& definition=conversion.sheet_from_body;
+        if(definition.generated_features.empty()||
+           definition.source_body_id.empty()||
+           !std::isfinite(definition.thickness)||
+           definition.thickness<.001||definition.thickness>1000000||
+           conversion.combine_mode!=CombineMode::Add||
+           conversion.placement!=Placement{})
+            throw std::invalid_argument(
+                "Invalid Sheet from Body conversion marker");
+        const auto* owner=body_owner_for_object(conversion.id);
+        if(!owner)throw std::invalid_argument(
+            "Sheet from Body must remain in one Body");
+        const auto* source_body=body_history.find(definition.source_body_id);
+        if(!source_body||!definition.replaces_body||source_body!=owner)
+            throw std::invalid_argument(
+                "Invalid Sheet from Body source boundary");
+        const auto boundary=std::ranges::find(owner->entries,conversion.id,
+            &PartHistoryEntry::id);
+        if(boundary==owner->entries.end())throw std::invalid_argument(
+            "Sheet from Body is missing from Body history");
+    }
+}
+
+void PartDocument::validate_sheet_profiles() const {
+    std::map<std::string,std::vector<const HistoryContainer*>> children;
+    for(const auto& feature:history) {
+        const auto& binding=feature.sheet_profile_binding;
+        if(binding.parent_id.empty()) {
+            if(!binding.curve_id.empty()||binding.reversed)
+                throw std::invalid_argument(
+                    "Incomplete Sheet Profile child binding");
+            continue;
+        }
+        const auto* parent=find_container(binding.parent_id);
+        if(!parent||parent->feature_kind!=FeatureKind::SheetProfile||
+           binding.curve_id.empty()||
+           (feature.feature_kind!=FeatureKind::Flat&&
+            feature.feature_kind!=FeatureKind::Bend))
+            throw std::invalid_argument("Invalid Sheet Profile child binding");
+        if(body_owner_for_object(parent->id)!=body_owner_for_object(feature.id))
+            throw std::invalid_argument(
+                "Sheet Profile children must remain in the owning Body");
+        children[parent->id].push_back(&feature);
+    }
+    for(const auto& profile:history) {
+        if(profile.feature_kind!=FeatureKind::SheetProfile)continue;
+        const auto source=std::ranges::find(sketches,
+            profile.sheet_profile.sketch_id,&zima::sketcher::Sketch::id);
+        if(source==sketches.end()||source->owner_container_id!=profile.id)
+            throw std::invalid_argument(
+                "Sheet Profile must own its driving Sketch");
+        const auto route=sheet_profile_route(
+            *source,profile.sheet_profile.start_point_id);
+        const auto bound=children.find(profile.id);
+        if(bound==children.end()||bound->second.size()!=route.spans.size())
+            throw std::invalid_argument(
+                "Sheet Profile must own one feature for every path span");
+        std::map<std::string,const HistoryContainer*> by_curve;
+        for(const auto* child:bound->second)
+            if(!by_curve.emplace(child->sheet_profile_binding.curve_id,child).second)
+                throw std::invalid_argument(
+                    "Sheet Profile path span has more than one child");
+        std::string first_feature;
+        for(const auto& span:route.spans) {
+            const auto child=by_curve.find(span.curve_id);
+            if(child==by_curve.end()||
+               (span.kind==SheetProfileSpanKind::Flat&&
+                    child->second->feature_kind!=FeatureKind::Flat)||
+               (span.kind==SheetProfileSpanKind::Bend&&
+                    child->second->feature_kind!=FeatureKind::Bend)||
+               child->second->sheet_profile_binding.reversed!=span.reversed)
+                throw std::invalid_argument(
+                    "Sheet Profile child does not match its path span");
+            if(first_feature.empty())first_feature=child->second->id;
+        }
+        if(first_feature.empty()||
+           profile.sheet_profile.master_feature_id!=first_feature)
+            throw std::invalid_argument(
+                "Sheet Profile width must be driven by its first feature");
+        const auto parent_order=std::ranges::find(history_order,profile.id,
+            &PartHistoryEntry::id);
+        if(parent_order==history_order.end())
+            throw std::invalid_argument(
+                "Sheet Profile is missing from Part history");
+        // The parent and its ordinary executable children are one atomic
+        // history group. Logical route order is stored by curve identity and
+        // presented below the Profile in the Tree.
+        std::set<std::string> remaining;
+        for(const auto& [curve,child]:by_curve)remaining.insert(child->id);
+        auto row=std::next(parent_order);
+        while(row!=history_order.end()&&remaining.erase(row->id))++row;
+        if(!remaining.empty())
+            throw std::invalid_argument(
+                "Sheet Profile children must remain one history group");
+        const auto* owner=body_owner_for_object(profile.id);
+        if(!owner)throw std::invalid_argument(
+            "Sheet Profile must remain in one Body");
+        const auto body_parent=std::ranges::find(owner->entries,profile.id,
+            &PartHistoryEntry::id);
+        if(body_parent==owner->entries.end())throw std::invalid_argument(
+            "Sheet Profile is missing from Body history");
+        const auto begin=static_cast<std::size_t>(
+            body_parent-owner->entries.begin());
+        const auto end=begin+1+route.spans.size();
+        if(owner->cursor>begin&&owner->cursor<end)
+            throw std::invalid_argument(
+                "History insertion cannot split a Sheet Profile");
+    }
+}
+
 void PartDocument::erase_history_object(const std::string& id) {
     if (id.empty()) throw std::invalid_argument("Cannot delete an empty object ID");
     if(body_history.find(id)||body_history.find_boolean(id)) {
@@ -9533,27 +9754,43 @@ void PartDocument::erase_history_object(const std::string& id) {
         std::set<std::string> removed{id};
         if(const auto* body=next.body_history.find(id))
             for(const auto& entry:body->entries)removed.insert(entry.id);
-        next.body_history.erase_step(id);
+        auto graph=next.body_history;
+        graph.erase_step(id);
         std::erase_if(next.history,[&](const auto& entry){return removed.contains(entry.id);});
         std::erase_if(next.constructions,[&](const auto& entry){return removed.contains(entry.id);});
         std::erase_if(next.sketches,[&](const auto& sketch){return removed.contains(sketch.id)||removed.contains(sketch.owner_container_id);});
-        next.set_body_history(next.body_history);
+        next.set_body_history(std::move(graph));
         *this=std::move(next);
         return;
     }
     auto next = *this;
-    std::erase_if(next.history, [&](const auto& entry) { return entry.id == id; });
-    std::erase_if(next.constructions, [&](const auto& entry) { return entry.id == id; });
+    std::set<std::string> removed{id};
+    if(const auto* selected=next.find_container(id)) {
+        if(!selected->sheet_profile_binding.parent_id.empty())
+            throw std::invalid_argument(
+                "Edit or delete this generated feature through its parent Profile.");
+        if(selected->feature_kind==FeatureKind::SheetProfile)
+            for(const auto& feature:next.history)
+                if(feature.sheet_profile_binding.parent_id==selected->id)
+                    removed.insert(feature.id);
+    }
+    std::erase_if(next.history, [&](const auto& entry) { return removed.contains(entry.id); });
+    std::erase_if(next.constructions, [&](const auto& entry) { return removed.contains(entry.id); });
     std::erase_if(next.sketches, [&](const auto& sketch) {
-        return sketch.id == id || sketch.owner_container_id == id;
+        return removed.contains(sketch.id) || removed.contains(sketch.owner_container_id);
     });
     if (const auto* owner = next.body_history.owner(id)) {
         auto body = *owner;
-        const auto entry = std::ranges::find_if(body.entries,
-            [&](const auto& value) { return value.id == id; });
-        const auto index = static_cast<std::size_t>(entry - body.entries.begin());
-        body.entries.erase(entry);
-        if (index < body.cursor) --body.cursor;
+        const auto old_entries=body.entries;
+        std::erase_if(body.entries,[&](const auto& value) {
+            return removed.contains(value.id);
+        });
+        const auto removed_before=std::ranges::count_if(
+            old_entries.begin(),old_entries.begin()+
+                static_cast<std::ptrdiff_t>(body.cursor),
+            [&](const auto& value){return removed.contains(value.id);});
+        body.cursor-=std::min(body.cursor,
+            static_cast<std::size_t>(removed_before));
         auto graph = next.body_history;
         graph.update_body(std::move(body));
         next.set_body_history(std::move(graph));
@@ -9622,7 +9859,8 @@ std::size_t PartDocument::body_operation_count_at_history_cursor() const {
     if (history_order.empty()) {
         return static_cast<std::size_t>(std::count_if(history.begin(),
             history.end(), [](const auto& container) {
-                return container.feature_kind != FeatureKind::Sketch;
+                return container.feature_kind != FeatureKind::Sketch &&
+                    container.feature_kind != FeatureKind::SheetProfile;
             }));
     }
     std::size_t count{};
@@ -9632,7 +9870,8 @@ std::size_t PartDocument::body_operation_count_at_history_cursor() const {
         if (entry.kind != PartHistoryKind::Feature) continue;
         const auto* container = find_container(entry.id);
         if (container != nullptr &&
-            container->feature_kind != FeatureKind::Sketch) {
+            container->feature_kind != FeatureKind::Sketch &&
+            container->feature_kind != FeatureKind::SheetProfile) {
             ++count;
         }
     }
@@ -9879,11 +10118,32 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     }
     for (const auto* ordered_container : ordered_history) {
         const auto& container = *ordered_container;
-        if (container.feature_kind == FeatureKind::Sketch) continue;
-        if(!container.suppressed&&removed_reference_states.contains(container.id)) {
-            zima::kernel::HistoryOperation failed{container.id,zima::kernel::FeatureGroupRequest{},
-                zima::kernel::BooleanOperation::Add,false,boolean_tolerance,mesh_deflection};
-            failed.input_error="A source reference was deleted. Select replacement references in Properties.";
+        if (container.feature_kind == FeatureKind::Sketch ||
+            container.feature_kind == FeatureKind::SheetProfile) continue;
+        if (container.feature_kind == FeatureKind::SheetFromBody) {
+            kernel::FeatureGroupRequest marker;
+            marker.allow_empty = true;
+            operations.push_back({container.id, std::move(marker),
+                kernel::BooleanOperation::Add, container.suppressed,
+                boolean_tolerance, mesh_deflection});
+            operations.back().replaces_body = true;
+            continue;
+        }
+        const bool retained_frame_geometry=
+            !container.suppressed&&
+            (removed_reference_states.contains(container.id)||
+             (!container.placement.references.empty()&&
+              !container.placement.reference_valid));
+        if(removed_reference_states.contains(container.id)&&
+                (container.feature_kind==FeatureKind::Fillet||
+                    container.feature_kind==FeatureKind::Chamfer||
+                    container.feature_kind==FeatureKind::Shell)) {
+            zima::kernel::HistoryOperation failed{container.id,
+                zima::kernel::FeatureGroupRequest{},
+                zima::kernel::BooleanOperation::Add,false,
+                boolean_tolerance,mesh_deflection};
+            failed.input_error=
+                "A source reference was deleted. Select replacement references in Properties.";
             operations.push_back(std::move(failed));continue;
         }
         if(!container.suppressed)if(const auto error=reference_errors.find(container.id);error!=reference_errors.end()) {
@@ -9893,6 +10153,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         }
         try {
             if(!container.suppressed&&
+                    !retained_frame_geometry&&
                     !container.placement.references.empty()&&
                     !container.placement.reference_valid)
                 throw std::runtime_error(
@@ -10844,7 +11105,6 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             feature_mesh_deflection,
         });
         if(container.feature_kind==FeatureKind::Flat) {
-            operations.back().replaces_body=container.flat.replaces_body;
             operations.back().sheet_operation=kernel::SheetOperation::Flat;
             operations.back().sheet_thickness=flat_thickness(container,sheet_metal_defaults(*this));
         } else if(container.feature_kind==FeatureKind::Bend) {
@@ -10919,6 +11179,26 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             operations.push_back(std::move(failed));
         }
     }
+    for(auto& operation:operations) {
+        const auto* container=find_container(operation.owner_id);
+        if(!operation.suppressed&&operation.input_error.empty()&&container&&
+                removed_reference_states.contains(operation.owner_id)) {
+            const std::string message=
+                "A source reference was deleted. Select replacement references in Properties.";
+            // A copy has no independent authored operand once its source is
+            // removed. Do not pass that structurally incomplete operation to
+            // Body-graph validation. Other features are allowed to calculate
+            // from their owned definition and last valid frame; any real
+            // geometry dependency that is still indispensable will fail at
+            // its ordinary operation boundary and recover there.
+            if(operation.feature_copy&&
+                    operation.feature_copy->source_feature_id.empty()) {
+                operation.feature_copy.reset();
+                operation.primitive=kernel::FeatureGroupRequest{};
+                operation.input_error=message;
+            } else operation.reported_error=message;
+        }
+    }
     if (!body_history.bodies().empty()) {
         validate_body_ownership();
         std::map<std::string, zima::kernel::HistoryOperation> local;
@@ -10927,7 +11207,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 -> std::optional<zima::kernel::HistoryOperation> {
             if (entry.kind != PartHistoryKind::Feature) return std::nullopt;
             const auto* container = find_container(entry.id);
-            if (container->feature_kind == FeatureKind::Sketch) return std::nullopt;
+            if (container->feature_kind == FeatureKind::Sketch ||
+                container->feature_kind == FeatureKind::SheetProfile)
+                return std::nullopt;
             return local.at(entry.id);
         });
         for (auto& operation : compiled) {
@@ -11561,7 +11843,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
             type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
-            type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
+            type != "flat" && type != "sheet_from_body" && type != "sheet_profile" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point" && type != "sheet_form" && type != "loft") {
             throw std::runtime_error("Unsupported history feature type");
         }
@@ -11588,6 +11870,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "loft" ? FeatureKind::Loft
             : type == "general_surface" ? FeatureKind::GeneralSurface
             : type == "flat" ? FeatureKind::Flat
+            : type == "sheet_from_body" ? FeatureKind::SheetFromBody
+            : type == "sheet_profile" ? FeatureKind::SheetProfile
             : type == "unbend" ? FeatureKind::Unbend
             : type == "straighten" ? FeatureKind::Straighten
             : type == "restore_shape" ? FeatureKind::RestoreShape
@@ -11656,6 +11940,23 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         container.combine_mode = combine == "subtract"
             ? CombineMode::Subtract : CombineMode::Add;
         container.suppressed = source.at("suppressed").get<bool>();
+        if (const auto binding = source.value(
+                "sheet_profile_binding", nlohmann::json{});
+                !binding.empty()) {
+            container.sheet_profile_binding.parent_id =
+                binding.at("parent_id").get<std::string>();
+            container.sheet_profile_binding.curve_id =
+                binding.at("curve_id").get<std::string>();
+            container.sheet_profile_binding.reversed =
+                binding.at("reversed").get<bool>();
+            if (container.sheet_profile_binding.parent_id.empty() ||
+                container.sheet_profile_binding.curve_id.empty() ||
+                (container.feature_kind != FeatureKind::Flat &&
+                 container.feature_kind != FeatureKind::Bend)) {
+                throw std::runtime_error(
+                    "Invalid Sheet Profile child binding");
+            }
+        }
         if(container.feature_kind==FeatureKind::DerivedCopy) {
             // The copy codec above owns these parameters.
         } else if (container.feature_kind == FeatureKind::Sketch) {
@@ -11670,9 +11971,61 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             const auto& definition=source.at("sheet_state");
             container.sheet_state.all=definition.at("all");
             container.sheet_state.owners=definition.at("owners").get<std::vector<std::string>>();
+        } else if (container.feature_kind == FeatureKind::SheetFromBody) {
+            const auto& definition=source.at("sheet_from_body");
+            container.sheet_from_body.generated_features=
+                definition.at("generated_features").get<std::vector<std::string>>();
+            container.sheet_from_body.source_body_id=
+                definition.at("source_body_id").get<std::string>();
+            container.sheet_from_body.thickness=
+                definition.at("thickness").get<double>();
+            container.sheet_from_body.thickness_override=
+                definition.at("thickness_override").get<bool>();
+            container.sheet_from_body.replaces_body=
+                definition.at("replaces_body").get<bool>();
+            if(container.sheet_from_body.generated_features.empty()||
+               container.sheet_from_body.source_body_id.empty()||
+               !std::isfinite(container.sheet_from_body.thickness)||
+               container.sheet_from_body.thickness<.001||
+               container.sheet_from_body.thickness>1000000)
+                throw std::runtime_error(
+                    "Invalid Sheet from Body definition");
+        } else if (container.feature_kind == FeatureKind::SheetProfile) {
+            const auto& definition = source.at("sheet_profile");
+            auto& profile = container.sheet_profile;
+            profile.sketch_id = definition.at("sketch_id").get<std::string>();
+            profile.start_point_id =
+                definition.at("start_point_id").get<std::string>();
+            profile.master_feature_id =
+                definition.at("master_feature_id").get<std::string>();
+            profile.initial_width = definition.at("initial_width").get<double>();
+            profile.thickness = definition.at("thickness").get<double>();
+            profile.thickness_override =
+                definition.at("thickness_override").get<bool>();
+            profile.material_side = definition.at("material_side").get<int>();
+            profile.sheet_attachment =
+                definition.at("sheet_attachment").get<bool>();
+            const auto direction =
+                definition.at("width_direction").get<std::string>();
+            if (direction != "forward" && direction != "reverse" &&
+                direction != "symmetric") {
+                throw std::runtime_error(
+                    "Invalid Sheet Profile width direction");
+            }
+            profile.width_direction = direction == "forward"
+                ? ExtrusionDirection::Forward
+                : direction == "reverse" ? ExtrusionDirection::Reverse
+                : ExtrusionDirection::Symmetric;
+            if (profile.sketch_id.empty() || profile.start_point_id.empty() ||
+                !std::isfinite(profile.initial_width) ||
+                profile.initial_width < .001 ||
+                !std::isfinite(profile.thickness) ||
+                profile.thickness < .001 || profile.thickness > 1000000 ||
+                (profile.material_side != 1 && profile.material_side != -1)) {
+                throw std::runtime_error("Invalid Sheet Profile definition");
+            }
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& f=source.at("flat");auto& p=container.flat;
-            p.replaces_body=f.value("replaces_body",false);
             p.sheet_attachment=f.at("sheet_attachment");
             p.sketch_id=f.at("sketch_id");p.thickness=f.at("thickness");p.thickness_override=f.at("thickness_override");
             const auto direction=f.at("direction").get<std::string>();
@@ -12325,18 +12678,19 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         validate_placement(container.placement);
         // Derived Sketch frames depend on the fully loaded feature placement.
         // Reframing before reading it silently resets translated/rotated helices.
-        if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
-
-        if(container.feature_kind==FeatureKind::GeneralSurface)reframe_general_surface(container);
-        if (container.feature_kind == FeatureKind::HelicalSweep) {
-            if(!failed_containers.contains(container.id))reframe_helical_sketches(container);
-        }
-        if (container.feature_kind == FeatureKind::Sweep3D) {
-            for (std::size_t index = 0;
-                 index < container.sweep3d.profiles.size(); ++index) {
-                if (!reframe_sweep3d_profile(container, index)) {
-                    throw std::runtime_error(
-                        "Sweep/Loft profile frame cannot be resolved");
+        if (!document.removed_reference_states.contains(container.id)) {
+            if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
+            if(container.feature_kind==FeatureKind::GeneralSurface)reframe_general_surface(container);
+            if (container.feature_kind == FeatureKind::HelicalSweep) {
+                if(!failed_containers.contains(container.id))reframe_helical_sketches(container);
+            }
+            if (container.feature_kind == FeatureKind::Sweep3D) {
+                for (std::size_t index = 0;
+                     index < container.sweep3d.profiles.size(); ++index) {
+                    if (!reframe_sweep3d_profile(container, index)) {
+                        throw std::runtime_error(
+                            "Sweep/Loft profile frame cannot be resolved");
+                    }
                 }
             }
         }
@@ -12395,6 +12749,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     if (document.history_cursor > document.history_order.size()) {
         throw std::runtime_error("Part history cursor is outside history");
     }
+    document.validate_sheet_from_body();
+    document.validate_sheet_profiles();
     const auto expected_operations = document.kernel_operations(false, true);
     profile.phase("authored model");
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
@@ -12560,13 +12916,16 @@ nlohmann::json PartDocument::serialized(
     const zima::document::DocumentCopyIdentity& copy,
     bool compact_cache) const {
     validate_general_surface_document_ownership(*this);
+    validate_sheet_from_body();
+    validate_sheet_profiles();
     // Recoverable model errors must not prevent saving the authored document.
     // Structural ownership is checked independently below, including failed
     // containers; only calculation-dependent validation may be skipped.
     const auto expected_operations = kernel_operations(false, true);
     std::set<std::string> failed_containers;
     for(const auto& operation:expected_operations)
-        if(!operation.input_error.empty())failed_containers.insert(operation.owner_id);
+        if(!operation.input_error.empty()||!operation.reported_error.empty())
+            failed_containers.insert(operation.owner_id);
     for(const auto& boundary:calculated_boundaries)
         for(const auto& [owner,error]:boundary.calculation_errors)failed_containers.insert(owner);
     nlohmann::json serialized_history = nlohmann::json::array();
@@ -12909,6 +13268,27 @@ nlohmann::json PartDocument::serialized(
                 container.combine_mode != CombineMode::Add) {
                 throw std::runtime_error("Invalid Shell parameters");
             }
+        } else if (container.feature_kind == FeatureKind::SheetFromBody) {
+            const auto& conversion=container.sheet_from_body;
+            if(conversion.generated_features.empty()||
+               !std::isfinite(conversion.thickness)||
+               conversion.thickness<.001||conversion.thickness>1000000||
+               container.combine_mode!=CombineMode::Add)
+                throw std::runtime_error(
+                    "Invalid Sheet from Body parameters");
+        } else if (container.feature_kind == FeatureKind::SheetProfile) {
+            const auto& profile = container.sheet_profile;
+            if (profile.sketch_id.empty() ||
+                profile.start_point_id.empty() ||
+                profile.master_feature_id.empty() ||
+                !std::isfinite(profile.initial_width) ||
+                profile.initial_width < .001 ||
+                !std::isfinite(profile.thickness) ||
+                profile.thickness < .001 || profile.thickness > 1000000 ||
+                (profile.material_side != 1 && profile.material_side != -1) ||
+                container.combine_mode != CombineMode::Add) {
+                throw std::runtime_error("Invalid Sheet Profile parameters");
+            }
         } else if (container.edge_treatment.routes.empty() ||
                    std::any_of(container.edge_treatment.routes.begin(),
                        container.edge_treatment.routes.end(),
@@ -12939,6 +13319,8 @@ nlohmann::json PartDocument::serialized(
             {"feature_parent_id", container.feature_parent_id},
             {"type", container.feature_kind == FeatureKind::DerivedCopy ? "derived_copy"
                 : container.feature_kind == FeatureKind::Flat ? "flat"
+                : container.feature_kind == FeatureKind::SheetFromBody ? "sheet_from_body"
+                : container.feature_kind == FeatureKind::SheetProfile ? "sheet_profile"
                 : container.feature_kind == FeatureKind::Bend ? "bend"
                 : container.feature_kind == FeatureKind::Unbend ? "unbend"
                 : container.feature_kind == FeatureKind::Straighten ? "straighten"
@@ -12993,6 +13375,18 @@ nlohmann::json PartDocument::serialized(
                 {"children", nlohmann::json::array()},
             }},
         };
+        if (!container.sheet_profile_binding.parent_id.empty()) {
+            if (container.sheet_profile_binding.curve_id.empty() ||
+                (container.feature_kind != FeatureKind::Flat &&
+                 container.feature_kind != FeatureKind::Bend)) {
+                throw std::runtime_error(
+                    "Invalid Sheet Profile child binding");
+            }
+            serialized["sheet_profile_binding"] = {
+                {"parent_id",container.sheet_profile_binding.parent_id},
+                {"curve_id",container.sheet_profile_binding.curve_id},
+                {"reversed",container.sheet_profile_binding.reversed}};
+        }
         if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep || container.feature_kind==FeatureKind::Loft) {
             static_cast<void>(container.sweep_precision.effective());
             serialized["sweep_precision"]={{"default_mm",container.sweep_precision.default_tolerance},
@@ -13047,11 +13441,41 @@ nlohmann::json PartDocument::serialized(
             serialized["solid_state"]={{"all",container.solid_state.all},{"coefficient",container.solid_state.coefficient},{"owners",container.solid_state.owners}};
         } else if (is_sheet_state(container.feature_kind)) {
             serialized["sheet_state"]={{"all",container.sheet_state.all},{"owners",container.sheet_state.owners}};
+        } else if (container.feature_kind == FeatureKind::SheetFromBody) {
+            const auto& conversion=container.sheet_from_body;
+            serialized["sheet_from_body"]={
+                {"generated_features",conversion.generated_features},
+                {"source_body_id",conversion.source_body_id},
+                {"thickness",conversion.thickness},
+                {"thickness_override",conversion.thickness_override},
+                {"replaces_body",conversion.replaces_body}};
+        } else if (container.feature_kind == FeatureKind::SheetProfile) {
+            const auto& profile = container.sheet_profile;
+            if (profile.sketch_id.empty() || profile.start_point_id.empty() ||
+                !std::isfinite(profile.initial_width) ||
+                profile.initial_width < .001 ||
+                !std::isfinite(profile.thickness) ||
+                profile.thickness < .001 || profile.thickness > 1000000 ||
+                (profile.material_side != 1 && profile.material_side != -1)) {
+                throw std::runtime_error("Invalid Sheet Profile definition");
+            }
+            serialized["sheet_profile"] = {
+                {"sketch_id",profile.sketch_id},
+                {"start_point_id",profile.start_point_id},
+                {"master_feature_id",profile.master_feature_id},
+                {"initial_width",profile.initial_width},
+                {"thickness",profile.thickness},
+                {"thickness_override",profile.thickness_override},
+                {"material_side",profile.material_side},
+                {"sheet_attachment",profile.sheet_attachment},
+                {"width_direction",profile.width_direction ==
+                        ExtrusionDirection::Forward ? "forward"
+                    : profile.width_direction == ExtrusionDirection::Reverse
+                        ? "reverse" : "symmetric"}};
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& p=container.flat;
             serialized["flat"]={{"sketch_id",p.sketch_id},{"sheet_attachment",p.sheet_attachment},{"thickness",p.thickness},{"thickness_override",p.thickness_override},
                 {"direction",p.direction==ExtrusionDirection::Forward?"forward":p.direction==ExtrusionDirection::Reverse?"reverse":"symmetric"}};
-            if(p.replaces_body)serialized["flat"]["replaces_body"]=true;
         } else if (container.feature_kind == FeatureKind::Bend) {
             const auto& p=container.bend;
             serialized["bend"]={{"sketch_id",p.sketch_id},{"radius",p.radius},{"angle",p.angle_degrees},
@@ -13573,7 +13997,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 72},
+        {"format_version", 73},
         {"reference_errors", reference_errors},
         {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},

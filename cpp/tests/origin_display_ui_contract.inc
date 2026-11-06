@@ -1,4 +1,3 @@
-#include "origin_display_controls.hpp"
 #include "confirmed_face_hit.hpp"
 #include <zima/document/container_origin_display.hpp>
 #include "work_plane_selection.hpp"
@@ -111,20 +110,15 @@ static void verify_origin_display_and_pick_seed(QWidget& parent) {
         auto value=document::PartDocument::create_twisted_sheet_container();value.feature_kind=kind;
         if(kind==Kind::Hole)value=document::PartDocument::create_hole_container();
         if(kind==Kind::Thread)value=document::PartDocument::create_thread_container();
+        value.origin_point_visible=true;value.origin_text_visible=true;
         app::PrimitivePropertiesDialog dialog(value,true,true,[](auto){},&parent);
-        auto* point=dialog.findChild<QCheckBox*>("originShowPoint");
-        auto* text=dialog.findChild<QCheckBox*>("originShowText");
-        check(bool(point)==(document::has_origin_display_controls(kind)&&kind!=Kind::Hole),
-            "Wrong Origin visibility capability");
-        if(kind==Kind::Hole)check(!dialog.findChild<QWidget*>("originDisplayControls"),
-            "Hole retained an empty Origin visibility layout row");
-        if(!point)continue;
-        check(text&&!point->isChecked()&&!text->isChecked(),"Origin visibility changed the default appearance");
-        point->setChecked(true);text->setChecked(true);
+        check(!dialog.findChild<QWidget*>("originDisplayControls")&&
+            !dialog.findChild<QCheckBox*>("originShowPoint")&&
+            !dialog.findChild<QCheckBox*>("originShowText"),
+            "Feature Properties retained the obsolete Origin point/text row");
         const auto pending=dialog.pending_value();
-        check(pending.origin_point_visible&&pending.origin_text_visible,"Origin controls did not update pending metadata");
-        const auto marker=document::container_origin_marker(pending);
-        check(marker.always_visible&&marker.label==pending.name,"Origin marker lost visibility or label");
+        check(pending.origin_point_visible&&pending.origin_text_visible,
+            "Opening Properties changed stored Origin presentation metadata");
     }
     const std::vector<kernel::Vec3> triangles{{0,0,5},{20,0,5},{0,20,5},{0,0,0},{20,0,0},{0,20,0}};
     const auto hit=app::confirmed_face_hit(triangles,{3,4,10},{0,0,-1});

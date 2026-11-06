@@ -49,7 +49,7 @@ enum class NativeCalculatedCacheReuse {
 };
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -588,13 +588,64 @@ struct HolesParameters {
 
 struct FlatParameters {
     std::string sketch_id;
-    // Independent conversion starts a new material result at this boundary.
-    bool replaces_body{};
     bool sheet_attachment{};
     double thickness{1.0};
     bool thickness_override{};
     ExtrusionDirection direction{ExtrusionDirection::Forward};
     bool operator==(const FlatParameters&) const = default;
+};
+
+// Non-geometric history boundary for a Sheet-from-Body conversion performed
+// inside one Body. The generated ordinary Flats/Bends follow it at the same
+// Tree level and replace the preceding solid. Conversion from another Body
+// creates ordinary sheet features without this boundary and retains both
+// Bodies independently.
+struct SheetFromBodyParameters {
+    // Record of what the conversion originally generated. These IDs do not
+    // own or constrain any of the ordinary history entries.
+    std::vector<std::string> generated_features;
+    std::string source_body_id;
+    double thickness{1.0};
+    bool thickness_override{};
+    bool replaces_body{};
+    bool operator==(const SheetFromBodyParameters&) const = default;
+};
+
+// A Sheet Profile owns one open planar Sketch. Its evaluated straight and
+// circular spans drive ordinary Flat and Bend history containers immediately
+// following this parent. Generated children retain their normal native feature
+// identities; this definition is the single source of their linked geometry.
+// Width is authored by the first generated material feature (Flat or Bend)
+// and propagated to every other child during an explicit regeneration.
+struct SheetProfileParameters {
+    std::string sketch_id;
+    std::string start_point_id;
+    // First authored material span. Its ordinary Sketch dimensions own the
+    // common width without duplicating a width field in Profile Properties.
+    std::string master_feature_id;
+    ExtrusionDirection width_direction{ExtrusionDirection::Symmetric};
+    double initial_width{50.0};
+    // The first generated Bend owns the editable value. The parent persists
+    // its common source so every generated Flat/Bend receives one thickness.
+    double thickness{1.0};
+    bool thickness_override{};
+    // Material lies on this side of the one oriented finished contour (+1
+    // left, -1 right). Depending on the signed local curvature this authored
+    // contour is the inner or outer skin of an individual Bend; the opposite
+    // skin is always derived by the material-thickness offset.
+    int material_side{1};
+    bool sheet_attachment{};
+    bool operator==(const SheetProfileParameters&) const = default;
+};
+
+// Empty values identify an ordinary independent feature. A generated child is
+// addressed by the stable curve identity in its owning Sheet Profile Sketch,
+// never by its current row number or by OCCT enumeration.
+struct SheetProfileBinding {
+    std::string parent_id;
+    std::string curve_id;
+    bool reversed{};
+    bool operator==(const SheetProfileBinding&) const = default;
 };
 
 // A direct sheet-metal strip whose neutral surface rotates uniformly along a
@@ -753,6 +804,9 @@ struct HistoryContainer {
     HolesParameters holes;
     BendParameters bend;
     FlatParameters flat;
+    SheetFromBodyParameters sheet_from_body;
+    SheetProfileParameters sheet_profile;
+    SheetProfileBinding sheet_profile_binding;
     TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;
     SolidStateParameters solid_state;
@@ -844,6 +898,8 @@ public:
     std::map<std::string, bool> surface_wire_visibility;
     BodyHistoryGraph body_history;
     void validate_body_ownership() const;
+    void validate_sheet_from_body() const;
+    void validate_sheet_profiles() const;
     [[nodiscard]] zima::kernel::ViewerMesh place_body_mesh(zima::kernel::ViewerMesh mesh, const std::string& body_id) const;
     [[nodiscard]] const BodyHistory* body_owner_for_object(const std::string& id) const;
     [[nodiscard]] zima::kernel::ViewerReferenceGeometry sketch_reference_geometry_for(
@@ -881,6 +937,9 @@ public:
     [[nodiscard]] static HistoryContainer create_sketch_container();
     [[nodiscard]] static HistoryContainer create_solid_state_container(bool restore=false);
     [[nodiscard]] static HistoryContainer create_twisted_sheet_container();
+    [[nodiscard]] static HistoryContainer create_sheet_from_body_container();
+    [[nodiscard]] static HistoryContainer create_sheet_profile_container(
+        std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
     [[nodiscard]] static HistoryContainer create_shaft_thread_container();

@@ -56,15 +56,49 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if(zima::document::is_solid_state(feature_kind)) {
         show_solid_state_properties(feature_kind==zima::document::FeatureKind::RestoreShape,container_id);return;
     }
+    const auto edit_generated_profile_span=[&](const auto* part,
+            const zima::document::HistoryContainer* feature) {
+        if(!part||!feature||feature->sheet_profile_binding.parent_id.empty())
+            return false;
+        const auto* parent=part->session.document().find_container(
+            feature->sheet_profile_binding.parent_id);
+        if(!parent||parent->feature_kind!=
+                zima::document::FeatureKind::SheetProfile)
+            return false;
+        if(parent->sheet_profile.master_feature_id==feature->id)return false;
+        selected_sketch_segment_id_.clear();selected_sketch_arc_id_.clear();
+        if(feature->feature_kind==zima::document::FeatureKind::Bend)
+            selected_sketch_arc_id_=feature->sheet_profile_binding.curve_id;
+        else selected_sketch_segment_id_=feature->sheet_profile_binding.curve_id;
+        show_sketch_properties(parent->sheet_profile.sketch_id,
+            false,false,false,true);
+        QTimer::singleShot(0,this,[this] {
+            if(auto* dialog=dynamic_cast<SketchPropertiesDialog*>(
+                    properties_dialog_))
+                if(auto* button=dialog->findChild<QPushButton*>(
+                        "sketchOpenButton"))button->click();
+        });
+        return true;
+    };
     if (feature_kind == zima::document::FeatureKind::Flat) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* feature=part?part->session.document().find_container(container_id):nullptr;
+        if(edit_generated_profile_span(part,feature))return;
         show_sketch_properties(feature?feature->flat.sketch_id:std::string{},false,false,true);return;
     }
     if (feature_kind == zima::document::FeatureKind::Bend) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* feature=part?part->session.document().find_container(container_id):nullptr;
+        if(edit_generated_profile_span(part,feature))return;
         show_sketch_properties(feature?feature->bend.sketch_id:std::string{},false,true);return;
+    }
+    if (feature_kind == zima::document::FeatureKind::SheetProfile) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* feature=part?
+            part->session.document().find_container(container_id):nullptr;
+        show_sketch_properties(feature?feature->sheet_profile.sketch_id:
+            std::string{},false,false,false,true);
+        return;
     }
     if (feature_kind == zima::document::FeatureKind::Holes) {
         const auto* part = workspace_.open_part(workspace_.active_document_id());
@@ -452,11 +486,21 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
         if (edited_cut != nullptr) selected_targets = edited_cut->target_occurrence_ids;
     }
+    auto dialog_slot=std::make_shared<PrimitivePropertiesDialog*>(nullptr);
     auto* dialog = new PrimitivePropertiesDialog(
         initial, edit_mode, (allow_subtract||initial.extrusion.sheet_cut)&&!initial.revolution.sheet_metal,
-        [this, owner_id, edit_mode, assembly_cut, container_id](
+        [this, owner_id, edit_mode, assembly_cut, container_id,dialog_slot](
             zima::document::HistoryContainer committed,
             std::vector<std::string> target_occurrences) mutable {
+            // The work-plane combo is the final authority at OK. Preview
+            // normally keeps the owned Sketch draft synchronized, but the
+            // last switch back to AUTO must also survive an immediately
+            // following confirmation.
+            if(property_owned_sketch_draft_&&*dialog_slot)
+                if(const auto selection=(*dialog_slot)->profile_plane_selection()) {
+                    property_owned_sketch_draft_->plane=selection->first;
+                    property_owned_sketch_draft_->plane_auto=selection->second;
+                }
             if (committed.feature_kind ==
                     zima::document::FeatureKind::Extrusion ||
                 committed.feature_kind ==
@@ -570,6 +614,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
+    *dialog_slot=dialog;
     if(feature_kind==zima::document::FeatureKind::SheetForm) {
         const auto& document=part->session.document();
         const auto* body=document.body_owner_for_object(initial.id);

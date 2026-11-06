@@ -4,7 +4,7 @@
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for(int scenario:{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34}) {
+        for(int scenario:{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38}) {
             std::cout<<"Starting external constraint GUI scenario "<<scenario<<std::endl;
             const auto supplied=qEnvironmentVariable("ZIMA_VERIFY_EXTERNAL_CONSTRAINT_FILE");
             const auto form=qEnvironmentVariable("ZIMA_VERIFY_TANGENT_FORM_FILE");
@@ -201,8 +201,9 @@
                     "GUI does not offer the external circular contour as a trim piece");
                 click(screen(.228361402466,1.851949702905));
             } else if(scenario>=27) {
-                const bool parallel=scenario<=28||(scenario>=31&&scenario<=32);
-                const bool external=scenario<=30;
+                const bool native=scenario>=35;
+                const bool parallel=scenario<=28||(scenario>=31&&scenario<=32)||(scenario>=35&&scenario<=36);
+                const bool external=!native&&scenario<=30;
                 const bool stationary_first=scenario%2==1;
                 auto* action=window.findChild<QAction*>(parallel?
                     "sketchParallelAction":"sketchPerpendicularAction");
@@ -213,9 +214,14 @@
                 const auto* a=sketch.find_point(driven.first_point_id);
                 const auto* b=sketch.find_point(driven.second_point_id);
                 const auto driven_position=screen((a->x+b->x)*.5,(a->y+b->y)*.5);
-                const auto reference_position=external?screen(20,10):screen(20,0);
+                const auto& native_reference=sketch.segments.front();
+                const auto* native_a=sketch.find_point(native_reference.first_point_id);
+                const auto* native_b=sketch.find_point(native_reference.second_point_id);
+                const auto reference_position=native?
+                    screen((native_a->x+native_b->x)*.5,(native_a->y+native_b->y)*.5):
+                    external?screen(20,10):screen(20,0);
                 const auto driven_key="segment:"+driven.id;
-                const auto reference_key=external?
+                const auto reference_key=native?"segment:"+native_reference.id:external?
                     "external_edge:"+horizontal->id:std::string("sketch_axis:x");
                 if(stationary_first) {
                     pick_exact(reference_position,reference_key);
@@ -328,8 +334,9 @@
             } else if(scenario==12) {
                 check(!result.curve_trims.empty(),"GUI external arc contour was not trimmed");
             } else if(scenario>=27) {
-                const bool parallel=scenario<=28||(scenario>=31&&scenario<=32);
-                const bool external=scenario<=30;
+                const bool native=scenario>=35;
+                const bool parallel=scenario<=28||(scenario>=31&&scenario<=32)||(scenario>=35&&scenario<=36);
+                const bool external=!native&&scenario<=30;
                 const auto& driven=result.segments.back();
                 const auto* first=result.find_point(driven.first_point_id);
                 const auto* second=result.find_point(driven.second_point_id);
@@ -338,12 +345,15 @@
                 check(length>1e-8&&(parallel?std::abs(dy):std::abs(dx))/length<1e-8,
                     "GUI external/axis direction relation did not satisfy its equation");
                 const auto kind=parallel?K::Parallel:K::Perpendicular;
-                const auto reference=external?horizontal->id:std::string("sketch_axis:x");
+                const auto reference=native?result.segments.front().id:external?
+                    horizontal->id:std::string("sketch_axis:x");
                 check(std::ranges::any_of(result.constraints,[&](const auto& c) {
-                        return !c.suppressed&&c.kind==kind&&
-                            c.geometry_id==reference&&
-                            c.second_geometry_id==driven.id;
-                    }),"GUI external/axis direction relation lost stationary/driven identity");
+                        if(c.suppressed||c.kind!=kind)return false;
+                        if(native)return (c.geometry_id==reference&&c.second_geometry_id==driven.id)||
+                            (c.geometry_id==driven.id&&c.second_geometry_id==reference);
+                        return c.geometry_id==reference&&c.second_geometry_id==driven.id;
+                    }),native?"GUI native direction relation lost one selection order":
+                        "GUI external/axis direction relation lost stationary/driven identity");
             } else if(scenario>=25) {
                 const auto& side=result.segments[1];
                 const auto* first=result.find_point(side.first_point_id);

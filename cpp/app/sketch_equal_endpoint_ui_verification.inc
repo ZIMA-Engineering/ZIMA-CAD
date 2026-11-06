@@ -35,15 +35,19 @@ int verify_sketch_equal_endpoint_ui(QApplication& application,const std::filesys
             window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();click(screen(start[0],start[1]));
             const auto endpoint=screen(start[0]+(vertical?0.:40.2*sign),start[1]+(vertical?40.2*sign:0.));
             mouse(endpoint,QEvent::MouseMove,Qt::NoButton);
-            const auto offers_equal=[&]{return std::ranges::any_of(view->transient_labels(),[](const auto& label){return label.second.find('=')!=std::string::npos;});};
+            const auto offers_combined=[&]{
+                const auto& labels=view->transient_labels();
+                return std::ranges::any_of(labels,[](const auto& label){return label.second.find('=')!=std::string::npos;})&&
+                    std::ranges::any_of(labels,[](const auto& label){return label.second.find("⊥")!=std::string::npos;});
+            };
             // A higher-priority M may require a different length. Keep that
             // valid alternative and exercise the ordinary inference cycle.
-            for(int cycle=0;cycle<32&&!offers_equal();++cycle) {
+            for(int cycle=0;cycle<32&&!offers_combined();++cycle) {
                 mouse(endpoint,QEvent::MouseButtonPress,Qt::RightButton);
                 mouse(endpoint,QEvent::MouseButtonRelease,Qt::RightButton);
             }
             view->grabFramebuffer().save(QString::fromStdString((directory/("equal-preview-"+std::to_string(cases)+".png")).string()));
-            check(offers_equal(),"Second endpoint did not offer Equal alongside H/V or axis C");
+            check(offers_combined(),"Second endpoint did not offer Equal and Perpendicular together");
             check(!view->transient_edges().empty(),"Equal endpoint preview missing");
             const auto preview=view->transient_edges().front().points;
             check(preview.size()==2&&std::abs(std::hypot(preview[1].x-preview[0].x,preview[1].y-preview[0].y)-40)<1e-7,"Equal preview did not snap to exact length");
@@ -53,6 +57,7 @@ int verify_sketch_equal_endpoint_ui(QApplication& application,const std::filesys
             mouse(endpoint,QEvent::MouseButtonRelease,Qt::LeftButton);
             QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();
             check(std::ranges::any_of(view->mesh().constraint_markers,[](const auto& marker){return marker.label=="=";}),"Confirmed segment lost Equal marker");
+            check(std::ranges::any_of(view->mesh().constraint_markers,[](const auto& marker){return marker.label=="⊥";}),"Confirmed segment lost Perpendicular marker");
             window.findChild<QAction*>("sketchCornerFilletAction")->trigger();flush();
             click(screen(start[0]+(vertical?20.:0.),start[1]+(vertical?0.:20.)));
             click(screen(start[0]+(vertical?0.:20.*sign),start[1]+(vertical?20.*sign:0.)));
@@ -75,6 +80,7 @@ int verify_sketch_equal_endpoint_ui(QApplication& application,const std::filesys
                 const auto after=point_position(sketch.segments.front().second_point_id);
                 check(std::hypot(after.x-before.x,after.y-before.y)>.1,"Permitted rounded design endpoint did not move in GUI");
                 check(std::ranges::any_of(view->mesh().constraint_markers,[](const auto& marker){return marker.label=="=";}),"Dragging a rounded design hid Equal marker");
+                check(std::ranges::any_of(view->mesh().constraint_markers,[](const auto& marker){return marker.label=="⊥";}),"Dragging a rounded design hid Perpendicular marker");
                 if(on_axis)check(std::hypot(point_position(corner).x,point_position(corner).y)<1e-7,"Rounded design GUI drag escaped its origin contact");
             }
             view->grabFramebuffer().save(QString::fromStdString((directory/("equal-corner-"+std::to_string(cases)+".png")).string()));
@@ -84,9 +90,19 @@ int verify_sketch_equal_endpoint_ui(QApplication& application,const std::filesys
             const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
             check(result.segments.size()==2&&result.corner_radii.size()==1,"Equal corner topology was not committed");
             check(std::ranges::any_of(result.constraints,[](const auto& relation){return relation.kind==sketcher::ConstraintKind::EqualLength;}),"Equal relation did not survive native reopen");
+            check(std::ranges::any_of(result.constraints,[](const auto& relation){return relation.kind==sketcher::ConstraintKind::Perpendicular;}),"Perpendicular relation did not survive native reopen");
+            const auto direction=[&](const auto& segment) {
+                const auto* first=result.find_point(segment.first_point_id);
+                const auto* second=result.find_point(segment.second_point_id);
+                return std::array{second->x-first->x,second->y-first->y};
+            };
+            const auto first=direction(result.segments[0]),second=direction(result.segments[1]);
+            check(std::abs(first[0]*second[0]+first[1]*second[1])<1e-7&&
+                std::abs(std::hypot(first[0],first[1])-std::hypot(second[0],second[1]))<1e-7,
+                "Reopened combined inference violates Equal or Perpendicular geometry");
             check(window.execute_console_command("undo").ok&&window.execute_console_command("redo").ok&&window.execute_console_command("save").ok,"Equal corner Undo/Redo failed");
             check(document::PartDocument::load(path).sketches.front().serialized()==result.serialized(),"Equal corner Undo/Redo changed source identities");
         }
-        std::cout<<"Eight perpendicular shared-point Equal endpoint and corner marker GUI cases passed\n";return 0;
+        std::cout<<"Eight shared-point Equal plus Perpendicular inference, drag, corner, Undo/Redo and reopen cases passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

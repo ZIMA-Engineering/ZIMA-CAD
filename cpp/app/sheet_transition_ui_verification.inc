@@ -47,7 +47,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(save().history.size()==part.history.size(),"Rectangular creation Cancel modified history");
         rectangular->trigger();flush();rectangular_editor=dynamic_cast<app::SheetTransitionDialog*>(dialog());
         sides=rectangular_editor->findChild<QComboBox*>("transitionSides");sides->setCurrentIndex(0);
-        rectangular_editor->findChild<QCheckBox*>("originShowPoint")->setChecked(true);
+        check(!rectangular_editor->findChild<QWidget*>("originDisplayControls"),"Rectangular transition retained Origin point/text controls");
         check(!rectangular_editor->findChild<QSpinBox*>("transitionRightFacets"),"Rectangular transition exposed arc segmentation");
         rectangular_editor->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(25);
         for(unsigned i=0;i<3;++i)rectangular_editor->findChild<QDoubleSpinBox*>(QString("transitionEndRotation%1").arg(i))->setValue(std::array<double,3>{8,-10,12}[i]);
@@ -62,7 +62,6 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         rectangular_view->fit_all();flush();
         window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"rectangular-transition-native.png"))));
         check(document::rectangular_sheet_transition(rectangular_feature)&&std::abs(rectangular_feature.placement.x-25)<1e-8,"Rectangular transition lost placement or profile mode");
-        check(rectangular_feature.origin_point_visible,"Rectangular endpoint display was not saved");
         check(std::ranges::none_of(rectangular_view->mesh().edges,[](const auto& edge){return edge.preview_terminal_dashed;}),"Rectangular material preview retained dashed envelope");
         check(rectangular_feature.sheet_transition.end_rotation==kernel::Vec3{8,-10,12},"Rectangular transition lost its three-axis rotation");
         auto* rectangular_tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* rectangular_row=nullptr;
@@ -132,7 +131,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(editor->set_inline_parameter_value("end_z",175),"Second Origin dimension is not editable");flush();
         editor->findChild<QDoubleSpinBox*>("transitionEndRotation0")->setValue(5);
         editor->findChild<QDoubleSpinBox*>("transitionThickness")->setValue(3);flush();
-        editor->findChild<QCheckBox*>("originShowPoint")->setChecked(true);flush();
+        check(!editor->findChild<QWidget*>("originDisplayControls"),"Transition retained Origin point/text controls");
         auto* notches=editor->findChild<QCheckBox*>("transitionEndNotches");
         auto* short_axes=editor->findChild<QCheckBox*>("transitionShortAxes");
         auto* reliefs=editor->findChild<QCheckBox*>("transitionReliefs");
@@ -165,13 +164,10 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         const auto saved=save();check(saved.history.size()==part.history.size()+1,"Creation did not insert one feature");const auto feature=saved.history.back();
         check(feature.feature_kind==document::FeatureKind::SheetTransition&&feature.sheet_transition.end_position.z==175&&feature.placement.references.size()>=3,"UI lost transition parameters");
         check(feature.sheet_transition.end_rotation.x==5&&feature.sheet_transition.thickness==3,"Tilted transition lost rotation or thickness");
-        check(feature.origin_point_visible,"Half-round endpoint display was not saved");
         const auto end_normal=mesh_view->candidate_face_normal({viewer::CandidateKind::Plane,0,0,feature.id,"plane:end",{},viewer::CandidateGeometry::OriginalReference});
         check(end_normal&&std::abs(std::hypot(end_normal->x,end_normal->y,end_normal->z)-1)<1e-8,"Transition plane cannot orient a normal view");
         check(std::ranges::any_of(mesh_view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==feature.id&&edge.reference.semantic_key=="plane:end"&&edge.points.size()==5;}),"Transition end plane has no displayed border");
         for(const auto& edge:mesh_view->mesh().edges)if(edge.reference.owner_id==feature.id&&edge.reference.semantic_key=="plane:end"&&edge.points.size()==5)check(std::abs(std::hypot(edge.points[1].x-edge.points[0].x,edge.points[1].y-edge.points[0].y,edge.points[1].z-edge.points[0].z)-presentation::container_origin_plane_size)<1e-8,"Transition end plane differs from container Origin size");
-        for(const auto* key:{"axis:start","axis:end"})
-            check(std::ranges::any_of(mesh_view->mesh().points,[&](const auto& point){return point.reference.owner_id==feature.id&&point.reference.semantic_key==key&&point.always_visible;}),"Visible transition endpoint missing from View");
         check(std::hypot(feature.placement.x-expected_placement.x,feature.placement.y-expected_placement.y,feature.placement.z-expected_placement.z)<1e-8,"OK lost reference placement");
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==part.history.size(),"Transition UI Undo failed");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().history.size()==saved.history.size(),"Transition UI Redo failed");

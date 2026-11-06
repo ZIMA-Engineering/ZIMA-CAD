@@ -224,15 +224,13 @@ void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesy
     const auto output=template_sketch_data(sketch);
     auto ext=path.extension().string();std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char c){return std::tolower(c);});
     if(ext!=(sketch.drawing_template->kind=="title_block"?".tblz":".frmz"))throw std::runtime_error("Nesprávná přípona šablony.");
-    // Validate the complete payload before replacing a library file; preserve its previous version.
+    // Validate the complete payload before replacing a library file.
     std::ostringstream content;for(const auto& [section,values]:output){content<<'['<<section<<"]\n";for(const auto& [k,v]:values)content<<k<<" = "<<v<<'\n';content<<'\n';}
     auto temporary=path;temporary+=".tmp-"+zima::kernel::make_stable_id();
     try {
         {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);out<<content.str();out.flush();if(!out)throw std::runtime_error("Zápis šablony selhal.");}
         const auto checked=read(temporary);Sketch::from_serialized(Json::parse(value(checked,"Sketch","Data")).dump()).validate();
-        zima::document::archive_existing_file(path);
-        std::filesystem::copy_file(temporary,path,std::filesystem::copy_options::overwrite_existing);
-        std::filesystem::remove(temporary);
+        zima::document::publish_temporary_file(temporary,path);
     } catch(...) {std::error_code error;std::filesystem::remove(temporary,error);throw;}
 }
 

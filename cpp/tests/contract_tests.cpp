@@ -1312,19 +1312,45 @@ int main() {
             original_route.routes={{refs[0]}};
             const auto original_wire=zima::document::treatment_selection_wire(
                 original_route,0,std::nullopt,original_choice);
-            require(original_wire.size()==1&&
-                    original_wire.front().reference==refs[0]&&
-                    original_wire.front().points==
-                        original_choice.original_references.edges.front().points,
-                "Original edge selection preview expanded to current split descendants");
+            require(original_wire.size()==2&&
+                    original_wire.front().reference==first_boolean&&
+                    original_wire.back().reference==source_continuation,
+                "Current split descendants were hidden by retained source geometry");
+            zima::kernel::ViewerMesh compact_input;
+            compact_input.original_references.edges={input.edges[0]};
+            compact_input.original_references.edges.front().edge_treatment_side_directions.clear();
+            compact_input.original_references.edges.front().edge_treatment_side_references.clear();
+            auto anonymous_current=input.edges[0];
+            anonymous_current.reference={};
+            anonymous_current.edge_treatment_side_directions={
+                std::vector(anonymous_current.points.size(),zima::kernel::Vec3{0,1,0}),
+                std::vector(anonymous_current.points.size(),zima::kernel::Vec3{0,0,1})};
+            anonymous_current.edge_treatment_side_references={
+                {"profile","side-a",{}},{"profile","side-b",{}}};
+            compact_input.edges.push_back(anonymous_current);
+            const auto compact_wire=zima::document::treatment_selection_wire(
+                original_route,0,std::nullopt,compact_input);
+            require(compact_wire.size()==1&&
+                    compact_wire.front().reference==refs[0]&&
+                    compact_wire.front().edge_treatment_side_directions.size()==2&&
+                    compact_wire.front().edge_treatment_side_references.size()==2,
+                "Compact rollback selection did not reconnect its uniquely identical current Body edge guides");
+            compact_input.edges.push_back(anonymous_current);
+            const auto ambiguous_compact_wire=
+                zima::document::treatment_selection_wire(
+                    original_route,0,std::nullopt,compact_input);
+            require(ambiguous_compact_wire.size()==1&&
+                    ambiguous_compact_wire.front().edge_treatment_side_directions.empty(),
+                "Compact rollback selection guessed between coincident current Body edges");
             auto current_exact=input.edges[0];
             current_exact.points={{8.0,0.0,0.0},{9.0,0.0,0.0}};
             original_choice.edges.push_back(current_exact);
             const auto current_wire=zima::document::treatment_selection_wire(
                 original_route,0,std::nullopt,original_choice);
-            require(current_wire.size()==1&&
-                    current_wire.front().points==current_exact.points,
-                "Ordinary current edge selection was replaced by retained source geometry");
+            require(current_wire.size()==2&&
+                    current_wire.front().reference==first_boolean&&
+                    current_wire.back().reference==source_continuation,
+                "A stale exact parent hid its current split descendants");
             boolean_route.routes={{refs[2],source_continuation,
                 first_boolean,second_boolean,refs[3]}};
             const auto actual_wire=zima::document::treatment_selection_wire(

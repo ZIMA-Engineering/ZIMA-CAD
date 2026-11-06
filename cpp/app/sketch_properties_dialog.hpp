@@ -31,7 +31,8 @@ public:
     void prepare_flat_default_origin();
     [[nodiscard]] bool sheet_reference_allowed(std::size_t, const zima::document::ConstructionReference&) const;
     [[nodiscard]] bool is_sheet_edge_feature() const {
-        return static_cast<bool>(bend_pending_)||static_cast<bool>(flat_pending_);
+        return static_cast<bool>(bend_pending_)||static_cast<bool>(flat_pending_)||
+            static_cast<bool>(sheet_profile_pending_);
     }
     void set_reference_document_id(std::string id) { reference_document_id_=std::move(id); }
     zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
@@ -79,6 +80,11 @@ public:
     void set_pending_bend_parameters(zima::document::BendParameters);
     void set_flat_mode(zima::document::FlatParameters, const zima::document::SheetMetalDefaults&,
         std::set<std::string>& locks, std::function<void(zima::document::FlatParameters)> changed,
+        std::function<void()> edit_sketch);
+    void set_sheet_profile_mode(zima::document::SheetProfileParameters,
+        const zima::document::SheetMetalDefaults&,
+        std::set<std::string>& locks,
+        std::function<void(zima::document::SheetProfileParameters)> changed,
         std::function<void()> edit_sketch);
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(
         const zima::kernel::EdgeReference&) const;
@@ -132,6 +138,10 @@ private:
     std::shared_ptr<zima::document::BendParameters> bend_pending_;
     std::shared_ptr<zima::document::FlatParameters> flat_pending_;
     std::function<void(zima::document::FlatParameters)> flat_changed_;
+    std::shared_ptr<zima::document::SheetProfileParameters>
+        sheet_profile_pending_;
+    std::function<void(zima::document::SheetProfileParameters)>
+        sheet_profile_changed_;
     void lock_flat_attachment_fields();
     void lock_bend_attachment_fields();
     std::function<void(zima::document::BendParameters)> set_bend_parameters_;

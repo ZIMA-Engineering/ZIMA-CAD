@@ -3,6 +3,7 @@
 #include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
+#include <zima/workspace/sheet_profile_operations.hpp>
 #include "../sketch_external_reference_selection.hpp"
 #include "tool_button_style.hpp"
 #include <zima/workspace/body_operations.hpp>
@@ -2769,6 +2770,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partHistoryMenu");
                 auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
+                const bool command_boundary=container->feature_kind==
+                    zima::document::FeatureKind::SheetFromBody;
+                edit->setEnabled(!command_boundary);
+                properties->setEnabled(!command_boundary);
                 if(std::ranges::any_of(
                         zima::workspace::sheet_state_regions(part->session.document()),
                         [&](const auto& region) {
@@ -2785,6 +2790,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                     transform_revolution = menu.addAction(
                         resource_icon("revolve"), tr("Rotace"));
                     menu.addSeparator();
+                }
+                QAction* explode_profile{};
+                if(container->feature_kind==
+                        zima::document::FeatureKind::SheetProfile) {
+                    explode_profile=menu.addAction(
+                        resource_icon("sheet-profile"),tr("Rozložit Profil"));
+                    explode_profile->setObjectName("explodeSheetProfileAction");
                 }
                 auto* suppress = menu.addAction(resource_icon(container->suppressed ? "restore" : "suppress"), container->suppressed ? tr("Obnovit") : tr("Potlačit"));
                 suppress->setObjectName("suppressHistoryObject");
@@ -2814,6 +2826,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == transform_revolution) {
                     transform_sketch_container(
                         id, zima::document::FeatureKind::Revolution);
+                } else if(selected==explode_profile) {
+                    try {
+                        static_cast<void>(workspace::explode_sheet_profile(
+                            workspace_,kernel_,workspace_.active_document_id(),id));
+                        preserve_view_on_refresh_=true;
+                        refresh_tabs();refresh_scene();
+                    } catch(const std::exception& error) {
+                        state_->setText(tr(error.what()));
+                    }
                 } else if (selected == suppress) {
                     toggle_part_container_suppressed(id);
                 } else if (selected == remove) {

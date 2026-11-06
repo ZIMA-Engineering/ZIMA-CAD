@@ -104,6 +104,12 @@ std::optional<double> bend_attachment_profile_direction(
     };
     if(!straight(edge->points)||(edge->exact_spline&&!straight(edge->exact_spline->poles)))return std::nullopt;
     if(edge_reference->flip)along=scale(along,-1);
+    Placement resolved;resolved.references=references;
+    if(!resolve_placement(resolved,geometry))return std::nullopt;
+    const V rotation{resolved.rotation_x,resolved.rotation_y,resolved.rotation_z};
+    const auto frame_along=construction_direction_from_local_axis("y",rotation);
+    const auto frame_normal=construction_direction_from_local_axis("z",rotation);
+    if(std::abs(dot(frame_along,along))<1-1e-7)return std::nullopt;
     for(const auto& reference:references) {
         if(!reference.orientation_drives_rotation ||
             (reference.orientation_role!="top"&&reference.orientation_role!="bottom"))continue;
@@ -130,7 +136,12 @@ std::optional<double> bend_attachment_profile_direction(
         if(std::ranges::any_of(vertices,[&](V p){return std::abs(dot(add(p,scale(first,-1)),normal))>1e-7;}))
             return std::nullopt;
         if(reference.flip!=(reference.orientation_role=="bottom"))normal=scale(normal,-1);
-        const auto inward=cross(normal,along);
+        if(std::abs(dot(frame_normal,normal))<1-1e-7)return std::nullopt;
+        // The face triangle winding is not the container's resolved local +Z.
+        // Sheet-state operations can legitimately reverse that winding while
+        // preserving the same face identity. Select the profile sign in the
+        // actual generic placement frame so +Y always enters the material.
+        const auto inward=cross(frame_normal,frame_along);
         const double side=dot(add(scale(interior,1/area),scale(first,-1)),inward);
         if(std::abs(side)<1e-7)return std::nullopt;
         const double sign=side>0?1.:-1.;
@@ -166,6 +177,34 @@ std::vector<ConstructionReference> bend_sheet_references(const kernel::ViewerEdg
         {face->instance_path,face->owner_id,face->semantic_key,0,true,"top",true},
         {point.instance_path,point.owner_id,point.semantic_key}};
 }
+kernel::VertexReference current_sheet_attachment_anchor(
+        const kernel::ViewerEdge& edge,const Placement& placement) {
+    if(placement.references.size()<3||edge.points.size()<2||
+            edge.edge_treatment_endpoint_references.size()!=2)
+        throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");
+    const auto& persisted=placement.references[2];
+    const auto same=[&](const auto& current) {
+        return current.owner_id==persisted.owner_id&&
+            current.semantic_key==persisted.semantic_key&&
+            current.instance_path==persisted.instance_path;
+    };
+    if(same(edge.edge_treatment_endpoint_references[0]))
+        return edge.edge_treatment_endpoint_references[0];
+    if(same(edge.edge_treatment_endpoint_references[1]))
+        return edge.edge_treatment_endpoint_references[1];
+    const kernel::Vec3 resolved{placement.x,placement.y,placement.z};
+    const auto distance_squared=[&](const auto& point) {
+        const auto delta=add(point,scale(resolved,-1));
+        return dot(delta,delta);
+    };
+    const double first=distance_squared(edge.points.front());
+    const double last=distance_squared(edge.points.back());
+    const auto edge_delta=add(edge.points.back(),scale(edge.points.front(),-1));
+    const double edge_length_squared=dot(edge_delta,edge_delta);
+    if(std::abs(first-last)<=1e-12*std::max(1.,edge_length_squared))
+        throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");
+    return edge.edge_treatment_endpoint_references[last<first?1:0];
+}
 void update_bend_sheet_profile(HistoryContainer& feature,sketcher::Sketch& sketch,
         const kernel::ViewerReferenceGeometry& geometry,const std::string& document_id) {
     if(!feature.bend.sheet_attachment)return;
@@ -184,8 +223,8 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
     });
     if(edge==geometry.edges.end())throw std::invalid_argument("Missing Bend sheet edge.");
     thickness=edge->edge_treatment_side_references.front().sheet_thickness;
-    const auto& anchor=placement.references[2];
-    const auto expected=bend_sheet_references(*edge,{anchor.owner_id,anchor.semantic_key,anchor.instance_path});
+    const auto expected=bend_sheet_references(*edge,
+        current_sheet_attachment_anchor(*edge,placement));
     const auto& face=placement.references[1];
     if(face.owner_id!=expected[1].owner_id||face.semantic_key!=expected[1].semantic_key||
         face.instance_path!=expected[1].instance_path||face.offset!=0||face.flip||source.flip)
@@ -194,9 +233,10 @@ void update_sheet_edge_profile(const Placement& placement,double& thickness,sket
     std::array<std::pair<double,kernel::VertexReference>,2> ends;
     for(std::size_t i=0;i<2;++i) {
         const auto& reference=edge->edge_treatment_endpoint_references[i];
-        const auto point=std::ranges::find_if(geometry.points,[&](const auto& p){return p.reference==reference;});
-        if(point==geometry.points.end())throw std::invalid_argument("Missing Bend sheet endpoint.");
-        const auto local=add(point->position,scale(sketch.resolved_origin,-1));
+        // Endpoint identities and positions are an explicit ViewerEdge
+        // contract. Compact reference packets may omit the separate point
+        // markers, so the attachment must consume its native edge directly.
+        const auto local=add(i?edge->points.back():edge->points.front(),scale(sketch.resolved_origin,-1));
         if(std::abs(dot(local,sketch.resolved_y_axis))>1e-6||std::abs(dot(local,sketch.resolved_normal))>1e-6)
             throw std::invalid_argument("Bend profile does not lie on its attachment edge.");
         ends[i]={dot(local,sketch.resolved_x_axis),reference};

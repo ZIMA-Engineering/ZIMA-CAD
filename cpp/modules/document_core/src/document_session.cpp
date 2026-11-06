@@ -11,6 +11,10 @@
 
 namespace zima::document {
 namespace {
+bool publishes_body_operation(const HistoryContainer* feature) {
+    return feature&&feature->feature_kind!=FeatureKind::Sketch&&
+        feature->feature_kind!=FeatureKind::SheetProfile;
+}
 void publish_profile_axes(zima::kernel::ViewerMesh& mesh) {
     // Calculated intermediate boundaries may retain these axes only in the
     // persisted reference packet. Publish that exact geometry without OCCT.
@@ -239,7 +243,7 @@ zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGra
             for (std::size_t index = 0; index < body.cursor; ++index) {
                 const auto& entry = body.entries[index];
                 const auto* feature = entry.kind == PartHistoryKind::Feature ? document.find_container(entry.id) : nullptr;
-                if (feature && feature->feature_kind != FeatureKind::Sketch) ++count;
+                if (publishes_body_operation(feature)) ++count;
             }
             auto local = calculated_body_boundary(id, count);
             if (!local) continue;
@@ -298,7 +302,7 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_body_boundar
     for (const auto& entry : body->entries) {
         if (entry.kind != PartHistoryKind::Feature) continue;
         const auto* feature = current_->document.find_container(entry.id);
-        if (!feature || feature->feature_kind == FeatureKind::Sketch) continue;
+        if (!publishes_body_operation(feature)) continue;
         if (count++ == operation_count) break;
         if (!feature->suppressed) owners.insert(feature->id);
     }
@@ -319,7 +323,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
         for (std::size_t entry = 0; entry < boundary.entry_count; ++entry) {
             if (body->entries[entry].kind != PartHistoryKind::Feature) continue;
             const auto* container = current_->document.find_container(body->entries[entry].id);
-            if (container && container->feature_kind != FeatureKind::Sketch) ++operations;
+            if (publishes_body_operation(container)) ++operations;
         }
         return HistoryRollbackBoundary{*index, calculated_body_boundary(boundary.body_id, operations)};
     }
@@ -331,8 +335,8 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     if (current_->document.history_order.empty()) {
         for (std::size_t history_index = 0; history_index < *index;
              ++history_index) {
-            if (current_->document.history[history_index].feature_kind !=
-                    FeatureKind::Sketch) {
+            if (publishes_body_operation(
+                    &current_->document.history[history_index])) {
                 ++calculated_before;
             }
         }
@@ -351,8 +355,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
             if (entry->kind != PartHistoryKind::Feature) continue;
             const auto* container =
                 current_->document.find_container(entry->id);
-            if (container != nullptr &&
-                container->feature_kind != FeatureKind::Sketch) {
+            if (publishes_body_operation(container)) {
                 ++calculated_before;
             }
         }

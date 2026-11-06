@@ -8,7 +8,6 @@
 #include "updateservice.h"
 #include <zima_build_info.hpp>
 #include <zima/workspace/document_operations.hpp>
-#include <zima/workspace/archive_operations.hpp>
 #include <zima/workspace/file_removal_operations.hpp>
 #include <zima/workspace/file_rename_operations.hpp>
 #include <zima/command_host/host.hpp>
@@ -475,44 +474,15 @@ AssemblyWorkspaceWindow::active_document_file_path() const {
     return std::nullopt;
 }
 
-std::vector<std::filesystem::path> AssemblyWorkspaceWindow::document_archive_paths(
-    const std::filesystem::path& file_path) {
-    // Menu availability only needs names, not sizes/timestamps for a delete snapshot.
-    return document::archive_paths(std::filesystem::absolute(file_path).lexically_normal());
-}
-
 void AssemblyWorkspaceWindow::refresh_delete_file_actions() {
     const auto target = active_document_file_path();
     const bool has_saved_document = target.has_value() && std::filesystem::is_regular_file(*target);
-    const auto archives = has_saved_document
-        ? document_archive_paths(*target) : std::vector<std::filesystem::path>{};
     const auto active=workspace_.active_document_id();
     const auto* drawing=workspace_.open_drawing(workspace_.displayed_document_id());
     rename_document_action_->setEnabled((drawing&&!drawing->path.empty()&&std::filesystem::is_regular_file(drawing->path))||
         has_saved_document||(!active.empty()&&workspace::family_owner(workspace_,active)!=active));
-    delete_old_versions_action_->setEnabled(!archives.empty());
-    delete_old_versions_keep_latest_action_->setEnabled(archives.size() > 1);
     delete_current_file_action_->setEnabled(has_saved_document);
-    delete_all_versions_action_->setEnabled(has_saved_document);
-    const bool has_working_directory = std::filesystem::is_directory(working_directory_);
-    delete_working_directory_old_versions_action_->setEnabled(has_working_directory);
-    delete_working_directory_keep_latest_action_->setEnabled(has_working_directory);
 }
-
-namespace {
-QString format_file_size(std::uintmax_t size) {
-    double value = static_cast<double>(size);
-    for (const char* unit : {"B", "kB", "MB"}) {
-        if (value < 1000.0) {
-            return QStringLiteral("%1 %2").arg(
-                QString::number(value, 'f', std::string(unit) == "B" ? 0 : 1), unit);
-        }
-        value /= 1000.0;
-    }
-    return QStringLiteral("%1 GB").arg(QString::number(value, 'f', 1));
-}
-
-}  // namespace
 
 bool AssemblyWorkspaceWindow::native_file_operation_ready(QDialog* own_dialog) {
     QDialog* other = nullptr;
@@ -662,31 +632,19 @@ void AssemblyWorkspaceWindow::rename_document_file(std::string document_id) {
 }
 
 void AssemblyWorkspaceWindow::delete_current_document_file() {
-    delete_document_file(false);
+    delete_document_file();
 }
 
-void AssemblyWorkspaceWindow::delete_old_file_versions_keep_latest() {
-    prune_file_archives(false, 1);
-}
-void AssemblyWorkspaceWindow::delete_old_file_versions() {
-    prune_file_archives(false, 0);
-}
-
-void AssemblyWorkspaceWindow::delete_all_file_versions() {
-    delete_document_file(true);
-}
-void AssemblyWorkspaceWindow::delete_document_file(bool include_archives) {
+void AssemblyWorkspaceWindow::delete_document_file() {
     if (!native_file_operation_ready()) return;
     const auto id = workspace_.active_document_id();
     if (id.empty()) return;
-    const auto title = include_archives ? tr("Aktuální soubor a všechny verze") : tr("Odstranit aktuální soubor");
+    const auto title = tr("Odstranit aktuální soubor");
     try {
         // This is a read-only draft; Yes confirms deletion and any stated discard.
-        const auto plan = workspace::prepare_document_file_removal(workspace_, id, include_archives, true);
+        const auto plan = workspace::prepare_document_file_removal(workspace_, id, true);
         const auto name = QString::fromStdString(document::path_to_utf8(plan.path().filename()));
-        auto message = include_archives
-            ? tr("Odstranit soubor %1 včetně archivů (%2)?").arg(name).arg(plan.archive_count())
-            : tr("Opravdu chcete odstranit soubor %1?").arg(name);
+        auto message = tr("Opravdu chcete odstranit soubor %1?").arg(name);
         if (plan.has_unsaved_changes())
             message += QStringLiteral("\n\n") + tr("Unsaved changes in this document will also be discarded.");
         if (QMessageBox::warning(this, title, message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
@@ -702,58 +660,7 @@ void AssemblyWorkspaceWindow::delete_document_file(bool include_archives) {
                 tr("Files removed before the failure:") + QStringLiteral(" ") + QString::number(result.removed.size()));
             return;
         }
-        state_->setText(include_archives ? tr("Soubor %1 a všechny verze odstraněny.").arg(name)
-                                       : tr("Soubor %1 odstraněn.").arg(name));
-    } catch (const std::exception& error) {
-        QMessageBox::critical(this, tr("Odstranění selhalo"), tr(error.what()));
-    }
-}
-
-void AssemblyWorkspaceWindow::delete_working_directory_old_versions() {
-    prune_file_archives(true, 0);
-}
-void AssemblyWorkspaceWindow::delete_working_directory_old_versions_keep_latest() {
-    prune_file_archives(true, 1);
-}
-void AssemblyWorkspaceWindow::prune_file_archives(bool whole_directory, std::size_t keep) {
-    const auto target = whole_directory
-        ? std::optional<std::filesystem::path>(std::filesystem::absolute(working_directory_).lexically_normal())
-        : active_document_file_path();
-    if (!target) return;
-    const auto text_path = [](const std::filesystem::path& path) {
-        return QString::fromStdString(document::path_to_utf8(path));
-    };
-    const QString title = whole_directory ? tr("Pracovní adresář")
-        : keep ? tr("Staré verze kromě nejnovější") : tr("Staré verze");
-    try {
-        const auto groups = whole_directory ? workspace::directory_archives(*target)
-            : workspace::ArchiveGroups{{*target, workspace::document_archives(*target)}};
-        const auto files = workspace::archives_to_remove(groups, keep);
-        if (files.empty()) {
-            QMessageBox::information(this, title, whole_directory
-                ? tr("V pracovním adresáři %1 nebyly nalezeny žádné starší verze.").arg(text_path(*target))
-                : tr("Žádné starší verze souboru %1 nebyly nalezeny.").arg(text_path(target->filename())));
-            return;
-        }
-        std::uintmax_t bytes = 0;
-        for (const auto& file : files) bytes += file.size;
-        const auto message = whole_directory
-            ? (keep ? tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3? "
-                         "Nejnovější verze každého dokumentu zůstane zachována.")
-                    : tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3?"))
-                .arg(files.size()).arg(format_file_size(bytes)).arg(text_path(*target))
-            : tr("Odstranit %1 starších verzí souboru %2?").arg(files.size()).arg(text_path(target->filename()));
-        const auto answer = whole_directory
-            ? QMessageBox::warning(this, title, message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-            : QMessageBox::question(this, title, message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (answer != QMessageBox::Yes) return;
-        const auto result = workspace::remove_archives(files);
-        refresh_delete_file_actions();
-        state_->setText(tr("Odstraněno %1 souborů starších verzí.").arg(result.removed.size()));
-        if (!result.ok())
-            QMessageBox::critical(this, tr("Odstranění selhalo"),
-                tr(result.message.c_str()) + QStringLiteral("\n") + text_path(result.failed_path) +
-                QStringLiteral("\n") + state_->text());
+        state_->setText(tr("Soubor %1 odstraněn.").arg(name));
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Odstranění selhalo"), tr(error.what()));
     }

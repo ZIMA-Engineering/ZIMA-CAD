@@ -4,6 +4,7 @@
 #include "../surface_intersection_dialog.hpp"
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
+#include <zima/document/sheet_profile.hpp>
 #include "../sketch_external_reference_selection.hpp"
 #include "../symbol_labels.hpp"
 #include <zima/workspace/symbol_operations.hpp>
@@ -831,6 +832,44 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         }
         for (const auto& [id, row] : entries) parent->addChild(row);
         if (pending_entry) parent->addChild(pending_entry);
+    }
+    // Profile children remain ordinary executable Flat/Bend containers, but
+    // their authored route is one logical Tree group. Group only the
+    // presentation here; history ownership and calculation order stay in the
+    // Part document and Undo transaction.
+    const auto find_history_row=[&](const std::string& id) {
+        QTreeWidgetItemIterator rows(parent);
+        while(*rows) {
+            auto* row=*rows++;
+            if(row->data(0,Qt::UserRole+3).toString()=="part-container"&&
+               row->data(0,Qt::UserRole).toString().toStdString()==id)
+                return row;
+        }
+        return static_cast<QTreeWidgetItem*>(nullptr);
+    };
+    for(const auto& profile:document.history) {
+        if(profile.feature_kind!=zima::document::FeatureKind::SheetProfile)
+            continue;
+        auto* profile_row=find_history_row(profile.id);
+        const auto source=std::ranges::find(document.sketches,
+            profile.sheet_profile.sketch_id,&zima::sketcher::Sketch::id);
+        if(!profile_row||source==document.sketches.end())continue;
+        const auto route=zima::document::sheet_profile_route(*source,
+            profile.sheet_profile.start_point_id);
+        for(const auto& span:route.spans) {
+            const auto child=std::ranges::find_if(document.history,
+                [&](const auto& value) {
+                    return value.sheet_profile_binding.parent_id==profile.id&&
+                        value.sheet_profile_binding.curve_id==span.curve_id;
+                });
+            if(child==document.history.end())continue;
+            auto* child_row=find_history_row(child->id);
+            if(!child_row||child_row==profile_row||!child_row->parent())continue;
+            child_row->parent()->takeChild(
+                child_row->parent()->indexOfChild(child_row));
+            profile_row->addChild(child_row);
+        }
+        profile_row->setExpanded(true);
     }
     const auto hidden_wires=hidden_surface_wires(document);
     const auto shade_wires=[&](auto&& self,QTreeWidgetItem* row)->void {
