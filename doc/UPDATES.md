@@ -1,5 +1,17 @@
 # Application updates
 
+Signed Windows [2026110601](releases/2026110601.md#windows-publication-acceptance)
+was published at `2026-11-06T07:15:17Z` from immutable source
+`d75fcced3d10db3a37636c5cb0dd131ee93c35c5`. Independent sheet history,
+retained feature frames, complete meeting-edge setback and current Profile
+ownership passed their focused contracts. Candidate and signed native smoke
+passed; candidate smoke loaded all 1,185 factory assets. The signed manifest
+binds 17,486 archive entries, exact source and the Windows runtime. All three
+anonymous public downloads match the accepted bytes, and trusted Windows 0403
+offers 0601 as installable without downloading or installing it. Native Linux
+execution remains a separate host gate. See the
+[publication evidence](verification/20261106-windows-0601-publication.json).
+
 Signed Windows [2026110403](releases/2026110403.md#windows-publication-acceptance)
 was published at `2026-11-04T21:44:30Z` from immutable source
 `e32c89f8377cfd6e7d00e267cdba39515e460035`. The finite Sketcher mechanism/profile review,

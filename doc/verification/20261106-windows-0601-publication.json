@@ -1,0 +1,76 @@
+{
+  "release": {
+    "tag": "ZIMA-CAD-2026110601",
+    "commit": "d75fcced3d10db3a37636c5cb0dd131ee93c35c5",
+    "published_at": "2026-11-06T07:15:17Z",
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026110601",
+    "draft": false,
+    "prerelease": false,
+    "latest": true
+  },
+  "candidate": {
+    "archive_size": 961633375,
+    "archive_sha256": "9df85135252b003a98a1ae4d292d19112845e3a2ccaa503680c109ba9a376e8f",
+    "windows_smoke": "passed",
+    "native_factory_assets_loaded": 1185,
+    "native_factory_asset_failures": 0
+  },
+  "signed_release": {
+    "archive_name": "ZIMA-CAD-2026110601.zip",
+    "archive_size": 962448623,
+    "archive_sha256": "786148264a46b02fded36d99c8ddcc994185bc3c623a7d28d28627bf3596bf7c",
+    "archive_file_count": 17486,
+    "archive_unpacked_size": 3221919959,
+    "windows_smoke": "passed",
+    "linux_smoke": "not-run",
+    "publisher_key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "9d290ce08e2a547808cf626c7faf6900b1a5ce5d7908795ea1876a6b940df0a6",
+    "signature_file_sha256": "ac216ea2fcbe55067cd8abb48e68c2e756da6c239dc2b3b35c36d0a0800dc2a5"
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026110601.zip",
+      "size": 962448623,
+      "sha256": "786148264a46b02fded36d99c8ddcc994185bc3c623a7d28d28627bf3596bf7c",
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 703,
+      "sha256": "9d290ce08e2a547808cf626c7faf6900b1a5ce5d7908795ea1876a6b940df0a6",
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "ac216ea2fcbe55067cd8abb48e68c2e756da6c239dc2b3b35c36d0a0800dc2a5",
+      "anonymous_download_matches": true
+    }
+  ],
+  "updater_discovery": {
+    "installed_version": "2026110403",
+    "trusted_installation": true,
+    "status": "available",
+    "available_version": "2026110601",
+    "installable": true,
+    "download_performed": false,
+    "installation_performed": false
+  },
+  "focused_verification": {
+    "representative_delete_name": "Ohyb 12",
+    "representative_delete_milliseconds": 874.304,
+    "newly_affected_feature": "Tabule 13",
+    "newly_affected_count": 1,
+    "calculation_errors": 0,
+    "native_sheet_exchange": "passed",
+    "flat_bend_profile_and_sheet_state": "passed",
+    "history_deletion_dependency_and_recovery": "passed",
+    "affected_gui_contracts_passed": 7,
+    "five_language_catalog_contract": "passed"
+  },
+  "limits": [
+    "The complete repository-wide regression matrix is not claimed green.",
+    "Native Linux compilation, execution and timing were not run on the Windows host.",
+    "The deletion timing is representative and not a universal latency guarantee."
+  ]
+}
